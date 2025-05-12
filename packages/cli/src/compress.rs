@@ -21,7 +21,7 @@ impl Cli {
 		let blob = tg::Blob::with_id(args.blob);
 		let format = args.format;
 		let command = tg::builtin::compress_command(&blob, format);
-		let command = command.id(&handle).await?;
+		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build(args.build, reference, vec![]).await?;
 		Ok(())

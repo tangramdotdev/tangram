@@ -12,12 +12,7 @@ use byteorder::{ReadBytesExt as _, WriteBytesExt as _};
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
-pub enum Id {
-	V0(V0),
-}
-
-#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct V0 {
+pub struct Id {
 	pub kind: Kind,
 	pub body: Body,
 }
@@ -51,24 +46,27 @@ const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 
 impl Id {
 	#[must_use]
+	pub fn new(kind: Kind, body: Body) -> Self {
+		Self { kind, body }
+	}
+
+	#[must_use]
 	pub fn new_uuidv7(kind: Kind) -> Self {
 		let uuid = uuid::Uuid::now_v7();
 		let body = Body::UuidV7(uuid.into_bytes());
-		Self::V0(V0 { kind, body })
+		Self { kind, body }
 	}
 
 	#[must_use]
 	pub fn new_blake3(kind: Kind, bytes: &[u8]) -> Self {
 		let hash = blake3::hash(bytes);
 		let body = Body::Blake3(*hash.as_bytes());
-		Self::V0(V0 { kind, body })
+		Self { kind, body }
 	}
 
 	#[must_use]
 	pub fn kind(&self) -> Kind {
-		match self {
-			Id::V0(v0) => v0.kind,
-		}
+		self.kind
 	}
 
 	#[must_use]
@@ -83,53 +81,49 @@ impl Id {
 	}
 
 	pub fn to_writer(&self, mut writer: impl std::io::Write) -> tg::Result<()> {
-		match self {
-			Self::V0(v0) => {
-				writer
-					.write_u8(0)
-					.map_err(|source| tg::error!(!source, "failed to write the version"))?;
+		writer
+			.write_u8(0)
+			.map_err(|source| tg::error!(!source, "failed to write the version"))?;
 
-				writer
-					.write_u8(0)
-					.map_err(|source| tg::error!(!source, "failed to write the padding"))?;
+		writer
+			.write_u8(0)
+			.map_err(|source| tg::error!(!source, "failed to write the padding"))?;
 
-				let kind = match v0.kind {
-					Kind::Blob => 0,
-					Kind::Directory => 1,
-					Kind::File => 2,
-					Kind::Symlink => 3,
-					Kind::Graph => 4,
-					Kind::Command => 5,
-					Kind::Process => 6,
-					Kind::Pipe => 7,
-					Kind::Pty => 8,
-					Kind::User => 9,
-					Kind::Token => 10,
-					Kind::Request => 11,
-				};
-				writer
-					.write_u8(kind)
-					.map_err(|source| tg::error!(!source, "failed to write the kind"))?;
+		let kind = match self.kind {
+			Kind::Blob => 0,
+			Kind::Directory => 1,
+			Kind::File => 2,
+			Kind::Symlink => 3,
+			Kind::Graph => 4,
+			Kind::Command => 5,
+			Kind::Process => 6,
+			Kind::Pipe => 7,
+			Kind::Pty => 8,
+			Kind::User => 9,
+			Kind::Token => 10,
+			Kind::Request => 11,
+		};
+		writer
+			.write_u8(kind)
+			.map_err(|source| tg::error!(!source, "failed to write the kind"))?;
 
-				let algorithm = match v0.body {
-					Body::UuidV7(_) => 0,
-					Body::Blake3(_) => 1,
-				};
-				writer
-					.write_u8(algorithm)
-					.map_err(|source| tg::error!(!source, "failed to write the algorithm"))?;
+		let algorithm = match self.body {
+			Body::UuidV7(_) => 0,
+			Body::Blake3(_) => 1,
+		};
+		writer
+			.write_u8(algorithm)
+			.map_err(|source| tg::error!(!source, "failed to write the algorithm"))?;
 
-				let body = match &v0.body {
-					Body::UuidV7(body) => body.as_slice(),
-					Body::Blake3(body) => body.as_slice(),
-				};
-				writer
-					.write_all(body)
-					.map_err(|source| tg::error!(!source, "failed to write the body"))?;
+		let body = match &self.body {
+			Body::UuidV7(body) => body.as_slice(),
+			Body::Blake3(body) => body.as_slice(),
+		};
+		writer
+			.write_all(body)
+			.map_err(|source| tg::error!(!source, "failed to write the body"))?;
 
-				Ok(())
-			},
-		}
+		Ok(())
 	}
 
 	pub fn from_reader(mut reader: impl std::io::Read) -> tg::Result<Self> {
@@ -186,14 +180,12 @@ impl Id {
 			_ => return Err(tg::error!(%algorithm, "invalid algorithm")),
 		};
 
-		Ok(Self::V0(V0 { kind, body }))
+		Ok(Self { kind, body })
 	}
 
 	#[must_use]
 	pub fn body(&self) -> &Body {
-		match self {
-			Self::V0(s) => &s.body,
-		}
+		&self.body
 	}
 }
 
@@ -215,21 +207,17 @@ impl std::fmt::Debug for Id {
 
 impl std::fmt::Display for Id {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::V0(v0) => {
-				let kind = self.kind();
-				let version = "0";
-				let algorithm = match v0.body {
-					Body::UuidV7(_) => "0",
-					Body::Blake3(_) => "1",
-				};
-				let body = match v0.body {
-					Body::UuidV7(body) => ENCODING.encode(&body),
-					Body::Blake3(body) => ENCODING.encode(&body),
-				};
-				write!(f, "{kind}_{version}{algorithm}{body}")?;
-			},
-		}
+		let kind = self.kind();
+		let version = "0";
+		let algorithm = match self.body {
+			Body::UuidV7(_) => "0",
+			Body::Blake3(_) => "1",
+		};
+		let body = match self.body {
+			Body::UuidV7(body) => ENCODING.encode(&body),
+			Body::Blake3(body) => ENCODING.encode(&body),
+		};
+		write!(f, "{kind}_{version}{algorithm}{body}")?;
 		Ok(())
 	}
 }
@@ -275,7 +263,7 @@ impl std::str::FromStr for Id {
 				return Err(tg::error!(%id, "invalid ID"));
 			},
 		};
-		Ok(Self::V0(V0 { kind, body }))
+		Ok(Self { kind, body })
 	}
 }
 

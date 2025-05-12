@@ -222,10 +222,10 @@ mod tests {
 			import * as namespaceImport from "tg:namespace_import";
 			let dynamicImport = import("./dynamic_import.tg.ts");
 			let include = import("./include.txt");
-			export let nested = tg.command(() => {
+			export let nested = () => {
 				let nestedDynamicImport = import("tg:nested_dynamic_import");
 				let nestedInclude = import("./nested_include.txt");
-			});
+			};
 			export { namedExport } from "tg:named_export";
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;

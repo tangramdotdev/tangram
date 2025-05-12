@@ -34,6 +34,42 @@ impl File {
 			},
 		}
 	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		match self {
+			Self::Graph { graph, node } => {
+				let graph = graph.id();
+				let node = *node;
+				Data::Graph { graph, node }
+			},
+			Self::Normal {
+				contents,
+				dependencies,
+				executable,
+			} => {
+				let contents = contents.id();
+				let dependencies = dependencies
+					.iter()
+					.map(|(reference, referent)| {
+						let object = referent.item.id();
+						let dependency = tg::Referent {
+							item: object,
+							path: referent.path.clone(),
+							tag: referent.tag.clone(),
+						};
+						(reference.clone(), dependency)
+					})
+					.collect();
+				let executable = *executable;
+				Data::Normal {
+					contents,
+					dependencies,
+					executable,
+				}
+			},
+		}
+	}
 }
 
 impl TryFrom<Data> for File {
@@ -54,12 +90,7 @@ impl TryFrom<Data> for File {
 				let dependencies = dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						let referent = tg::Referent {
-							item: tg::Object::with_id(referent.item),
-							path: referent.path.clone(),
-							subpath: referent.subpath,
-							tag: referent.tag.clone(),
-						};
+						let referent = referent.map(tg::Object::with_id);
 						(reference, referent)
 					})
 					.collect();

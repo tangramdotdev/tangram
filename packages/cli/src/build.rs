@@ -1,4 +1,5 @@
 use crate::Cli;
+use anstream::eprintln;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, TryStreamExt as _};
 use std::{io::IsTerminal as _, path::PathBuf};
@@ -81,7 +82,7 @@ impl Cli {
 			sandbox: true,
 			..options.spawn
 		};
-		let process = self
+		let (referent, process) = self
 			.spawn(spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
@@ -93,7 +94,9 @@ impl Cli {
 		}
 
 		// Print the process.
-		eprintln!("{} process {}", "info".blue().bold(), process.id());
+		if !self.args.quiet {
+			eprintln!("{} {}", "info".blue().bold(), process.id());
+		}
 
 		// Get the process's status.
 		let status = process
@@ -115,13 +118,15 @@ impl Cli {
 		};
 
 		// If the process is not finished, then wait for it to finish while showing the viewer if enabled.
-		let result = if let Some(output) = output {
-			Ok(output)
+		let wait = if let Some(output) = output {
+			output
 		} else {
 			// Spawn the view task.
 			let view_task = {
 				let handle = handle.clone();
-				let process = process.clone();
+				let item = crate::viewer::Item::Process(process.clone());
+				let tg::Referent { path, tag, .. } = referent.clone();
+				let root = tg::Referent { item, path, tag };
 				let task = Task::spawn_blocking(move |stop| {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
@@ -129,15 +134,17 @@ impl Cli {
 						.enable_all()
 						.build()
 						.unwrap();
+
 					local_set
 						.block_on(&runtime, async move {
 							let viewer_options = crate::viewer::Options {
 								condensed_processes: true,
 								expand_on_create: true,
 							};
-							let item = crate::viewer::Item::Process(process);
+
 							let mut viewer =
-								crate::viewer::Viewer::new(&handle, item, viewer_options);
+								crate::viewer::Viewer::new(&handle, root, viewer_options);
+
 							match options.view {
 								View::None => (),
 								View::Inline => {
@@ -163,10 +170,13 @@ impl Cli {
 					tokio::spawn(async move {
 						let arg = tg::process::finish::Arg {
 							checksum: None,
-							error: Some(tg::error!(
-								code = tg::error::Code::Cancelation,
-								"the process was explicitly canceled"
-							)),
+							error: Some(
+								tg::error!(
+									code = tg::error::Code::Cancelation,
+									"the process was explicitly canceled"
+								)
+								.to_data(),
+							),
 							exit: 1,
 							force: false,
 							output: None,
@@ -197,13 +207,19 @@ impl Cli {
 				view_task.wait().await.unwrap();
 			}
 
-			result
+			result?
 		};
 
 		// Get the output.
-		let output = result
-			.map_err(|source| tg::error!(!source, "failed to await the process"))?
-			.into_output()?;
+		if let Some(error) = wait.error {
+			eprintln!("{} the process failed", "error".red().bold());
+			Self::print_error(&error, Some(&referent), self.config.as_ref());
+		}
+
+		self.exit.replace(wait.exit);
+		let Some(output) = wait.output else {
+			return Ok(None);
+		};
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {
@@ -223,7 +239,7 @@ impl Cli {
 			};
 
 			// Check out the artifact.
-			let artifact = artifact.id(&handle).await?;
+			let artifact = artifact.id();
 			let arg = tg::checkout::Arg {
 				artifact,
 				dependencies: path.is_some(),
@@ -248,7 +264,7 @@ impl Cli {
 			let stdout = std::io::stdout();
 			let output = if stdout.is_terminal() {
 				let options = tg::value::print::Options {
-					recursive: false,
+					depth: Some(0),
 					style: tg::value::print::Style::Pretty { indentation: "  " },
 				};
 				output.print(options)
@@ -257,6 +273,9 @@ impl Cli {
 			};
 			println!("{output}");
 		}
+
+		// Update the exit status.
+		self.exit.replace(wait.exit);
 
 		Ok(Some(output))
 	}

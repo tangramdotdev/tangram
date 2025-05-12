@@ -54,7 +54,6 @@ impl Cli {
 			});
 			(Some((fd, termios)), stdin)
 		} else {
-			tracing::warn!("stdin is not a tty, a pty will not be created");
 			let stdin = create(&handle, remote.clone(), None).await?;
 			(None, stdin)
 		};

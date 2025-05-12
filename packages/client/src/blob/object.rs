@@ -36,6 +36,25 @@ impl Blob {
 				.collect(),
 		}
 	}
+
+	pub fn to_data(&self) -> Data {
+		match self {
+			Blob::Leaf(object) => tg::blob::Data::Leaf(tg::blob::data::Leaf {
+				bytes: object.bytes.clone(),
+			}),
+			Blob::Branch(object) => {
+				let children = object
+					.children
+					.iter()
+					.map(|child| tg::blob::data::Child {
+						blob: child.blob.id(),
+						length: child.length,
+					})
+					.collect();
+				tg::blob::Data::Branch(tg::blob::data::Branch { children })
+			},
+		}
+	}
 }
 
 impl TryFrom<Data> for Blob {

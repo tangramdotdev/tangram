@@ -24,15 +24,13 @@ impl Server {
 			return Ok(());
 		}
 
-		// If the process is not the current process then abort it.
-		let process_task_id = self.processes.get_task_id(id);
-		let should_abort = if let Some(process_task_id) = process_task_id {
-			process_task_id != tokio::task::id()
-		} else {
-			true
-		};
-		if should_abort {
-			self.processes.abort(id);
+		// If the task for the process is not the current task, then abort it.
+		if self
+			.process_task_map
+			.get_task_id(id)
+			.is_some_and(|task_id| task_id != tokio::task::id())
+		{
+			self.process_task_map.abort(id);
 		}
 
 		let tg::process::finish::Arg {
@@ -42,38 +40,15 @@ impl Server {
 			..
 		} = arg;
 
-		// Attempt to set the process's status to finishing.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update processes
-				set status = 'finishing'
-				where id = {p}1 and case
-					when {p}2 then status = 'started' or status = 'finishing'
-					else status = 'started'
-				end;
-			"
-		);
-		let params = db::params![id, arg.force];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		drop(connection);
-		if n == 0 {
-			return Err(tg::error!(%id, "failed to find the process"));
-		}
-
 		// Get the process.
 		let Some(tg::process::get::Output { data, .. }) = self.try_get_process_local(id).await?
 		else {
 			return Err(tg::error!("failed to find the process"));
 		};
+
+		if data.status != tg::process::Status::Started {
+			return Err(tg::error!("the process must be started"));
+		}
 
 		// Get the process's children.
 		let connection = self
@@ -105,7 +80,8 @@ impl Server {
 				let error = tg::error!(
 					code = tg::error::Code::Cancelation,
 					"the parent was finished"
-				);
+				)
+				.to_data();
 				let arg = tg::process::finish::Arg {
 					checksum: None,
 					error: Some(error),
@@ -129,9 +105,10 @@ impl Server {
 					.as_ref()
 					.ok_or_else(|| tg::error!("the actual checksum was not set"))?;
 				if expected != actual {
-					error = Some(tg::error!(
-						"checksum does not match, expected {expected}, actual {actual}"
-					));
+					error = Some(
+						tg::error!("checksum does not match, expected {expected}, actual {actual}")
+							.to_data(),
+					);
 					exit = 1;
 				}
 			}
@@ -158,13 +135,15 @@ impl Server {
 					exit = {p}5,
 					status = {p}6,
 					touched_at = {p}7
-				where id = {p}8;
+				where
+					id = {p}8 and
+					status = 'started';
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![
 			arg.checksum,
-			error.map(db::value::Json),
+			error.clone().map(db::value::Json),
 			now,
 			output.clone().map(db::value::Json),
 			exit,
@@ -172,65 +151,39 @@ impl Server {
 			now,
 			id,
 		];
-		connection
+		let n = connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the connection.
-		drop(connection);
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the command from the database.
-		let statement = format!(
-			"
-				select command
-				from processes
-				where id = {p}1
-			",
-		);
-		let params = db::params![id];
-		let command: Option<tg::object::Id> = connection
-			.query_optional_value_into::<tg::object::Id>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Get the children from the database.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select child
-				from process_children
-				where process = {p}1
-				order by position;
-			"
-		);
-		let params = db::params![id,];
-		let children = connection
-			.query_all_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if n != 1 {
+			return Err(tg::error!("the process must be started"));
+		}
 
 		// Drop the connection.
 		drop(connection);
 
 		// Publish the put process message.
-		let outputs = output
-			.as_ref()
-			.map(tg::value::Data::children)
-			.into_iter()
-			.flatten();
-		let outputs = outputs.map(|output| (output, crate::index::ProcessObjectKind::Output));
-		let command = command
-			.map(|command| (command, crate::index::ProcessObjectKind::Command))
-			.into_iter();
-		let objects = outputs.chain(command).collect();
+		let objects = std::iter::once((
+			data.command.clone().into(),
+			crate::index::ProcessObjectKind::Command,
+		))
+		.chain(
+			error
+				.as_ref()
+				.map(tg::error::Data::children)
+				.into_iter()
+				.flatten()
+				.map(|object| (object, crate::index::ProcessObjectKind::Error)),
+		)
+		.chain(
+			output
+				.as_ref()
+				.map(tg::value::Data::children)
+				.into_iter()
+				.flatten()
+				.map(|object| (object, crate::index::ProcessObjectKind::Output)),
+		)
+		.collect();
 		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
 			id: id.clone(),
 			touched_at: now,

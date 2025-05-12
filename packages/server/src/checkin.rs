@@ -18,6 +18,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 mod input;
 mod lockfile;
+mod module;
 mod object;
 mod output;
 mod unify;
@@ -39,7 +40,7 @@ struct GraphObject {
 	bytes: Bytes,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Graph {
 	nodes: im::Vector<Node>,
 	paths: radix_trie::Trie<PathBuf, usize>,
@@ -51,6 +52,7 @@ struct Node {
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
+	parent: Option<usize>,
 	root: Option<usize>,
 	tag: Option<tg::Tag>,
 	variant: Variant,
@@ -88,9 +90,9 @@ enum Blob {
 enum FileDependency {
 	Import {
 		import: tg::module::Import,
-		path: Option<PathBuf>,
-		subpath: Option<PathBuf>,
 		node: Option<usize>,
+		path: Option<PathBuf>,
+		tag: Option<tg::Tag>,
 	},
 	Referent {
 		reference: tg::Reference,
@@ -176,7 +178,9 @@ impl Server {
 				.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
 				.parse()?;
 			if path.components().count() == 1 {
-				let output = tg::checkin::Output { artifact: id };
+				let output = tg::checkin::Output {
+					referent: tg::Referent::with_item(id),
+				};
 				return Ok(output);
 			}
 			let path = path.components().skip(1).collect::<PathBuf>();
@@ -186,8 +190,10 @@ impl Server {
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, path).await?;
-			let id = artifact.id(self).await?;
-			let output = tg::checkin::Output { artifact: id };
+			let id = artifact.id();
+			let output = tg::checkin::Output {
+				referent: tg::Referent::with_item(id),
+			};
 			return Ok(output);
 		}
 
@@ -207,13 +213,13 @@ impl Server {
 		};
 
 		// Search for the root.
-		let root = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
+		let root_path = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
 			.unwrap_or(&arg.path)
 			.to_owned();
 
 		// Parse a lockfile if it exists.
 		let lockfile = self
-			.try_parse_lockfile(&root)
+			.try_parse_lockfile(&root_path)
 			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
 
 		// Create the state.
@@ -248,6 +254,7 @@ impl Server {
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({
 			let server = self.clone();
+			let root = root_path.clone();
 			move || {
 				server.checkin_collect_input(&mut state, root)?;
 				Ok::<_, tg::Error>(state)
@@ -255,7 +262,7 @@ impl Server {
 		})
 		.await
 		.unwrap()?;
-		tracing::trace!(elapsed = ?start.elapsed(), "input");
+		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
 		// Remove the fixup sender.
 		state.fixup_sender.take();
@@ -270,6 +277,11 @@ impl Server {
 			tracing::trace!(elapsed = ?start.elapsed(), "unify");
 		}
 
+		// Resolve root modules.
+		let start = Instant::now();
+		Self::checkin_resolve_root_modules(&mut state);
+		tracing::trace!(elapsed = ?start.elapsed(), "resolve root modules");
+
 		// Create blobs.
 		let start = Instant::now();
 		self.checkin_create_blobs(&mut state).await?;
@@ -282,17 +294,6 @@ impl Server {
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-
-		// Get the root node's ID.
-		let root: tg::artifact::Id = state.graph.nodes[0]
-			.object
-			.as_ref()
-			.unwrap()
-			.id
-			.clone()
-			.try_into()
-			.unwrap();
-
 		let state = Arc::new(state);
 
 		let cache_and_store_future = tokio::spawn({
@@ -360,10 +361,32 @@ impl Server {
 
 		futures::try_join!(cache_and_store_future, messenger_future, lockfile_future)?;
 
-		let _state = Arc::into_inner(state).unwrap();
+		let state = Arc::into_inner(state).unwrap();
+
+		// Find the desired item in the graph.
+		let node = state
+			.graph
+			.paths
+			.get(&arg.path)
+			.copied()
+			.ok_or_else(|| tg::error!("failed to get item"))?;
+
+		// Get the id, path, tag, and subpath.
+		let item = state.graph.nodes[node]
+			.object
+			.as_ref()
+			.unwrap()
+			.id
+			.clone()
+			.try_into()
+			.unwrap();
+		let path = state.graph.nodes[node].path.as_deref().cloned();
+		let tag = None;
 
 		// Create the output.
-		let output = tg::checkin::Output { artifact: root };
+		let output = tg::checkin::Output {
+			referent: tg::Referent { item, path, tag },
+		};
 
 		Ok(output)
 	}
@@ -471,20 +494,40 @@ impl Server {
 	}
 }
 
-impl Node {
-	fn is_package(&self) -> bool {
-		self.root_module_name().is_some()
-	}
+impl Graph {
+	// Given a referrer and referent, find the "path" that corresponds to it.
+	fn referent_path(&self, referrer: usize, referent: usize) -> Option<PathBuf> {
+		// Get the path of the referrer.
+		let mut referrer_path = self.nodes[referrer].path.as_deref()?.as_ref();
 
-	fn root_module_name(&self) -> Option<String> {
+		// If the referrer is a module, use its parent.
+		if tg::package::is_module_path(referrer_path) {
+			referrer_path = referrer_path.parent()?;
+		}
+
+		// Get the path of the referent.
+		let referent_path = self.nodes[referent].path.as_deref()?.as_ref();
+
+		// Skip any imports of self.
+		if referent_path == referrer_path {
+			return None;
+		}
+
+		// Compute the relative path.
+		crate::util::path::diff(referrer_path, referent_path).ok()
+	}
+}
+
+impl Node {
+	fn root_module(&self) -> Option<(PathBuf, usize)> {
 		self.variant
 			.try_unwrap_directory_ref()
 			.ok()
 			.and_then(|directory| {
-				directory.entries.iter().find_map(|(name, _)| {
+				directory.entries.iter().find_map(|(name, node)| {
 					tg::package::ROOT_MODULE_FILE_NAMES
 						.contains(&name.as_str())
-						.then_some(name.to_owned())
+						.then_some((name.into(), *node))
 				})
 			})
 	}

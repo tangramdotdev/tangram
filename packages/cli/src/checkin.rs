@@ -55,7 +55,7 @@ impl Cli {
 		let output = self.render_progress_stream(stream).await?;
 
 		// Print the artifact.
-		println!("{}", output.artifact);
+		println!("{}", output.referent.item);
 
 		Ok(())
 	}

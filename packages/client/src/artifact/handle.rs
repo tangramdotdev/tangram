@@ -1,9 +1,10 @@
-use super::{Data, Id, Object};
+use super::{Id, Object};
 use crate as tg;
 use futures::{
 	TryStreamExt as _,
 	stream::{FuturesOrdered, FuturesUnordered},
 };
+use itertools::Itertools as _;
 use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
@@ -42,14 +43,12 @@ impl Artifact {
 		}
 	}
 
-	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
-	where
-		H: tg::Handle,
-	{
+	#[must_use]
+	pub fn id(&self) -> Id {
 		match self {
-			Self::Directory(directory) => Ok(Box::pin(directory.id(handle)).await?.into()),
-			Self::File(file) => Ok(Box::pin(file.id(handle)).await?.into()),
-			Self::Symlink(symlink) => Ok(Box::pin(symlink.id(handle)).await?.into()),
+			Self::Directory(directory) => directory.id().into(),
+			Self::File(file) => file.id().into(),
+			Self::Symlink(symlink) => symlink.id().into(),
 		}
 	}
 
@@ -98,14 +97,12 @@ impl Artifact {
 		Ok(object.children())
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
-	where
-		H: tg::Handle,
-	{
+	#[must_use]
+	pub fn kind(&self) -> tg::artifact::Kind {
 		match self {
-			Self::Directory(directory) => Ok(directory.data(handle).await?.into()),
-			Self::File(file) => Ok(file.data(handle).await?.into()),
-			Self::Symlink(symlink) => Ok(symlink.data(handle).await?.into()),
+			Self::Directory(_) => tg::artifact::Kind::Directory,
+			Self::File(_) => tg::artifact::Kind::File,
+			Self::Symlink(_) => tg::artifact::Kind::Symlink,
 		}
 	}
 }
@@ -177,10 +174,8 @@ impl Artifact {
 			.await?;
 		let dependencies = dependencies
 			.into_iter()
-			.map(|artifact| async move { artifact.id(handle).await })
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
+			.map(|artifact| artifact.id())
+			.collect_vec();
 		output.lock().unwrap().extend(dependencies);
 		Ok(())
 	}

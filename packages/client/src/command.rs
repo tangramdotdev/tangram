@@ -1,7 +1,7 @@
 pub use self::{
 	builder::Builder,
 	data::Command as Data,
-	handle::Command as Handle,
+	handle::{Command as Handle, State},
 	id::Id,
 	object::{
 		ArtifactExecutable, Command as Object, Executable, ModuleExecutable, Mount, PathExecutable,

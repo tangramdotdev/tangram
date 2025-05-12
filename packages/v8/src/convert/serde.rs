@@ -1,20 +1,19 @@
 use super::{FromV8, ToV8, de::Deserializer, ser::Serializer};
+use std::ops::Deref;
 use tangram_client as tg;
 
-pub struct Serde<T>(T);
+pub struct Serde<T>(pub T);
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-impl<T> Serde<T> {
-	pub fn new(value: T) -> Self {
-		Self(value)
-	}
+impl<T> Deref for Serde<T> {
+	type Target = T;
 
-	pub fn into_inner(self) -> T {
-		self.0
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }
 

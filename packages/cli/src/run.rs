@@ -1,5 +1,6 @@
 use self::signal::handle_signals;
 use crate::Cli;
+use anstream::eprintln;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
@@ -57,7 +58,7 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Run.
-		self.run(args.options, reference, args.trailing).await?;
+		Box::pin(self.run(args.options, reference, args.trailing)).await?;
 
 		Ok(())
 	}
@@ -90,7 +91,7 @@ impl Cli {
 				.try_unwrap_object()
 				.ok()
 				.ok_or_else(|| tg::error!("expected the build to output an object"))?;
-			let id = object.id(&handle).await?;
+			let id = object.id();
 			tg::Reference::with_object(&id)
 		} else {
 			reference
@@ -125,7 +126,7 @@ impl Cli {
 
 		// If the detach flag is set, then spawn without stdio and return.
 		if options.detach {
-			let process = self
+			let (_, process) = self
 				.spawn(options.spawn, reference, trailing, None, None, None)
 				.boxed()
 				.await?;
@@ -140,7 +141,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
 
 		// Spawn the process.
-		let process = self
+		let (referent, process) = self
 			.spawn(
 				options.spawn,
 				reference,
@@ -153,7 +154,9 @@ impl Cli {
 			.await?;
 
 		// Print the process ID.
-		eprintln!("{} {}", "info".blue().bold(), process.id());
+		if !self.args.quiet {
+			eprintln!("{} {}", "info".blue().bold(), process.id());
+		}
 
 		// Enable raw mode.
 		stdio.set_raw_mode()?;
@@ -200,7 +203,8 @@ impl Cli {
 
 		// Print the error.
 		if let Some(error) = wait.error {
-			Self::print_error(&error, self.config.as_ref());
+			eprintln!("{} the process failed", "error".red().bold());
+			Self::print_error(&error, Some(&referent), self.config.as_ref());
 		}
 
 		// Print the output.
@@ -209,7 +213,7 @@ impl Cli {
 				let stdout = std::io::stdout();
 				let output = if stdout.is_terminal() {
 					let options = tg::value::print::Options {
-						recursive: false,
+						depth: Some(0),
 						style: tg::value::print::Style::Pretty { indentation: "  " },
 					};
 					value.print(options)

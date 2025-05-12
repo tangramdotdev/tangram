@@ -10,7 +10,16 @@ pub struct Lockfile {
 	pub nodes: Vec<Node>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	serde::Serialize,
+	serde::Deserialize,
+)]
+#[try_unwrap(ref)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Node {
 	Directory(Directory),
@@ -21,9 +30,6 @@ pub enum Node {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Directory {
 	pub entries: BTreeMap<String, Entry>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<tg::directory::Id>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -36,26 +42,17 @@ pub struct File {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub executable: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<tg::file::Id>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Symlink {
 	Target {
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		id: Option<tg::symlink::Id>,
-
 		target: PathBuf,
 	},
 
 	Artifact {
 		artifact: Entry,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		id: Option<tg::symlink::Id>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		subpath: Option<PathBuf>,
@@ -79,19 +76,5 @@ impl Lockfile {
 			|source| tg::error!(!source, %path = path.display(), "failed to deserialize lockfile"),
 		)?;
 		Ok(Some(lockfile))
-	}
-}
-
-impl Node {
-	pub fn id(&self) -> Option<tg::artifact::Id> {
-		match self {
-			Node::Directory(directory) => directory.id.clone().map(tg::artifact::Id::from),
-			Node::File(file) => file.id.clone().map(tg::artifact::Id::from),
-			Node::Symlink(symlink) => match symlink {
-				Symlink::Artifact { id, .. } | Symlink::Target { id, .. } => {
-					id.clone().map(tg::artifact::Id::from)
-				},
-			},
-		}
 	}
 }

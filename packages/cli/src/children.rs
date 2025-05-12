@@ -13,7 +13,6 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_children(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
 			Either::Left(process) => {
@@ -28,7 +27,7 @@ impl Cli {
 			},
 			Either::Right(object) => {
 				let args = crate::object::children::Args {
-					object: object.id(&handle).await?.clone(),
+					object: object.id(),
 				};
 				self.command_object_children(args).await?;
 			},

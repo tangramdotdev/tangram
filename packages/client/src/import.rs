@@ -27,7 +27,7 @@ pub struct QueryArg {
 	remote: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::TryUnwrap)]
 pub enum Event {
 	Complete(tg::import::Complete),
 	Progress(tg::import::Progress),
@@ -88,7 +88,7 @@ impl tg::Client {
 				Err(error) => {
 					let mut trailers = http::HeaderMap::new();
 					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-					let json = serde_json::to_string(&error).unwrap();
+					let json = serde_json::to_string(&error.to_data()).unwrap();
 					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 					hyper::body::Frame::trailers(trailers)
 				},

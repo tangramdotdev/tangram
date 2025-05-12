@@ -195,7 +195,7 @@ impl Server {
 			Err(error) => {
 				let mut trailers = http::HeaderMap::new();
 				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-				let json = serde_json::to_string(&error).unwrap();
+				let json = serde_json::to_string(&error.to_data()).unwrap();
 				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 				Ok(hyper::body::Frame::trailers(trailers))
 			},
@@ -215,7 +215,7 @@ impl Server {
 
 impl Reader {
 	pub async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
-		let id = blob.id(server).await?;
+		let id = blob.id();
 		let cache_reference = server.store.try_get_cache_reference(&id.into()).await?;
 		let reader = if let Some(cache_reference) = cache_reference {
 			let mut path = server

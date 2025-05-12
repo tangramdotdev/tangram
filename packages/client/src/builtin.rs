@@ -43,8 +43,9 @@ where
 	H: tg::Handle,
 {
 	let command = archive_command(artifact, format, compression);
+	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(handle).await?),
+		command: Some(command),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -81,8 +82,9 @@ where
 	H: tg::Handle,
 {
 	let command = bundle_command(artifact);
+	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(handle).await?),
+		command: Some(command),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -113,8 +115,9 @@ where
 	H: tg::Handle,
 {
 	let command = checksum_command(input, algorithm);
+	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(handle).await?),
+		command: Some(command),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -152,8 +155,9 @@ where
 	H: tg::Handle,
 {
 	let command = compress_command(input, format);
+	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(handle).await?),
+		command: Some(command),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -180,8 +184,9 @@ where
 	H: tg::Handle,
 {
 	let command = decompress_command(input);
+	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(handle).await?),
+		command: Some(command),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -213,9 +218,10 @@ where
 	H: tg::Handle,
 {
 	let command = download_command(url, options);
+	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
 		checksum: Some(checksum.clone()),
-		command: Some(command.id(handle).await?),
+		command: Some(command),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -251,8 +257,9 @@ where
 	H: tg::Handle,
 {
 	let command = extract_command(input);
+	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command.id(handle).await?),
+		command: Some(command),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)

@@ -405,7 +405,7 @@ where
 {
 	test(async move |context| {
 		let server = context.start_server().await;
-		let artifact = artifact.into().id(&server).await.unwrap();
+		let artifact = artifact.into().store(&server).await.unwrap();
 		let arg = tg::checkout::Arg {
 			artifact,
 			dependencies: true,

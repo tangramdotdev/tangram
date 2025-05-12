@@ -4,9 +4,15 @@ use bytes::Bytes;
 use std::collections::BTreeSet;
 
 #[derive(
-	Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap, serde::Serialize,
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
 )]
-#[serde(untagged)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Object {
 	Blob(tg::blob::Data),
 	Directory(tg::directory::Data),

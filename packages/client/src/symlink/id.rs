@@ -1,4 +1,5 @@
 use crate as tg;
+use std::ops::Deref;
 
 #[derive(
 	Clone,
@@ -14,12 +15,20 @@ use crate as tg;
 	serde::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
-pub struct Id(pub(crate) crate::Id);
+pub struct Id(crate::Id);
 
 impl Id {
 	#[must_use]
 	pub fn new(bytes: &[u8]) -> Self {
 		Self(crate::Id::new_blake3(tg::id::Kind::Symlink, bytes))
+	}
+}
+
+impl Deref for Id {
+	type Target = crate::Id;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }
 

@@ -1,4 +1,4 @@
-use crate::{Cli, util::infer_module_kind};
+use crate::Cli;
 use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
 
@@ -18,17 +18,8 @@ impl Cli {
 		let path = std::path::absolute(&args.path)
 			.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 
-		// Get the module kind.
-		let kind = infer_module_kind(&path).unwrap_or(tg::module::Kind::Artifact);
-
-		// Create a module.
-		let module = tg::module::Data {
-			referent: tg::Referent::with_item(tg::module::data::Item::Path(path)),
-			kind,
-		};
-
-		// Format the package.
-		let arg = tg::format::Arg { module };
+		// Format.
+		let arg = tg::format::Arg { path };
 		handle.format(arg).await?;
 
 		Ok(())

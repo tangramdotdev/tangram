@@ -4,8 +4,8 @@ use tangram_client as tg;
 use tangram_v8::Serde;
 
 pub fn base64_decode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (value,) = args;
@@ -16,8 +16,8 @@ pub fn base64_decode(
 }
 
 pub fn base64_encode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (value,) = args;
@@ -26,8 +26,8 @@ pub fn base64_encode(
 }
 
 pub fn hex_decode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (string,) = args;
@@ -38,8 +38,8 @@ pub fn hex_decode(
 }
 
 pub fn hex_encode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (bytes,) = args;
@@ -48,54 +48,52 @@ pub fn hex_encode(
 }
 
 pub fn json_decode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (String,),
 ) -> tg::Result<Serde<serde_json::Value>> {
 	let (json,) = args;
 	let value = serde_json::from_str(&json)
 		.map_err(|source| tg::error!(!source, "failed to decode the string as json"))?;
-	let value = Serde::new(value);
-	Ok(value)
+	Ok(Serde(value))
 }
 
 pub fn json_encode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (Serde<serde_json::Value>,),
 ) -> tg::Result<String> {
-	let (value,) = args;
-	let json = serde_json::to_string(&value.into_inner())
+	let (Serde(value),) = args;
+	let json = serde_json::to_string(&value)
 		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(json)
 }
 
 pub fn toml_decode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (String,),
 ) -> tg::Result<Serde<toml::Value>> {
 	let (toml,) = args;
 	let value = toml::from_str(&toml)
 		.map_err(|source| tg::error!(!source, "failed to decode the string as toml"))?;
-	let value = Serde::new(value);
-	Ok(value)
+	Ok(Serde(value))
 }
 
 pub fn toml_encode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (Serde<toml::Value>,),
 ) -> tg::Result<String> {
-	let (value,) = args;
-	let toml = toml::to_string(&value.into_inner())
+	let (Serde(value),) = args;
+	let toml = toml::to_string(&value)
 		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(toml)
 }
 
 pub fn utf8_decode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (Bytes,),
 ) -> tg::Result<String> {
 	let (bytes,) = args;
@@ -105,8 +103,8 @@ pub fn utf8_decode(
 }
 
 pub fn utf8_encode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (String,),
 ) -> tg::Result<Bytes> {
 	let (string,) = args;
@@ -115,24 +113,23 @@ pub fn utf8_encode(
 }
 
 pub fn yaml_decode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (String,),
 ) -> tg::Result<Serde<serde_yaml::Value>> {
 	let (yaml,) = args;
 	let value = serde_yaml::from_str(&yaml)
 		.map_err(|source| tg::error!(!source, "failed to decode the string as yaml"))?;
-	let value = Serde::new(value);
-	Ok(value)
+	Ok(Serde(value))
 }
 
 pub fn yaml_encode(
-	_scope: &mut v8::HandleScope,
 	_compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	args: (Serde<serde_yaml::Value>,),
 ) -> tg::Result<String> {
-	let (value,) = args;
-	let yaml = serde_yaml::to_string(&value.into_inner())
+	let (Serde(value),) = args;
+	let yaml = serde_yaml::to_string(&value)
 		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
 	Ok(yaml)
 }

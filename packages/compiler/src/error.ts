@@ -4,14 +4,14 @@ export class Error_ {
 	message: string;
 	location: Location | undefined;
 	stack: Array<Location> | undefined;
-	source: Error_ | undefined;
+	source: Source | undefined;
 	values: Map<string, string> | undefined;
 
 	constructor(
 		message: string,
 		location?: Location,
 		stack?: Array<Location>,
-		source?: Error_,
+		source?: Source,
 		values?: Map<string, string>,
 	) {
 		this.message = message;
@@ -24,11 +24,17 @@ export class Error_ {
 
 type Location = {
 	symbol?: string;
-	source: Source;
+	file: File;
 	line: number;
 	column: number;
 };
 
-type Source =
+type File =
 	| { kind: "internal"; value: string }
-	| { kind: "external"; value: Module };
+	| { kind: "module"; value: Module };
+
+type Source = {
+	error: Error_;
+	path?: string | undefined;
+	tag?: string | undefined;
+};

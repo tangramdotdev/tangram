@@ -1,3 +1,4 @@
+use super::Data;
 use crate as tg;
 use std::sync::Arc;
 
@@ -21,6 +22,15 @@ impl Artifact {
 			Self::Directory(directory) => directory.children(),
 			Self::File(file) => file.children(),
 			Self::Symlink(symlink) => symlink.children(),
+		}
+	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		match self {
+			Self::Directory(directory) => directory.to_data().into(),
+			Self::File(file) => file.to_data().into(),
+			Self::Symlink(symlink) => symlink.to_data().into(),
 		}
 	}
 }

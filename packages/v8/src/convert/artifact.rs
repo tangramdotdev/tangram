@@ -18,20 +18,19 @@ impl FromV8 for tg::Artifact {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
+		let directory = v8::String::new_external_onebyte_static(scope, b"Directory").unwrap();
 		let directory = tangram.get(scope, directory.into()).unwrap();
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
+		let file = v8::String::new_external_onebyte_static(scope, b"File").unwrap();
 		let file = tangram.get(scope, file.into()).unwrap();
 		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
 
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
+		let symlink = v8::String::new_external_onebyte_static(scope, b"Symlink").unwrap();
 		let symlink = tangram.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 

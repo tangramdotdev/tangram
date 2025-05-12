@@ -92,6 +92,40 @@ export class Template {
 		tg.assert(value instanceof Template);
 	}
 
+	static toData(value: Template): Template.Data {
+		return {
+			components: value.components.map((component) => {
+				if (typeof component === "string") {
+					return { kind: "string", value: component };
+				} else {
+					return { kind: "artifact", value: component.id };
+				}
+			}),
+		};
+	}
+
+	static fromData(data: Template.Data): Template {
+		return new Template(
+			data.components.map((component) => {
+				if (component.kind === "string") {
+					return component.value;
+				} else {
+					return tg.Artifact.withId(component.value);
+				}
+			}),
+		);
+	}
+
+	children(): Array<tg.Object> {
+		return this.#components.flatMap((component) => {
+			if (typeof component === "string") {
+				return [];
+			} else {
+				return [component];
+			}
+		});
+	}
+
 	static async join(
 		separator: tg.Unresolved<Template.Arg>,
 		...args: tg.Args<Template.Arg>
@@ -119,7 +153,15 @@ export class Template {
 export namespace Template {
 	export type Arg = undefined | Component | Template;
 
+	export type Data = {
+		components: Array<ComponentData>;
+	};
+
 	export type Component = string | tg.Artifact;
+
+	export type ComponentData =
+		| { kind: "string"; value: string }
+		| { kind: "artifact"; value: tg.Artifact.Id };
 
 	export let raw = async (
 		strings: TemplateStringsArray,

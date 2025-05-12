@@ -17,7 +17,7 @@ pub struct Args {
 	pub pretty: Option<bool>,
 
 	#[arg(long)]
-	pub recursive: bool,
+	pub depth: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
@@ -46,15 +46,15 @@ impl Cli {
 				Self::output_json(&data, args.pretty).await?;
 			},
 			Format::Tgvn => {
-				let recursive = args.recursive;
+				let depth = args.depth;
 				let style = if pretty {
 					tg::value::print::Style::Pretty { indentation: "  " }
 				} else {
 					tg::value::print::Style::Compact
 				};
-				let options = tg::value::print::Options { recursive, style };
+				let options = tg::value::print::Options { depth, style };
 				let object = tg::Object::with_object(data.try_into()?);
-				if recursive {
+				if depth.is_none_or(|arg| arg >= 1) {
 					object.load_recursive(&handle).await?;
 				} else {
 					object.load(&handle).await?;

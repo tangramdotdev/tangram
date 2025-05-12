@@ -13,13 +13,85 @@ export type Value =
 	| tg.Template;
 
 export namespace Value {
+	export let toData = (value: Value): Data => {
+		if (
+			typeof value === "undefined" ||
+			typeof value === "boolean" ||
+			typeof value === "number" ||
+			typeof value === "string"
+		) {
+			return value;
+		} else if (value instanceof Array) {
+			return value.map(toData);
+		} else if (tg.Object.is(value)) {
+			return { kind: "object", value: value.id };
+		} else if (value instanceof Uint8Array) {
+			return { kind: "bytes", value: value };
+		} else if (value instanceof tg.Mutation) {
+			return { kind: "mutation", value: tg.Mutation.toData(value) };
+		} else if (value instanceof tg.Template) {
+			return { kind: "template", value: tg.Template.toData(value) };
+		} else if (typeof value === "object") {
+			return {
+				kind: "map",
+				value: Object.fromEntries(
+					Object.entries(value).map(([key, value]) => [key, toData(value)]),
+				),
+			};
+		} else {
+			throw new Error("invalid value");
+		}
+	};
+
+	export let fromData = (data: Data): Value => {
+		if (
+			typeof data === "undefined" ||
+			typeof data === "boolean" ||
+			typeof data === "number" ||
+			typeof data === "string"
+		) {
+			return data;
+		} else if (data instanceof Array) {
+			return data.map(fromData);
+		} else if (data.kind === "map") {
+			return Object.fromEntries(
+				Object.entries(data.value).map(([key, value]) => [
+					key,
+					fromData(value),
+				]),
+			);
+		} else if (data.kind === "object") {
+			return tg.Object.withId(data.value);
+		} else if (data.kind === "bytes") {
+			return data.value;
+		} else if (data.kind === "mutation") {
+			return tg.Mutation.fromData(data.value);
+		} else if (data.kind === "template") {
+			return tg.Template.fromData(data.value);
+		} else {
+			throw new Error("unknown value data");
+		}
+	};
+
+	export type Data =
+		| undefined
+		| boolean
+		| number
+		| string
+		| Array<tg.Value.Data>
+		| { kind: "map"; value: { [key: string]: tg.Value.Data } }
+		| { kind: "object"; value: tg.Object.Id }
+		| { kind: "bytes"; value: Uint8Array }
+		| { kind: "mutation"; value: tg.Mutation.Data }
+		| { kind: "template"; value: tg.Template.Data };
+
 	export let is = (value: unknown): value is Value => {
 		return (
 			value === undefined ||
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string" ||
-			value instanceof Array ||
+			tg.Value.isArray(value) ||
 			tg.Value.isMap(value) ||
 			tg.Object.is(value) ||
 			value instanceof Uint8Array ||
@@ -37,6 +109,13 @@ export namespace Value {
 		tg.assert(is(value));
 	};
 
+	export let isArray = (value: unknown): value is Array<Value> => {
+		if (!(value instanceof Array)) {
+			return false;
+		}
+		return value.every((value) => Value.is(value));
+	};
+
 	export let isMap = (value: unknown): value is { [key: string]: Value } => {
 		if (
 			!(typeof value === "object" && value !== null) ||
@@ -48,8 +127,64 @@ export namespace Value {
 		) {
 			return false;
 		}
-		return Object.entries(value as object).every(([_, val]) => {
-			return Value.is(val);
-		});
+		return Object.entries(value).every(([_, value]) => Value.is(value));
+	};
+
+	export let objects = (value: tg.Value): Array<tg.Object> => {
+		if (value instanceof Array) {
+			return value.flatMap(objects);
+		} else if (tg.Value.isMap(value)) {
+			return globalThis.Object.values(value).flatMap(objects);
+		} else if (tg.Object.is(value)) {
+			return [value];
+		} else if (value instanceof tg.Mutation) {
+			return value.children();
+		} else if (value instanceof tg.Template) {
+			return value.children();
+		} else {
+			return [];
+		}
+	};
+
+	export let store = async (value: tg.Value): Promise<void> => {
+		// Get the objects.
+		let objects = tg.Value.objects(value);
+
+		// Collect all unstored objects in reverse topological order.
+		let unstored = [];
+		let stack = objects.filter((object) => !object.state.stored);
+		while (stack.length > 0) {
+			let handle = stack.pop()!;
+			unstored.push(handle);
+			let kind = tg.Object.kind(handle);
+			let object = handle.state.object!;
+			let children = tg.Object.Object_.children({
+				kind,
+				value: object,
+			} as tg.Object.Object_);
+			children = children.filter((object) => !object.state.stored);
+			stack.push(...children);
+		}
+		unstored.reverse();
+
+		// Import.
+		let items = [];
+		for (let handle of unstored) {
+			let kind = tg.Object.kind(handle);
+			let object = handle.state.object!;
+			let data = tg.Object.Object_.toData({
+				kind,
+				value: object,
+			} as tg.Object.Object_);
+			let id = syscall("object_id", data);
+			handle.state.id = id;
+			items.push({ id, data });
+		}
+		await syscall("import", items);
+
+		// Mark all objects stored.
+		for (let object of unstored) {
+			object.state.stored = true;
+		}
 	};
 }

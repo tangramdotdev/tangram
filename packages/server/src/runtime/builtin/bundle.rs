@@ -145,13 +145,13 @@ impl Runtime {
 						target.push("..");
 					}
 					target.push(TANGRAM_ARTIFACTS_PATH);
-					target.push(artifact.id(server).await?.to_string());
+					target.push(artifact.id().to_string());
 					if let Some(path) = path.as_ref() {
 						target.push(path);
 					}
 					target
 				} else {
-					let symlink_id = symlink.id(server).await?;
+					let symlink_id = symlink.id();
 					return Err(
 						tg::error!(%symlink_id, "failed to determine target or artifact for symlink"),
 					);

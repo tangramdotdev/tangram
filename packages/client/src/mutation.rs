@@ -1,5 +1,4 @@
 use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
 use itertools::Itertools as _;
 use std::collections::BTreeSet;
 
@@ -63,72 +62,55 @@ pub enum Data {
 }
 
 impl Mutation {
-	pub fn objects(&self) -> Vec<tg::Object> {
+	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
 			Self::Unset => vec![],
 			Self::Set { value } | Self::SetIfUnset { value } => value.objects(),
 			Self::Prepend { values } | Self::Append { values } => {
 				values.iter().flat_map(tg::Value::objects).collect()
 			},
-			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.objects(),
+			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.children(),
 			Self::Merge { value } => value.iter().flat_map(|(_key, val)| val.objects()).collect(),
 		}
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
-	where
-		H: tg::Handle,
-	{
-		Ok(match self {
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		match self {
 			Self::Unset => Data::Unset,
 			Self::Set { value } => Data::Set {
-				value: Box::new(Box::pin(value.data(handle)).await?),
+				value: Box::new(value.to_data()),
 			},
 			Self::SetIfUnset { value } => Data::SetIfUnset {
-				value: Box::new(Box::pin(value.data(handle)).await?),
+				value: Box::new(value.to_data()),
 			},
 			Self::Prepend { values } => Data::Prepend {
-				values: values
-					.iter()
-					.map(|value| value.data(handle))
-					.collect::<FuturesOrdered<_>>()
-					.try_collect()
-					.await?,
+				values: values.iter().map(tg::Value::to_data).collect(),
 			},
 			Self::Append { values } => Data::Append {
-				values: values
-					.iter()
-					.map(|value| value.data(handle))
-					.collect::<FuturesOrdered<_>>()
-					.try_collect()
-					.await?,
+				values: values.iter().map(tg::Value::to_data).collect(),
 			},
 			Self::Prefix {
 				template,
 				separator,
 			} => Data::Prefix {
-				template: template.data(handle).await?,
+				template: template.to_data(),
 				separator: separator.clone(),
 			},
 			Self::Suffix {
 				template,
 				separator,
 			} => Data::Suffix {
-				template: template.data(handle).await?,
+				template: template.to_data(),
 				separator: separator.clone(),
 			},
 			Self::Merge { value } => Data::Merge {
 				value: value
 					.iter()
-					.map(|(key, val)| async {
-						let val = val.data(handle).await?;
-						Ok::<_, tg::Error>((key.clone(), val))
-					})
-					.collect::<FuturesOrdered<_>>()
-					.try_collect()
-					.await?,
+					.map(|(key, val)| (key.clone(), val.to_data()))
+					.collect(),
 			},
-		})
+		}
 	}
 
 	pub fn apply(&self, map: &mut tg::value::Map, key: &str) -> tg::Result<()> {

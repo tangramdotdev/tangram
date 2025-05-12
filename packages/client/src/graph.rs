@@ -1,6 +1,6 @@
 pub use self::{
 	data::Graph as Data,
-	handle::Graph as Handle,
+	handle::{Graph as Handle, State},
 	id::Id,
 	object::{Graph as Object, Node},
 };

@@ -13,7 +13,7 @@ pub(crate) struct Pipe {
 }
 
 impl Pipe {
-	pub async fn open() -> tg::Result<Self> {
+	async fn open() -> tg::Result<Self> {
 		let (host, guest) = tokio::net::UnixStream::pair()
 			.map_err(|source| tg::error!(!source, "failed to open pipe"))?;
 		let guest = guest

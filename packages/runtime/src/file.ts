@@ -55,19 +55,27 @@ export class File {
 	}
 
 	static withId(id: File.Id): File {
-		return new File({ id });
+		return new File({ id, stored: true });
+	}
+
+	static withObject(object: File.Object): File {
+		return new File({ object, stored: false });
+	}
+
+	static fromData(data: File.Data): File {
+		return File.withObject(File.Object.fromData(data));
 	}
 
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
 			if (typeof arg === "object" && "graph" in arg) {
-				return new File({
-					object: arg as {
+				return File.withObject(
+					arg as {
 						graph: tg.Graph;
 						node: number;
 					},
-				});
+				);
 			}
 		}
 		let arg = await File.arg(...args);
@@ -75,9 +83,7 @@ export class File {
 		let dependencies = arg.dependencies ?? {};
 		let executable = arg.executable ?? false;
 		const object = { contents, dependencies, executable };
-		return new File({
-			object,
-		});
+		return File.withObject(object);
 	}
 
 	static async arg(
@@ -129,9 +135,15 @@ export class File {
 		tg.assert(value instanceof File);
 	}
 
-	async id(): Promise<File.Id> {
-		await this.store();
-		return this.#state.id!;
+	get id(): File.Id {
+		if (this.#state.id! !== undefined) {
+			return this.#state.id;
+		}
+		let object = this.#state.object!;
+		let data = File.Object.toData(object);
+		let id = syscall("object_id", { kind: "file", value: data });
+		this.#state.id = id;
+		return id;
 	}
 
 	async object(): Promise<File.Object> {
@@ -139,21 +151,24 @@ export class File {
 		return this.#state.object!;
 	}
 
-	async load() {
+	async load(): Promise<tg.File.Object> {
 		if (this.#state.object === undefined) {
-			let object = await syscall("object_load", this.#state.id!);
-			tg.assert(object.kind === "file");
-			this.#state.object = object.value;
+			let data = await syscall("object_get", this.#state.id!);
+			tg.assert(data.kind === "file");
+			let object = File.Object.fromData(data.value);
+			this.#state.object = object;
 		}
+		return this.#state.object!;
 	}
 
-	async store() {
-		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("object_store", {
-				kind: "file",
-				value: this.#state.object!,
-			});
-		}
+	async store(): Promise<tg.File.Id> {
+		await tg.Value.store(this);
+		return this.id;
+	}
+
+	async children(): Promise<Array<tg.Object>> {
+		let object = await this.load();
+		return tg.File.Object.children(object);
 	}
 
 	async contents(): Promise<tg.Blob> {
@@ -191,21 +206,18 @@ export class File {
 						tg.assert(node !== undefined, `invalid index ${referent.item}`);
 						switch (node.kind) {
 							case "directory": {
-								object = new tg.Directory({
-									object: { graph, node: referent.item },
+								object = tg.Directory.withObject({
+									graph,
+									node: referent.item,
 								});
 								break;
 							}
 							case "file": {
-								object = new tg.File({
-									object: { graph, node: referent.item },
-								});
+								object = tg.File.withObject({ graph, node: referent.item });
 								break;
 							}
 							case "symlink": {
-								object = new tg.Symlink({
-									object: { graph, node: referent.item },
-								});
+								object = tg.Symlink.withObject({ graph, node: referent.item });
 								break;
 							}
 						}
@@ -295,6 +307,73 @@ export namespace File {
 				executable: boolean;
 		  }
 		| { graph: tg.Graph; node: number };
+
+	export namespace Object {
+		export let toData = (object: Object): Data => {
+			if ("graph" in object) {
+				return {
+					graph: object.graph.id,
+					node: object.node,
+				};
+			} else {
+				return {
+					contents: object.contents.id,
+					executable: object.executable,
+					dependencies: globalThis.Object.fromEntries(
+						globalThis.Object.entries(object.dependencies).map(
+							([reference, referent]) => [
+								reference,
+								{ ...referent, item: referent.item.id },
+							],
+						),
+					),
+				};
+			}
+		};
+
+		export let fromData = (data: Data): Object => {
+			if ("graph" in data) {
+				return {
+					graph: tg.Graph.withId(data.graph),
+					node: data.node,
+				};
+			} else {
+				return {
+					contents: tg.Blob.withId(data.contents),
+					executable: data.executable ?? false,
+					dependencies: globalThis.Object.fromEntries(
+						globalThis.Object.entries(data.dependencies ?? {}).map(
+							([reference, referent]) => [
+								reference,
+								{ ...referent, item: tg.Object.withId(referent.item) },
+							],
+						),
+					),
+				};
+			}
+		};
+
+		export let children = (object: Object): Array<tg.Object> => {
+			if ("graph" in object) {
+				return [object.graph];
+			} else {
+				return [
+					object.contents,
+					...globalThis.Object.entries(object.dependencies).map(
+						([_, referent]) => referent.item,
+					),
+				];
+			}
+		};
+	}
+
+	export type Data =
+		| {
+				contents: tg.Blob.Id;
+				dependencies?: { [reference: tg.Reference]: tg.Referent<tg.Object.Id> };
+				executable?: boolean;
+		  }
+		| { graph: tg.Graph.Id; node: number };
 
 	export type State = tg.Object.State<File.Id, File.Object>;
 

@@ -24,6 +24,7 @@ workspace = true
 insta = { workspace = true }
 
 [dependencies]
+anstream = { workspace = true }
 async-broadcast = { workspace = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }

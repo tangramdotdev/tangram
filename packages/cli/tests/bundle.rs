@@ -320,7 +320,6 @@ where
 			.arg("tgvn")
 			.arg("--pretty")
 			.arg("true")
-			.arg("--recursive")
 			.output()
 			.await
 			.unwrap();

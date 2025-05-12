@@ -1,6 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::{FutureOutput, State, error::capture_stack_trace};
+use super::{FutureOutput, State};
 use futures::FutureExt as _;
 use itertools::Itertools as _;
 use std::rc::Rc;
@@ -10,6 +10,7 @@ use tangram_v8::convert::{FromV8, ToV8};
 mod blob;
 mod checksum;
 mod encoding;
+mod import;
 mod magic;
 mod object;
 mod process;
@@ -42,15 +43,16 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
+		"import" => async_(scope, &args, self::import::import),
 		"log" => sync(scope, &args, self::log::log),
 		"magic" => self::magic::magic(scope, &args),
-		"object_load" => async_(scope, &args, self::object::load),
-		"object_store" => async_(scope, &args, self::object::store),
-		"process_load" => async_(scope, &args, self::process::load),
+		"object_get" => async_(scope, &args, self::object::get),
+		"object_id" => sync(scope, &args, self::object::id),
+		"process_get" => async_(scope, &args, self::process::get),
 		"process_spawn" => async_(scope, &args, self::process::spawn),
 		"process_wait" => async_(scope, &args, self::process::wait),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
-		_ => unreachable!(r#"unknown syscall "{name}""#),
+		_ => Err(tg::error!(%name, "unknown syscall")),
 	};
 
 	// Handle the result.
@@ -61,10 +63,6 @@ pub fn syscall<'s>(
 		},
 
 		Err(error) => {
-			// Create the error.
-			let stack = capture_stack_trace(scope).unwrap_or_default();
-			let error = tg::error!(source = error, stack = stack, %name, "the syscall failed");
-
 			// Throw an exception.
 			let exception = super::error::to_exception(scope, &error);
 			scope.throw_exception(exception);
@@ -80,7 +78,7 @@ fn sync<'s, A, T, F>(
 where
 	A: FromV8,
 	T: ToV8,
-	F: FnOnce(&mut v8::HandleScope<'s>, Rc<State>, A) -> tg::Result<T>,
+	F: FnOnce(Rc<State>, &mut v8::HandleScope<'s>, A) -> tg::Result<T>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
@@ -93,11 +91,11 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = <_>::from_v8(scope, args.into())
+	let args = A::from_v8(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
-	let value = f(scope, state, args)?;
+	let value = f(state, scope, args)?;
 
 	// Move the value to v8.
 	let value = value
@@ -129,7 +127,7 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = <_>::from_v8(scope, args.into())
+	let args = A::from_v8(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Create the promise.

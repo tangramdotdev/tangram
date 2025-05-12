@@ -15,7 +15,7 @@ impl Mount {
 	}
 
 	#[must_use]
-	pub fn data(&self) -> tg::process::data::Mount {
+	pub fn to_data(&self) -> tg::process::data::Mount {
 		let source = self.source.clone();
 		let target = self.target.clone();
 		let readonly = self.readonly;

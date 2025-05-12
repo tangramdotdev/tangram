@@ -70,9 +70,7 @@ impl Runtime {
 		let temp = Temp::new(&self.server);
 		let output_path = temp.path().join("output");
 		let mut root_path = temp.path().join("root");
-		let mut mounts = Vec::with_capacity(
-			state.mounts.len() + command.mounts.as_ref().map(Vec::len).unwrap_or_default(),
-		);
+		let mut mounts = Vec::with_capacity(state.mounts.len() + command.mounts.len());
 
 		// Create the output directory.
 		tokio::fs::create_dir_all(&output_path)
@@ -81,14 +79,9 @@ impl Runtime {
 
 		// Create mounts.
 		let mut overlays: Vec<sandbox::Overlay> = vec![];
-		let iter = state.mounts.iter().map(Either::Left).chain(
-			command
-				.mounts
-				.as_deref()
-				.unwrap_or_default()
-				.iter()
-				.map(Either::Right),
-		);
+		let iter = std::iter::empty()
+			.chain(state.mounts.iter().map(Either::Left))
+			.chain(command.mounts.iter().map(Either::Right));
 		for mount in iter {
 			match mount {
 				Either::Left(mount) => {

@@ -1,4 +1,5 @@
 use crate::Cli;
+use anstream::eprintln;
 use crossterm::style::Stylize as _;
 use tangram_client as tg;
 use tangram_either::Either;
@@ -14,7 +15,7 @@ pub struct Args {
 	pub pretty: Option<bool>,
 
 	#[arg(long)]
-	pub recursive: bool,
+	pub depth: Option<u64>,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
@@ -22,7 +23,6 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match &referent.item {
 			Either::Left(process) => process.id().to_string(),
@@ -33,36 +33,17 @@ impl Cli {
 			let path = path.display();
 			eprintln!("{} path {path}", "info".blue().bold());
 		}
-		if let Some(subpath) = &referent.subpath {
-			let path = subpath.display();
-			eprintln!("{} subpath {path}", "info".blue().bold());
-		}
 		if let Some(tag) = &referent.tag {
 			eprintln!("{} tag {tag}", "info".blue().bold());
 		}
-		let item = match referent.item.clone() {
-			Either::Left(process) => Either::Left(process),
-			Either::Right(object) => {
-				let object = if let Some(subpath) = &referent.subpath {
-					let directory = object
-						.try_unwrap_directory()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a directory"))?;
-					directory.get(&handle, subpath).await?.into()
-				} else {
-					object
-				};
-				Either::Right(object)
-			},
-		};
-		let item = match item {
+		let item = match referent.item {
 			Either::Left(process) => Either::Left(process.id().clone()),
-			Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
+			Either::Right(object) => Either::Right(object.id().clone()),
 		};
 		let Args {
 			format,
 			pretty,
-			recursive,
+			depth,
 			..
 		} = args;
 		match item {
@@ -75,7 +56,7 @@ impl Cli {
 					format,
 					object,
 					pretty,
-					recursive,
+					depth,
 				})
 				.await?;
 			},

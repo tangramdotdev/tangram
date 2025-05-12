@@ -25,7 +25,7 @@ impl Cli {
 		let format = args.format;
 		let compression = args.compression;
 		let command = tg::builtin::archive_command(&artifact, format, compression);
-		let command = command.id(&handle).await?;
+		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build(args.build, reference, vec![]).await?;
 		Ok(())

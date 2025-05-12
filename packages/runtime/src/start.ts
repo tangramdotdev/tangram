@@ -1,13 +1,24 @@
 import * as tg from "./index.ts";
 
-export let start = async (process: tg.Process): Promise<tg.Value> => {
-	// Load the process and the command.
+export type Arg = {
+	id: tg.Process.Id;
+	remote?: string | undefined;
+};
+
+export let start = async (arg: Arg): Promise<tg.Value.Data> => {
+	// Create and load the process.
+	let process = new tg.Process({
+		id: arg.id,
+		remote: arg.remote,
+	});
 	await process.load();
-	const command = process.state!.command;
-	await command.load();
 
 	// Set the current process.
 	tg.Process.current = process;
+
+	// Load the command.
+	const command = await process.command();
+	await command.load();
 
 	// Import the module.
 	// @ts-ignore
@@ -37,5 +48,9 @@ export let start = async (process: tg.Process): Promise<tg.Value> => {
 		throw new Error("the export must be a tg.Value or a function");
 	}
 
-	return output;
+	// Store the output.
+	await tg.Value.store(output);
+	let outputData = tg.Value.toData(output);
+
+	return outputData;
 };

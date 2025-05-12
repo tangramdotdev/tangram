@@ -122,7 +122,7 @@ fn map(input: &mut Input) -> ModalResult<tg::value::Map> {
 fn id(input: &mut Input) -> ModalResult<tg::id::Id> {
 	(id_kind, "_", "0", id_body)
 		.verify_map(|(kind, _, version, body)| match version {
-			"0" => Some(tg::Id::V0(tg::id::V0 { kind, body })),
+			"0" => Some(tg::Id::new(kind, body)),
 			_ => None,
 		})
 		.parse_next(input)

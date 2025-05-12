@@ -1,7 +1,18 @@
 use crate as tg;
 
 /// An artifact kind.
-#[derive(Clone, Copy, Debug)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
 pub enum Kind {
 	Directory,
 	File,

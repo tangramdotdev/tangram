@@ -1,19 +1,32 @@
 use crate::Server;
 use itertools::Itertools;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
 	pub(super) fn create_lockfile(state: &super::State) -> tg::Result<tg::Lockfile> {
+		// Create lockfile nodes for every node of the graph.
 		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
 		let mut visited = vec![None; state.graph.nodes.len()];
 		let root = Self::create_lockfile_node(state, 0, &mut nodes, &mut visited)?.unwrap_left();
+
+		// Collect the full lockfile graph.
 		let nodes = nodes
 			.into_iter()
 			.map(|node| node.unwrap())
 			.collect::<Vec<_>>();
-		let nodes = Self::strip_lockfile_nodes(&nodes, root)?;
+
+		// Collect a list of which nodes are path dependencies on the local file sysstem.
+		let path_dependencies = state
+			.graph
+			.nodes
+			.iter()
+			.map(|node| node.path.is_some())
+			.collect::<Vec<_>>();
+
+		// Strip the lockfile nodes.
+		let nodes = Self::strip_lockfile_nodes(&nodes, &path_dependencies, root)?;
 		Ok(tg::Lockfile { nodes })
 	}
 
@@ -23,6 +36,12 @@ impl Server {
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<Either<usize, tg::object::Id>> {
+		// Make sure parents are visited first.
+		if let Some(parent) = state.graph.nodes[node].parent {
+			Self::create_lockfile_node(state, parent, nodes, visited)?;
+		}
+
+		// Check if this node is visited.
 		if let Some(visited) = visited[node].clone() {
 			return Ok(visited);
 		}
@@ -69,11 +88,10 @@ impl Server {
 	pub(super) fn checkin_create_lockfile_directory_node(
 		state: &super::State,
 		node: usize,
-		data: &tg::directory::Data,
+		_data: &tg::directory::Data,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
-		let id = tg::directory::Id::new(&data.serialize()?);
 		let entries = state.graph.nodes[node]
 			.variant
 			.unwrap_directory_ref()
@@ -84,8 +102,7 @@ impl Server {
 				Ok::<_, tg::Error>((name.clone(), entry))
 			})
 			.try_collect()?;
-		let id = state.graph.nodes[node].path.is_none().then_some(id);
-		let directory = tg::lockfile::Directory { entries, id };
+		let directory = tg::lockfile::Directory { entries };
 		Ok(tg::lockfile::Node::Directory(directory))
 	}
 
@@ -96,7 +113,6 @@ impl Server {
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
-		let id = tg::file::Id::new(&data.serialize()?);
 		let (contents, executable) = match data {
 			tg::file::Data::Graph {
 				graph: graph_id,
@@ -129,21 +145,19 @@ impl Server {
 					import,
 					node,
 					path,
-					subpath,
+					tag,
 				} => {
 					let reference = import.reference.clone();
-					let node =
+					let referent =
 						node.ok_or_else(|| tg::error!(%import = reference, "unresolved import"))?;
-					let item = Self::create_lockfile_node(state, node, nodes, visited)?;
-					let path = path.clone();
-					let subpath = subpath.clone();
-					let tag = state.graph.nodes[node].tag.clone();
-					let referent = tg::Referent {
-						item,
-						path,
-						subpath,
-						tag,
-					};
+					let item = Self::create_lockfile_node(state, referent, nodes, visited)?;
+					let path = path
+						.clone()
+						.or_else(|| state.graph.referent_path(index, referent));
+					let tag = tag
+						.clone()
+						.or_else(|| state.graph.nodes[referent].tag.clone());
+					let referent = tg::Referent { item, path, tag };
 					Ok::<_, tg::Error>((reference, referent))
 				},
 				super::FileDependency::Referent {
@@ -164,19 +178,16 @@ impl Server {
 					let referent = tg::Referent {
 						item,
 						path: referent.path.clone(),
-						subpath: referent.subpath.clone(),
 						tag: referent.tag.clone(),
 					};
 					Ok((reference, referent))
 				},
 			})
 			.try_collect()?;
-		let id = state.graph.nodes[index].path.is_none().then_some(id);
 		let file = tg::lockfile::File {
 			contents: Some(contents),
 			dependencies,
 			executable,
-			id,
 		};
 		Ok(tg::lockfile::Node::File(file))
 	}
@@ -184,12 +195,11 @@ impl Server {
 	#[allow(clippy::ptr_arg)]
 	fn checkin_create_lockfile_symlink_node(
 		state: &super::State,
-		node: usize,
+		_node: usize,
 		data: &tg::symlink::Data,
 		_nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		_visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
-		let id = tg::symlink::Id::new(&data.serialize()?);
 		let subpath = match data {
 			tg::symlink::Data::Graph {
 				graph: graph_id,
@@ -218,45 +228,32 @@ impl Server {
 		};
 
 		// The artifact is either another point in the graph, or referred to explicitly by data.
-		let artifact = None; // todo: symlinks that point to artifacts.
+		let artifact = None;
 
 		// Create the lockfile node.
 		if let Some(artifact) = artifact {
 			Ok(tg::lockfile::Node::Symlink(
-				tg::lockfile::Symlink::Artifact {
-					artifact,
-					id: Some(id),
-					subpath,
-				},
+				tg::lockfile::Symlink::Artifact { artifact, subpath },
 			))
+		} else if let Some(subpath) = subpath {
+			Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
+				target: subpath,
+			}))
 		} else {
-			let id = state.graph.nodes[node].path.is_none().then_some(id);
-			if let Some(subpath) = subpath {
-				Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-					id,
-					target: subpath,
-				}))
-			} else {
-				Err(tg::error!(
-					?data,
-					"unable to determine subpath for lockfile"
-				))
-			}
+			Err(tg::error!(
+				?data,
+				"unable to determine subpath for lockfile"
+			))
 		}
 	}
 
 	pub fn strip_lockfile_nodes(
 		old_nodes: &[tg::lockfile::Node],
+		path_dependencies: &[bool],
 		root: usize,
 	) -> tg::Result<Vec<tg::lockfile::Node>> {
-		let mut references_module = vec![None; old_nodes.len()];
-		check_if_references_module(old_nodes, None, root, &mut references_module)?;
-
-		let mut is_tagged = vec![None; old_nodes.len()];
-		check_if_transitively_tagged(old_nodes, false, root, &mut is_tagged)?;
-
-		let mut in_graph = vec![false; old_nodes.len()];
-		check_if_in_graph(old_nodes, &mut in_graph);
+		let mut strip = vec![true; old_nodes.len()];
+		mark_nodes(old_nodes, &mut strip);
 
 		// Strip nodes that don't reference tag dependencies.
 		let mut new_nodes = Vec::with_capacity(old_nodes.len());
@@ -266,9 +263,8 @@ impl Server {
 			root,
 			&mut visited,
 			&mut new_nodes,
-			&references_module,
-			&is_tagged,
-			&in_graph,
+			path_dependencies,
+			&strip,
 		);
 
 		// Construct a new lockfile with only stripped nodes.
@@ -276,152 +272,66 @@ impl Server {
 	}
 }
 
-// Recursively compute the nodes that transitively reference tag dependencies.
-#[allow(clippy::match_on_vec_items)]
-fn check_if_references_module(
-	nodes: &[tg::lockfile::Node],
-	path: Option<&Path>,
-	node: usize,
-	visited: &mut Vec<Option<bool>>,
-) -> tg::Result<bool> {
-	match visited[node] {
-		None => {
-			match &nodes[node] {
-				tg::lockfile::Node::Directory(directory) => {
-					let retain = directory
-						.entries
-						.keys()
-						.any(|name| tg::package::is_module_path(name.as_ref()));
-					visited[node].replace(retain);
-					for (name, entry) in &directory.entries {
-						let child_node = entry.as_ref().left().copied().unwrap();
-						*visited[node].as_mut().unwrap() |= check_if_references_module(
-							nodes,
-							Some(name.as_ref()),
-							child_node,
-							visited,
-						)?;
-					}
-				},
-				tg::lockfile::Node::File(file) => {
-					let retain = !file.dependencies.is_empty()
-						|| path.is_some_and(tg::package::is_module_path);
-					visited[node].replace(retain);
-					for (reference, referent) in &file.dependencies {
-						let path = reference
-							.item()
-							.try_unwrap_path_ref()
-							.ok()
-							.or_else(|| reference.options()?.path.as_ref())
-							.map(AsRef::as_ref);
-						let Either::Left(child_node) = &referent.item else {
-							continue;
-						};
-						*visited[node].as_mut().unwrap() |=
-							check_if_references_module(nodes, path, *child_node, visited)?;
-					}
-				},
-				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-					artifact,
-					subpath,
-					..
-				}) => {
-					let retain = subpath
-						.as_ref()
-						.is_some_and(|subpath| tg::package::is_module_path(subpath));
-					visited[node].replace(retain);
-					if let Some(child_node) =
-						try_find_in_lockfile_nodes(nodes, artifact, subpath.as_deref())?
-					{
-						let path = subpath.as_ref().map(PathBuf::as_path);
-						*visited[node].as_mut().unwrap() |=
-							check_if_references_module(nodes, path, child_node, visited)?;
-					}
-				},
-				tg::lockfile::Node::Symlink(_) => {
-					visited[node].replace(false);
-				},
-			}
-			Ok(visited[node].unwrap())
-		},
-		Some(mark) => Ok(mark),
-	}
-}
+fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
+	// First, split into strongly conncected components.
+	let sccs = petgraph::algo::tarjan_scc(&LockfileGraphImpl(nodes));
 
-// Recursively compute the file nodes whose contents should be retained
-#[allow(clippy::match_on_vec_items)]
-fn check_if_transitively_tagged(
-	nodes: &[tg::lockfile::Node],
-	referrer_tagged: bool,
-	node: usize,
-	visited: &mut Vec<Option<bool>>,
-) -> tg::Result<()> {
-	match visited[node] {
-		None => match &nodes[node] {
-			tg::lockfile::Node::Directory(directory) => {
-				visited[node].replace(referrer_tagged);
-				for entry in directory.entries.values() {
-					let child_node = entry.as_ref().left().copied().unwrap();
-					check_if_transitively_tagged(nodes, referrer_tagged, child_node, visited)?;
-				}
-			},
-			tg::lockfile::Node::File(file) => {
-				visited[node].replace(referrer_tagged);
-				for referent in file.dependencies.values() {
-					let Either::Left(child_node) = &referent.item else {
-						continue;
-					};
-					let referrer_tagged = referent.tag.is_some() || referrer_tagged;
-					check_if_transitively_tagged(nodes, referrer_tagged, *child_node, visited)?;
-				}
-			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-				artifact,
-				subpath,
-				..
-			}) => {
-				visited[node].replace(referrer_tagged);
-				if let Some(child_node) =
-					try_find_in_lockfile_nodes(nodes, artifact, subpath.as_deref())?
+	// Mark nodes that have been tagged or are imported by ID.
+	for scc in sccs.iter().rev() {
+		for node in scc.iter().copied() {
+			let tg::lockfile::Node::File(file) = &nodes[node] else {
+				continue;
+			};
+			for (reference, referent) in &file.dependencies {
+				let Either::Left(index) = &referent.item else {
+					continue;
+				};
+				if referent.tag.is_some()
+					|| (reference.item().try_unwrap_object_ref().is_ok()
+						&& reference.path().is_none())
 				{
-					check_if_transitively_tagged(nodes, referrer_tagged, child_node, visited)?;
+					strip[*index] = false;
 				}
-			},
-			tg::lockfile::Node::Symlink(_) => {
-				visited[node].replace(false);
-			},
-		},
-		Some(false) if referrer_tagged => {
-			visited[node].replace(true);
-		},
-		_ => (),
+			}
+		}
 	}
-	Ok(())
-}
 
-fn check_if_in_graph(nodes: &[tg::lockfile::Node], visited: &mut [bool]) {
-	for scc in petgraph::algo::tarjan_scc(&LockfileGraphImpl(nodes)) {
-		let in_graph = scc.len() > 1;
+	// In a second pass, inherit marks from dependencies.
+	for scc in sccs {
 		for node in scc {
-			visited[node] = in_graph;
+			strip[node] &= match &nodes[node] {
+				tg::lockfile::Node::Directory(directory) => directory
+					.entries
+					.values()
+					.filter_map(|entry| entry.as_ref().left().copied())
+					.all(|node| strip[node]),
+				tg::lockfile::Node::File(file) => file.dependencies.values().all(|referent| {
+					referent
+						.item
+						.as_ref()
+						.left()
+						.is_some_and(|index| strip[*index])
+				}),
+				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+					artifact: Either::Left(index),
+					..
+				}) => strip[*index],
+				tg::lockfile::Node::Symlink(_) => true,
+			};
 		}
 	}
 }
 
 fn strip_nodes_inner(
-	old_nodes: &[tg::lockfile::Node],
-	node: usize,
-	visited: &mut Vec<Option<usize>>,
-	new_nodes: &mut Vec<Option<tg::lockfile::Node>>,
-	should_retain: &[Option<bool>],
-	is_tagged: &[Option<bool>],
-	in_graph: &[bool],
+	old_nodes: &[tg::lockfile::Node], // the full lockfile graph.
+	node: usize,                      // the current node we're visiting
+	visited: &mut Vec<Option<usize>>, // visited set for cycle handling
+	new_nodes: &mut Vec<Option<tg::lockfile::Node>>, // the list of nodes we're adding to
+	path_dependencies: &[bool],       // a list of which nodes are local path dependencies
+	strip: &[bool],                   // a list of whether nodes should be stripped.
 ) -> Option<usize> {
 	// Strip nodes that don't reference modules, are untagged, and not contained within graphs.
-	if !(matches!(should_retain[node], Some(true))
-		|| matches!(is_tagged[node], Some(true))
-		|| in_graph[node])
-	{
+	if strip[node] {
 		return None;
 	}
 
@@ -445,9 +355,8 @@ fn strip_nodes_inner(
 							node,
 							visited,
 							new_nodes,
-							should_retain,
-							is_tagged,
-							in_graph,
+							path_dependencies,
+							strip,
 						)
 						.map(Either::Left),
 						Either::Right(id) => Some(Either::Right(id)),
@@ -457,10 +366,7 @@ fn strip_nodes_inner(
 				.collect();
 
 			// Create a new node.
-			let directory = tg::lockfile::Directory {
-				entries,
-				id: directory.id.clone(),
-			};
+			let directory = tg::lockfile::Directory { entries };
 			new_nodes[new_node].replace(tg::lockfile::Node::Directory(directory));
 		},
 		tg::lockfile::Node::File(file) => {
@@ -468,63 +374,44 @@ fn strip_nodes_inner(
 				.dependencies
 				.into_iter()
 				.filter_map(|(reference, referent)| {
-					let tg::Referent {
-						item,
-						path,
-						subpath,
-						tag,
-					} = referent;
+					let tg::Referent { item, path, tag } = referent;
 
 					// Special case, the reference is by ID.
-					let item = match item {
+					let item: Either<usize, tg::object::Id> = match item {
 						Either::Left(node) => {
 							if let Some(node) = strip_nodes_inner(
 								old_nodes,
 								node,
 								visited,
 								new_nodes,
-								should_retain,
-								is_tagged,
-								in_graph,
+								path_dependencies,
+								strip,
 							) {
 								Either::Left(node)
-							} else if reference
-								.item()
-								.try_unwrap_path_ref()
-								.ok()
-								.or_else(|| reference.options()?.path.as_ref())
-								.is_none()
-							{
-								let id = old_nodes[node].id()?.into();
-								Either::Right(id)
+							} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+								Either::Right(id.clone())
 							} else {
 								return None;
 							}
 						},
 						Either::Right(id) => Either::Right(id),
 					};
-					Some((
-						reference,
-						tg::Referent {
-							item,
-							path,
-							subpath,
-							tag,
-						},
-					))
+					Some((reference, tg::Referent { item, path, tag }))
 				})
 				.collect();
 
-			// Retain the contents if necessary.
-			let retain_contents = matches!(is_tagged[node], Some(true)) || in_graph[node];
-			let contents = if retain_contents { file.contents } else { None };
+			// Retain the contents if this is not a path dependency.
+			let contents = if path_dependencies[node] {
+				None
+			} else {
+				file.contents
+			};
 
 			// Create the node.
 			let file = tg::lockfile::File {
 				contents,
 				dependencies,
 				executable: file.executable,
-				id: file.id,
 			};
 			new_nodes[new_node].replace(tg::lockfile::Node::File(file));
 		},
@@ -533,15 +420,10 @@ fn strip_nodes_inner(
 			new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
 				tg::lockfile::Symlink::Target {
 					target: target.clone(),
-					id: None,
 				},
 			));
 		},
-		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-			artifact,
-			id,
-			subpath,
-		}) => {
+		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
 				Either::Left(node) => strip_nodes_inner(
@@ -549,9 +431,8 @@ fn strip_nodes_inner(
 					node,
 					visited,
 					new_nodes,
-					should_retain,
-					is_tagged,
-					in_graph,
+					path_dependencies,
+					strip,
 				)
 				.map(Either::Left),
 				Either::Right(id) => Some(Either::Right(id)),
@@ -560,19 +441,12 @@ fn strip_nodes_inner(
 			// Create the node.
 			if let Some(artifact) = artifact {
 				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
-					tg::lockfile::Symlink::Artifact {
-						artifact,
-						subpath,
-						id,
-					},
+					tg::lockfile::Symlink::Artifact { artifact, subpath },
 				));
 			} else {
 				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
 					if let Some(subpath) = subpath {
-						tg::lockfile::Symlink::Target {
-							target: subpath,
-							id,
-						}
+						tg::lockfile::Symlink::Target { target: subpath }
 					} else {
 						return None;
 					},
@@ -582,36 +456,6 @@ fn strip_nodes_inner(
 	}
 
 	Some(new_node)
-}
-
-fn try_find_in_lockfile_nodes(
-	nodes: &[tg::lockfile::Node],
-	item: &Either<usize, tg::object::Id>,
-	subpath: Option<&Path>,
-) -> tg::Result<Option<usize>> {
-	let Some(mut node) = item.as_ref().left().copied() else {
-		return Ok(None);
-	};
-	let Some(subpath) = &subpath else {
-		return Ok(Some(node));
-	};
-	for component in subpath.components() {
-		match component {
-			std::path::Component::CurDir => (),
-			std::path::Component::Normal(normal) => {
-				let name = normal.to_str().unwrap();
-				let tg::lockfile::Node::Directory(directory) = &nodes[node] else {
-					return Err(tg::error!("invalid graph"));
-				};
-				let Some(entry) = directory.entries.get(name) else {
-					return Ok(None);
-				};
-				node = entry.as_ref().left().copied().unwrap();
-			},
-			_ => return Err(tg::error!(?item, ?subpath, "invalid referent")),
-		}
-	}
-	Ok(Some(node))
 }
 
 struct LockfileGraphImpl<'a>(&'a [tg::lockfile::Node]);

@@ -1,8 +1,8 @@
 {
 	"dependencies": {
 		"@biomejs/biome": "^1.9.4",
-		"@types/bun": "^1.2.13",
-		"esbuild": "^0.25.4",
+		"@types/bun": "^1.2.15",
+		"esbuild": "^0.25.5",
 		"typescript": "^5.8.3"
 	},
 	"scripts": {

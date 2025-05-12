@@ -30,7 +30,6 @@ impl Compiler {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Path(path),
-						subpath,
 						..
 					},
 				..
@@ -43,11 +42,6 @@ impl Compiler {
 				}
 
 				// Otherwise, load from the path.
-				let path = if let Some(subpath) = subpath {
-					path.join(subpath)
-				} else {
-					path.clone()
-				};
 				let text = tokio::fs::read_to_string(&path).await.map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to read the file"),
 				)?;
@@ -61,20 +55,11 @@ impl Compiler {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Object(object),
-						subpath,
 						..
 					},
 				..
 			} => {
 				let object = tg::Object::with_id(object.clone());
-				let object = if let Some(subpath) = subpath {
-					let tg::Object::Directory(directory) = object else {
-						return Err(tg::error!("expected a directory"));
-					};
-					directory.get(&self.server, subpath).await?.into()
-				} else {
-					object
-				};
 				let file = object
 					.try_unwrap_file()
 					.ok()
@@ -94,7 +79,7 @@ impl Compiler {
 					| tg::module::Kind::Symlink
 					| tg::module::Kind::Graph
 					| tg::module::Kind::Command,
-				referent: tg::Referent { item, subpath, .. },
+				referent: tg::Referent { item, .. },
 				..
 			} => {
 				let class = match module.kind {
@@ -113,16 +98,6 @@ impl Compiler {
 						r"export default undefined as unknown as tg.{class};"
 					)),
 					tg::module::data::Item::Object(object) => {
-						let object = tg::Object::with_id(object.clone());
-						let object = if let Some(subpath) = subpath {
-							let tg::Object::Directory(directory) = object else {
-								return Err(tg::error!("expected a directory"));
-							};
-							directory.get(&self.server, subpath).await?.into()
-						} else {
-							object
-						};
-						let object = object.id(&self.server).await?;
 						Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 					},
 				}

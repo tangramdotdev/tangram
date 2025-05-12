@@ -1,6 +1,6 @@
 import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
-import { assert, unimplemented, unreachable } from "./assert.ts";
+import { assert, todo, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
 import { BuildBuilder, build } from "./build.ts";
 import {
@@ -17,11 +17,11 @@ import { Checksum, checksum } from "./checksum.ts";
 import { Command, CommandBuilder, command } from "./command.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
-import { Error_ } from "./error.ts";
+// biome-ignore lint/suspicious/noShadowRestrictedNames:
+import { Error } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
-import { error, log } from "./log.ts";
-import type { Module } from "./module.ts";
+import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { Object as Object_ } from "./object.ts";
 import { path } from "./path.ts";
@@ -55,7 +55,6 @@ export type {
 	MaybeMutation,
 	MaybeMutationMap,
 	MaybePromise,
-	Module,
 	MutationMap,
 	Reference,
 	Referent,
@@ -78,9 +77,10 @@ export {
 	Command,
 	CommandBuilder,
 	Directory,
-	Error_ as Error,
+	Error,
 	File,
 	Graph,
+	Module,
 	Mutation,
 	Object_ as Object,
 	Process,
@@ -103,8 +103,6 @@ export {
 	extract,
 	file,
 	graph,
-	log,
-	error,
 	mutation,
 	path,
 	resolve,
@@ -113,6 +111,7 @@ export {
 	start,
 	symlink,
 	template,
+	todo,
 	unimplemented,
 	unreachable,
 };

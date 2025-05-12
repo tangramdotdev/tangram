@@ -5,11 +5,11 @@ impl ToV8 for tg::Blob {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let blob = v8::String::new_external_onebyte_static(scope, "Blob".as_bytes()).unwrap();
+		let blob = v8::String::new_external_onebyte_static(scope, b"Blob").unwrap();
 		let blob = tangram.get(scope, blob.into()).unwrap();
 		let blob = v8::Local::<v8::Function>::try_from(blob).unwrap();
 
@@ -30,11 +30,11 @@ impl FromV8 for tg::Blob {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let blob = v8::String::new_external_onebyte_static(scope, "Blob".as_bytes()).unwrap();
+		let blob = v8::String::new_external_onebyte_static(scope, b"Blob").unwrap();
 		let blob = tangram.get(scope, blob.into()).unwrap();
 		let blob = v8::Local::<v8::Function>::try_from(blob).unwrap();
 
@@ -43,7 +43,7 @@ impl FromV8 for tg::Blob {
 		}
 		let value = value.to_object(scope).unwrap();
 
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
+		let state = v8::String::new_external_onebyte_static(scope, b"state").unwrap();
 		let state = value.get(scope, state.into()).unwrap();
 		let state = <_>::from_v8(scope, state)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
@@ -73,14 +73,12 @@ impl ToV8 for tg::blob::Object {
 
 		match self {
 			tg::blob::Object::Leaf(leaf) => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "bytes".as_bytes()).unwrap();
+				let key = v8::String::new_external_onebyte_static(scope, b"bytes").unwrap();
 				let value = leaf.bytes.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 			tg::blob::Object::Branch(branch) => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
+				let key = v8::String::new_external_onebyte_static(scope, b"children").unwrap();
 				let value = branch.children.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
@@ -100,9 +98,8 @@ impl FromV8 for tg::blob::Object {
 		}
 		let value = value.to_object(scope).unwrap();
 
-		let bytes = v8::String::new_external_onebyte_static(scope, "bytes".as_bytes()).unwrap();
-		let children =
-			v8::String::new_external_onebyte_static(scope, "children".as_bytes()).unwrap();
+		let bytes = v8::String::new_external_onebyte_static(scope, b"bytes").unwrap();
+		let children = v8::String::new_external_onebyte_static(scope, b"children").unwrap();
 
 		let bytes = value.get(scope, bytes.into()).unwrap();
 		if !bytes.is_null_or_undefined() {
@@ -126,11 +123,11 @@ impl ToV8 for tg::blob::Child {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
-		let key = v8::String::new_external_onebyte_static(scope, "blob".as_bytes()).unwrap();
+		let key = v8::String::new_external_onebyte_static(scope, b"blob").unwrap();
 		let value = self.blob.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
-		let key = v8::String::new_external_onebyte_static(scope, "length".as_bytes()).unwrap();
+		let key = v8::String::new_external_onebyte_static(scope, b"length").unwrap();
 		let value = self.length.to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
@@ -148,12 +145,12 @@ impl FromV8 for tg::blob::Child {
 		}
 		let value = value.to_object(scope).unwrap();
 
-		let blob = v8::String::new_external_onebyte_static(scope, "blob".as_bytes()).unwrap();
+		let blob = v8::String::new_external_onebyte_static(scope, b"blob").unwrap();
 		let blob = value.get(scope, blob.into()).unwrap();
 		let blob = <_>::from_v8(scope, blob)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the blob"))?;
 
-		let length = v8::String::new_external_onebyte_static(scope, "length".as_bytes()).unwrap();
+		let length = v8::String::new_external_onebyte_static(scope, b"length").unwrap();
 		let length = value.get(scope, length.into()).unwrap();
 		let length = <_>::from_v8(scope, length)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the length"))?;
@@ -164,7 +161,7 @@ impl FromV8 for tg::blob::Child {
 
 impl ToV8 for tg::blob::read::Arg {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
-		let value = Serde::new(self);
+		let value = Serde(self);
 		let value = value.to_v8(scope)?;
 		Ok(value)
 	}
@@ -175,7 +172,7 @@ impl FromV8 for tg::blob::read::Arg {
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		let value = Serde::from_v8(scope, value)?.into_inner();
+		let value = Serde::from_v8(scope, value)?.0;
 		Ok(value)
 	}
 }

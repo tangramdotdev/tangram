@@ -14,8 +14,8 @@ pub enum Stream {
 }
 
 pub fn log(
-	_scope: &mut v8::HandleScope,
 	state: Rc<State>,
+	_scope: &mut v8::HandleScope,
 	args: (Stream, String),
 ) -> tg::Result<()> {
 	let (stream, string) = args;

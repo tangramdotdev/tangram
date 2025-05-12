@@ -1,30 +1,37 @@
 use super::State;
 use std::rc::Rc;
-use tangram_client as tg;
+use tangram_client::{self as tg, prelude::*};
+use tangram_v8::Serde;
 
-pub async fn load(state: Rc<State>, args: (tg::object::Id,)) -> tg::Result<tg::object::Object> {
-	let (id,) = args;
+pub async fn get(
+	state: Rc<State>,
+	args: (Serde<tg::object::Id>,),
+) -> tg::Result<Serde<tg::object::Data>> {
+	let (Serde(id),) = args;
 	let server = state.server.clone();
-	let object = state
+	let data = state
 		.main_runtime_handle
 		.spawn({
 			let id = id.clone();
-			async move { tg::object::Handle::with_id(id).object(&server).await }
+			async move {
+				let tg::object::get::Output { bytes } = server.get_object(&id).await?;
+				let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+				Ok::<_, tg::Error>(data)
+			}
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, %id, "failed to load the object"))?;
-	Ok(object)
+		.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+	Ok(Serde(data))
 }
 
-pub async fn store(state: Rc<State>, args: (tg::object::Object,)) -> tg::Result<tg::object::Id> {
-	let (object,) = args;
-	let server = state.server.clone();
-	let id = state
-		.main_runtime_handle
-		.spawn(async move { tg::object::Handle::with_object(object).id(&server).await })
-		.await
-		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to store the object"))?;
-	Ok(id)
+pub fn id(
+	_state: Rc<State>,
+	_scope: &mut v8::HandleScope,
+	args: (Serde<tg::object::Data>,),
+) -> tg::Result<Serde<tg::object::Id>> {
+	let (Serde(data),) = args;
+	let bytes = data.serialize()?;
+	let id = tg::object::Id::new(data.kind(), &bytes);
+	Ok(Serde(id))
 }

@@ -12,7 +12,6 @@ impl Server {
 	pub(super) fn checkin_collect_input(&self, state: &mut State, root: PathBuf) -> tg::Result<()> {
 		self.checkin_visit(state, root)?;
 		Self::checkin_find_roots(state);
-		Self::checkin_find_subpaths(state);
 		Ok(())
 	}
 
@@ -72,6 +71,7 @@ impl Server {
 			metadata: Some(metadata),
 			object: None,
 			path: Some(Arc::new(path)),
+			parent: None,
 			root: None,
 			tag: None,
 		};
@@ -104,12 +104,16 @@ impl Server {
 			names.push(name);
 		}
 
+		// Sort the entries.
+		names.sort_unstable();
+
 		// Visit the children.
 		for name in names {
 			let path = state.graph.nodes[index].path().join(&name);
 			let Some(child_index) = self.checkin_visit(state, path)? else {
 				continue;
 			};
+			state.graph.nodes[child_index].parent.replace(index);
 			state.graph.nodes[index]
 				.variant
 				.unwrap_directory_mut()
@@ -179,7 +183,6 @@ impl Server {
 						let referent = tg::Referent {
 							item: Some(Either::Left(object.clone())),
 							path: referent.path.clone(),
-							subpath: referent.subpath.clone(),
 							tag: referent.tag.clone(),
 						};
 						let dependency = FileDependency::Referent {
@@ -204,7 +207,9 @@ impl Server {
 		)?;
 		let text = String::from_utf8(contents)
 			.map_err(|source| tg::error!(!source, %path = path.display(), "invalid utf8"))?;
-		let analysis = crate::Compiler::analyze_module(text)?;
+		let analysis = crate::Compiler::analyze_module(text).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to analyze the module"),
+		)?;
 		for error in analysis.errors {
 			// Dump diagnostics.
 			let diagnostic = tg::Diagnostic {
@@ -253,7 +258,6 @@ impl Server {
 								let referent = tg::Referent {
 									item: Some(Either::Left(item)),
 									path: referent.path.clone(),
-									subpath: referent.subpath.clone(),
 									tag: referent.tag.clone(),
 								};
 								Some((reference.clone(), referent))
@@ -290,18 +294,12 @@ impl Server {
 						});
 					}
 
-					// Get the subpath of this import if it exists. Since this may change later, it's kept separate to preserve the original import reference/options.
-					let subpath = import
-						.reference
-						.options()
-						.and_then(|opt| opt.subpath.clone());
-
 					// Add the import.
 					acc.push(FileDependency::Import {
 						import,
 						node: None,
 						path: None,
-						subpath,
+						tag: None,
 					});
 
 					Ok(acc)
@@ -326,15 +324,17 @@ impl Server {
 			visited[index] = true;
 
 			// Walk up the path hierarchy.
-			let path = state.graph.nodes[index].path();
+			let Some(path) = state.graph.nodes[index].path.as_ref() else {
+				continue;
+			};
 
 			// Check if the hint matches.
-			if let (Some(hint), false) = (hint, state.graph.nodes[index].is_package()) {
+			if let Some(hint) = hint {
 				let hint_path = state.graph.nodes[hint].path();
-				if path.strip_prefix(hint_path).is_ok() {
-					// Mark this node's root.
-					state.graph.nodes[index].root.replace(hint);
+				if path.strip_prefix(hint_path).map(Path::to_owned).is_ok() {
+					// Mark this as a child of the root.
 					state.graph.roots.entry(hint).or_default().push(index);
+					state.graph.nodes[index].root.replace(hint);
 
 					// Recurse on children using the same hint.
 					let children = state.graph.nodes[index]
@@ -346,143 +346,133 @@ impl Server {
 				}
 			}
 
-			// Search the ancestors of this node to find its root, unless it is a package.
+			// Try and find the package of this node.
 			let mut root = None;
-			if !state.graph.nodes[index].is_package() {
-				for ancestor in path.ancestors().skip(1) {
-					let Some(node) = state.graph.paths.get(ancestor) else {
-						break;
-					};
-					root.replace(*node);
-				}
+			for ancestor in path.ancestors().skip(1) {
+				let Some(node) = state.graph.paths.get(ancestor) else {
+					break;
+				};
+				root.replace(*node);
 			}
 
-			// Add to the list of roots if necessary.
+			// Add to the list of packages if necessary.
 			if let Some(root) = root {
+				// Mark this as a child of the root.
 				state.graph.roots.entry(root).or_default().push(index);
 				state.graph.nodes[index].root.replace(root);
-			} else {
-				state.graph.roots.entry(index).or_default();
 			}
 
-			// Recurse, using the root if it was discovered or this node if it is a directory.
-			let hint = Some(root.unwrap_or(index));
+			// If this is a directory and we didn't find a root, set the hint to this directory.
+			if root.is_none() {
+				state.graph.roots.entry(index).or_default();
+				root.replace(index);
+			}
+
+			// Recurse.
 			let children = state.graph.nodes[index]
 				.edges()
 				.into_iter()
-				.map(|child| (child, hint));
-
+				.map(|child| (child, root));
 			stack.extend(children);
 		}
 	}
+}
 
-	fn checkin_find_subpaths(state: &mut State) {
-		for index in 0..state.graph.nodes.len() {
-			if !(state.graph.nodes[index]
-				.metadata
-				.as_ref()
-				.unwrap()
-				.is_file() && tg::package::is_module_path(state.graph.nodes[index].path()))
-			{
-				continue;
-			}
+#[cfg(test)]
+mod tests {
+	use crate::test::test;
+	use tangram_client as tg;
+	use tangram_temp::{self as temp, Temp};
 
-			let updates = state.graph.nodes[index]
-				.variant
-				.unwrap_file_ref()
-				.dependencies
-				.iter()
-				.enumerate()
-				.filter_map(|(dep_index, dependency)| {
-					// Skip unresolved dependencies.
-					let FileDependency::Import {
-						import,
-						node: Some(node),
-						subpath: None,
-						..
-					} = dependency
-					else {
-						return None;
-					};
+	#[tokio::test]
+	async fn package_with_path_dependencies() {
+		let artifact = temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import bar from "../bar";"#,
+			},
+			"bar" => temp::directory! {
+				"tangram.ts" => r#"import foo from "../foo";"#,
+			},
+		};
+		let assertions = |state: &crate::checkin::State| {
+			assert_eq!(state.graph.roots.len(), 2);
+			assert_eq!(state.graph.roots.get(&0).unwrap(), &vec![1]);
+			assert_eq!(state.graph.roots.get(&2).unwrap(), &vec![3]);
+			assert!(state.graph.nodes[0].path().ends_with("foo"));
+			assert!(state.graph.nodes[1].path().ends_with("foo/tangram.ts"));
+			assert!(state.graph.nodes[2].path().ends_with("bar"));
+			assert!(state.graph.nodes[3].path().ends_with("bar/tangram.ts"));
+		};
+		test_input(artifact, "foo", assertions).await;
+	}
 
-					// Skip any imports that have subpaths.
-					if import
-						.reference
-						.options()
-						.is_some_and(|options| options.subpath.is_some())
-					{
-						return None;
-					}
+	#[tokio::test]
+	async fn nested_path_dependencies() {
+		let artifact = temp::directory! {
+			"foo" => temp::directory! {
+				"tangram.ts" => r#"import bar from "./bar";"#,
+				"bar" => temp::directory! {
+					"tangram.ts" => "",
+				},
+			},
+		};
+		let assertions = |state: &crate::checkin::State| {
+			assert_eq!(state.graph.roots.len(), 1);
+			assert_eq!(state.graph.roots.get(&0).unwrap(), &vec![3, 1, 2]);
+			assert!(state.graph.nodes[0].path().ends_with("foo"));
+			assert!(state.graph.nodes[1].path().ends_with("foo/bar"));
+			assert!(state.graph.nodes[2].path().ends_with("foo/bar/tangram.ts"));
+			assert!(state.graph.nodes[3].path().ends_with("foo/tangram.ts"));
+		};
+		test_input(artifact, "foo", assertions).await;
+	}
 
-					// Get the package and subpath of the import.
-					let (package, subpath) = state.graph.nodes[*node].root.map_or_else(
-						|| {
-							// If the import kind is _not_ a module, make sure to ignore the result.
-							if !matches!(
-								import.kind,
-								None | Some(
-									tg::module::Kind::Dts
-										| tg::module::Kind::Js | tg::module::Kind::Ts
-								)
-							) {
-								return (*node, None);
-							}
+	async fn test_input<F>(
+		artifact: impl Into<temp::Artifact> + Send + 'static,
+		path: &'static str,
+		assertions: F,
+	) where
+		F: FnOnce(&crate::checkin::State) + Send + 'static,
+	{
+		test(async move |context| {
+			// Start the server.
+			let server = context.start_server().await;
 
-							// If this is a root directory and contains a tangram.ts, use it.
-							let subpath = state.graph.nodes[*node]
-								.variant
-								.try_unwrap_directory_ref()
-								.ok()
-								.and_then(|directory| {
-									directory.entries.iter().find_map(|(name, _)| {
-										tg::package::ROOT_MODULE_FILE_NAMES
-											.contains(&name.as_str())
-											.then_some(name.into())
-									})
-								});
-							(*node, subpath)
-						},
-						|root| {
-							// Otherwise look for this as a subpath of the module.
-							let subpath = state.graph.nodes[*node]
-								.path()
-								.strip_prefix(state.graph.nodes[root].path())
-								.unwrap()
-								.to_owned();
-							(root, Some(subpath))
-						},
-					);
+			// Create the test artifact.
+			let artifact: temp::Artifact = artifact.into();
+			let temp = Temp::new();
+			artifact.to_path(temp.path()).await.unwrap();
 
-					// Use the relative path of the package
-					let path = state.graph.nodes[package]
-						.path
-						.as_deref()
-						.and_then(|module_path| {
-							let path =
-								crate::util::path::diff(&state.arg.path, module_path).ok()?;
-							(!path.as_os_str().is_empty()).then_some(path)
-						});
+			let progress = crate::progress::Handle::new();
+			let mut state = crate::checkin::State {
+				arg: tg::checkin::Arg {
+					path: temp.path().join(path),
+					destructive: false,
+					deterministic: false,
+					ignore: true,
+					locked: false,
+					lockfile: true,
+				},
+				fixup_sender: None,
+				graph: crate::checkin::Graph::default(),
+				graph_objects: Vec::new(),
+				lockfile: None,
+				locked: false,
+				ignorer: None,
+				progress,
+			};
 
-					// Recreate the new dependency.
-					Some((
-						dep_index,
-						FileDependency::Import {
-							import: import.clone(),
-							node: Some(package),
-							path,
-							subpath,
-						},
-					))
-				})
-				.collect::<Vec<_>>(); // iterator ivnalidation.
+			let state = tokio::task::spawn_blocking(move || {
+				server
+					.checkin_collect_input(&mut state, temp.path().join(path))
+					.expect("collect input failed");
+				state
+			})
+			.await
+			.unwrap();
 
-			// Replace the import with the changed one.
-			for (dep_index, dependency) in updates {
-				state.graph.nodes[index]
-					.variant
-					.unwrap_file_mut()
-					.dependencies[dep_index] = dependency;
-			}
-		}
+			assertions(&state);
+		})
+		.await;
 	}
 }

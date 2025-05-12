@@ -1,9 +1,9 @@
 import * as tg from "./index.ts";
+import { error, log } from "./log.ts";
 
-let console = { log: tg.log, error: tg.error };
 Object.defineProperties(globalThis, {
 	console: {
-		value: console,
+		value: { error, log },
 		configurable: true,
 		enumerable: true,
 		writable: true,

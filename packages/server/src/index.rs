@@ -77,6 +77,7 @@ pub struct DeleteTagMessage {
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum ProcessObjectKind {
 	Command,
+	Error,
 	Output,
 }
 
@@ -1598,6 +1599,7 @@ impl std::fmt::Display for ProcessObjectKind {
 	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Command => write!(formatter, "command"),
+			Self::Error => write!(formatter, "error"),
 			Self::Output => write!(formatter, "output"),
 		}
 	}
@@ -1609,6 +1611,7 @@ impl std::str::FromStr for ProcessObjectKind {
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
 			"command" => Ok(Self::Command),
+			"error" => Ok(Self::Error),
 			"output" => Ok(Self::Output),
 			_ => Err(tg::error!("invalid kind")),
 		}

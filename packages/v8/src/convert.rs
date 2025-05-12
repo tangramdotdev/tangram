@@ -4,12 +4,15 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 
+mod de;
+mod ser;
+mod serde;
+
 mod artifact;
 mod blob;
 mod builtin;
 mod checksum;
 mod command;
-mod de;
 mod directory;
 mod error;
 mod file;
@@ -20,8 +23,6 @@ mod object;
 mod process;
 mod reference;
 mod referent;
-mod ser;
-mod serde;
 mod symlink;
 mod template;
 mod value;
@@ -365,6 +366,27 @@ impl FromV8 for f64 {
 			.map_err(|source| tg::error!(!source, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))
+	}
+}
+
+impl<T> ToV8 for Box<T>
+where
+	T: ToV8,
+{
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		self.as_ref().to_v8(scope)
+	}
+}
+
+impl<T> FromV8 for Box<T>
+where
+	T: FromV8,
+{
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		Ok(Self::new(<_>::from_v8(scope, value)?))
 	}
 }
 

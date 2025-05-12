@@ -10,7 +10,7 @@ pub struct Command {
 	pub env: tg::value::Map,
 	pub executable: tg::command::Executable,
 	pub host: String,
-	pub mounts: Option<Vec<tg::command::Mount>>,
+	pub mounts: Vec<tg::command::Mount>,
 	pub stdin: Option<tg::Blob>,
 	pub user: Option<String>,
 }
@@ -53,14 +53,56 @@ impl Command {
 			.chain(self.executable.object())
 			.chain(self.args.iter().flat_map(tg::Value::objects))
 			.chain(self.env.values().flat_map(tg::Value::objects))
-			.chain(
-				self.mounts
-					.as_deref()
-					.unwrap_or_default()
-					.iter()
-					.flat_map(tg::command::Mount::object),
-			)
+			.chain(self.mounts.iter().flat_map(tg::command::Mount::object))
 			.collect()
+	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		let args = self.args.iter().map(tg::Value::to_data).collect();
+		let cwd = self.cwd.clone();
+		let env = self
+			.env
+			.iter()
+			.map(|(key, value)| {
+				let key = key.clone();
+				let value = value.to_data();
+				(key, value)
+			})
+			.collect();
+		let executable = match &self.executable {
+			tg::command::Executable::Artifact(executable) => {
+				let artifact = tg::command::data::ArtifactExecutable {
+					artifact: executable.artifact.id(),
+					subpath: executable.subpath.clone(),
+				};
+				tg::command::data::Executable::Artifact(artifact)
+			},
+			tg::command::Executable::Module(executable) => {
+				let module = executable.to_data();
+				tg::command::data::Executable::Module(module)
+			},
+			tg::command::Executable::Path(executable) => {
+				let path = tg::command::data::PathExecutable {
+					path: executable.path.clone(),
+				};
+				tg::command::data::Executable::Path(path)
+			},
+		};
+		let host = self.host.clone();
+		let mounts = self.mounts.iter().map(Mount::to_data).collect();
+		let stdin = self.stdin.as_ref().map(tg::Blob::id);
+		let user = self.user.clone();
+		Data {
+			args,
+			cwd,
+			env,
+			executable,
+			host,
+			mounts,
+			stdin,
+			user,
+		}
 	}
 }
 
@@ -85,17 +127,14 @@ impl ArtifactExecutable {
 impl ModuleExecutable {
 	#[must_use]
 	pub fn objects(&self) -> Vec<tg::object::Handle> {
-		self.module.objects()
+		self.module.children()
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::command::data::ModuleExecutable>
-	where
-		H: tg::Handle,
-	{
-		let module = self.module.data(handle).await?;
+	#[must_use]
+	pub fn to_data(&self) -> tg::command::data::ModuleExecutable {
+		let module = self.module.to_data();
 		let export = self.export.clone();
-		let data = tg::command::data::ModuleExecutable { module, export };
-		Ok(data)
+		tg::command::data::ModuleExecutable { module, export }
 	}
 }
 
@@ -112,9 +151,7 @@ impl TryFrom<Data> for Command {
 			.try_collect()?;
 		let executable = data.executable.into();
 		let host = data.host;
-		let mounts = data
-			.mounts
-			.map(|mounts| mounts.into_iter().map(Into::into).collect());
+		let mounts = data.mounts.into_iter().map(Into::into).collect();
 		let stdin = data.stdin.map(tg::Blob::with_id);
 		let user = data.user;
 		Ok(Self {
@@ -176,14 +213,11 @@ impl From<tg::File> for Executable {
 }
 
 impl Mount {
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::command::data::Mount>
-	where
-		H: tg::Handle,
-	{
-		let source = self.source.id(handle).await?;
+	#[must_use]
+	pub fn to_data(&self) -> tg::command::data::Mount {
+		let source = self.source.id();
 		let target = self.target.clone();
-		let mount = tg::command::data::Mount { source, target };
-		Ok(mount)
+		tg::command::data::Mount { source, target }
 	}
 
 	#[must_use]

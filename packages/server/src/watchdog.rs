@@ -39,7 +39,7 @@ impl Server {
 					select id
 					from processes
 					where
-						(status = 'started' or status = 'finishing') and
+						status = 'started' and
 						heartbeat_at <= {p}1
 					limit {p}2
 				) as updates
@@ -64,10 +64,13 @@ impl Server {
 			.map(|process| {
 				let server = self.clone();
 				async move {
-					let error = Some(tg::error!(
-						code = tg::error::Code::Cancelation,
-						"the process's heartbeat expired"
-					));
+					let error = Some(
+						tg::error!(
+							code = tg::error::Code::Cancelation,
+							"the process's heartbeat expired"
+						)
+						.to_data(),
+					);
 					let arg = tg::process::finish::Arg {
 						checksum: None,
 						error,

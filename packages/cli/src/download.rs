@@ -21,7 +21,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let options = tg::DownloadOptions { mode: args.mode };
 		let command = tg::builtin::download_command(&args.url, Some(options));
-		let command = command.id(&handle).await?;
+		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build(args.build, reference, vec![]).await?;
 		Ok(())

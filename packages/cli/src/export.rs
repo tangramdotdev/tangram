@@ -42,18 +42,7 @@ impl Cli {
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item {
 			Either::Left(process) => Either::Left(process.id().clone()),
-			Either::Right(object) => {
-				let object = if let Some(subpath) = &referent.subpath {
-					let directory = object
-						.try_unwrap_directory()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a directory"))?;
-					directory.get(&handle, subpath).await?.into()
-				} else {
-					object
-				};
-				Either::Right(object.id(&handle).await?)
-			},
+			Either::Right(object) => Either::Right(object.id()),
 		};
 
 		// Create the import stream.

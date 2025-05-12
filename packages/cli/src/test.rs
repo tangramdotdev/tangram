@@ -123,6 +123,7 @@ impl Server {
 		command.arg(&config_path);
 		command.arg("--directory");
 		command.arg(&directory_path);
+		command.arg("--quiet");
 		command.arg("serve");
 
 		// Spawn the process.
@@ -139,6 +140,7 @@ impl Server {
 				.arg(&directory_path)
 				.arg("--mode")
 				.arg("client")
+				.arg("--quiet")
 				.arg("health")
 				.output()
 				.await
@@ -170,12 +172,16 @@ impl Server {
 		let config_path = self.temp.path().join(".config/tangram/config.json");
 		let directory_path = self.temp.path().join(".tangram");
 		command
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::piped())
 			.arg("--config")
 			.arg(config_path)
 			.arg("--directory")
 			.arg(directory_path)
 			.arg("--mode")
-			.arg("client");
+			.arg("client")
+			.arg("--quiet");
 		command
 	}
 

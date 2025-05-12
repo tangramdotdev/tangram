@@ -7,9 +7,9 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 #[tokio::test]
 async fn hello_world() {
 	let directory = temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default () => "Hello, World!";
-			"#),
+		"tangram.ts" => indoc!(r#"
+			export default () => "Hello, World!";
+		"#),
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
@@ -21,9 +21,9 @@ async fn hello_world() {
 #[tokio::test]
 async fn nonexistent_function() {
 	let directory = temp::directory! {
-			"tangram.ts" => indoc!(r"
-				export default () => foo();
-			"),
+		"tangram.ts" => indoc!(r"
+			export default () => foo();
+		"),
 	};
 	let assertions = |output: std::process::Output| async move {
 		assert_failure!(output);
@@ -82,7 +82,6 @@ async fn test_check<F, Fut>(
 		let path = temp.path().join(path);
 		let command_ = format!("{path}", path = path.display());
 
-		// Build.
 		let mut command = server.tg();
 		command.arg("check").arg(command_);
 		let output = command.output().await.unwrap();

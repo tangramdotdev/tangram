@@ -225,12 +225,7 @@ impl vfs::Provider for Provider {
 				tracing::error!(%error, ?file, "failed to get blob for file");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?
-			.id(&self.server)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, ?file, "failed to get blob ID");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+			.id();
 
 		// Create the file handle.
 		let file_handle = FileHandle { blob };
@@ -312,11 +307,7 @@ impl vfs::Provider for Provider {
 			for _ in 0..depth - 1 {
 				target.push("..");
 			}
-			let Ok(artifact) = artifact.id(&self.server).await else {
-				tracing::error!("failed to get the symlink's artifact id");
-				return Err(std::io::Error::from_raw_os_error(libc::EIO));
-			};
-			target.push(artifact.to_string());
+			target.push(artifact.id().to_string());
 			if let Some(path) = path.as_ref() {
 				target.push(path);
 			}
@@ -556,10 +547,7 @@ impl Provider {
 		};
 
 		// Get the artifact id.
-		let artifact = artifact.id(&self.server).await.map_err(|error| {
-			tracing::error!(%error, "failed to get artifact id");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
+		let artifact = artifact.id();
 
 		// Get a node ID.
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);

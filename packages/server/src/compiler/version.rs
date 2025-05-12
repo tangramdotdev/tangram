@@ -23,21 +23,14 @@ impl Compiler {
 				| tg::module::Kind::Directory
 				| tg::module::Kind::File
 				| tg::module::Kind::Symlink,
-			referent:
-				tg::Referent {
-					item: tg::module::data::Item::Path(path),
-					subpath,
-					..
-				},
+			referent: tg::Referent {
+				item: tg::module::data::Item::Path(path),
+				..
+			},
 			..
 		} = &module
 		else {
 			return Ok(0);
-		};
-		let path = if let Some(subpath) = subpath {
-			path.join(subpath)
-		} else {
-			path.clone()
 		};
 
 		// Get the modified time.

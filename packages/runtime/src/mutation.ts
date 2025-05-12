@@ -130,6 +130,115 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		tg.assert(value instanceof Mutation);
 	}
 
+	static toData<T extends tg.Value = tg.Value>(
+		value: Mutation<T>,
+	): Mutation.Data {
+		if (value.inner.kind === "unset") {
+			return { kind: "unset" };
+		} else if (value.inner.kind === "set") {
+			return {
+				kind: "set",
+				value: tg.Value.toData(value.inner.value),
+			};
+		} else if (value.inner.kind === "set_if_unset") {
+			return {
+				kind: "set_if_unset",
+				value: tg.Value.toData(value.inner.value),
+			};
+		} else if (
+			value.inner.kind === "prepend" ||
+			value.inner.kind === "append"
+		) {
+			return {
+				kind: value.inner.kind,
+				values: value.inner.values.map(tg.Value.toData),
+			};
+		} else if (value.inner.kind === "prefix" || value.inner.kind === "suffix") {
+			let output: {
+				kind: "prefix" | "suffix";
+				template: tg.Template.Data;
+				separator?: string;
+			} = {
+				kind: value.inner.kind,
+				template: tg.Template.toData(value.inner.template),
+			};
+			if (value.inner.separator !== undefined) {
+				output.separator = value.inner.separator;
+			}
+			return output;
+		} else if (value.inner.kind === "merge") {
+			return {
+				kind: "merge",
+				value: Object.fromEntries(
+					Object.entries(value.inner.value).map(([key, value]) => [
+						key,
+						tg.Value.toData(value),
+					]),
+				),
+			};
+		} else {
+			return tg.unreachable("invalid kind");
+		}
+	}
+
+	static fromData<T extends tg.Value = tg.Value>(
+		data: Mutation.Data,
+	): Mutation<T> {
+		if (data.kind === "unset") {
+			return new Mutation({ kind: "unset" }) as Mutation<T>;
+		} else if (data.kind === "set") {
+			return new Mutation({
+				kind: "set",
+				value: tg.Value.fromData(data.value),
+			}) as Mutation<T>;
+		} else if (data.kind === "set_if_unset") {
+			return new Mutation({
+				kind: "set_if_unset",
+				value: tg.Value.fromData(data.value),
+			}) as Mutation<T>;
+		} else if (data.kind === "prepend" || data.kind === "append") {
+			return new Mutation({
+				kind: data.kind,
+				values: data.values.map(tg.Value.fromData),
+			}) as Mutation<T>;
+		} else if (data.kind === "prefix" || data.kind === "suffix") {
+			return new Mutation({
+				kind: data.kind,
+				template: tg.Template.fromData(data.template),
+				separator: data.separator,
+			}) as Mutation<T>;
+		} else if (data.kind === "merge") {
+			return new Mutation({
+				kind: "merge",
+				value: Object.fromEntries(
+					Object.entries(data.value).map(([key, value]) => [
+						key,
+						tg.Value.fromData(value),
+					]),
+				),
+			}) as Mutation<T>;
+		} else {
+			return tg.unreachable("invalid kind");
+		}
+	}
+
+	children(): Array<tg.Object> {
+		if (this.#inner.kind === "set") {
+			return tg.Value.objects(this.#inner.value);
+		} else if (this.#inner.kind === "set_if_unset") {
+			return tg.Value.objects(this.#inner.value);
+		} else if (
+			this.#inner.kind === "prepend" ||
+			this.#inner.kind === "append"
+		) {
+			return tg.Value.objects(this.#inner.values);
+		} else if (this.#inner.kind === "prefix" || this.#inner.kind === "suffix") {
+			return this.#inner.template.children();
+		} else {
+			return [];
+		}
+	}
+
 	async apply(map: { [key: string]: tg.Value }, key: string): Promise<void> {
 		if (this.#inner.kind === "unset") {
 			delete map[key];
@@ -261,6 +370,33 @@ export namespace Mutation {
 		| {
 				kind: "merge";
 				value: T extends { [key: string]: tg.Value } ? T : never;
+		  };
+
+	export type Data =
+		| { kind: "unset" }
+		| { kind: "set"; value: tg.Value.Data }
+		| { kind: "set_if_unset"; value: tg.Value.Data }
+		| {
+				kind: "prepend";
+				values: Array<tg.Value.Data>;
+		  }
+		| {
+				kind: "append";
+				values: Array<tg.Value.Data>;
+		  }
+		| {
+				kind: "prefix";
+				template: tg.Template.Data;
+				separator?: string;
+		  }
+		| {
+				kind: "suffix";
+				template: tg.Template.Data;
+				separator?: string;
+		  }
+		| {
+				kind: "merge";
+				value: { [key: string]: tg.Value.Data };
 		  };
 
 	export type Kind =

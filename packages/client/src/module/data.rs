@@ -1,6 +1,6 @@
 use super::Kind;
 use crate as tg;
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
@@ -32,25 +32,37 @@ pub enum Item {
 	Object(tg::object::Id),
 }
 
+impl Module {
+	#[must_use]
+	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+		match &self.referent.item {
+			Item::Path(_) => [].into(),
+			Item::Object(id) => [id.clone()].into(),
+		}
+	}
+}
+
 impl std::fmt::Display for Module {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.kind)?;
 		if let Some(tag) = &self.referent.tag {
-			write!(f, ":{tag}")?;
+			write!(f, "{tag}")?;
+			if let Some(path) = &self.referent.path {
+				write!(f, ": {}", path.display())?;
+			}
 		} else if let Some(path) = &self.referent.path {
-			write!(f, ":{}", path.display())?;
+			write!(f, "{}", path.display())?;
 		} else {
 			match &self.referent.item {
 				Item::Path(path) => {
-					write!(f, ":{}", path.display())?;
+					write!(f, "{}", path.display())?;
 				},
 				Item::Object(object) => {
-					write!(f, ":{object}")?;
+					write!(f, "{object}")?;
+					if let Some(path) = &self.referent.path {
+						write!(f, ":{}", path.display())?;
+					}
 				},
 			}
-		}
-		if let Some(subpath) = &self.referent.subpath {
-			write!(f, ":{}", subpath.display())?;
 		}
 		Ok(())
 	}

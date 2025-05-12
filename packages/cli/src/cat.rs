@@ -20,17 +20,8 @@ impl Cli {
 
 		for reference in &args.references {
 			let referent = self.get_reference(reference).await?;
-			let Either::Right(object) = referent.item else {
+			let Either::Right(object) = &referent.item else {
 				return Err(tg::error!("expected an object"));
-			};
-			let object = if let Some(subpath) = &referent.subpath {
-				let directory = object
-					.try_unwrap_directory()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?;
-				directory.get(&handle, subpath).await?.into()
-			} else {
-				object
 			};
 			if let Ok(blob) = tg::Blob::try_from(object.clone()) {
 				// Create a reader.

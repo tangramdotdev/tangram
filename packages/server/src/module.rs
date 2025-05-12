@@ -1,40 +1,9 @@
 use crate::Server;
 use std::path::Path;
 use tangram_client as tg;
-use tangram_either::Either;
 
 impl Server {
 	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::module::Data> {
-		// Find the lockfile.
-		let (lockfile_path, lockfile) = 'a: {
-			for ancestor in path.ancestors().skip(1) {
-				// Check if the lockfile exists.
-				let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
-				let exists = tokio::fs::try_exists(&lockfile_path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to check if lockfile exists"))?;
-				if !exists {
-					continue;
-				}
-
-				// Parse the lockfile.
-				let contents = tokio::fs::read_to_string(&lockfile_path).await.map_err(
-					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to read lockfile"),
-				)?;
-				let lockfile = serde_json::from_str::<tg::Lockfile>(&contents).map_err(
-					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to deserialize lockfile"),
-				)?;
-				break 'a (lockfile_path, lockfile);
-			}
-			return Err(tg::error!("failed to find a lockfile"));
-		};
-
-		// Find the package within the lockfile.
-		let package = self
-			.find_node_in_lockfile(Either::Right(path), &lockfile_path, &lockfile)
-			.await?
-			.package;
-
 		// Get the file name.
 		let file_name = path
 			.file_name()
@@ -48,16 +17,12 @@ impl Server {
 		// Get the kind.
 		let kind = infer_module_kind(file_name)?;
 
-		// Get the subpath.
-		let subpath = path.strip_prefix(&package).unwrap().to_owned();
-
 		// Create the module.
 		Ok(tg::module::Data {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Path(package.clone()),
+				item: tg::module::data::Item::Path(path.to_owned()),
 				path: None,
-				subpath: Some(subpath),
 				tag: None,
 			},
 		})

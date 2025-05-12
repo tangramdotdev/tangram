@@ -7,7 +7,7 @@ pub struct Arg {
 	pub checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Error>,
+	pub error: Option<tg::error::Data>,
 
 	pub exit: u8,
 

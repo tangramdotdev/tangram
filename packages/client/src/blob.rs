@@ -1,6 +1,6 @@
 pub use self::{
 	data::Blob as Data,
-	handle::Blob as Handle,
+	handle::{Blob as Handle, State},
 	id::Id,
 	object::{Blob as Object, Child},
 };

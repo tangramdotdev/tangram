@@ -40,7 +40,6 @@ async fn create_from_file() {
 			.arg("tgvn")
 			.arg("--pretty")
 			.arg("true")
-			.arg("--recursive")
 			.output()
 			.await
 			.unwrap();

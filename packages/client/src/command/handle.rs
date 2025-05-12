@@ -1,9 +1,5 @@
 use super::{Builder, Data, Id, Object};
 use crate::{self as tg, util::arc::Ext as _};
-use futures::{
-	TryStreamExt as _,
-	stream::{FuturesOrdered, FuturesUnordered},
-};
 use std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc};
 
 #[derive(Clone, Debug)]
@@ -28,7 +24,7 @@ impl Command {
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &std::sync::RwLock<State> {
+	pub fn state(&self) -> &Arc<std::sync::RwLock<State>> {
 		&self.state
 	}
 
@@ -46,11 +42,17 @@ impl Command {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
-	where
-		H: tg::Handle,
-	{
-		self.store(handle).await
+	#[must_use]
+	pub fn id(&self) -> Id {
+		if let Some(id) = self.state.read().unwrap().id.clone() {
+			return id;
+		}
+		let object = self.state.read().unwrap().object.clone().unwrap();
+		let data = object.to_data();
+		let bytes = data.serialize().unwrap();
+		let id = Id::new(&bytes);
+		self.state.write().unwrap().id.replace(id.clone());
+		id
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -96,19 +98,8 @@ impl Command {
 	where
 		H: tg::Handle,
 	{
-		if let Some(id) = self.state.read().unwrap().id.clone() {
-			return Ok(id);
-		}
-		let data = self.data(handle).await?;
-		let bytes = data.serialize()?;
-		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg { bytes };
-		handle
-			.put_object(&id.clone().into(), arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		self.state.write().unwrap().id.replace(id.clone());
-		Ok(id)
+		tg::Value::from(self.clone()).store(handle).await?;
+		Ok(self.id())
 	}
 
 	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
@@ -123,73 +114,7 @@ impl Command {
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(handle).await?;
-		let args = object
-			.args
-			.iter()
-			.map(|value| value.data(handle))
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-		let cwd = object.cwd.clone();
-		let env = object
-			.env
-			.iter()
-			.map(|(key, value)| async move {
-				let key = key.clone();
-				let value = value.data(handle).await?;
-				Ok::<_, tg::Error>((key, value))
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		let executable = match &object.executable {
-			tg::command::Executable::Artifact(executable) => {
-				let artifact = tg::command::data::ArtifactExecutable {
-					artifact: executable.artifact.id(handle).await?,
-					subpath: executable.subpath.clone(),
-				};
-				tg::command::data::Executable::Artifact(artifact)
-			},
-			tg::command::Executable::Module(executable) => {
-				let module = Box::pin(executable.data(handle)).await?;
-				tg::command::data::Executable::Module(module)
-			},
-			tg::command::Executable::Path(executable) => {
-				let path = tg::command::data::PathExecutable {
-					path: executable.path.clone(),
-				};
-				tg::command::data::Executable::Path(path)
-			},
-		};
-		let host = object.host.clone();
-		let mounts = if let Some(mounts) = &object.mounts {
-			let data = mounts
-				.iter()
-				.map(|mount| mount.data(handle))
-				.collect::<FuturesOrdered<_>>()
-				.try_collect()
-				.await?;
-			Some(data)
-		} else {
-			None
-		};
-		let stdin = if let Some(stdin) = &object.stdin {
-			Some(stdin.id(handle).await?)
-		} else {
-			None
-		};
-		let user = object.user.clone();
-		Ok(Data {
-			args,
-			cwd,
-			env,
-			executable,
-			host,
-			mounts,
-			stdin,
-			user,
-		})
+		Ok(self.object(handle).await?.to_data())
 	}
 }
 
@@ -244,7 +169,7 @@ impl Command {
 	pub async fn mounts<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Deref<Target = Option<Vec<tg::command::Mount>>>>
+	) -> tg::Result<impl Deref<Target = Vec<tg::command::Mount>>>
 	where
 		H: tg::Handle,
 	{

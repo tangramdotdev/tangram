@@ -661,8 +661,7 @@ impl Compiler {
 		context.set_slot(self.clone());
 
 		// Add the syscall function to the global.
-		let syscall_string =
-			v8::String::new_external_onebyte_static(scope, "syscall".as_bytes()).unwrap();
+		let syscall_string = v8::String::new_external_onebyte_static(scope, b"syscall").unwrap();
 		let syscall_function = v8::Function::new(scope, syscall).unwrap();
 		context
 			.global(scope)
@@ -671,10 +670,10 @@ impl Compiler {
 
 		// Get the handle function.
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
-		let handle = v8::String::new_external_onebyte_static(scope, "handle".as_bytes()).unwrap();
+		let handle = v8::String::new_external_onebyte_static(scope, b"handle").unwrap();
 		let handle = tangram.get(scope, handle.into()).unwrap();
 		let handle = v8::Local::<v8::Function>::try_from(handle).unwrap();
 
@@ -683,7 +682,7 @@ impl Compiler {
 			let scope = &mut v8::TryCatch::new(scope);
 
 			// Serialize the request.
-			let result = Serde::new(request)
+			let result = Serde(request)
 				.to_v8(scope)
 				.map_err(|source| tg::error!(!source, "failed to serialize the request"));
 			let request = match result {
@@ -708,7 +707,7 @@ impl Compiler {
 
 			// Deserialize the response.
 			let result = Serde::from_v8(scope, response)
-				.map(Serde::into_inner)
+				.map(|output| output.0)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the response"));
 			let response = match result {
 				Ok(response) => response,
@@ -746,7 +745,6 @@ impl Compiler {
 			let referent = tg::Referent {
 				item,
 				path: None,
-				subpath: None,
 				tag: None,
 			};
 			let module = tg::module::Data { kind, referent };
@@ -785,16 +783,15 @@ impl Compiler {
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let item = tg::module::data::Item::Object(object);
-			let subpath = path.components().skip(1).collect::<PathBuf>();
-			let subpath = if subpath.as_os_str().is_empty() {
+			let path = path.components().skip(1).collect::<PathBuf>();
+			let path = if path.as_os_str().is_empty() {
 				None
 			} else {
-				Some(subpath)
+				Some(path)
 			};
 			let referent = tg::Referent {
 				item,
-				path: None,
-				subpath,
+				path,
 				tag: None,
 			};
 			let module = tg::module::Data { kind, referent };
@@ -853,7 +850,7 @@ impl Compiler {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Object(object),
-						subpath,
+						path,
 						..
 					},
 				..
@@ -875,11 +872,8 @@ impl Compiler {
 						.try_collect::<()>()
 						.await?;
 				}
-				let path = if let Some(subpath) = subpath {
-					self.server
-						.cache_path()
-						.join(object.to_string())
-						.join(subpath)
+				let path = if let Some(path) = path {
+					self.server.cache_path().join(object.to_string()).join(path)
 				} else {
 					self.server.cache_path().join(object.to_string())
 				};
@@ -892,16 +886,10 @@ impl Compiler {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Path(path),
-						subpath,
 						..
 					},
 				..
 			} => {
-				let path = if let Some(subpath) = subpath {
-					path.clone().join(subpath.clone())
-				} else {
-					path.clone()
-				};
 				let path = path.display();
 				let uri = format!("file://{path}").parse().unwrap();
 				Ok(uri)

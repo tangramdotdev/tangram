@@ -22,32 +22,31 @@ impl FromV8 for tg::Object {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let blob = v8::String::new_external_onebyte_static(scope, "Blob".as_bytes()).unwrap();
+		let blob = v8::String::new_external_onebyte_static(scope, b"Blob").unwrap();
 		let blob = tangram.get(scope, blob.into()).unwrap();
 		let blob = v8::Local::<v8::Function>::try_from(blob).unwrap();
 
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
+		let directory = v8::String::new_external_onebyte_static(scope, b"Directory").unwrap();
 		let directory = tangram.get(scope, directory.into()).unwrap();
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
+		let file = v8::String::new_external_onebyte_static(scope, b"File").unwrap();
 		let file = tangram.get(scope, file.into()).unwrap();
 		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
 
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
+		let symlink = v8::String::new_external_onebyte_static(scope, b"Symlink").unwrap();
 		let symlink = tangram.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
-		let graph = v8::String::new_external_onebyte_static(scope, "Graph".as_bytes()).unwrap();
+		let graph = v8::String::new_external_onebyte_static(scope, b"Graph").unwrap();
 		let graph = tangram.get(scope, graph.into()).unwrap();
 		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
 
-		let command = v8::String::new_external_onebyte_static(scope, "Command".as_bytes()).unwrap();
+		let command = v8::String::new_external_onebyte_static(scope, b"Command").unwrap();
 		let command = tangram.get(scope, command.into()).unwrap();
 		let command = v8::Local::<v8::Function>::try_from(command).unwrap();
 
@@ -95,10 +94,10 @@ impl ToV8 for tg::object::Object {
 			Self::Command(command) => ("command", command.to_v8(scope)?),
 		};
 		let object = v8::Object::new(scope);
-		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
+		let key = v8::String::new_external_onebyte_static(scope, b"kind").unwrap();
 		let kind = v8::String::new_external_onebyte_static(scope, kind.as_bytes()).unwrap();
 		object.set(scope, key.into(), kind.into());
-		let key = v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
+		let key = v8::String::new_external_onebyte_static(scope, b"value").unwrap();
 		object.set(scope, key.into(), value);
 		Ok(object.into())
 	}
@@ -113,10 +112,10 @@ impl FromV8 for tg::object::Object {
 			return Err(tg::error!("expected an object"));
 		}
 		let value = value.to_object(scope).unwrap();
-		let key = v8::String::new_external_onebyte_static(scope, "kind".as_bytes()).unwrap();
+		let key = v8::String::new_external_onebyte_static(scope, b"kind").unwrap();
 		let kind = value.get(scope, key.into()).unwrap();
 		let kind = String::from_v8(scope, kind).unwrap();
-		let key = v8::String::new_external_onebyte_static(scope, "value".as_bytes()).unwrap();
+		let key = v8::String::new_external_onebyte_static(scope, b"value").unwrap();
 		let value = value.get(scope, key.into()).unwrap();
 		let value = match kind.as_str() {
 			"blob" => Self::Blob(<_>::from_v8(scope, value)?),
@@ -125,7 +124,9 @@ impl FromV8 for tg::object::Object {
 			"symlink" => Self::Symlink(<_>::from_v8(scope, value)?),
 			"graph" => Self::Graph(<_>::from_v8(scope, value)?),
 			"command" => Self::Command(<_>::from_v8(scope, value)?),
-			_ => unreachable!(),
+			_ => {
+				return Err(tg::error!(%kind, "invalid kind"));
+			},
 		};
 		Ok(value)
 	}
@@ -139,15 +140,21 @@ where
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
-		let key = v8::String::new_external_onebyte_static(scope, "id".as_bytes()).unwrap();
-		let value = self.id().to_v8(scope)?;
-		object.set(scope, key.into(), value);
-
-		if self.id().is_none() {
-			let key = v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
-			let value = self.object().to_v8(scope)?;
+		if let Some(id) = &self.id {
+			let key = v8::String::new_external_onebyte_static(scope, b"id").unwrap();
+			let value = id.to_v8(scope)?;
 			object.set(scope, key.into(), value);
 		}
+
+		if let Some(object_) = &self.object {
+			let key = v8::String::new_external_onebyte_static(scope, b"object").unwrap();
+			let value = object_.to_v8(scope)?;
+			object.set(scope, key.into(), value);
+		}
+
+		let key = v8::String::new_external_onebyte_static(scope, b"stored").unwrap();
+		let value = self.stored.to_v8(scope)?;
+		object.set(scope, key.into(), value);
 
 		Ok(object.into())
 	}
@@ -167,20 +174,24 @@ where
 		}
 		let value = value.to_object(scope).unwrap();
 
-		let id = v8::String::new_external_onebyte_static(scope, "id".as_bytes()).unwrap();
+		let stored = v8::String::new_external_onebyte_static(scope, b"stored").unwrap();
+		let stored = value.get(scope, stored.into()).unwrap();
+		let stored = bool::from_v8(scope, stored)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the stored value"))?;
+
+		let id = v8::String::new_external_onebyte_static(scope, b"id").unwrap();
 		let id = value.get(scope, id.into()).unwrap();
 		let id = <Option<I>>::from_v8(scope, id)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the id"))?;
 
-		let object = if id.is_none() {
-			let object =
-				v8::String::new_external_onebyte_static(scope, "object".as_bytes()).unwrap();
+		let object = if stored {
+			None
+		} else {
+			let object = v8::String::new_external_onebyte_static(scope, b"object").unwrap();
 			let object = value.get(scope, object.into()).unwrap();
 			<Option<O>>::from_v8(scope, object)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?
 				.map(Arc::new)
-		} else {
-			None
 		};
 
 		Ok(Self::new(id, object))

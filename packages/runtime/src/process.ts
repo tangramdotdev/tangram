@@ -18,7 +18,8 @@ export class Process {
 	}
 
 	async wait(): Promise<tg.Process.WaitOutput> {
-		let output = await syscall("process_wait", this.#id, this.#remote);
+		let data = await syscall("process_wait", this.#id, this.#remote);
+		let output = tg.Process.WaitOutput.fromData(data);
 		return output;
 	}
 
@@ -32,15 +33,15 @@ export class Process {
 	}
 
 	async load(): Promise<void> {
-		let state = await syscall("process_load", this.#id, this.#remote);
-		this.#state = state;
+		let data = await syscall("process_get", this.#id, this.#remote);
+		this.#state = tg.Process.State.fromData(data);
 	}
 
 	async reload(): Promise<void> {
 		await this.load();
 	}
 
-	id(): tg.Process.Id {
+	get id(): tg.Process.Id {
 		return this.#id;
 	}
 
@@ -93,8 +94,8 @@ export class Process {
 export namespace Process {
 	export type ConstructorArg = {
 		id: tg.Process.Id;
-		remote: string | undefined;
-		state: State | undefined;
+		remote?: string | undefined;
+		state?: State | undefined;
 	};
 
 	export type Id = string;
@@ -102,25 +103,22 @@ export namespace Process {
 	export type Mount = {
 		source: string;
 		target: string;
-		readonly: boolean;
+		readonly?: boolean;
 	};
 
 	export namespace Mount {
-		export let parse = async (
-			arg: string | tg.Template,
-		): Promise<tg.Process.Mount> => {
+		export let parse = (arg: string | tg.Template): tg.Process.Mount => {
 			// If the user passed a template, ensure it contains no artifacts.
 			let s: string | undefined;
 			if (typeof arg === "string") {
 				s = arg;
 			} else if (arg instanceof tg.Template) {
-				s = await arg.components.reduce(async (acc, component) => {
+				s = arg.components.reduce<string>((string, component) => {
 					if (tg.Artifact.is(component)) {
 						throw new Error("expected no artifacts");
-					} else {
-						return (await acc) + component;
 					}
-				}, Promise.resolve(""));
+					return string + component;
+				}, "");
 			} else {
 				throw new Error("expected a template or a string");
 			}
@@ -223,7 +221,73 @@ export namespace Process {
 		exit: number | undefined;
 		mounts: Array<tg.Process.Mount>;
 		network: boolean;
-		output: tg.Value | undefined;
+		output?: tg.Value;
+		status: tg.Process.Status;
+		stderr: string | undefined;
+		stdin: string | undefined;
+		stdout: string | undefined;
+	};
+
+	export namespace State {
+		export let toData = (value: State): Data => {
+			let output: Data = {
+				command: value.command.id,
+				status: value.status,
+			};
+			if (value.error !== undefined) {
+				output.error = tg.Error.toData(value.error);
+			}
+			if (value.exit !== undefined) {
+				output.exit = value.exit;
+			}
+			if (value.mounts.length > 0) {
+				output.mounts = value.mounts;
+			}
+			if (value.network) {
+				output.network = value.network;
+			}
+			if ("output" in value) {
+				output.output = tg.Value.toData(value.output);
+			}
+			if (value.stderr !== undefined) {
+				output.stderr = value.stderr;
+			}
+			if (value.stdin !== undefined) {
+				output.stdin = value.stdin;
+			}
+			if (value.stdout !== undefined) {
+				output.stdout = value.stdout;
+			}
+			return output;
+		};
+
+		export let fromData = (data: Data): State => {
+			let output: State = {
+				command: tg.Command.withId(data.command),
+				error:
+					data.error !== undefined ? tg.Error.fromData(data.error) : undefined,
+				exit: data.exit,
+				mounts: data.mounts ?? [],
+				network: data.network ?? false,
+				status: data.status,
+				stderr: data.stderr,
+				stdin: data.stdin,
+				stdout: data.stdout,
+			};
+			if ("output" in data) {
+				output.output = tg.Value.fromData(data.output);
+			}
+			return output;
+		};
+	}
+
+	export type Data = {
+		command: tg.Command.Id;
+		error?: tg.Error.Data;
+		exit?: number;
+		mounts?: Array<tg.Process.Mount>;
+		network?: boolean;
+		output?: tg.Value.Data;
 		status: tg.Process.Status;
 		stderr?: string;
 		stdin?: string;
@@ -235,13 +299,44 @@ export namespace Process {
 		| "enqueued"
 		| "dequeued"
 		| "started"
-		| "finishing"
 		| "finished";
 
 	export type WaitOutput = {
 		error: tg.Error | undefined;
 		exit: number;
-		output: tg.Value | undefined;
-		status: tg.Process.Status;
+		output?: tg.Value;
 	};
+
+	export namespace WaitOutput {
+		export type Data = {
+			error?: tg.Error.Data;
+			exit: number;
+			output?: tg.Value.Data;
+		};
+
+		export let fromData = (data: Data): WaitOutput => {
+			let output: WaitOutput = {
+				error:
+					data.error !== undefined ? tg.Error.fromData(data.error) : undefined,
+				exit: data.exit,
+			};
+			if ("output" in data) {
+				output.output = tg.Value.fromData(data.output);
+			}
+			return output;
+		};
+
+		export let toData = (value: WaitOutput): Data => {
+			let output: Data = {
+				exit: value.exit,
+			};
+			if (value.error !== undefined) {
+				output.error = tg.Error.toData(value.error);
+			}
+			if ("output" in value) {
+				output.output = tg.Value.toData(value.output);
+			}
+			return output;
+		};
+	}
 }

@@ -43,17 +43,27 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		},
 		...args,
 	);
+	let path: string | undefined;
+	let tag: string | undefined;
+	if (
+		"executable" in arg &&
+		typeof arg.executable === "object" &&
+		"module" in arg.executable
+	) {
+		path = arg.executable.module.referent.path;
+		tag = arg.executable.module.referent.tag;
+		arg.executable.module.referent.path = undefined;
+		arg.executable.module.referent.tag = undefined;
+	}
 	let commandMounts: Array<tg.Command.Mount> | undefined;
 	if ("mounts" in arg && arg.mounts !== undefined) {
-		commandMounts = await Promise.all(
-			arg.mounts.map(async (mount) => {
-				if (typeof mount === "string" || mount instanceof tg.Template) {
-					return await tg.Command.Mount.parse(mount);
-				} else {
-					return mount;
-				}
-			}),
-		);
+		commandMounts = arg.mounts.map((mount) => {
+			if (typeof mount === "string" || mount instanceof tg.Template) {
+				return tg.Command.Mount.parse(mount);
+			} else {
+				return mount;
+			}
+		});
 	}
 	let commandStdin: tg.Blob.Arg | undefined = undefined;
 	if ("stdin" in arg && arg.stdin !== undefined) {
@@ -74,7 +84,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	if (network === true && checksum === undefined) {
 		throw new Error("a checksum is required to build with network enabled");
 	}
-	let commandId = await command.id();
+	let commandId = await command.store();
 	let spawnOutput = await syscall("process_spawn", {
 		checksum,
 		command: commandId,
@@ -94,8 +104,15 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		state: undefined,
 	});
 	let wait = await process.wait();
-	if (wait.error) {
-		throw wait.error;
+	if (wait.error !== undefined) {
+		let error = wait.error;
+		throw new tg.Error("the child process failed", {
+			source: {
+				item: error,
+				path,
+				tag,
+			},
+		});
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
 		throw new Error(`the process exited with code ${wait.exit}`);
@@ -132,12 +149,10 @@ async function arg_(
 					env: object.env,
 					executable: object.executable,
 					host: object.host,
+					mounts: object.mounts,
 				};
 				if (object.cwd !== undefined) {
 					output.cwd = object.cwd;
-				}
-				if (object.mounts !== undefined) {
-					output.mounts = object.mounts;
 				}
 				if (object.stdin !== undefined) {
 					output.stdin = object.stdin;

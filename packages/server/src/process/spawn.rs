@@ -32,7 +32,8 @@ impl Server {
 
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some()
-			|| (!arg.network
+			|| (arg.mounts.is_empty()
+				&& !arg.network
 				&& arg.stdin.is_none()
 				&& arg.stdout.is_none()
 				&& arg.stderr.is_none());
@@ -117,10 +118,13 @@ impl Server {
 						async move {
 							let arg = tg::process::finish::Arg {
 								checksum: None,
-								error: Some(tg::error!(
-									code = tg::error::Code::Cancelation,
-									"the process was canceled"
-								)),
+								error: Some(
+									tg::error!(
+										code = tg::error::Code::Cancelation,
+										"the process was canceled"
+									)
+									.to_data(),
+								),
 								exit: 1,
 								force: false,
 								output: None,
@@ -386,7 +390,7 @@ impl Server {
 			true,
 			arg.command,
 			now,
-			error.map(db::value::Json),
+			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
 			exit,
 			arg.checksum,
 			now,
@@ -421,7 +425,8 @@ impl Server {
 
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some()
-			|| (!arg.network
+			|| (arg.mounts.is_empty()
+				&& !arg.network
 				&& arg.stdin.is_none()
 				&& arg.stdout.is_none()
 				&& arg.stderr.is_none());

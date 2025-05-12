@@ -1,6 +1,5 @@
 use super::{Data, Id, Object};
 use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -12,13 +11,19 @@ pub type State = tg::object::State<Id, Object>;
 
 impl Graph {
 	#[must_use]
+	pub fn with_nodes(nodes: Vec<tg::graph::Node>) -> Self {
+		let object = tg::graph::Object { nodes };
+		Self::with_object(object)
+	}
+
+	#[must_use]
 	pub fn with_state(state: State) -> Self {
 		let state = Arc::new(std::sync::RwLock::new(state));
 		Self { state }
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &std::sync::RwLock<State> {
+	pub fn state(&self) -> &Arc<std::sync::RwLock<State>> {
 		&self.state
 	}
 
@@ -36,11 +41,17 @@ impl Graph {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
-	where
-		H: tg::Handle,
-	{
-		self.store(handle).await
+	#[must_use]
+	pub fn id(&self) -> Id {
+		if let Some(id) = self.state.read().unwrap().id.clone() {
+			return id;
+		}
+		let object = self.state.read().unwrap().object.clone().unwrap();
+		let data = object.to_data();
+		let bytes = data.serialize().unwrap();
+		let id = Id::new(&bytes);
+		self.state.write().unwrap().id.replace(id.clone());
+		id
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -86,19 +97,8 @@ impl Graph {
 	where
 		H: tg::Handle,
 	{
-		if let Some(id) = self.state.read().unwrap().id.clone() {
-			return Ok(id);
-		}
-		let data = self.data(handle).await?;
-		let bytes = data.serialize()?;
-		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg { bytes };
-		handle
-			.put_object(&id.clone().into(), arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		self.state.write().unwrap().id.replace(id.clone());
-		Ok(id)
+		tg::Value::from(self.clone()).store(handle).await?;
+		Ok(self.id())
 	}
 
 	pub async fn nodes<H>(&self, handle: &H) -> tg::Result<Vec<tg::graph::Node>>
@@ -121,15 +121,7 @@ impl Graph {
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(handle).await?;
-		let nodes = object
-			.nodes
-			.iter()
-			.map(|node| node.data(handle))
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-		Ok(Data { nodes })
+		Ok(self.object(handle).await?.to_data())
 	}
 }
 

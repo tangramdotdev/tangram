@@ -1,14 +1,15 @@
 use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
-use futures::{
-	TryStreamExt as _,
-	stream::{FuturesOrdered, FuturesUnordered},
-};
+use futures::{StreamExt as _, stream};
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	pin::pin,
+};
 use tangram_either::Either;
+use tangram_futures::stream::TryExt as _;
 
 pub use self::data::*;
 
@@ -106,44 +107,93 @@ impl Value {
 			Self::Array(array) => array.iter().flat_map(Self::objects).collect(),
 			Self::Map(map) => map.values().flat_map(Self::objects).collect(),
 			Self::Object(object) => vec![object.clone()],
-			Self::Template(template) => template.objects(),
-			Self::Mutation(mutation) => mutation.objects(),
+			Self::Template(template) => template.children(),
+			Self::Mutation(mutation) => mutation.children(),
 			_ => vec![],
 		}
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn store<H>(&self, handle: &H) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
-		let data = match self {
+		// Get the objects.
+		let objects = self.objects();
+
+		// Collect all unstored objects in reverse topological order.
+		let mut unstored = Vec::new();
+		let mut stack = objects
+			.into_iter()
+			.filter(|object| !object.state().stored())
+			.collect::<Vec<_>>();
+		while let Some(object) = stack.pop() {
+			unstored.push(object.clone());
+			let children = object
+				.state()
+				.object()
+				.unwrap()
+				.children()
+				.into_iter()
+				.filter(|object| !object.state().stored());
+			stack.extend(children);
+		}
+		unstored.reverse();
+
+		// Import.
+		let mut items = Vec::new();
+		for object in &unstored {
+			let data = object.state().object().unwrap().to_data();
+			let bytes = data
+				.serialize()
+				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			let id = tg::object::Id::new(data.kind(), &bytes);
+			let item = tg::export::Item::Object(tg::export::ObjectItem { id, bytes });
+			items.push(item);
+		}
+		let arg = tg::import::Arg {
+			items: self
+				.objects()
+				.into_iter()
+				.map(|object| Either::Right(object.id()))
+				.collect(),
+			remote: None,
+		};
+		let stream = stream::iter(items.into_iter().map(Ok)).boxed();
+		let stream = handle.import(arg, stream).await?;
+		pin!(stream)
+			.try_last()
+			.await?
+			.ok_or_else(|| tg::error!("expected an event"))?
+			.try_unwrap_end()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the end"))?;
+
+		// Mark all objects stored.
+		for object in &unstored {
+			object.state().set_stored(true);
+		}
+
+		Ok(())
+	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		match self {
 			Self::Null => Data::Null,
 			Self::Bool(bool) => Data::Bool(*bool),
 			Self::Number(number) => Data::Number(*number),
 			Self::String(string) => Data::String(string.clone()),
-			Self::Array(array) => Data::Array(
-				array
-					.iter()
-					.map(|value| value.data(handle))
-					.collect::<FuturesOrdered<_>>()
-					.try_collect()
-					.await?,
-			),
+			Self::Array(array) => Data::Array(array.iter().map(Value::to_data).collect()),
 			Self::Map(map) => Data::Map(
 				map.iter()
-					.map(|(key, value)| async move {
-						Ok::<_, tg::Error>((key.clone(), value.data(handle).await?))
-					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?,
+					.map(|(key, value)| (key.clone(), value.to_data()))
+					.collect(),
 			),
-			Self::Object(object) => Data::Object(object.id(handle).await?),
+			Self::Object(object) => Data::Object(object.id()),
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
-			Self::Mutation(mutation) => Data::Mutation(mutation.data(handle).await?),
-			Self::Template(template) => Data::Template(template.data(handle).await?),
-		};
-		Ok(data)
+			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
+			Self::Template(template) => Data::Template(template.to_data()),
+		}
 	}
 
 	pub fn print(&self, options: self::print::Options) -> String {
@@ -274,6 +324,12 @@ impl serde::Serialize for Data {
 				map.serialize_entry("value", value)?;
 				map.end()
 			},
+			Self::Object(value) => {
+				let mut map = serializer.serialize_map(Some(2))?;
+				map.serialize_entry("kind", "object")?;
+				map.serialize_entry("value", value)?;
+				map.end()
+			},
 			Self::Bytes(value) => {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "bytes")?;
@@ -289,12 +345,6 @@ impl serde::Serialize for Data {
 			Self::Template(value) => {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "template")?;
-				map.serialize_entry("value", value)?;
-				map.end()
-			},
-			Self::Object(value) => {
-				let mut map = serializer.serialize_map(Some(2))?;
-				map.serialize_entry("kind", "object")?;
 				map.serialize_entry("value", value)?;
 				map.end()
 			},

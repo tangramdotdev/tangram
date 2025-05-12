@@ -4,15 +4,15 @@ declare global {
 	function syscall(
 		syscall: "blob_create",
 		bytes: string | Uint8Array,
-	): Promise<tg.Blob>;
+	): Promise<tg.Blob.Id>;
 
 	function syscall(
 		syscall: "blob_read",
-		blob: tg.Blob,
-		arg?: ReadArg,
+		blob: tg.Blob.Id,
+		arg: BlobReadArg,
 	): Promise<Uint8Array>;
 
-	type ReadArg = {
+	type BlobReadArg = {
 		position?: number | string | undefined;
 		length?: number | undefined;
 	};
@@ -54,33 +54,43 @@ declare global {
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
 	function syscall(
+		syscall: "import",
+		objects: Array<ImportItem>,
+	): Promise<void>;
+
+	type ImportItem = {
+		id: tg.Object.Id;
+		data: tg.Object.Data;
+	};
+
+	function syscall(
 		syscall: "log",
 		stream: "stdout" | "stderr",
 		string: string,
 	): void;
 
-	function syscall(syscall: "magic", value: Function): tg.Command.Executable;
+	function syscall(
+		syscall: "magic",
+		value: Function,
+	): tg.Command.ExecutableData;
 
 	function syscall(
-		syscall: "object_load",
+		syscall: "object_get",
 		id: tg.Object.Id,
-	): Promise<tg.Object.Object>;
+	): Promise<tg.Object.Data>;
+
+	function syscall(syscall: "object_id", object: tg.Object.Data): tg.Object.Id;
 
 	function syscall(
-		syscall: "object_store",
-		object: tg.Object.Object,
-	): Promise<tg.Object.Id>;
-
-	function syscall(
-		syscall: "process_load",
+		syscall: "process_get",
 		id: tg.Process.Id,
 		remote: string | undefined,
-	): Promise<tg.Process.State>;
+	): Promise<tg.Process.Data>;
 
 	function syscall(
 		syscall: "process_spawn",
 		arg: SpawnArg,
-	): Promise<{ process: tg.Process.Id; remote: string | undefined }>;
+	): Promise<SpawnOutput>;
 
 	type SpawnArg = {
 		checksum: tg.Checksum | undefined;
@@ -96,11 +106,16 @@ declare global {
 		stdout: string | undefined;
 	};
 
+	type SpawnOutput = {
+		process: tg.Process.Id;
+		remote: string | undefined;
+	};
+
 	function syscall(
 		syscall: "process_wait",
 		id: tg.Process.Id,
 		remote: string | undefined,
-	): Promise<tg.Process.WaitOutput>;
+	): Promise<tg.Process.WaitOutput.Data>;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
 }

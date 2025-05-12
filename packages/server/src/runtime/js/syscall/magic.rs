@@ -1,7 +1,7 @@
 use crate::runtime::js::State;
 use std::rc::Rc;
 use tangram_client as tg;
-use tangram_v8::ToV8 as _;
+use tangram_v8::{Serde, ToV8 as _};
 
 pub fn magic<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -26,7 +26,7 @@ pub fn magic<'s>(
 		if let Some(v8_module) = &module_.v8 {
 			let v8_module = v8::Local::new(scope, v8_module);
 			if v8_module.script_id() == Some(function.get_script_origin().script_id()) {
-				module = Some(tg::Module::from(module_.module.clone()));
+				module = Some(module_.module.clone());
 			}
 		}
 	}
@@ -36,10 +36,12 @@ pub fn magic<'s>(
 	let export = Some(function.get_name(scope).to_rust_string_lossy(scope));
 
 	// Create the executable.
-	let executable =
-		tg::command::Executable::Module(tg::command::ModuleExecutable { module, export });
+	let executable = tg::command::data::Executable::Module(tg::command::data::ModuleExecutable {
+		module,
+		export,
+	});
 
-	let value = executable.to_v8(scope)?;
+	let value = Serde(executable).to_v8(scope)?;
 
 	Ok(value)
 }

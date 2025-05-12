@@ -5,12 +5,11 @@ impl ToV8 for tg::Template {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let template =
-			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
+		let template = v8::String::new_external_onebyte_static(scope, b"Template").unwrap();
 		let template = tangram.get(scope, template.into()).unwrap();
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
@@ -31,12 +30,11 @@ impl FromV8 for tg::Template {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let template =
-			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
+		let template = v8::String::new_external_onebyte_static(scope, b"Template").unwrap();
 		let template = tangram.get(scope, template.into()).unwrap();
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 
@@ -45,8 +43,7 @@ impl FromV8 for tg::Template {
 		}
 		let value = value.to_object(scope).unwrap();
 
-		let components =
-			v8::String::new_external_onebyte_static(scope, "components".as_bytes()).unwrap();
+		let components = v8::String::new_external_onebyte_static(scope, b"components").unwrap();
 		let components = value.get(scope, components.into()).unwrap();
 		let components = <Vec<_>>::from_v8(scope, components)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the components"))?;

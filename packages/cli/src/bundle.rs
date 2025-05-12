@@ -17,7 +17,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let command = tg::builtin::bundle_command(&artifact);
-		let command = command.id(&handle).await?;
+		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
 		self.build(args.build, reference, vec![]).await?;
 		Ok(())

@@ -398,7 +398,7 @@ impl Server {
 		let mut batch = Vec::new();
 		let stream = ReceiverStream::new(object_receiver);
 		let mut stream = pin!(stream);
-		while let Some(tangram_client::export::ObjectItem { id, bytes }) = stream.next().await {
+		while let Some(tg::export::ObjectItem { id, bytes }) = stream.next().await {
 			if !batch.is_empty()
 				&& (batch.len() > max_objects_per_batch || batch_bytes > max_bytes_per_batch)
 			{

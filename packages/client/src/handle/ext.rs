@@ -11,6 +11,18 @@ use std::{
 use tangram_either::Either;
 
 pub trait Ext: tg::Handle {
+	fn read_blob(
+		&self,
+		id: &tg::blob::Id,
+		arg: tg::blob::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::blob::read::Chunk>> + Send + 'static>,
+	> + Send {
+		self.try_read_blob(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the blob")))
+		})
+	}
+
 	fn try_read_blob(
 		&self,
 		id: &tg::blob::Id,
@@ -463,7 +475,8 @@ pub trait Ext: tg::Handle {
 	> + Send {
 		self.try_get(reference).map(|result| {
 			result.map(|stream| {
-				stream.map(|event_result| {
+				let reference = reference.clone();
+				stream.map(move |event_result| {
 					event_result.and_then(|event| match event {
 						crate::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
 						crate::progress::Event::Diagnostic(diagnostic) => {
@@ -480,20 +493,13 @@ pub trait Ext: tg::Handle {
 						},
 						crate::progress::Event::Output(output) => output
 							.map(|output| {
-								let item = output
-									.referent
-									.item
-									.map_left(|id| tg::Process::new(id, None, None, None, None))
-									.map_right(tg::Object::with_id);
-								let referent = tg::Referent {
-									item,
-									path: output.referent.path,
-									subpath: output.referent.subpath,
-									tag: output.referent.tag,
-								};
+								let referent = output.referent.map(|item| {
+									item.map_left(|id| tg::Process::new(id, None, None, None, None))
+										.map_right(tg::Object::with_id)
+								});
 								crate::progress::Event::Output(referent)
 							})
-							.ok_or_else(|| tg::error!("failed to get reference")),
+							.ok_or_else(|| tg::error!(%reference, "failed to get reference")),
 					})
 				})
 			})

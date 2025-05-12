@@ -133,11 +133,6 @@ impl Compiler {
 		let tg::module::data::Item::Path(path) = &module.referent.item else {
 			return Ok(());
 		};
-		let path = if let Some(subpath) = &module.referent.subpath {
-			path.join(subpath)
-		} else {
-			path.clone()
-		};
 		let metadata = tokio::fs::metadata(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;

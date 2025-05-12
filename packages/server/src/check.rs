@@ -18,11 +18,8 @@ impl Server {
 		// Create the compiler.
 		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
 
-		// Create the module.
-		let module = arg.package;
-
 		// Check the package.
-		let diagnostics = compiler.check(vec![module]).await?;
+		let diagnostics = compiler.check(vec![arg.module]).await?;
 
 		// Create the output.
 		let output = tg::check::Output { diagnostics };

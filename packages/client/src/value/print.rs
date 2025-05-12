@@ -5,6 +5,7 @@ use std::fmt::Result;
 use tangram_either::Either;
 
 pub struct Printer<W> {
+	depth: u64,
 	first: bool,
 	indent: u32,
 	options: Options,
@@ -13,7 +14,7 @@ pub struct Printer<W> {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-	pub recursive: bool,
+	pub depth: Option<u64>,
 	pub style: Style,
 }
 
@@ -32,6 +33,7 @@ where
 {
 	pub fn new(writer: W, options: Options) -> Self {
 		Self {
+			depth: options.depth.unwrap_or(u64::MAX),
 			first: true,
 			indent: 0,
 			options,
@@ -187,11 +189,14 @@ where
 
 	pub fn blob(&mut self, value: &tg::Blob) -> Result {
 		let state = value.state().read().unwrap();
-		match (state.id(), state.object(), self.options.recursive) {
+		match (&state.id, &state.object, self.recurse()) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
 			(None, Some(object), _) | (Some(_), Some(object), true) => {
+				if let Some(depth) = self.options.depth.as_mut() {
+					*depth -= 1;
+				}
 				self.blob_object(object)?;
 			},
 			(None, None, _) => unreachable!(),
@@ -222,7 +227,7 @@ where
 
 	pub fn directory(&mut self, value: &tg::Directory) -> Result {
 		let state = value.state().read().unwrap();
-		match (state.id(), state.object(), self.options.recursive) {
+		match (&state.id, &state.object, self.recurse()) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -255,7 +260,7 @@ where
 
 	pub fn file(&mut self, value: &tg::File) -> Result {
 		let state = value.state().read().unwrap();
-		match (state.id(), state.object(), self.options.recursive) {
+		match (&state.id, &state.object, self.recurse()) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -293,11 +298,6 @@ where
 										s.string(path.to_string_lossy().as_ref())
 									})?;
 								}
-								if let Some(subpath) = &referent.subpath {
-									s.map_entry("subpath", |s| {
-										s.string(subpath.to_string_lossy().as_ref())
-									})?;
-								}
 								if let Some(tag) = &referent.tag {
 									s.map_entry("tag", |s| s.string(tag.as_str()))?;
 								}
@@ -321,7 +321,7 @@ where
 
 	pub fn symlink(&mut self, value: &tg::Symlink) -> Result {
 		let state = value.state().read().unwrap();
-		match (state.id(), state.object(), self.options.recursive) {
+		match (&state.id, &state.object, self.recurse()) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -358,7 +358,7 @@ where
 
 	pub fn graph(&mut self, value: &tg::Graph) -> Result {
 		let state = value.state().read().unwrap();
-		match (state.id(), state.object(), self.options.recursive) {
+		match (&state.id, &state.object, self.recurse()) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -427,11 +427,6 @@ where
 													s.string(path.to_string_lossy().as_ref())
 												})?;
 											}
-											if let Some(subpath) = &referent.subpath {
-												s.map_entry("subpath", |s| {
-													s.string(subpath.to_string_lossy().as_ref())
-												})?;
-											}
 											if let Some(tag) = &referent.tag {
 												s.map_entry("tag", |s| s.string(tag.as_str()))?;
 											}
@@ -491,7 +486,7 @@ where
 
 	pub fn command(&mut self, value: &tg::Command) -> Result {
 		let state = value.state().read().unwrap();
-		match (state.id(), state.object(), self.options.recursive) {
+		match (&state.id, &state.object, self.recurse()) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -522,10 +517,10 @@ where
 			},
 		})?;
 		self.map_entry("host", |s| s.string(&object.host))?;
-		if let Some(mounts) = &object.mounts {
+		if !object.mounts.is_empty() {
 			self.map_entry("mounts", |s| {
 				s.start_array()?;
-				for mount in mounts {
+				for mount in &object.mounts {
 					s.start_map()?;
 					s.map_entry("source", |s| s.artifact(&mount.source))?;
 					s.map_entry("target", |s| {
@@ -557,7 +552,7 @@ where
 
 	pub fn command_executable_module(&mut self, value: &tg::command::ModuleExecutable) -> Result {
 		self.start_map()?;
-		self.map_entry("module", |s| s.command_module(&value.module))?;
+		self.map_entry("module", |s| s.module(&value.module))?;
 		if let Some(export) = &value.export {
 			self.map_entry("export", |s| s.string(export))?;
 		}
@@ -565,7 +560,7 @@ where
 		Ok(())
 	}
 
-	pub fn command_module(&mut self, value: &tg::Module) -> Result {
+	pub fn module(&mut self, value: &tg::Module) -> Result {
 		self.start_map()?;
 		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
 		self.map_entry("referent", |s| {
@@ -576,9 +571,6 @@ where
 			})?;
 			if let Some(path) = &value.referent.path {
 				s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
-			}
-			if let Some(subpath) = &value.referent.subpath {
-				s.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
 			}
 			if let Some(tag) = &value.referent.tag {
 				s.map_entry("tag", |s| s.string(tag.as_str()))?;
@@ -669,6 +661,14 @@ where
 		self.finish_array()?;
 		write!(self.writer, ")")?;
 		Ok(())
+	}
+
+	fn recurse(&mut self) -> bool {
+		if self.depth == 0 {
+			return false;
+		}
+		self.depth -= 1;
+		true
 	}
 }
 

@@ -1,6 +1,7 @@
 use super::Kind;
 use crate as tg;
 use bytes::Bytes;
+use std::ops::Deref;
 
 /// An artifact ID.
 #[derive(
@@ -51,21 +52,19 @@ impl Id {
 		}
 	}
 
-	#[must_use]
-	pub fn to_bytes(&self) -> Vec<u8> {
-		self.as_id().to_bytes()
-	}
-
 	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
 		tg::Id::from_reader(bytes)?.try_into()
 	}
+}
 
-	#[must_use]
-	fn as_id(&self) -> &tg::Id {
+impl Deref for Id {
+	type Target = crate::Id;
+
+	fn deref(&self) -> &Self::Target {
 		match self {
-			Self::Directory(id) => &id.0,
-			Self::File(id) => &id.0,
-			Self::Symlink(id) => &id.0,
+			Self::Directory(id) => id,
+			Self::File(id) => id,
+			Self::Symlink(id) => id,
 		}
 	}
 }

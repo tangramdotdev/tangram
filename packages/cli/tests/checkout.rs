@@ -102,7 +102,7 @@ async fn file_with_dependency() {
 		  "kind": "file",
 		  "contents": "foo",
 		  "xattrs": {
-		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}},\"id\":\"fil_011fd0zvc0853ztfq0sm0p8gxf3w874a6zwfmsf14bgm8way2yj8eg\"}]}"
+		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"contents\":\"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\"dependencies\":{\"bar\":{\"item\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}}]}"
 		  }
 		}
 		"#);
@@ -245,10 +245,6 @@ async fn directory_with_file_with_dependency() {
 		    "foo": {
 		      "kind": "file",
 		      "contents": "foo"
-		    },
-		    "tangram.lock": {
-		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      },\n      \"id\": \"dir_01kepgqkqmm2f3am76vhcf612mmjppedkjpqdmrve5zqk5enhx1tyg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": \"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"\n        }\n      },\n      \"id\": \"fil_011fd0zvc0853ztfq0sm0p8gxf3w874a6zwfmsf14bgm8way2yj8eg\"\n    }\n  ]\n}"
 		    }
 		  }
 		}
@@ -423,10 +419,6 @@ async fn directory_with_symlink_cycle() {
 		    "link": {
 		      "kind": "symlink",
 		      "target": "link"
-		    },
-		    "tangram.lock": {
-		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"link\": 1\n      },\n      \"id\": \"dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng\"\n    },\n    {\n      \"kind\": \"symlink\",\n      \"artifact\": 0,\n      \"id\": \"sym_01gs8v0w26ks7573pm013qytg2p82fvhyzcwg6hnncjb1gx0077060\",\n      \"subpath\": \"link\"\n    }\n  ]\n}"
 		    }
 		  }
 		}
@@ -440,15 +432,15 @@ async fn shared_dependency_on_symlink() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default async () => {
-				let depDir = await tg.directory({
+				let dependency = await tg.directory({
 					"file.txt": "contents",
 					"link": tg.symlink("file.txt"),
 				});
-				let depDirId = await depDir.id();
+				let id = dependency.id;
 				return tg.directory({
-					"foo.txt": tg.file("foo", { dependencies: { depDirId: { item: depDir }}}),
-					"bar.txt": tg.file("bar", { dependencies: { depDirId: { item: depDir }}})
-				})
+					"foo.txt": tg.file("foo", { dependencies: { [id]: { item: dependency }}}),
+					"bar.txt": tg.file("bar", { dependencies: { [id]: { item: dependency }}})
+				});
 			}
 		"#),
 	};
@@ -491,7 +483,7 @@ async fn shared_dependency_on_symlink() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"bar.txt\": 1,\n        \"foo.txt\": 2\n      },\n      \"id\": \"dir_01drd94kvb06f10fhde9nwc5yk1tbntzy8w24cz05xvggajwjpbkd0\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\"\n        }\n      },\n      \"id\": \"fil_01rf44g89vt96t1jfj52dz7z8b5hmzmyfpf7eqbpybe0jm3fra3wgg\"\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"depDirId\": {\n          \"item\": \"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\"\n        }\n      },\n      \"id\": \"fil_013gyz1tgqe9skq4j5m21px83f4839agyyk9q5x5x6ssp6gm59g7vg\"\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"bar.txt\": 1,\n        \"foo.txt\": 3\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\",\n      \"dependencies\": {\n        \"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\": {\n          \"item\": 2\n        }\n      }\n    },\n    {\n      \"kind\": \"directory\",\n      \"entries\": {}\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\n      \"dependencies\": {\n        \"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\": {\n          \"item\": 2\n        }\n      }\n    }\n  ]\n}"
 		    }
 		  }
 		}

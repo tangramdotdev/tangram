@@ -1,6 +1,5 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tangram_either::Either;
 
@@ -19,7 +18,7 @@ impl Directory {
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &std::sync::RwLock<State> {
+	pub fn state(&self) -> &Arc<std::sync::RwLock<State>> {
 		&self.state
 	}
 
@@ -37,11 +36,17 @@ impl Directory {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
-	where
-		H: tg::Handle,
-	{
-		self.store(handle).await
+	#[must_use]
+	pub fn id(&self) -> Id {
+		if let Some(id) = self.state.read().unwrap().id.clone() {
+			return id;
+		}
+		let object = self.state.read().unwrap().object.clone().unwrap();
+		let data = object.to_data();
+		let bytes = data.serialize().unwrap();
+		let id = Id::new(&bytes);
+		self.state.write().unwrap().id.replace(id.clone());
+		id
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -90,19 +95,8 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		if let Some(id) = self.state.read().unwrap().id.clone() {
-			return Ok(id);
-		}
-		let data = self.data(handle).await?;
-		let bytes = data.serialize()?;
-		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg { bytes };
-		handle
-			.put_object(&id.clone().into(), arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		self.state.write().unwrap().id.replace(id.clone());
-		Ok(id)
+		tg::Value::from(self.clone()).store(handle).await?;
+		Ok(self.id())
 	}
 
 	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
@@ -117,30 +111,7 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(handle).await?;
-		match object.as_ref() {
-			Object::Graph { graph, node } => {
-				let graph = graph.id(handle).await?;
-				let node = *node;
-				Ok(Data::Graph { graph, node })
-			},
-			Object::Normal { entries } => {
-				let entries = entries
-					.iter()
-					.map(|(name, artifact)| {
-						let artifact = artifact.clone();
-						let handle = handle.clone();
-						async move {
-							let artifact = Box::pin(artifact.id(&handle)).await?;
-							Ok::<_, tg::Error>((name.clone(), artifact))
-						}
-					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?;
-				Ok(Data::Normal { entries })
-			},
-		}
+		Ok(self.object(handle).await?.to_data())
 	}
 }
 

@@ -41,7 +41,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let created_at = value.created_at;
 		let dequeued_at = value.dequeued_at;
 		let enqueued_at = value.enqueued_at;
-		let error = value.error;
+		let error = value.error.map(TryInto::try_into).transpose()?;
 		let exit = value.exit;
 		let expected_checksum = value.expected_checksum;
 		let finished_at = value.finished_at;

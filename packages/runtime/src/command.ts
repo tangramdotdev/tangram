@@ -20,7 +20,7 @@ export function command(...args: any): any {
 	if (typeof args[0] === "function") {
 		return new CommandBuilder({
 			host: "js",
-			executable: syscall("magic", args[0]),
+			executable: tg.Command.Executable.fromData(syscall("magic", args[0])),
 			args: args.slice(1),
 		});
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
@@ -52,7 +52,15 @@ export class Command<
 	}
 
 	static withId(id: Command.Id): Command {
-		return new Command({ id });
+		return new Command({ id, stored: true });
+	}
+
+	static withObject(object: Command.Object): Command {
+		return new Command({ object, stored: false });
+	}
+
+	static fromData(data: Command.Data): Command {
+		return Command.withObject(Command.Object.fromData(data));
 	}
 
 	static async new<
@@ -85,17 +93,15 @@ export class Command<
 		}
 		let host =
 			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
-		let mounts: Array<tg.Command.Mount> | undefined = undefined;
+		let mounts: Array<tg.Command.Mount> = [];
 		if (arg.mounts && arg.mounts.length > 0) {
-			mounts = await Promise.all(
-				arg.mounts.map(async (mount) => {
-					if (typeof mount === "string" || mount instanceof tg.Template) {
-						return await tg.Command.Mount.parse(mount);
-					} else {
-						return mount;
-					}
-				}),
-			);
+			mounts = arg.mounts.map((mount) => {
+				if (typeof mount === "string" || mount instanceof tg.Template) {
+					return tg.Command.Mount.parse(mount);
+				} else {
+					return mount;
+				}
+			});
 		}
 		if (executable === undefined) {
 			throw new Error("cannot create a command without an executable");
@@ -115,7 +121,7 @@ export class Command<
 			stdin,
 			user,
 		};
-		return new Command({ object });
+		return Command.withObject(object) as Command<A, R>;
 	}
 
 	static async arg(...args: tg.Args<Command.Arg>): Promise<Command.ArgObject> {
@@ -160,9 +166,15 @@ export class Command<
 		tg.assert(value instanceof Command);
 	}
 
-	async id(): Promise<Command.Id> {
-		await this.store();
-		return this.#state.id!;
+	get id(): Command.Id {
+		if (this.#state.id! !== undefined) {
+			return this.#state.id;
+		}
+		let object = this.#state.object!;
+		let data = Command.Object.toData(object);
+		let id = syscall("object_id", { kind: "command", value: data });
+		this.#state.id = id;
+		return id;
 	}
 
 	async object(): Promise<Command.Object> {
@@ -170,21 +182,24 @@ export class Command<
 		return this.#state.object!;
 	}
 
-	async load() {
+	async load(): Promise<tg.Command.Object> {
 		if (this.#state.object === undefined) {
-			let object = await syscall("object_load", this.#state.id!);
-			tg.assert(object.kind === "command");
-			this.#state.object = object.value;
+			let data = await syscall("object_get", this.#state.id!);
+			tg.assert(data.kind === "command");
+			let object = Command.Object.fromData(data.value);
+			this.#state.object = object;
 		}
+		return this.#state.object!;
 	}
 
-	async store() {
-		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("object_store", {
-				kind: "command",
-				value: this.#state.object!,
-			});
-		}
+	async store(): Promise<tg.Command.Id> {
+		await tg.Value.store(this);
+		return this.id;
+	}
+
+	async children(): Promise<Array<tg.Object>> {
+		let object = await this.object();
+		return tg.Command.Object.children(object);
 	}
 
 	async args(): Promise<Array<tg.Value>> {
@@ -253,6 +268,69 @@ export namespace Command {
 		| tg.Command.Executable.Module
 		| tg.Command.Executable.Path;
 
+	export namespace Executable {
+		export let toData = (value: Executable): ExecutableData => {
+			if ("artifact" in value) {
+				let output: ExecutableData = {
+					artifact: value.artifact.id,
+				};
+				if (value.subpath !== undefined) {
+					output.subpath = value.subpath;
+				}
+				return output;
+			} else if ("module" in value) {
+				let output: ExecutableData = {
+					module: tg.Module.toData(value.module),
+				};
+				if (value.export !== undefined) {
+					output.export = value.export;
+				}
+				return output;
+			} else if ("path" in value) {
+				return {
+					path: value.path,
+				};
+			} else {
+				throw new Error("invalid executable");
+			}
+		};
+
+		export let fromData = (data: ExecutableData): Executable => {
+			if ("artifact" in data) {
+				return {
+					artifact: tg.Artifact.withId(data.artifact),
+					subpath: data.subpath,
+				};
+			} else if ("module" in data) {
+				return {
+					module: tg.Module.fromData(data.module),
+					export: data.export,
+				};
+			} else if ("path" in data) {
+				return {
+					path: data.path,
+				};
+			} else {
+				throw new Error("invalid executable");
+			}
+		};
+
+		export let children = (value: Executable): Array<tg.Object> => {
+			if ("artifact" in value) {
+				return [value.artifact];
+			} else if ("module" in value) {
+				return tg.Module.children(value.module);
+			} else {
+				return [];
+			}
+		};
+	}
+
+	export type ExecutableData =
+		| tg.Command.Executable.ArtifactData
+		| tg.Command.Executable.ModuleData
+		| tg.Command.Executable.PathData;
+
 	export type ExecutableArg =
 		| tg.Artifact
 		| string
@@ -261,19 +339,19 @@ export namespace Command {
 		| tg.Command.Executable.PathArg;
 
 	export namespace Executable {
-		export type Artifact = {
-			artifact: tg.Artifact;
-			subpath: string | undefined;
-		};
-
 		export type ArtifactArg = {
 			artifact: tg.Artifact;
 			subpath?: string | undefined;
 		};
 
-		export type Module = {
-			module: tg.Module;
-			export: string | undefined;
+		export type Artifact = {
+			artifact: tg.Artifact;
+			subpath: string | undefined;
+		};
+
+		export type ArtifactData = {
+			artifact: tg.Artifact.Id;
+			subpath?: string;
 		};
 
 		export type ModuleArg = {
@@ -281,11 +359,25 @@ export namespace Command {
 			export?: string | undefined;
 		};
 
+		export type Module = {
+			module: tg.Module;
+			export: string | undefined;
+		};
+
+		export type ModuleData = {
+			module: tg.Module.Data;
+			export?: string;
+		};
+
+		export type PathArg = {
+			path: string;
+		};
+
 		export type Path = {
 			path: string;
 		};
 
-		export type PathArg = {
+		export type PathData = {
 			path: string;
 		};
 	}
@@ -297,22 +389,39 @@ export namespace Command {
 		target: string;
 	};
 
+	export type MountData = {
+		source: tg.Artifact.Id;
+		target: string;
+	};
+
 	export namespace Mount {
-		export let parse = async (
-			t: string | tg.Template,
-		): Promise<tg.Command.Mount> => {
+		export let toData = (data: Mount): MountData => {
+			return {
+				source: data.source.id,
+				target: data.target,
+			};
+		};
+
+		export let fromData = (data: MountData): Mount => {
+			return {
+				source: tg.Artifact.withId(data.source),
+				target: data.target,
+			};
+		};
+
+		export let parse = (t: string | tg.Template): tg.Command.Mount => {
 			// If the user passed a template, render a string with artifact IDs.
 			let s: string | undefined;
 			if (typeof t === "string") {
 				s = t;
 			} else if (t instanceof tg.Template) {
-				s = await t.components.reduce(async (acc, component) => {
+				s = t.components.reduce<string>((s, component) => {
 					if (tg.Artifact.is(component)) {
-						return (await acc) + (await component.id());
+						return s + component.id;
 					} else {
-						return (await acc) + component;
+						return s + component;
 					}
-				}, Promise.resolve(""));
+				}, "");
 			} else {
 				throw new Error("expected a template or a string");
 			}
@@ -361,9 +470,80 @@ export namespace Command {
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable;
 		host: string;
-		mounts: Array<tg.Command.Mount> | undefined;
+		mounts: Array<tg.Command.Mount>;
 		stdin: tg.Blob | undefined;
 		user: string | undefined;
+	};
+
+	export namespace Object {
+		export let toData = (object: Object): Data => {
+			let output: Data = {
+				args: object.args.map(tg.Value.toData),
+				env: globalThis.Object.fromEntries(
+					globalThis.Object.entries(object.env).map(([key, value]) => [
+						key,
+						tg.Value.toData(value),
+					]),
+				),
+				executable: tg.Command.Executable.toData(object.executable),
+				host: object.host,
+			};
+			if (object.cwd !== undefined) {
+				output.cwd = object.cwd;
+			}
+			if (object.mounts.length > 0) {
+				output.mounts = object.mounts.map(tg.Command.Mount.toData);
+			}
+			if (object.stdin !== undefined) {
+				output.stdin = object.stdin.id;
+			}
+			if (object.user !== undefined) {
+				output.user = object.user;
+			}
+			return output;
+		};
+
+		export let fromData = (data: Data): Object => {
+			return {
+				args: (data.args ?? []).map(tg.Value.fromData),
+				cwd: data.cwd,
+				env: globalThis.Object.fromEntries(
+					globalThis.Object.entries(data.env ?? {}).map(([key, value]) => [
+						key,
+						tg.Value.fromData(value),
+					]),
+				),
+				executable: tg.Command.Executable.fromData(data.executable),
+				host: data.host,
+				mounts: (data.mounts ?? []).map(tg.Command.Mount.fromData),
+				stdin:
+					data.stdin !== undefined ? tg.Blob.withId(data.stdin) : undefined,
+				user: data.user,
+			};
+		};
+
+		export let children = (object: Object): Array<tg.Object> => {
+			return [
+				...object.args.flatMap(tg.Value.objects),
+				...globalThis.Object.entries(object.env).flatMap(([_, value]) =>
+					tg.Value.objects(value),
+				),
+				...tg.Command.Executable.children(object.executable),
+				...object.mounts.map(({ source }) => source),
+				...(object.stdin !== undefined ? [object.stdin] : []),
+			];
+		};
+	}
+
+	export type Data = {
+		args?: Array<tg.Value.Data>;
+		cwd?: string;
+		env?: { [key: string]: tg.Value.Data };
+		executable: tg.Command.ExecutableData;
+		host: string;
+		mounts?: Array<tg.Command.MountData>;
+		stdin?: tg.Blob.Id;
+		user?: string;
 	};
 
 	export type State = tg.Object.State<Command.Id, Command.Object>;
@@ -382,7 +562,7 @@ export class CommandBuilder<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > extends Function {
-	#args: Array<tg.Unresolved<tg.MaybeMutationMap<tg.Command.ArgObject>>>;
+	#args: tg.Args<tg.Command.ArgObject>;
 
 	constructor(...args: tg.Args<tg.Command.ArgObject>) {
 		super();

@@ -55,33 +55,21 @@ pub enum Item {
 
 impl Module {
 	#[must_use]
-	pub fn objects(&self) -> Vec<tg::object::Handle> {
+	pub fn children(&self) -> Vec<tg::object::Handle> {
 		match &self.referent.item {
 			Item::Path(_) => vec![],
 			Item::Object(object) => vec![object.clone()],
 		}
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::module::Data>
-	where
-		H: tg::Handle,
-	{
+	#[must_use]
+	pub fn to_data(&self) -> Data {
 		let kind = self.kind;
-		let item = match self.referent.item.clone() {
+		let referent = self.referent.clone().map(|item| match item {
 			Item::Path(path) => tg::module::data::Item::Path(path),
-			Item::Object(object) => tg::module::data::Item::Object(object.id(handle).await?),
-		};
-		let path = self.referent.path.clone();
-		let subpath = self.referent.subpath.clone();
-		let tag = self.referent.tag.clone();
-		let referent = tg::Referent {
-			item,
-			path,
-			subpath,
-			tag,
-		};
-		let module = tg::module::Data { kind, referent };
-		Ok(module)
+			Item::Object(object) => tg::module::data::Item::Object(object.id()),
+		});
+		tg::module::Data { kind, referent }
 	}
 }
 
@@ -89,18 +77,21 @@ impl From<tg::module::Data> for Module {
 	fn from(value: tg::module::Data) -> Self {
 		Self {
 			kind: value.kind,
-			referent: tg::Referent {
-				item: match value.referent.item {
-					tg::module::data::Item::Path(path) => tg::module::Item::Path(path),
-					tg::module::data::Item::Object(object) => {
-						tg::module::Item::Object(tg::Object::with_id(object))
-					},
+			referent: value.referent.map(|item| match item {
+				tg::module::data::Item::Path(path) => tg::module::Item::Path(path),
+				tg::module::data::Item::Object(object) => {
+					tg::module::Item::Object(tg::Object::with_id(object))
 				},
-				path: value.referent.path,
-				subpath: value.referent.subpath,
-				tag: value.referent.tag,
-			},
+			}),
 		}
+	}
+}
+
+impl std::fmt::Display for Module {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.module(self)?;
+		Ok(())
 	}
 }
 

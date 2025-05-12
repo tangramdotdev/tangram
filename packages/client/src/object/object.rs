@@ -25,6 +25,18 @@ impl Object {
 			Self::Command(command) => command.children(),
 		}
 	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		match self {
+			Self::Blob(object) => Data::Blob(object.to_data()),
+			Self::Directory(object) => Data::Directory(object.to_data()),
+			Self::File(object) => Data::File(object.to_data()),
+			Self::Symlink(object) => Data::Symlink(object.to_data()),
+			Self::Graph(object) => Data::Graph(object.to_data()),
+			Self::Command(object) => Data::Command(object.to_data()),
+		}
+	}
 }
 
 impl TryFrom<Data> for Object {

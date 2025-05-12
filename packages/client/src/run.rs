@@ -65,16 +65,16 @@ where
 	if let Some(mounts) = arg.mounts {
 		for mount in mounts {
 			match mount {
-				Either::Left(mount) => process_mounts.push(mount.data()),
+				Either::Left(mount) => process_mounts.push(mount.to_data()),
 				Either::Right(mount) => command_mounts.push(mount),
 			}
 		}
 	} else {
-		if let Some(mounts) = command.as_ref().and_then(|command| command.mounts.clone()) {
+		if let Some(mounts) = command.as_ref().map(|command| command.mounts.clone()) {
 			command_mounts = mounts;
 		}
 		if let Some(mounts) = state.as_ref().map(|state| state.mounts.clone()) {
-			process_mounts = mounts.iter().map(tg::process::Mount::data).collect();
+			process_mounts = mounts.iter().map(tg::process::Mount::to_data).collect();
 		}
 	}
 	builder = builder.mounts(command_mounts);
@@ -93,7 +93,7 @@ where
 		builder = builder.user(user);
 	}
 	let command = builder.build();
-	let command_id = command.id(handle).await?;
+	let command_id = command.store(handle).await?;
 	let checksum = arg.checksum;
 	let network = arg
 		.network

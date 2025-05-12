@@ -1,33 +1,34 @@
 use super::State;
 use crate::runtime::util;
 use futures::TryStreamExt as _;
-use std::{pin::pin, rc::Rc, sync::Arc};
+use std::{pin::pin, rc::Rc};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
+use tangram_v8::Serde;
 
-pub async fn load(
+pub async fn get(
 	state: Rc<State>,
-	args: (tg::process::Id, Option<String>),
-) -> tg::Result<Arc<tg::process::State>> {
-	let (id, remote) = args;
+	args: (Serde<tg::process::Id>, Option<String>),
+) -> tg::Result<Serde<tg::process::Data>> {
+	let (Serde(id), _) = args;
 	let server = state.server.clone();
-	let state = state
+	let data = state
 		.main_runtime_handle
 		.spawn(async move {
-			let process = tg::Process::new(id, remote, None, None, None);
-			process.load(&server).await
+			let tg::process::get::Output { data } = server.get_process(&id).await?;
+			Ok::<_, tg::Error>(data)
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to load the process"))?;
-	Ok(state)
+		.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+	Ok(Serde(data))
 }
 
 pub async fn spawn(
 	state: Rc<State>,
-	args: (tg::process::spawn::Arg,),
-) -> tg::Result<tg::process::spawn::Output> {
-	let (arg,) = args;
+	args: (Serde<tg::process::spawn::Arg>,),
+) -> tg::Result<Serde<tg::process::spawn::Output>> {
+	let (Serde(arg),) = args;
 	let server = state.server.clone();
 	let parent = state.process.clone();
 	let output = state
@@ -84,19 +85,22 @@ pub async fn spawn(
 		})
 		.await
 		.unwrap()?;
-	Ok(output)
+	Ok(Serde(output))
 }
 
-pub async fn wait(state: Rc<State>, args: (tg::process::Id,)) -> tg::Result<tg::process::Wait> {
-	let (id,) = args;
+pub async fn wait(
+	state: Rc<State>,
+	args: (Serde<tg::process::Id>,),
+) -> tg::Result<Serde<tg::process::wait::Output>> {
+	let (Serde(id),) = args;
 	let server = state.server.clone();
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let output = server.wait_process(&id).await?.try_into()?;
+			let output = server.wait_process(&id).await?;
 			Ok::<_, tg::Error>(output)
 		})
 		.await
 		.unwrap()?;
-	Ok(output)
+	Ok(Serde(output))
 }

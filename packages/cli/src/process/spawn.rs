@@ -1,6 +1,6 @@
 use crate::Cli;
 use itertools::Itertools as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
 
@@ -77,14 +77,14 @@ pub struct Options {
 	pub tag: Option<tg::Tag>,
 
 	/// Allocate a terminal when running the process.
-	#[arg(long, default_value = "true")]
+	#[arg(long, default_value = "true", action = clap::ArgAction::Set)]
 	pub tty: bool,
 }
 
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-		let process = self
+		let (_, process) = self
 			.spawn(args.options, reference, args.trailing, None, None, None)
 			.await?;
 		println!("{}", process.id());
@@ -99,7 +99,7 @@ impl Cli {
 		stderr: Option<tg::process::Stdio>,
 		stdin: Option<tg::process::Stdio>,
 		stdout: Option<tg::process::Stdio>,
-	) -> tg::Result<tg::Process> {
+	) -> tg::Result<(tg::Referent<tg::object::Id>, tg::Process)> {
 		let handle = self.handle().await?;
 
 		// Get the remote.
@@ -148,90 +148,88 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_reference(&reference).await?;
-		let Either::Right(object) = referent.item else {
-			return Err(tg::error!("expected an object"));
+		let item = referent
+			.item
+			.right()
+			.ok_or_else(|| tg::error!("expected an object"))?;
+		let mut referent = tg::Referent {
+			item,
+			path: referent.path,
+			tag: referent.tag,
 		};
+
+		// If the reference's path is relative, then make the referent's path relative to the current working directory.
+		referent.path = referent
+			.path
+			.take()
+			.map(|path| {
+				if reference.path().is_none_or(Path::is_absolute) {
+					Ok(path)
+				} else {
+					let current_dir = std::env::current_dir()
+						.map_err(|source| tg::error!(!source, "failed to get current dir"))?;
+					crate::util::path_diff(&current_dir, &path)
+				}
+			})
+			.transpose()?;
 
 		// Create the command builder.
 		let mut command_env = None;
-		let mut command = match &object {
+		let mut command = match referent.item.clone() {
 			tg::Object::Command(command) => {
 				let object = command.object(&handle).await?;
 				command_env = Some(object.env.clone());
-				let mut builder =
-					tg::Command::builder(object.host.clone(), object.executable.clone())
-						.args(object.args.clone())
-						.cwd(object.cwd.clone())
-						.stdin(object.stdin.clone());
-				if let Some(mounts) = &object.mounts {
-					builder = builder.mounts(mounts.clone());
-				}
-				builder
+				tg::Command::builder(object.host.clone(), object.executable.clone())
+					.args(object.args.clone())
+					.cwd(object.cwd.clone())
+					.mounts(object.mounts.clone())
+					.stdin(object.stdin.clone())
 			},
 
 			tg::Object::Directory(directory) => {
-				let subpath = if let Some(subpath) = referent.subpath {
-					Some(subpath)
+				let root_module_file_name = tg::package::try_get_root_module_file_name(
+					&handle,
+					Either::Left(&directory.clone().into()),
+				)
+				.await?
+				.ok_or_else(|| tg::error!("could not determine the executable"))?;
+				if let Some(path) = &mut referent.path {
+					*path = path.join(root_module_file_name);
 				} else {
-					'a: {
-						for name in tg::package::ROOT_MODULE_FILE_NAMES {
-							if directory.try_get_entry(&handle, name).await?.is_some() {
-								break 'a Some(PathBuf::from(name.to_owned()));
-							}
-						}
-						None
-					}
-				};
-				let subpath =
-					subpath.ok_or_else(|| tg::error!("could not determine the executable"))?;
-				if tg::package::is_root_module_path(&subpath)
-					|| tg::package::is_module_path(&subpath)
-				{
-					let kind = if subpath
-						.extension()
-						.is_some_and(|extension| extension == "js")
-					{
-						tg::module::Kind::Js
-					} else if subpath
-						.extension()
-						.is_some_and(|extension| extension == "ts")
-					{
-						tg::module::Kind::Ts
-					} else {
-						unreachable!();
-					};
-					let referent = tg::Referent {
-						item: tg::module::Item::Object(object.clone()),
-						path: referent.path,
-						subpath: Some(subpath),
-						tag: referent.tag,
-					};
-					let module = tg::Module { kind, referent };
-					let export = reference
-						.uri()
-						.fragment()
-						.map_or("default", |fragment| fragment)
-						.to_owned();
-					let host = "js".to_owned();
-					let executable =
-						tg::command::Executable::Module(tg::command::ModuleExecutable {
-							module,
-							export: Some(export),
-						});
-					tg::Command::builder(host, executable)
-				} else {
-					let host = tg::host().to_owned();
-					let executable =
-						tg::command::Executable::Artifact(tg::command::ArtifactExecutable {
-							artifact: directory.clone().into(),
-							subpath: Some(subpath),
-						});
-					tg::Command::builder(host, executable)
+					referent.path.replace(root_module_file_name.into());
 				}
+				let kind = if Path::new(root_module_file_name)
+					.extension()
+					.is_some_and(|extension| extension == "js")
+				{
+					tg::module::Kind::Js
+				} else if Path::new(root_module_file_name)
+					.extension()
+					.is_some_and(|extension| extension == "ts")
+				{
+					tg::module::Kind::Ts
+				} else {
+					unreachable!();
+				};
+				let item = directory.get(&handle, root_module_file_name).await?;
+				let item = tg::module::Item::Object(item.into());
+				let referent = tg::Referent::with_item(item);
+				let module = tg::Module { kind, referent };
+				let export = reference
+					.uri()
+					.fragment()
+					.map_or("default", |fragment| fragment)
+					.to_owned();
+				let host = "js".to_owned();
+				let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
+					module,
+					export: Some(export),
+				});
+				tg::Command::builder(host, executable)
 			},
 
 			tg::Object::File(file) => {
-				let module_path = reference
+				let path = reference
 					.item()
 					.try_unwrap_path_ref()
 					.ok()
@@ -252,16 +250,10 @@ impl Cli {
 							None
 						}
 					});
-				if let Some(module_path) = module_path {
-					let kind = if module_path
-						.extension()
-						.is_some_and(|extension| extension == "js")
-					{
+				if let Some(path) = path {
+					let kind = if path.extension().is_some_and(|extension| extension == "js") {
 						tg::module::Kind::Js
-					} else if module_path
-						.extension()
-						.is_some_and(|extension| extension == "ts")
-					{
+					} else if path.extension().is_some_and(|extension| extension == "ts") {
 						tg::module::Kind::Ts
 					} else {
 						unreachable!()
@@ -362,8 +354,9 @@ impl Cli {
 			}
 		}
 
-		// Create the command.
+		// Create the command and store it.
 		let command = command.build();
+		command.store(&handle).await?;
 
 		// Determine if the network is enabled.
 		let network = !sandbox;
@@ -373,7 +366,7 @@ impl Cli {
 
 		// If the remote is set, then push the commnad.
 		if let Some(remote) = remote.clone() {
-			let id = command.id(&handle).await?;
+			let id = command.id();
 			let arg = tg::push::Arg {
 				items: vec![Either::Right(id.into())],
 				remote: Some(remote),
@@ -409,7 +402,7 @@ impl Cli {
 		let arg = tg::process::spawn::Arg {
 			cached: options.cached,
 			checksum: options.checksum,
-			command: Some(command.id(&handle).await?.clone()),
+			command: Some(command.id()),
 			mounts,
 			network,
 			parent: None,
@@ -432,7 +425,14 @@ impl Cli {
 			handle.put_tag(&tag, arg).await?;
 		}
 
-		Ok(process)
+		// Get the referent.
+		let referent = tg::Referent {
+			item: referent.item.id(),
+			path: referent.path,
+			tag: referent.tag,
+		};
+
+		Ok((referent, process))
 	}
 }
 

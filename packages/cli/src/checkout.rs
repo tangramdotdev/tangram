@@ -46,17 +46,8 @@ impl Cli {
 		let Either::Right(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
-		let object = if let Some(subpath) = &referent.subpath {
-			let directory = object
-				.try_unwrap_directory()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a directory"))?;
-			directory.get(&handle, subpath).await?.into()
-		} else {
-			object
-		};
 		let artifact = tg::Artifact::try_from(object)?;
-		let artifact = artifact.id(&handle).await?;
+		let artifact = artifact.id();
 
 		// Check out the artifact.
 		let dependencies = args.dependencies.unwrap_or(true);

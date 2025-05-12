@@ -9,7 +9,7 @@ use num::ToPrimitive;
 use sourcemap::SourceMap;
 use std::{cell::RefCell, collections::BTreeMap, future::poll_fn, pin::pin, rc::Rc, task::Poll};
 use tangram_client as tg;
-use tangram_v8::{FromV8 as _, ToV8};
+use tangram_v8::{FromV8 as _, Serde, ToV8};
 
 mod error;
 mod syscall;
@@ -116,11 +116,10 @@ impl Runtime {
 		let executable = command
 			.executable(&self.server)
 			.await?
-			.try_unwrap_module_ref()
+			.clone()
+			.try_unwrap_module()
 			.ok()
-			.ok_or_else(|| tg::error!("expected the executable to be a module"))?
-			.data(&self.server)
-			.await?;
+			.ok_or_else(|| tg::error!("expected the executable to be a module"))?;
 
 		// Start the log task.
 		let (log_sender, mut log_receiver) =
@@ -190,7 +189,7 @@ impl Runtime {
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection,
-			root: executable.module,
+			root: executable.module.to_data(),
 			server: self.server.clone(),
 		});
 		scopeguard::defer! {
@@ -240,7 +239,7 @@ impl Runtime {
 
 			// Create the syscall function.
 			let syscall_string =
-				v8::String::new_external_onebyte_static(scope, "syscall".as_bytes()).unwrap();
+				v8::String::new_external_onebyte_static(scope, b"syscall").unwrap();
 			let syscall = v8::Function::new(scope, syscall).unwrap();
 			let syscall_descriptor = v8::PropertyDescriptor::new_from_value(syscall.into());
 			context
@@ -258,23 +257,32 @@ impl Runtime {
 			let context = v8::Local::new(scope, context.clone());
 			let scope = &mut v8::ContextScope::new(scope, context);
 
+			// Create the arg.
+			let arg = v8::Object::new(scope);
+
+			let key = v8::String::new_external_onebyte_static(scope, b"id").unwrap();
+			let value = Serde(process.id()).to_v8(scope)?;
+			arg.set(scope, key.into(), value);
+
+			if let Some(remote) = process.remote() {
+				let key = v8::String::new_external_onebyte_static(scope, b"remote").unwrap();
+				let value = remote.to_v8(scope)?;
+				arg.set(scope, key.into(), value);
+			}
+
 			// Get the Tangram global.
-			let tangram =
-				v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+			let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 			let tangram = context.global(scope).get(scope, tangram.into()).unwrap();
 			let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
 			// Get the start function.
-			let start = v8::String::new_external_onebyte_static(scope, "start".as_bytes()).unwrap();
+			let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
 			let start = tangram.get(scope, start.into()).unwrap();
 			let start = v8::Local::<v8::Function>::try_from(start).unwrap();
 
 			// Call the start function.
 			let undefined = v8::undefined(scope);
-			let process = process
-				.to_v8(scope)
-				.map_err(|source| tg::error!(!source, "failed to serialize the command"))?;
-			let value = start.call(scope, undefined.into(), &[process]).unwrap();
+			let value = start.call(scope, undefined.into(), &[arg.into()]).unwrap();
 
 			// Make the value global.
 			v8::Global::new(scope, value)
@@ -333,7 +341,7 @@ impl Runtime {
 						unsafe { isolate.enter() };
 
 						// Get the result.
-						let result: tg::Result<tg::Value> = {
+						let result: tg::Result<tg::value::Data> = {
 							// Create a scope for the context.
 							let scope = &mut v8::HandleScope::new(isolate.as_mut());
 							let context = v8::Local::new(scope, context.clone());
@@ -344,13 +352,15 @@ impl Runtime {
 
 							// Get the result.
 							match v8::Local::<v8::Promise>::try_from(value) {
-								Err(_) => <_>::from_v8(scope, value),
+								Err(_) => <Serde<tg::value::Data>>::from_v8(scope, value)
+									.map(|value| value.0),
 								Ok(promise) => {
 									match promise.state() {
 										// If the promise is fulfilled, then return the result.
 										v8::PromiseState::Fulfilled => {
 											let value = promise.result(scope);
-											<_>::from_v8(scope, value)
+											<Serde<tg::value::Data>>::from_v8(scope, value)
+												.map(|value| value.0)
 										},
 
 										// If the promise is rejected, then return the error.
@@ -392,7 +402,7 @@ impl Runtime {
 		let output = match future::select(pin!(future), pin!(error_or_signal)).await {
 			future::Either::Left((Ok(output), _)) => super::Output {
 				exit: 0,
-				output: Some(output),
+				output: Some(tg::Value::try_from(output)?),
 				..Default::default()
 			},
 			future::Either::Left((Err(error), _))
@@ -455,7 +465,7 @@ fn host_import_module_dynamically_callback<'s>(
 		.modules
 		.borrow()
 		.iter()
-		.find(|m| m.module == module)
+		.find(|m| m.module.kind == module.kind && m.module.referent.item == module.referent.item)
 		.cloned();
 	let module = if let Some(module) = option {
 		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());
@@ -540,7 +550,7 @@ fn resolve_module_callback<'s>(
 		.modules
 		.borrow()
 		.iter()
-		.find(|m| m.module == module)
+		.find(|m| m.module.kind == module.kind && m.module.referent.item == module.referent.item)
 		.cloned();
 	let module = if let Some(module) = option {
 		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());
@@ -727,7 +737,7 @@ extern "C" fn host_initialize_import_meta_object_callback(
 		.clone();
 
 	// Set import.meta.module.
-	let key = v8::String::new_external_onebyte_static(scope, "module".as_bytes()).unwrap();
+	let key = v8::String::new_external_onebyte_static(scope, b"module").unwrap();
 	let value = tg::Module::from(module).to_v8(scope).unwrap();
 	meta.set(scope, key.into(), value).unwrap();
 }

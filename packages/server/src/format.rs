@@ -6,16 +6,8 @@ use tangram_ignore as ignore;
 
 impl Server {
 	pub async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
-		let mut path = arg
-			.module
-			.referent
-			.item
-			.try_unwrap_path_ref()
-			.map_err(|_| tg::error!("expected a path"))?
-			.clone();
-
 		// Canonicalize the path's parent.
-		path = crate::util::fs::canonicalize_parent(&path)
+		let path = crate::util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 

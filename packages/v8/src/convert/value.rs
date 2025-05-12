@@ -25,42 +25,39 @@ impl FromV8 for tg::Value {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let blob = v8::String::new_external_onebyte_static(scope, "Blob".as_bytes()).unwrap();
+		let blob = v8::String::new_external_onebyte_static(scope, b"Blob").unwrap();
 		let blob = tangram.get(scope, blob.into()).unwrap();
 		let blob = v8::Local::<v8::Function>::try_from(blob).unwrap();
 
-		let directory =
-			v8::String::new_external_onebyte_static(scope, "Directory".as_bytes()).unwrap();
+		let directory = v8::String::new_external_onebyte_static(scope, b"Directory").unwrap();
 		let directory = tangram.get(scope, directory.into()).unwrap();
 		let directory = v8::Local::<v8::Function>::try_from(directory).unwrap();
 
-		let file = v8::String::new_external_onebyte_static(scope, "File".as_bytes()).unwrap();
+		let file = v8::String::new_external_onebyte_static(scope, b"File").unwrap();
 		let file = tangram.get(scope, file.into()).unwrap();
 		let file = v8::Local::<v8::Function>::try_from(file).unwrap();
 
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
+		let symlink = v8::String::new_external_onebyte_static(scope, b"Symlink").unwrap();
 		let symlink = tangram.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
-		let graph = v8::String::new_external_onebyte_static(scope, "Graph".as_bytes()).unwrap();
+		let graph = v8::String::new_external_onebyte_static(scope, b"Graph").unwrap();
 		let graph = tangram.get(scope, graph.into()).unwrap();
 		let graph = v8::Local::<v8::Function>::try_from(graph).unwrap();
 
-		let command = v8::String::new_external_onebyte_static(scope, "Command".as_bytes()).unwrap();
+		let command = v8::String::new_external_onebyte_static(scope, b"Command").unwrap();
 		let command = tangram.get(scope, command.into()).unwrap();
 		let command = v8::Local::<v8::Function>::try_from(command).unwrap();
 
-		let mutation =
-			v8::String::new_external_onebyte_static(scope, "Mutation".as_bytes()).unwrap();
+		let mutation = v8::String::new_external_onebyte_static(scope, b"Mutation").unwrap();
 		let mutation = tangram.get(scope, mutation.into()).unwrap();
 		let mutation = v8::Local::<v8::Function>::try_from(mutation).unwrap();
 
-		let template =
-			v8::String::new_external_onebyte_static(scope, "Template".as_bytes()).unwrap();
+		let template = v8::String::new_external_onebyte_static(scope, b"Template").unwrap();
 		let template = tangram.get(scope, template.into()).unwrap();
 		let template = v8::Local::<v8::Function>::try_from(template).unwrap();
 

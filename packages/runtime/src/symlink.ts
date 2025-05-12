@@ -16,27 +16,33 @@ export class Symlink {
 	}
 
 	static withId(id: Symlink.Id): Symlink {
-		return new Symlink({ id });
+		return new Symlink({ id, stored: true });
+	}
+
+	static withObject(object: Symlink.Object): Symlink {
+		return new Symlink({ object, stored: false });
+	}
+
+	static fromData(data: Symlink.Data): Symlink {
+		return Symlink.withObject(Symlink.Object.fromData(data));
 	}
 
 	static async new(arg_: tg.Unresolved<Symlink.Arg>): Promise<Symlink> {
 		let arg = await Symlink.arg(arg_);
-		if ("target" in arg) {
-			let symlink = new Symlink({ object: arg });
-			return symlink;
-		} else if ("artifact" in arg) {
-			return new Symlink({
-				object: {
-					artifact: arg.artifact,
-					subpath: arg.subpath,
-				},
-			});
-		} else if ("graph" in arg) {
-			return new Symlink({
-				object: arg as {
+		if ("graph" in arg) {
+			return Symlink.withObject(
+				arg as {
 					graph: tg.Graph;
 					node: number;
 				},
+			);
+		} else if ("target" in arg) {
+			let symlink = Symlink.withObject(arg);
+			return symlink;
+		} else if ("artifact" in arg) {
+			return Symlink.withObject({
+				artifact: arg.artifact,
+				subpath: arg.subpath,
 			});
 		}
 		return tg.unreachable("invalid symlink arguments");
@@ -98,9 +104,15 @@ export class Symlink {
 		tg.assert(value instanceof Symlink);
 	}
 
-	async id(): Promise<Symlink.Id> {
-		await this.store();
-		return this.#state.id!;
+	get id(): Symlink.Id {
+		if (this.#state.id! !== undefined) {
+			return this.#state.id;
+		}
+		let object = this.#state.object!;
+		let data = Symlink.Object.toData(object);
+		let id = syscall("object_id", { kind: "symlink", value: data });
+		this.#state.id = id;
+		return id;
 	}
 
 	async object(): Promise<Symlink.Object> {
@@ -108,21 +120,24 @@ export class Symlink {
 		return this.#state.object!;
 	}
 
-	async load() {
+	async load(): Promise<tg.Symlink.Object> {
 		if (this.#state.object === undefined) {
-			let object = await syscall("object_load", this.#state.id!);
-			tg.assert(object.kind === "symlink");
-			this.#state.object = object.value;
+			let data = await syscall("object_get", this.#state.id!);
+			tg.assert(data.kind === "symlink");
+			let object = Symlink.Object.fromData(data.value);
+			this.#state.object = object;
 		}
+		return this.#state.object!;
 	}
 
-	async store() {
-		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("object_store", {
-				kind: "symlink",
-				value: this.#state.object!,
-			});
-		}
+	async store(): Promise<tg.Symlink.Id> {
+		await tg.Value.store(this);
+		return this.id;
+	}
+
+	async children(): Promise<Array<tg.Object>> {
+		let object = await this.load();
+		return tg.Symlink.Object.children(object);
 	}
 
 	async target(): Promise<string | undefined> {
@@ -148,9 +163,13 @@ export class Symlink {
 
 	async artifact(): Promise<tg.Artifact | undefined> {
 		const object = await this.object();
-		if ("artifact" in object) {
-			return object.artifact;
-		} else if ("graph" in object) {
+		if (!("graph" in object)) {
+			if ("artifact" in object) {
+				return object.artifact;
+			} else {
+				return undefined;
+			}
+		} else {
 			const nodes = await object.graph.nodes();
 			const node = nodes[object.node];
 			tg.assert(node !== undefined, `invalid index ${object.node}`);
@@ -169,18 +188,18 @@ export class Symlink {
 				tg.assert(node !== undefined, `invalid index ${artifact}`);
 				switch (node.kind) {
 					case "directory": {
-						return new tg.Directory({
-							object: { graph: object.graph, node: artifact },
+						return tg.Directory.withObject({
+							graph: object.graph,
+							node: artifact,
 						});
 					}
 					case "file": {
-						return new tg.File({
-							object: { graph: object.graph, node: artifact },
-						});
+						return tg.File.withObject({ graph: object.graph, node: artifact });
 					}
 					case "symlink": {
-						return new tg.Symlink({
-							object: { graph: object.graph, node: artifact },
+						return tg.Symlink.withObject({
+							graph: object.graph,
+							node: artifact,
 						});
 					}
 				}
@@ -231,12 +250,12 @@ export namespace Symlink {
 	export type Arg = string | tg.Artifact | tg.Template | Symlink | ArgObject;
 
 	export type ArgObject =
+		| { graph: tg.Graph; node: number }
 		| { target: string }
 		| {
 				artifact: tg.Artifact;
 				subpath?: string | undefined;
-		  }
-		| { graph: tg.Graph; node: number };
+		  };
 
 	export type Id = string;
 
@@ -247,6 +266,65 @@ export namespace Symlink {
 				subpath: string | undefined;
 		  }
 		| { graph: tg.Graph; node: number };
+
+	export namespace Object {
+		export let toData = (object: Object): Data => {
+			if ("graph" in object) {
+				return {
+					graph: object.graph.id,
+					node: object.node,
+				};
+			} else if ("target" in object) {
+				return {
+					target: object.target,
+				};
+			} else {
+				let output: Data = {
+					artifact: object.artifact.id,
+				};
+				if (object.subpath !== undefined) {
+					output.subpath = object.subpath;
+				}
+				return output;
+			}
+		};
+
+		export let fromData = (data: Data): Object => {
+			if ("graph" in data) {
+				return {
+					graph: tg.Graph.withId(data.graph),
+					node: data.node,
+				};
+			} else if ("target" in data) {
+				return {
+					target: data.target,
+				};
+			} else {
+				return {
+					artifact: tg.Artifact.withId(data.artifact),
+					subpath: data.subpath,
+				};
+			}
+		};
+
+		export let children = (object: Object): Array<tg.Object> => {
+			if ("graph" in object) {
+				return [object.graph];
+			} else if ("artifact" in object) {
+				return [object.artifact];
+			} else {
+				return [];
+			}
+		};
+	}
+
+	export type Data =
+		| { target: string }
+		| {
+				artifact: tg.Artifact.Id;
+				subpath?: string;
+		  }
+		| { graph: tg.Graph.Id; node: number };
 
 	export type State = tg.Object.State<Symlink.Id, Symlink.Object>;
 }

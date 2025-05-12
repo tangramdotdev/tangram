@@ -1,7 +1,7 @@
 use super::{Data, Id, Object};
 use crate as tg;
 use bytes::Bytes;
-use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesOrdered};
+use futures::FutureExt as _;
 use num::ToPrimitive;
 use std::{pin::pin, sync::Arc};
 use tokio::io::{AsyncRead, AsyncReadExt as _};
@@ -21,7 +21,7 @@ impl Blob {
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &std::sync::RwLock<State> {
+	pub fn state(&self) -> &Arc<std::sync::RwLock<State>> {
 		&self.state
 	}
 
@@ -39,11 +39,17 @@ impl Blob {
 		Self { state }
 	}
 
-	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
-	where
-		H: tg::Handle,
-	{
-		self.store(handle).await
+	#[must_use]
+	pub fn id(&self) -> Id {
+		if let Some(id) = self.state.read().unwrap().id.clone() {
+			return id;
+		}
+		let object = self.state.read().unwrap().object.clone().unwrap();
+		let data = object.to_data();
+		let bytes = data.serialize().unwrap();
+		let id = Id::new(&bytes);
+		self.state.write().unwrap().id.replace(id.clone());
+		id
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -89,19 +95,8 @@ impl Blob {
 	where
 		H: tg::Handle,
 	{
-		if let Some(id) = self.state.read().unwrap().id.clone() {
-			return Ok(id);
-		}
-		let data = self.data(handle).await?;
-		let bytes = data.serialize()?;
-		let id = Id::new(&bytes);
-		let arg = tg::object::put::Arg { bytes };
-		handle
-			.put_object(&id.clone().into(), arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the object"))?;
-		self.state.write().unwrap().id.replace(id.clone());
-		Ok(id)
+		tg::Value::from(self.clone()).store(handle).await?;
+		Ok(self.id())
 	}
 
 	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
@@ -116,28 +111,7 @@ impl Blob {
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(handle).await?;
-		let data = match object.as_ref() {
-			Object::Leaf(object) => Data::Leaf(tg::blob::data::Leaf {
-				bytes: object.bytes.clone(),
-			}),
-			Object::Branch(object) => {
-				let children = object
-					.children
-					.iter()
-					.map(|child| async {
-						Ok::<_, tg::Error>(tg::blob::data::Child {
-							blob: child.blob.id(handle).await?,
-							length: child.length,
-						})
-					})
-					.collect::<FuturesOrdered<_>>()
-					.try_collect()
-					.await?;
-				Data::Branch(tg::blob::data::Branch { children })
-			},
-		};
-		Ok(data)
+		Ok(self.object(handle).await?.to_data())
 	}
 }
 

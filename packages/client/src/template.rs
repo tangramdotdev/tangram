@@ -37,24 +37,20 @@ impl Template {
 	}
 
 	#[must_use]
-	pub fn objects(&self) -> Vec<tg::object::Handle> {
+	pub fn children(&self) -> Vec<tg::object::Handle> {
 		self.artifacts()
 			.map(|artifact| artifact.clone().into())
 			.collect()
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
-	where
-		H: tg::Handle,
-	{
+	#[must_use]
+	pub fn to_data(&self) -> Data {
 		let components = self
 			.components
 			.iter()
-			.map(|component| component.data(handle))
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-		Ok(Data { components })
+			.map(tg::template::Component::to_data)
+			.collect();
+		Data { components }
 	}
 
 	pub fn try_render_sync<'a, F>(&'a self, mut f: F) -> tg::Result<String>
@@ -262,13 +258,11 @@ pub mod component {
 	}
 
 	impl Component {
-		pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
-		where
-			H: tg::Handle,
-		{
+		#[must_use]
+		pub fn to_data(&self) -> Data {
 			match self {
-				Self::String(string) => Ok(Data::String(string.clone())),
-				Self::Artifact(artifact) => Ok(Data::Artifact(artifact.id(handle).await?)),
+				Self::String(string) => Data::String(string.clone()),
+				Self::Artifact(artifact) => Data::Artifact(artifact.id()),
 			}
 		}
 	}
@@ -354,8 +348,8 @@ mod tests {
 			.state()
 			.read()
 			.unwrap()
-			.id()
-			.cloned()
+			.id
+			.clone()
 			.unwrap();
 		let right = id;
 		assert_eq!(left, right);

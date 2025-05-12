@@ -1,6 +1,7 @@
+#![allow(clippy::too_many_arguments)]
 use super::{FileDependency, Graph};
 use crate::Server;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -73,9 +74,6 @@ impl Server {
 
 		// Update state.
 		state.graph = current.graph;
-
-		// Fix subpaths.
-		Self::fix_unification_subpaths(state);
 
 		// Return.
 		Ok(())
@@ -250,9 +248,7 @@ impl Server {
 		// Return.
 		Ok(node)
 	}
-}
 
-impl Server {
 	async fn unify_visit_object(
 		&self,
 		state: &mut State,
@@ -261,7 +257,7 @@ impl Server {
 		unify: bool,
 	) -> tg::Result<usize> {
 		let mut visited = BTreeMap::new();
-		self.unify_visit_object_inner(state, object, tag, unify, &mut visited)
+		self.unify_visit_object_inner(state, object, None, None, tag, unify, &mut visited)
 			.await
 	}
 
@@ -269,11 +265,13 @@ impl Server {
 		&self,
 		state: &mut State,
 		object: &tg::Object,
+		root: Option<usize>,
+		subpath: Option<PathBuf>,
 		tag: Option<tg::Tag>,
 		unify: bool,
 		visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<usize> {
-		let object_id = object.id(self).await?;
+		let object_id = object.id();
 
 		// Skip if already visited.
 		if let Some(id) = visited.get(&object_id) {
@@ -303,7 +301,7 @@ impl Server {
 			}),
 			tg::Object::File(file) => {
 				let executable = file.executable(self).await?;
-				let blob = file.contents(self).await?.id(self).await?;
+				let blob = file.contents(self).await?.id();
 				super::Variant::File(super::File {
 					executable,
 					blob: Some(super::Blob::Id(blob)),
@@ -326,7 +324,8 @@ impl Server {
 			object: object_,
 			tag: tag.clone(),
 			path: None,
-			root: None,
+			parent: None,
+			root,
 			variant,
 		};
 
@@ -335,27 +334,31 @@ impl Server {
 		state.graph.nodes.push_back(node);
 		visited.insert(object_id.clone(), index);
 
-		// Update the tag.
-		if let Some(tag) = tag {
-			let name = tag.name();
-			if state.packages.contains_key(name) {
-				return Err(tg::error!(%tag, "duplicate tag names"));
-			}
-			state.packages.insert(name.to_owned(), (tag, index));
+		if let Some(root) = root {
+			state.graph.roots.entry(root).or_default().push(index);
 		}
+		let root = root.unwrap_or(index);
 
 		// Recurse.
 		match object {
 			tg::Object::Directory(directory) if unify => {
-				self.unify_visit_directory_edges(state, index, directory, visited)
-					.await?;
+				self.unify_visit_directory_edges(
+					state,
+					root,
+					subpath,
+					index,
+					directory,
+					tag.clone(),
+					visited,
+				)
+				.await?;
 			},
 			tg::Object::File(file) if unify => {
-				self.unify_visit_file_edges(state, index, file, visited)
+				self.unify_visit_file_edges(state, root, index, file, tag.clone(), visited)
 					.await?;
 			},
 			tg::Object::Symlink(symlink) if unify => {
-				self.unify_visit_symlink_edges(state, index, symlink, visited)
+				self.unify_visit_symlink_edges(state, root, index, symlink, tag.clone(), visited)
 					.await?;
 			},
 			_ => (),
@@ -368,16 +371,30 @@ impl Server {
 	async fn unify_visit_directory_edges(
 		&self,
 		state: &mut State,
+		root: usize,
+		subpath: Option<PathBuf>,
 		index: usize,
 		directory: &tg::Directory,
+		tag: Option<tg::Tag>,
 		visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
 		let mut entries = Vec::new();
 		for (name, object) in directory.entries(self).await? {
-			let index =
-				Box::pin(self.unify_visit_object_inner(state, &object.into(), None, true, visited))
-					.await?;
-			entries.push((name, index));
+			let subpath = subpath
+				.as_ref()
+				.map_or_else(|| name.as_str().into(), |subpath| subpath.join(&name));
+			let child_index = Box::pin(self.unify_visit_object_inner(
+				state,
+				&object.into(),
+				Some(root),
+				Some(subpath),
+				tag.clone(),
+				true,
+				visited,
+			))
+			.await?;
+			state.graph.nodes[child_index].parent.replace(index);
+			entries.push((name, child_index));
 		}
 		state.graph.nodes[index]
 			.variant
@@ -389,8 +406,10 @@ impl Server {
 	async fn unify_visit_file_edges(
 		&self,
 		state: &mut State,
+		root: usize,
 		index: usize,
 		file: &tg::File,
+		tag: Option<tg::Tag>,
 		visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
 		let mut dependencies = Vec::new();
@@ -401,9 +420,8 @@ impl Server {
 					reference,
 					referent: tg::Referent {
 						item: None,
-						path: referent.path,
-						subpath: referent.subpath,
-						tag: referent.tag,
+						path: None,
+						tag: None,
 					},
 				};
 				dependencies.push(dependency);
@@ -411,7 +429,9 @@ impl Server {
 				let index = Box::pin(self.unify_visit_object_inner(
 					state,
 					&referent.item,
-					referent.tag.clone(),
+					Some(root),
+					referent.path.clone(),
+					tag.clone(),
 					true,
 					visited,
 				))
@@ -421,8 +441,7 @@ impl Server {
 					referent: tg::Referent {
 						item: Some(Either::Right(index)),
 						path: referent.path,
-						subpath: referent.subpath,
-						tag: referent.tag,
+						tag: None,
 					},
 				};
 				dependencies.push(dependency);
@@ -438,60 +457,13 @@ impl Server {
 	async fn unify_visit_symlink_edges(
 		&self,
 		_state: &mut State,
+		_root: usize,
 		_index: usize,
 		_symlink: &tg::Symlink,
+		_tag: Option<tg::Tag>,
 		_visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
 		Ok(())
-	}
-}
-
-impl Server {
-	fn fix_unification_subpaths(state: &mut super::State) {
-		for index in 0..state.graph.nodes.len() {
-			// Skip nodes that are not files.
-			if !state.graph.nodes[index].variant.is_file() {
-				continue;
-			}
-
-			// Make sure any imports of packages contain the subpath to that package's root module.
-			let mut dependencies = state.graph.nodes[index]
-				.variant
-				.unwrap_file_ref()
-				.dependencies
-				.clone();
-			for dependency in &mut dependencies {
-				match dependency {
-					FileDependency::Import {
-						subpath,
-						node: Some(node),
-						..
-					} if subpath.is_none() => {
-						if let Some(root_module) = state.graph.nodes[*node].root_module_name() {
-							subpath.replace(root_module.into());
-						}
-					},
-					FileDependency::Referent {
-						referent:
-							tg::Referent {
-								item: Some(Either::Right(node)),
-								subpath,
-								..
-							},
-						..
-					} if subpath.is_none() => {
-						if let Some(root_module) = state.graph.nodes[*node].root_module_name() {
-							subpath.replace(root_module.into());
-						}
-					},
-					_ => (),
-				}
-			}
-			state.graph.nodes[index]
-				.variant
-				.unwrap_file_mut()
-				.dependencies = dependencies;
-		}
 	}
 }
 

@@ -1,6 +1,5 @@
 use super::Data;
 use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_either::Either;
@@ -86,30 +85,30 @@ impl Graph {
 		}
 		children
 	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		let nodes = self.nodes.iter().map(Node::to_data).collect();
+		Data { nodes }
+	}
 }
 
 impl Node {
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<tg::graph::data::Node>
-	where
-		H: tg::Handle,
-	{
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::Node {
 		match self {
 			Self::Directory(tg::graph::object::Directory { entries }) => {
 				let entries = entries
 					.iter()
-					.map(|(name, either)| async move {
+					.map(|(name, either)| {
 						let artifact = match either {
 							Either::Left(index) => Either::Left(*index),
-							Either::Right(artifact) => Either::Right(artifact.id(handle).await?),
+							Either::Right(artifact) => Either::Right(artifact.id()),
 						};
-						Ok::<_, tg::Error>((name.clone(), artifact))
+						(name.clone(), artifact)
 					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?;
-				Ok(tg::graph::data::Node::Directory(
-					tg::graph::data::Directory { entries },
-				))
+					.collect();
+				tg::graph::data::Node::Directory(tg::graph::data::Directory { entries })
 			},
 
 			Self::File(tg::graph::object::File {
@@ -117,48 +116,46 @@ impl Node {
 				dependencies,
 				executable,
 			}) => {
-				let contents = contents.id(handle).await?;
+				let contents = contents.id();
 				let dependencies = dependencies
 					.iter()
-					.map(|(reference, referent)| async move {
+					.map(|(reference, referent)| {
 						let item = match &referent.item {
 							Either::Left(index) => Either::Left(*index),
-							Either::Right(object) => Either::Right(object.id(handle).await?),
+							Either::Right(object) => Either::Right(object.id()),
 						};
 						let referent = tg::Referent {
 							item,
 							path: referent.path.clone(),
-							subpath: referent.subpath.clone(),
 							tag: referent.tag.clone(),
 						};
-						Ok::<_, tg::Error>((reference.clone(), referent))
+						(reference.clone(), referent)
 					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?;
+					.collect();
 				let executable = *executable;
-				Ok(tg::graph::data::Node::File(tg::graph::data::File {
+				tg::graph::data::Node::File(tg::graph::data::File {
 					contents,
 					dependencies,
 					executable,
-				}))
+				})
 			},
 
 			Self::Symlink(symlink) => match symlink {
-				tg::graph::object::Symlink::Target { target } => Ok(
+				tg::graph::object::Symlink::Target { target } => {
 					tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target {
 						target: target.clone(),
-					}),
-				),
+					})
+				},
 				tg::graph::object::Symlink::Artifact { artifact, subpath } => {
 					let artifact = match artifact {
 						Either::Left(index) => Either::Left(*index),
-						Either::Right(artifact) => Either::Right(artifact.id(handle).await?),
+						Either::Right(artifact) => Either::Right(artifact.id()),
 					};
 					let subpath = subpath.clone();
-					Ok(tg::graph::data::Node::Symlink(
-						tg::graph::data::Symlink::Artifact { artifact, subpath },
-					))
+					tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Artifact {
+						artifact,
+						subpath,
+					})
 				},
 			},
 		}
@@ -210,12 +207,7 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				let dependencies = dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						let referent = tg::Referent {
-							item: referent.item.map_right(tg::Object::with_id),
-							path: referent.path.clone(),
-							subpath: referent.subpath,
-							tag: referent.tag,
-						};
+						let referent = referent.map(|item| item.map_right(tg::Object::with_id));
 						(reference, referent)
 					})
 					.collect();

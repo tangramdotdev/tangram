@@ -43,6 +43,18 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		},
 		...args,
 	);
+	let path: string | undefined;
+	let tag: string | undefined;
+	if (
+		"executable" in arg &&
+		typeof arg.executable === "object" &&
+		"module" in arg.executable
+	) {
+		path = arg.executable.module.referent.path;
+		tag = arg.executable.module.referent.tag;
+		arg.executable.module.referent.path = undefined;
+		arg.executable.module.referent.tag = undefined;
+	}
 	let checksum = arg.checksum;
 	let processMounts: Array<tg.Process.Mount> = [];
 	let commandMounts: Array<tg.Command.Mount> | undefined;
@@ -50,14 +62,14 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		for (let mount of arg.mounts) {
 			if (typeof mount === "string" || mount instanceof tg.Template) {
 				try {
-					let commandMount = await tg.Command.Mount.parse(mount);
+					let commandMount = tg.Command.Mount.parse(mount);
 					if (commandMounts === undefined) {
 						commandMounts = [];
 					}
 					commandMounts.push(commandMount);
 				} catch {}
 				try {
-					let processMount = await tg.Process.Mount.parse(mount);
+					let processMount = tg.Process.Mount.parse(mount);
 					processMounts.push(processMount);
 				} catch {}
 			} else {
@@ -104,8 +116,8 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 	);
 	let network = "network" in arg ? arg.network : state.network;
-	let commandId = await command.id();
-	let output = await syscall("process_spawn", {
+	let commandId = await command.store();
+	let spawnOutput = await syscall("process_spawn", {
 		checksum,
 		command: commandId,
 		create: false,
@@ -119,13 +131,20 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		stdout,
 	});
 	let process = new tg.Process({
-		id: output.process,
-		remote: output.remote,
+		id: spawnOutput.process,
+		remote: spawnOutput.remote,
 		state: undefined,
 	});
 	let wait = await process.wait();
-	if (wait.error) {
-		throw wait.error;
+	if (wait.error !== undefined) {
+		let error = wait.error;
+		throw new tg.Error("the child process failed", {
+			source: {
+				item: error,
+				path,
+				tag,
+			},
+		});
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
 		throw new Error(`the process exited with code ${wait.exit}`);
@@ -162,12 +181,10 @@ async function arg_(
 					env: object.env,
 					executable: object.executable,
 					host: object.host,
+					mounts: object.mounts,
 				};
 				if (object.cwd !== undefined) {
 					output.cwd = object.cwd;
-				}
-				if (object.mounts !== undefined) {
-					output.mounts = object.mounts;
 				}
 				if (object.stdin !== undefined) {
 					output.stdin = object.stdin;

@@ -1,13 +1,15 @@
 use crate::compiler::Compiler;
 use tangram_client as tg;
+use tangram_v8::Serde;
 
 pub fn list(
-	_scope: &mut v8::HandleScope,
 	compiler: &Compiler,
+	_scope: &mut v8::HandleScope,
 	_args: (),
-) -> tg::Result<Vec<tg::module::Data>> {
-	compiler
+) -> tg::Result<Serde<Vec<tg::module::Data>>> {
+	let modules = compiler
 		.main_runtime_handle
 		.clone()
-		.block_on(async move { Ok(compiler.list_documents().await) })
+		.block_on(async move { compiler.list_documents().await });
+	Ok(Serde(modules))
 }

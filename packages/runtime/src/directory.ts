@@ -16,7 +16,15 @@ export class Directory {
 	}
 
 	static withId(id: Directory.Id): Directory {
-		return new Directory({ id });
+		return new Directory({ id, stored: true });
+	}
+
+	static withObject(object: Directory.Object): Directory {
+		return new Directory({ object, stored: false });
+	}
+
+	static fromData(data: Directory.Data): Directory {
+		return Directory.withObject(Directory.Object.fromData(data));
 	}
 
 	static async new(
@@ -25,12 +33,12 @@ export class Directory {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
 			if (typeof arg === "object" && "graph" in arg) {
-				return new Directory({
-					object: arg as {
+				return Directory.withObject(
+					arg as {
 						graph: tg.Graph;
 						node: number;
 					},
-				});
+				);
 			}
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));
@@ -119,7 +127,7 @@ export class Directory {
 			}
 			return entries;
 		}, Promise.resolve({}));
-		return new Directory({ object: { entries } });
+		return Directory.withObject({ entries });
 	}
 
 	static expect(value: unknown): Directory {
@@ -131,9 +139,15 @@ export class Directory {
 		tg.assert(value instanceof Directory);
 	}
 
-	async id(): Promise<Directory.Id> {
-		await this.store();
-		return this.#state.id!;
+	get id(): Directory.Id {
+		if (this.#state.id! !== undefined) {
+			return this.#state.id;
+		}
+		let object = this.#state.object!;
+		let data = Directory.Object.toData(object);
+		let id = syscall("object_id", { kind: "directory", value: data });
+		this.#state.id = id;
+		return id;
 	}
 
 	async object(): Promise<Directory.Object> {
@@ -141,21 +155,24 @@ export class Directory {
 		return this.#state.object!;
 	}
 
-	async load() {
+	async load(): Promise<tg.Directory.Object> {
 		if (this.#state.object === undefined) {
-			let object = await syscall("object_load", this.#state.id!);
-			tg.assert(object.kind === "directory");
-			this.#state.object = object.value;
+			let data = await syscall("object_get", this.#state.id!);
+			tg.assert(data.kind === "directory");
+			let object = Directory.Object.fromData(data.value);
+			this.#state.object = object;
 		}
+		return this.#state.object!;
 	}
 
-	async store() {
-		if (this.#state.id === undefined) {
-			this.#state.id = await syscall("object_store", {
-				kind: "directory",
-				value: this.#state.object!,
-			});
-		}
+	async store(): Promise<tg.Directory.Id> {
+		await tg.Value.store(this);
+		return this.id;
+	}
+
+	async children(): Promise<Array<tg.Object>> {
+		let object = await this.load();
+		return tg.Directory.Object.children(object);
 	}
 
 	async get(arg: string): Promise<tg.Artifact> {
@@ -244,41 +261,40 @@ export class Directory {
 		} else {
 			const graph = object.graph;
 			const nodes = await graph.nodes();
-			const dirNode = nodes[object.node];
-			tg.assert(dirNode !== undefined, `invalid index ${object.node}`);
+			const node = nodes[object.node];
+			tg.assert(node !== undefined, `invalid index ${object.node}`);
 			tg.assert(
-				dirNode.kind === "directory",
-				`expected a directory node, got ${dirNode}`,
+				node.kind === "directory",
+				`expected a directory node, got ${node}`,
 			);
 			entries = Object.fromEntries(
-				Object.entries(dirNode.entries).map(([name, value]) => {
-					let val: tg.Artifact | undefined;
-					if (tg.Artifact.is(value)) {
-						val = value;
+				Object.entries(node.entries).map(([name, entry]) => {
+					let artifact: tg.Artifact | undefined;
+					if (tg.Artifact.is(entry)) {
+						artifact = entry;
 					} else {
-						const node = nodes[value];
-						tg.assert(node !== undefined, `invalid index ${value}`);
+						const node = nodes[entry];
+						tg.assert(node !== undefined, `invalid index ${entry}`);
 						switch (node.kind) {
 							case "directory": {
-								val = new tg.Directory({ object: { graph, node: value } });
+								artifact = tg.Directory.withObject({ graph, node: entry });
 								break;
 							}
 							case "file": {
-								val = new tg.File({ object: { graph, node: value } });
+								artifact = tg.File.withObject({ graph, node: entry });
 								break;
 							}
 							case "symlink": {
-								val = new tg.Symlink({ object: { graph, node: value } });
+								artifact = tg.Symlink.withObject({ graph, node: entry });
 								break;
 							}
 						}
 					}
-					return [name, val];
+					return [name, artifact];
 				}),
 			);
 		}
-		tg.assert(entries !== undefined, "could not resolve directory entries");
-
+		tg.assert(entries !== undefined);
 		for (let [name, artifact] of Object.entries(entries)) {
 			yield [name, artifact];
 		}
@@ -307,6 +323,59 @@ export namespace Directory {
 				entries: { [key: string]: tg.Artifact };
 		  }
 		| { graph: tg.Graph; node: number };
+
+	export namespace Object {
+		export let toData = (object: Object): Data => {
+			if ("graph" in object) {
+				return {
+					graph: object.graph.state.id!,
+					node: object.node,
+				};
+			} else {
+				return {
+					entries: globalThis.Object.fromEntries(
+						globalThis.Object.entries(object.entries).map(
+							([name, artifact]) => [name, artifact.id],
+						),
+					),
+				};
+			}
+		};
+
+		export let fromData = (data: Data): Object => {
+			if ("graph" in data) {
+				return {
+					graph: tg.Graph.withId(data.graph),
+					node: data.node,
+				};
+			} else {
+				return {
+					entries: globalThis.Object.fromEntries(
+						globalThis.Object.entries(data.entries).map(([name, artifact]) => [
+							name,
+							tg.Artifact.withId(artifact),
+						]),
+					),
+				};
+			}
+		};
+
+		export let children = (object: Object): Array<tg.Object> => {
+			if ("graph" in object) {
+				return [object.graph];
+			} else {
+				return globalThis.Object.entries(object.entries).map(
+					([_, artifact]) => artifact,
+				);
+			}
+		};
+	}
+
+	export type Data =
+		| {
+				entries: { [key: string]: tg.Artifact.Id };
+		  }
+		| { graph: tg.Graph.Id; node: number };
 
 	export type State = tg.Object.State<Directory.Id, Directory.Object>;
 }

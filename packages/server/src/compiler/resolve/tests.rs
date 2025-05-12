@@ -1,63 +1,65 @@
 use crate::{Server, compiler::Compiler, test::test};
 use futures::Future;
 use pretty_assertions::assert_eq;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 
 #[tokio::test]
 async fn path_dependency_path() {
-	let kind = tg::module::Kind::Ts;
 	let artifact = temp::directory! {
 		"tangram.ts" => r#"import * as foo from "./foo.tg.ts""#,
 		"foo.tg.ts" => "",
 	};
+	let kind = tg::module::Kind::Ts;
 	let path = "";
 	let subpath = "tangram.ts";
 	let import = tg::module::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
-	let assertions = |_, path, module| async move {
+	let assertions = |_, path: PathBuf, module| async move {
 		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Path(path),
+				item: tg::module::data::Item::Path(path.join("foo.tg.ts")),
 				path: None,
-				subpath: Some("foo.tg.ts".into()),
 				tag: None,
 			},
 		};
 		assert_eq!(module, right);
 	};
-	test_path(kind, artifact, path, subpath, import, assertions).await;
+	test_path(artifact, kind, path, subpath, import, assertions).await;
 }
 
 #[tokio::test]
 async fn path_dependency_object() {
-	let kind = tg::module::Kind::Ts;
 	let artifact = temp::directory! {
 		"tangram.ts" => r#"import * as foo from "./foo.tg.ts""#,
 		"foo.tg.ts" => "",
 	};
+	let kind = tg::module::Kind::Ts;
 	let path = "";
 	let subpath = "tangram.ts";
 	let import = tg::module::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
 	let assertions = |server, artifact: tg::Artifact, module| async move {
+		let item = artifact
+			.unwrap_directory_ref()
+			.get(&server, "foo.tg.ts")
+			.await
+			.unwrap();
 		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Object(artifact.id(&server).await.unwrap().into()),
-				path: None,
-				subpath: Some("foo.tg.ts".into()),
+				item: tg::module::data::Item::Object(item.id().into()),
+				path: Some("foo.tg.ts".into()),
 				tag: None,
 			},
 		};
 		assert_eq!(module, right);
 	};
-	test_object(kind, artifact, path, subpath, import, assertions).await;
+	test_object(artifact, kind, path, subpath, import, assertions).await;
 }
 
 #[tokio::test]
 async fn package_path_dependency_path() {
-	let kind = tg::module::Kind::Ts;
 	let artifact = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => r#"import * as bar from "../bar""#,
@@ -66,6 +68,7 @@ async fn package_path_dependency_path() {
 			"tangram.ts" => "",
 		}
 	};
+	let kind = tg::module::Kind::Ts;
 	let path = "foo";
 	let subpath = "tangram.ts";
 	let import = tg::module::Import::with_specifier_and_attributes("../bar", None).unwrap();
@@ -74,20 +77,18 @@ async fn package_path_dependency_path() {
 		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Path(path),
-				path: Some("bar".into()),
-				subpath: Some("tangram.ts".into()),
+				item: tg::module::data::Item::Path(path.join("tangram.ts")),
+				path: None,
 				tag: None,
 			},
 		};
 		assert_eq!(module, right);
 	};
-	test_path(kind, artifact, path, subpath, import, assertions).await;
+	test_path(artifact, kind, path, subpath, import, assertions).await;
 }
 
 #[tokio::test]
 async fn package_path_dependency_object() {
-	let kind = tg::module::Kind::Ts;
 	let artifact = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => r#"import * as bar from "../bar""#,
@@ -96,33 +97,27 @@ async fn package_path_dependency_object() {
 			"tangram.ts" => "",
 		}
 	};
+	let kind = tg::module::Kind::Ts;
 	let path = "foo";
 	let subpath = "tangram.ts";
 	let import = tg::module::Import::with_specifier_and_attributes("../bar", None).unwrap();
-	let assertions = |server, artifact: tg::Artifact, module| async move {
-		let artifact = artifact
-			.unwrap_directory()
-			.get(&server, "bar")
-			.await
-			.unwrap();
-		let object = artifact.id(&server).await.unwrap().into();
+	let assertions = |_server, _artifact, module: tg::module::Data| async move {
 		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Object(object),
-				path: Some("bar".into()),
-				subpath: Some("tangram.ts".into()),
+				item: module.referent.item.clone(),
+				path: Some("foo/../bar/tangram.ts".into()),
 				tag: None,
 			},
 		};
 		assert_eq!(module, right);
 	};
-	test_object(kind, artifact, path, subpath, import, assertions).await;
+	test_object(artifact, kind, path, subpath, import, assertions).await;
 }
 
 async fn test_path<F, Fut>(
-	kind: tg::module::Kind,
 	artifact: impl Into<temp::Artifact> + Send,
+	kind: tg::module::Kind,
 	path: &str,
 	subpath: &str,
 	import: tg::module::Import,
@@ -149,7 +144,7 @@ async fn test_path<F, Fut>(
 			ignore: true,
 			locked: false,
 			lockfile: true,
-			path: temp.path().to_owned(),
+			path: temp.path().join(path),
 		};
 		tg::checkin(&server, arg)
 			.await
@@ -158,9 +153,8 @@ async fn test_path<F, Fut>(
 		let referrer = tg::module::Data {
 			kind,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Path(temp.path().join(path)),
-				path: Some(path.into()),
-				subpath: Some(PathBuf::from(subpath)),
+				item: tg::module::data::Item::Path(temp.path().join(path).join(subpath)),
+				path: None,
 				tag: None,
 			},
 		};
@@ -171,8 +165,8 @@ async fn test_path<F, Fut>(
 }
 
 async fn test_object<F, Fut>(
-	kind: tg::module::Kind,
 	artifact: impl Into<temp::Artifact> + Send,
+	kind: tg::module::Kind,
 	path: &str,
 	subpath: &str,
 	import: tg::module::Import,
@@ -199,7 +193,7 @@ async fn test_object<F, Fut>(
 			ignore: true,
 			locked: false,
 			lockfile: true,
-			path: temp.path().to_owned(),
+			path: temp.path().join(path),
 		};
 		let artifact = tg::checkin(&server, arg)
 			.await
@@ -208,19 +202,16 @@ async fn test_object<F, Fut>(
 		let item = artifact
 			.clone()
 			.unwrap_directory()
-			.get(&server, path)
+			.get(&server, "tangram.ts")
 			.await
 			.unwrap()
-			.id(&server)
-			.await
-			.unwrap()
+			.id()
 			.into();
 		let referrer = tg::module::Data {
 			kind,
 			referent: tg::Referent {
 				item: tg::module::data::Item::Object(item),
-				path: Some(path.into()),
-				subpath: Some(PathBuf::from(subpath)),
+				path: Some(Path::new(path).join(subpath)),
 				tag: None,
 			},
 		};

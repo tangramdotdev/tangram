@@ -25,7 +25,7 @@ impl Fdb {
 		Ok(Self { database })
 	}
 
-	pub async fn try_get(&self, id: &tangram_client::object::Id) -> tg::Result<Option<Bytes>> {
+	pub async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let bytes = self
 			.database
 			.run(|transaction, _| async move {
@@ -54,7 +54,7 @@ impl Fdb {
 
 	pub async fn try_get_cache_reference(
 		&self,
-		id: &tangram_client::object::Id,
+		id: &tg::object::Id,
 	) -> tg::Result<Option<CacheReference>> {
 		let reference = self
 			.database

@@ -1,6 +1,7 @@
 use crate::Server;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+
 impl Server {
 	pub async fn create_pipe(
 		&self,
@@ -16,8 +17,9 @@ impl Server {
 		let pipe = super::Pipe::open().await?;
 		self.pipes.insert(id.clone(), pipe);
 
-		// Return the ID.
+		// Create the output.
 		let output = tg::pipe::create::Output { id };
+
 		Ok(output)
 	}
 

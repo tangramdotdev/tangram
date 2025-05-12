@@ -14,6 +14,7 @@ use tangram_client as tg;
 use tangram_futures::task::Stop;
 use unicode_width::UnicodeWidthChar as _;
 
+mod blob;
 mod data;
 mod help;
 mod log;
@@ -35,7 +36,7 @@ pub type UpdateSender<H> = std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Viewer<H>
 
 pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewer<H>)>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Item {
 	Process(tg::Process),
 	Value(tg::Value),
@@ -98,6 +99,16 @@ where
 		}
 		if let ct::event::Event::Mouse(event) = event {
 			match event.kind {
+				ct::event::MouseEventKind::ScrollLeft => {
+					if self.data.hit_test(event.column, event.row) {
+						self.data.left();
+					}
+				},
+				ct::event::MouseEventKind::ScrollRight => {
+					if self.data.hit_test(event.column, event.row) {
+						self.data.right();
+					}
+				},
 				ct::event::MouseEventKind::ScrollUp => {
 					if self.data.hit_test(event.column, event.row) {
 						self.data.up();
@@ -146,12 +157,12 @@ where
 		}
 	}
 
-	pub fn new(handle: &H, item: Item, options: Options) -> Self {
+	pub fn new(handle: &H, root: tg::Referent<Item>, options: Options) -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
 		let tree = Tree::new(
 			handle,
-			item,
+			root,
 			options,
 			data.update_sender(),
 			update_sender.clone(),

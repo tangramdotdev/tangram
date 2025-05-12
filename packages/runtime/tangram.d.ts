@@ -78,9 +78,6 @@ declare namespace tg {
 	export namespace Value {
 		export type Id = string;
 
-		/** Get a value with an ID. */
-		export let withId: (id: tg.Value.Id) => tg.Value;
-
 		/** Check if a value is a `tg.Value`. */
 		export let is: (value: unknown) => value is tg.Value;
 
@@ -114,13 +111,13 @@ declare namespace tg {
 		/** Get an object with an ID. */
 		export let withId: (id: tg.Object.Id) => tg.Object;
 
-		/** Check if a value is an `Object`. */
+		/** Check if a value is a `tg.Object`. */
 		export let is: (value: unknown) => value is tg.Object;
 
-		/** Expect that a value is an `Object`. */
+		/** Expect that a value is a `tg.Object`. */
 		export let expect: (value: unknown) => tg.Object;
 
-		/** Assert that a value is an `Object`. */
+		/** Assert that a value is a `tg.Object`. */
 		export let assert: (value: unknown) => asserts value is tg.Object;
 	}
 
@@ -134,13 +131,13 @@ declare namespace tg {
 		/** Get an artifact with an ID. */
 		export let withId: (id: tg.Artifact.Id) => tg.Artifact;
 
-		/** Check if a value is an `Artifact`. */
+		/** Check if a value is a `tg.Artifact`. */
 		export let is: (value: unknown) => value is tg.Artifact;
 
-		/** Expect that a value is an `Artifact`. */
+		/** Expect that a value is a `tg.Artifact`. */
 		export let expect: (value: unknown) => tg.Artifact;
 
-		/** Assert that a value is an `Artifact`. */
+		/** Assert that a value is a `tg.Artifact`. */
 		export let assert: (value: unknown) => asserts value is tg.Artifact;
 	}
 
@@ -165,21 +162,21 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is tg.Blob;
 
 		/** Get this blob's ID. */
-		id(): Promise<tg.Blob.Id>;
+		get id(): tg.Blob.Id;
+
+		/** Store this blob. */
+		store(): Promise<tg.Blob.Id>;
 
 		/** Get this blob's length. */
 		length(): Promise<number>;
 
-		/** Get this blob's children */
-		children(): Promise<Array<tg.Blob.Child>>;
-
 		/** Read from this blob. */
 		read(arg?: tg.Blob.ReadArg): Promise<Uint8Array>;
 
-		/** Get this blob as a `Uint8Array`. */
+		/** Read this entire blob to a `Uint8Array`. */
 		bytes(): Promise<Uint8Array>;
 
-		/** Get this blob as a string. */
+		/** Read this entire blob to a string. */
 		text(): Promise<string>;
 	}
 
@@ -227,7 +224,10 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is tg.Directory;
 
 		/** Get this directory's ID. */
-		id(): Promise<tg.Directory.Id>;
+		get id(): tg.Directory.Id;
+
+		/** Store this directory. */
+		store(): Promise<tg.Directory.Id>;
 
 		/** Get this directory's entries. */
 		entries(): Promise<{ [key: string]: tg.Artifact }>;
@@ -251,6 +251,7 @@ declare namespace tg {
 		export type Arg = undefined | tg.Directory | ArgObject;
 
 		type ArgObject =
+			| { graph: tg.Graph; node: number }
 			| {
 					[key: string]:
 						| undefined
@@ -259,8 +260,7 @@ declare namespace tg {
 						| tg.Blob
 						| tg.Artifact
 						| ArgObject;
-			  }
-			| { graph: tg.Graph; node: number };
+			  };
 	}
 
 	/** Create a file. */
@@ -285,7 +285,10 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is tg.File;
 
 		/** Get this file's ID. */
-		id(): Promise<tg.File.Id>;
+		get id(): tg.File.Id;
+
+		/** Store this file. */
+		store(): Promise<tg.File.Id>;
 
 		/** Get this file's contents. */
 		contents(): Promise<tg.Blob>;
@@ -326,14 +329,14 @@ declare namespace tg {
 			| ArgObject;
 
 		type ArgObject =
+			| { graph: tg.Graph; node: number }
 			| {
 					contents?: tg.Blob.Arg | Array<tg.Blob.Arg> | undefined;
 					dependencies?:
 						| { [reference: tg.Reference]: tg.Referent<tg.Object> }
 						| undefined;
 					executable?: boolean | undefined;
-			  }
-			| { graph: tg.Graph; node: number };
+			  };
 
 		export let raw: (
 			strings: TemplateStringsArray,
@@ -361,7 +364,10 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is tg.Symlink;
 
 		/** Get this symlink's ID. */
-		id(): Promise<tg.Symlink.Id>;
+		get id(): tg.Symlink.Id;
+
+		/** Store this symlink. */
+		store(): Promise<tg.Symlink.Id>;
 
 		/** Get this symlink's artifact. */
 		artifact(): Promise<tg.Artifact | undefined>;
@@ -382,12 +388,12 @@ declare namespace tg {
 		export type Arg = string | tg.Artifact | tg.Template | Symlink | ArgObject;
 
 		type ArgObject =
+			| { graph: tg.Graph; node: number }
 			| { target: string }
 			| {
 					artifact: tg.Artifact;
 					subpath?: string | undefined;
-			  }
-			| { graph: tg.Graph; node: number };
+			  };
 	}
 
 	/** Create a graph. */
@@ -408,7 +414,10 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is tg.Graph;
 
 		/** Get this graph's id. */
-		id(): Promise<tg.Graph.Id>;
+		get id(): tg.Graph.Id;
+
+		/** Store this graph. */
+		store(): Promise<tg.Graph.Id>;
 
 		/** Get this graph's nodes. */
 		nodes(): Promise<Array<tg.Graph.Node>>;
@@ -518,7 +527,10 @@ declare namespace tg {
 		static assert(value: unknown): asserts value is tg.Command;
 
 		/** Get this command's ID. */
-		id(): Promise<tg.Command.Id>;
+		get id(): tg.Command.Id;
+
+		/** Store this command. */
+		store(): Promise<tg.Command.Id>;
 
 		/** Get this command's arguments. */
 		args(): Promise<Array<tg.Value>>;
@@ -934,12 +946,6 @@ declare namespace tg {
 		}
 	}
 
-	/** Write to stdout. */
-	export let log: (...args: Array<unknown>) => void;
-
-	/** Write to stderr. */
-	export let error: (...args: Array<unknown>) => void;
-
 	export type Module = {
 		kind: tg.Module.Kind;
 		referent: tg.Referent<tg.Object>;
@@ -1021,7 +1027,7 @@ declare namespace tg {
 		reload(): Promise<void>;
 
 		/** Get this process's ID. */
-		id(): tg.Process.Id;
+		get id(): tg.Process.Id;
 
 		/** Get this process's checksum. */
 		checksum(): Promise<tg.Checksum | undefined>;
@@ -1351,7 +1357,7 @@ declare namespace tg {
 
 	export type Referent<T> = {
 		item: T;
-		subpath?: string | undefined;
+		path?: string | undefined;
 		tag?: tg.Tag | undefined;
 	};
 
@@ -1388,7 +1394,7 @@ declare namespace tg {
 	>;
 
 	/**
-	 * This computed type performs the inverse of `Unresolved`. It takes a type and returns the output of calling `resolve` on a value of that type. Here are some examples:
+	 * This computed type performs the inverse of `tg.Unresolved`. It takes a type and returns the output of calling `tg.resolve` on a value of that type. Here are some examples:
 	 *
 	 * ```
 	 * Resolved<string> = string

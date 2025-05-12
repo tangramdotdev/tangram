@@ -964,7 +964,7 @@ impl Server {
 			};
 			let (output_count, output_weight) = if arg.outputs {
 				if data.status.is_finished() {
-					let metadata: Vec<Option<tangram_client::object::Metadata>> = data
+					let metadata: Vec<Option<tg::object::Metadata>> = data
 						.output
 						.as_ref()
 						.map(tg::value::Data::children)
@@ -1059,7 +1059,7 @@ impl Server {
 			};
 			let (output_count, output_weight) = if arg.outputs {
 				if data.status.is_finished() {
-					let metadata: Vec<tangram_client::object::Metadata> = data
+					let metadata: Vec<tg::object::Metadata> = data
 						.output
 						.as_ref()
 						.map(tg::value::Data::children)
@@ -1168,7 +1168,7 @@ impl Server {
 						Err(error) => {
 							let mut trailers = http::HeaderMap::new();
 							trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-							let json = serde_json::to_string(&error).unwrap();
+							let json = serde_json::to_string(&error.to_data()).unwrap();
 							trailers
 								.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 							hyper::body::Frame::trailers(trailers)

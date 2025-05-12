@@ -1,21 +1,24 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tangram_client as tg;
 
-pub fn infer_module_kind(path: impl AsRef<Path>) -> Option<tg::module::Kind> {
-	let path = path.as_ref();
-	if path.ends_with(".d.ts") {
-		Some(tg::module::Kind::Dts)
-	} else if path
-		.extension()
-		.is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
-	{
-		Some(tg::module::Kind::Js)
-	} else if path
-		.extension()
-		.is_some_and(|extension| extension.eq_ignore_ascii_case("ts"))
-	{
-		Some(tg::module::Kind::Ts)
-	} else {
-		None
+pub fn path_diff(src: &Path, dst: &Path) -> tg::Result<PathBuf> {
+	if !src.is_absolute() || !dst.is_absolute() {
+		return Err(tg::error!("both paths must be absolute"));
 	}
+	let src_components: Vec<_> = src.components().collect();
+	let dst_components: Vec<_> = dst.components().collect();
+	let common_prefix_len = src_components
+		.iter()
+		.zip(dst_components.iter())
+		.take_while(|(a, b)| a == b)
+		.count();
+	let parents_needed = src_components.len() - common_prefix_len;
+	let mut result = PathBuf::new();
+	for _ in 0..parents_needed {
+		result.push("..");
+	}
+	for component in &dst_components[common_prefix_len..] {
+		result.push(component);
+	}
+	Ok(result)
 }

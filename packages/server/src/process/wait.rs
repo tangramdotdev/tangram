@@ -39,7 +39,6 @@ impl Server {
 				error: output.data.error,
 				exit,
 				output: output.data.output,
-				status: output.data.status,
 			};
 			Ok(Some(output))
 		};

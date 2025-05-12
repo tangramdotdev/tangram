@@ -96,7 +96,7 @@ pub struct Inner {
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
-	processes: ProcessTaskMap,
+	process_task_map: ProcessTaskMap,
 	ptys: DashMap<tg::pty::Id, pty::Pty>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
@@ -230,8 +230,8 @@ impl Server {
 			.map_or(0, |process| process.concurrency);
 		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
-		// Create the process tasks.
-		let processes = TaskMap::default();
+		// Create the process task map.
+		let process_task_map = TaskMap::default();
 
 		// Create the compilers.
 		let compilers = RwLock::new(Vec::new());
@@ -405,7 +405,7 @@ impl Server {
 			pipes,
 			process_permits,
 			process_semaphore,
-			processes,
+			process_task_map,
 			ptys,
 			remotes,
 			runtimes,
@@ -682,8 +682,8 @@ impl Server {
 				}
 
 				// Abort the process tasks.
-				server.processes.abort_all();
-				let results = server.processes.wait().await;
+				server.process_task_map.abort_all();
+				let results = server.process_task_map.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
@@ -1181,7 +1181,7 @@ impl Server {
 			tracing::error!(?error);
 			http::Response::builder()
 				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-				.json(error)
+				.json(error.to_data())
 				.unwrap()
 		});
 

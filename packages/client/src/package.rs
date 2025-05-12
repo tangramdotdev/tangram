@@ -58,9 +58,9 @@ where
 				.try_get_entry(handle, name_)
 				.await?
 				.is_some(),
-			Either::Right(path) => tokio::fs::try_exists(path.join(*name_))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?,
+			Either::Right(path) => tokio::fs::try_exists(path.join(*name_)).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+			)?,
 		};
 		if exists {
 			if name.is_some() {
@@ -77,10 +77,9 @@ pub fn try_get_root_module_file_name_for_package_path(
 ) -> tg::Result<Option<&'static str>> {
 	let mut name = None;
 	for name_ in tg::package::ROOT_MODULE_FILE_NAMES {
-		let exists = path
-			.join(name_)
-			.try_exists()
-			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+		let exists = path.join(name_).try_exists().map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+		)?;
 		if exists {
 			if name.is_some() {
 				return Err(tg::error!("found multiple root modules"));
@@ -93,8 +92,9 @@ pub fn try_get_root_module_file_name_for_package_path(
 
 pub fn try_get_nearest_package_path_for_path(path: &Path) -> tg::Result<Option<&Path>> {
 	for path in path.ancestors() {
-		let metadata = std::fs::metadata(path)
-			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+		let metadata = std::fs::metadata(path).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+		)?;
 		if metadata.is_dir() && try_get_root_module_file_name_for_package_path(path)?.is_some() {
 			return Ok(Some(path));
 		}

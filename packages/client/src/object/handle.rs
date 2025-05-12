@@ -1,6 +1,7 @@
 use super::{Data, Id, Object as Object_};
 use crate as tg;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use std::sync::{Arc, RwLock};
 
 #[derive(
 	Clone,
@@ -20,6 +21,25 @@ pub enum Object {
 	Symlink(tg::Symlink),
 	Graph(tg::Graph),
 	Command(tg::Command),
+}
+
+#[derive(
+	Debug,
+	derive_more::From,
+	derive_more::IsVariant,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum State {
+	Blob(Arc<RwLock<tg::blob::State>>),
+	Directory(Arc<RwLock<tg::directory::State>>),
+	File(Arc<RwLock<tg::file::State>>),
+	Symlink(Arc<RwLock<tg::symlink::State>>),
+	Graph(Arc<RwLock<tg::graph::State>>),
+	Command(Arc<RwLock<tg::command::State>>),
 }
 
 impl Object {
@@ -46,17 +66,28 @@ impl Object {
 			Object_::Command(object) => Self::Command(tg::Command::with_object(object)),
 		}
 	}
-	pub async fn id<H>(&self, handle: &H) -> tg::Result<Id>
-	where
-		H: crate::Handle,
-	{
+
+	#[must_use]
+	pub fn state(&self) -> State {
 		match self {
-			Self::Blob(object) => object.id(handle).await.map(Id::Blob),
-			Self::Directory(object) => object.id(handle).await.map(Id::Directory),
-			Self::File(object) => object.id(handle).await.map(Id::File),
-			Self::Symlink(object) => object.id(handle).await.map(Id::Symlink),
-			Self::Graph(object) => object.id(handle).await.map(Id::Graph),
-			Self::Command(object) => object.id(handle).await.map(Id::Command),
+			Self::Blob(blob) => blob.state().clone().into(),
+			Self::Directory(directory) => directory.state().clone().into(),
+			Self::File(file) => file.state().clone().into(),
+			Self::Symlink(symlink) => symlink.state().clone().into(),
+			Self::Graph(graph) => graph.state().clone().into(),
+			Self::Command(command) => command.state().clone().into(),
+		}
+	}
+
+	#[must_use]
+	pub fn id(&self) -> Id {
+		match self {
+			Self::Blob(object) => Id::Blob(object.id()),
+			Self::Directory(object) => Id::Directory(object.id()),
+			Self::File(object) => Id::File(object.id()),
+			Self::Symlink(object) => Id::Symlink(object.id()),
+			Self::Graph(object) => Id::Graph(object.id()),
+			Self::Command(object) => Id::Command(object.id()),
 		}
 	}
 
@@ -141,21 +172,94 @@ impl Object {
 
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
 	where
-		H: crate::Handle,
+		H: tg::Handle,
 	{
 		match self {
-			Self::Blob(object) => object.data(handle).await.map(Data::Blob),
-			Self::Directory(object) => object.data(handle).await.map(Data::Directory),
-			Self::File(object) => object.data(handle).await.map(Data::File),
-			Self::Symlink(object) => object.data(handle).await.map(Data::Symlink),
-			Self::Graph(object) => object.data(handle).await.map(Data::Graph),
-			Self::Command(object) => object.data(handle).await.map(Data::Command),
+			Self::Blob(blob) => blob.data(handle).await.map(Into::into),
+			Self::Directory(directory) => directory.data(handle).await.map(Into::into),
+			Self::File(file) => file.data(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.data(handle).await.map(Into::into),
+			Self::Graph(graph) => graph.data(handle).await.map(Into::into),
+			Self::Command(command) => command.data(handle).await.map(Into::into),
+		}
+	}
+
+	#[must_use]
+	pub fn kind(&self) -> tg::object::Kind {
+		match self {
+			Self::Blob(_) => tg::object::Kind::Blob,
+			Self::Directory(_) => tg::object::Kind::Directory,
+			Self::File(_) => tg::object::Kind::File,
+			Self::Symlink(_) => tg::object::Kind::Symlink,
+			Self::Graph(_) => tg::object::Kind::Graph,
+			Self::Command(_) => tg::object::Kind::Command,
 		}
 	}
 
 	#[must_use]
 	pub fn is_artifact(&self) -> bool {
 		matches!(self, Self::Directory(_) | Self::File(_) | Self::Symlink(_))
+	}
+}
+
+impl State {
+	#[must_use]
+	pub fn id(&self) -> Option<tg::object::Id> {
+		match self {
+			Self::Blob(state) => state.read().unwrap().id.clone().map(Into::into),
+			Self::Directory(state) => state.read().unwrap().id.clone().map(Into::into),
+			Self::File(state) => state.read().unwrap().id.clone().map(Into::into),
+			Self::Symlink(state) => state.read().unwrap().id.clone().map(Into::into),
+			Self::Graph(state) => state.read().unwrap().id.clone().map(Into::into),
+			Self::Command(state) => state.read().unwrap().id.clone().map(Into::into),
+		}
+	}
+
+	#[must_use]
+	pub fn object(&self) -> Option<tg::object::Object> {
+		match self {
+			Self::Blob(state) => state.read().unwrap().object.clone().map(Into::into),
+			Self::Directory(state) => state.read().unwrap().object.clone().map(Into::into),
+			Self::File(state) => state.read().unwrap().object.clone().map(Into::into),
+			Self::Symlink(state) => state.read().unwrap().object.clone().map(Into::into),
+			Self::Graph(state) => state.read().unwrap().object.clone().map(Into::into),
+			Self::Command(state) => state.read().unwrap().object.clone().map(Into::into),
+		}
+	}
+
+	#[must_use]
+	pub fn stored(&self) -> bool {
+		match self {
+			Self::Blob(state) => state.read().unwrap().stored,
+			Self::Directory(state) => state.read().unwrap().stored,
+			Self::File(state) => state.read().unwrap().stored,
+			Self::Symlink(state) => state.read().unwrap().stored,
+			Self::Graph(state) => state.read().unwrap().stored,
+			Self::Command(state) => state.read().unwrap().stored,
+		}
+	}
+
+	pub fn set_stored(&self, stored: bool) {
+		match self {
+			Self::Blob(state) => {
+				state.write().unwrap().stored = stored;
+			},
+			Self::Directory(state) => {
+				state.write().unwrap().stored = stored;
+			},
+			Self::File(state) => {
+				state.write().unwrap().stored = stored;
+			},
+			Self::Symlink(state) => {
+				state.write().unwrap().stored = stored;
+			},
+			Self::Graph(state) => {
+				state.write().unwrap().stored = stored;
+			},
+			Self::Command(state) => {
+				state.write().unwrap().stored = stored;
+			},
+		}
 	}
 }
 

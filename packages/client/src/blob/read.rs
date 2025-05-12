@@ -50,12 +50,8 @@ impl tg::Blob {
 		H: tg::Handle,
 	{
 		let handle = handle.clone();
-		let id = self.id(&handle).await?.clone();
-		let stream = handle
-			.try_read_blob(&id, arg)
-			.await?
-			.ok_or_else(|| tg::error!("expected a blob"))?
-			.boxed();
+		let id = self.store(&handle).await?.clone();
+		let stream = handle.read_blob(&id, arg).await?.boxed();
 		let reader = StreamReader::new(
 			stream
 				.map_ok(|chunk| chunk.bytes)

@@ -65,7 +65,7 @@ impl Server {
 
 	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
 		// Spawn the process task.
-		self.processes.spawn(
+		self.process_task_map.spawn(
 			process.id().clone(),
 			Task::spawn(|_| {
 				let server = self.clone();
@@ -101,9 +101,11 @@ impl Server {
 		// Run.
 		let wait = self.process_task_inner(process).await?;
 
-		// Get the output.
+		// Store the output.
 		let output = if let Some(output) = &wait.output {
-			Some(output.data(self).await?)
+			output.store(self).await?;
+			let data = output.to_data();
+			Some(data)
 		} else {
 			None
 		};
@@ -148,7 +150,7 @@ impl Server {
 		// Finish the process.
 		let arg = tg::process::finish::Arg {
 			checksum: wait.checksum,
-			error: wait.error,
+			error: wait.error.as_ref().map(tg::Error::to_data),
 			exit: wait.exit,
 			force: false,
 			output,
@@ -190,7 +192,7 @@ impl Server {
 			let result = self.heartbeat_process(process.id(), arg).await;
 			if let Ok(output) = result {
 				if output.status.is_finished() {
-					self.processes.abort(process.id());
+					self.process_task_map.abort(process.id());
 					break;
 				}
 			}

@@ -87,7 +87,6 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 			.arg("tgvn")
 			.arg("--pretty")
 			.arg("true")
-			.arg("--recursive")
 			.output()
 			.await
 			.unwrap();
@@ -100,7 +99,6 @@ async fn test_object_push(artifact: impl Into<temp::Artifact> + Send + 'static) 
 			.arg("tgvn")
 			.arg("--pretty")
 			.arg("true")
-			.arg("--recursive")
 			.output()
 			.await
 			.unwrap();

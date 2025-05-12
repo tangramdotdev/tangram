@@ -32,29 +32,13 @@ impl Cli {
 
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
-		let items = future::try_join_all(referents.into_iter().map(async |referent| {
-			let item = match referent.item {
-				Either::Left(process) => Either::Left(process),
-				Either::Right(object) => {
-					let object = if let Some(subpath) = &referent.subpath {
-						let directory = object
-							.try_unwrap_directory()
-							.ok()
-							.ok_or_else(|| tg::error!("expected a directory"))?;
-						directory.get(&handle, subpath).await?.into()
-					} else {
-						object
-					};
-					Either::Right(object)
-				},
-			};
-			let item = match item {
+		let items = referents
+			.into_iter()
+			.map(|referent| match referent.item {
 				Either::Left(process) => Either::Left(process.id().clone()),
-				Either::Right(object) => Either::Right(object.id(&handle).await?.clone()),
-			};
-			Ok::<_, tg::Error>(item)
-		}))
-		.await?;
+				Either::Right(object) => Either::Right(object.id().clone()),
+			})
+			.collect::<Vec<_>>();
 
 		// Pull the item.
 		let arg = tg::pull::Arg {

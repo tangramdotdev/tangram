@@ -27,7 +27,7 @@ pub struct Data {
 	pub enqueued_at: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Error>,
+	pub error: Option<tg::error::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub exit: Option<u8>,
@@ -39,8 +39,6 @@ pub struct Data {
 	pub finished_at: Option<i64>,
 
 	pub host: String,
-
-	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,

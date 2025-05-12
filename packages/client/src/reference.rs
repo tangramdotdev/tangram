@@ -145,14 +145,14 @@ impl Reference {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get stream"))?;
 		let stream = pin!(stream);
-		let output = stream.try_last().await?;
-		match output {
-			Some(output) => match output {
-				crate::progress::Event::Output(output) => Ok(output),
-				_ => Err(tg::error!("expected output")),
-			},
-			None => Err(tg::error!("failed to get output")),
-		}
+		let output = stream
+			.try_last()
+			.await?
+			.ok_or_else(|| tg::error!("expected an event"))?
+			.try_unwrap_output()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the output"))?;
+		Ok(output)
 	}
 }
 

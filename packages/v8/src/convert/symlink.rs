@@ -5,11 +5,11 @@ impl ToV8 for tg::Symlink {
 	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
+		let symlink = v8::String::new_external_onebyte_static(scope, b"Symlink").unwrap();
 		let symlink = tangram.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
@@ -30,11 +30,11 @@ impl FromV8 for tg::Symlink {
 	) -> tg::Result<Self> {
 		let context = scope.get_current_context();
 		let global = context.global(scope);
-		let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 		let tangram = global.get(scope, tangram.into()).unwrap();
 		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-		let symlink = v8::String::new_external_onebyte_static(scope, "Symlink".as_bytes()).unwrap();
+		let symlink = v8::String::new_external_onebyte_static(scope, b"Symlink").unwrap();
 		let symlink = tangram.get(scope, symlink.into()).unwrap();
 		let symlink = v8::Local::<v8::Function>::try_from(symlink).unwrap();
 
@@ -43,7 +43,7 @@ impl FromV8 for tg::Symlink {
 		}
 		let value = value.to_object(scope).unwrap();
 
-		let state = v8::String::new_external_onebyte_static(scope, "state".as_bytes()).unwrap();
+		let state = v8::String::new_external_onebyte_static(scope, b"state").unwrap();
 		let state = value.get(scope, state.into()).unwrap();
 		let state = <_>::from_v8(scope, state)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the state"))?;
@@ -73,32 +73,27 @@ impl ToV8 for tg::symlink::Object {
 
 		match self {
 			tg::symlink::Object::Graph { graph, node } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
+				let key = v8::String::new_external_onebyte_static(scope, b"graph").unwrap();
 				let value = graph.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 
-				let key =
-					v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
+				let key = v8::String::new_external_onebyte_static(scope, b"node").unwrap();
 				let value = node.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 
 			tg::symlink::Object::Target { target } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+				let key = v8::String::new_external_onebyte_static(scope, b"target").unwrap();
 				let value = target.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
 
 			tg::symlink::Object::Artifact { artifact, subpath } => {
-				let key =
-					v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
+				let key = v8::String::new_external_onebyte_static(scope, b"artifact").unwrap();
 				let value = artifact.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 
-				let key =
-					v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
+				let key = v8::String::new_external_onebyte_static(scope, b"subpath").unwrap();
 				let value = subpath.to_v8(scope)?;
 				object.set(scope, key.into(), value);
 			},
@@ -118,19 +113,19 @@ impl FromV8 for tg::symlink::Object {
 		}
 		let value = value.to_object(scope).unwrap();
 
-		let graph = v8::String::new_external_onebyte_static(scope, "graph".as_bytes()).unwrap();
+		let graph = v8::String::new_external_onebyte_static(scope, b"graph").unwrap();
 		let graph = value.get(scope, graph.into()).unwrap();
 		let graph = <_>::from_v8(scope, graph)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the graph"))?;
 		if let Some(graph) = graph {
-			let node = v8::String::new_external_onebyte_static(scope, "node".as_bytes()).unwrap();
+			let node = v8::String::new_external_onebyte_static(scope, b"node").unwrap();
 			let node = value.get(scope, node.into()).unwrap();
 			let node = <_>::from_v8(scope, node)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the node"))?;
 			return Ok(Self::Graph { graph, node });
 		}
 
-		let target = v8::String::new_external_onebyte_static(scope, "target".as_bytes()).unwrap();
+		let target = v8::String::new_external_onebyte_static(scope, b"target").unwrap();
 		let target = value.get(scope, target.into()).unwrap();
 		let target = <_>::from_v8(scope, target)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the target"))?;
@@ -138,13 +133,12 @@ impl FromV8 for tg::symlink::Object {
 			return Ok(Self::Target { target });
 		}
 
-		let artifact =
-			v8::String::new_external_onebyte_static(scope, "artifact".as_bytes()).unwrap();
+		let artifact = v8::String::new_external_onebyte_static(scope, b"artifact").unwrap();
 		let artifact = value.get(scope, artifact.into()).unwrap();
 		let artifact = <_>::from_v8(scope, artifact)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the artifact"))?;
 
-		let subpath = v8::String::new_external_onebyte_static(scope, "subpath".as_bytes()).unwrap();
+		let subpath = v8::String::new_external_onebyte_static(scope, b"subpath").unwrap();
 		let subpath = value.get(scope, subpath.into()).unwrap();
 		let subpath = <_>::from_v8(scope, subpath)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the subpath"))?;

@@ -1,13 +1,14 @@
 use crate::compiler::Compiler;
 use std::collections::BTreeMap;
 use tangram_client as tg;
+use tangram_v8::Serde;
 
 pub fn load(
-	_scope: &mut v8::HandleScope,
 	compiler: &Compiler,
-	args: (tg::module::Data,),
+	_scope: &mut v8::HandleScope,
+	args: (Serde<tg::module::Data>,),
 ) -> tg::Result<String> {
-	let (module,) = args;
+	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let text = compiler
 			.load_module(&module)
@@ -18,11 +19,15 @@ pub fn load(
 }
 
 pub fn resolve(
-	_scope: &mut v8::HandleScope,
 	compiler: &Compiler,
-	args: (tg::module::Data, String, Option<BTreeMap<String, String>>),
-) -> tg::Result<tg::module::Data> {
-	let (referrer, specifier, attributes) = args;
+	_scope: &mut v8::HandleScope,
+	args: (
+		Serde<tg::module::Data>,
+		String,
+		Option<BTreeMap<String, String>>,
+	),
+) -> tg::Result<Serde<tg::module::Data>> {
+	let (Serde(referrer), specifier, attributes) = args;
 	let import = tg::module::Import::with_specifier_and_attributes(&specifier, attributes)
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
@@ -37,16 +42,16 @@ pub fn resolve(
 					"failed to resolve specifier relative to the module"
 				)
 			})?;
-		Ok(module)
+		Ok(Serde(module))
 	})
 }
 
 pub fn version(
-	_scope: &mut v8::HandleScope,
 	compiler: &Compiler,
-	args: (tg::module::Data,),
+	_scope: &mut v8::HandleScope,
+	args: (Serde<tg::module::Data>,),
 ) -> tg::Result<String> {
-	let (module,) = args;
+	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let version = compiler
 			.get_module_version(&module)
@@ -57,13 +62,9 @@ pub fn version(
 }
 
 pub fn has_invalidated_resolutions(
+	_compiler: &Compiler,
 	_scope: &mut v8::HandleScope,
-	compiler: &Compiler,
-	args: (tg::module::Data,),
+	_args: (Serde<tg::module::Data>,),
 ) -> tg::Result<bool> {
-	let (module,) = args;
-	let Some(document) = compiler.documents.get(&module) else {
-		return Ok(false);
-	};
-	Ok(!document.dirty)
+	Ok(false)
 }

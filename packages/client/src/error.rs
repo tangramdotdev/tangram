@@ -1,48 +1,36 @@
 use crate::{self as tg, util::serde::is_false};
+use itertools::Itertools as _;
 use serde_with::serde_as;
-use std::{collections::BTreeMap, fmt::Debug, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, fmt::Debug, path::PathBuf};
 
-/// A result alias that defaults to `Error` as the error type.
+pub use self::data::Error as Data;
+
+pub mod data;
+
+/// An alias for `std::result::Result` that defaults to `tg::Error` as the error type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(try_from = "Data")]
 pub struct Error {
-	/// The error code.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub code: Option<Code>,
-
-	/// The error's message.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub code: Option<tg::error::Code>,
 	pub message: Option<String>,
-
-	/// The location where the error occurred.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<Location>,
-
-	/// A stack trace associated with the error.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stack: Option<Vec<Location>>,
-
-	/// The error's source.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub source: Option<Source>,
-
-	/// Values associated with the error.
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub location: Option<tg::error::Location>,
+	pub stack: Option<Vec<tg::error::Location>>,
+	pub source: Option<tg::Referent<Box<tg::Error>>>,
 	pub values: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
 	Cancelation,
 }
 
 /// An error location.
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug)]
 pub struct Location {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub symbol: Option<String>,
 	pub file: File,
 	pub line: u32,
@@ -50,11 +38,11 @@ pub struct Location {
 }
 
 /// An error location's source.
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[derive(Clone, Debug, derive_more::TryUnwrap)]
+#[try_unwrap(ref)]
 pub enum File {
 	Internal(PathBuf),
-	Module(tg::module::Data),
+	Module(tg::Module),
 }
 
 pub struct Trace<'a> {
@@ -63,7 +51,7 @@ pub struct Trace<'a> {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct TraceOptions {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub internal: bool,
@@ -72,17 +60,79 @@ pub struct TraceOptions {
 	pub reverse: bool,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Source {
-	pub error: Arc<Error>,
-}
-
 impl Error {
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		data.try_into()
+	}
+
 	#[must_use]
 	pub fn trace<'a>(&'a self, options: &'a TraceOptions) -> Trace<'a> {
 		Trace {
 			error: self,
 			options,
+		}
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		std::iter::empty()
+			.chain(
+				self.location
+					.as_ref()
+					.map(tg::error::Location::children)
+					.into_iter()
+					.flatten(),
+			)
+			.collect()
+	}
+
+	pub fn to_data(&self) -> Data {
+		let code = self.code;
+		let message = self.message.clone();
+		let location = self.location.as_ref().map(Location::to_data);
+		let source = self
+			.source
+			.as_ref()
+			.map(|source| source.clone().map(|item| Box::new(item.to_data())));
+		let stack = self
+			.stack
+			.as_ref()
+			.map(|stack| stack.iter().map(Location::to_data).collect());
+		let values = self.values.clone();
+		Data {
+			code,
+			message,
+			location,
+			stack,
+			source,
+			values,
+		}
+	}
+}
+
+impl Location {
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.file
+			.try_unwrap_module_ref()
+			.ok()
+			.map(tg::Module::children)
+			.into_iter()
+			.flatten()
+			.collect()
+	}
+
+	#[must_use]
+	pub fn to_data(&self) -> data::Location {
+		let symbol = self.symbol.clone();
+		let file = self.file.to_data();
+		let line = self.line;
+		let column = self.column;
+		data::Location {
+			symbol,
+			file,
+			line,
+			column,
 		}
 	}
 }
@@ -97,10 +147,89 @@ impl File {
 	pub fn is_module(&self) -> bool {
 		matches!(self, Self::Module { .. })
 	}
+
+	#[must_use]
+	pub fn to_data(&self) -> data::File {
+		match self {
+			File::Internal(path) => data::File::Internal(path.clone()),
+			File::Module(module) => data::File::Module(module.to_data()),
+		}
+	}
+}
+
+impl TraceOptions {
+	#[must_use]
+	pub fn internal() -> Self {
+		Self {
+			internal: true,
+			..Default::default()
+		}
+	}
 }
 
 pub fn ok<T>(value: T) -> Result<T> {
 	Ok(value)
+}
+
+impl TryFrom<Data> for Error {
+	type Error = tg::Error;
+
+	fn try_from(value: Data) -> Result<Self, Self::Error> {
+		let code = value.code;
+		let message = value.message;
+		let location = value.location.map(TryInto::try_into).transpose()?;
+		let stack = value
+			.stack
+			.map(|stack| stack.into_iter().map(TryInto::try_into).try_collect())
+			.transpose()?;
+		let source = value
+			.source
+			.map(|referent| {
+				let item = Box::new((*referent.item).try_into()?);
+				let referent = tg::Referent {
+					item,
+					path: referent.path,
+					tag: referent.tag,
+				};
+				Ok::<_, tg::Error>(referent)
+			})
+			.transpose()?;
+		let values = value.values;
+		let value = Self {
+			code,
+			message,
+			location,
+			stack,
+			source,
+			values,
+		};
+		Ok(value)
+	}
+}
+
+impl TryFrom<data::Location> for Location {
+	type Error = tg::Error;
+
+	fn try_from(value: data::Location) -> Result<Self, Self::Error> {
+		Ok(Self {
+			symbol: value.symbol,
+			file: value.file.try_into()?,
+			line: value.line,
+			column: value.column,
+		})
+	}
+}
+
+impl TryFrom<data::File> for File {
+	type Error = tg::Error;
+
+	fn try_from(value: data::File) -> Result<Self, Self::Error> {
+		let value = match value {
+			data::File::Internal(path) => File::Internal(path),
+			data::File::Module(module) => File::Module(module.into()),
+		};
+		Ok(value)
+	}
 }
 
 impl std::fmt::Display for Error {
@@ -114,7 +243,7 @@ impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		self.source
 			.as_ref()
-			.map(|source| source.error.as_ref() as &(dyn std::error::Error + 'static))
+			.map(|source| source.item.as_ref() as &(dyn std::error::Error + 'static))
 	}
 }
 
@@ -127,8 +256,10 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 				message: Some(error.to_string()),
 				location: None,
 				stack: None,
-				source: error.source().map(Into::into).map(|error| Source {
-					error: Arc::new(error),
+				source: error.source().map(Into::into).map(|error| tg::Referent {
+					item: Box::new(error),
+					path: None,
+					tag: None,
 				}),
 				values: BTreeMap::new(),
 			},
@@ -143,8 +274,10 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 			message: Some(value.to_string()),
 			location: None,
 			stack: None,
-			source: value.source().map(Into::into).map(|error| Source {
-				error: Arc::new(error),
+			source: value.source().map(Into::into).map(|error| tg::Referent {
+				item: Box::new(error),
+				path: None,
+				tag: None,
 			}),
 			values: BTreeMap::new(),
 		}
@@ -166,12 +299,11 @@ impl std::fmt::Display for Trace<'_> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let mut errors = vec![self.error];
 		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next.error.as_ref());
+			errors.push(next.item.as_ref());
 		}
 		if self.options.reverse {
 			errors.reverse();
 		}
-
 		for error in errors {
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			writeln!(f, "-> {message}")?;
@@ -180,13 +312,11 @@ impl std::fmt::Display for Trace<'_> {
 					writeln!(f, "   {location}")?;
 				}
 			}
-
-			for (name, value) in &error.values {
-				let name = name.as_str();
+			for (key, value) in &error.values {
+				let key = key.as_str();
 				let value = value.as_str();
-				writeln!(f, "   {name} = {value}")?;
+				writeln!(f, "   {key} = {value}")?;
 			}
-
 			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
 			if self.options.reverse {
 				stack.reverse();
@@ -197,7 +327,6 @@ impl std::fmt::Display for Trace<'_> {
 				}
 			}
 		}
-
 		Ok(())
 	}
 }
@@ -230,7 +359,7 @@ impl TryFrom<Error> for tangram_http::sse::Event {
 	type Error = tg::Error;
 
 	fn try_from(value: Error) -> Result<Self, Self::Error> {
-		let data = serde_json::to_string(&value)
+		let data = serde_json::to_string(&value.to_data())
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
 		let event = tangram_http::sse::Event {
 			event: Some("error".to_owned()),
@@ -254,40 +383,6 @@ impl TryFrom<tangram_http::sse::Event> for Error {
 	}
 }
 
-impl Default for TraceOptions {
-	fn default() -> Self {
-		Self {
-			internal: true,
-			reverse: false,
-		}
-	}
-}
-
-/// Create an [Error].
-///
-/// Usage:
-/// ```rust
-/// use tangram_client as tg;
-/// tg::error!("error message");
-/// tg::error!("error message with interpolation {}", 42);
-///
-/// let name = "value";
-/// tg::error!(%name, "error message with a named value (pretty printed)");
-/// tg::error!(?name, "error message with a named value (debug printed)");
-///
-/// let error = std::io::Error::last_os_error();
-/// tg::error!(source = error, "an error that wraps an existing error");
-///
-/// let stack_trace = vec![
-///     tg::error::Location {
-///         symbol: Some("my_cool_function".into()),
-///         source: tg::error::Source::Internal("foo.rs".parse().unwrap()),
-///         line: 123,
-///         column: 456,
-///     }
-/// ];
-/// tg::error!(stack = stack_trace, "an error with a custom stack trace");
-/// ```
 #[macro_export]
 macro_rules! error {
 	({ $error:ident }, %$name:ident, $($arg:tt)*) => {
@@ -309,14 +404,14 @@ macro_rules! error {
 	({ $error:ident }, !$source:ident, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = $crate::error::Source { error: std::sync::Arc::new(source) };
+		let source = $crate::Referent { item: std::boxed::Box::new(source), path: None, tag: None};
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = $crate::error::Source { error: std::sync::Arc::new(source) };
+		let source = $crate::Referent { item: std::boxed::Box::new(source), path: None, tag: None };
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
@@ -358,53 +453,4 @@ macro_rules! function {
 			.strip_suffix("::Marker")
 			.unwrap()
 	}};
-}
-
-#[cfg(test)]
-mod tests {
-	use crate as tg;
-
-	#[test]
-	fn error_macro() {
-		let options = tg::error::TraceOptions::default();
-
-		let foo = "foo";
-		let bar = "bar";
-		let error = tg::error!(?foo, %bar, %baz = "baz", ?qux ="qux", "{}", "message");
-		let trace = error.trace(&options).to_string();
-		println!("{trace}");
-
-		let source = std::io::Error::other("an io error");
-		let error = tg::error!(source = source, "another error");
-		let trace = error.trace(&options).to_string();
-		println!("{trace}");
-
-		let source = std::io::Error::other("an io error");
-		let error = tg::error!(!source, "another error");
-		let trace = error.trace(&options).to_string();
-		println!("{trace}");
-
-		let stack = vec![tg::error::Location {
-			symbol: None,
-			file: tg::error::File::Internal("foobar.rs".parse().unwrap()),
-			line: 123,
-			column: 456,
-		}];
-		let error = tg::error!(stack = stack, "an error occurred");
-		let trace = error.trace(&options).to_string();
-		println!("{trace}");
-	}
-
-	#[test]
-	fn function_macro() {
-		let f = function!();
-		assert_eq!(f, "tangram_client::error::tests::function_macro");
-	}
-
-	#[test]
-	fn serde() {
-		let error = tg::error!("foo");
-		let serialized = serde_json::to_string_pretty(&error).unwrap();
-		let _e: tg::Error = serde_json::from_str(&serialized).expect("failed to deserialize error");
-	}
 }

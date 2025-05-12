@@ -1,31 +1,8 @@
 use super::State;
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, rc::Rc, sync::Arc};
+use std::{collections::BTreeMap, rc::Rc};
 use tangram_client as tg;
-use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StackTrace {
-	call_sites: Vec<CallSite>,
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CallSite {
-	type_name: Option<String>,
-	function_name: Option<String>,
-	method_name: Option<String>,
-	file_name: Option<usize>,
-	line_number: Option<u32>,
-	column_number: Option<u32>,
-	is_eval: bool,
-	is_native: bool,
-	is_constructor: bool,
-	is_async: bool,
-	is_promise_all: bool,
-	promise_index: Option<u32>,
-}
+use tangram_v8::{FromV8 as _, ToV8 as _};
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -41,11 +18,11 @@ pub(super) fn from_exception<'s>(
 ) -> tg::Error {
 	let context = scope.get_current_context();
 	let global = context.global(scope);
-	let tangram = v8::String::new_external_onebyte_static(scope, "Tangram".as_bytes()).unwrap();
+	let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
 	let tangram = global.get(scope, tangram.into()).unwrap();
 	let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-	let error = v8::String::new_external_onebyte_static(scope, "Error".as_bytes()).unwrap();
+	let error = v8::String::new_external_onebyte_static(scope, b"Error").unwrap();
 	let error = tangram.get(scope, error.into()).unwrap();
 	let error = v8::Local::<v8::Function>::try_from(error).unwrap();
 
@@ -53,115 +30,159 @@ pub(super) fn from_exception<'s>(
 		.instance_of(scope, error.into())
 		.unwrap_or_default()
 	{
-		return <_>::from_v8(scope, exception).unwrap();
+		return tg::Error::from_v8(scope, exception)
+			.inspect_err(|error| {
+				let options = tg::error::TraceOptions::internal();
+				let trace = error.trace(&options);
+				tracing::error!(error = %trace, "failed to deserialize the error");
+			})
+			.unwrap();
 	}
 
-	// Get the message.
-	let message_ = v8::Exception::create_message(scope, exception);
-	let message = Some(message_.get(scope).to_rust_string_lossy(scope));
+	let message = v8::Exception::create_message(scope, exception);
 
 	// Get the location.
-	let id = message_
+	let id = message
 		.get_script_resource_name(scope)
 		.and_then(|resource_name| <v8::Local<v8::Integer>>::try_from(resource_name).ok())
 		.map(|resource_name| resource_name.value().to_usize().unwrap());
 	let line = if id.is_some() {
-		Some(message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
+		Some(message.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
 	} else {
 		None
 	};
 	let column = if id.is_some() {
-		Some(message_.get_start_column().to_u32().unwrap())
+		Some(message.get_start_column().to_u32().unwrap())
 	} else {
 		None
 	};
 	let location = get_location(state, None, id, line, column);
 
-	// Get the stack trace.
-	let stack = v8::String::new_external_onebyte_static(scope, "stack".as_bytes()).unwrap();
-	let stack = if let Some(stack) = exception
-		.is_native_error()
-		.then(|| exception.to_object(scope).unwrap())
-		.and_then(|exception| exception.get(scope, stack.into()))
-		.and_then(|value| {
-			<Serde<StackTrace>>::from_v8(scope, value)
-				.map(Serde::into_inner)
-				.ok()
-		}) {
-		let stack = stack
-			.call_sites
-			.iter()
-			.rev()
-			.filter_map(|call_site| {
-				let symbol = call_site.function_name.as_ref().map(|function_name| {
-					if let Some(type_name) = call_site.type_name.as_ref() {
-						format!("{type_name}.{function_name}")
-					} else {
-						function_name.clone()
-					}
-				});
-				let file_name = call_site.file_name;
-				let line: u32 = call_site.line_number? - 1;
-				let column: u32 = call_site.column_number?;
-				let location = get_location(state, symbol, file_name, Some(line), Some(column))?;
-				Some(location)
-			})
-			.collect();
-		Some(stack)
-	} else {
-		None
-	};
+	// Get the message.
+	let message = Some(message.get(scope).to_rust_string_lossy(scope));
 
 	// Get the source.
-	let cause_string = v8::String::new_external_onebyte_static(scope, "cause".as_bytes()).unwrap();
+	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
 	let source = exception
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
 		.map(|cause| from_exception(state, scope, cause.into()))
-		.map(|error| tg::error::Source {
-			error: Arc::new(error),
+		.map(|error| tg::Referent {
+			item: Box::new(error),
+			path: None,
+			tag: None,
 		});
-	let values = BTreeMap::new();
 
-	// Create the error.
+	// Get the stack.
+	let stack = v8::String::new_external_onebyte_static(scope, b"stack").unwrap();
+	let stack = exception
+		.is_native_error()
+		.then(|| exception.to_object(scope).unwrap())
+		.and_then(|exception| exception.get(scope, stack.into()))
+		.and_then(|value| Vec::<tg::error::Location>::from_v8(scope, value).ok());
+
 	tg::Error {
 		code: None,
 		message,
 		location,
 		stack,
 		source,
-		values,
+		values: BTreeMap::new(),
 	}
 }
 
-pub fn capture_stack_trace(scope: &mut v8::HandleScope<'_>) -> Option<Vec<tg::error::Location>> {
-	// Get the context.
+pub fn prepare_stack_trace_callback<'s>(
+	scope: &mut v8::HandleScope<'s>,
+	_error: v8::Local<v8::Value>,
+	call_sites: v8::Local<v8::Array>,
+) -> v8::Local<'s, v8::Value> {
 	let context = scope.get_current_context();
-
-	// Get the state.
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
-	// Get the current stack trace.
-	let stack = v8::StackTrace::current_stack_trace(scope, 1024)?;
+	let length = call_sites.length();
+	let mut stack = Vec::with_capacity(length.to_usize().unwrap());
+	for index in (0..length).rev() {
+		let call_site = call_sites.get_index(scope, index).unwrap();
+		let call_site = v8::Local::<v8::Object>::try_from(call_site).unwrap();
 
-	// Collect the stack frames.
-	let stack = (0..stack.get_frame_count())
-		.rev()
-		.filter_map(|index| {
-			let frame = stack.get_frame(scope, index)?;
-			let id = frame.get_script_id();
-			let line = frame.get_line_number().to_u32().unwrap() - 1;
-			let column = frame.get_column().to_u32().unwrap() - 1;
-			let symbol = frame
-				.get_function_name(scope)
-				.map(|name| name.to_rust_string_lossy(scope));
-			get_location(state.as_ref(), symbol, Some(id), Some(line), Some(column))
-		})
-		.collect();
+		let get_function_name =
+			v8::String::new_external_onebyte_static(scope, b"getFunctionName").unwrap();
+		let get_function_name = call_site.get(scope, get_function_name.into()).unwrap();
+		let get_function_name = v8::Local::<v8::Function>::try_from(get_function_name).unwrap();
+		let function_name = get_function_name
+			.call(scope, call_site.into(), &[])
+			.unwrap();
 
-	Some(stack)
+		let get_type_name = v8::String::new_external_onebyte_static(scope, b"getTypeName").unwrap();
+		let get_type_name = call_site.get(scope, get_type_name.into()).unwrap();
+		let get_type_name = v8::Local::<v8::Function>::try_from(get_type_name).unwrap();
+		let type_name = get_type_name.call(scope, call_site.into(), &[]).unwrap();
+		let symbol = if !function_name.is_null() && !function_name.is_undefined() {
+			let function_name = function_name.to_rust_string_lossy(scope);
+			if !type_name.is_null() && !type_name.is_undefined() {
+				let type_name = type_name.to_rust_string_lossy(scope);
+				Some(format!("{type_name}.{function_name}"))
+			} else {
+				Some(function_name)
+			}
+		} else {
+			None
+		};
+
+		let get_file_name = v8::String::new_external_onebyte_static(scope, b"getFileName").unwrap();
+		let get_file_name = call_site.get(scope, get_file_name.into()).unwrap();
+		let get_file_name = v8::Local::<v8::Function>::try_from(get_file_name).unwrap();
+		let file_name = get_file_name.call(scope, call_site.into(), &[]).unwrap();
+		let file_name = if !file_name.is_null() && !file_name.is_undefined() {
+			file_name
+				.to_integer(scope)
+				.map(|i| i.value().to_usize().unwrap())
+		} else {
+			None
+		};
+
+		let get_line_number =
+			v8::String::new_external_onebyte_static(scope, b"getLineNumber").unwrap();
+		let get_line_number = call_site.get(scope, get_line_number.into()).unwrap();
+		let get_line_number = v8::Local::<v8::Function>::try_from(get_line_number).unwrap();
+		let line_number = get_line_number.call(scope, call_site.into(), &[]).unwrap();
+		let line_number = if !line_number.is_null() && !line_number.is_undefined() {
+			line_number
+				.to_integer(scope)
+				.map(|i| i.value().to_u32().unwrap() - 1)
+		} else {
+			None
+		};
+
+		let get_column_number =
+			v8::String::new_external_onebyte_static(scope, b"getColumnNumber").unwrap();
+		let get_column_number = call_site.get(scope, get_column_number.into()).unwrap();
+		let get_column_number = v8::Local::<v8::Function>::try_from(get_column_number).unwrap();
+		let column_number = get_column_number
+			.call(scope, call_site.into(), &[])
+			.unwrap();
+		let column_number = if !column_number.is_null() && !column_number.is_undefined() {
+			column_number
+				.to_integer(scope)
+				.map(|i| i.value().to_u32().unwrap())
+		} else {
+			None
+		};
+
+		if let Some(location) = get_location(
+			state.as_ref(),
+			symbol,
+			file_name,
+			line_number,
+			column_number,
+		) {
+			stack.push(location);
+		}
+	}
+
+	stack.to_v8(scope).unwrap()
 }
 
 fn get_location(
@@ -196,7 +217,7 @@ fn get_location(
 			let module = modules.get(id - 1)?;
 
 			// Get the source.
-			let source = tg::error::File::Module(module.module.clone());
+			let source = tg::error::File::Module(module.module.clone().into());
 
 			// Get the line and column and apply a source map if one is available.
 			let mut line = line?;
@@ -221,45 +242,4 @@ fn get_location(
 
 		None => None,
 	}
-}
-
-pub fn prepare_stack_trace_callback<'s>(
-	scope: &mut v8::HandleScope<'s>,
-	_error: v8::Local<v8::Value>,
-	call_sites: v8::Local<v8::Array>,
-) -> v8::Local<'s, v8::Value> {
-	let length = call_sites.length();
-	let output_call_sites = v8::Array::new(scope, length.to_i32().unwrap());
-	for index in 0..length {
-		let call_site = call_sites.get_index(scope, index).unwrap();
-		let call_site = v8::Local::<v8::Object>::try_from(call_site).unwrap();
-		let output_call_site = v8::Object::new(scope);
-		for (function, key) in [
-			("getTypeName", "typeName"),
-			("getFunctionName", "functionName"),
-			("getMethodName", "methodName"),
-			("getFileName", "fileName"),
-			("getLineNumber", "lineNumber"),
-			("getColumnNumber", "columnNumber"),
-			("isEval", "isEval"),
-			("isNative", "isNative"),
-			("isConstructor", "isConstructor"),
-			("isAsync", "isAsync"),
-			("isPromiseAll", "isPromiseAll"),
-			("getPromiseIndex", "promiseIndex"),
-		] {
-			let function =
-				v8::String::new_external_onebyte_static(scope, function.as_bytes()).unwrap();
-			let function = call_site.get(scope, function.into()).unwrap();
-			let function = v8::Local::<v8::Function>::try_from(function).unwrap();
-			let key = v8::String::new_external_onebyte_static(scope, key.as_bytes()).unwrap();
-			let value = function.call(scope, call_site.into(), &[]).unwrap();
-			output_call_site.set(scope, key.into(), value);
-		}
-		output_call_sites.set_index(scope, index, output_call_site.into());
-	}
-	let output = v8::Object::new(scope);
-	let key = v8::String::new_external_onebyte_static(scope, "callSites".as_bytes()).unwrap();
-	output.set(scope, key.into(), output_call_sites.into());
-	output.into()
 }

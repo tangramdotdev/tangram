@@ -11,7 +11,7 @@ pub enum Event {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Error>,
+	pub error: Option<tg::error::Data>,
 
 	pub exit: u8,
 
@@ -21,8 +21,6 @@ pub struct Output {
 		skip_serializing_if = "Option::is_none"
 	)]
 	pub output: Option<tg::value::Data>,
-
-	pub status: tg::process::Status,
 }
 
 #[derive(Clone, Debug)]
@@ -30,7 +28,6 @@ pub struct Wait {
 	pub error: Option<tg::Error>,
 	pub exit: u8,
 	pub output: Option<tg::Value>,
-	pub status: tg::process::Status,
 }
 
 impl Wait {
@@ -121,10 +118,9 @@ impl TryFrom<Output> for Wait {
 
 	fn try_from(value: Output) -> Result<Self, Self::Error> {
 		Ok(Self {
-			error: value.error,
+			error: value.error.map(TryInto::try_into).transpose()?,
 			exit: value.exit,
-			output: value.output.map(tg::Value::try_from).transpose()?,
-			status: value.status,
+			output: value.output.map(TryInto::try_into).transpose()?,
 		})
 	}
 }

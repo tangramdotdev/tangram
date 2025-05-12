@@ -1,5 +1,8 @@
 pub use self::{
-	builder::Builder, data::Directory as Data, handle::Directory as Handle, id::Id,
+	builder::Builder,
+	data::Directory as Data,
+	handle::{Directory as Handle, State},
+	id::Id,
 	object::Directory as Object,
 };
 

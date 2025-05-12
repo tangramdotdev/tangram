@@ -1,6 +1,5 @@
-use crate::{Cli, util::infer_module_kind};
+use crate::Cli;
 use tangram_client::{self as tg, prelude::*};
-use tangram_either::Either;
 
 /// Document a package.
 #[derive(Clone, Debug, clap::Args)]
@@ -41,68 +40,11 @@ impl Cli {
 				referent: tg::Referent {
 					item: tg::module::data::Item::Path("tangram.d.ts".into()),
 					path: None,
-					subpath: None,
 					tag: None,
 				},
 			}
 		} else {
-			let referent = self.get_reference(&args.reference).await?;
-			let Either::Right(object) = referent.item else {
-				return Err(tg::error!("expected an object"));
-			};
-			let referent = if let Some(subpath) = &referent.subpath {
-				let directory = object
-					.try_unwrap_directory()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?;
-				let item = directory.get(&handle, subpath).await?.into();
-				let path = referent.path.map(|path| path.join(subpath));
-				tg::Referent {
-					item,
-					path,
-					subpath: None,
-					tag: referent.tag,
-				}
-			} else {
-				tg::Referent {
-					item: object,
-					path: referent.path,
-					subpath: referent.subpath,
-					tag: referent.tag,
-				}
-			};
-			let root_module_file_name =
-				tg::package::try_get_root_module_file_name(&handle, Either::Left(&referent.item))
-					.await?
-					.ok_or_else(|| tg::error!("expected a root module"))?;
-			let kind = if let Some(kind) = infer_module_kind(root_module_file_name) {
-				kind
-			} else {
-				match referent
-					.item
-					.unwrap_directory_ref()
-					.get(&handle, root_module_file_name)
-					.await?
-				{
-					tg::Artifact::Directory(_) => tg::module::Kind::Directory,
-					tg::Artifact::File(_) => tg::module::Kind::File,
-					tg::Artifact::Symlink(_) => tg::module::Kind::Symlink,
-				}
-			};
-			let item = tg::module::data::Item::Object(referent.item.id(&handle).await?);
-			let path = referent.path;
-			let subpath = Some(referent.subpath.map_or_else(
-				|| root_module_file_name.into(),
-				|path| path.join(root_module_file_name),
-			));
-			let tag = referent.tag;
-			let referent = tg::Referent {
-				item,
-				path,
-				subpath,
-				tag,
-			};
-			tg::module::Data { referent, kind }
+			self.get_module(&args.reference).await?.to_data()
 		};
 
 		// Document the module.

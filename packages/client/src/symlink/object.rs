@@ -29,6 +29,25 @@ impl Symlink {
 			},
 		}
 	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		match self {
+			Self::Graph { graph, node } => {
+				let graph = graph.id();
+				let node = *node;
+				Data::Graph { graph, node }
+			},
+			Self::Target { target } => Data::Target {
+				target: target.clone(),
+			},
+			Self::Artifact { artifact, subpath } => {
+				let artifact = artifact.id();
+				let subpath = subpath.clone();
+				Data::Artifact { artifact, subpath }
+			},
+		}
+	}
 }
 
 impl TryFrom<Data> for Symlink {

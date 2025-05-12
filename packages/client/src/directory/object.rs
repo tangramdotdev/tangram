@@ -22,6 +22,24 @@ impl Directory {
 			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
 		}
 	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		match self {
+			Self::Graph { graph, node } => {
+				let graph = graph.id();
+				let node = *node;
+				Data::Graph { graph, node }
+			},
+			Self::Normal { entries } => {
+				let entries = entries
+					.iter()
+					.map(|(name, artifact)| (name.clone(), artifact.id()))
+					.collect();
+				Data::Normal { entries }
+			},
+		}
+	}
 }
 
 impl TryFrom<Data> for Directory {

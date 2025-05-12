@@ -4,6 +4,7 @@ use std::sync::Arc;
 pub struct State<I, O> {
 	pub id: Option<I>,
 	pub object: Option<Arc<O>>,
+	pub stored: bool,
 }
 
 impl<I, O> State<I, O> {
@@ -11,7 +12,8 @@ impl<I, O> State<I, O> {
 	pub fn new(id: Option<I>, object: Option<impl Into<Arc<O>>>) -> Self {
 		assert!(id.is_some() || object.is_some());
 		let object = object.map(Into::into);
-		Self { id, object }
+		let stored = id.is_some();
+		Self { id, object, stored }
 	}
 
 	#[must_use]
@@ -19,6 +21,7 @@ impl<I, O> State<I, O> {
 		Self {
 			id: Some(id),
 			object: None,
+			stored: true,
 		}
 	}
 
@@ -27,16 +30,7 @@ impl<I, O> State<I, O> {
 		Self {
 			id: None,
 			object: Some(object.into()),
+			stored: false,
 		}
-	}
-
-	#[must_use]
-	pub fn id(&self) -> Option<&I> {
-		self.id.as_ref()
-	}
-
-	#[must_use]
-	pub fn object(&self) -> Option<&Arc<O>> {
-		self.object.as_ref()
 	}
 }

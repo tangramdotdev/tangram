@@ -1,8 +1,13 @@
+use anstream::{eprint, eprintln};
 use clap::Parser as _;
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
-use std::{fmt::Write as _, path::PathBuf, time::Duration};
+use std::{
+	fmt::Write as _,
+	path::{Path, PathBuf},
+	time::Duration,
+};
 use tangram_client::{self as tg, Client, prelude::*};
 use tangram_either::Either;
 use tangram_server::Server;
@@ -91,6 +96,9 @@ struct Args {
 	/// The mode.
 	#[arg(short, long)]
 	mode: Option<Mode>,
+
+	#[arg(short, long)]
+	quiet: bool,
 
 	/// Override the `url` key in the config.
 	#[arg(short, long, env = "TANGRAM_URL")]
@@ -242,7 +250,7 @@ impl Cli {
 			Ok(config) => config,
 			Err(error) => {
 				eprintln!("{} failed to read the config", "error".red().bold());
-				Cli::print_error(&error, None);
+				Cli::print_error(&error, None, None);
 				return std::process::ExitCode::FAILURE;
 			},
 		};
@@ -281,10 +289,12 @@ impl Cli {
 		if matches!(mode, Mode::Server) {
 			Cli::set_file_descriptor_limit()
 				.inspect_err(|_| {
-					eprintln!(
-						"{} failed to set the file descriptor limit",
-						"warning".yellow().bold(),
-					);
+					if !args.quiet {
+						eprintln!(
+							"{} failed to set the file descriptor limit",
+							"warning".yellow().bold(),
+						);
+					}
 				})
 				.ok();
 		}
@@ -341,7 +351,7 @@ impl Cli {
 			Ok(()) => cli.exit.unwrap_or_default().into(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
-				Cli::print_error(&error, cli.config.as_ref());
+				Cli::print_error(&error, None, cli.config.as_ref());
 				std::process::ExitCode::FAILURE
 			},
 		}
@@ -360,10 +370,12 @@ impl Cli {
 			Mode::Server => Either::Right(self.server().await?),
 		};
 
-		// Get the health and print diagnostic.
+		// Get the health and print diagnostics.
 		let health = handle.health().await?;
-		for diagnostic in &health.diagnostics {
-			Self::print_diagnostic(diagnostic);
+		if !self.args.quiet {
+			for diagnostic in &health.diagnostics {
+				Self::print_diagnostic(diagnostic);
+			}
 		}
 
 		// Set the handle.
@@ -1133,58 +1145,142 @@ impl Cli {
 		Ok(())
 	}
 
-	fn print_error(error: &tg::Error, config: Option<&Config>) {
-		let options = config
+	fn print_error(
+		error: &tg::Error,
+		referent: Option<&tg::Referent<tg::object::Id>>,
+		config: Option<&Config>,
+	) {
+		let internal = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.error_trace_options.clone())
-			.unwrap_or_default();
-		let trace = error.trace(&options);
-		let mut errors = vec![trace.error];
-		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next.error.as_ref());
-		}
-		if !trace.options.reverse {
-			errors.reverse();
-		}
-		for error in errors {
+			.unwrap_or_default()
+			.internal;
+		let path = referent.and_then(|referent| referent.path.clone());
+		let tag = referent.and_then(|referent| referent.tag.clone());
+		let mut stack = vec![(path, tag, error)];
+		while let Some((path, tag, error)) = stack.pop() {
+			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
+
+			// Print the location.
 			if let Some(location) = &error.location {
-				if !location.file.is_internal() || trace.options.internal {
-					let mut string = String::new();
-					write!(string, "{location}").unwrap();
-					eprintln!("   {}", string.yellow());
+				Self::print_error_location(location, &mut path.clone(), &mut tag.clone(), internal);
+			}
+
+			// Print the stack.
+			let mut stack_path = path.clone();
+			let mut stack_tag = tag.clone();
+			for location in error.stack.iter().flatten() {
+				Self::print_error_location(location, &mut stack_path, &mut stack_tag, internal);
+			}
+
+			// Print the values.
+			for (key, value) in &error.values {
+				let key = key.as_str();
+				let value = value.as_str();
+				eprintln!("   {key} = {value}");
+			}
+
+			// Add the source to the stack.
+			if let Some(source) = &error.source {
+				let mut path = path;
+				let mut tag = tag;
+				match (&path, &source.path, &tag, &source.tag) {
+					(Some(path_), Some(source), None, None) => {
+						if tg::package::is_module_path(path_) {
+							path.replace(path_.parent().unwrap().join(source));
+						} else {
+							path.replace(path_.join(source));
+						}
+					},
+					(None, Some(source), None, None) => {
+						path.replace(source.clone());
+					},
+					(_, path_, _, Some(tag_)) => {
+						tag.replace(tag_.clone());
+						path = path_.clone();
+					},
+					_ => (),
 				}
-			}
-			for (name, value) in &error.values {
-				let name = name.as_str().blue();
-				let value = value.as_str().green();
-				eprintln!("   {name} = {value}");
-			}
-			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-			if !trace.options.reverse {
-				stack.reverse();
-			}
-			for location in stack {
-				if !location.file.is_internal() || trace.options.internal {
-					let location = location.to_string().yellow();
-					eprintln!("   {location}");
-				}
+				stack.push((path, tag, source.item.as_ref()));
 			}
 		}
 	}
 
+	fn print_error_location(
+		location: &tg::error::Location,
+		path: &mut Option<PathBuf>,
+		tag: &mut Option<tg::Tag>,
+		internal: bool,
+	) {
+		match &location.file {
+			tg::error::File::Internal(path) => {
+				if internal {
+					eprintln!(
+						"   internal:{}:{}:{}",
+						path.display(),
+						location.line + 1,
+						location.column + 1
+					);
+				}
+			},
+			tg::error::File::Module(module) => match &module.referent.item {
+				tg::module::Item::Path(path) => {
+					eprintln!(
+						"   {}:{}:{}",
+						path.display(),
+						location.line + 1,
+						location.column + 1,
+					);
+				},
+				tg::module::Item::Object(_) => {
+					if let Some(tag_) = &module.referent.tag {
+						tag.replace(tag_.clone());
+					}
+					if let Some(path_) = &module.referent.path {
+						path.replace(path_.clone());
+					}
+					if let Some(tag) = &tag {
+						eprint!("   {tag}");
+						if let Some(path) = &path {
+							eprint!(":");
+							if path.is_relative() && !path.starts_with("..") {
+								eprint!("./");
+							}
+							eprint!("{}", path.display());
+						}
+					} else if let Some(path) = &path {
+						let path = std::env::current_dir()
+							.ok()
+							.and_then(|cwd| {
+								let path = std::fs::canonicalize(cwd.join(path)).ok()?;
+								let path = crate::util::path_diff(&cwd, &path).ok()?;
+								if path.is_relative() && !path.starts_with("..") {
+									return Some(PathBuf::from(".").join(path));
+								}
+								Some(path)
+							})
+							.unwrap_or_else(|| path.clone());
+						eprint!("   {}", path.display());
+					}
+					eprintln!(":{}:{}", location.line + 1, location.column + 1);
+				},
+			},
+		}
+	}
+
 	fn print_diagnostic(diagnostic: &tg::Diagnostic) {
-		let title = match diagnostic.severity {
+		let severity = match diagnostic.severity {
 			tg::diagnostic::Severity::Error => "error".red().bold(),
 			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
 			tg::diagnostic::Severity::Info => "info".blue().bold(),
 			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
 		};
-		eprint!("{title} {}", diagnostic.message);
-		let mut string = String::new();
+		eprint!("{severity} {}", diagnostic.message);
 		if let Some(location) = &diagnostic.location {
+			let mut string = String::new();
 			let path = location
 				.module
 				.referent
@@ -1196,26 +1292,26 @@ impl Cli {
 				let path = location
 					.module
 					.referent
-					.subpath
+					.path
 					.as_ref()
 					.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
 				write!(string, "{}", path.display()).unwrap();
 			} else if let Some(tag) = &location.module.referent.tag {
 				write!(string, "{tag}").unwrap();
-				if let Some(path) = &location.module.referent.subpath {
+				if let Some(path) = &location.module.referent.path {
 					write!(string, ":{}", path.display()).unwrap();
 				}
 			} else {
 				let object = location.module.referent.item.unwrap_object_ref();
 				write!(string, "{object}").unwrap();
-				if let Some(path) = &location.module.referent.subpath {
+				if let Some(path) = &location.module.referent.path {
 					write!(string, ":{}", path.display()).unwrap();
 				}
 			}
 			let line = location.range.start.line + 1;
 			let character = location.range.start.character + 1;
 			write!(string, ":{line}:{character}").unwrap();
-			eprint!("   {}", string.yellow());
+			eprint!(" {}", string.yellow());
 		}
 		eprintln!();
 	}
@@ -1279,6 +1375,89 @@ impl Cli {
 		Ok(referents)
 	}
 
+	async fn get_module(&mut self, reference: &tg::Reference) -> tg::Result<tg::Module> {
+		let handle = self.handle().await?;
+		let referent = self.get_reference(reference).await?;
+		let Either::Right(object) = &referent.item else {
+			return Err(tg::error!("expected an object"));
+		};
+		let mut referent = tg::Referent {
+			item: object,
+			path: referent.path,
+			tag: referent.tag,
+		};
+		let module = match referent.item.clone() {
+			tg::Object::Directory(directory) => {
+				let root_module_name = tg::package::try_get_root_module_file_name(
+					&handle,
+					Either::Left(&directory.clone().into()),
+				)
+				.await?
+				.ok_or_else(|| tg::error!("could not determine the executable"))?;
+				if let Some(path) = &mut referent.path {
+					*path = path.join(root_module_name);
+				} else {
+					referent.path.replace(root_module_name.into());
+				}
+				let kind = if Path::new(root_module_name)
+					.extension()
+					.is_some_and(|extension| extension == "js")
+				{
+					tg::module::Kind::Js
+				} else if Path::new(root_module_name)
+					.extension()
+					.is_some_and(|extension| extension == "ts")
+				{
+					tg::module::Kind::Ts
+				} else {
+					unreachable!();
+				};
+				let item = directory.get(&handle, root_module_name).await?;
+				let item = tg::module::Item::Object(item.into());
+				let referent = tg::Referent::with_item(item);
+				tg::Module { kind, referent }
+			},
+
+			tg::Object::File(file) => {
+				let path = reference
+					.item()
+					.try_unwrap_path_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a path"))?;
+				let path = if let Some(subpath) = reference
+					.options()
+					.and_then(|options| options.subpath.as_ref())
+				{
+					path.join(subpath)
+				} else {
+					path.clone()
+				};
+				if tg::package::is_root_module_path(&path) || tg::package::is_module_path(&path) {
+					return Err(tg::error!("expected a module path"));
+				}
+				let kind = if path.extension().is_some_and(|extension| extension == "js") {
+					tg::module::Kind::Js
+				} else if path.extension().is_some_and(|extension| extension == "ts") {
+					tg::module::Kind::Ts
+				} else {
+					unreachable!()
+				};
+				let item = tg::module::Item::Object(file.clone().into());
+				let referent = tg::Referent::with_item(item);
+				tg::Module { kind, referent }
+			},
+
+			tg::Object::Symlink(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
+
+			_ => {
+				return Err(tg::error!("expected an artifact"));
+			},
+		};
+		Ok(module)
+	}
+
 	/// Initialize V8.
 	fn initialize_v8() {
 		// Set the ICU data.
@@ -1304,8 +1483,8 @@ impl Cli {
 			None
 		};
 		let default = crate::config::Tracing {
-	    filter: "tangram_cli=info,tangram_client=info,tangram_database=info,tangram_server=info,tangram_vfs=info".to_owned(),
-	    format: Some(crate::config::TracingFormat::Pretty),
+			filter: "tangram_cli=info,tangram_client=info,tangram_database=info,tangram_server=info,tangram_vfs=info".to_owned(),
+			format: Some(crate::config::TracingFormat::Pretty),
 		};
 		let output_layer = config
 			.as_ref()

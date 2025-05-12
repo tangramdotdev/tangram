@@ -24,7 +24,7 @@ impl Cli {
 		let stdout = std::io::stdout();
 		let output = if stdout.is_terminal() {
 			let options = tg::value::print::Options {
-				recursive: false,
+				depth: Some(0),
 				style: tg::value::print::Style::Pretty { indentation: "  " },
 			};
 			output.print(options)
