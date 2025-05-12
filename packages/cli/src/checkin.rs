@@ -55,7 +55,14 @@ impl Cli {
 		let output = self.render_progress_stream(stream).await?;
 
 		// Print the artifact.
-		println!("{}", output.artifact);
+		match (output.referent.item, output.referent.subpath) {
+			(tg::artifact::Id::Directory(directory), Some(subpath)) => {
+				let directory = tg::Directory::with_id(directory);
+				let item = directory.get(&handle, subpath).await?.id(&handle).await?;
+				println!("{item}");
+			},
+			(id, _) => println!("{id}"),
+		}
 
 		Ok(())
 	}

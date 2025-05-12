@@ -81,7 +81,7 @@ impl Cli {
 			sandbox: true,
 			..options.spawn
 		};
-		let process = self
+		let (referent, process) = self
 			.spawn(spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
@@ -203,7 +203,15 @@ impl Cli {
 		// Get the output.
 		let output = result
 			.map_err(|source| tg::error!(!source, "failed to await the process"))?
-			.into_output()?;
+			.into_output()
+			.map_err(|source| {
+				let mut error = tg::error!(!source, "the process failed");
+				error
+					.source
+					.as_mut()
+					.map(|source| source.referent.replace(referent));
+				error
+			})?;
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {

@@ -102,7 +102,7 @@ impl Runtime {
 			.await?
 			.and_then(|event| event.try_unwrap_output().ok())
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
-		let artifact = tg::Artifact::with_id(output.artifact);
+		let artifact = tg::Artifact::with_id(output.referent.item);
 
 		// Abort and await the log task.
 		log_task.abort();

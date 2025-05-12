@@ -175,7 +175,9 @@ impl Server {
 				.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
 				.parse()?;
 			if path.components().count() == 1 {
-				let output = tg::checkin::Output { artifact: id };
+				let output = tg::checkin::Output {
+					referent: tg::Referent::with_item(id),
+				};
 				return Ok(output);
 			}
 			let path = path.components().skip(1).collect::<PathBuf>();
@@ -186,7 +188,9 @@ impl Server {
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let artifact = directory.get(self, path).await?;
 			let id = artifact.id(self).await?;
-			let output = tg::checkin::Output { artifact: id };
+			let output = tg::checkin::Output {
+				referent: tg::Referent::with_item(id),
+			};
 			return Ok(output);
 		}
 
@@ -206,13 +210,13 @@ impl Server {
 		};
 
 		// Search for the root.
-		let root = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
+		let root_path = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
 			.unwrap_or(&arg.path)
 			.to_owned();
 
 		// Parse a lockfile if it exists.
 		let lockfile = self
-			.try_parse_lockfile(&root)
+			.try_parse_lockfile(&root_path)
 			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
 
 		// Create the state.
@@ -247,6 +251,7 @@ impl Server {
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({
 			let server = self.clone();
+			let root = root_path.clone();
 			move || {
 				server.checkin_collect_input(&mut state, &send, root)?;
 				Ok::<_, tg::Error>(state)
@@ -278,17 +283,6 @@ impl Server {
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-
-		// Get the root node's ID.
-		let root: tg::artifact::Id = state.graph.nodes[0]
-			.object
-			.as_ref()
-			.unwrap()
-			.id
-			.clone()
-			.try_into()
-			.unwrap();
-
 		let state = Arc::new(state);
 
 		let cache_and_store_future = tokio::spawn({
@@ -359,10 +353,60 @@ impl Server {
 			lockfile_future
 		)?;
 
-		let _state = Arc::into_inner(state).unwrap();
+		let state = Arc::into_inner(state).unwrap();
+
+		// Find the desired item in the graph.
+		let node = state
+			.graph
+			.paths
+			.get(&arg.path)
+			.copied()
+			.ok_or_else(|| tg::error!("failed to get item"))?;
+
+		let root = state.graph.nodes[node].root.unwrap_or(node);
+
+		// Get the id, path, tag, and subpath.
+		let item = state.graph.nodes[root]
+			.object
+			.as_ref()
+			.unwrap()
+			.id
+			.clone()
+			.try_into()
+			.unwrap();
+		let path =
+			crate::util::path::diff(state.graph.nodes[0].path(), state.graph.nodes[root].path())
+				.ok()
+				.map(|path| {
+					if path.as_os_str().is_empty() {
+						".".into()
+					} else {
+						path
+					}
+				});
+		let subpath = (node != root)
+			.then(|| {
+				let src = state.graph.nodes[root].path();
+				let dst = state.graph.nodes[node].path();
+				let diff = crate::util::path::diff(src, dst).unwrap();
+				if diff.as_os_str().is_empty() {
+					None
+				} else {
+					Some(diff)
+				}
+			})
+			.flatten();
+		let tag = None;
 
 		// Create the output.
-		let output = tg::checkin::Output { artifact: root };
+		let output = tg::checkin::Output {
+			referent: tg::Referent {
+				item,
+				path,
+				subpath,
+				tag,
+			},
+		};
 
 		Ok(output)
 	}

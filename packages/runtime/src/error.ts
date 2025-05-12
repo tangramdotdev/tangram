@@ -35,4 +35,5 @@ type File =
 
 type Source = {
 	error: Error_;
+	referent: tg.Referent<tg.Object.Id> | undefined;
 };

@@ -2,7 +2,7 @@ use clap::Parser as _;
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
-use std::{fmt::Write as _, path::PathBuf, time::Duration};
+use std::{fmt::Write as _, path::PathBuf, sync::Arc, time::Duration};
 use tangram_client::{self as tg, Client, prelude::*};
 use tangram_either::Either;
 use tangram_server::Server;
@@ -1136,6 +1136,8 @@ impl Cli {
 	}
 
 	fn print_error(error: &tg::Error, config: Option<&Config>) {
+		let error = Self::fix_error_locations(error, None);
+		let mut current_source = error.source.as_ref();
 		let options = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
@@ -1150,6 +1152,9 @@ impl Cli {
 			errors.reverse();
 		}
 		for error in errors {
+			if let Some(new_source) = &error.source {
+				current_source.replace(new_source);
+			}
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
@@ -1170,11 +1175,86 @@ impl Cli {
 			}
 			for location in stack {
 				if !location.file.is_internal() || trace.options.internal {
-					let location = location.to_string().yellow();
-					eprintln!("   {location}");
+					let mut string = String::new();
+					write!(string, "{location}").unwrap();
+					eprintln!("   {}", string.yellow());
 				}
 			}
 		}
+	}
+
+	fn fix_error_locations(
+		error: &tg::Error,
+		source: Option<&tg::Referent<tg::object::Id>>,
+	) -> tg::Error {
+		// Fix this error's location.
+		let mut error = 'a: {
+			let Some(location) = error.location.as_ref() else {
+				break 'a error.clone();
+			};
+			let tg::error::File::Module(module) = &location.file else {
+				break 'a error.clone();
+			};
+			let Ok(id) = module.referent.item.try_unwrap_object_ref() else {
+				break 'a error.clone();
+			};
+			let Some(source) = source else {
+				break 'a error.clone();
+			};
+			if &source.item != id {
+				break 'a error.clone();
+			}
+			let location = tg::error::Location {
+				file: tg::error::File::Module(tg::module::Data {
+					kind: module.kind,
+					referent: tg::Referent {
+						item: tg::module::data::Item::Object(source.item.clone()),
+						..module.referent.clone()
+					},
+				}),
+				..location.clone()
+			};
+			tg::Error {
+				location: Some(location),
+				..error.clone()
+			}
+		};
+
+		// Fix this error's stack.
+		if let (Some(source), Some(stack)) = (source, &mut error.stack) {
+			for location in stack {
+				let tg::error::File::Module(module) = &location.file else {
+					continue;
+				};
+				let Ok(id) = module.referent.item.try_unwrap_object_ref() else {
+					continue;
+				};
+				if &source.item != id {
+					continue;
+				}
+				let new_location = tg::error::Location {
+					file: tg::error::File::Module(tg::module::Data {
+						kind: module.kind,
+						referent: tg::Referent {
+							item: module.referent.item.clone(),
+							path: source.path.clone(),
+							subpath: module.referent.subpath.clone(),
+							tag: source.tag.clone(),
+						},
+					}),
+					..location.clone()
+				};
+				*location = new_location;
+			}
+		}
+
+		// Recurse.
+		if let Some(tg::error::Source { error, referent }) = error.source.as_mut() {
+			let new_error = Self::fix_error_locations(error.as_ref(), referent.as_ref());
+			*error = Arc::new(new_error);
+		}
+
+		error
 	}
 
 	fn print_diagnostic(diagnostic: &tg::Diagnostic) {

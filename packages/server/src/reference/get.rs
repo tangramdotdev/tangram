@@ -66,25 +66,38 @@ impl Server {
 						tg::progress::Event::Finish(indicator)
 					},
 					tg::progress::Event::Output(output) => {
-						let item = Either::Right(output.artifact.into());
-						let subpath = reference
-							.options()
-							.and_then(|options| options.subpath.clone());
-						let output = Some(tg::get::Output {
-							referent: tg::Referent {
-								item,
-								path: None,
-								subpath,
-								tag: None,
-							},
-						});
+						let subpath = output
+							.referent
+							.subpath
+							.map(|subpath| {
+								if let Some(p) = reference
+									.options()
+									.and_then(|options| options.subpath.as_ref())
+								{
+									subpath.join(p)
+								} else {
+									subpath
+								}
+							})
+							.or_else(|| {
+								reference
+									.options()
+									.and_then(|options| options.subpath.clone())
+							});
+						let referent = tg::Referent {
+							item: Either::Right(output.referent.item.into()),
+							path: output.referent.path,
+							tag: output.referent.tag,
+							subpath,
+						};
+						let output = Some(tg::get::Output { referent });
 						tg::progress::Event::Output(output)
 					},
 				});
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 			tg::reference::Item::Tag(tag) => {
-				let Some(tg::tag::get::Output { item, .. }) = self.try_get_tag(tag).await? else {
+				let Some(tg::tag::get::Output { item, tag }) = self.try_get_tag(tag).await? else {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());
 				};
@@ -96,7 +109,7 @@ impl Server {
 						item,
 						path: None,
 						subpath,
-						tag: None,
+						tag: Some(tag),
 					},
 				};
 				let event = tg::progress::Event::Output(Some(output));

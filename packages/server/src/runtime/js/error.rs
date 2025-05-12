@@ -113,15 +113,40 @@ pub(super) fn from_exception<'s>(
 	};
 
 	// Get the source.
-	let cause_string = v8::String::new_external_onebyte_static(scope, "cause".as_bytes()).unwrap();
+	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
+	let error_string = v8::String::new_external_onebyte_static(scope, b"error").unwrap();
+	let referent_string = v8::String::new_external_onebyte_static(scope, b"referent").unwrap();
 	let source = exception
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
-		.map(|cause| from_exception(state, scope, cause.into()))
-		.map(|error| tg::error::Source {
-			error: Arc::new(error),
+		.map(|cause| {
+			// If the cause object has an "error" field, treat it as a source.
+			let Some(error) = cause
+				.get(scope, error_string.into())
+				.and_then(|value| value.to_object(scope))
+			else {
+				// Otherwise convert it from an exception.
+				let error = from_exception(state, scope, cause.into());
+				return tg::error::Source {
+					error: Arc::new(error),
+					referent: None,
+				};
+			};
+
+			// Get the error.
+			let error = from_exception(state, scope, error.into());
+
+			// Get the referent, if it exists.
+			let referent = cause
+				.get(scope, referent_string.into())
+				.and_then(|value| <tg::Referent<tg::object::Id>>::from_v8(scope, value).ok());
+
+			tg::error::Source {
+				error: Arc::new(error),
+				referent,
+			}
 		});
 	let values = BTreeMap::new();
 

@@ -216,8 +216,16 @@ impl FromV8 for tg::error::Source {
 		let error = value.get(scope, error.into()).unwrap();
 		let error = <_>::from_v8(scope, error)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+
+		let referent =
+			v8::String::new_external_onebyte_static(scope, "referent".as_bytes()).unwrap();
+		let referent = value.get(scope, referent.into()).unwrap();
+		let referent = <_>::from_v8(scope, referent)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the referent"))?;
+
 		Ok(tg::error::Source {
 			error: Arc::new(error),
+			referent,
 		})
 	}
 }
