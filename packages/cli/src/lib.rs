@@ -1246,7 +1246,13 @@ impl Cli {
 
 		// Recurse.
 		if let Some(tg::error::Source { error, referent }) = error.source.as_mut() {
-			let new_error = Self::fix_error_locations(error.as_ref(), referent.as_ref());
+			let source = match (source, referent.as_ref()) {
+				(Some(parent), Some(child)) if parent.item == child.item => Some(parent),
+				(_, Some(child)) => Some(child),
+				(Some(parent), None) => Some(parent),
+				(None, None) => None,
+			};
+			let new_error = Self::fix_error_locations(error.as_ref(), source);
 			*error = Arc::new(new_error);
 		}
 
