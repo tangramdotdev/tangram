@@ -1147,7 +1147,7 @@ impl Cli {
 		while let Some(next) = errors.last().unwrap().source.as_ref() {
 			errors.push(next.error.as_ref());
 		}
-		if !trace.options.reverse {
+		if trace.options.reverse {
 			errors.reverse();
 		}
 		for error in errors {
@@ -1166,7 +1166,7 @@ impl Cli {
 				eprintln!("   {name} = {value}");
 			}
 			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-			if !trace.options.reverse {
+			if trace.options.reverse {
 				stack.reverse();
 			}
 			for location in stack {
