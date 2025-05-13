@@ -10,7 +10,7 @@ use std::{
 	task::Poll,
 };
 use sync_wrapper::SyncWrapper;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tokio::io::{

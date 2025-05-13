@@ -1,5 +1,5 @@
 use crate::Cli;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 
 /// Get process metadata.
 #[derive(Clone, Debug, clap::Args)]

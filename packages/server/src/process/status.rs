@@ -3,7 +3,7 @@ use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use std::time::Duration;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};

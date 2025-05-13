@@ -10,7 +10,7 @@ use std::{
 	fmt::Write,
 	rc::{Rc, Weak},
 };
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::Task;
 

@@ -3,7 +3,7 @@ use futures::{FutureExt as _, future};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
 

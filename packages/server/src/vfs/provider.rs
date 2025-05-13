@@ -14,7 +14,7 @@ use std::{
 		atomic::{AtomicU64, Ordering},
 	},
 };
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_vfs as vfs;
 

@@ -1,7 +1,7 @@
 use crate::{ProcessPermit, Server, runtime};
 use futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future};
 use std::{pin::pin, sync::Arc, time::Duration};
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::Task;
 

@@ -1,7 +1,7 @@
 use crate::Cli;
 use futures::StreamExt as _;
 use std::pin::pin;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 
 /// Get a process's status.
 #[derive(Clone, Debug, clap::Args)]

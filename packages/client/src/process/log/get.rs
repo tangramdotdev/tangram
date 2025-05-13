@@ -1,6 +1,6 @@
 use crate::{
 	self as tg,
-	handle::Ext as _,
+	prelude::*,
 	util::serde::{BytesBase64, SeekFromString},
 };
 use bytes::Bytes;

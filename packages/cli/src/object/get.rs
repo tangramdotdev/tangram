@@ -1,6 +1,6 @@
 use crate::Cli;
 use crossterm::tty::IsTty as _;
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tokio::io::AsyncWriteExt as _;
 
 /// Get an object.

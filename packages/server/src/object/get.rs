@@ -7,7 +7,7 @@ use std::{
 	io::{Read as _, Seek as _},
 	path::PathBuf,
 };
-use tangram_client::{self as tg, handle::Ext as _};
+use tangram_client::{self as tg, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
