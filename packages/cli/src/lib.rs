@@ -1142,19 +1142,18 @@ impl Cli {
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.error_trace_options.clone())
 			.unwrap_or_default();
-		let trace = error.trace(&options);
-		let mut errors = vec![trace.error];
+		let mut errors = vec![&error];
 		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next.error.as_ref());
+			errors.push(&next.error);
 		}
-		if trace.options.reverse {
+		if options.reverse {
 			errors.reverse();
 		}
 		for error in errors {
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
-				if !location.file.is_internal() || trace.options.internal {
+				if !location.file.is_internal() || options.internal {
 					let mut string = String::new();
 					write!(string, "{location}").unwrap();
 					eprintln!("   {}", string.yellow());
@@ -1166,11 +1165,11 @@ impl Cli {
 				eprintln!("   {name} = {value}");
 			}
 			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-			if trace.options.reverse {
+			if options.reverse {
 				stack.reverse();
 			}
 			for location in stack {
-				if !location.file.is_internal() || trace.options.internal {
+				if !location.file.is_internal() || options.internal {
 					let mut string = String::new();
 					write!(string, "{location}").unwrap();
 					eprintln!("   {}", string.yellow());
