@@ -176,7 +176,6 @@ impl std::fmt::Display for Trace<'_> {
 		if self.options.reverse {
 			errors.reverse();
 		}
-
 		for error in errors {
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			writeln!(f, "-> {message}")?;
@@ -185,13 +184,11 @@ impl std::fmt::Display for Trace<'_> {
 					writeln!(f, "   {location}")?;
 				}
 			}
-
 			for (name, value) in &error.values {
 				let name = name.as_str();
 				let value = value.as_str();
 				writeln!(f, "   {name} = {value}")?;
 			}
-
 			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
 			if self.options.reverse {
 				stack.reverse();
@@ -202,7 +199,6 @@ impl std::fmt::Display for Trace<'_> {
 				}
 			}
 		}
-
 		Ok(())
 	}
 }
@@ -221,7 +217,7 @@ impl std::fmt::Display for File {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			File::Internal(path) => {
-				write!(f, "(internal) {}", path.display())?;
+				write!(f, "internal {}", path.display())?;
 			},
 			File::Module(module) => {
 				write!(f, "{module}")?;
