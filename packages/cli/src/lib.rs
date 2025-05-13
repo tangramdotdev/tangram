@@ -1137,7 +1137,6 @@ impl Cli {
 
 	fn print_error(error: &tg::Error, config: Option<&Config>) {
 		let error = Self::fix_error_locations(error, None);
-		let mut current_source = error.source.as_ref();
 		let options = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
@@ -1152,9 +1151,6 @@ impl Cli {
 			errors.reverse();
 		}
 		for error in errors {
-			if let Some(new_source) = &error.source {
-				current_source.replace(new_source);
-			}
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
