@@ -3,7 +3,10 @@ use crate as tg;
 use bytes::Bytes;
 use std::collections::BTreeSet;
 
-#[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
+#[derive(
+	Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap, serde::Serialize,
+)]
+#[serde(untagged)]
 pub enum Object {
 	Blob(tg::blob::Data),
 	Directory(tg::directory::Data),

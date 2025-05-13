@@ -28,7 +28,7 @@ impl Cli {
 			Either::Left(process) => process.id().to_string(),
 			Either::Right(item) => item.to_string(),
 		};
-		eprintln!("{} item {item}", "info".blue().bold());
+		eprintln!("{} {item}", "info".blue().bold());
 		if let Some(path) = &referent.path {
 			let path = path.display();
 			eprintln!("{} path {path}", "info".blue().bold());

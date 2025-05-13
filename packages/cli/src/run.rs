@@ -153,7 +153,7 @@ impl Cli {
 			.await?;
 
 		// Print the process ID.
-		eprint!("{} process {}\r\n", "info".blue().bold(), process.id());
+		eprintln!("{} {}", "info".blue().bold(), process.id());
 
 		// Enable raw mode.
 		stdio.set_raw_mode()?;

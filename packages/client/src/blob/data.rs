@@ -1,16 +1,20 @@
-use crate as tg;
+use crate::{self as tg, util::serde::BytesBase64};
 use byteorder::WriteBytesExt as _;
 use bytes::Bytes;
+use serde_with::serde_as;
 use std::{collections::BTreeSet, io::Write};
 
-#[derive(Clone, Debug, derive_more::IsVariant)]
+#[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
 pub enum Blob {
 	Leaf(Leaf),
 	Branch(Branch),
 }
 
-#[derive(Clone, Debug)]
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Leaf {
+	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 }
 
