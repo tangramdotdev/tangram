@@ -1093,18 +1093,8 @@ async fn package_with_cyclic_modules() {
 		      {
 		        "kind": "directory",
 		        "entries": {
-		          "foo.tg.ts": 2,
-		          "tangram.ts": 1,
-		        },
-		      },
-		      {
-		        "kind": "file",
-		        "contents": tg.blob("import * as foo from \"./foo.tg.ts\";"),
-		        "dependencies": {
-		          "./foo.tg.ts": {
-		            "item": 0,
-		            "subpath": "foo.tg.ts",
-		          },
+		          "foo.tg.ts": 1,
+		          "tangram.ts": 2,
 		        },
 		      },
 		      {
@@ -1114,6 +1104,16 @@ async fn package_with_cyclic_modules() {
 		          "./tangram.ts": {
 		            "item": 0,
 		            "subpath": "tangram.ts",
+		          },
+		        },
+		      },
+		      {
+		        "kind": "file",
+		        "contents": tg.blob("import * as foo from \"./foo.tg.ts\";"),
+		        "dependencies": {
+		          "./foo.tg.ts": {
+		            "item": 0,
+		            "subpath": "foo.tg.ts",
 		          },
 		        },
 		      },
