@@ -1,4 +1,4 @@
-use super::{Blob, File, State, Variant, set_permissions_and_times};
+use super::{Blob, File, State, Variant};
 use crate::Server;
 use bytes::Bytes;
 use futures::{TryStreamExt, stream::FuturesUnordered};
@@ -98,9 +98,8 @@ impl Server {
 			}
 		}
 
-		// If this is a non destructive checkin, only copy the blobs to the cache.
+		// If this is not a destructive checkin, then copy the blobs to the cache.
 		for node in std::iter::once(root).chain(nodes.iter().copied()) {
-			// Skip nodes that don't exist on the system.
 			if !state.graph.nodes[node]
 				.metadata
 				.as_ref()
@@ -118,7 +117,7 @@ impl Server {
 			let dst = self.cache_path().join(id);
 			match std::fs::copy(src, &dst) {
 				Ok(_) => {
-					set_permissions_and_times(
+					Self::set_permissions_and_times(
 						&dst,
 						state.graph.nodes[node].metadata.as_ref().unwrap(),
 					)?;

@@ -24,6 +24,7 @@ mod unify;
 
 struct State {
 	arg: tg::checkin::Arg,
+	fixup_sender: Option<std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>>,
 	graph: Graph,
 	graph_objects: Vec<GraphObject>,
 	lockfile: Option<Lockfile>,
@@ -216,6 +217,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
 
 		// Create the state.
+		let (fixup_sender, fixup_receiver) = if arg.destructive {
+			let (sender, receiver) = std::sync::mpsc::channel::<(PathBuf, std::fs::Metadata)>();
+			(Some(sender), Some(receiver))
+		} else {
+			(None, None)
+		};
 		let graph = Graph {
 			nodes: im::Vector::new(),
 			paths: radix_trie::Trie::default(),
@@ -223,6 +230,7 @@ impl Server {
 		};
 		let mut state = State {
 			arg: arg.clone(),
+			fixup_sender,
 			graph,
 			graph_objects: Vec::new(),
 			lockfile,
@@ -231,30 +239,26 @@ impl Server {
 			progress: progress.clone(),
 		};
 
-		// Spawn a blocking task to update file times/permissions.
-		let (send, recv) = std::sync::mpsc::channel::<(PathBuf, std::fs::Metadata)>();
-		let permissions_task = tokio::task::spawn_blocking(move || {
-			while let Ok((path, metadata)) = recv.recv() {
-				set_permissions_and_times(&path, &metadata).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to set permissions"),
-				)?;
-			}
-			Ok::<_, tg::Error>(())
-		})
-		.map(|result| result.unwrap());
+		// Spawn the fixup task.
+		let fixup_task =
+			tokio::task::spawn_blocking(move || Self::checkin_fixup_task(fixup_receiver.as_ref()))
+				.map(|result| result.unwrap());
 
 		// Collect input.
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({
 			let server = self.clone();
 			move || {
-				server.checkin_collect_input(&mut state, &send, root)?;
+				server.checkin_collect_input(&mut state, root)?;
 				Ok::<_, tg::Error>(state)
 			}
 		})
 		.await
 		.unwrap()?;
 		tracing::trace!(elapsed = ?start.elapsed(), "input");
+
+		// Remove the fixup sender.
+		state.fixup_sender.take();
 
 		// Remove the ignorer.
 		state.ignorer.take();
@@ -295,7 +299,8 @@ impl Server {
 			let server = self.clone();
 			let state = state.clone();
 			async move {
-				permissions_task.await?;
+				fixup_task.await?;
+
 				// Cache the objects.
 				let start = Instant::now();
 				server
@@ -379,6 +384,42 @@ impl Server {
 		);
 		ignore::Ignorer::new(file_names, Some(global))
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
+	}
+
+	fn checkin_fixup_task(
+		fixup_receiver: Option<&std::sync::mpsc::Receiver<(std::path::PathBuf, std::fs::Metadata)>>,
+	) -> tg::Result<()> {
+		if let Some(fixup_receiver) = fixup_receiver {
+			while let Ok((path, metadata)) = fixup_receiver.recv() {
+				Self::set_permissions_and_times(&path, &metadata).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to set permissions"),
+				)?;
+			}
+		}
+		Ok::<_, tg::Error>(())
+	}
+
+	fn set_permissions_and_times(path: &Path, metadata: &std::fs::Metadata) -> tg::Result<()> {
+		if !metadata.is_symlink() {
+			let mode = metadata.permissions().mode();
+			let executable = mode & 0o111 != 0;
+			let new_mode = if metadata.is_dir() || executable {
+				0o755
+			} else {
+				0o644
+			};
+			if new_mode != mode {
+				let permissions = std::fs::Permissions::from_mode(new_mode);
+				std::fs::set_permissions(path, permissions).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to set the permissions"),
+				)?;
+			}
+		}
+		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+		)?;
+		Ok(())
 	}
 }
 
@@ -503,27 +544,4 @@ impl petgraph::visit::IntoNodeIdentifiers for &Graph {
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
 		0..self.nodes.len()
 	}
-}
-
-fn set_permissions_and_times(path: &Path, metadata: &std::fs::Metadata) -> tg::Result<()> {
-	if !metadata.is_symlink() {
-		let mode = metadata.permissions().mode();
-		let executable = mode & 0o111 != 0;
-		let new_mode = if metadata.is_dir() || executable {
-			0o755
-		} else {
-			0o644
-		};
-		if new_mode != mode {
-			let permissions = std::fs::Permissions::from_mode(new_mode);
-			std::fs::set_permissions(path, permissions).map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to set the permissions"),
-			)?;
-		}
-	}
-	let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-	filetime::set_symlink_file_times(path, epoch, epoch).map_err(
-		|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
-	)?;
-	Ok(())
 }
