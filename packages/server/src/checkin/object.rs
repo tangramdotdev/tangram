@@ -142,16 +142,17 @@ impl Server {
 					.iter()
 					.map(|(name, index)| {
 						let name = name.clone();
-						if let Some(id) = state.graph.nodes[*index]
-							.object
-							.as_ref()
-							.map(|object| object.id.clone())
-						{
-							(name, Either::Right(id.try_into().unwrap()))
-						} else {
-							let index = *graph_indices.get(index).unwrap();
-							(name, Either::Left(index))
-						}
+						let item = graph_indices
+							.get(index)
+							.copied()
+							.map(Either::Left)
+							.or_else(|| {
+								state.graph.nodes[*index].object.as_ref().map(|object| {
+									Either::Right(object.id.clone().try_into().unwrap())
+								})
+							})
+							.unwrap();
+						(name, item)
 					})
 					.collect();
 				let data = tg::graph::data::Directory { entries };
@@ -175,16 +176,17 @@ impl Server {
 							let index = node.ok_or_else(
 								|| tg::error!(%import = import.reference, "unresolved import"),
 							)?;
-							let item = if let Some(id) = state.graph.nodes[index]
-								.object
-								.as_ref()
-								.map(|object| object.id.clone())
-							{
-								Either::Right(id)
-							} else {
-								let index = *graph_indices.get(&index).unwrap();
-								Either::Left(index)
-							};
+							let item = graph_indices
+								.get(&index)
+								.copied()
+								.map(Either::Left)
+								.or_else(|| {
+									state.graph.nodes[index]
+										.object
+										.as_ref()
+										.map(|object| Either::Right(object.id.clone()))
+								})
+								.unwrap();
 							let path = path.clone();
 							let subpath = subpath.clone();
 							let tag = state.graph.nodes[index].tag.clone();

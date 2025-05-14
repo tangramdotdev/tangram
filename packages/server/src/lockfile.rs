@@ -11,7 +11,6 @@ use tangram_either::Either;
 pub struct Lockfile {
 	nodes: Vec<tg::lockfile::Node>,
 	paths: Vec<Option<PathBuf>>,
-	path: PathBuf,
 }
 
 #[derive(Clone)]
@@ -761,11 +760,10 @@ impl Lockfile {
 
 	pub fn get_node_for_path(&self, node_path: &Path) -> tg::Result<usize> {
 		// Linear search, which should be faster than looking in a btreemap. Replace with a btreemap if this is too slow.
-		self
-			.paths
+		self.paths
 			.iter()
 			.position(|path| path.as_deref() == Some(node_path))
-			.ok_or_else(|| tg::error!(%path = node_path.display(), %lockfile = self.path.display(), "failed to find in lockfile"))
+			.ok_or_else(|| tg::error!(%path = node_path.display(), "failed to find in lockfile"))
 	}
 
 	pub fn get_file_dependencies(
@@ -804,43 +802,42 @@ impl Lockfile {
 
 impl Server {
 	pub fn try_parse_lockfile(&self, path: &Path) -> tg::Result<Option<Lockfile>> {
-		// First try and read the lockfile from the file's xattrs.
-		let contents_and_root = 'a: {
+		let contents = 'a: {
 			// Read the lockfile's xattrs.
 			let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) else {
 				break 'a None;
 			};
-			Some((contents, path))
+			Some(contents)
 		};
 
 		// If not available in the xattrs, try and read the file.
-		let contents_and_root = 'a: {
-			if let Some(contents) = contents_and_root {
+		let contents = 'a: {
+			if let Some(contents) = contents {
 				break 'a Some(contents);
 			}
 
-			// If this is not a lockfile path, break.
-			if path.file_name().and_then(|name| name.to_str())
-				!= Some(tg::package::LOCKFILE_FILE_NAME)
-			{
-				break 'a None;
-			}
-
 			// Read the lockfile from disk.
-			let contents = match std::fs::read(path) {
+			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+			let contents = match std::fs::read(&lockfile_path) {
 				Ok(contents) => contents,
-				Err(error) if error.kind() == std::io::ErrorKind::NotFound => break 'a None,
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+					) =>
+				{
+					break 'a None;
+				},
 				Err(source) => {
 					return Err(
-						tg::error!(!source, %path = path.display(), "failed to read lockfile"),
+						tg::error!(!source, %path = lockfile_path.display(), "failed to read lockfile"),
 					);
 				},
 			};
-
-			Some((contents, path.parent().unwrap()))
+			Some(contents)
 		};
 
-		let Some((contents, root)) = contents_and_root else {
+		let Some(contents) = contents else {
 			return Ok(None);
 		};
 
@@ -906,13 +903,12 @@ impl Server {
 			}
 		}
 		// Get the paths for the lockfile nodes.
-		let paths = get_paths(&artifacts_path, root, &lockfile)?;
+		let paths = get_paths(&artifacts_path, path, &lockfile)?;
 
 		// Create the parsed lockfile.
 		let lockfile = Lockfile {
 			nodes: lockfile.nodes,
 			paths,
-			path: path.to_owned(),
 		};
 
 		Ok(Some(lockfile))

@@ -1,5 +1,5 @@
 use super::{
-	Directory, File, FileDependency, Node, State, Symlink, Variant, set_permissions_and_times,
+	Directory, File, FileDependency, Node, State, Symlink, Variant,
 };
 use crate::Server;
 use std::{
@@ -11,14 +11,24 @@ use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	pub(super) fn checkin_collect_input(&self, state: &mut State, root: PathBuf) -> tg::Result<()> {
-		self.checkin_visit(state, root)?;
+	pub(super) fn checkin_collect_input(
+		&self,
+		state: &mut State,
+		send: &std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>,
+		root: PathBuf,
+	) -> tg::Result<()> {
+		self.checkin_visit(state, send, root)?;
 		Self::checkin_find_roots(state);
 		Self::checkin_find_subpaths(state);
 		Ok(())
 	}
 
-	fn checkin_visit(&self, state: &mut State, path: PathBuf) -> tg::Result<Option<usize>> {
+	fn checkin_visit(
+		&self,
+		state: &mut State,
+		send: &std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>,
+		path: PathBuf,
+	) -> tg::Result<Option<usize>> {
 		// Check if the path has been visited.
 		if let Some(index) = state.graph.paths.get(&path) {
 			return Ok(Some(*index));
@@ -59,7 +69,7 @@ impl Server {
 
 		// If this is a destructive checkin, update permissions/times.
 		if state.arg.destructive {
-			set_permissions_and_times(&path, &metadata)?;
+			send.send((path.clone(), metadata.clone())).ok();
 		}
 
 		// Get the node index.
@@ -81,16 +91,21 @@ impl Server {
 
 		// Visit the edges.
 		match &state.graph.nodes[index].variant {
-			Variant::Directory(_) => self.checkin_visit_directory_edges(state, index)?,
-			Variant::File(_) => self.checkin_visit_file_edges(state, index)?,
-			Variant::Symlink(_) => Self::checkin_visit_symlink_edges(state, index)?,
+			Variant::Directory(_) => self.checkin_visit_directory_edges(state, send, index)?,
+			Variant::File(_) => self.checkin_visit_file_edges(state, send, index)?,
+			Variant::Symlink(_) => Self::checkin_visit_symlink_edges(state, send, index)?,
 			Variant::Object => return Err(tg::error!("unreachable")),
 		}
 
 		Ok(Some(index))
 	}
 
-	fn checkin_visit_directory_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_directory_edges(
+		&self,
+		state: &mut State,
+		send: &std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>,
+		index: usize,
+	) -> tg::Result<()> {
 		// Read the entries.
 		let read_dir = std::fs::read_dir(state.graph.nodes[index].path())
 			.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
@@ -109,7 +124,7 @@ impl Server {
 		// Visit the children.
 		for name in names {
 			let path = state.graph.nodes[index].path().join(&name);
-			let Some(child_index) = self.checkin_visit(state, path)? else {
+			let Some(child_index) = self.checkin_visit(state, send, path)? else {
 				continue;
 			};
 			state.graph.nodes[index]
@@ -122,7 +137,12 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_visit_file_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_file_edges(
+		&self,
+		state: &mut State,
+		send: &std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>,
+		index: usize,
+	) -> tg::Result<()> {
 		// Get the list of all dependencies.
 		let path = state.graph.nodes[index].path().to_owned();
 		let mut dependencies = self.get_file_dependencies(state, &path)?;
@@ -140,7 +160,7 @@ impl Server {
 					let path = crate::util::fs::canonicalize_parent_sync(&path).map_err(
 						|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"),
 					)?;
-					let Some(index) = self.checkin_visit(state, path)? else {
+					let Some(index) = self.checkin_visit(state, send, path)? else {
 						continue;
 					};
 					*node = Some(index);
@@ -313,7 +333,11 @@ impl Server {
 	}
 
 	#[allow(clippy::unnecessary_wraps)]
-	fn checkin_visit_symlink_edges(_state: &mut State, _index: usize) -> tg::Result<()> {
+	fn checkin_visit_symlink_edges(
+		_state: &mut State,
+		_send: &std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>,
+		_index: usize,
+	) -> tg::Result<()> {
 		Ok(())
 	}
 

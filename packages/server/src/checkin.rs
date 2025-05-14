@@ -231,12 +231,24 @@ impl Server {
 			progress: progress.clone(),
 		};
 
+		// Spawn a blocking task to update file times/permissions.
+		let (send, recv) = std::sync::mpsc::channel::<(PathBuf, std::fs::Metadata)>();
+		let permissions_task = tokio::task::spawn_blocking(move || {
+			while let Ok((path, metadata)) = recv.recv() {
+				set_permissions_and_times(&path, &metadata).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to set permissions"),
+				)?;
+			}
+			Ok::<_, tg::Error>(())
+		})
+		.map(|result| result.unwrap());
+
 		// Collect input.
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({
 			let server = self.clone();
 			move || {
-				server.checkin_collect_input(&mut state, root)?;
+				server.checkin_collect_input(&mut state, &send, root)?;
 				Ok::<_, tg::Error>(state)
 			}
 		})
@@ -340,7 +352,12 @@ impl Server {
 		})
 		.map(|result| result.unwrap());
 
-		futures::try_join!(cache_and_store_future, messenger_future, lockfile_future)?;
+		futures::try_join!(
+			permissions_task,
+			cache_and_store_future,
+			messenger_future,
+			lockfile_future
+		)?;
 
 		let _state = Arc::into_inner(state).unwrap();
 
