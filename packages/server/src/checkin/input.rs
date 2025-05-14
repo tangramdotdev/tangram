@@ -1,6 +1,4 @@
-use super::{
-	Directory, File, FileDependency, Node, State, Symlink, Variant,
-};
+use super::{Directory, File, FileDependency, Node, State, Symlink, Variant};
 use crate::Server;
 use std::{
 	os::unix::fs::PermissionsExt as _,

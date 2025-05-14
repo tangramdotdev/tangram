@@ -639,6 +639,7 @@ where
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
+		let parent_process = Some(process.clone());
 		while let Some(process) = children.try_next().await? {
 			let finished = process
 				.status(handle)
@@ -652,6 +653,7 @@ where
 					)
 				});
 			let handle = handle.clone();
+			let parent_process = parent_process.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
 				if node.borrow().options.condensed_processes && finished {
 					return;
@@ -682,19 +684,13 @@ where
 				let update_task = Task::spawn_local({
 					let options = child.borrow().options.clone();
 					let root = None;
-					let parent = parent
-						.borrow()
-						.item
-						.clone()
-						.unwrap()
-						.try_unwrap_process()
-						.unwrap();
+					let parent = parent_process;
 					let update_sender = child.borrow().update_sender.clone();
 					|_| async move {
 						Self::process_update_task(
 							&handle,
 							root,
-							Some(parent),
+							parent,
 							process,
 							options.as_ref(),
 							update_sender,
@@ -868,13 +864,22 @@ where
 			.ok()
 			.and_then(|exe| exe.try_unwrap_module_ref().ok().cloned())?
 			.module;
-		let file = parent
-			.referent
-			.item
-			.try_unwrap_object_ref()
-			.ok()?
-			.try_unwrap_file_ref()
-			.ok()?;
+		let file = match parent.referent.item.try_unwrap_object_ref().ok()? {
+			tg::Object::Directory(directory) => {
+				let subpath = parent.referent.subpath.as_ref()?;
+				directory
+					.get(handle, subpath)
+					.await
+					.ok()?
+					.try_unwrap_file()
+					.ok()?
+			},
+			tg::Object::File(file) => file.clone(),
+			tg::Object::Symlink(symlink) => {
+				symlink.resolve(handle).await.ok()?.try_unwrap_file().ok()?
+			},
+			_ => return None,
+		};
 		let dependencies = file.dependencies(handle).await.ok()?;
 		for referent in dependencies.into_values() {
 			if referent.item.id(handle).await.ok().as_ref() == Some(child) {
