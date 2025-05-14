@@ -145,12 +145,8 @@ impl Cli {
 								expand_on_create: true,
 							};
 							let item = crate::viewer::Item::Process(process);
-							let mut viewer = crate::viewer::Viewer::new(
-								&handle,
-								Some(referent),
-								item,
-								viewer_options,
-							);
+							let mut viewer =
+								crate::viewer::Viewer::new(&handle, referent, item, viewer_options);
 							match options.view {
 								View::None => (),
 								View::Inline => {

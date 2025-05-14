@@ -37,6 +37,7 @@ struct Node {
 	log_task: Option<Task<()>>,
 	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
+	root: tg::Referent<Either<tg::Process, tg::Object>>,
 	title: String,
 	update_receiver: NodeUpdateReceiver,
 	update_sender: NodeUpdateSender,
@@ -220,6 +221,7 @@ where
 		H: tg::Handle,
 	{
 		let depth = parent.borrow().depth + 1;
+		let root = parent.borrow().root.clone();
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
@@ -263,6 +265,7 @@ where
 			log_task: None,
 			options,
 			parent: Some(parent),
+			root,
 			title,
 			update_receiver,
 			update_sender,
@@ -438,7 +441,7 @@ where
 
 	async fn process_update_task(
 		handle: &H,
-		root: Option<tg::Referent<Either<tg::Process, tg::Object>>>,
+		root: tg::Referent<Either<tg::Process, tg::Object>>,
 		parent: Option<tg::Process>,
 		process: tg::Process,
 		options: &Options,
@@ -447,9 +450,7 @@ where
 	where
 		H: tg::Handle,
 	{
-		if let Some(title) =
-			Self::process_title(handle, root.as_ref(), parent.as_ref(), &process).await
-		{
+		if let Some(title) = Self::process_title(handle, &root, parent.as_ref(), &process).await {
 			update_sender
 				.send(Box::new(|node| {
 					node.borrow_mut().title = title;
@@ -683,7 +684,7 @@ where
 				// Create the update task.
 				let update_task = Task::spawn_local({
 					let options = child.borrow().options.clone();
-					let root = None;
+					let root = child.borrow().root.clone();
 					let parent = parent_process;
 					let update_sender = child.borrow().update_sender.clone();
 					|_| async move {
@@ -730,7 +731,7 @@ where
 
 	async fn process_title(
 		handle: &H,
-		root: Option<&tg::Referent<Either<tg::Process, tg::Object>>>,
+		root: &tg::Referent<Either<tg::Process, tg::Object>>,
 		parent: Option<&tg::Process>,
 		child: &tg::Process,
 	) -> Option<String> {
@@ -785,9 +786,10 @@ where
 					.id(handle)
 					.await
 					.ok()?;
-				if let Some(referent) =
+				if let Some(mut referent) =
 					Self::try_lookup_referent(handle, root, parent, &child).await
 				{
+					referent.subpath = module.module.referent.subpath.clone();
 					if let Some(path) = referent.path {
 						let module_name = referent.subpath.map_or_else(
 							|| path.display().to_string(),
@@ -823,33 +825,66 @@ where
 
 	async fn try_lookup_referent(
 		handle: &H,
-		root: Option<&tg::Referent<Either<tg::Process, tg::Object>>>,
+		root: &tg::Referent<Either<tg::Process, tg::Object>>,
 		parent: Option<&tg::Process>,
 		child: &tg::object::Id,
 	) -> Option<tg::Referent<tg::Object>> {
-		if let Some(root) = root {
-			match &root.item {
-				Either::Left(process) => {
-					if let Some(referent) =
-						Self::try_lookup_referent_from_process(handle, Some(process), child).await
-					{
-						return Some(referent);
-					}
-				},
-				Either::Right(object) => {
-					if object.id(handle).await.ok().as_ref() == Some(child) {
-						let referent = tg::Referent {
-							item: tg::Object::with_id(child.clone()),
-							path: root.path.clone(),
-							subpath: root.subpath.clone(),
-							tag: root.tag.clone(),
-						};
-						return Some(referent);
-					}
-				},
-			}
+		// First atempt to check the root.
+		if let Some(referent) = Self::try_lookup_referent_from_root(handle, root, child).await {
+			return Some(referent);
 		}
-		Self::try_lookup_referent_from_process(handle, parent, child).await
+
+		// Attempt to check the parent process.
+		if let Some(referent) = Self::try_lookup_referent_from_process(handle, parent, child).await
+		{
+			return Some(referent);
+		}
+
+		// Otherwise we failed to find the referent of this object.
+		None
+	}
+
+	async fn try_lookup_referent_from_root(
+		handle: &H,
+		root: &tg::Referent<Either<tg::Process, tg::Object>>,
+		child: &tg::object::Id,
+	) -> Option<tg::Referent<tg::Object>> {
+		match root.item.as_ref() {
+			Either::Left(process) => {
+				// Check the root process.
+				if let Some(referent) =
+					Self::try_lookup_referent_from_process(handle, Some(process), child).await
+				{
+					return Some(referent);
+				}
+
+				// Check if the child's object is the same.
+				let command = process.command(handle).await.ok()?;
+				let executable = command.executable(handle).await.ok()?;
+				let object = executable.object().first()?.id(handle).await.ok()?;
+				if &object == child {
+					return Some(tg::Referent {
+						item: tg::Object::with_id(object),
+						path: root.path.clone(),
+						subpath: root.subpath.clone(),
+						tag: root.tag.clone(),
+					});
+				}
+			},
+			Either::Right(object) => {
+				// Check if the object is the same.
+				let object = object.id(handle).await.ok()?;
+				if &object == child {
+					return Some(tg::Referent {
+						item: tg::Object::with_id(object),
+						path: root.path.clone(),
+						subpath: root.subpath.clone(),
+						tag: root.tag.clone(),
+					});
+				}
+			},
+		}
+		None
 	}
 
 	async fn try_lookup_referent_from_process(
@@ -1514,7 +1549,7 @@ where
 	pub fn new(
 		handle: &H,
 		item: Item,
-		root: Option<tg::Referent<Either<tg::Process, tg::Object>>>,
+		root: tg::Referent<Either<tg::Process, tg::Object>>,
 		options: Options,
 		data: data::UpdateSender,
 		viewer: super::UpdateSender<H>,
@@ -1540,6 +1575,7 @@ where
 				let process = process.clone();
 				let handle = handle.clone();
 				let options = options.clone();
+				let root = root.clone();
 				let update_sender = update_sender.clone();
 				|_| async move {
 					Self::process_update_task(
@@ -1569,6 +1605,7 @@ where
 			log_task: None,
 			options: options.clone(),
 			parent: None,
+			root,
 			title,
 			update_receiver,
 			update_sender,

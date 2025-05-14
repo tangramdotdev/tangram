@@ -149,7 +149,7 @@ where
 
 	pub fn new(
 		handle: &H,
-		root: Option<tg::Referent<Either<tg::Process, tg::Object>>>,
+		root: tg::Referent<Either<tg::Process, tg::Object>>,
 		item: Item,
 		options: Options,
 	) -> Self {
