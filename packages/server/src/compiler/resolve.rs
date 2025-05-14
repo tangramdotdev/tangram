@@ -16,7 +16,7 @@ impl Compiler {
 		let kind = import.kind;
 
 		// Get the referent.
-		let referent = match referrer {
+		let mut referent = match referrer {
 			// Handle a path referrer.
 			tg::module::Data {
 				referent:
@@ -126,6 +126,11 @@ impl Compiler {
 				},
 			}
 		};
+
+		if referent.item == referrer.referent.item {
+			referent.path = referrer.referent.path.clone();
+			referent.tag = referrer.referent.tag.clone();
+		}
 
 		// Create the module.
 		let module = tg::module::Data { kind, referent };

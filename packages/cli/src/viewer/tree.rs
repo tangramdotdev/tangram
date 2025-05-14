@@ -7,7 +7,6 @@ use ratatui::{self as tui, prelude::*};
 use std::{
 	cell::RefCell,
 	collections::BTreeMap,
-	fmt::Write,
 	rc::{Rc, Weak},
 };
 use tangram_client::{self as tg, prelude::*};
@@ -38,6 +37,7 @@ struct Node {
 	log_task: Option<Task<()>>,
 	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
+	root: tg::Referent<Either<tg::Process, tg::Object>>,
 	title: String,
 	update_receiver: NodeUpdateReceiver,
 	update_sender: NodeUpdateSender,
@@ -221,6 +221,7 @@ where
 		H: tg::Handle,
 	{
 		let depth = parent.borrow().depth + 1;
+		let root = parent.borrow().root.clone();
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
@@ -264,6 +265,7 @@ where
 			log_task: None,
 			options,
 			parent: Some(parent),
+			root,
 			title,
 			update_receiver,
 			update_sender,
@@ -439,6 +441,8 @@ where
 
 	async fn process_update_task(
 		handle: &H,
+		root: tg::Referent<Either<tg::Process, tg::Object>>,
+		parent: Option<tg::Process>,
 		process: tg::Process,
 		options: &Options,
 		update_sender: NodeUpdateSender,
@@ -446,7 +450,7 @@ where
 	where
 		H: tg::Handle,
 	{
-		if let Some(title) = Self::process_title(handle, &process).await {
+		if let Some(title) = Self::process_title(handle, &root, parent.as_ref(), &process).await {
 			update_sender
 				.send(Box::new(|node| {
 					node.borrow_mut().title = title;
@@ -636,6 +640,7 @@ where
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
+		let parent_process = Some(process.clone());
 		while let Some(process) = children.try_next().await? {
 			let finished = process
 				.status(handle)
@@ -649,6 +654,7 @@ where
 					)
 				});
 			let handle = handle.clone();
+			let parent_process = parent_process.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
 				if node.borrow().options.condensed_processes && finished {
 					return;
@@ -678,10 +684,14 @@ where
 				// Create the update task.
 				let update_task = Task::spawn_local({
 					let options = child.borrow().options.clone();
+					let root = child.borrow().root.clone();
+					let parent = parent_process;
 					let update_sender = child.borrow().update_sender.clone();
 					|_| async move {
 						Self::process_update_task(
 							&handle,
+							root,
+							parent,
 							process,
 							options.as_ref(),
 							update_sender,
@@ -719,43 +729,199 @@ where
 		Ok(())
 	}
 
-	async fn process_title(handle: &H, process: &tg::Process) -> Option<String> {
-		let command = process.command(handle).await.ok()?;
-		let args = command.args(handle).await.ok()?;
+	async fn process_title(
+		handle: &H,
+		root: &tg::Referent<Either<tg::Process, tg::Object>>,
+		parent: Option<&tg::Process>,
+		child: &tg::Process,
+	) -> Option<String> {
+		let command = child.command(handle).await.ok()?;
 		let executable = command.executable(handle).await.ok()?;
 
-		let mut title = String::new();
+		// Handle path executables.
 		match &*executable {
-			tg::command::Executable::Artifact(_) => (),
-			tg::command::Executable::Module(executable) => {
-				if let Some(path) = &executable.module.referent.path {
-					let path = executable
-						.module
-						.referent
-						.subpath
-						.as_ref()
-						.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
-					write!(title, "{}", path.display()).unwrap();
-				} else if let Some(tag) = &executable.module.referent.tag {
-					write!(title, "{tag}").unwrap();
+			tg::command::Executable::Artifact(exe) => {
+				let child = exe.artifact.id(handle).await.ok()?.into();
+				if let Some(referent) =
+					Self::try_lookup_referent(handle, root, parent, &child).await
+				{
+					if let Some(path) = referent.path {
+						let path = referent
+							.subpath
+							.map_or_else(|| path.clone(), |subpath| path.join(subpath));
+						let name = exe.subpath.as_ref().map_or_else(
+							|| path.display().to_string(),
+							|subpath| path.join(subpath).display().to_string(),
+						);
+						return Some(name);
+					}
+					if let Some(tag) = referent.tag {
+						let name = referent
+							.subpath
+							.map(|subpath| {
+								exe.subpath
+									.as_ref()
+									.map_or(subpath.clone(), |p| subpath.join(p))
+							})
+							.map_or_else(
+								|| tag.to_string(),
+								|path| format!("{tag}:{}", path.display()),
+							);
+						return Some(name);
+					}
+				}
+				let name = exe.subpath.as_ref().map_or_else(
+					|| child.to_string(),
+					|subpath| format!("{child}/{}", subpath.display()),
+				);
+				Some(name)
+			},
+			tg::command::Executable::Module(module) => {
+				let child = module
+					.module
+					.referent
+					.item
+					.try_unwrap_object_ref()
+					.ok()?
+					.id(handle)
+					.await
+					.ok()?;
+				if let Some(mut referent) =
+					Self::try_lookup_referent(handle, root, parent, &child).await
+				{
+					referent.subpath = module.module.referent.subpath.clone();
+					if let Some(path) = referent.path {
+						let module_name = referent.subpath.map_or_else(
+							|| path.display().to_string(),
+							|subpath| path.join(subpath).display().to_string(),
+						);
+						let name = module.export.as_ref().map_or_else(
+							|| module_name.clone(),
+							|export| format!("{module_name}#{export}"),
+						);
+						return Some(name);
+					}
+					if let Some(tag) = referent.tag {
+						let module_name = referent.subpath.map_or_else(
+							|| tag.to_string(),
+							|subpath| format!("{tag}:{}", subpath.display()),
+						);
+						let name = module.export.as_ref().map_or_else(
+							|| module_name.clone(),
+							|export| format!("{module_name}#{export}"),
+						);
+						return Some(name);
+					}
+				}
+				let name = module
+					.export
+					.as_ref()
+					.map_or_else(|| child.to_string(), |export| format!("{child}#{export}"));
+				Some(name)
+			},
+			tg::command::Executable::Path(exe) => Some(exe.path.display().to_string()),
+		}
+	}
+
+	async fn try_lookup_referent(
+		handle: &H,
+		root: &tg::Referent<Either<tg::Process, tg::Object>>,
+		parent: Option<&tg::Process>,
+		child: &tg::object::Id,
+	) -> Option<tg::Referent<tg::Object>> {
+		// First atempt to check the root.
+		if let Some(referent) = Self::try_lookup_referent_from_root(handle, root, child).await {
+			return Some(referent);
+		}
+
+		// Attempt to check the parent process.
+		if let Some(referent) = Self::try_lookup_referent_from_process(handle, parent, child).await
+		{
+			return Some(referent);
+		}
+
+		// Otherwise we failed to find the referent of this object.
+		None
+	}
+
+	async fn try_lookup_referent_from_root(
+		handle: &H,
+		root: &tg::Referent<Either<tg::Process, tg::Object>>,
+		child: &tg::object::Id,
+	) -> Option<tg::Referent<tg::Object>> {
+		match root.item.as_ref() {
+			Either::Left(process) => {
+				// Check the root process.
+				if let Some(referent) =
+					Self::try_lookup_referent_from_process(handle, Some(process), child).await
+				{
+					return Some(referent);
+				}
+
+				// Check if the child's object is the same.
+				let command = process.command(handle).await.ok()?;
+				let executable = command.executable(handle).await.ok()?;
+				let object = executable.object().first()?.id(handle).await.ok()?;
+				if &object == child {
+					return Some(tg::Referent {
+						item: tg::Object::with_id(object),
+						path: root.path.clone(),
+						subpath: root.subpath.clone(),
+						tag: root.tag.clone(),
+					});
 				}
 			},
-			tg::command::Executable::Path(executable) => {
-				write!(title, "{}", executable.path.display()).unwrap();
+			Either::Right(object) => {
+				// Check if the object is the same.
+				let object = object.id(handle).await.ok()?;
+				if &object == child {
+					return Some(tg::Referent {
+						item: tg::Object::with_id(object),
+						path: root.path.clone(),
+						subpath: root.subpath.clone(),
+						tag: root.tag.clone(),
+					});
+				}
 			},
 		}
+		None
+	}
 
-		let host = command.host(handle).await.ok();
-		let host = host.as_deref();
-		if let (Some(tg::Value::String(arg0)), Some("js" | "builtin")) =
-			(args.first(), host.map(String::as_str))
-		{
-			write!(title, "#{arg0}").unwrap();
-		} else {
-			write!(title, "{}", process.id()).unwrap();
+	async fn try_lookup_referent_from_process(
+		handle: &H,
+		parent: Option<&tg::Process>,
+		child: &tg::object::Id,
+	) -> Option<tg::Referent<tg::Object>> {
+		let parent = parent?.command(handle).await.ok()?;
+		let parent = parent
+			.executable(handle)
+			.await
+			.ok()
+			.and_then(|exe| exe.try_unwrap_module_ref().ok().cloned())?
+			.module;
+		let file = match parent.referent.item.try_unwrap_object_ref().ok()? {
+			tg::Object::Directory(directory) => {
+				let subpath = parent.referent.subpath.as_ref()?;
+				directory
+					.get(handle, subpath)
+					.await
+					.ok()?
+					.try_unwrap_file()
+					.ok()?
+			},
+			tg::Object::File(file) => file.clone(),
+			tg::Object::Symlink(symlink) => {
+				symlink.resolve(handle).await.ok()?.try_unwrap_file().ok()?
+			},
+			_ => return None,
+		};
+		let dependencies = file.dependencies(handle).await.ok()?;
+		for referent in dependencies.into_values() {
+			if referent.item.id(handle).await.ok().as_ref() == Some(child) {
+				return Some(referent);
+			}
 		}
-
-		Some(title)
+		None
 	}
 
 	async fn expand_directory(
@@ -1383,6 +1549,7 @@ where
 	pub fn new(
 		handle: &H,
 		item: Item,
+		root: tg::Referent<Either<tg::Process, tg::Object>>,
 		options: Options,
 		data: data::UpdateSender,
 		viewer: super::UpdateSender<H>,
@@ -1408,11 +1575,19 @@ where
 				let process = process.clone();
 				let handle = handle.clone();
 				let options = options.clone();
+				let root = root.clone();
 				let update_sender = update_sender.clone();
 				|_| async move {
-					Self::process_update_task(&handle, process, options.as_ref(), update_sender)
-						.await
-						.ok();
+					Self::process_update_task(
+						&handle,
+						root,
+						None,
+						process,
+						options.as_ref(),
+						update_sender,
+					)
+					.await
+					.ok();
 				}
 			});
 			Some(update_task)
@@ -1430,6 +1605,7 @@ where
 			log_task: None,
 			options: options.clone(),
 			parent: None,
+			root,
 			title,
 			update_receiver,
 			update_sender,

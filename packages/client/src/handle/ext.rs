@@ -463,7 +463,8 @@ pub trait Ext: tg::Handle {
 	> + Send {
 		self.try_get(reference).map(|result| {
 			result.map(|stream| {
-				stream.map(|event_result| {
+				let reference = reference.clone();
+				stream.map(move |event_result| {
 					event_result.and_then(|event| match event {
 						crate::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
 						crate::progress::Event::Diagnostic(diagnostic) => {
@@ -493,7 +494,7 @@ pub trait Ext: tg::Handle {
 								};
 								crate::progress::Event::Output(referent)
 							})
-							.ok_or_else(|| tg::error!("failed to get reference")),
+							.ok_or_else(|| tg::error!(%reference, "failed to get reference")),
 					})
 				})
 			})

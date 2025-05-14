@@ -75,6 +75,9 @@ pub struct TraceOptions {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Source {
 	pub error: Arc<Error>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub referent: Option<tg::Referent<tg::object::Id>>,
 }
 
 impl Error {
@@ -129,6 +132,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 				stack: None,
 				source: error.source().map(Into::into).map(|error| Source {
 					error: Arc::new(error),
+					referent: None,
 				}),
 				values: BTreeMap::new(),
 			},
@@ -145,6 +149,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 			stack: None,
 			source: value.source().map(Into::into).map(|error| Source {
 				error: Arc::new(error),
+				referent: None,
 			}),
 			values: BTreeMap::new(),
 		}
@@ -171,7 +176,6 @@ impl std::fmt::Display for Trace<'_> {
 		if self.options.reverse {
 			errors.reverse();
 		}
-
 		for error in errors {
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			writeln!(f, "-> {message}")?;
@@ -180,13 +184,11 @@ impl std::fmt::Display for Trace<'_> {
 					writeln!(f, "   {location}")?;
 				}
 			}
-
 			for (name, value) in &error.values {
 				let name = name.as_str();
 				let value = value.as_str();
 				writeln!(f, "   {name} = {value}")?;
 			}
-
 			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
 			if self.options.reverse {
 				stack.reverse();
@@ -197,7 +199,6 @@ impl std::fmt::Display for Trace<'_> {
 				}
 			}
 		}
-
 		Ok(())
 	}
 }
@@ -216,7 +217,7 @@ impl std::fmt::Display for File {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			File::Internal(path) => {
-				write!(f, "internal:{}", path.display())?;
+				write!(f, "internal {}", path.display())?;
 			},
 			File::Module(module) => {
 				write!(f, "{module}")?;
@@ -309,14 +310,14 @@ macro_rules! error {
 	({ $error:ident }, !$source:ident, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = $crate::error::Source { error: std::sync::Arc::new(source) };
+		let source = $crate::error::Source { error: std::sync::Arc::new(source), 					referent: None, };
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = $crate::error::Source { error: std::sync::Arc::new(source) };
+		let source = $crate::error::Source { error: std::sync::Arc::new(source), 					referent: None, };
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
