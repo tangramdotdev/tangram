@@ -3,6 +3,7 @@ use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, TryStreamExt as _};
 use std::{io::IsTerminal as _, path::PathBuf};
 use tangram_client::{self as tg, prelude::*};
+use tangram_either::Either;
 use tangram_futures::task::Task;
 
 /// Spawn and await a sandboxed process.
@@ -118,6 +119,14 @@ impl Cli {
 		let result = if let Some(output) = output {
 			Ok(output)
 		} else {
+			// Construct the referent.
+			let referent = tg::Referent {
+				item: Either::Right(tg::Object::with_id(referent.item.clone())),
+				path: referent.path.clone(),
+				subpath: referent.subpath.clone(),
+				tag: referent.tag.clone(),
+			};
+
 			// Spawn the view task.
 			let view_task = {
 				let handle = handle.clone();
@@ -136,8 +145,12 @@ impl Cli {
 								expand_on_create: true,
 							};
 							let item = crate::viewer::Item::Process(process);
-							let mut viewer =
-								crate::viewer::Viewer::new(&handle, item, viewer_options);
+							let mut viewer = crate::viewer::Viewer::new(
+								&handle,
+								Some(referent),
+								item,
+								viewer_options,
+							);
 							match options.view {
 								View::None => (),
 								View::Inline => {

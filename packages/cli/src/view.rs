@@ -42,7 +42,7 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item {
+		let item = match referent.item.clone() {
 			Either::Left(process) => Either::Left(process),
 			Either::Right(object) => {
 				let object = if let Some(subpath) = &referent.subpath {
@@ -78,7 +78,8 @@ impl Cli {
 						condensed_processes: false,
 						expand_on_create: matches!(kind, Kind::Inline),
 					};
-					let mut viewer = crate::viewer::Viewer::new(&handle, item, options);
+					let mut viewer =
+						crate::viewer::Viewer::new(&handle, Some(referent), item, options);
 					match kind {
 						Kind::Inline => {
 							viewer.run_inline(stop).await?;

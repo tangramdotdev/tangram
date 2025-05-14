@@ -11,6 +11,7 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_futures::task::Stop;
 use unicode_width::UnicodeWidthChar as _;
 
@@ -35,7 +36,7 @@ pub type UpdateSender<H> = std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Viewer<H>
 
 pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewer<H>)>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Item {
 	Process(tg::Process),
 	Value(tg::Value),
@@ -146,12 +147,18 @@ where
 		}
 	}
 
-	pub fn new(handle: &H, item: Item, options: Options) -> Self {
+	pub fn new(
+		handle: &H,
+		root: Option<tg::Referent<Either<tg::Process, tg::Object>>>,
+		item: Item,
+		options: Options,
+	) -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
 		let tree = Tree::new(
 			handle,
 			item,
+			root,
 			options,
 			data.update_sender(),
 			update_sender.clone(),
