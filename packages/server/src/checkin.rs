@@ -295,6 +295,7 @@ impl Server {
 			let server = self.clone();
 			let state = state.clone();
 			async move {
+				permissions_task.await?;
 				// Cache the objects.
 				let start = Instant::now();
 				server
@@ -352,7 +353,6 @@ impl Server {
 		})
 		.map(|result| result.unwrap());
 
-		futures::try_join!(permissions_task)?;
 		futures::try_join!(cache_and_store_future, messenger_future, lockfile_future)?;
 
 		let _state = Arc::into_inner(state).unwrap();
