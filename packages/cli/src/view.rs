@@ -78,8 +78,7 @@ impl Cli {
 						condensed_processes: false,
 						expand_on_create: matches!(kind, Kind::Inline),
 					};
-					let mut viewer =
-						crate::viewer::Viewer::new(&handle, Some(referent), item, options);
+					let mut viewer = crate::viewer::Viewer::new(&handle, referent, item, options);
 					match kind {
 						Kind::Inline => {
 							viewer.run_inline(stop).await?;
