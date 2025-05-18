@@ -41,6 +41,7 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing_safety_doc = "allow"
 pedantic = { level = "warn", priority = -1 }
+result_large_err = "allow"
 same_functions_in_if_condition = "allow"
 similar_names = "allow"
 struct_excessive_bools = "allow"
@@ -53,7 +54,7 @@ astral-tokio-tar = "0.5"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.40"
+async-nats = "0.41"
 async_zip = { version = "0.0.17", features = ["full"] }
 aws-credential-types = "1"
 aws-sigv4 = "1"
@@ -134,7 +135,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "24", features = [
+swc_core = { version = "25", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",

@@ -16,9 +16,7 @@ pub fn is_root_module_path(path: &Path) -> bool {
 	let Some(name) = name.to_str() else {
 		return false;
 	};
-	tg::package::ROOT_MODULE_FILE_NAMES
-		.iter()
-		.any(|n| name == *n)
+	tg::package::ROOT_MODULE_FILE_NAMES.contains(&name)
 }
 
 #[must_use]
@@ -29,9 +27,7 @@ pub fn is_module_path(path: &Path) -> bool {
 	let Some(name) = name.to_str() else {
 		return false;
 	};
-	tg::package::ROOT_MODULE_FILE_NAMES
-		.iter()
-		.any(|n| name == *n)
+	tg::package::ROOT_MODULE_FILE_NAMES.contains(&name)
 		|| name.ends_with(".tg.js")
 		|| name.ends_with(".tg.ts")
 }

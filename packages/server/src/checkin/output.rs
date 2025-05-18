@@ -188,11 +188,11 @@ impl Server {
 							.unwrap_or_default();
 						let id = blob.id.clone().into();
 						let size = blob.size;
-						let cache_reference = state
-							.arg
-							.destructive
-							.then(|| root.clone())
-							.unwrap_or_else(|| object.id.clone().try_into().unwrap());
+						let cache_reference = if state.arg.destructive {
+							root.clone()
+						} else {
+							object.id.clone().try_into().unwrap()
+						};
 						let message =
 							crate::index::Message::PutObject(crate::index::PutObjectMessage {
 								cache_reference: Some(cache_reference),
@@ -265,11 +265,11 @@ impl Server {
 							.unwrap_or_default();
 						let id = blob.id.clone().into();
 						let size = blob.size;
-						let cache_reference = state
-							.arg
-							.destructive
-							.then(|| root.clone())
-							.unwrap_or_else(|| object.id.clone().try_into().unwrap());
+						let cache_reference = if state.arg.destructive {
+							root.clone()
+						} else {
+							object.id.clone().try_into().unwrap()
+						};
 						let message =
 							crate::index::Message::PutObject(crate::index::PutObjectMessage {
 								cache_reference: Some(cache_reference),

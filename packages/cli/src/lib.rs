@@ -337,16 +337,14 @@ impl Cli {
 		drop(runtime);
 
 		// Handle the result.
-		let exit = match result {
+		match result {
 			Ok(()) => cli.exit.unwrap_or_default().into(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
 				Cli::print_error(&error, cli.config.as_ref());
 				std::process::ExitCode::FAILURE
 			},
-		};
-
-		exit
+		}
 	}
 
 	async fn handle(&mut self) -> tg::Result<Either<Client, Server>> {

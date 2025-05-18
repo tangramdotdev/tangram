@@ -77,7 +77,11 @@ impl Compiler {
 			// Create the source map.
 			let mut output_source_map = Vec::new();
 			source_map
-				.build_source_map(&source_mappings)
+				.build_source_map(
+					&source_mappings,
+					None,
+					swc::common::source_map::DefaultSourceMapGenConfig,
+				)
 				.to_writer(&mut output_source_map)
 				.map_err(|source| tg::error!(!source, "failed to create the source map"))?;
 			let source_map = String::from_utf8(output_source_map)
