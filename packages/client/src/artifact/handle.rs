@@ -108,6 +108,15 @@ impl Artifact {
 			Self::Symlink(symlink) => Ok(symlink.data(handle).await?.into()),
 		}
 	}
+
+	#[must_use]
+	pub fn kind(&self) -> tg::artifact::Kind {
+		match self {
+			Self::Directory(_) => tg::artifact::Kind::Directory,
+			Self::File(_) => tg::artifact::Kind::File,
+			Self::Symlink(_) => tg::artifact::Kind::Symlink,
+		}
+	}
 }
 
 impl Artifact {

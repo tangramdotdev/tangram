@@ -271,58 +271,57 @@ impl Server {
 					Blob::Create(blob) => blob.id.clone(),
 					Blob::Id(id) => id.clone(),
 				};
-				let dependencies = file
-					.dependencies
-					.iter()
-					.map(|dependency| match dependency {
-						FileDependency::Import { import, node } => {
-							let referent = node.ok_or_else(
-								|| tg::error!(%import = import.reference, "unresolved import"),
-							)?;
-							let item = state.graph.nodes[referent]
-								.object
-								.as_ref()
-								.unwrap()
-								.id
-								.clone();
-							let path = state.graph.package_path(index, referent);
-							let subpath = state.graph.nodes[referent].subpath.clone();
-							let tag = state.graph.nodes[referent].tag.clone();
-							let referent = tg::Referent {
-								item,
-								path,
-								subpath,
-								tag,
-							};
-							Ok::<_, tg::Error>((import.reference.clone(), referent))
-						},
-						FileDependency::Referent {
-							reference,
-							referent,
-						} => {
-							let item = match referent
-								.item
-								.as_ref()
-								.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?
-							{
-								Either::Left(id) => id.clone(),
-								Either::Right(index) => state.graph.nodes[*index]
+				let dependencies =
+					file.dependencies
+						.iter()
+						.map(|dependency| match dependency {
+							FileDependency::Import { import, node } => {
+								let referent = node.ok_or_else(
+									|| tg::error!(%import = import.reference, "unresolved import"),
+								)?;
+								let item = state.graph.nodes[referent]
 									.object
 									.as_ref()
 									.unwrap()
 									.id
-									.clone(),
-							};
-							let referent = tg::Referent {
-								item,
-								path: referent.path.clone(),
-								subpath: referent.subpath.clone(),
-								tag: referent.tag.clone(),
-							};
-							Ok::<_, tg::Error>((reference.clone(), referent))
-						},
-					})
-					.try_collect()?;
+									.clone();
+								let path = state.graph.package_path(index, referent);
+								let subpath = state.graph.nodes[referent].subpath.clone();
+								let tag = state.graph.nodes[referent].tag.clone();
+								let referent = tg::Referent {
+									item,
+									path,
+									subpath,
+									tag,
+								};
+								Ok::<_, tg::Error>((import.reference.clone(), referent))
+							},
+							FileDependency::Referent {
+								reference,
+								referent,
+							} => {
+								let item =
+									match referent.item.as_ref().ok_or_else(
+										|| tg::error!(%reference, "unresolved reference"),
+									)? {
+										Either::Left(id) => id.clone(),
+										Either::Right(index) => state.graph.nodes[*index]
+											.object
+											.as_ref()
+											.unwrap()
+											.id
+											.clone(),
+									};
+								let referent = tg::Referent {
+									item,
+									path: referent.path.clone(),
+									subpath: referent.subpath.clone(),
+									tag: referent.tag.clone(),
+								};
+								Ok::<_, tg::Error>((reference.clone(), referent))
+							},
+						})
+						.try_collect()?;
 				let executable = file.executable;
 				let data = tg::file::Data::Normal {
 					contents,

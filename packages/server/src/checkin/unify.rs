@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use super::{FileDependency, Graph};
 use crate::Server;
 use std::{collections::BTreeMap, path::PathBuf};
@@ -69,33 +70,6 @@ impl Server {
 		// Validate.
 		if current.errored {
 			return Err(tg::error!("could not unify dependencies"));
-		}
-
-		for (index, node) in current.graph.nodes.iter().enumerate() {
-			let super::Variant::File(file) = &node.variant else {
-				continue;
-			};
-			for dependency in &file.dependencies {
-				match dependency {
-					super::FileDependency::Import { import, node: None } => {
-						let node = current.graph.fmt_node(index);
-						return Err(tg::error!(
-							"{node} import {} could not be resolved",
-							import.reference
-						));
-					},
-					super::FileDependency::Referent {
-						reference,
-						referent: tg::Referent { item: None, .. },
-					} => {
-						let node = current.graph.fmt_node(index);
-						return Err(tg::error!(
-							"{node} reference {reference} could not be resolved"
-						));
-					},
-					_ => continue,
-				}
-			}
 		}
 
 		// Update state.
