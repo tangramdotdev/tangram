@@ -344,7 +344,7 @@ impl Server {
 		// Add the nodes.
 		for (root, nodes) in &state.graph.roots {
 			let nodes = std::iter::once(*root).chain(nodes.iter().copied());
-			let root_path = state.graph.nodes[*root].path();
+			let root_path = state.graph.nodes[*root].path.as_deref();
 			let root: tg::artifact::Id = state.graph.nodes[*root]
 				.object
 				.as_ref()
@@ -360,7 +360,10 @@ impl Server {
 				let object = node.object.as_ref().unwrap();
 				objects.push((object.id.clone(), Some(object.bytes.clone()), None));
 
-				// If the file has a blob, add it too.
+				// If the file has a blob and it's on disk, add it too.
+				let Some(root_path) = root_path else {
+					continue;
+				};
 				if let Variant::File(File {
 					blob: Some(Blob::Create(blob)),
 					..
