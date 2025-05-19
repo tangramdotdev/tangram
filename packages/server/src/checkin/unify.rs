@@ -71,11 +71,27 @@ impl Server {
 			return Err(tg::error!("could not unify dependencies"));
 		}
 
+		for (index, node) in current.graph.nodes.iter().enumerate() {
+			let super::Variant::File(file) = &node.variant else {
+				continue;
+			};
+			for dependency in &file.dependencies {
+				match dependency {
+					super::FileDependency::Import { import, node: None } => {
+						let node = current.graph.fmt_node(index);
+						return Err(tg::error!("{node} import {} could not be resolved", import.reference));
+					},
+					super::FileDependency::Referent { reference, referent: tg::Referent { item: None, .. } } => {
+						let node = current.graph.fmt_node(index);
+						return Err(tg::error!("{node} reference {reference} could not be resolved"));
+					}
+					_ => continue,
+				}
+			}
+		}
+
 		// Update state.
 		state.graph = current.graph;
-
-		// Fix subpaths.
-		Self::fix_unification_subpaths(state);
 
 		// Return.
 		Ok(())
@@ -326,7 +342,9 @@ impl Server {
 			object: object_,
 			tag: tag.clone(),
 			path: None,
+			parent: None,
 			root: None,
+			subpath: None,
 			variant,
 		};
 
@@ -374,9 +392,10 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut entries = Vec::new();
 		for (name, object) in directory.entries(self).await? {
-			let index =
+			let child_index =
 				Box::pin(self.unify_visit_object_inner(state, &object.into(), None, true, visited))
 					.await?;
+			state.graph.nodes[child_index].parent.replace(index);
 			entries.push((name, index));
 		}
 		state.graph.nodes[index]
@@ -443,55 +462,6 @@ impl Server {
 		_visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
 		Ok(())
-	}
-}
-
-impl Server {
-	fn fix_unification_subpaths(state: &mut super::State) {
-		for index in 0..state.graph.nodes.len() {
-			// Skip nodes that are not files.
-			if !state.graph.nodes[index].variant.is_file() {
-				continue;
-			}
-
-			// Make sure any imports of packages contain the subpath to that package's root module.
-			let mut dependencies = state.graph.nodes[index]
-				.variant
-				.unwrap_file_ref()
-				.dependencies
-				.clone();
-			for dependency in &mut dependencies {
-				match dependency {
-					FileDependency::Import {
-						subpath,
-						node: Some(node),
-						..
-					} if subpath.is_none() => {
-						if let Some(root_module) = state.graph.nodes[*node].root_module_name() {
-							subpath.replace(root_module.into());
-						}
-					},
-					FileDependency::Referent {
-						referent:
-							tg::Referent {
-								item: Some(Either::Right(node)),
-								subpath,
-								..
-							},
-						..
-					} if subpath.is_none() => {
-						if let Some(root_module) = state.graph.nodes[*node].root_module_name() {
-							subpath.replace(root_module.into());
-						}
-					},
-					_ => (),
-				}
-			}
-			state.graph.nodes[index]
-				.variant
-				.unwrap_file_mut()
-				.dependencies = dependencies;
-		}
 	}
 }
 

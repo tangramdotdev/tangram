@@ -18,6 +18,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 mod input;
 mod lockfile;
+mod module;
 mod object;
 mod output;
 mod unify;
@@ -51,7 +52,9 @@ struct Node {
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
+	parent: Option<usize>,
 	root: Option<usize>,
+	subpath: Option<PathBuf>,
 	tag: Option<tg::Tag>,
 	variant: Variant,
 }
@@ -88,8 +91,6 @@ enum Blob {
 enum FileDependency {
 	Import {
 		import: tg::module::Import,
-		path: Option<PathBuf>,
-		subpath: Option<PathBuf>,
 		node: Option<usize>,
 	},
 	Referent {
@@ -260,7 +261,7 @@ impl Server {
 		})
 		.await
 		.unwrap()?;
-		tracing::trace!(elapsed = ?start.elapsed(), "input");
+		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
 		// Remove the fixup sender.
 		state.fixup_sender.take();
@@ -274,6 +275,11 @@ impl Server {
 			self.unify_file_dependencies(&mut state).await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "unify");
 		}
+
+		// Resolve root modules.
+		let start = Instant::now();
+		Self::checkin_resolve_root_modules(&mut state);
+		tracing::trace!(elapsed = ?start.elapsed(), "resolve root modules");
 
 		// Create blobs.
 		let start = Instant::now();
@@ -515,20 +521,47 @@ impl Server {
 	}
 }
 
-impl Node {
-	fn is_package(&self) -> bool {
-		self.root_module_name().is_some()
-	}
+impl Graph {
+	// Given a referrer and referent, find the "path" that corresponds to it.
+	fn package_path(&self, referrer: usize, referent: usize) -> Option<PathBuf> {
+		// If the nodes are in the same root, return None.
+		let referrer_root = self.nodes[referrer].root;
+		let referent_root = self.nodes[referent].root;
+		if referrer_root.is_some() && referrer_root == referent_root {
+			return None;
+		}
 
-	fn root_module_name(&self) -> Option<String> {
+		// Get the path of the referrer.
+		let mut referrer_path = self.nodes[referrer].path.as_deref()?.as_ref();
+
+		// If the referrer is a module, use its parent.
+		if tg::package::is_module_path(referrer_path) {
+			referrer_path = referrer_path.parent()?;
+		}
+
+		// Get the path of the referent.
+		let mut referent_path = self.nodes[referent].path.as_deref()?.as_ref();
+
+		// If the referent is a root module, use its parent.
+		if tg::package::is_root_module_path(referent_path) {
+			referent_path = referent_path.parent()?;
+		}
+
+		// Compute the relative path.
+		crate::util::path::diff(&referrer_path, &referent_path).ok()
+	}
+}
+
+impl Node {
+	fn root_module(&self) -> Option<usize> {
 		self.variant
 			.try_unwrap_directory_ref()
 			.ok()
 			.and_then(|directory| {
-				directory.entries.iter().find_map(|(name, _)| {
+				directory.entries.iter().find_map(|(name, node)| {
 					tg::package::ROOT_MODULE_FILE_NAMES
 						.contains(&name.as_str())
-						.then_some(name.to_owned())
+						.then_some(*node)
 				})
 			})
 	}

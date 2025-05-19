@@ -23,6 +23,12 @@ impl Server {
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<Either<usize, tg::object::Id>> {
+		// Make sure parents are visited first.
+		if let Some(parent) = state.graph.nodes[node].parent {
+			Self::create_lockfile_node(state, parent, nodes, visited)?;
+		}
+
+		// Check if this node is visited.
 		if let Some(visited) = visited[node].clone() {
 			return Ok(visited);
 		}
@@ -125,19 +131,14 @@ impl Server {
 			.dependencies
 			.iter()
 			.map(|dependency| match dependency {
-				super::FileDependency::Import {
-					import,
-					node,
-					path,
-					subpath,
-				} => {
+				super::FileDependency::Import { import, node } => {
 					let reference = import.reference.clone();
-					let node =
+					let referent =
 						node.ok_or_else(|| tg::error!(%import = reference, "unresolved import"))?;
-					let item = Self::create_lockfile_node(state, node, nodes, visited)?;
-					let path = path.clone();
-					let subpath = subpath.clone();
-					let tag = state.graph.nodes[node].tag.clone();
+					let item = Self::create_lockfile_node(state, referent, nodes, visited)?;
+					let path = state.graph.package_path(index, referent);
+					let subpath = state.graph.nodes[referent].subpath.clone();
+					let tag = state.graph.nodes[referent].tag.clone();
 					let referent = tg::Referent {
 						item,
 						path,
