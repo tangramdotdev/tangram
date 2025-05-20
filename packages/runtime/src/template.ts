@@ -1,20 +1,31 @@
 import * as tg from "./index.ts";
 
 export async function template(
-	...args: tg.Args<Template.Arg>
-): Promise<Template>;
-export async function template(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<Template.Arg>
 ): Promise<Template>;
-export async function template(...args: any): Promise<Template> {
-	return await inner(false, ...args);
+export async function template(
+	...args: tg.Args<Template.Arg>
+): Promise<Template>;
+export async function template(
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Template.Arg>>,
+	...args: tg.Args<Template.Arg>
+): Promise<Template> {
+	return await inner(false, firstArg, ...args);
 }
 
-async function inner(raw: boolean, ...args: any): Promise<Template> {
-	if (Array.isArray(args[0]) && "raw" in args[0]) {
-		let strings = !raw ? unindent(args[0]) : args[0];
-		let placeholders = args.slice(1) as tg.Args<Template>;
+async function inner(
+	raw: boolean,
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Template.Arg>>,
+	...args: tg.Args<Template.Arg>
+): Promise<Template> {
+	if (Array.isArray(firstArg) && "raw" in firstArg) {
+		let strings = !raw ? unindent(firstArg) : firstArg;
+		let placeholders = args as tg.Args<Template>;
 		let components = [];
 		for (let i = 0; i < strings.length - 1; i++) {
 			let string = strings[i]!;
@@ -25,7 +36,7 @@ async function inner(raw: boolean, ...args: any): Promise<Template> {
 		components.push(strings[strings.length - 1]!);
 		return await Template.new(...components);
 	} else {
-		return await Template.new(...(args as tg.Args<Template>));
+		return await Template.new(firstArg as tg.Unresolved<Template.Arg>, ...args);
 	}
 }
 
@@ -110,12 +121,15 @@ export namespace Template {
 
 	export type Component = string | tg.Artifact;
 
-	export let raw = async (...args: any): Promise<Template> => {
-		return await inner(true, ...args);
+	export let raw = async (
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<Template.Arg>
+	): Promise<Template> => {
+		return await inner(true, strings, ...placeholders);
 	};
 }
 
-let unindent = (strings: Array<string>): Array<string> => {
+export let unindent = (strings: Array<string>): Array<string> => {
 	// Concatenate the strings and collect the placeholder indices.
 	let placeholderIndices: Array<number> = [];
 	let string = strings[0]!;

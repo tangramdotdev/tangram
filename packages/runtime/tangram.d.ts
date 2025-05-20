@@ -18,11 +18,11 @@ declare let console: {
 	error: (...args: Array<unknown>) => void;
 };
 
-declare function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
 declare function tg(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
 ): Promise<tg.Template>;
+declare function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
 
 declare namespace tg {
 	export type ArchiveFormat = "tar" | "tgar" | "zip";
@@ -145,7 +145,11 @@ declare namespace tg {
 	}
 
 	/** Create a blob. */
-	export let blob: (...args: tg.Args<tg.Blob.Arg>) => Promise<tg.Blob>;
+	export function blob(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<string>
+	): Promise<tg.Blob>;
+	export function blob(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
 
 	export class Blob {
 		/** Get a blob with an ID. */
@@ -186,6 +190,11 @@ declare namespace tg {
 		};
 
 		export type Child = { blob: Blob; size: number };
+
+		export let raw: (
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		) => Promise<tg.Blob>;
 	}
 
 	/** Create a directory. */
@@ -247,7 +256,11 @@ declare namespace tg {
 	}
 
 	/** Create a file. */
-	export let file: (...args: tg.Args<tg.File.Arg>) => Promise<tg.File>;
+	export function file(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<string>
+	): Promise<tg.File>;
+	export function file(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
 
 	/** A file. */
 	export class File {
@@ -310,6 +323,11 @@ declare namespace tg {
 					executable?: boolean | undefined;
 			  }
 			| { graph: tg.Graph; node: number };
+
+		export let raw: (
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		) => Promise<tg.File>;
 	}
 
 	/** Create a symlink. */

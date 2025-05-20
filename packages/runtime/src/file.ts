@@ -1,7 +1,46 @@
 import * as tg from "./index.ts";
+import { unindent } from "./template.ts";
 
-export async function file(...args: tg.Args<File.Arg>) {
-	return await File.new(...args);
+export async function file(
+	strings: TemplateStringsArray,
+	...placeholders: tg.Args<string>
+): Promise<File>;
+export async function file(...args: tg.Args<File.Arg>): Promise<File>;
+export async function file(
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<File.Arg>>,
+	...args: tg.Args<File.Arg>
+): Promise<File> {
+	return await inner(false, firstArg, ...args);
+}
+
+async function inner(
+	raw: boolean,
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<File.Arg>>,
+	...args: tg.Args<File.Arg>
+): Promise<tg.File> {
+	if (Array.isArray(firstArg) && "raw" in firstArg) {
+		let strings = firstArg;
+		let placeholders = args as tg.Args<string>;
+		let components = [];
+		for (let i = 0; i < strings.length - 1; i++) {
+			let string = strings[i]!;
+			components.push(string);
+			let placeholder = placeholders[i]!;
+			components.push(placeholder);
+		}
+		components.push(strings[strings.length - 1]!);
+		let string = components.join("");
+		if (!raw) {
+			string = unindent([string]).join("");
+		}
+		return await File.new(string);
+	} else {
+		return await File.new(firstArg as tg.File.Arg, ...args);
+	}
 }
 
 export class File {
@@ -254,4 +293,11 @@ export namespace File {
 		| { graph: tg.Graph; node: number };
 
 	export type State = tg.Object.State<File.Id, File.Object>;
+
+	export let raw = async (
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<string>
+	): Promise<File> => {
+		return await inner(true, strings, ...placeholders);
+	};
 }
