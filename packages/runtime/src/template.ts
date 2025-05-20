@@ -1,11 +1,11 @@
 import * as tg from "./index.ts";
 
 export async function template(
-	...args: tg.Args<Template.Arg>
-): Promise<Template>;
-export async function template(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<Template.Arg>
+): Promise<Template>;
+export async function template(
+	...args: tg.Args<Template.Arg>
 ): Promise<Template>;
 export async function template(
 	firstArg:

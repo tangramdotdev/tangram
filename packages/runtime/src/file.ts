@@ -1,11 +1,11 @@
 import * as tg from "./index.ts";
 import { unindent } from "./template.ts";
 
-export async function file(...args: tg.Args<File.Arg>): Promise<File>;
 export async function file(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
 ): Promise<File>;
+export async function file(...args: tg.Args<File.Arg>): Promise<File>;
 export async function file(
 	firstArg:
 		| TemplateStringsArray

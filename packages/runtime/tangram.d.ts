@@ -18,11 +18,11 @@ declare let console: {
 	error: (...args: Array<unknown>) => void;
 };
 
-declare function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
 declare function tg(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
 ): Promise<tg.Template>;
+declare function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
 
 declare namespace tg {
 	export type ArchiveFormat = "tar" | "tgar" | "zip";
@@ -145,11 +145,11 @@ declare namespace tg {
 	}
 
 	/** Create a blob. */
-	export function blob(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
 	export function blob(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<string>
 	): Promise<tg.Blob>;
+	export function blob(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
 
 	export class Blob {
 		/** Get a blob with an ID. */
@@ -256,11 +256,11 @@ declare namespace tg {
 	}
 
 	/** Create a file. */
-	export function file(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
 	export function file(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<string>
 	): Promise<tg.File>;
+	export function file(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
 
 	/** A file. */
 	export class File {
