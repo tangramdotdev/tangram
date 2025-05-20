@@ -483,6 +483,157 @@ async fn template_multiple_placeholders() {
 }
 
 #[tokio::test]
+async fn blob_template() {
+	let directory = temp::directory! {
+		"tangram.ts" => r"
+			export default () => tg.blob`\n\tHello, World!\n`.then((b) => b.text());
+		",
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
+		assert_snapshot!(stdout, @r#""Hello, World!\n""#);
+	};
+	let path = "";
+	let command = "default";
+	let args = vec![];
+	test_build(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn blob_template_two_placeholders() {
+	let directory = temp::directory! {
+		"tangram.ts" => r#"
+			export default () => {
+				let a = "string!";
+				return tg.blob`\n\tHello, World!\n\t${a}\n`.then((f) => f.text());
+			}
+		"#,
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
+		assert_snapshot!(stdout, @r#""Hello, World!\nstring!\n""#);
+	};
+	let path = "";
+	let command = "default";
+	let args = vec![];
+	test_build(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn blob_template_raw() {
+	let directory = temp::directory! {
+		"tangram.ts" => r"
+			export default () => tg.Blob.raw`\n\tHello, World!\n`.then((b) => b.text());
+		",
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
+		assert_snapshot!(stdout, @r#""\n\tHello, World!\n""#);
+	};
+	let path = "";
+	let command = "default";
+	let args = vec![];
+	test_build(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn file_template() {
+	let directory = temp::directory! {
+		"tangram.ts" => r"
+			export default () => tg.file`\n\tHello, World!\n`.then((f) => f.text());
+		",
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
+		assert_snapshot!(stdout, @r#""Hello, World!\n""#);
+	};
+	let path = "";
+	let command = "default";
+	let args = vec![];
+	test_build(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn file_template_two_placeholders() {
+	let directory = temp::directory! {
+		"tangram.ts" => r#"
+			export default () => {
+				let a = "string!";
+				return tg.file`\n\tHello, World!\n\t${a}\n`.then((f) => f.text());
+			}
+		"#,
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
+		assert_snapshot!(stdout, @r#""Hello, World!\nstring!\n""#);
+	};
+	let path = "";
+	let command = "default";
+	let args = vec![];
+	test_build(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn file_template_raw() {
+	let directory = temp::directory! {
+		"tangram.ts" => r"
+			export default () => tg.File.raw`\n\tHello, World!\n`.then((f) => f.text());
+		",
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
+		let stdout = std::str::from_utf8(&output.stdout).unwrap();
+		assert_snapshot!(stdout, @r#""\n\tHello, World!\n""#);
+	};
+	let path = "";
+	let command = "default";
+	let args = vec![];
+	test_build(directory, path, command, args, assertions).await;
+}
+
+// TODO - test_check
+// #[tokio::test]
+// async fn blob_rejects_non_strings() {
+// 	let directory = temp::directory! {
+// 		"tangram.ts" => r#"
+// 			import file from "./file.txt";
+// 			export default () => tg.blob`\n\t${file}\n`;
+// 		"#,
+// 		"file.txt" => "Hello, world!"
+// 	};
+// 	let assertions = |output: std::process::Output| async move {
+// 		assert_failure!(output);
+// 	};
+// 	let path = "";
+// 	let command = "default";
+// 	let args = vec![];
+// 	test_build(directory, path, command, args, assertions).await;
+// }
+
+// #[tokio::test]
+// async fn file_rejects_non_strings() {
+// 	let directory = temp::directory! {
+// 		"tangram.ts" => r#"
+// 			import file from "./file.txt";
+// 			export default () => tg.file`\n\t${file}\n`;
+// 		"#,
+// 		"file.txt" => "Hello, world!"
+// 	};
+// 	let assertions = |output: std::process::Output| async move {
+// 		assert_failure!(output);
+// 	};
+// 	let path = "";
+// 	let command = "default";
+// 	let args = vec![];
+// 	test_build(directory, path, command, args, assertions).await;
+// }
+
+#[tokio::test]
 async fn directory_get_follows_intermediate_component_symlinks() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"

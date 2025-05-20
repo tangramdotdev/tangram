@@ -1,8 +1,36 @@
 import * as tg from "./index.ts";
+import { unindent } from "./template.ts";
 
-export let blob = async (...args: tg.Args<Blob.Arg>): Promise<Blob> => {
-	return await Blob.new(...args);
-};
+export async function blob(...args: tg.Args<Blob.Arg>): Promise<Blob>;
+export async function blob(
+	strings: TemplateStringsArray,
+	...placeholders: tg.Args<string>
+): Promise<Blob>;
+export async function blob(...args: any): Promise<Blob> {
+	return await inner(false, ...args);
+}
+
+async function inner(raw: boolean, ...args: any): Promise<tg.Blob> {
+	if (Array.isArray(args[0]) && "raw" in args[0]) {
+		let strings = args[0];
+		let placeholders = args.slice(1) as tg.Args<string>;
+		let components = [];
+		for (let i = 0; i < strings.length - 1; i++) {
+			let string = strings[i]!;
+			components.push(string);
+			let placeholder = placeholders[i]!;
+			components.push(placeholder);
+		}
+		components.push(strings[strings.length - 1]!);
+		let string = components.join("");
+		if (!raw) {
+			string = unindent([string]).join("");
+		}
+		return await Blob.new(string);
+	} else {
+		return await Blob.new(...(args as tg.Args<tg.Blob.Arg>));
+	}
+}
 
 export class Blob {
 	#state: Blob.State;
@@ -200,4 +228,8 @@ export namespace Blob {
 	};
 
 	export type State = tg.Object.State<tg.Blob.Id, tg.Blob.Object>;
+
+	export let raw = async (...args: any): Promise<Blob> => {
+		return await inner(true, ...args);
+	};
 }

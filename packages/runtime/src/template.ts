@@ -115,7 +115,7 @@ export namespace Template {
 	};
 }
 
-let unindent = (strings: Array<string>): Array<string> => {
+export let unindent = (strings: Array<string>): Array<string> => {
 	// Concatenate the strings and collect the placeholder indices.
 	let placeholderIndices: Array<number> = [];
 	let string = strings[0]!;
