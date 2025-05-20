@@ -6,14 +6,25 @@ export async function blob(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
 ): Promise<Blob>;
-export async function blob(...args: any): Promise<Blob> {
-	return await inner(false, ...args);
+export async function blob(
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Blob.Arg>>,
+	...args: tg.Args<Blob.Arg>
+): Promise<Blob> {
+	return await inner(false, firstArg, ...args);
 }
 
-async function inner(raw: boolean, ...args: any): Promise<tg.Blob> {
-	if (Array.isArray(args[0]) && "raw" in args[0]) {
-		let strings = args[0];
-		let placeholders = args.slice(1) as tg.Args<string>;
+async function inner(
+	raw: boolean,
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Blob.Arg>>,
+	...args: tg.Args<Blob.Arg>
+): Promise<tg.Blob> {
+	if (Array.isArray(firstArg) && "raw" in firstArg) {
+		let strings = firstArg;
+		let placeholders = args as tg.Args<string>;
 		let components = [];
 		for (let i = 0; i < strings.length - 1; i++) {
 			let string = strings[i]!;
@@ -28,7 +39,7 @@ async function inner(raw: boolean, ...args: any): Promise<tg.Blob> {
 		}
 		return await Blob.new(string);
 	} else {
-		return await Blob.new(...(args as tg.Args<tg.Blob.Arg>));
+		return await Blob.new(firstArg as tg.Blob.Arg, ...args);
 	}
 }
 
@@ -229,7 +240,10 @@ export namespace Blob {
 
 	export type State = tg.Object.State<tg.Blob.Id, tg.Blob.Object>;
 
-	export let raw = async (...args: any): Promise<Blob> => {
-		return await inner(true, ...args);
+	export let raw = async (
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<string>
+	): Promise<Blob> => {
+		return await inner(true, strings, ...placeholders);
 	};
 }

@@ -6,14 +6,25 @@ export async function file(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
 ): Promise<File>;
-export async function file(...args: any): Promise<File> {
-	return await inner(false, ...args);
+export async function file(
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<File.Arg>>,
+	...args: tg.Args<File.Arg>
+): Promise<File> {
+	return await inner(false, firstArg, ...args);
 }
 
-async function inner(raw: boolean, ...args: any): Promise<tg.File> {
-	if (Array.isArray(args[0]) && "raw" in args[0]) {
-		let strings = args[0];
-		let placeholders = args.slice(1) as tg.Args<string>;
+async function inner(
+	raw: boolean,
+	firstArg:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<File.Arg>>,
+	...args: tg.Args<File.Arg>
+): Promise<tg.File> {
+	if (Array.isArray(firstArg) && "raw" in firstArg) {
+		let strings = firstArg;
+		let placeholders = args as tg.Args<string>;
 		let components = [];
 		for (let i = 0; i < strings.length - 1; i++) {
 			let string = strings[i]!;
@@ -28,7 +39,7 @@ async function inner(raw: boolean, ...args: any): Promise<tg.File> {
 		}
 		return await File.new(string);
 	} else {
-		return await File.new(...(args as tg.Args<tg.File.Arg>));
+		return await File.new(firstArg as tg.File.Arg, ...args);
 	}
 }
 
@@ -283,7 +294,10 @@ export namespace File {
 
 	export type State = tg.Object.State<File.Id, File.Object>;
 
-	export let raw = async (...args: any): Promise<File> => {
-		return await inner(true, ...args);
+	export let raw = async (
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<string>
+	): Promise<File> => {
+		return await inner(true, strings, ...placeholders);
 	};
 }
