@@ -102,7 +102,8 @@ pub(super) fn from_exception<'s>(
 		.map(|cause| from_exception(scope, cause.into()))
 		.map(|error| tg::error::Source {
 			error: Arc::new(error),
-			referent: None,
+			path: None,
+			tag: None,
 		});
 	let values = BTreeMap::new();
 

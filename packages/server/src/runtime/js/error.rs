@@ -53,7 +53,9 @@ pub(super) fn from_exception<'s>(
 		.instance_of(scope, error.into())
 		.unwrap_or_default()
 	{
-		return <_>::from_v8(scope, exception).unwrap();
+		return <_>::from_v8(scope, exception)
+			.inspect_err(|error| tracing::error!(?error, "failed to convert error"))
+			.unwrap();
 	}
 
 	// Get the message.
@@ -115,7 +117,9 @@ pub(super) fn from_exception<'s>(
 	// Get the source.
 	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
 	let error_string = v8::String::new_external_onebyte_static(scope, b"error").unwrap();
-	let referent_string = v8::String::new_external_onebyte_static(scope, b"referent").unwrap();
+	let path_string = v8::String::new_external_onebyte_static(scope, b"path").unwrap();
+	let tag_string = v8::String::new_external_onebyte_static(scope, b"tag").unwrap();
+
 	let source = exception
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
@@ -131,21 +135,29 @@ pub(super) fn from_exception<'s>(
 				let error = from_exception(state, scope, cause.into());
 				return tg::error::Source {
 					error: Arc::new(error),
-					referent: None,
+					path: None,
+					tag: None,
 				};
 			};
 
 			// Get the error.
 			let error = from_exception(state, scope, error.into());
 
-			// Get the referent, if it exists.
-			let referent = cause
-				.get(scope, referent_string.into())
-				.and_then(|value| <tg::Referent<tg::object::Id>>::from_v8(scope, value).ok());
+			// Get the path, if it exists.
+			let path = cause
+				.get(scope, path_string.into())
+				.and_then(|value| <_>::from_v8(scope, value).ok());
+
+			// Get the tag, if it exists.
+			let tag = cause
+				.get(scope, tag_string.into())
+				.and_then(|value| <String>::from_v8(scope, value).ok())
+				.and_then(|string| string.parse().ok());
 
 			tg::error::Source {
 				error: Arc::new(error),
-				referent,
+				path,
+				tag,
 			}
 		});
 	let values = BTreeMap::new();

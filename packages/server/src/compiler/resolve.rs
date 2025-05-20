@@ -22,12 +22,11 @@ impl Compiler {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Path(path),
-						subpath,
 						..
 					},
 				..
 			} => {
-				self.resolve_with_path_referrer(path, subpath.as_deref(), import)
+				self.resolve_with_path_referrer(path, import)
 					.await?
 			},
 
@@ -36,12 +35,11 @@ impl Compiler {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Object(object),
-						subpath,
 						..
 					},
 				..
 			} => {
-				self.resolve_module_with_object_referrer(object, subpath.as_deref(), import)
+				self.resolve_module_with_object_referrer(object, import)
 					.await?
 			},
 		};
@@ -77,11 +75,6 @@ impl Compiler {
 		} else {
 			match &referent.item {
 				tg::module::data::Item::Path(path) => {
-					let path = if let Some(subpath) = &referent.subpath {
-						path.join(subpath)
-					} else {
-						path.clone()
-					};
 					let metadata = tokio::fs::symlink_metadata(&path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
@@ -97,24 +90,6 @@ impl Compiler {
 				},
 
 				tg::module::data::Item::Object(object) => {
-					let object = if let Some(subpath) = &referent.subpath {
-						let object = tg::Object::with_id(object.clone());
-						let directory = object
-							.try_unwrap_directory_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected a directory"))?;
-						let artifact =
-							directory
-								.get(&self.server, subpath)
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to get the directory entry")
-								})?;
-						let artifact = artifact.id(&self.server).await?.clone();
-						artifact.into()
-					} else {
-						object.clone()
-					};
 					match &object {
 						tg::object::Id::Blob(_) => tg::module::Kind::Blob,
 						tg::object::Id::Directory(_) => tg::module::Kind::Directory,
@@ -141,17 +116,16 @@ impl Compiler {
 	async fn resolve_with_path_referrer(
 		&self,
 		referrer: &Path,
-		subpath: Option<&Path>,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		// Get the referrer within some lockfile.
-		let subpath = subpath.unwrap_or("".as_ref());
-		let module_path = referrer.join(subpath);
+		if !referrer.exists() {
+			return Err(tg::error!("{referrer:#?} does not exist"));
+		}
 
 		// Get the lockfile and its path.
 		let (lockfile_path, lockfile) = 'a: {
 			// Search the ancestors for a lockfile, if it exists.
-			for ancestor in module_path.ancestors().skip(1) {
+			for ancestor in referrer.ancestors().skip(1) {
 				// Check if the lockfile exists.
 				let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
 				let exists = tokio::fs::try_exists(&lockfile_path).await.map_err(
@@ -172,13 +146,13 @@ impl Compiler {
 			}
 
 			// Error if no lockfile is found.
-			return Err(tg::error!(%module = module_path.display(), "failed to find the lockfile"));
+			return Err(tg::error!(%module = referrer.display(), "failed to find the lockfile"));
 		};
 
 		// Find the referrer in the lockfile.
 		let module_index = self
 			.server
-			.find_node_index_in_lockfile(&module_path, &lockfile_path, &lockfile)
+			.find_node_index_in_lockfile(&referrer, &lockfile_path, &lockfile)
 			.await?;
 
 		// The module within the lockfile must be a file for it to have imports.
@@ -186,7 +160,7 @@ impl Compiler {
 			&lockfile.nodes[module_index]
 		else {
 			return Err(
-				tg::error!(%lockfile = lockfile_path.display(), %node = module_index, "expected a file node"),
+				tg::error!(%lockfile = lockfile_path.display(), %referrer = referrer.display(), %node = module_index, "expected a file node"),
 			);
 		};
 
@@ -211,8 +185,9 @@ impl Compiler {
 					.find_path_in_lockfile(*index, &lockfile_path, &lockfile)
 					.await
 				{
+					let module_path = subpath.as_ref().map_or_else(|| package_path.clone(), |subpath| package_path.join(subpath));
 					Ok(tg::Referent {
-						item: tg::module::data::Item::Path(package_path),
+						item: tg::module::data::Item::Path(module_path),
 						subpath: subpath.clone(),
 						path: path.clone(),
 						tag: tag.clone(),
@@ -247,9 +222,9 @@ impl Compiler {
 			None => {
 				// If this is a path dependency but not in the dependencies table for the node, then it is an artifact dependency.
 				if let Some(import_path) = import_path {
-					let Some(module_parent) = module_path.parent() else {
+					let Some(module_parent) = referrer.parent() else {
 						return Err(
-							tg::error!(%path = module_path.display(), "failed to get parent of module_path"),
+							tg::error!(%path = referrer.display(), "failed to get parent of module_path"),
 						);
 					};
 					let item = module_parent.join(import_path);
@@ -266,7 +241,7 @@ impl Compiler {
 
 				// Otherwise we cannot resolve this reference.
 				Err(
-					tg::error!(%module = module_path.display(), %import = import.reference, "failed to resolve import"),
+					tg::error!(%module = referrer.display(), %import = import.reference, "failed to resolve import"),
 				)
 			},
 		}
@@ -275,18 +250,9 @@ impl Compiler {
 	async fn resolve_module_with_object_referrer(
 		&self,
 		object: &tg::object::Id,
-		subpath: Option<&Path>,
 		import: &tg::module::Import,
 	) -> Result<tg::Referent<tg::module::data::Item>, tg::Error> {
-		let referrer = if let Some(subpath) = subpath {
-			let tg::object::Id::Directory(directory) = object else {
-				return Err(tg::error!("object with subpath must be a directory"));
-			};
-			let artifact = tg::Directory::with_id(directory.clone()).get(&self.server, subpath).await.map_err(|source| tg::error!(!source, %directory, %subpath = subpath.display(), "failed to get directory entry"))?;
-			artifact.into()
-		} else {
-			tg::Object::with_id(object.clone())
-		};
+		let referrer = tg::Object::with_id(object.clone());
 		let file = referrer
 			.clone()
 			.try_unwrap_file()
