@@ -12,10 +12,9 @@ impl Server {
 	pub(super) fn checkin_collect_input(
 		&self,
 		state: &mut State,
-		send: &std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>,
 		root: PathBuf,
 	) -> tg::Result<()> {
-		self.checkin_visit(state, send, root)?;
+		self.checkin_visit(state, root)?;
 		Self::checkin_find_subpaths(state);
 		Ok(())
 	}
