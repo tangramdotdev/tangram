@@ -545,10 +545,11 @@ impl Server {
 						if *child == search {
 							return Ok(Some(current));
 						}
-						if let Some(found) = inner(search, *child, lockfile, visited, root, &current)? {
+						if let Some(found) =
+							inner(search, *child, lockfile, visited, root, &current)?
+						{
 							return Ok(Some(found));
 						}
-
 					}
 				},
 				tg::lockfile::Node::File(file) => {
@@ -565,14 +566,19 @@ impl Server {
 							.as_ref()
 							.map(|path| root.join(path).canonicalize())
 							.transpose()
-							.map_err(|error| tg::error!("failed to canonicalize path"))?
+							.map_err(|source| tg::error!(!source, "failed to canonicalize path"))?
 							.unwrap_or_else(|| current.to_owned());
 
 						if *child == search {
-							let current = referent.subpath.as_ref().map_or_else(|| current.to_owned(), |subpath| current.join(subpath));
+							let current = referent.subpath.as_ref().map_or_else(
+								|| current.to_owned(),
+								|subpath| current.join(subpath),
+							);
 							return Ok(Some(current));
 						}
-						if let Some(found) = inner(search, *child, lockfile, visited, root, &current)? {
+						if let Some(found) =
+							inner(search, *child, lockfile, visited, root, &current)?
+						{
 							return Ok(Some(found));
 						}
 					}
@@ -583,8 +589,13 @@ impl Server {
 		}
 
 		let mut visited = vec![false; lockfile.nodes.len()];
-		let root = lockfile_path.parent().unwrap();
-		let path = inner(node, 0, lockfile, &mut visited, root, root)?;
+		let root = lockfile_path.parent().unwrap().to_owned();
+		let lockfile = lockfile.clone();
+		let path = tokio::task::spawn_blocking(move || {
+			inner(node, 0, &lockfile, &mut visited, &root, &root)
+		})
+		.await
+		.unwrap()?;
 		dbg!((node, &path));
 		path.ok_or_else(|| tg::error!("failed to find node path in lockfile"))
 	}

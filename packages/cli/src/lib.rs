@@ -2,7 +2,7 @@ use clap::Parser as _;
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
-use std::{fmt::Write as _, path::PathBuf, sync::Arc, time::Duration};
+use std::{fmt::Write as _, path::PathBuf, time::Duration};
 use tangram_client::{self as tg, Client, prelude::*};
 use tangram_either::Either;
 use tangram_server::Server;
@@ -242,7 +242,7 @@ impl Cli {
 			Ok(config) => config,
 			Err(error) => {
 				eprintln!("{} failed to read the config", "error".red().bold());
-				Cli::print_error(&error, None);
+				Cli::print_error(&error, None, None);
 				return std::process::ExitCode::FAILURE;
 			},
 		};
@@ -341,7 +341,7 @@ impl Cli {
 			Ok(()) => cli.exit.unwrap_or_default().into(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
-				Cli::print_error(&error, cli.config.as_ref());
+				Cli::print_error(&error, None, cli.config.as_ref());
 				std::process::ExitCode::FAILURE
 			},
 		}
@@ -1133,28 +1133,46 @@ impl Cli {
 		Ok(())
 	}
 
-	fn print_error(error: &tg::Error, config: Option<&Config>) {
-		let error = Self::fix_error_locations(error, None);
+	fn print_error(
+		error: &tg::Error,
+		referent: Option<&tg::Referent<tg::object::Id>>,
+		config: Option<&Config>,
+	) {
+		let mut path = referent
+			.as_ref()
+			.and_then(|referent| referent.path.as_ref());
+		let mut tag = referent.as_ref().and_then(|referent| referent.tag.as_ref());
 		let options = config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.error_trace_options.clone())
 			.unwrap_or_default();
-		let mut errors = vec![&error];
+
+		// Create the trace.
+		let mut errors = vec![error];
 		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(&next.error);
+			errors.push(next.error.as_ref());
 		}
 		if options.reverse {
 			errors.reverse();
 		}
+
 		for error in errors {
+			if let Some(path_) = error
+				.source
+				.as_ref()
+				.and_then(|source| source.path.as_ref())
+			{
+				path.replace(path_);
+			}
+			if let Some(tag_) = error.source.as_ref().and_then(|source| source.tag.as_ref()) {
+				tag.replace(tag_);
+			}
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
 				if !location.file.is_internal() || options.internal {
-					let mut string = String::new();
-					write!(string, "{location}").unwrap();
-					eprintln!("   {}", string.yellow());
+					eprintln!("{}", Self::fmt_location(path, tag, location));
 				}
 			}
 			for (name, value) in &error.values {
@@ -1168,92 +1186,51 @@ impl Cli {
 			}
 			for location in stack {
 				if !location.file.is_internal() || options.internal {
-					let mut string = String::new();
-					write!(string, "{location}").unwrap();
-					eprintln!("   {}", string.yellow());
+					eprintln!("{}", Self::fmt_location(path, tag, location));
 				}
 			}
 		}
 	}
 
-	fn fix_error_locations(
-		error: &tg::Error,
-		source: Option<&tg::Referent<tg::object::Id>>,
-	) -> tg::Error {
-		// Fix this error's location.
-		let mut error = 'a: {
-			let Some(location) = error.location.as_ref() else {
-				break 'a error.clone();
-			};
-			let tg::error::File::Module(module) = &location.file else {
-				break 'a error.clone();
-			};
-			let Ok(id) = module.referent.item.try_unwrap_object_ref() else {
-				break 'a error.clone();
-			};
-			let Some(source) = source else {
-				break 'a error.clone();
-			};
-			if &source.item != id {
-				break 'a error.clone();
-			}
-			let location = tg::error::Location {
-				file: tg::error::File::Module(tg::module::Data {
-					kind: module.kind,
-					referent: tg::Referent {
-						item: tg::module::data::Item::Object(source.item.clone()),
-						..module.referent.clone()
-					},
-				}),
-				..location.clone()
-			};
-			tg::Error {
-				location: Some(location),
-				..error.clone()
-			}
-		};
-
-		// Fix this error's stack.
-		if let (Some(source), Some(stack)) = (source, &mut error.stack) {
-			for location in stack {
-				let tg::error::File::Module(module) = &location.file else {
-					continue;
-				};
-				let Ok(id) = module.referent.item.try_unwrap_object_ref() else {
-					continue;
-				};
-				if &source.item != id {
-					continue;
+	fn fmt_location(
+		path: Option<&PathBuf>,
+		tag: Option<&tg::Tag>,
+		location: &tg::error::Location,
+	) -> String {
+		match &location.file {
+			tg::error::File::Internal(internal) => {
+				format!("(internal) {}", internal.display())
+			},
+			tg::error::File::Module(module) => {
+				if let Some(path) = module.referent.path.as_ref().or(path) {
+					if let Some(subpath) = &module.referent.subpath {
+						let full_path = path.join(subpath);
+						return format!(
+							"{}:{}:{}",
+							full_path.display(),
+							location.line,
+							location.column
+						);
+					}
+					return format!("{}:{}:{}", path.display(), location.line, location.column);
 				}
-				let new_location = tg::error::Location {
-					file: tg::error::File::Module(tg::module::Data {
-						kind: module.kind,
-						referent: tg::Referent {
-							item: module.referent.item.clone(),
-							path: source.path.clone(),
-							subpath: module.referent.subpath.clone(),
-							tag: source.tag.clone(),
-						},
-					}),
-					..location.clone()
-				};
-				*location = new_location;
-			}
+				if let Some(tag) = module.referent.tag.as_ref().or(tag) {
+					if let Some(subpath) = &module.referent.subpath {
+						return format!(
+							"{tag}: {}:{}:{}",
+							subpath.display(),
+							location.line,
+							location.column
+						);
+					}
+					return format!("{tag}: {}:{}", location.line, location.column);
+				}
+				format!(
+					"{}:{}:{}",
+					module.referent.item, location.line, location.column
+				)
+			},
 		}
-
-		// Recurse.
-		if let Some(tg::error::Source { error, referent }) = error.source.as_mut() {
-			let source = match (source, referent.as_ref()) {
-				(Some(parent), Some(child)) if parent.item == child.item => Some(parent),
-				(_, Some(child)) => Some(child),
-				(Some(parent), None) => Some(parent),
-				(None, None) => None,
-			};
-			let new_error = Self::fix_error_locations(error.as_ref(), source);
-			*error = Arc::new(new_error);
-		}
-
-		error
 	}
 
 	fn print_diagnostic(diagnostic: &tg::Diagnostic) {

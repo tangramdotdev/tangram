@@ -116,8 +116,8 @@ impl Cli {
 		};
 
 		// If the process is not finished, then wait for it to finish while showing the viewer if enabled.
-		let result = if let Some(output) = output {
-			Ok(output)
+		let wait = if let Some(output) = output {
+			output
 		} else {
 			// Construct the referent.
 			let referent = tg::Referent {
@@ -206,21 +206,18 @@ impl Cli {
 				view_task.wait().await.unwrap();
 			}
 
-			result
+			result?
 		};
 
 		// Get the output.
-		let output = result
-			.map_err(|source| tg::error!(!source, "failed to await the process"))?
-			.into_output()
-			.map_err(|source| {
-				let mut error = tg::error!(!source, "the process failed");
-				error
-					.source
-					.as_mut()
-					.map(|source| source.referent.replace(referent));
-				error
-			})?;
+		if let Some(error) = wait.error {
+			Self::print_error(&error, Some(&referent), self.config.as_ref());
+		}
+
+		self.exit.replace(wait.exit);
+		let Some(output) = wait.output else {
+			return Ok(None);
+		};
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {
@@ -274,6 +271,9 @@ impl Cli {
 			};
 			println!("{output}");
 		}
+
+		// Update the exit status.
+		self.exit.replace(wait.exit);
 
 		Ok(Some(output))
 	}

@@ -206,9 +206,10 @@ impl Cli {
 					} else {
 						unreachable!();
 					};
+					let item = directory.get(&handle, &subpath).await?;
 					referent.subpath.replace(subpath);
 					let referent = tg::Referent {
-						item: tg::module::Item::Object(referent.item.clone()),
+						item: tg::module::Item::Object(item.into()),
 						path: referent.path.clone(),
 						subpath: referent.subpath.clone(),
 						tag: referent.tag.clone(),

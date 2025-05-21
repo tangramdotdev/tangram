@@ -57,7 +57,7 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Run.
-		self.run(args.options, reference, args.trailing).await?;
+		Box::pin(self.run(args.options, reference, args.trailing)).await?;
 
 		Ok(())
 	}
@@ -199,10 +199,8 @@ impl Cli {
 		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
 		// Print the error.
-		if let Some(source) = wait.error {
-			let mut error = tg::error!(!source, "the process failed");
-			error.source.as_mut().unwrap().referent.replace(referent);
-			Self::print_error(&error, self.config.as_ref());
+		if let Some(error) = wait.error {
+			Self::print_error(&error, Some(&referent), self.config.as_ref());
 		}
 
 		// Print the output.

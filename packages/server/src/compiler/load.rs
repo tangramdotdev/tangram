@@ -61,20 +61,11 @@ impl Compiler {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Object(object),
-						subpath,
 						..
 					},
 				..
 			} => {
 				let object = tg::Object::with_id(object.clone());
-				let object = if let Some(subpath) = subpath {
-					let tg::Object::Directory(directory) = object else {
-						return Err(tg::error!("expected a directory"));
-					};
-					directory.get(&self.server, subpath).await?.into()
-				} else {
-					object
-				};
 				let file = object
 					.try_unwrap_file()
 					.ok()
