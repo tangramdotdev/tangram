@@ -41,7 +41,11 @@ async fn path_dependency_object() {
 	let subpath = "tangram.ts";
 	let import = tg::module::Import::with_specifier_and_attributes("./foo.tg.ts", None).unwrap();
 	let assertions = |server, artifact: tg::Artifact, module| async move {
-		let item = artifact.unwrap_directory_ref().get(&server, "foo.tg.ts").await.unwrap();
+		let item = artifact
+			.unwrap_directory_ref()
+			.get(&server, "foo.tg.ts")
+			.await
+			.unwrap();
 		let right = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent {
@@ -154,7 +158,7 @@ async fn test_path<F, Fut>(
 			ignore: true,
 			locked: false,
 			lockfile: true,
-			path: temp.path().join(path).to_owned(),
+			path: temp.path().join(path)
 		};
 		tg::checkin(&server, arg)
 			.await
@@ -204,7 +208,7 @@ async fn test_object<F, Fut>(
 			ignore: true,
 			locked: false,
 			lockfile: true,
-			path: temp.path().join(path).to_owned(),
+			path: temp.path().join(path),
 		};
 		let artifact = tg::checkin(&server, arg)
 			.await

@@ -25,10 +25,7 @@ impl Compiler {
 						..
 					},
 				..
-			} => {
-				self.resolve_with_path_referrer(path, import)
-					.await?
-			},
+			} => self.resolve_with_path_referrer(path, import).await?,
 
 			// Handle an object referrer.
 			tg::module::Data {
@@ -89,15 +86,13 @@ impl Compiler {
 					}
 				},
 
-				tg::module::data::Item::Object(object) => {
-					match &object {
-						tg::object::Id::Blob(_) => tg::module::Kind::Blob,
-						tg::object::Id::Directory(_) => tg::module::Kind::Directory,
-						tg::object::Id::File(_) => tg::module::Kind::File,
-						tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
-						tg::object::Id::Graph(_) => tg::module::Kind::Graph,
-						tg::object::Id::Command(_) => tg::module::Kind::Command,
-					}
+				tg::module::data::Item::Object(object) => match &object {
+					tg::object::Id::Blob(_) => tg::module::Kind::Blob,
+					tg::object::Id::Directory(_) => tg::module::Kind::Directory,
+					tg::object::Id::File(_) => tg::module::Kind::File,
+					tg::object::Id::Symlink(_) => tg::module::Kind::Symlink,
+					tg::object::Id::Graph(_) => tg::module::Kind::Graph,
+					tg::object::Id::Command(_) => tg::module::Kind::Command,
 				},
 			}
 		};
@@ -152,7 +147,7 @@ impl Compiler {
 		// Find the referrer in the lockfile.
 		let module_index = self
 			.server
-			.find_node_index_in_lockfile(&referrer, &lockfile_path, &lockfile)
+			.find_node_index_in_lockfile(referrer, &lockfile_path, &lockfile)
 			.await?;
 
 		// The module within the lockfile must be a file for it to have imports.

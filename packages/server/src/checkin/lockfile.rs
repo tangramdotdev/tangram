@@ -308,19 +308,23 @@ fn check_if_references_module(
 					let retain = !file.dependencies.is_empty()
 						|| path.is_some_and(tg::package::is_module_path);
 					visited[node].replace(retain);
-					for (_, referent) in &file.dependencies {
-						let path = referent.path.as_ref().map(|path|
+					for referent in file.dependencies.values() {
+						let path = referent.path.as_ref().map(|path| {
 							if let Some(subpath) = &referent.subpath {
 								path.join(subpath)
 							} else {
 								path.to_owned()
 							}
-						);
+						});
 						let Either::Left(child_node) = &referent.item else {
 							continue;
 						};
-						*visited[node].as_mut().unwrap() |=
-							check_if_references_module(nodes, path.as_deref(), *child_node, visited)?;
+						*visited[node].as_mut().unwrap() |= check_if_references_module(
+							nodes,
+							path.as_deref(),
+							*child_node,
+							visited,
+						)?;
 					}
 				},
 				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {

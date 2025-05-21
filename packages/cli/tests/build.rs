@@ -22,6 +22,140 @@ async fn hello_world() {
 }
 
 #[tokio::test]
+async fn assertion_failure() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import foo from "./foo.tg.ts";
+			export default () => foo();
+		"#),
+		"foo.tg.ts" => indoc!(r#"
+			export default () => tg.assert(false, "error")
+		"#),
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
+		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		assert_snapshot!(stderr, @r"
+		[38;5;12m[1minfo[0m pcs_0006bf7fh0gsyh12qx1fnawewjv4
+		[38;5;9m->[39m Uncaught Error: error
+		(internal) packages/runtime/src/start.ts
+		./tangram.ts:1:21
+		./foo.tg.ts:0:24
+		(internal) packages/runtime/src/assert.ts
+		");
+	};
+	let args = vec![];
+	let path = "";
+	let command = "default";
+	test_run(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn assertion_failure_in_path_dependency() {
+	let directory = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import foo from "../bar";
+				export default () => foo();
+			"#),
+		},
+		"bar" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				export default () => tg.assert(false, "error")
+			"#),
+		}
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
+		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		assert_snapshot!(stderr, @r"
+		[38;5;12m[1minfo[0m pcs_0006bf7h3e1xsp37jphg66zzn5dw
+		[38;5;9m->[39m Uncaught Error: error
+		(internal) packages/runtime/src/start.ts
+		./tangram.ts:1:21
+		../bar/tangram.ts:0:24
+		(internal) packages/runtime/src/assert.ts
+		");
+	};
+	let args = vec![];
+	let path = "foo";
+	let command = "default";
+	test_run(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn run_assertion_failure() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import foo from "./foo.tg.ts";
+			export default async () => await tg.run(foo);
+		"#),
+		"foo.tg.ts" => indoc!(r#"
+			export default () => tg.assert(false, "error")
+		"#),
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
+		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		assert_snapshot!(stderr, @r"
+		[38;5;12m[1minfo[0m pcs_0006bf7jy37sw712f6y4c9f7c1w8
+		[38;5;9m->[39m Uncaught Error: the process failed
+		(internal) packages/runtime/src/start.ts:34:11
+		(internal) packages/runtime/src/resolve.ts:91:8
+		(internal) packages/runtime/src/resolve.ts:46:10
+		./tangram.ts:1:27
+		(internal) packages/runtime/src/run.ts:145:8
+		[38;5;9m->[39m Uncaught Error: error
+		(internal) packages/runtime/src/start.ts:34:28
+		./foo.tg.ts:0:24
+		(internal) packages/runtime/src/assert.ts:3:9
+		");
+	};
+	let args = vec![];
+	let path = "";
+	let command = "default";
+	test_run(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn run_assertion_failure_in_path_dependency() {
+	let directory = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import foo from "../bar";
+				export default async () => await tg.run(foo);
+			"#),
+		},
+		"bar" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				export default () => tg.assert(false, "error")
+			"#),
+		}
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_failure!(output);
+		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		assert_snapshot!(stderr, @r"
+		[38;5;12m[1minfo[0m pcs_0006bf7jy37xsz184mnvj9gsnctg
+		[38;5;9m->[39m Uncaught Error: the process failed
+		(internal) packages/runtime/src/start.ts:34:11
+		(internal) packages/runtime/src/resolve.ts:91:8
+		(internal) packages/runtime/src/resolve.ts:46:10
+		./tangram.ts:1:27
+		(internal) packages/runtime/src/run.ts:145:8
+		[38;5;9m->[39m Uncaught Error: error
+		(internal) packages/runtime/src/start.ts:34:28
+		../bar/tangram.ts:0:24
+		(internal) packages/runtime/src/assert.ts:3:9
+		");
+	};
+	let args = vec![];
+	let path = "foo";
+	let command = "default";
+	test_run(directory, path, command, args, assertions).await;
+}
+
+#[tokio::test]
 async fn hello_world_remote() {
 	let directory = temp::directory! {
 		"tangram.ts" => r#"export default () => "Hello, World!""#,
@@ -1038,6 +1172,39 @@ async fn test_build<F, Fut>(
 		}
 		let output = command.output().await.unwrap();
 
+		assertions(output).await;
+	})
+	.await;
+}
+
+async fn test_run<F, Fut>(
+	artifact: impl Into<temp::Artifact> + Send + 'static,
+	path: &str,
+	command: &str,
+	args: Vec<String>,
+	assertions: F,
+) where
+	F: FnOnce(std::process::Output) -> Fut + Send + 'static,
+	Fut: Future<Output = ()> + Send,
+{
+	test(TG, async move |context| {
+		let server = context.spawn_server().await.unwrap();
+
+		let artifact: temp::Artifact = artifact.into();
+		let temp = Temp::new();
+		artifact.to_path(temp.as_ref()).await.unwrap();
+
+		let path = temp.path().join(path);
+		let command_ = format!("{path}#{command}", path = path.display());
+
+		// Build.
+		let mut command = server.tg();
+		command.arg("run").arg(command_);
+		for arg in args {
+			command.arg("--arg");
+			command.arg(arg);
+		}
+		let output = command.output().await.unwrap();
 		assertions(output).await;
 	})
 	.await;

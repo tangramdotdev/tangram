@@ -26,7 +26,6 @@ struct FindInLockfileArg<'a> {
 pub struct LockfileNode {
 	pub node: usize,
 	pub package: PathBuf,
-	pub path: PathBuf,
 }
 
 impl Server {
@@ -553,7 +552,7 @@ impl Server {
 					}
 				},
 				tg::lockfile::Node::File(file) => {
-					for (_, referent) in &file.dependencies {
+					for referent in file.dependencies.values() {
 						let Some(child) = referent.item.as_ref().left() else {
 							continue;
 						};
@@ -571,7 +570,7 @@ impl Server {
 
 						if *child == search {
 							let current = referent.subpath.as_ref().map_or_else(
-								|| current.to_owned(),
+								|| current.clone(),
 								|subpath| current.join(subpath),
 							);
 							return Ok(Some(current));
@@ -611,7 +610,6 @@ impl Server {
 				let result = LockfileNode {
 					node: arg.current_node,
 					package: arg.current_package_path,
-					path: arg.current_node_path,
 				};
 				return Ok(Some(result));
 			},
@@ -619,7 +617,6 @@ impl Server {
 				let result = LockfileNode {
 					node: arg.current_node,
 					package: arg.current_package_path,
-					path: arg.current_node_path,
 				};
 				return Ok(Some(result));
 			},

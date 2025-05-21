@@ -1199,7 +1199,7 @@ impl Cli {
 	) -> String {
 		match &location.file {
 			tg::error::File::Internal(internal) => {
-				format!("(internal) {}", internal.display())
+				format!("(internal) {}:{}:{}", internal.display(), location.line, location.column)
 			},
 			tg::error::File::Module(module) => {
 				if let Some(path) = module.referent.path.as_ref().or(path) {
