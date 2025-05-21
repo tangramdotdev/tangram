@@ -10,7 +10,16 @@ pub struct Lockfile {
 	pub nodes: Vec<Node>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	serde::Serialize,
+	serde::Deserialize,
+)]
+#[try_unwrap(ref)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Node {
 	Directory(Directory),

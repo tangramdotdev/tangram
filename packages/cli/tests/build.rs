@@ -1,5 +1,6 @@
 use indoc::indoc;
 use insta::assert_snapshot;
+use itertools::Itertools;
 use tangram_cli::{assert_failure, assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
@@ -35,13 +36,12 @@ async fn assertion_failure() {
 	let assertions = |output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		let stderr = stderr.lines().skip(2).join("\n");
 		assert_snapshot!(stderr, @r"
-		[38;5;12m[1minfo[0m pcs_0006bf7fh0gsyh12qx1fnawewjv4
-		[38;5;9m->[39m Uncaught Error: error
-		(internal) packages/runtime/src/start.ts
+		(internal) packages/runtime/src/start.ts:34:28
 		./tangram.ts:1:21
 		./foo.tg.ts:0:24
-		(internal) packages/runtime/src/assert.ts
+		(internal) packages/runtime/src/assert.ts:3:9
 		");
 	};
 	let args = vec![];
@@ -68,13 +68,12 @@ async fn assertion_failure_in_path_dependency() {
 	let assertions = |output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		let stderr = stderr.lines().skip(2).join("\n");
 		assert_snapshot!(stderr, @r"
-		[38;5;12m[1minfo[0m pcs_0006bf7h3e1xsp37jphg66zzn5dw
-		[38;5;9m->[39m Uncaught Error: error
-		(internal) packages/runtime/src/start.ts
+		(internal) packages/runtime/src/start.ts:34:28
 		./tangram.ts:1:21
 		../bar/tangram.ts:0:24
-		(internal) packages/runtime/src/assert.ts
+		(internal) packages/runtime/src/assert.ts:3:9
 		");
 	};
 	let args = vec![];
@@ -97,9 +96,8 @@ async fn run_assertion_failure() {
 	let assertions = |output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		let stderr = stderr.lines().skip(2).join("\n");
 		assert_snapshot!(stderr, @r"
-		[38;5;12m[1minfo[0m pcs_0006bf7jy37sw712f6y4c9f7c1w8
-		[38;5;9m->[39m Uncaught Error: the process failed
 		(internal) packages/runtime/src/start.ts:34:11
 		(internal) packages/runtime/src/resolve.ts:91:8
 		(internal) packages/runtime/src/resolve.ts:46:10
@@ -135,9 +133,8 @@ async fn run_assertion_failure_in_path_dependency() {
 	let assertions = |output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		let stderr = stderr.lines().skip(2).join("\n");
 		assert_snapshot!(stderr, @r"
-		[38;5;12m[1minfo[0m pcs_0006bf7jy37xsz184mnvj9gsnctg
-		[38;5;9m->[39m Uncaught Error: the process failed
 		(internal) packages/runtime/src/start.ts:34:11
 		(internal) packages/runtime/src/resolve.ts:91:8
 		(internal) packages/runtime/src/resolve.ts:46:10

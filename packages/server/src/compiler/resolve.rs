@@ -16,27 +16,46 @@ impl Compiler {
 		let kind = import.kind;
 
 		// Get the referent.
-		let mut referent = match referrer {
+		let referent = match referrer {
 			// Handle a path referrer.
 			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Path(path),
-						..
+						item: tg::module::data::Item::Path(item),
+						tag,
+						path,
+						subpath,
 					},
 				..
-			} => self.resolve_with_path_referrer(path, import).await?,
+			} => {
+				let referrer = tg::Referent {
+					item: item.as_ref(),
+					path: path.clone(),
+					subpath: subpath.clone(),
+					tag: tag.clone(),
+				};
+				self.resolve_module_with_path_referrer(&referrer, import)
+					.await?
+			},
 
 			// Handle an object referrer.
 			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Object(object),
-						..
+						item: tg::module::data::Item::Object(item),
+						tag,
+						path,
+						subpath,
 					},
 				..
 			} => {
-				self.resolve_module_with_object_referrer(object, import)
+				let referrer = tg::Referent {
+					item,
+					path: path.clone(),
+					subpath: subpath.clone(),
+					tag: tag.clone(),
+				};
+				self.resolve_module_with_object_referrer(referrer, import)
 					.await?
 			},
 		};
@@ -66,7 +85,7 @@ impl Compiler {
 			None
 		};
 
-		// Finally, if the kind is not known, then infer it from the object's kind.
+		// If the kind is still not known, then infer it from the object's kind.
 		let kind = if let Some(kind) = kind {
 			kind
 		} else {
@@ -97,30 +116,21 @@ impl Compiler {
 			}
 		};
 
-		if referent.item == referrer.referent.item {
-			referent.path = referrer.referent.path.clone();
-			referent.tag = referrer.referent.tag.clone();
-		}
-
 		// Create the module.
 		let module = tg::module::Data { kind, referent };
 
 		Ok(module)
 	}
 
-	async fn resolve_with_path_referrer(
+	async fn resolve_module_with_path_referrer(
 		&self,
-		referrer: &Path,
+		referrer: &tg::Referent<&Path>,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		if !referrer.exists() {
-			return Err(tg::error!("{referrer:#?} does not exist"));
-		}
-
 		// Get the lockfile and its path.
 		let (lockfile_path, lockfile) = 'a: {
 			// Search the ancestors for a lockfile, if it exists.
-			for ancestor in referrer.ancestors().skip(1) {
+			for ancestor in referrer.item.ancestors().skip(1) {
 				// Check if the lockfile exists.
 				let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
 				let exists = tokio::fs::try_exists(&lockfile_path).await.map_err(
@@ -141,111 +151,90 @@ impl Compiler {
 			}
 
 			// Error if no lockfile is found.
-			return Err(tg::error!(%module = referrer.display(), "failed to find the lockfile"));
+			return Err(
+				tg::error!(%module = referrer.item.display(), "failed to find the lockfile"),
+			);
 		};
 
 		// Find the referrer in the lockfile.
 		let module_index = self
 			.server
-			.find_node_index_in_lockfile(referrer, &lockfile_path, &lockfile)
+			.find_node_index_in_lockfile(referrer.item, &lockfile_path, &lockfile)
 			.await?;
 
 		// The module within the lockfile must be a file for it to have imports.
-		let tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) =
-			&lockfile.nodes[module_index]
-		else {
-			return Err(
-				tg::error!(%lockfile = lockfile_path.display(), %referrer = referrer.display(), %node = module_index, "expected a file node"),
-			);
-		};
+		let file = &lockfile.nodes[module_index]
+			.try_unwrap_file_ref()
+			.map_err(|_| tg::error!("expected a file node"))?;
 
-		// Lookup the dependency.
-		match dependencies.get(&import.reference) {
-			// If this points to another node in the lockfile, find it within the lockfile.
-			Some(tg::Referent {
-				item: Either::Left(index),
-				path,
-				subpath,
-				tag,
-			}) => {
-				// Lookup the referenced item in the
-				if let Ok(item) = self
-					.server
-					.find_path_in_lockfile(*index, &lockfile_path, &lockfile)
-					.await
-				{
-					Ok(tg::Referent {
-						item: tg::module::data::Item::Path(item),
-						subpath: subpath.clone(),
-						path: path.clone(),
-						tag: tag.clone(),
-					})
-				} else if let Some(id) = lockfile.nodes[*index].id() {
-					Ok(tg::Referent {
-						item: tg::module::data::Item::Object(id.into()),
-						subpath: subpath.clone(),
-						path: path.clone(),
-						tag: tag.clone(),
-					})
-				} else {
-					Err(
-						tg::error!(%referrer = referrer.display(), %reference = import.reference, "failed to resolve import"),
-					)
-				}
-			},
-
-			// Resolve objects normally.
-			Some(tg::Referent {
-				item: Either::Right(object),
-				path,
-				subpath,
-				tag,
-			}) => Ok(tg::Referent {
-				item: tg::module::data::Item::Object(object.clone()),
-				path: path.clone(),
-				subpath: subpath.clone(),
-				tag: tag.clone(),
-			}),
-
-			None => {
-				// If this is a path dependency but not in the dependencies table for the node, then it is an artifact dependency.
-				if let Some(import_path) = import.reference.path() {
-					let Some(module_parent) = referrer.parent() else {
-						return Err(
-							tg::error!(%path = referrer.display(), "failed to get parent of module_path"),
-						);
-					};
-					let item = module_parent.join(import_path);
+		// Try to resolve the dependency in the file.
+		if let Some(referent) = file.dependencies.get(&import.reference) {
+			match &referent.item {
+				Either::Left(index) => {
+					if let Some(id) = lockfile.nodes[*index].id() {
+						let path = referent.path.clone().or_else(|| referrer.path.clone());
+						let tag = referent.tag.clone().or_else(|| referent.tag.clone());
+						return Ok(tg::Referent {
+							item: tg::module::data::Item::Object(id.into()),
+							path,
+							tag,
+							subpath: referent.subpath.clone(),
+						});
+					}
+				},
+				Either::Right(id) => {
+					let path = referent.path.clone().or_else(|| referrer.path.clone());
+					let tag = referent.tag.clone().or_else(|| referent.tag.clone());
 					return Ok(tg::Referent {
-						item: tg::module::data::Item::Path(item),
-						path: None,
-						subpath: import
-							.reference
-							.options()
-							.and_then(|options| options.subpath.clone()),
-						tag: None,
+						item: tg::module::data::Item::Object(id.clone()),
+						path,
+						tag,
+						subpath: referent.subpath.clone(),
 					});
-				}
-
-				// Otherwise we cannot resolve this reference.
-				Err(
-					tg::error!(%module = referrer.display(), %import = import.reference, "failed to resolve import"),
-				)
-			},
+				},
+			}
 		}
+
+		// If we reach here, we know the item is a path.
+		let import_path = import
+			.reference
+			.path()
+			.ok_or_else(|| tg::error!("failed to resolve dependency"))?;
+
+		// We know the referrer is a module, so get its parent.
+		let referrer_parent = referrer.item.parent().unwrap();
+
+		// Join and canonicalize to get the item.
+		let mut item = tokio::fs::canonicalize(&referrer_parent.join(import_path))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the import"))?;
+
+		// Lookup the root module if necessary.
+		if let Ok(Some(root_module_name)) =
+			tg::package::try_get_root_module_file_name(&self.server, Either::Right(&item)).await
+		{
+			item = item.join(root_module_name);
+		}
+
+		Ok(tg::Referent {
+			item: tg::module::data::Item::Path(item),
+			path: None,
+			subpath: None,
+			tag: None,
+		})
 	}
 
 	async fn resolve_module_with_object_referrer(
 		&self,
-		object: &tg::object::Id,
+		referrer: tg::Referent<&tg::object::Id>,
 		import: &tg::module::Import,
 	) -> Result<tg::Referent<tg::module::data::Item>, tg::Error> {
-		let referrer = tg::Object::with_id(object.clone());
+		let referrer = tg::Object::with_id(referrer.item.clone());
 		let file = referrer
 			.clone()
 			.try_unwrap_file()
 			.ok()
-			.ok_or_else(|| tg::error!(%object, "the referrer must be a file"))?;
+			.ok_or_else(|| tg::error!(%referrer, "the referrer must be a file"))?;
 		let referent = file.get_dependency(&self.server, &import.reference).await?;
 		let object = referent.item.id(&self.server).await?.clone();
 		let item = tg::module::data::Item::Object(object);
