@@ -194,8 +194,17 @@ impl ToV8 for tg::error::Source {
 		scope: &mut v8::HandleScope<'a>,
 	) -> tangram_client::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
+
 		let key = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
 		let value = self.error.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
+		let value = self.path.to_v8(scope)?;
+		object.set(scope, key.into(), value);
+
+		let key = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
+		let value = self.tag.as_ref().map(tg::Tag::to_string).to_v8(scope)?;
 		object.set(scope, key.into(), value);
 
 		Ok(object.into())
@@ -217,15 +226,22 @@ impl FromV8 for tg::error::Source {
 		let error = <_>::from_v8(scope, error)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
 
-		let referent =
-			v8::String::new_external_onebyte_static(scope, "referent".as_bytes()).unwrap();
-		let referent = value.get(scope, referent.into()).unwrap();
-		let referent = <_>::from_v8(scope, referent)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the referent"))?;
+		let path = v8::String::new_external_onebyte_static(scope, "path".as_bytes()).unwrap();
+		let path = value.get(scope, path.into()).unwrap();
+		let path = <_>::from_v8(scope, path)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
+
+		let tag = v8::String::new_external_onebyte_static(scope, "tag".as_bytes()).unwrap();
+		let tag = value.get(scope, tag.into()).unwrap();
+		let tag = <Option<String>>::from_v8(scope, tag)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the tag"))?
+			.map(|tag| tag.parse().map_err(|_| tg::error!("expected a tag")))
+			.transpose()?;
 
 		Ok(tg::error::Source {
 			error: Arc::new(error),
-			referent,
+			path,
+			tag,
 		})
 	}
 }

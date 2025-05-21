@@ -85,7 +85,7 @@ impl Compiler {
 					| tg::module::Kind::Symlink
 					| tg::module::Kind::Graph
 					| tg::module::Kind::Command,
-				referent: tg::Referent { item, subpath, .. },
+				referent: tg::Referent { item, .. },
 				..
 			} => {
 				let class = match module.kind {
@@ -105,14 +105,6 @@ impl Compiler {
 					)),
 					tg::module::data::Item::Object(object) => {
 						let object = tg::Object::with_id(object.clone());
-						let object = if let Some(subpath) = subpath {
-							let tg::Object::Directory(directory) = object else {
-								return Err(tg::error!("expected a directory"));
-							};
-							directory.get(&self.server, subpath).await?.into()
-						} else {
-							object
-						};
 						let object = object.id(&self.server).await?;
 						Ok(format!(r#"export default tg.{class}.withId("{object}");"#))
 					},

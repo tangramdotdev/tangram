@@ -45,23 +45,19 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	);
 
 	// Get the source for error reporting and clear path/tag from the executable.
-	let source: tg.Referent<tg.Object.Id> | undefined = undefined;
-	if (
-		"executable" in arg &&
-		typeof arg.executable === "object" &&
-		"module" in arg.executable
-	) {
-		let item =
-			typeof arg.executable.module.referent.item === "object"
-				? await arg.executable.module.referent.item.id()
-				: arg.executable.module.referent.item;
-		source = {
-			...arg.executable.module.referent,
-			item,
-		};
-		arg.executable.module.referent.path = undefined;
-		arg.executable.module.referent.tag = undefined;
-	}
+	// let source:
+	// 	| { path?: string | undefined; tag?: string | undefined }
+	// 	| undefined = undefined;
+	// if (
+	// 	"executable" in arg &&
+	// 	typeof arg.executable === "object" &&
+	// 	"module" in arg.executable
+	// ) {
+	// 	source = {
+	// 		path: arg.executable?.module.referent.path,
+	// 		tag: arg.executable?.module.referent.tag,
+	// 	};
+	// }
 
 	let checksum = arg.checksum;
 	let processMounts: Array<tg.Process.Mount> = [];
@@ -148,10 +144,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	// Update or wrap underlying errors.
 	if (wait.error) {
 		throw new Error("the process failed", {
-			cause: {
-				error: wait.error,
-				referent: source,
-			},
+			cause: wait.error,
 		});
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
