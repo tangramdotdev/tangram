@@ -92,7 +92,11 @@ impl Server {
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
-		Ok(Some(receiver.attach(abort_handle)))
+
+		// Create the stream.
+		let stream = receiver.attach(abort_handle);
+
+		Ok(Some(stream))
 	}
 
 	async fn try_read_blob_task(
@@ -127,13 +131,14 @@ impl Server {
 				}
 			}
 			buffer.truncate(n);
+			if let Some(l) = arg.length {
+				buffer.truncate(l.saturating_sub(length).to_usize().unwrap());
+			}
 			let data = tg::blob::read::Chunk {
 				position,
 				bytes: buffer.clone().into(),
 			};
-			if data.bytes.is_empty()
-				|| matches!(arg.length, Some(arg_length) if length >= arg_length)
-			{
+			if data.bytes.is_empty() || arg.length.is_some_and(|l| l <= length) {
 				break;
 			}
 			length += data.bytes.len().to_u64().unwrap();
