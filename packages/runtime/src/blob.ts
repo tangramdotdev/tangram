@@ -205,6 +205,10 @@ export class Blob {
 		}
 	}
 
+	async read(arg?: Blob.ReadArg): Promise<Uint8Array> {
+		return await syscall("blob_read", this, arg);
+	}
+
 	async bytes(): Promise<Uint8Array> {
 		return await syscall("blob_read", this);
 	}
@@ -245,5 +249,10 @@ export namespace Blob {
 		...placeholders: tg.Args<string>
 	): Promise<Blob> => {
 		return await inner(true, strings, ...placeholders);
+	};
+
+	export type ReadArg = {
+		position?: number | string | undefined;
+		length?: number | undefined;
 	};
 }

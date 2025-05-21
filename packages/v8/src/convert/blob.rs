@@ -1,4 +1,4 @@
-use super::{FromV8, ToV8};
+use super::{FromV8, Serde, ToV8};
 use tangram_client as tg;
 
 impl ToV8 for tg::Blob {
@@ -159,5 +159,23 @@ impl FromV8 for tg::blob::Child {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the length"))?;
 
 		Ok(Self { blob, length })
+	}
+}
+
+impl ToV8 for tg::blob::read::Arg {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let value = Serde::new(self);
+		let value = value.to_v8(scope)?;
+		Ok(value)
+	}
+}
+
+impl FromV8 for tg::blob::read::Arg {
+	fn from_v8<'a>(
+		scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tg::Result<Self> {
+		let value = Serde::from_v8(scope, value)?.into_inner();
+		Ok(value)
 	}
 }

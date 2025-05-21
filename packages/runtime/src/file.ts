@@ -249,6 +249,10 @@ export class File {
 		return (await this.contents()).length();
 	}
 
+	async read(arg?: tg.Blob.ReadArg): Promise<Uint8Array> {
+		return (await this.contents()).read(arg);
+	}
+
 	async bytes(): Promise<Uint8Array> {
 		return (await this.contents()).bytes();
 	}

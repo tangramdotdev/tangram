@@ -1,5 +1,6 @@
 use crate as tg;
 use bytes::Bytes;
+use num::ToPrimitive;
 use std::borrow::Cow;
 
 pub struct BytesBase64;
@@ -97,9 +98,9 @@ where
 	}
 }
 
-pub struct SeekFromString;
+pub struct SeekFromNumberOrString;
 
-impl serde_with::SerializeAs<std::io::SeekFrom> for SeekFromString {
+impl serde_with::SerializeAs<std::io::SeekFrom> for SeekFromNumberOrString {
 	fn serialize_as<S>(value: &std::io::SeekFrom, serializer: S) -> tg::Result<S::Ok, S::Error>
 	where
 		S: serde::Serializer,
@@ -113,7 +114,7 @@ impl serde_with::SerializeAs<std::io::SeekFrom> for SeekFromString {
 	}
 }
 
-impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
+impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromNumberOrString {
 	fn deserialize_as<D>(deserializer: D) -> tg::Result<std::io::SeekFrom, D::Error>
 	where
 		D: serde::Deserializer<'de>,
@@ -124,7 +125,28 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
 			type Value = std::io::SeekFrom;
 
 			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-				formatter.write_str("a string")
+				formatter.write_str("a number or a string")
+			}
+
+			fn visit_u64<E>(self, value: u64) -> tg::Result<Self::Value, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(std::io::SeekFrom::Start(value))
+			}
+
+			fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(std::io::SeekFrom::Start(value.to_u64().unwrap()))
+			}
+
+			fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(std::io::SeekFrom::Start(value.to_u64().unwrap()))
 			}
 
 			fn visit_str<E>(self, value: &str) -> tg::Result<Self::Value, E>
@@ -155,7 +177,7 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromString {
 			}
 		}
 
-		deserializer.deserialize_str(Visitor)
+		deserializer.deserialize_any(Visitor)
 	}
 }
 

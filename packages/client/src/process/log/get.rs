@@ -1,7 +1,7 @@
 use crate::{
 	self as tg,
 	prelude::*,
-	util::serde::{BytesBase64, SeekFromString},
+	util::serde::{BytesBase64, SeekFromNumberOrString},
 };
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _, future};
@@ -15,7 +15,7 @@ pub struct Arg {
 	pub length: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<SeekFromString>")]
+	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

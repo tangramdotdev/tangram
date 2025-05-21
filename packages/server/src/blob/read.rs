@@ -359,7 +359,9 @@ impl AsyncSeek for File {
 				std::io::SeekFrom::Start(n)
 			},
 			std::io::SeekFrom::End(n) => {
-				let n = this.position + this.length + n.to_u64().unwrap();
+				let n = (this.position.to_i64().unwrap() + this.length.to_i64().unwrap() + n)
+					.to_u64()
+					.ok_or_else(|| std::io::Error::other("invalid seek"))?;
 				std::io::SeekFrom::Start(n)
 			},
 			std::io::SeekFrom::Current(n) => std::io::SeekFrom::Current(n),

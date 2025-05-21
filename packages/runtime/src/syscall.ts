@@ -6,7 +6,16 @@ declare global {
 		bytes: string | Uint8Array,
 	): Promise<tg.Blob>;
 
-	function syscall(syscall: "blob_read", blob: tg.Blob): Promise<Uint8Array>;
+	function syscall(
+		syscall: "blob_read",
+		blob: tg.Blob,
+		arg?: ReadArg,
+	): Promise<Uint8Array>;
+
+	type ReadArg = {
+		position?: number | string | undefined;
+		length?: number | undefined;
+	};
 
 	function syscall(
 		syscall: "checksum",

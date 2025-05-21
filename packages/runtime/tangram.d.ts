@@ -173,6 +173,9 @@ declare namespace tg {
 		/** Get this blob's children */
 		children(): Promise<Array<tg.Blob.Child>>;
 
+		/** Read from this blob. */
+		read(arg?: tg.Blob.ReadArg): Promise<Uint8Array>;
+
 		/** Get this blob as a `Uint8Array`. */
 		bytes(): Promise<Uint8Array>;
 
@@ -195,6 +198,11 @@ declare namespace tg {
 			strings: TemplateStringsArray,
 			...placeholders: tg.Args<string>
 		) => Promise<tg.Blob>;
+
+		export type ReadArg = {
+			position?: number | string | undefined;
+			length?: number | undefined;
+		};
 	}
 
 	/** Create a directory. */
@@ -284,6 +292,9 @@ declare namespace tg {
 
 		/** Get the length of this file's contents. */
 		length(): Promise<number>;
+
+		/** Read from this file. */
+		read(arg?: tg.Blob.ReadArg): Promise<Uint8Array>;
 
 		/** Get this file's contents as a `Uint8Array`. */
 		bytes(): Promise<Uint8Array>;

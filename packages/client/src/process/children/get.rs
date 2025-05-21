@@ -1,4 +1,4 @@
-use crate::{self as tg, prelude::*, util::serde::SeekFromString};
+use crate::{self as tg, prelude::*, util::serde::SeekFromNumberOrString};
 use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use serde_with::serde_as;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
@@ -10,7 +10,7 @@ pub struct Arg {
 	pub length: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<SeekFromString>")]
+	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
