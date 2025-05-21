@@ -105,6 +105,9 @@ impl Server {
 			names.push(name);
 		}
 
+		// Sort the entries.
+		names.sort_unstable();
+
 		// Visit the children.
 		for name in names {
 			let path = state.graph.nodes[index].path().join(&name);
