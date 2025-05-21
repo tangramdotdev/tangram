@@ -523,10 +523,70 @@ impl Server {
 		lockfile_path: &Path,
 		lockfile: &tg::Lockfile,
 	) -> tg::Result<PathBuf> {
-		let result = self
-			.find_node_in_lockfile(Either::Left(node), lockfile_path, lockfile)
-			.await?;
-		Ok(result.path)
+		fn inner(
+			search: usize,
+			node: usize,
+			lockfile: &tg::Lockfile,
+			visited: &mut [bool],
+			root: &Path,
+			current: &Path,
+		) -> tg::Result<Option<PathBuf>> {
+			if visited[node] {
+				return Ok(None);
+			}
+			visited[node] = true;
+			match &lockfile.nodes[node] {
+				tg::lockfile::Node::Directory(directory) => {
+					for (name, child) in &directory.entries {
+						let Either::Left(child) = child else {
+							continue;
+						};
+						let current = current.join(name);
+						if *child == search {
+							return Ok(Some(current));
+						}
+						if let Some(found) = inner(search, *child, lockfile, visited, root, &current)? {
+							return Ok(Some(found));
+						}
+
+					}
+				},
+				tg::lockfile::Node::File(file) => {
+					for (_, referent) in &file.dependencies {
+						let Some(child) = referent.item.as_ref().left() else {
+							continue;
+						};
+						if referent.tag.is_some() {
+							continue;
+						}
+
+						let current = referent
+							.path
+							.as_ref()
+							.map(|path| root.join(path).canonicalize())
+							.transpose()
+							.map_err(|error| tg::error!("failed to canonicalize path"))?
+							.unwrap_or_else(|| current.to_owned());
+
+						if *child == search {
+							let current = referent.subpath.as_ref().map_or_else(|| current.to_owned(), |subpath| current.join(subpath));
+							return Ok(Some(current));
+						}
+						if let Some(found) = inner(search, *child, lockfile, visited, root, &current)? {
+							return Ok(Some(found));
+						}
+					}
+				},
+				tg::lockfile::Node::Symlink(_symlink) => (),
+			}
+			Ok(None)
+		}
+
+		let mut visited = vec![false; lockfile.nodes.len()];
+		let root = lockfile_path.parent().unwrap();
+		let path = inner(node, 0, lockfile, &mut visited, root, root)?;
+		dbg!((node, &path));
+		path.ok_or_else(|| tg::error!("failed to find node path in lockfile"))
 	}
 
 	async fn find_node_in_lockfile_inner(

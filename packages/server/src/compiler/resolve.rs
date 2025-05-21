@@ -164,14 +164,7 @@ impl Compiler {
 			);
 		};
 
-		// Get the import path.
-		let import_path = import
-			.reference
-			.item()
-			.try_unwrap_path_ref()
-			.ok()
-			.or_else(|| import.reference.options()?.path.as_ref());
-
+		// Lookup the dependency.
 		match dependencies.get(&import.reference) {
 			// If this points to another node in the lockfile, find it within the lockfile.
 			Some(tg::Referent {
@@ -180,14 +173,14 @@ impl Compiler {
 				subpath,
 				tag,
 			}) => {
-				if let Ok(package_path) = self
+				// Lookup the referenced item in the
+				if let Ok(item) = self
 					.server
 					.find_path_in_lockfile(*index, &lockfile_path, &lockfile)
 					.await
 				{
-					let module_path = subpath.as_ref().map_or_else(|| package_path.clone(), |subpath| package_path.join(subpath));
 					Ok(tg::Referent {
-						item: tg::module::data::Item::Path(module_path),
+						item: tg::module::data::Item::Path(item),
 						subpath: subpath.clone(),
 						path: path.clone(),
 						tag: tag.clone(),
@@ -221,7 +214,7 @@ impl Compiler {
 
 			None => {
 				// If this is a path dependency but not in the dependencies table for the node, then it is an artifact dependency.
-				if let Some(import_path) = import_path {
+				if let Some(import_path) = import.reference.path() {
 					let Some(module_parent) = referrer.parent() else {
 						return Err(
 							tg::error!(%path = referrer.display(), "failed to get parent of module_path"),
