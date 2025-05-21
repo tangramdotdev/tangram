@@ -9,7 +9,10 @@ pub async fn load(state: Rc<State>, args: (tg::object::Id,)) -> tg::Result<tg::o
 		.main_runtime_handle
 		.spawn({
 			let id = id.clone();
-			async move { tg::object::Handle::with_id(id).object(&server).await }
+			async move {
+				let object = tg::object::Handle::with_id(id).object(&server).await?;
+				Ok::<_, tg::Error>(object)
+			}
 		})
 		.await
 		.unwrap()
@@ -22,7 +25,10 @@ pub async fn store(state: Rc<State>, args: (tg::object::Object,)) -> tg::Result<
 	let server = state.server.clone();
 	let id = state
 		.main_runtime_handle
-		.spawn(async move { tg::object::Handle::with_object(object).id(&server).await })
+		.spawn(async move {
+			let id = tg::object::Handle::with_object(object).id(&server).await?;
+			Ok::<_, tg::Error>(id)
+		})
 		.await
 		.unwrap()
 		.map_err(|source| tg::error!(!source, "failed to store the object"))?;

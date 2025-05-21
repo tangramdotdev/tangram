@@ -19,7 +19,6 @@ pub enum Status {
 	Enqueued,
 	Dequeued,
 	Started,
-	Finishing,
 	Finished,
 }
 
@@ -121,7 +120,6 @@ impl std::fmt::Display for Status {
 			Self::Enqueued => write!(f, "enqueued"),
 			Self::Dequeued => write!(f, "dequeued"),
 			Self::Started => write!(f, "started"),
-			Self::Finishing => write!(f, "finishing"),
 			Self::Finished => write!(f, "finished"),
 		}
 	}
@@ -136,7 +134,6 @@ impl std::str::FromStr for Status {
 			"enqueued" => Ok(Self::Enqueued),
 			"dequeued" => Ok(Self::Dequeued),
 			"started" => Ok(Self::Started),
-			"finishing" => Ok(Self::Finishing),
 			"finished" => Ok(Self::Finished),
 			status => Err(tg::error!(%status, "invalid value")),
 		}

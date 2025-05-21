@@ -235,7 +235,6 @@ export namespace Process {
 		| "enqueued"
 		| "dequeued"
 		| "started"
-		| "finishing"
 		| "finished";
 
 	export type WaitOutput = {

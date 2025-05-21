@@ -39,7 +39,7 @@ impl Server {
 					select id
 					from processes
 					where
-						(status = 'started' or status = 'finishing') and
+						status = 'started' and
 						heartbeat_at <= {p}1
 					limit {p}2
 				) as updates

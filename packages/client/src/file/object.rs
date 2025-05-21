@@ -56,9 +56,9 @@ impl TryFrom<Data> for File {
 					.map(|(reference, referent)| {
 						let referent = tg::Referent {
 							item: tg::Object::with_id(referent.item),
-							path: referent.path.clone(),
+							path: referent.path,
 							subpath: referent.subpath,
-							tag: referent.tag.clone(),
+							tag: referent.tag,
 						};
 						(reference, referent)
 					})

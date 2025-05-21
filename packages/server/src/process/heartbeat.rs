@@ -35,7 +35,7 @@ impl Server {
 			"
 				update processes
 				set heartbeat_at = case
-					when status = 'started' or status = 'finishing' then {p}1
+					when status = 'started' then {p}1
 					else null
 				end
 				where id = {p}2

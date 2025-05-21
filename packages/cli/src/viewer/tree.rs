@@ -50,7 +50,6 @@ pub enum Indicator {
 	Enqueued,
 	Dequeued,
 	Started,
-	Finishing,
 	Canceled,
 	Failed,
 	Succeeded,
@@ -293,7 +292,6 @@ where
 				let position = position.to_usize().unwrap();
 				Some(crossterm::style::Stylize::blue(SPINNER[position]))
 			},
-			Some(Indicator::Finishing) => Some(crossterm::style::Stylize::red('⟳')),
 			Some(Indicator::Canceled) => Some(crossterm::style::Stylize::yellow('⦻')),
 			Some(Indicator::Failed) => Some(crossterm::style::Stylize::red('✗')),
 			Some(Indicator::Succeeded) => Some(crossterm::style::Stylize::green('✓')),
@@ -466,7 +464,6 @@ where
 				tg::process::Status::Enqueued => Indicator::Enqueued,
 				tg::process::Status::Dequeued => Indicator::Dequeued,
 				tg::process::Status::Started => Indicator::Started,
-				tg::process::Status::Finishing => Indicator::Finishing,
 				tg::process::Status::Finished => {
 					// Remove the child if necessary.
 					if options.condensed_processes {
@@ -647,12 +644,7 @@ where
 				.await?
 				.try_next()
 				.await?
-				.is_none_or(|status| {
-					matches!(
-						status,
-						tg::process::Status::Finishing | tg::process::Status::Finished
-					)
-				});
+				.is_none_or(|status| matches!(status, tg::process::Status::Finished));
 			let handle = handle.clone();
 			let parent_process = parent_process.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
@@ -1713,7 +1705,6 @@ where
 					let position = position.to_usize().unwrap();
 					Some(SPINNER[position].to_string().blue())
 				},
-				Some(Indicator::Finishing) => Some("⟳".red()),
 				Some(Indicator::Canceled) => Some("⦻".yellow()),
 				Some(Indicator::Failed) => Some("✗".red()),
 				Some(Indicator::Succeeded) => Some("✓".green()),
