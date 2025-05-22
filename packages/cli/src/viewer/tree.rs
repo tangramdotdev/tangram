@@ -33,11 +33,11 @@ struct Node {
 	expand_task: Option<Task<()>>,
 	expanded: Option<bool>,
 	indicator: Option<Indicator>,
-	item: Option<tg::Referent<Item>>,
 	label: Option<String>,
 	log_task: Option<Task<()>>,
 	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
+	referent: Option<tg::Referent<Item>>,
 	title: String,
 	update_receiver: NodeUpdateReceiver,
 	update_sender: NodeUpdateSender,
@@ -70,10 +70,10 @@ where
 	H: tg::Handle,
 {
 	fn yank(&self) {
-		let Some(item) = self.selected.borrow().item.clone() else {
+		let Some(referent) = self.selected.borrow().referent.clone() else {
 			return;
 		};
-		let contents = match &item.item {
+		let contents = match &referent.item {
 			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
 				if let tg::Value::Object(object) = value {
@@ -147,7 +147,7 @@ where
 
 	fn select(&mut self, node: Rc<RefCell<Node>>) {
 		self.selected = node.clone();
-		let Some(item) = node.borrow().item.clone() else {
+		let Some(referent) = node.borrow().referent.clone() else {
 			return;
 		};
 		let handle = self.handle.clone();
@@ -157,9 +157,9 @@ where
 			// Update the log view if the selected item is a process.
 			let process = node
 				.borrow()
-				.item
+				.referent
 				.as_ref()
-				.and_then(|item| match &item.item {
+				.and_then(|referent| match &referent.item {
 					Item::Process(process) => Some(process.clone()),
 					Item::Value(_) => None,
 				});
@@ -177,7 +177,7 @@ where
 			}
 
 			// Update the data view.
-			let result = match item.item {
+			let result = match referent.item {
 				Item::Process(process) => {
 					handle.get_process(process.id()).await.and_then(|output| {
 						serde_json::to_string_pretty(&output.data).map_err(|source| {
@@ -218,7 +218,7 @@ where
 		handle: &H,
 		parent: &Rc<RefCell<Node>>,
 		label: Option<String>,
-		item: Option<tg::Referent<Item>>,
+		referent: Option<tg::Referent<Item>>,
 	) -> Rc<RefCell<Node>>
 	where
 		H: tg::Handle,
@@ -227,11 +227,11 @@ where
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
-		let title = item
+		let title = referent
 			.as_ref()
-			.map_or(String::new(), |item| Self::item_title(&item.item));
+			.map_or(String::new(), |referent| Self::item_title(&referent.item));
 
-		let expand_task = match (item.as_ref().map(|r| &r.item), options.expand_on_create) {
+		let expand_task = match (referent.as_ref().map(|r| &r.item), options.expand_on_create) {
 			(Some(item), true) => {
 				let handle = handle.clone();
 				let item = item.clone();
@@ -244,7 +244,7 @@ where
 			_ => None,
 		};
 
-		let expanded = match item.as_ref().map(|r| &r.item) {
+		let expanded = match referent.as_ref().map(|r| &r.item) {
 			Some(
 				Item::Process(_)
 				| Item::Value(
@@ -264,7 +264,7 @@ where
 			expand_task,
 			expanded,
 			indicator: None,
-			item,
+			referent,
 			label,
 			log_task: None,
 			options,
@@ -335,7 +335,7 @@ where
 
 	pub(crate) fn expand(&mut self) {
 		let mut node = self.selected.borrow_mut();
-		let Some(item) = node.item.as_ref().map(|r| r.item.clone()) else {
+		let Some(item) = node.referent.as_ref().map(|r| r.item.clone()) else {
 			return;
 		};
 		if matches!(node.expanded, Some(true) | None) {
@@ -1382,17 +1382,17 @@ where
 
 	pub fn new(
 		handle: &H,
-		item: tg::Referent<Item>,
+		referent: tg::Referent<Item>,
 		options: Options,
 		data: data::UpdateSender,
 		viewer: super::UpdateSender<H>,
 	) -> Self {
 		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
-		let title = Self::item_title(&item.item);
+		let title = Self::item_title(&referent.item);
 		let expand_task = if options.expand_on_create {
 			let handle = handle.clone();
-			let item = item.item.clone();
+			let item = referent.item.clone();
 			let update_sender = update_sender.clone();
 			let task = Task::spawn_local(|_| async move {
 				Self::expand_task(&handle, item, update_sender).await;
@@ -1402,7 +1402,7 @@ where
 			None
 		};
 
-		let update_task = if let Item::Process(process) = &item.item {
+		let update_task = if let Item::Process(process) = &referent.item {
 			// Create the update task.
 			let update_task = Task::spawn_local({
 				let process = process.clone();
@@ -1425,7 +1425,7 @@ where
 			expanded: Some(expand_task.is_some()),
 			expand_task,
 			indicator: None,
-			item: Some(item),
+			referent: Some(referent),
 			label: None,
 			log_task: None,
 			options: options.clone(),
