@@ -11,7 +11,6 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_futures::task::Stop;
 use unicode_width::UnicodeWidthChar as _;
 
@@ -147,17 +146,11 @@ where
 		}
 	}
 
-	pub fn new(
-		handle: &H,
-		root: tg::Referent<Either<tg::Process, tg::Object>>,
-		item: Item,
-		options: Options,
-	) -> Self {
+	pub fn new(handle: &H, root: tg::Referent<Item>, options: Options) -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
 		let tree = Tree::new(
 			handle,
-			item,
 			root,
 			options,
 			data.update_sender(),

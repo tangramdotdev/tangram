@@ -7,6 +7,7 @@ use ratatui::{self as tui, prelude::*};
 use std::{
 	cell::RefCell,
 	collections::BTreeMap,
+	fmt::Write,
 	rc::{Rc, Weak},
 };
 use tangram_client::{self as tg, prelude::*};
@@ -32,12 +33,11 @@ struct Node {
 	expand_task: Option<Task<()>>,
 	expanded: Option<bool>,
 	indicator: Option<Indicator>,
-	item: Option<Item>,
+	item: Option<tg::Referent<Item>>,
 	label: Option<String>,
 	log_task: Option<Task<()>>,
 	options: Rc<Options>,
 	parent: Option<Weak<RefCell<Self>>>,
-	root: tg::Referent<Either<tg::Process, tg::Object>>,
 	title: String,
 	update_receiver: NodeUpdateReceiver,
 	update_sender: NodeUpdateSender,
@@ -73,7 +73,7 @@ where
 		let Some(item) = self.selected.borrow().item.clone() else {
 			return;
 		};
-		let contents = match &item {
+		let contents = match &item.item {
 			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
 				if let tg::Value::Object(object) = value {
@@ -155,10 +155,14 @@ where
 		let viewer = self.viewer.clone();
 		let task = Task::spawn_local(|_| async move {
 			// Update the log view if the selected item is a process.
-			let process = node.borrow().item.as_ref().and_then(|item| match item {
-				Item::Process(process) => Some(process.clone()),
-				Item::Value(_) => None,
-			});
+			let process = node
+				.borrow()
+				.item
+				.as_ref()
+				.and_then(|item| match &item.item {
+					Item::Process(process) => Some(process.clone()),
+					Item::Value(_) => None,
+				});
 			{
 				let handle = handle.clone();
 				let update = move |viewer: &mut super::Viewer<H>| {
@@ -173,7 +177,7 @@ where
 			}
 
 			// Update the data view.
-			let result = match item {
+			let result = match item.item {
 				Item::Process(process) => {
 					handle.get_process(process.id()).await.and_then(|output| {
 						serde_json::to_string_pretty(&output.data).map_err(|source| {
@@ -214,19 +218,20 @@ where
 		handle: &H,
 		parent: &Rc<RefCell<Node>>,
 		label: Option<String>,
-		item: Option<&Item>,
+		item: Option<tg::Referent<Item>>,
 	) -> Rc<RefCell<Node>>
 	where
 		H: tg::Handle,
 	{
 		let depth = parent.borrow().depth + 1;
-		let root = parent.borrow().root.clone();
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
-		let title = item.map_or(String::new(), |item| Self::item_title(item));
+		let title = item
+			.as_ref()
+			.map_or(String::new(), |item| Self::item_title(&item.item));
 
-		let expand_task = match (item, options.expand_on_create) {
+		let expand_task = match (item.as_ref().map(|r| &r.item), options.expand_on_create) {
 			(Some(item), true) => {
 				let handle = handle.clone();
 				let item = item.clone();
@@ -239,7 +244,7 @@ where
 			_ => None,
 		};
 
-		let expanded = match item {
+		let expanded = match item.as_ref().map(|r| &r.item) {
 			Some(
 				Item::Process(_)
 				| Item::Value(
@@ -259,12 +264,11 @@ where
 			expand_task,
 			expanded,
 			indicator: None,
-			item: item.cloned(),
+			item,
 			label,
 			log_task: None,
 			options,
 			parent: Some(parent),
-			root,
 			title,
 			update_receiver,
 			update_sender,
@@ -331,7 +335,7 @@ where
 
 	pub(crate) fn expand(&mut self) {
 		let mut node = self.selected.borrow_mut();
-		let Some(item) = node.item.clone() else {
+		let Some(item) = node.item.as_ref().map(|r| r.item.clone()) else {
 			return;
 		};
 		if matches!(node.expanded, Some(true) | None) {
@@ -401,8 +405,8 @@ where
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for value in array {
-				let item = Item::Value(value);
-				let child = Self::create_node(&handle, &node, None, Some(&item));
+				let item = tg::Referent::with_item(Item::Value(value));
+				let child = Self::create_node(&handle, &node, None, Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -429,8 +433,8 @@ where
 		let handle = handle.clone();
 		let value = tg::Value::Array(children);
 		let update = move |node: Rc<RefCell<Node>>| {
-			let item = Item::Value(value);
-			let child = Self::create_node(&handle, &node, Some("children".to_owned()), Some(&item));
+			let item = tg::Referent::with_item(Item::Value(value));
+			let child = Self::create_node(&handle, &node, Some("children".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -439,8 +443,6 @@ where
 
 	async fn process_update_task(
 		handle: &H,
-		root: tg::Referent<Either<tg::Process, tg::Object>>,
-		parent: Option<tg::Process>,
 		process: tg::Process,
 		options: &Options,
 		update_sender: NodeUpdateSender,
@@ -448,7 +450,7 @@ where
 	where
 		H: tg::Handle,
 	{
-		if let Some(title) = Self::process_title(handle, &root, parent.as_ref(), &process).await {
+		if let Some(title) = Self::process_title(handle, &process).await {
 			update_sender
 				.send(Box::new(|node| {
 					node.borrow_mut().title = title;
@@ -603,7 +605,7 @@ where
 							&handle,
 							&node,
 							Some("command".to_owned()),
-							Some(&Item::Value(value)),
+							Some(tg::Referent::with_item(Item::Value(value))),
 						);
 						node.borrow_mut().children.push(child);
 					}
@@ -626,7 +628,7 @@ where
 					&handle,
 					&node,
 					Some("output".into()),
-					Some(&Item::Value(output)),
+					Some(tg::Referent::with_item(Item::Value(output))),
 				);
 				node.borrow_mut().children.push(output);
 			};
@@ -637,7 +639,6 @@ where
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
-		let parent_process = Some(process.clone());
 		while let Some(process) = children.try_next().await? {
 			let finished = process
 				.status(handle)
@@ -646,7 +647,6 @@ where
 				.await?
 				.is_none_or(|status| matches!(status, tg::process::Status::Finished));
 			let handle = handle.clone();
-			let parent_process = parent_process.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
 				if node.borrow().options.condensed_processes && finished {
 					return;
@@ -670,20 +670,18 @@ where
 				};
 
 				// Create the child.
+				// TODO: path/tag inheritance
 				let item = Item::Process(process.clone());
-				let child = Self::create_node(&handle, &parent, None, Some(&item));
+				let child =
+					Self::create_node(&handle, &parent, None, Some(tg::Referent::with_item(item)));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
 					let options = child.borrow().options.clone();
-					let root = child.borrow().root.clone();
-					let parent = parent_process;
 					let update_sender = child.borrow().update_sender.clone();
 					|_| async move {
 						Self::process_update_task(
 							&handle,
-							root,
-							parent,
 							process,
 							options.as_ref(),
 							update_sender,
@@ -721,199 +719,43 @@ where
 		Ok(())
 	}
 
-	async fn process_title(
-		handle: &H,
-		root: &tg::Referent<Either<tg::Process, tg::Object>>,
-		parent: Option<&tg::Process>,
-		child: &tg::Process,
-	) -> Option<String> {
-		let command = child.command(handle).await.ok()?;
+	async fn process_title(handle: &H, process: &tg::Process) -> Option<String> {
+		let command = process.command(handle).await.ok()?;
+		let args = command.args(handle).await.ok()?;
 		let executable = command.executable(handle).await.ok()?;
 
-		// Handle path executables.
+		let mut title = String::new();
 		match &*executable {
-			tg::command::Executable::Artifact(exe) => {
-				let child = exe.artifact.id(handle).await.ok()?.into();
-				if let Some(referent) =
-					Self::try_lookup_referent(handle, root, parent, &child).await
-				{
-					if let Some(path) = referent.path {
-						let path = referent
-							.subpath
-							.map_or_else(|| path.clone(), |subpath| path.join(subpath));
-						let name = exe.subpath.as_ref().map_or_else(
-							|| path.display().to_string(),
-							|subpath| path.join(subpath).display().to_string(),
-						);
-						return Some(name);
-					}
-					if let Some(tag) = referent.tag {
-						let name = referent
-							.subpath
-							.map(|subpath| {
-								exe.subpath
-									.as_ref()
-									.map_or(subpath.clone(), |p| subpath.join(p))
-							})
-							.map_or_else(
-								|| tag.to_string(),
-								|path| format!("{tag}:{}", path.display()),
-							);
-						return Some(name);
-					}
+			tg::command::Executable::Artifact(_) => (),
+			tg::command::Executable::Module(executable) => {
+				if let Some(path) = &executable.module.referent.path {
+					let path = executable
+						.module
+						.referent
+						.subpath
+						.as_ref()
+						.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
+					write!(title, "{}", path.display()).unwrap();
+				} else if let Some(tag) = &executable.module.referent.tag {
+					write!(title, "{tag}").unwrap();
 				}
-				let name = exe.subpath.as_ref().map_or_else(
-					|| child.to_string(),
-					|subpath| format!("{child}/{}", subpath.display()),
-				);
-				Some(name)
 			},
-			tg::command::Executable::Module(module) => {
-				let child = module
-					.module
-					.referent
-					.item
-					.try_unwrap_object_ref()
-					.ok()?
-					.id(handle)
-					.await
-					.ok()?;
-				if let Some(mut referent) =
-					Self::try_lookup_referent(handle, root, parent, &child).await
-				{
-					referent.subpath = module.module.referent.subpath.clone();
-					if let Some(path) = referent.path {
-						let module_name = referent.subpath.map_or_else(
-							|| path.display().to_string(),
-							|subpath| path.join(subpath).display().to_string(),
-						);
-						let name = module.export.as_ref().map_or_else(
-							|| module_name.clone(),
-							|export| format!("{module_name}#{export}"),
-						);
-						return Some(name);
-					}
-					if let Some(tag) = referent.tag {
-						let module_name = referent.subpath.map_or_else(
-							|| tag.to_string(),
-							|subpath| format!("{tag}:{}", subpath.display()),
-						);
-						let name = module.export.as_ref().map_or_else(
-							|| module_name.clone(),
-							|export| format!("{module_name}#{export}"),
-						);
-						return Some(name);
-					}
-				}
-				let name = module
-					.export
-					.as_ref()
-					.map_or_else(|| child.to_string(), |export| format!("{child}#{export}"));
-				Some(name)
+			tg::command::Executable::Path(executable) => {
+				write!(title, "{}", executable.path.display()).unwrap();
 			},
-			tg::command::Executable::Path(exe) => Some(exe.path.display().to_string()),
-		}
-	}
-
-	async fn try_lookup_referent(
-		handle: &H,
-		root: &tg::Referent<Either<tg::Process, tg::Object>>,
-		parent: Option<&tg::Process>,
-		child: &tg::object::Id,
-	) -> Option<tg::Referent<tg::Object>> {
-		// First atempt to check the root.
-		if let Some(referent) = Self::try_lookup_referent_from_root(handle, root, child).await {
-			return Some(referent);
 		}
 
-		// Attempt to check the parent process.
-		if let Some(referent) = Self::try_lookup_referent_from_process(handle, parent, child).await
+		let host = command.host(handle).await.ok();
+		let host = host.as_deref();
+		if let (Some(tg::Value::String(arg0)), Some("js" | "builtin")) =
+			(args.first(), host.map(String::as_str))
 		{
-			return Some(referent);
+			write!(title, "#{arg0}").unwrap();
+		} else {
+			write!(title, "{}", process.id()).unwrap();
 		}
 
-		// Otherwise we failed to find the referent of this object.
-		None
-	}
-
-	async fn try_lookup_referent_from_root(
-		handle: &H,
-		root: &tg::Referent<Either<tg::Process, tg::Object>>,
-		child: &tg::object::Id,
-	) -> Option<tg::Referent<tg::Object>> {
-		match root.item.as_ref() {
-			Either::Left(process) => {
-				// Check the root process.
-				if let Some(referent) =
-					Self::try_lookup_referent_from_process(handle, Some(process), child).await
-				{
-					return Some(referent);
-				}
-
-				// Check if the child's object is the same.
-				let command = process.command(handle).await.ok()?;
-				let executable = command.executable(handle).await.ok()?;
-				let object = executable.object().first()?.id(handle).await.ok()?;
-				if &object == child {
-					return Some(tg::Referent {
-						item: tg::Object::with_id(object),
-						path: root.path.clone(),
-						subpath: root.subpath.clone(),
-						tag: root.tag.clone(),
-					});
-				}
-			},
-			Either::Right(object) => {
-				// Check if the object is the same.
-				let object = object.id(handle).await.ok()?;
-				if &object == child {
-					return Some(tg::Referent {
-						item: tg::Object::with_id(object),
-						path: root.path.clone(),
-						subpath: root.subpath.clone(),
-						tag: root.tag.clone(),
-					});
-				}
-			},
-		}
-		None
-	}
-
-	async fn try_lookup_referent_from_process(
-		handle: &H,
-		parent: Option<&tg::Process>,
-		child: &tg::object::Id,
-	) -> Option<tg::Referent<tg::Object>> {
-		let parent = parent?.command(handle).await.ok()?;
-		let parent = parent
-			.executable(handle)
-			.await
-			.ok()
-			.and_then(|exe| exe.try_unwrap_module_ref().ok().cloned())?
-			.module;
-		let file = match parent.referent.item.try_unwrap_object_ref().ok()? {
-			tg::Object::Directory(directory) => {
-				let subpath = parent.referent.subpath.as_ref()?;
-				directory
-					.get(handle, subpath)
-					.await
-					.ok()?
-					.try_unwrap_file()
-					.ok()?
-			},
-			tg::Object::File(file) => file.clone(),
-			tg::Object::Symlink(symlink) => {
-				symlink.resolve(handle).await.ok()?.try_unwrap_file().ok()?
-			},
-			_ => return None,
-		};
-		let dependencies = file.dependencies(handle).await.ok()?;
-		for referent in dependencies.into_values() {
-			if referent.item.id(handle).await.ok().as_ref() == Some(child) {
-				return Some(referent);
-			}
-		}
-		None
+		Some(title)
 	}
 
 	async fn expand_directory(
@@ -946,8 +788,8 @@ where
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = Item::Value(child);
-				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1015,8 +857,8 @@ where
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = Item::Value(child);
-				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1123,8 +965,8 @@ where
 		let handle = handle.clone();
 		let value = tg::Value::Array(nodes);
 		let update = move |node: Rc<RefCell<Node>>| {
-			let item = Item::Value(value);
-			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(&item));
+			let item = tg::Referent::with_item(Item::Value(value));
+			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -1139,8 +981,8 @@ where
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, value) in map {
-				let item = Item::Value(value);
-				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
+				let item = tg::Referent::with_item(Item::Value(value));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1219,8 +1061,8 @@ where
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = Item::Value(child);
-				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1292,8 +1134,8 @@ where
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = Item::Value(child);
-				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1382,8 +1224,8 @@ where
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = Item::Value(child);
-				let child = Self::create_node(&handle, &node, Some(name), Some(&item));
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1417,9 +1259,9 @@ where
 		let value = tg::Value::Array(array);
 		let handle = handle.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
-			let item = Item::Value(value);
+			let item = tg::Referent::with_item(Item::Value(value));
 			let child =
-				Self::create_node(&handle, &node, Some("components".to_owned()), Some(&item));
+				Self::create_node(&handle, &node, Some("components".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -1540,18 +1382,17 @@ where
 
 	pub fn new(
 		handle: &H,
-		item: Item,
-		root: tg::Referent<Either<tg::Process, tg::Object>>,
+		item: tg::Referent<Item>,
 		options: Options,
 		data: data::UpdateSender,
 		viewer: super::UpdateSender<H>,
 	) -> Self {
 		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
-		let title = Self::item_title(&item);
+		let title = Self::item_title(&item.item);
 		let expand_task = if options.expand_on_create {
 			let handle = handle.clone();
-			let item = item.clone();
+			let item = item.item.clone();
 			let update_sender = update_sender.clone();
 			let task = Task::spawn_local(|_| async move {
 				Self::expand_task(&handle, item, update_sender).await;
@@ -1561,25 +1402,17 @@ where
 			None
 		};
 
-		let update_task = if let Item::Process(process) = &item {
+		let update_task = if let Item::Process(process) = &item.item {
 			// Create the update task.
 			let update_task = Task::spawn_local({
 				let process = process.clone();
 				let handle = handle.clone();
 				let options = options.clone();
-				let root = root.clone();
 				let update_sender = update_sender.clone();
 				|_| async move {
-					Self::process_update_task(
-						&handle,
-						root,
-						None,
-						process,
-						options.as_ref(),
-						update_sender,
-					)
-					.await
-					.ok();
+					Self::process_update_task(&handle, process, options.as_ref(), update_sender)
+						.await
+						.ok();
 				}
 			});
 			Some(update_task)
@@ -1597,7 +1430,6 @@ where
 			log_task: None,
 			options: options.clone(),
 			parent: None,
-			root,
 			title,
 			update_receiver,
 			update_sender,

@@ -41,28 +41,23 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item.clone() {
-			Either::Left(process) => Either::Left(process),
-			Either::Right(object) => {
-				let object = if let Some(subpath) = &referent.subpath {
-					let directory = object
-						.try_unwrap_directory()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a directory"))?;
-					directory.get(&handle, subpath).await?.into()
-				} else {
-					object
-				};
-				Either::Right(object)
-			},
-		};
+		let tg::Referent {
+			item,
+			path,
+			subpath,
+			tag,
+		} = self.get_reference(&args.reference).await?;
 		let item = match item {
 			Either::Left(process) => crate::viewer::Item::Process(process),
 			Either::Right(object) => crate::viewer::Item::Value(object.into()),
 		};
+		let root = tg::Referent {
+			item,
+			path,
+			subpath,
+			tag,
+		};
 
-		// Run the view.
 		let kind = args.kind;
 		let print = args.print;
 		Task::spawn_blocking(move |stop| {
@@ -78,7 +73,7 @@ impl Cli {
 						condensed_processes: false,
 						expand_on_create: matches!(kind, Kind::Inline),
 					};
-					let mut viewer = crate::viewer::Viewer::new(&handle, referent, item, options);
+					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);
 					match kind {
 						Kind::Inline => {
 							viewer.run_inline(stop).await?;
