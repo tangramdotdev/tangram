@@ -155,14 +155,14 @@ where
 		let viewer = self.viewer.clone();
 		let task = Task::spawn_local(|_| async move {
 			// Update the log view if the selected item is a process.
-			let process = node
-				.borrow()
-				.referent
-				.as_ref()
-				.and_then(|referent| match &referent.item {
-					Item::Process(process) => Some(process.clone()),
-					Item::Value(_) => None,
-				});
+			let process =
+				node.borrow()
+					.referent
+					.as_ref()
+					.and_then(|referent| match &referent.item {
+						Item::Process(process) => Some(process.clone()),
+						Item::Value(_) => None,
+					});
 			{
 				let handle = handle.clone();
 				let update = move |viewer: &mut super::Viewer<H>| {
@@ -231,13 +231,13 @@ where
 			.as_ref()
 			.map_or(String::new(), |referent| Self::item_title(&referent.item));
 
-		let expand_task = match (referent.as_ref().map(|r| &r.item), options.expand_on_create) {
-			(Some(item), true) => {
+		let expand_task = match (&referent, options.expand_on_create) {
+			(Some(referent), true) => {
 				let handle = handle.clone();
-				let item = item.clone();
+				let referent = referent.clone();
 				let update_sender = update_sender.clone();
 				let task = Task::spawn_local(|_| async move {
-					Self::expand_task(&handle, item, update_sender).await;
+					Self::expand_task(&handle, referent, update_sender).await;
 				});
 				Some(task)
 			},
@@ -335,7 +335,7 @@ where
 
 	pub(crate) fn expand(&mut self) {
 		let mut node = self.selected.borrow_mut();
-		let Some(item) = node.referent.as_ref().map(|r| r.item.clone()) else {
+		let Some(referent) = node.referent.as_ref() else {
 			return;
 		};
 		if matches!(node.expanded, Some(true) | None) {
@@ -344,7 +344,8 @@ where
 		let children_task = Task::spawn_local({
 			let handle = self.handle.clone();
 			let update_sender = node.update_sender.clone();
-			move |_| async move { Self::expand_task(&handle, item, update_sender).await }
+			let referent = referent.clone();
+			move |_| async move { Self::expand_task(&handle, referent, update_sender).await }
 		});
 		node.expand_task.replace(children_task);
 		node.expanded.replace(true);
@@ -575,9 +576,11 @@ where
 
 	async fn expand_process(
 		handle: &H,
-		process: tg::Process,
+		referent: tg::Referent<tg::Process>,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let process = referent.item.clone();
+
 		// Create the log task.
 		let log_task = Task::spawn_local({
 			let process = process.clone();
@@ -1392,10 +1395,10 @@ where
 		let title = Self::item_title(&referent.item);
 		let expand_task = if options.expand_on_create {
 			let handle = handle.clone();
-			let item = referent.item.clone();
+			let referent = referent.clone();
 			let update_sender = update_sender.clone();
-			let task = Task::spawn_local(|_| async move {
-				Self::expand_task(&handle, item, update_sender).await;
+			let task: Task<()> = Task::spawn_local(|_| async move {
+				Self::expand_task(&handle, referent, update_sender).await;
 			});
 			Some(task)
 		} else {
@@ -1559,10 +1562,26 @@ where
 		self.rect.replace(rect);
 	}
 
-	async fn expand_task(handle: &H, item: Item, update_sender: NodeUpdateSender) {
+	async fn expand_task(
+		handle: &H,
+		referent: tg::Referent<Item>,
+		update_sender: NodeUpdateSender,
+	) {
+		let tg::Referent {
+			item,
+			path,
+			subpath,
+			tag,
+		} = referent;
 		let result = match item {
 			Item::Process(process) => {
-				Self::expand_process(handle, process, update_sender.clone()).await
+				let referent = tg::Referent {
+					item: process,
+					path,
+					subpath,
+					tag,
+				};
+				Self::expand_process(handle, referent, update_sender.clone()).await
 			},
 			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,
 		};
