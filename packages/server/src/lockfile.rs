@@ -166,7 +166,7 @@ impl Server {
 				let mut dependencies_ = BTreeMap::new();
 				for (reference, referent) in dependencies {
 					let item = match &referent.item {
-						tangram_client::object::Id::Directory(id) if checkout_dependencies => {
+						tg::object::Id::Directory(id) if checkout_dependencies => {
 							let index = self.get_or_create_lockfile_node_for_artifact(
 								id.clone().into(),
 								checkout_dependencies,
@@ -176,7 +176,7 @@ impl Server {
 							)?;
 							Either::Left(index)
 						},
-						tangram_client::object::Id::File(id) if checkout_dependencies => {
+						tg::object::Id::File(id) if checkout_dependencies => {
 							let index = self.get_or_create_lockfile_node_for_artifact(
 								id.clone().into(),
 								checkout_dependencies,
@@ -186,7 +186,7 @@ impl Server {
 							)?;
 							Either::Left(index)
 						},
-						tangram_client::object::Id::Symlink(id) if checkout_dependencies => {
+						tg::object::Id::Symlink(id) if checkout_dependencies => {
 							let index = self.get_or_create_lockfile_node_for_artifact(
 								id.clone().into(),
 								checkout_dependencies,

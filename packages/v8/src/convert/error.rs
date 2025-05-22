@@ -189,10 +189,7 @@ impl FromV8 for tg::error::File {
 }
 
 impl ToV8 for tg::error::Source {
-	fn to_v8<'a>(
-		&self,
-		scope: &mut v8::HandleScope<'a>,
-	) -> tangram_client::Result<v8::Local<'a, v8::Value>> {
+	fn to_v8<'a>(&self, scope: &mut v8::HandleScope<'a>) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let object = v8::Object::new(scope);
 
 		let key = v8::String::new_external_onebyte_static(scope, "error".as_bytes()).unwrap();
@@ -215,7 +212,7 @@ impl FromV8 for tg::error::Source {
 	fn from_v8<'a>(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
-	) -> tangram_client::Result<Self> {
+	) -> tg::Result<Self> {
 		if !value.is_object() {
 			return Err(tg::error!("expected an object"));
 		}
