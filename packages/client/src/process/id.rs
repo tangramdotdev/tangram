@@ -1,4 +1,5 @@
 use crate as tg;
+use std::ops::Deref;
 
 #[derive(
 	Clone,
@@ -22,17 +23,15 @@ impl Id {
 		Self(crate::Id::new_uuidv7(tg::id::Kind::Process))
 	}
 
-	#[must_use]
-	pub fn to_bytes(&self) -> Vec<u8> {
-		self.as_id().to_bytes()
-	}
-
 	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
 		tg::Id::from_reader(bytes)?.try_into()
 	}
+}
 
-	#[must_use]
-	pub fn as_id(&self) -> &tg::Id {
+impl Deref for Id {
+	type Target = crate::Id;
+
+	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }

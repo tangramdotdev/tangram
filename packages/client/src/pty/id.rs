@@ -21,11 +21,6 @@ impl Id {
 	pub fn new() -> Self {
 		Self(crate::Id::new_uuidv7(tg::id::Kind::Pty))
 	}
-
-	#[must_use]
-	pub fn as_id(&self) -> &tg::Id {
-		&self.0
-	}
 }
 
 impl From<Id> for crate::Id {

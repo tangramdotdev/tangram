@@ -22,13 +22,6 @@ pub struct User {
 	pub email: String,
 }
 
-impl Id {
-	#[must_use]
-	pub fn as_id(&self) -> &tg::Id {
-		&self.0
-	}
-}
-
 impl tg::Client {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		let method = http::Method::GET;

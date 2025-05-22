@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use crate as tg;
 
 #[derive(
@@ -21,9 +22,12 @@ impl Id {
 	pub fn new(bytes: &[u8]) -> Self {
 		Self(crate::Id::new_blake3(tg::id::Kind::File, bytes))
 	}
+}
 
-	#[must_use]
-	pub fn as_id(&self) -> &tg::Id {
+impl Deref for Id {
+	type Target = crate::Id;
+
+	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }

@@ -1,4 +1,5 @@
 use crate as tg;
+use std::ops::Deref;
 
 #[derive(
 	Clone,
@@ -21,9 +22,12 @@ impl Id {
 	pub fn new(bytes: &[u8]) -> Self {
 		Self(crate::Id::new_blake3(tg::id::Kind::Directory, bytes))
 	}
+}
 
-	#[must_use]
-	pub fn as_id(&self) -> &tg::Id {
+impl Deref for Id {
+	type Target = crate::Id;
+
+	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }
