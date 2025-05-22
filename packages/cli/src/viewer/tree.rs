@@ -1,13 +1,12 @@
 use super::{Item, Options, data, log::Log};
 use copypasta::ClipboardProvider as _;
 use crossterm as ct;
-use futures::TryStreamExt as _;
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
 	cell::RefCell,
 	collections::BTreeMap,
-	fmt::Write,
 	rc::{Rc, Weak},
 };
 use tangram_client::{self as tg, prelude::*};
@@ -444,14 +443,14 @@ where
 
 	async fn process_update_task(
 		handle: &H,
-		process: tg::Process,
+		process: &tg::Referent<tg::Process>,
 		options: &Options,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
-		if let Some(title) = Self::process_title(handle, &process).await {
+		if let Some(title) = Self::process_title(handle, process).await {
 			update_sender
 				.send(Box::new(|node| {
 					node.borrow_mut().title = title;
@@ -460,7 +459,7 @@ where
 		}
 
 		// Create the status stream.
-		let mut status = process.status(handle).await?;
+		let mut status = process.item.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let indicator = match status {
 				tg::process::Status::Created => Indicator::Created,
@@ -495,7 +494,7 @@ where
 						return Ok(());
 					}
 
-					let state = process.load(handle).await?;
+					let state = process.item.load(handle).await?;
 					let failed =
 						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
@@ -513,7 +512,7 @@ where
 
 		// Check if the process was canceled.
 		if handle
-			.try_get_process(process.id())
+			.try_get_process(process.item.id())
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancelation)))
@@ -638,17 +637,115 @@ where
 			update_sender.send(Box::new(update)).unwrap();
 		}
 
+		// Get the dependencies of the parent executable, if they exist.
+		let dependencies = if let Some(file) = referent
+			.item
+			.command(handle)
+			.await?
+			.executable(handle)
+			.await?
+			.try_unwrap_module_ref()
+			.ok()
+			.and_then(|module| {
+				module
+					.module
+					.referent
+					.item
+					.try_unwrap_object_ref()
+					.ok()?
+					.try_unwrap_file_ref()
+					.ok()
+			}) {
+			file.dependencies(handle)
+				.await?
+				.into_values()
+				.map(|referent| async {
+					let tg::Referent {
+						item,
+						path,
+						subpath,
+						tag,
+					} = referent;
+					let id = item.id(handle).await?;
+					Ok::<_, tg::Error>(tg::Referent {
+						item: id,
+						path,
+						subpath,
+						tag,
+					})
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?
+		} else {
+			Vec::default()
+		};
+
 		// Create the children stream.
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
 		while let Some(process) = children.try_next().await? {
+			// Get the executable of the child process.
+			let executable = process
+				.load(handle)
+				.await?
+				.command
+				.executable(handle)
+				.await?
+				.clone();
+
+			// Get the ID of the executable, if it exists.
+			let dependency_id = match executable {
+				tg::command::Executable::Artifact(artifact) => {
+					Some(artifact.artifact.id(handle).await?.into())
+				},
+				tg::command::Executable::Module(tg::command::ModuleExecutable {
+					module:
+						tg::Module {
+							referent:
+								tg::Referent {
+									item: tg::module::Item::Object(object),
+									..
+								},
+							..
+						},
+					..
+				}) => Some(object.id(handle).await?),
+				_ => None,
+			};
+
+			// Lookup the path, subpath, and tag of the executable from the referrers' dependencies.
+			let (path, subpath, tag) = if let Some(id) = dependency_id {
+				dependencies
+					.iter()
+					.find_map(|referent| {
+						(referent.item == id).then(|| {
+							(
+								referent.path.clone(),
+								referent.subpath.clone(),
+								referent.tag.clone(),
+							)
+						})
+					})
+					.unwrap_or((None, None, None))
+			} else {
+				(None, None, None)
+			};
+
+			// Inherit the parent's path/tag if necessary.
+			let path = path.or_else(|| referent.path.clone());
+			let tag = tag.or_else(|| referent.tag.clone());
+
+			// Check the status of the process.
 			let finished = process
 				.status(handle)
 				.await?
 				.try_next()
 				.await?
 				.is_none_or(|status| matches!(status, tg::process::Status::Finished));
+
+			// Post the update.
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
 				if node.borrow().options.condensed_processes && finished {
@@ -673,19 +770,28 @@ where
 				};
 
 				// Create the child.
-				// TODO: path/tag inheritance
-				let item = Item::Process(process.clone());
-				let child =
-					Self::create_node(&handle, &parent, None, Some(tg::Referent::with_item(item)));
+				let referent = tg::Referent {
+					item: Item::Process(process.clone()),
+					path: path.clone(),
+					subpath: subpath.clone(),
+					tag: tag.clone(),
+				};
+				let child = Self::create_node(&handle, &parent, None, Some(referent));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
 					let options = child.borrow().options.clone();
 					let update_sender = child.borrow().update_sender.clone();
+					let process = tg::Referent {
+						item: process.clone(),
+						path,
+						subpath,
+						tag,
+					};
 					|_| async move {
 						Self::process_update_task(
 							&handle,
-							process,
+							&process,
 							options.as_ref(),
 							update_sender,
 						)
@@ -722,40 +828,37 @@ where
 		Ok(())
 	}
 
-	async fn process_title(handle: &H, process: &tg::Process) -> Option<String> {
-		let command = process.command(handle).await.ok()?;
-		let args = command.args(handle).await.ok()?;
-		let executable = command.executable(handle).await.ok()?;
+	async fn process_title(handle: &H, process: &tg::Referent<tg::Process>) -> Option<String> {
+		// Get the original commands' executable.
+		let command = process.item.command(handle).await.ok()?.clone();
+		let executable = command.executable(handle).await.ok()?.clone();
 
-		let mut title = String::new();
-		match &*executable {
-			tg::command::Executable::Artifact(_) => (),
-			tg::command::Executable::Module(executable) => {
-				if let Some(path) = &executable.module.referent.path {
-					let path = executable
-						.module
-						.referent
-						.subpath
-						.as_ref()
-						.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
-					write!(title, "{}", path.display()).unwrap();
-				} else if let Some(tag) = &executable.module.referent.tag {
-					write!(title, "{tag}").unwrap();
-				}
-			},
-			tg::command::Executable::Path(executable) => {
-				write!(title, "{}", executable.path.display()).unwrap();
-			},
+		// Handle paths.
+		if let Ok(path) = executable.try_unwrap_path_ref() {
+			return Some(path.path.display().to_string());
 		}
 
-		let host = command.host(handle).await.ok();
-		let host = host.as_deref();
-		if let (Some(tg::Value::String(arg0)), Some("js" | "builtin")) =
-			(args.first(), host.map(String::as_str))
-		{
-			write!(title, "#{arg0}").unwrap();
-		} else {
-			write!(title, "{}", process.id()).unwrap();
+		// Use the referent if its fields are set.
+		let title = match (&process.path, &process.subpath, &process.tag) {
+			(Some(path), Some(subpath), _) => path.join(subpath).display().to_string(),
+			(None, Some(subpath), Some(tag)) => format!("{tag}:{}", subpath.display()),
+			(None, None, Some(tag)) => tag.to_string(),
+			_ => {
+				if let Some(object) = executable.object().first() {
+					object.id(handle).await.ok()?.to_string()
+				} else {
+					String::new()
+				}
+			},
+		};
+
+		// Handle exports.
+		let export = executable
+			.try_unwrap_module_ref()
+			.ok()
+			.and_then(|exe| exe.export.as_ref());
+		if let Some(export) = export {
+			return Some(format!("{title}#{export}"));
 		}
 
 		Some(title)
@@ -1408,12 +1511,17 @@ where
 		let update_task = if let Item::Process(process) = &referent.item {
 			// Create the update task.
 			let update_task = Task::spawn_local({
-				let process = process.clone();
+				let process = tg::Referent {
+					item: process.clone(),
+					path: referent.path.clone(),
+					subpath: referent.subpath.clone(),
+					tag: referent.tag.clone(),
+				};
 				let handle = handle.clone();
 				let options = options.clone();
 				let update_sender = update_sender.clone();
 				|_| async move {
-					Self::process_update_task(&handle, process, options.as_ref(), update_sender)
+					Self::process_update_task(&handle, &process, options.as_ref(), update_sender)
 						.await
 						.ok();
 				}
