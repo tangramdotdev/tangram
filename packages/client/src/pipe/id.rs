@@ -13,13 +13,18 @@ use crate as tg;
 	serde::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
-pub struct Id(pub(crate) crate::Id);
+pub struct Id(crate::Id);
 
 impl Id {
 	#[allow(clippy::new_without_default)]
 	#[must_use]
 	pub fn new() -> Self {
 		Self(crate::Id::new_uuidv7(tg::id::Kind::Pipe))
+	}
+
+	#[must_use]
+	pub fn as_id(&self) -> &tg::Id {
+		&self.0
 	}
 }
 

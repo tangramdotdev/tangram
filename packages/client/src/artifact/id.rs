@@ -61,11 +61,11 @@ impl Id {
 	}
 
 	#[must_use]
-	fn as_id(&self) -> &tg::Id {
+	pub fn as_id(&self) -> &tg::Id {
 		match self {
-			Self::Directory(id) => &id.0,
-			Self::File(id) => &id.0,
-			Self::Symlink(id) => &id.0,
+			Self::Directory(id) => id.as_id(),
+			Self::File(id) => id.as_id(),
+			Self::Symlink(id) => id.as_id(),
 		}
 	}
 }

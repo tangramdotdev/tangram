@@ -14,12 +14,19 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 	serde::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
-pub struct Id(pub(crate) crate::Id);
+pub struct Id(crate::Id);
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct User {
 	pub id: Id,
 	pub email: String,
+}
+
+impl Id {
+	#[must_use]
+	pub fn as_id(&self) -> &tg::Id {
+		&self.0
+	}
 }
 
 impl tg::Client {

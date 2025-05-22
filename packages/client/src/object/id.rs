@@ -65,12 +65,12 @@ impl Id {
 	#[must_use]
 	fn as_id(&self) -> &tg::Id {
 		match self {
-			Self::Blob(id) => &id.0,
-			Self::Directory(id) => &id.0,
-			Self::File(id) => &id.0,
-			Self::Symlink(id) => &id.0,
-			Self::Graph(id) => &id.0,
-			Self::Command(id) => &id.0,
+			Self::Blob(id) => id.as_id(),
+			Self::Directory(id) => id.as_id(),
+			Self::File(id) => id.as_id(),
+			Self::Symlink(id) => id.as_id(),
+			Self::Graph(id) => id.as_id(),
+			Self::Command(id) => id.as_id(),
 		}
 	}
 }
