@@ -45,22 +45,18 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	);
 
 	// Get the source for error reporting and clear path/tag from the executable.
-	let source: tg.Referent<tg.Object.Id> | undefined = undefined;
+	let source:
+		| { path?: string | undefined; tag?: string | undefined }
+		| undefined = undefined;
 	if (
 		"executable" in arg &&
 		typeof arg.executable === "object" &&
 		"module" in arg.executable
 	) {
-		let item =
-			typeof arg.executable.module.referent.item === "object"
-				? await arg.executable.module.referent.item.id()
-				: arg.executable.module.referent.item;
 		source = {
-			...arg.executable.module.referent,
-			item,
+			path: arg.executable?.module.referent.path,
+			tag: arg.executable?.module.referent.tag,
 		};
-		arg.executable.module.referent.path = undefined;
-		arg.executable.module.referent.tag = undefined;
 	}
 
 	let commandMounts: Array<tg.Command.Mount> | undefined;
@@ -120,7 +116,8 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		throw new Error("the process failed", {
 			cause: {
 				error: wait.error,
-				referent: source,
+				path: source?.path,
+				tag: source?.tag,
 			},
 		});
 	}

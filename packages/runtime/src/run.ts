@@ -45,19 +45,19 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	);
 
 	// Get the source for error reporting and clear path/tag from the executable.
-	// let source:
-	// 	| { path?: string | undefined; tag?: string | undefined }
-	// 	| undefined = undefined;
-	// if (
-	// 	"executable" in arg &&
-	// 	typeof arg.executable === "object" &&
-	// 	"module" in arg.executable
-	// ) {
-	// 	source = {
-	// 		path: arg.executable?.module.referent.path,
-	// 		tag: arg.executable?.module.referent.tag,
-	// 	};
-	// }
+	let source:
+		| { path?: string | undefined; tag?: string | undefined }
+		| undefined = undefined;
+	if (
+		"executable" in arg &&
+		typeof arg.executable === "object" &&
+		"module" in arg.executable
+	) {
+		source = {
+			path: arg.executable?.module.referent.path,
+			tag: arg.executable?.module.referent.tag,
+		};
+	}
 
 	let checksum = arg.checksum;
 	let processMounts: Array<tg.Process.Mount> = [];
@@ -144,7 +144,11 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	// Update or wrap underlying errors.
 	if (wait.error) {
 		throw new Error("the process failed", {
-			cause: wait.error,
+			cause: {
+				error: wait.error,
+				path: source?.path,
+				tag: source?.tag,
+			},
 		});
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
