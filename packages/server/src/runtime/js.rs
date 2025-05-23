@@ -455,7 +455,9 @@ fn host_import_module_dynamically_callback<'s>(
 		.modules
 		.borrow()
 		.iter()
-		.find(|m| m.module == module)
+		.find(|m|
+			m.module.kind == module.kind &&
+			m.module.referent.item == module.referent.item)
 		.cloned();
 	let module = if let Some(module) = option {
 		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());

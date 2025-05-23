@@ -201,13 +201,8 @@ impl Compiler {
 			.path()
 			.ok_or_else(|| tg::error!("failed to resolve dependency"))?;
 
-		// We know the referrer is a module, so get its parent.
-		let referrer_parent = referrer.item.parent().unwrap();
-
-		// Join and canonicalize to get the item.
-		let mut item = tokio::fs::canonicalize(&referrer_parent.join(import_path))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the import"))?;
+		// We know the referrer is a module, so get its parent and join with the import path.
+		let mut item = referrer.item.parent().unwrap().join(import_path);
 
 		// Lookup the root module if necessary.
 		if let Ok(Some(root_module_name)) =
@@ -229,16 +224,28 @@ impl Compiler {
 		referrer: tg::Referent<&tg::object::Id>,
 		import: &tg::module::Import,
 	) -> Result<tg::Referent<tg::module::data::Item>, tg::Error> {
-		let referrer = tg::Object::with_id(referrer.item.clone());
-		let file = referrer
-			.clone()
-			.try_unwrap_file()
-			.ok()
-			.ok_or_else(|| tg::error!(%referrer, "the referrer must be a file"))?;
+		let referrer_object = tg::Object::with_id(referrer.item.clone());
+		let file =
+			referrer_object.clone().try_unwrap_file().ok().ok_or_else(
+				|| tg::error!(%referrer = referrer.item, "the referrer must be a file"),
+			)?;
 		let referent = file.get_dependency(&self.server, &import.reference).await?;
+
+		let path = referrer
+			.subpath
+			.as_ref()
+			.and_then(|subpath| Some(referrer.path.as_ref()?.join(subpath).parent()?.to_owned()))
+			.or_else(|| referrer.path.clone())
+			.map(|referrer| {
+				if let Some(referent) = &referent.path {
+					referrer.join(referent)
+				} else {
+					referrer
+				}
+			});
+
 		let object = referent.item.id(&self.server).await?.clone();
 		let item = tg::module::data::Item::Object(object);
-		let path = referent.path;
 		let subpath = referent.subpath;
 		let tag = referent.tag;
 		Ok(tg::Referent {

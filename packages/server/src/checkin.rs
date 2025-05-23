@@ -381,16 +381,7 @@ impl Server {
 			.clone()
 			.try_into()
 			.unwrap();
-		let path =
-			crate::util::path::diff(state.graph.nodes[0].path(), state.graph.nodes[root].path())
-				.ok()
-				.map(|path| {
-					if path.as_os_str().is_empty() {
-						".".into()
-					} else {
-						path
-					}
-				});
+		let path = state.graph.nodes[root].path.as_deref().cloned();
 		let subpath = (node != root)
 			.then(|| {
 				let src = state.graph.nodes[root].path();

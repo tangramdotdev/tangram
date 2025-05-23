@@ -1,6 +1,6 @@
+use std::path::PathBuf;
 use indoc::indoc;
 use insta::assert_snapshot;
-use itertools::Itertools;
 use tangram_cli::{assert_failure, assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
@@ -33,16 +33,24 @@ async fn assertion_failure() {
 			export default () => tg.assert(false, "error")
 		"#),
 	};
-	let assertions = |output: std::process::Output| async move {
+	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		let stderr = stderr.lines().skip(2).join("\n");
-		assert_snapshot!(stderr, @r"
-		(internal) packages/runtime/src/start.ts:34:28
-		./tangram.ts:1:21
-		./foo.tg.ts:0:24
-		(internal) packages/runtime/src/assert.ts:3:9
-		");
+		insta::with_settings!({
+			filters => vec![
+				(r"pcs_[0-9a-z]+", "[PROCESS]"),
+				(r"/tmp/\w+", "[TEMP]"),
+			]
+		}, {
+			assert_snapshot!(stderr, @r"
+				[38;5;12m[1minfo[0m [PROCESS]
+				[38;5;9m->[39m Uncaught Error: error
+				(internal) packages/runtime/src/start.ts:34:28
+				[TEMP]/tangram.ts:1:21
+				[TEMP]/foo.tg.ts:0:24
+				(internal) packages/runtime/src/assert.ts:3:9
+			");
+		});
 	};
 	let args = vec![];
 	let path = "";
@@ -65,86 +73,24 @@ async fn assertion_failure_in_path_dependency() {
 			"#),
 		}
 	};
-	let assertions = |output: std::process::Output| async move {
+	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		let stderr = stderr.lines().skip(2).join("\n");
-		assert_snapshot!(stderr, @r"
-		(internal) packages/runtime/src/start.ts:34:28
-		./tangram.ts:1:21
-		../bar/tangram.ts:0:24
-		(internal) packages/runtime/src/assert.ts:3:9
-		");
-	};
-	let args = vec![];
-	let path = "foo";
-	let command = "default";
-	test_run(directory, path, command, args, assertions).await;
-}
-
-#[tokio::test]
-async fn run_assertion_failure() {
-	let directory = temp::directory! {
-		"tangram.ts" => indoc!(r#"
-			import foo from "./foo.tg.ts";
-			export default async () => await tg.run(foo);
-		"#),
-		"foo.tg.ts" => indoc!(r#"
-			export default () => tg.assert(false, "error")
-		"#),
-	};
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		let stderr = stderr.lines().skip(2).join("\n");
-		assert_snapshot!(stderr, @r"
-		(internal) packages/runtime/src/start.ts:34:11
-		(internal) packages/runtime/src/resolve.ts:91:8
-		(internal) packages/runtime/src/resolve.ts:46:10
-		./tangram.ts:1:27
-		(internal) packages/runtime/src/run.ts:145:8
-		[38;5;9m->[39m Uncaught Error: error
-		(internal) packages/runtime/src/start.ts:34:28
-		./foo.tg.ts:0:24
-		(internal) packages/runtime/src/assert.ts:3:9
-		");
-	};
-	let args = vec![];
-	let path = "";
-	let command = "default";
-	test_run(directory, path, command, args, assertions).await;
-}
-
-#[tokio::test]
-async fn run_assertion_failure_in_path_dependency() {
-	let directory = temp::directory! {
-		"foo" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				import foo from "../bar";
-				export default async () => await tg.run(foo);
-			"#),
-		},
-		"bar" => temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export default () => tg.assert(false, "error")
-			"#),
-		}
-	};
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		let stderr = stderr.lines().skip(2).join("\n");
-		assert_snapshot!(stderr, @r"
-		(internal) packages/runtime/src/start.ts:34:11
-		(internal) packages/runtime/src/resolve.ts:91:8
-		(internal) packages/runtime/src/resolve.ts:46:10
-		./tangram.ts:1:27
-		(internal) packages/runtime/src/run.ts:145:8
-		[38;5;9m->[39m Uncaught Error: error
-		(internal) packages/runtime/src/start.ts:34:28
-		../bar/tangram.ts:0:24
-		(internal) packages/runtime/src/assert.ts:3:9
-		");
+		insta::with_settings!({
+			filters => vec![
+				(r"pcs_[0-9a-z]+", "[PROCESS]"),
+				(r"/tmp/\w+", "[TEMP]"),
+			]
+		}, {
+			assert_snapshot!(stderr, @r"
+				[38;5;12m[1minfo[0m [PROCESS]
+				[38;5;9m->[39m Uncaught Error: error
+				(internal) packages/runtime/src/start.ts:34:28
+				[TEMP]/foo/tangram.ts:1:21
+				[TEMP]/bar/tangram.ts:0:24
+				(internal) packages/runtime/src/assert.ts:3:9
+			");
+		});
 	};
 	let args = vec![];
 	let path = "foo";
@@ -1181,7 +1127,7 @@ async fn test_run<F, Fut>(
 	args: Vec<String>,
 	assertions: F,
 ) where
-	F: FnOnce(std::process::Output) -> Fut + Send + 'static,
+	F: FnOnce(PathBuf, std::process::Output) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
 	test(TG, async move |context| {
@@ -1202,7 +1148,7 @@ async fn test_run<F, Fut>(
 			command.arg(arg);
 		}
 		let output = command.output().await.unwrap();
-		assertions(output).await;
+		assertions(temp.path().to_owned(), output).await;
 	})
 	.await;
 }

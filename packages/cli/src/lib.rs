@@ -1138,9 +1138,7 @@ impl Cli {
 		referent: Option<&tg::Referent<tg::object::Id>>,
 		config: Option<&Config>,
 	) {
-		let mut path = referent
-			.as_ref()
-			.and_then(|referent| referent.path.as_ref());
+		let mut path = referent.as_ref().and_then(|referent| referent.path.clone());
 		let mut tag = referent.as_ref().and_then(|referent| referent.tag.as_ref());
 		let options = config
 			.as_ref()
@@ -1163,16 +1161,21 @@ impl Cli {
 				.as_ref()
 				.and_then(|source| source.path.as_ref())
 			{
-				path.replace(path_);
+				path.replace(
+					path.as_ref()
+						.map(|path| path.join(path_))
+						.unwrap_or_else(|| path_.clone()),
+				);
 			}
 			if let Some(tag_) = error.source.as_ref().and_then(|source| source.tag.as_ref()) {
+				path.take();
 				tag.replace(tag_);
 			}
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
 			if let Some(location) = &error.location {
 				if !location.file.is_internal() || options.internal {
-					eprintln!("{}", Self::fmt_location(path, tag, location));
+					eprintln!("{}", Self::fmt_location(path.as_ref(), tag, location));
 				}
 			}
 			for (name, value) in &error.values {
@@ -1186,7 +1189,7 @@ impl Cli {
 			}
 			for location in stack {
 				if !location.file.is_internal() || options.internal {
-					eprintln!("{}", Self::fmt_location(path, tag, location));
+					eprintln!("{}", Self::fmt_location(path.as_ref(), tag, location));
 				}
 			}
 		}
@@ -1207,31 +1210,56 @@ impl Cli {
 				)
 			},
 			tg::error::File::Module(module) => {
-				if let Some(path) = module.referent.path.as_ref().or(path) {
-					if let Some(subpath) = &module.referent.subpath {
-						let full_path = path.join(subpath);
-						return format!(
-							"{}:{}:{}",
-							full_path.display(),
-							location.line,
-							location.column
-						);
-					}
-					return format!("{}:{}:{}", path.display(), location.line, location.column);
-				}
+				if let tg::module::data::Item::Path(path) = &module.referent.item {
+					let path = path
+						.canonicalize()
+						.inspect_err(|error| eprintln!("failed to canonicalize {error}"))
+						.map(|path| path.display().to_string())
+						.unwrap_or_else(|_| path.display().to_string());
+					return path;
+				};
 				if let Some(tag) = module.referent.tag.as_ref().or(tag) {
-					if let Some(subpath) = &module.referent.subpath {
+					let path = module.referent.subpath.as_ref().map_or_else(
+						|| module.referent.path.clone(),
+						|subpath| {
+							Some(
+								module
+									.referent
+									.path
+									.as_ref()
+									.map(|path| path.join(subpath))
+									.unwrap_or_else(|| subpath.clone()),
+							)
+						},
+					);
+					if let Some(path) = path {
 						return format!(
 							"{tag}: {}:{}:{}",
-							subpath.display(),
+							path.display(),
 							location.line,
 							location.column
 						);
 					}
-					return format!("{tag}: {}:{}", location.line, location.column);
+				}
+				let relpath = module
+					.referent
+					.subpath
+					.as_ref()
+					.map(|subpath| {
+						module
+							.referent
+							.path
+							.as_ref()
+							.map(|path| path.join(subpath))
+							.unwrap_or_else(|| subpath.clone())
+					})
+					.and_then(|subpath| Some(path?.join(subpath)));
+				if let Some(path) = relpath {
+					let path = path.canonicalize().unwrap_or(path);
+					return format!("{}:{}:{}", path.display(), location.line, location.column);
 				}
 				format!(
-					"{}:{}:{}",
+					"{}: {}:{}",
 					module.referent.item, location.line, location.column
 				)
 			},
