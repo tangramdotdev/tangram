@@ -210,7 +210,7 @@ impl Cli {
 					referent.subpath.replace(subpath);
 					let referent = tg::Referent {
 						item: tg::module::Item::Object(item.into()),
-						path: referent.path.clone(),
+						path: Some("".into()),
 						subpath: referent.subpath.clone(),
 						tag: referent.tag.clone(),
 					};

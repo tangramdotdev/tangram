@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use indoc::indoc;
 use insta::assert_snapshot;
+use std::{fmt::Display, path::PathBuf};
 use tangram_cli::{assert_failure, assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
@@ -55,7 +55,15 @@ async fn assertion_failure() {
 	let args = vec![];
 	let path = "";
 	let command = "default";
-	test_run(directory, path, command, args, assertions).await;
+	test_run(
+		directory,
+		None::<(String, temp::Directory, Option<String>)>,
+		path,
+		command,
+		args,
+		assertions,
+	)
+	.await;
 }
 
 #[tokio::test]
@@ -95,7 +103,98 @@ async fn assertion_failure_in_path_dependency() {
 	let args = vec![];
 	let path = "foo";
 	let command = "default";
-	test_run(directory, path, command, args, assertions).await;
+	test_run(
+		directory,
+		None::<(String, temp::Directory, Option<String>)>,
+		path,
+		command,
+		args,
+		assertions,
+	)
+	.await;
+}
+
+#[tokio::test]
+async fn assertion_failure_in_tag_dependency() {
+	let foo = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default () => tg.assert(false, "error in foo");
+		"#)
+	};
+	let tags = vec![("foo", foo, None::<String>)];
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import foo from "foo";
+			export default () => foo();
+		"#),
+	};
+	let assertions = |_path: PathBuf, output: std::process::Output| async move {
+		assert_failure!(output);
+		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		insta::with_settings!({
+			filters => vec![
+				(r"pcs_[0-9a-z]+", "[PROCESS]"),
+				(r"/tmp/\w+", "[TEMP]"),
+			]
+		}, {
+			assert_snapshot!(stderr, @r"
+			[38;5;12m[1minfo[0m [PROCESS]
+			[38;5;9m->[39m Uncaught Error: error in foo
+			(internal) packages/runtime/src/start.ts:34:28
+			[TEMP]/tangram.ts:1:21
+			foo: tangram.ts:0:24
+			(internal) packages/runtime/src/assert.ts:3:9
+			");
+		});
+	};
+	let args = vec![];
+	let path = "";
+	let command = "default";
+	test_run(directory, tags, path, command, args, assertions).await;
+}
+
+#[tokio::test]
+async fn assertion_failure_in_tagged_cyclic_dependency() {
+	let foo = temp::directory! {
+		"foo" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import bar from "../bar";
+				export default () => bar();
+
+				export const failure = () => tg.assert(false, "failure in foo");
+			"#)
+		},
+		"bar" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import { failure } from "../foo";
+				export default () => failure();
+			"#)
+		}
+	};
+	let tags = vec![("foo", foo, Some("foo"))];
+
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import foo from "foo";
+			export default () => foo();
+		"#),
+	};
+	let assertions = |_path: PathBuf, output: std::process::Output| async move {
+		assert_failure!(output);
+		let stderr = std::str::from_utf8(&output.stderr).unwrap();
+		insta::with_settings!({
+			filters => vec![
+				(r"pcs_[0-9a-z]+", "[PROCESS]"),
+				(r"/tmp/\w+", "[TEMP]"),
+			]
+		}, {
+			assert_snapshot!(stderr, @r"");
+		});
+	};
+	let args = vec![];
+	let path = "";
+	let command = "default";
+	test_run(directory, tags, path, command, args, assertions).await;
 }
 
 #[tokio::test]
@@ -1122,6 +1221,14 @@ async fn test_build<F, Fut>(
 
 async fn test_run<F, Fut>(
 	artifact: impl Into<temp::Artifact> + Send + 'static,
+	tags: impl IntoIterator<
+		Item = (
+			impl Display + Send + 'static,
+			impl Into<temp::Artifact> + Send + 'static,
+			Option<impl Into<PathBuf> + Send + 'static>,
+		),
+	> + Send
+	+ 'static,
 	path: &str,
 	command: &str,
 	args: Vec<String>,
@@ -1132,6 +1239,27 @@ async fn test_run<F, Fut>(
 {
 	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
+
+		// Tag objects.
+		for (tag, artifact, subpath) in tags {
+			let artifact: temp::Artifact = artifact.into();
+			let temp = Temp::new();
+			artifact.to_path(temp.as_ref()).await.unwrap();
+			let path = if let Some(subpath) = subpath {
+				temp.path().join(subpath.into())
+			} else {
+				temp.path().to_owned()
+			};
+			let output = server
+				.tg()
+				.arg("tag")
+				.arg(tag.to_string())
+				.arg(&path)
+				.output()
+				.await
+				.unwrap();
+			assert_success!(output);
+		}
 
 		let artifact: temp::Artifact = artifact.into();
 		let temp = Temp::new();
