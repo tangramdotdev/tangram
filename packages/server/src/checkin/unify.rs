@@ -444,7 +444,7 @@ impl Server {
 					reference,
 					referent: tg::Referent {
 						item: Some(Either::Right(index)),
-						path: None,
+						path: referent.path,
 						subpath: referent.subpath,
 						tag: None,
 					},

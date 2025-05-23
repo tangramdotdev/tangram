@@ -170,6 +170,8 @@ impl Server {
 		let config_path = self.temp.path().join(".config/tangram/config.json");
 		let directory_path = self.temp.path().join(".tangram");
 		command
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::piped())
 			.arg("--config")
 			.arg(config_path)
 			.arg("--directory")

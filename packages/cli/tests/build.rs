@@ -43,12 +43,12 @@ async fn assertion_failure() {
 			]
 		}, {
 			assert_snapshot!(stderr, @r"
-				[38;5;12m[1minfo[0m [PROCESS]
-				[38;5;9m->[39m Uncaught Error: error
-				(internal) packages/runtime/src/start.ts:34:28
-				[TEMP]/tangram.ts:1:21
-				[TEMP]/foo.tg.ts:0:24
-				(internal) packages/runtime/src/assert.ts:3:9
+			[38;5;12m[1minfo[0m [PROCESS]
+			[38;5;9m->[39m Uncaught Error: error
+			internal packages/runtime/src/start.ts:35:29
+			[TEMP]/tangram.ts:1:21
+			[TEMP]/foo.tg.ts:0:24
+			internal packages/runtime/src/assert.ts:4:10
 			");
 		});
 	};
@@ -91,12 +91,12 @@ async fn assertion_failure_in_path_dependency() {
 			]
 		}, {
 			assert_snapshot!(stderr, @r"
-				[38;5;12m[1minfo[0m [PROCESS]
-				[38;5;9m->[39m Uncaught Error: error
-				(internal) packages/runtime/src/start.ts:34:28
-				[TEMP]/foo/tangram.ts:1:21
-				[TEMP]/bar/tangram.ts:0:24
-				(internal) packages/runtime/src/assert.ts:3:9
+			[38;5;12m[1minfo[0m [PROCESS]
+			[38;5;9m->[39m Uncaught Error: error
+			internal packages/runtime/src/start.ts:35:29
+			[TEMP]/foo/tangram.ts:1:21
+			[TEMP]/bar/tangram.ts:0:24
+			internal packages/runtime/src/assert.ts:4:10
 			");
 		});
 	};
@@ -140,10 +140,10 @@ async fn assertion_failure_in_tag_dependency() {
 			assert_snapshot!(stderr, @r"
 			[38;5;12m[1minfo[0m [PROCESS]
 			[38;5;9m->[39m Uncaught Error: error in foo
-			(internal) packages/runtime/src/start.ts:34:28
+			internal packages/runtime/src/start.ts:35:29
 			[TEMP]/tangram.ts:1:21
 			foo: tangram.ts:0:24
-			(internal) packages/runtime/src/assert.ts:3:9
+			internal packages/runtime/src/assert.ts:4:10
 			");
 		});
 	};
@@ -188,7 +188,16 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 				(r"/tmp/\w+", "[TEMP]"),
 			]
 		}, {
-			assert_snapshot!(stderr, @r"");
+			assert_snapshot!(stderr, @r"
+			[38;5;12m[1minfo[0m [PROCESS]
+			[38;5;9m->[39m Uncaught Error: failure in foo
+			internal packages/runtime/src/start.ts:35:29
+			[TEMP]/tangram.ts:1:21
+			foo: tangram.ts:1:21
+			foo: ../bar/tangram.ts:1:21
+			foo: tangram.ts:3:32
+			internal packages/runtime/src/assert.ts:4:10
+			");
 		});
 	};
 	let args = vec![];

@@ -1138,131 +1138,126 @@ impl Cli {
 		referent: Option<&tg::Referent<tg::object::Id>>,
 		config: Option<&Config>,
 	) {
-		let mut path = referent.as_ref().and_then(|referent| referent.path.clone());
-		let mut tag = referent.as_ref().and_then(|referent| referent.tag.as_ref());
-		let options = config
+		let filter_internal_errors = !config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.error_trace_options.clone())
-			.unwrap_or_default();
-
-		// Create the trace.
-		let mut errors = vec![error];
-		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next.error.as_ref());
-		}
-		if options.reverse {
-			errors.reverse();
-		}
-
-		for error in errors {
-			if let Some(path_) = error
-				.source
-				.as_ref()
-				.and_then(|source| source.path.as_ref())
-			{
-				path.replace(
-					path.as_ref()
-						.map(|path| path.join(path_))
-						.unwrap_or_else(|| path_.clone()),
-				);
-			}
-			if let Some(tag_) = error.source.as_ref().and_then(|source| source.tag.as_ref()) {
-				path.take();
-				tag.replace(tag_);
-			}
-			let message = error.message.as_deref().unwrap_or("an error occurred");
-			eprintln!("{} {message}", "->".red());
-			if let Some(location) = &error.location {
-				if !location.file.is_internal() || options.internal {
-					eprintln!("{}", Self::fmt_location(path.as_ref(), tag, location));
-				}
-			}
-			for (name, value) in &error.values {
-				let name = name.as_str().blue();
-				let value = value.as_str().green();
-				eprintln!("   {name} = {value}");
-			}
-			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-			if options.reverse {
-				stack.reverse();
-			}
-			for location in stack {
-				if !location.file.is_internal() || options.internal {
-					eprintln!("{}", Self::fmt_location(path.as_ref(), tag, location));
-				}
-			}
-		}
+			.unwrap_or_default()
+			.internal;
+		let current_path = referent.and_then(|r| r.path.clone());
+		let current_tag = referent.and_then(|r| r.tag.clone());
+		Self::print_error_inner(current_path, current_tag, error, filter_internal_errors);
 	}
 
-	fn fmt_location(
-		path: Option<&PathBuf>,
-		tag: Option<&tg::Tag>,
-		location: &tg::error::Location,
-	) -> String {
-		match &location.file {
-			tg::error::File::Internal(internal) => {
-				format!(
-					"(internal) {}:{}:{}",
-					internal.display(),
-					location.line,
-					location.column
-				)
-			},
-			tg::error::File::Module(module) => {
-				if let tg::module::data::Item::Path(path) = &module.referent.item {
-					let path = path
-						.canonicalize()
-						.inspect_err(|error| eprintln!("failed to canonicalize {error}"))
-						.map(|path| path.display().to_string())
-						.unwrap_or_else(|_| path.display().to_string());
-					return path;
-				};
-				if let Some(tag) = module.referent.tag.as_ref().or(tag) {
-					let path = module.referent.subpath.as_ref().map_or_else(
-						|| module.referent.path.clone(),
-						|subpath| {
-							Some(
-								module
+	fn print_error_inner(
+		mut current_path: Option<PathBuf>,
+		mut current_tag: Option<tg::Tag>,
+		error: &tg::Error,
+		filter_internal_errors: bool,
+	) {
+		// Print the error message.
+		let message = error.message.as_deref().unwrap_or("an error occurred");
+		eprintln!("{} {message}", "->".red());
+
+		// Save the current path/tag for recursion.
+		let old_path = current_path.clone();
+		let old_tag = current_tag.clone();
+
+		// Walk the stack trace and print locations.
+		let locations = error
+			.location
+			.iter()
+			.chain(error.stack.iter().flat_map(|stack| stack.iter()));
+		for location in locations {
+			match (&location.file, filter_internal_errors) {
+				(tg::error::File::Internal(_), true) => (),
+				(tg::error::File::Internal(_), false) => {
+					eprintln!("{location}");
+				},
+				(
+					tg::error::File::Module(tg::module::Data {
+						referent:
+							tg::Referent {
+								item: tg::module::data::Item::Path(path),
+								..
+							},
+						..
+					}),
+					_,
+				) => {
+					eprintln!("{}:{}:{}", path.display(), location.line, location.column);
+				},
+				(tg::error::File::Module(module), _) => {
+					match (
+						&current_path,
+						&current_tag,
+						&module.referent.path,
+						&module.referent.tag,
+					) {
+						(_, _, path, Some(tag)) => {
+							current_path = path.clone();
+							current_tag.replace(tag.clone());
+							if let Some(current_path) = &current_path {
+								let path = module
 									.referent
-									.path
+									.subpath
 									.as_ref()
-									.map(|path| path.join(subpath))
-									.unwrap_or_else(|| subpath.clone()),
-							)
+									.map(|subpath| current_path.join(subpath))
+									.unwrap_or(current_path.clone());
+								eprint!("{tag}: {}", path.display());
+							} else if let Some(path) = &module.referent.subpath {
+								eprint!("{tag}: {}", path.display());
+							} else {
+								eprint!("{tag}: {}", module.referent.item);
+							}
 						},
-					);
-					if let Some(path) = path {
-						return format!(
-							"{tag}: {}:{}:{}",
-							path.display(),
-							location.line,
-							location.column
-						);
+						(Some(current_path), None, Some(module_path), None) => {
+							let path = current_path.join(module_path);
+							let path = module
+								.referent
+								.subpath
+								.as_ref()
+								.map(|subpath| path.join(subpath))
+								.unwrap_or(path);
+							let path = path.canonicalize().unwrap_or(path);
+							eprint!("{}", path.display());
+						},
+						(Some(current_path), Some(current_tag), Some(path), None) => {
+							let path = current_path.join(path);
+							let path = module
+								.referent
+								.subpath
+								.as_ref()
+								.map(|subpath| path.join(subpath))
+								.unwrap_or(current_path.clone());
+							eprint!("{current_tag}: {}", path.display());
+						},
+						_ => eprint!("{}", module.referent.item),
 					}
-				}
-				let relpath = module
-					.referent
-					.subpath
+					eprintln!(":{}:{}", location.line, location.column);
+				},
+			}
+		}
+
+		// Recurse.
+		if let Some(source) = &error.source {
+			let mut current_path = old_path;
+			let mut current_tag = old_tag;
+			if let Some(tag) = source.tag.clone() {
+				current_path = source.path.clone();
+				current_tag.replace(tag);
+			} else if let Some(path) = &source.path {
+				let path = current_path
 					.as_ref()
-					.map(|subpath| {
-						module
-							.referent
-							.path
-							.as_ref()
-							.map(|path| path.join(subpath))
-							.unwrap_or_else(|| subpath.clone())
-					})
-					.and_then(|subpath| Some(path?.join(subpath)));
-				if let Some(path) = relpath {
-					let path = path.canonicalize().unwrap_or(path);
-					return format!("{}:{}:{}", path.display(), location.line, location.column);
-				}
-				format!(
-					"{}: {}:{}",
-					module.referent.item, location.line, location.column
-				)
-			},
+					.map_or_else(|| path.clone(), |current| current.join(path));
+				current_path.replace(path);
+			}
+			Self::print_error_inner(
+				current_path,
+				current_tag,
+				&source.error,
+				filter_internal_errors,
+			);
 		}
 	}
 

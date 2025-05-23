@@ -231,27 +231,18 @@ impl Compiler {
 			)?;
 		let referent = file.get_dependency(&self.server, &import.reference).await?;
 
-
 		let object = referent.item.id(&self.server).await?.clone();
 		let item = tg::module::data::Item::Object(object);
 		let subpath = referent.subpath;
 		let tag = referent.tag;
-		let path = if tag.is_none() {
-			referrer
-				.subpath
-				.as_ref()
-				.and_then(|subpath| Some(referrer.path.as_ref()?.join(subpath).parent()?.to_owned()))
-				.or_else(|| referrer.path.clone())
-				.map(|referrer| {
-					if let Some(referent) = &referent.path {
-						referrer.join(referent)
-					} else {
-						referrer
-					}
-				})
-		} else {
-			None
+
+		let path = match (&referrer.path, &referent.path) {
+			(Some(referrer), Some(referent)) => Some(referrer.join(referent)),
+			(None, Some(referent)) => Some(referent.clone()),
+			(Some(referrer), None) => Some(referrer.clone()),
+			(None, None) => None,
 		};
+
 		Ok(tg::Referent {
 			item,
 			path,
