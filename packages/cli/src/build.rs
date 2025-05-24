@@ -3,6 +3,7 @@ use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, TryStreamExt as _};
 use std::{io::IsTerminal as _, path::PathBuf};
 use tangram_client::{self as tg, prelude::*};
+use tangram_either::Either;
 use tangram_futures::task::Task;
 
 /// Spawn and await a sandboxed process.
@@ -81,7 +82,7 @@ impl Cli {
 			sandbox: true,
 			..options.spawn
 		};
-		let process = self
+		let (referent, process) = self
 			.spawn(spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
@@ -118,6 +119,14 @@ impl Cli {
 		let result = if let Some(output) = output {
 			Ok(output)
 		} else {
+			// Construct the referent.
+			let referent = tg::Referent {
+				item: Either::Right(tg::Object::with_id(referent.item.clone())),
+				path: referent.path.clone(),
+				subpath: referent.subpath.clone(),
+				tag: referent.tag.clone(),
+			};
+
 			// Spawn the view task.
 			let view_task = {
 				let handle = handle.clone();
@@ -137,7 +146,7 @@ impl Cli {
 							};
 							let item = crate::viewer::Item::Process(process);
 							let mut viewer =
-								crate::viewer::Viewer::new(&handle, item, viewer_options);
+								crate::viewer::Viewer::new(&handle, referent, item, viewer_options);
 							match options.view {
 								View::None => (),
 								View::Inline => {
@@ -203,7 +212,15 @@ impl Cli {
 		// Get the output.
 		let output = result
 			.map_err(|source| tg::error!(!source, "failed to await the process"))?
-			.into_output()?;
+			.into_output()
+			.map_err(|source| {
+				let mut error = tg::error!(!source, "the process failed");
+				error
+					.source
+					.as_mut()
+					.map(|source| source.referent.replace(referent));
+				error
+			})?;
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {
