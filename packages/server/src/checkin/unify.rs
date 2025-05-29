@@ -1,14 +1,19 @@
 #![allow(clippy::too_many_arguments)]
 use super::{FileDependency, Graph};
-use crate::Server;
+use crate::{Server, lockfile::Lockfile};
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
 use tangram_either::Either;
 
 #[derive(Clone, Debug)]
-struct State {
+struct State<'a> {
+	arg: &'a tg::checkin::Arg,
+
+	// The lockfile, if it exists.
+	lockfile: Option<&'a Lockfile>,
+
 	// A cache of already solved objects.
-	packages: im::HashMap<String, (tg::Tag, usize)>,
+	packages: im::HashMap<String, tg::Referent<usize>>,
 
 	// Flag set when any error occurs. Intermediate errors are reported as diagnostics.
 	errored: bool,
@@ -20,10 +25,18 @@ struct State {
 	queue: im::Vector<Unresolved>,
 
 	// A lazily-initialized set of packages to try.
-	objects: Option<im::Vector<(tg::Tag, tg::Object)>>,
+	candidates: Option<im::Vector<Candidate>>,
 
 	// A list of visited edges.
 	visited: im::HashSet<Unresolved>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Candidate {
+	lockfile_node: Option<usize>,
+	object: tg::Object,
+	path: Option<PathBuf>,
+	tag: tg::Tag,
 }
 
 // An unresolved reference in the graph.
@@ -49,11 +62,13 @@ impl Server {
 
 		// Create the current state.
 		let mut current = State {
+			arg: &state.arg,
+			lockfile: state.lockfile.as_ref(),
 			packages: im::HashMap::new(),
 			errored: false,
 			graph,
 			queue,
-			objects: None,
+			candidates: None,
 			visited: im::HashSet::new(),
 		};
 
@@ -64,7 +79,7 @@ impl Server {
 		while let Some(unresolved) = current.queue.pop_front() {
 			self.walk_edge(&mut checkpoints, &mut current, &state.progress, unresolved)
 				.await;
-			current.objects.take();
+			current.candidates.take();
 		}
 
 		// Validate.
@@ -79,10 +94,10 @@ impl Server {
 		Ok(())
 	}
 
-	async fn walk_edge(
+	async fn walk_edge<'a>(
 		&self,
-		checkpoints: &mut Vec<State>,
-		current: &mut State,
+		checkpoints: &mut Vec<State<'a>>,
+		current: &mut State<'a>,
 		progress: &crate::progress::Handle<tg::checkin::Output>,
 		unresolved: Unresolved,
 	) {
@@ -100,10 +115,16 @@ impl Server {
 
 		// Attempt to resolve the reference.
 		match self
-			.resolve_reference(checkpoints, current, &unresolved.reference, progress)
+			.resolve_reference(
+				checkpoints,
+				current,
+				unresolved.src,
+				&unresolved.reference,
+				progress,
+			)
 			.await
 		{
-			Ok(resolved) => {
+			Ok((resolved, path)) => {
 				// Update the file's dependency. Note: only files have unresolved dependencies.
 				for dependency in &mut current.graph.nodes[unresolved.src]
 					.variant
@@ -121,6 +142,7 @@ impl Server {
 							referent,
 						} if reference == &unresolved.reference => {
 							referent.item.replace(Either::Right(resolved));
+							referent.path = path;
 						},
 						_ => continue,
 					}
@@ -160,18 +182,21 @@ impl Server {
 		}
 	}
 
-	async fn resolve_reference(
+	async fn resolve_reference<'a>(
 		&self,
-		checkpoints: &mut Vec<State>,
-		current: &mut State,
+		checkpoints: &mut Vec<State<'a>>,
+		current: &mut State<'a>,
+		referrer: usize,
 		reference: &tg::Reference,
 		progress: &crate::progress::Handle<tg::checkin::Output>,
-	) -> tg::Result<usize> {
-		let Ok(pattern) = reference.item().try_unwrap_tag_ref() else {
-			if reference.item().try_unwrap_path_ref().is_ok() {
-				return Err(tg::error!(%reference, "unexpected path reference"));
-			}
+	) -> tg::Result<(usize, Option<PathBuf>)> {
+		// Bail if the item is a path.
+		if reference.item().try_unwrap_path_ref().is_ok() {
+			return Err(tg::error!(%reference, "unexpected path reference"));
+		}
 
+		// Resolve objects directly.
+		if reference.item().try_unwrap_object_ref().is_ok() {
 			// If the reference does not name a tag or path, try to resolve it directly.
 			let referent = reference.get(self).await?;
 			let object = referent
@@ -180,29 +205,38 @@ impl Server {
 				.right()
 				.ok_or_else(|| tg::error!("expected an object"))?;
 			let node = self
-				.unify_visit_object(current, object, None, false)
+				.unify_visit_object(current, object, None, None, false)
 				.await?;
-			return Ok(node);
-		};
-
-		// Check if there is already a result.
-		if let Some((tag, node)) = current.packages.get(pattern.name()) {
-			if pattern.matches(tag) {
-				return Ok(*node);
-			}
-			return Err(tg::error!(%tag, %pattern, "incompatible versions"));
+			return Ok((node, None));
 		}
 
+		// Get the pattern.
+		let pattern = reference
+			.item()
+			.try_unwrap_tag_ref()
+			.map_err(|_| tg::error!("expected a tag pattern"))?;
+
 		// Initialize the set of objects to use.
-		if current.objects.is_none() {
+		if current.candidates.is_none() {
+			// Check if there is already a result.
+			if let Some(referent) = current.packages.get(pattern.name()) {
+				let tag = referent.tag.as_ref().unwrap();
+				if pattern.matches(tag) {
+					return Ok((referent.item, referent.path.clone()));
+				}
+				return Err(tg::error!(%tag, %pattern, "incompatible versions"));
+			}
+
 			let remote = reference
 				.options()
 				.as_ref()
 				.and_then(|query| query.remote.clone());
 
-			// List tags that match the pattern.
-			let objects: im::Vector<_> = self
-				.list_tags(tg::tag::list::Arg {
+			// List tags that match the pattern, if not locked.
+			let mut candidates: im::Vector<_> = if current.arg.locked {
+				im::Vector::new()
+			} else {
+				self.list_tags(tg::tag::list::Arg {
 					length: None,
 					pattern: pattern.clone(),
 					remote,
@@ -214,15 +248,60 @@ impl Server {
 				.into_iter()
 				.filter_map(|output| {
 					let object = output.item.right()?;
-					Some((output.tag, tg::Object::with_id(object)))
+					Some(Candidate {
+						object: tg::Object::with_id(object),
+						lockfile_node: None,
+						tag: output.tag,
+						path: None,
+					})
 				})
-				.collect();
-			current.objects.replace(objects);
+				.collect()
+			};
+
+			// If there is a solution in the lockfile already, but it doesn't match the list of updates, give it the highest precedence
+			if let Some(candidate) = current.graph.nodes[referrer]
+				.lockfile_index
+				.and_then(|node| {
+					current.lockfile.unwrap().nodes[node]
+						.try_unwrap_file_ref()
+						.ok()?
+						.dependencies
+						.get(reference)
+				})
+				.and_then(|referent| {
+					let lockfile_node = referent.item.as_ref().left().copied();
+					let version = referent.tag.clone()?;
+
+					// Skip the lockfile version if any updates have been requested.
+					if current
+						.arg
+						.updates
+						.iter()
+						.any(|pattern| pattern.matches(&version))
+					{
+						return None;
+					}
+
+					let object = match &referent.item {
+						Either::Left(node) => current.lockfile.unwrap().objects[*node].clone()?,
+						Either::Right(object) => tg::Object::with_id(object.clone()),
+					};
+					Some(Candidate {
+						lockfile_node,
+						object,
+						tag: version,
+						path: referent.path.clone(),
+					})
+				}) {
+				candidates.push_back(candidate);
+			}
+
+			current.candidates.replace(candidates);
 		}
 
 		// Pick the next object.
-		let (tag, object) = current
-			.objects
+		let candidate = current
+			.candidates
 			.as_mut()
 			.unwrap()
 			.pop_back()
@@ -231,40 +310,64 @@ impl Server {
 		progress.diagnostic(tg::Diagnostic {
 			location: None,
 			severity: tg::diagnostic::Severity::Info,
-			message: format!("resolving {reference} with {tag}",),
+			message: format!("resolving {reference} with {}", candidate.tag),
 		});
 
 		// Create the node.
 		let node = self
-			.unify_visit_object(current, &object, Some(tag.clone()), true)
+			.unify_visit_object(
+				current,
+				&candidate.object,
+				candidate.lockfile_node,
+				Some(candidate.tag.clone()),
+				true,
+			)
 			.await?;
 
 		// Update the list of solved packages.
-		current.packages.insert(tag.name().to_owned(), (tag, node));
+		current.packages.insert(
+			candidate.tag.name().to_owned(),
+			tg::Referent {
+				item: node,
+				path: candidate.path.clone(),
+				tag: Some(candidate.tag.clone()),
+			},
+		);
 
 		// Checkpoint.
 		checkpoints.push(current.clone());
 
 		// Return.
-		Ok(node)
+		Ok((node, candidate.path))
 	}
 
 	async fn unify_visit_object(
 		&self,
-		state: &mut State,
+		state: &mut State<'_>,
 		object: &tg::Object,
+		lockfile_node: Option<usize>,
 		tag: Option<tg::Tag>,
 		unify: bool,
 	) -> tg::Result<usize> {
 		let mut visited = BTreeMap::new();
-		self.unify_visit_object_inner(state, object, None, None, tag, unify, &mut visited)
-			.await
+		self.unify_visit_object_inner(
+			state,
+			object,
+			lockfile_node,
+			None,
+			None,
+			tag,
+			unify,
+			&mut visited,
+		)
+		.await
 	}
 
 	async fn unify_visit_object_inner(
 		&self,
-		state: &mut State,
+		state: &mut State<'_>,
 		object: &tg::Object,
+		lockfile_node: Option<usize>,
 		root: Option<usize>,
 		subpath: Option<PathBuf>,
 		tag: Option<tg::Tag>,
@@ -320,6 +423,7 @@ impl Server {
 
 		// Create the node.
 		let node = super::Node {
+			lockfile_index: lockfile_node,
 			metadata: None,
 			object: object_,
 			tag: tag.clone(),
@@ -344,6 +448,7 @@ impl Server {
 			tg::Object::Directory(directory) if unify => {
 				self.unify_visit_directory_edges(
 					state,
+					lockfile_node,
 					root,
 					subpath,
 					index,
@@ -354,12 +459,28 @@ impl Server {
 				.await?;
 			},
 			tg::Object::File(file) if unify => {
-				self.unify_visit_file_edges(state, root, index, file, tag.clone(), visited)
-					.await?;
+				self.unify_visit_file_edges(
+					state,
+					lockfile_node,
+					root,
+					index,
+					file,
+					tag.clone(),
+					visited,
+				)
+				.await?;
 			},
 			tg::Object::Symlink(symlink) if unify => {
-				self.unify_visit_symlink_edges(state, root, index, symlink, tag.clone(), visited)
-					.await?;
+				self.unify_visit_symlink_edges(
+					state,
+					lockfile_node,
+					root,
+					index,
+					symlink,
+					tag.clone(),
+					visited,
+				)
+				.await?;
 			},
 			_ => (),
 		}
@@ -370,7 +491,8 @@ impl Server {
 
 	async fn unify_visit_directory_edges(
 		&self,
-		state: &mut State,
+		state: &mut State<'_>,
+		lockfile_node: Option<usize>,
 		root: usize,
 		subpath: Option<PathBuf>,
 		index: usize,
@@ -383,9 +505,20 @@ impl Server {
 			let subpath = subpath
 				.as_ref()
 				.map_or_else(|| name.as_str().into(), |subpath| subpath.join(&name));
+			let lockfile_node = lockfile_node.and_then(|node| {
+				state.lockfile.unwrap().nodes[node]
+					.try_unwrap_directory_ref()
+					.ok()?
+					.entries
+					.get(&name)?
+					.as_ref()
+					.left()
+					.copied()
+			});
 			let child_index = Box::pin(self.unify_visit_object_inner(
 				state,
 				&object.into(),
+				lockfile_node,
 				Some(root),
 				Some(subpath),
 				tag.clone(),
@@ -405,7 +538,8 @@ impl Server {
 
 	async fn unify_visit_file_edges(
 		&self,
-		state: &mut State,
+		state: &mut State<'_>,
+		lockfile_node: Option<usize>,
 		root: usize,
 		index: usize,
 		file: &tg::File,
@@ -414,6 +548,18 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut dependencies = Vec::new();
 		for (reference, referent) in file.dependencies(self).await? {
+			let lockfile_node = lockfile_node.and_then(|node| {
+				state.lockfile.unwrap().nodes[node]
+					.try_unwrap_file_ref()
+					.ok()?
+					.dependencies
+					.get(&reference)?
+					.item
+					.as_ref()
+					.left()
+					.copied()
+			});
+
 			// Leave tag references as unresolved.
 			if reference.item().try_unwrap_tag_ref().is_ok() {
 				let dependency = FileDependency::Referent {
@@ -429,6 +575,7 @@ impl Server {
 				let index = Box::pin(self.unify_visit_object_inner(
 					state,
 					&referent.item,
+					lockfile_node,
 					Some(root),
 					referent.path.clone(),
 					tag.clone(),
@@ -456,7 +603,8 @@ impl Server {
 
 	async fn unify_visit_symlink_edges(
 		&self,
-		_state: &mut State,
+		_state: &mut State<'_>,
+		_lockfile_node: Option<usize>,
 		_root: usize,
 		_index: usize,
 		_symlink: &tg::Symlink,
@@ -521,7 +669,7 @@ impl super::Graph {
 	}
 }
 
-fn try_backtrack(state: &mut Vec<State>, edge: &Unresolved) -> Option<State> {
+fn try_backtrack<'a>(state: &mut Vec<State<'a>>, edge: &Unresolved) -> Option<State<'a>> {
 	// Go back to where the reference was originally solved.
 	let package = edge.reference.name()?;
 	let position = state

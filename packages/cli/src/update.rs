@@ -9,11 +9,17 @@ use tangram_client::{self as tg, prelude::*};
 pub struct Args {
 	#[arg(index = 1, default_value = ".")]
 	pub path: PathBuf,
+
+	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
+	pub patterns: Option<Vec<tg::tag::Pattern>>,
 }
 
 impl Cli {
 	pub async fn command_update(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		let updates = args
+			.patterns
+			.unwrap_or_else(|| vec![tg::tag::Pattern::wildcard()]);
 
 		// Get the absolute path.
 		let path = std::path::absolute(&args.path)
@@ -32,6 +38,7 @@ impl Cli {
 			locked: false,
 			lockfile: true,
 			path,
+			updates,
 		};
 		let stream = handle.checkin(arg).await?;
 		stream.map_ok(|_| ()).try_collect::<()>().await?;

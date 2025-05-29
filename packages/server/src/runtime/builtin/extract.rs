@@ -95,6 +95,7 @@ impl Runtime {
 				lockfile: false,
 				destructive: true,
 				path: temp.path().to_owned(),
+				updates: Vec::new(),
 			})
 			.await?;
 		let output = pin!(stream)

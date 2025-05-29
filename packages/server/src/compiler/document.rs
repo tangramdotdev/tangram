@@ -164,6 +164,7 @@ impl Compiler {
 			ignore: true,
 			locked: false,
 			lockfile: true,
+			updates: Vec::new(),
 		};
 		tg::checkin(&self.server, arg).await.map_err(
 			|source| tg::error!(!source, %package = package_path.display(), "failed to check in package"),
@@ -188,6 +189,7 @@ impl Compiler {
 			ignore: true,
 			locked: false,
 			lockfile: true,
+			updates: Vec::new(),
 		};
 		tg::checkin(&self.server, arg)
 			.await

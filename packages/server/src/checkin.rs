@@ -18,7 +18,6 @@ use tokio_util::task::AbortOnDropHandle;
 
 mod input;
 mod lockfile;
-mod module;
 mod object;
 mod output;
 mod unify;
@@ -29,7 +28,6 @@ struct State {
 	graph: Graph,
 	graph_objects: Vec<GraphObject>,
 	lockfile: Option<Lockfile>,
-	locked: bool,
 	ignorer: Option<ignore::Ignorer>,
 	progress: crate::progress::Handle<tg::checkin::Output>,
 }
@@ -49,6 +47,7 @@ pub struct Graph {
 
 #[derive(Clone, Debug)]
 struct Node {
+	lockfile_index: Option<usize>,
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
@@ -77,7 +76,7 @@ struct Directory {
 struct File {
 	blob: Option<Blob>,
 	executable: bool,
-	dependencies: Vec<FileDependency>,
+	dependencies: Vec<FileDependency>, // todo: replace with Option<(Reference, Referent)>
 }
 
 #[derive(Clone, Debug)]
@@ -240,7 +239,6 @@ impl Server {
 			graph,
 			graph_objects: Vec::new(),
 			lockfile,
-			locked: arg.locked,
 			ignorer,
 			progress: progress.clone(),
 		};
@@ -276,11 +274,6 @@ impl Server {
 			self.unify_file_dependencies(&mut state).await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "unify");
 		}
-
-		// Resolve root modules.
-		let start = Instant::now();
-		Self::checkin_resolve_root_modules(&mut state);
-		tracing::trace!(elapsed = ?start.elapsed(), "resolve root modules");
 
 		// Create blobs.
 		let start = Instant::now();
@@ -519,19 +512,6 @@ impl Graph {
 }
 
 impl Node {
-	fn root_module(&self) -> Option<(PathBuf, usize)> {
-		self.variant
-			.try_unwrap_directory_ref()
-			.ok()
-			.and_then(|directory| {
-				directory.entries.iter().find_map(|(name, node)| {
-					tg::package::ROOT_MODULE_FILE_NAMES
-						.contains(&name.as_str())
-						.then_some((name.into(), *node))
-				})
-			})
-	}
-
 	fn path(&self) -> &Path {
 		self.path.as_deref().unwrap()
 	}

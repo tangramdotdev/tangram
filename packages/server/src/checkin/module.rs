@@ -19,8 +19,16 @@ impl Server {
 				.enumerate()
 				.filter_map(|(dep_index, dependency)| match dependency {
 					FileDependency::Import {
-						node: Some(node), ..
+						import,
+						node: Some(node),
+						..
 					} => {
+						if !matches!(
+							import.kind,
+							None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
+						) {
+							return None;
+						}
 						let tag = state.graph.nodes[*node].tag.clone();
 						let (path, referent) = state.graph.nodes[*node].root_module()?;
 						let path = state.graph.referent_path(referrer, referent).or(Some(path));

@@ -460,6 +460,7 @@ impl Runtime {
 				path: output.clone(),
 				locked: true,
 				lockfile: false,
+				updates: Vec::new(),
 			};
 			let artifact = tg::checkin(&self.server, arg)
 				.await

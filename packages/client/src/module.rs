@@ -31,6 +31,7 @@ pub enum Kind {
 	Object,
 	Artifact,
 	Blob,
+
 	Directory,
 	File,
 	Symlink,
