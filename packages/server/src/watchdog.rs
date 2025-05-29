@@ -50,16 +50,36 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
 		let params = db::params![max_heartbeat_at, config.batch_size];
-		let processes = connection
+		let timeout_exceeded_processes = connection
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Get all started processes whose depth exceeds the limit.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id
+				from processes
+				where
+					status = 'started' and
+					depth > {p}1
+				limit {p}2
+			"
+		);
+		let max_depth = config.max_depth;
+		let params = db::params![max_depth, config.batch_size];
+		let depth_exceeded_processes = connection
+			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		dbg!(&depth_exceeded_processes);
 
 		// Drop the database connection.
 		drop(connection);
 
 		// Cancel the processes.
-		processes
+		timeout_exceeded_processes
 			.iter()
 			.map(|process| {
 				let server = self.clone();
@@ -92,6 +112,37 @@ impl Server {
 			.collect::<Vec<_>>()
 			.await;
 
-		Ok(processes.len().to_u64().unwrap())
+		depth_exceeded_processes
+			.iter()
+			.map(|process| {
+				let server = self.clone();
+				async move {
+					let error = Some(tg::error!(
+						code = tg::error::Code::Cancelation,
+						"the process's depth exceeded the limit"
+					));
+					let arg = tg::process::finish::Arg {
+						checksum: None,
+						error,
+						exit: 1,
+						force: false,
+						output: None,
+						remote: None,
+					};
+					server
+						.finish_process(process, arg)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to cancel the process");
+						})
+						.ok();
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await;
+
+		Ok(timeout_exceeded_processes.len().to_u64().unwrap()
+			+ depth_exceeded_processes.len().to_u64().unwrap())
 	}
 }
