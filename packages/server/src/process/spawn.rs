@@ -639,6 +639,50 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Determine if adding this child process creates a cycle.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				with recursive ancestors as (
+					select 
+						{p}1 as current,
+						case when {p}1 = {p}2 then true else false end as found_cycle
+					
+					union all
+					
+					select 
+						process_children.process as current,
+						case when process_children.process = {p}2 then true else ancestors.found_cycle end
+					from ancestors 
+					join process_children on ancestors.current = process_children.child
+					where not ancestors.found_cycle  
+				)
+				select exists(
+					select 1 from ancestors where found_cycle = true
+				);
+		"
+		);
+		let params = db::params![parent, child];
+		let creates_cycle = connection
+			.query_one_value_into::<bool>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the cycle check"))?;
+
+		// If adding this child creates a cycle, return an error.
+		if creates_cycle {
+			return Err(tg::error!("adding this child process creates a cycle"));
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Get a database connection.
+		let connection = self
+			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

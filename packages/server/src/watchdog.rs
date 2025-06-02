@@ -73,7 +73,6 @@ impl Server {
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		dbg!(&depth_exceeded_processes);
 
 		// Drop the database connection.
 		drop(connection);
