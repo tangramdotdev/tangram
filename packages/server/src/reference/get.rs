@@ -61,24 +61,7 @@ impl Server {
 						tg::progress::Event::Finish(indicator)
 					},
 					tg::progress::Event::Output(output) => {
-						let path = output
-							.referent
-							.path
-							.map(|path| {
-								if let Some(subpath) = reference
-									.options()
-									.and_then(|options| options.subpath.as_ref())
-								{
-									path.join(subpath)
-								} else {
-									path
-								}
-							})
-							.or_else(|| {
-								reference
-									.options()
-									.and_then(|options| options.subpath.clone())
-							});
+						let path = output.referent.path;
 						let referent = tg::Referent {
 							item: Either::Right(output.referent.item.into()),
 							path,
@@ -95,13 +78,10 @@ impl Server {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());
 				};
-				let path = reference
-					.options()
-					.and_then(|options| options.subpath.clone());
 				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,
-						path,
+						path: None,
 						tag: Some(tag),
 					},
 				};

@@ -535,10 +535,6 @@ impl Server {
 						.ok()
 						.or_else(|| reference.options()?.path.as_ref())
 						.ok_or_else(|| tg::error!(%reference, "expected a path reference"))?;
-					let path = reference
-						.options()
-						.and_then(|options| options.subpath.as_ref())
-						.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
 					let path = arg.current_node_path.parent().unwrap().join(path);
 					let path = tokio::fs::canonicalize(&path).await.map_err(
 						|source| tg::error!(!source, %path = path.display(), "failed to canonicalize the path"),

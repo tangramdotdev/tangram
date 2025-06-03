@@ -51,16 +51,11 @@ impl Import {
 					.options()
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
-				let subpath = reference
-					.options()
-					.and_then(|query| query.subpath.clone())
-					.or(attributes.subpath);
 				let query = tg::reference::Options {
 					name,
 					overrides,
 					path,
 					remote,
-					subpath,
 				};
 				let query = serde_urlencoded::to_string(query)
 					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;

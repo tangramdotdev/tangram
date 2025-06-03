@@ -99,20 +99,16 @@ impl Cli {
 
 		// Handle the executable subpath.
 		let reference = if let Some(executable_subpath) = &options.executable_subpath {
-			let item = reference.item();
-			let subpath = if let Some(subpath) = reference
-				.options()
-				.and_then(|options| options.subpath.as_ref())
-			{
-				subpath.join(executable_subpath)
-			} else {
-				executable_subpath.clone()
-			};
-			let options = tg::reference::Options {
-				subpath: Some(subpath),
-				..Default::default()
-			};
-			tg::Reference::with_item_and_options(item, Some(&options))
+			let referent = self.get_reference(&reference).await?;
+			let directory = referent
+				.item
+				.right()
+				.ok_or_else(|| tg::error!("expected an object"))?
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			let artifact = directory.get(&handle, executable_subpath).await?;
+			tg::Reference::with_object(&artifact.id().into())
 		} else {
 			reference
 		};

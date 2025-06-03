@@ -113,14 +113,6 @@ impl Cli {
 
 		// If the reference is a path to a directory and the path does not contain a root module, then init.
 		if let Ok(path) = reference.item().try_unwrap_path_ref() {
-			let path = if let Some(subpath) = reference
-				.options()
-				.and_then(|options| options.subpath.as_ref())
-			{
-				path.join(subpath)
-			} else {
-				path.clone()
-			};
 			let metadata = tokio::fs::metadata(&path).await.map_err(
 				|source| tg::error!(!source, ?path = path.display(), "failed to get the metadata"),
 			)?;
@@ -234,16 +226,8 @@ impl Cli {
 					.try_unwrap_path_ref()
 					.ok()
 					.and_then(|path| {
-						let path = if let Some(subpath) = reference
-							.options()
-							.and_then(|options| options.subpath.as_ref())
-						{
-							path.join(subpath)
-						} else {
-							path.clone()
-						};
-						if tg::package::is_root_module_path(&path)
-							|| tg::package::is_module_path(&path)
+						if tg::package::is_root_module_path(path)
+							|| tg::package::is_module_path(path)
 						{
 							Some(path)
 						} else {

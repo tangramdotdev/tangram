@@ -1424,15 +1424,7 @@ impl Cli {
 					.try_unwrap_path_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a path"))?;
-				let path = if let Some(subpath) = reference
-					.options()
-					.and_then(|options| options.subpath.as_ref())
-				{
-					path.join(subpath)
-				} else {
-					path.clone()
-				};
-				if tg::package::is_root_module_path(&path) || tg::package::is_module_path(&path) {
+				if tg::package::is_root_module_path(path) || tg::package::is_module_path(path) {
 					return Err(tg::error!("expected a module path"));
 				}
 				let kind = if path.extension().is_some_and(|extension| extension == "js") {
