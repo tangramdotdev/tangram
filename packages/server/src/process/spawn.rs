@@ -649,20 +649,17 @@ impl Server {
 			"
 				with recursive ancestors as (
 					select 
-						{p}1 as current,
-						case when {p}1 = {p}2 then true else false end as found_cycle
+						{p}1 as current
 					
 					union all
 					
 					select 
-						process_children.process as current,
-						case when process_children.process = {p}2 then true else ancestors.found_cycle end
+						process_children.process as current
 					from ancestors 
 					join process_children on ancestors.current = process_children.child
-					where not ancestors.found_cycle  
 				)
 				select exists(
-					select 1 from ancestors where found_cycle = true
+					select 1 from ancestors where current = {p}2 
 				);
 		"
 		);
