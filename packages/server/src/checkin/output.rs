@@ -424,6 +424,18 @@ impl Server {
 		// Create a lockfile.
 		let lockfile = Self::create_lockfile(state)?;
 
+		// Check if the lockfile changed and --locked was used.
+		if state.arg.locked
+			&& state
+				.lockfile
+				.as_ref()
+				.is_some_and(|existing| existing.nodes != lockfile.nodes)
+		{
+			return Err(tg::error!(
+				"--locked was passed as an arg to checkin, but the lockfile is out of date"
+			));
+		}
+
 		// Do nothing if the lockfile is empty.
 		if lockfile.nodes.is_empty() {
 			crate::util::fs::remove(&lockfile_path).await.ok();

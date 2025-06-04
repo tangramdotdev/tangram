@@ -27,6 +27,7 @@ impl Server {
 
 		// Strip the lockfile nodes.
 		let nodes = Self::strip_lockfile_nodes(&nodes, &path_dependencies, root)?;
+
 		Ok(tg::Lockfile { nodes })
 	}
 
