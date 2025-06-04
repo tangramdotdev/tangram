@@ -648,29 +648,25 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				with recursive ancestors as (
-					select 
-						{p}1 as current
-					
+					select {p}1 as id
 					union all
-					
-					select 
-						process_children.process as current
+					select process_children.process as id
 					from ancestors 
-					join process_children on ancestors.current = process_children.child
+					join process_children on ancestors.id = process_children.child
 				)
 				select exists(
-					select 1 from ancestors where current = {p}2 
+					select 1 from ancestors where id = {p}2
 				);
 		"
 		);
 		let params = db::params![parent, child];
-		let creates_cycle = connection
+		let cycle = connection
 			.query_one_value_into::<bool>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the cycle check"))?;
 
 		// If adding this child creates a cycle, return an error.
-		if creates_cycle {
+		if cycle {
 			return Err(tg::error!("adding this child process creates a cycle"));
 		}
 

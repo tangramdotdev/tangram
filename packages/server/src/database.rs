@@ -117,9 +117,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_command_index on processes (command);
 
-			create index processes_depth_index on processes (depth);
+			create index processes_depth_index on processes (depth) where status = 'started';
 
-			create index processes_heartbeat_index on processes (heartbeat_at) where status = 'started';
+			create index processes_heartbeat_at_index on processes (heartbeat_at) where status = 'started';
 
 			create index processes_status_index on processes (status);
 
