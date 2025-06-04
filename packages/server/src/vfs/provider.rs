@@ -289,7 +289,7 @@ impl vfs::Provider for Provider {
 
 		// Render the target.
 		let Ok(target) = symlink.target(&self.server).await else {
-			tracing::error!("failed to get the symlink's target");
+			tracing::error!(?symlink, "failed to get the symlink's target");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		let Ok(artifact) = symlink.artifact(&self.server).await else {

@@ -158,10 +158,10 @@ impl tg::Handle for Proxy {
 
 	async fn import(
 		&self,
-		_arg: tg::import::Arg,
-		_stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+		arg: tg::import::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
-		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+		self.server.import(arg, stream).await
 	}
 
 	async fn export(
