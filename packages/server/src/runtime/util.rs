@@ -252,19 +252,19 @@ pub async fn log(
 ) {
 	let state = process.load(server).await.unwrap();
 	let stderr = state.stderr.as_ref();
-	let stdout = state.stderr.as_ref();
+	let stdout = state.stdout.as_ref();
 
 	// If the pty or pipe is set, write to it.
 	if let (tg::process::log::Stream::Stderr, Some(io)) = (stream, stderr) {
 		server
-			.write_bytes_to_io(io, message, process.remote())
+			.write_message_to_stdio(io, message, process.remote())
 			.await
 			.ok();
 		return;
 	}
 	if let (tg::process::log::Stream::Stdout, Some(io)) = (stream, stdout) {
 		server
-			.write_bytes_to_io(io, message, process.remote())
+			.write_message_to_stdio(io, message, process.remote())
 			.await
 			.ok();
 		return;
@@ -284,7 +284,7 @@ pub async fn log(
 }
 
 impl Server {
-	pub(super) async fn write_bytes_to_io(
+	pub(super) async fn write_message_to_stdio(
 		&self,
 		io: &tg::process::Stdio,
 		message: String,
@@ -312,17 +312,29 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) fn get_pty_or_pipe_fd(&self, io: &tg::process::Stdio) -> tg::Result<OwnedFd> {
-		match io {
-			tg::process::Stdio::Pipe(pipe) => Ok(self
+	pub(super) fn get_pty_or_pipe_fd(
+		&self,
+		io: &tg::process::Stdio,
+		read: bool,
+	) -> tg::Result<OwnedFd> {
+		match (io, read) {
+			(tg::process::Stdio::Pipe(pipe), true) => Ok(self
 				.pipes
 				.get(pipe)
 				.ok_or_else(|| tg::error!("failed to get pipe"))?
-				.guest
+				.read
 				.try_clone()
 				.map_err(|source| tg::error!(!source, "failed to get pipe"))?
 				.into()),
-			tg::process::Stdio::Pty(pty) => {
+			(tg::process::Stdio::Pipe(pipe), false) => Ok(self
+				.pipes
+				.get(pipe)
+				.ok_or_else(|| tg::error!("failed to get pipe"))?
+				.read
+				.try_clone()
+				.map_err(|source| tg::error!(!source, "failed to get pipe"))?
+				.into()),
+			(tg::process::Stdio::Pty(pty), _) => {
 				let pty = self
 					.ptys
 					.get(pty)

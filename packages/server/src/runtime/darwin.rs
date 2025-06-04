@@ -182,21 +182,21 @@ impl Runtime {
 		let stdin = match state.stdin.as_ref() {
 			_ if command.stdin.is_some() => sandbox::Stdio::piped(),
 			Some(stdio) => {
-				let fd = self.server.get_pty_or_pipe_fd(stdio)?;
+				let fd = self.server.get_pty_or_pipe_fd(stdio, true)?;
 				sandbox::Stdio::from(fd)
 			},
 			None => sandbox::Stdio::piped(),
 		};
 		let stdout = match state.stdout.as_ref() {
 			Some(stdio) => {
-				let fd = self.server.get_pty_or_pipe_fd(stdio)?;
+				let fd = self.server.get_pty_or_pipe_fd(stdio, false)?;
 				sandbox::Stdio::from(fd)
 			},
 			None => sandbox::Stdio::piped(),
 		};
 		let stderr = match state.stderr.as_ref() {
 			Some(stdio) => {
-				let fd = self.server.get_pty_or_pipe_fd(stdio)?;
+				let fd = self.server.get_pty_or_pipe_fd(stdio, false)?;
 				sandbox::Stdio::from(fd)
 			},
 			None => sandbox::Stdio::piped(),

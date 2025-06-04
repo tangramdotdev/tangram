@@ -18,15 +18,20 @@ impl Server {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.write_pipe(id, arg, stream.boxed()).await;
 		}
+
 		let mut stream = pin!(stream);
 		let pipe = self
 			.pipes
 			.get(id)
 			.ok_or_else(|| tg::error!("could not find pipe"))?
-			.host
-			.clone();
+			.write
+			.try_clone()
+			.map_err(|source| tg::error!(!source, "failed to clone pipe"))?;
+		pipe.set_nonblocking(true)
+			.map_err(|source| tg::error!(!source, "failed to set pipe as nonblocking"))?;
+		let mut pipe = tokio::net::UnixStream::from_std(pipe)
+			.map_err(|source| tg::error!(!source, "failed to create async pipe"))?;
 		while let Some(event) = stream.try_next().await? {
-			let mut pipe = pipe.lock().await;
 			match event {
 				tg::pipe::Event::Chunk(chunk) => {
 					pipe.write_all(&chunk)

@@ -24,12 +24,16 @@ impl Server {
 			.pipes
 			.get(id)
 			.ok_or_else(|| tg::error!("could not find pipe"))?
-			.host
-			.clone();
+			.read
+			.try_clone()
+			.map_err(|source| tg::error!(!source, "failed to clone pipe"))?;
+		pipe.set_nonblocking(true)
+			.map_err(|source| tg::error!(!source, "failed to set pipe as nonblocking"))?;
+		let mut pipe = tokio::net::UnixStream::from_std(pipe)
+			.map_err(|source| tg::error!(!source, "failed to create async pipe"))?;
 		let task = tokio::spawn({
 			async move {
 				loop {
-					let mut pipe = pipe.lock().await;
 					let mut buf = vec![0u8; 1024];
 					match pipe.read(&mut buf).await {
 						Ok(0) => {
