@@ -1,7 +1,7 @@
 use crate as tg;
 use futures::{TryStreamExt as _, stream::FuturesOrdered};
 use itertools::Itertools as _;
-use std::{borrow::Cow, collections::BTreeSet};
+use std::borrow::Cow;
 
 pub use self::component::Component;
 
@@ -101,15 +101,13 @@ impl Data {
 		&self.components
 	}
 
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> + '_ {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
 				component::Data::String(_) => None,
 				component::Data::Artifact(id) => Some(id.clone().into()),
 			})
-			.collect()
 	}
 
 	pub fn try_render<'a, F>(&'a self, mut f: F) -> tg::Result<String>

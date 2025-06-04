@@ -691,14 +691,13 @@ impl Server {
 		// Recurse into the children.
 		let (children_count, children_weight) = data
 			.children()
-			.iter()
 			.map(|child| {
 				let server = self.clone();
 				async move {
 					let output = server
 						.export_inner_object(
 							Some(Either::Right(object)),
-							child,
+							&child,
 							graph,
 							event_sender,
 						)
@@ -792,9 +791,8 @@ impl Server {
 		// Recurse into the children.
 		let children: Vec<_> = data
 			.children()
-			.iter()
 			.map(move |child| {
-				self.export_sync_inner_object(state, Some(&Either::Right(object)), child)
+				self.export_sync_inner_object(state, Some(&Either::Right(object)), &child)
 			})
 			.try_collect()?;
 
@@ -966,11 +964,9 @@ impl Server {
 				if data.status.is_finished() {
 					let metadata: Vec<Option<tg::object::Metadata>> = data
 						.output
-						.as_ref()
-						.map(tg::value::Data::children)
 						.iter()
-						.flatten()
-						.map(|child| src.try_get_object_metadata(child))
+						.flat_map(tg::value::Data::children)
+						.map(|child| async move { src.try_get_object_metadata(&child).await })
 						.collect::<FuturesUnordered<_>>()
 						.try_collect::<Vec<_>>()
 						.await?;
@@ -1061,11 +1057,9 @@ impl Server {
 				if data.status.is_finished() {
 					let metadata: Vec<tg::object::Metadata> = data
 						.output
-						.as_ref()
-						.map(tg::value::Data::children)
 						.iter()
-						.flatten()
-						.map(|child| Self::get_object_metadata_local_sync(&state.index, child))
+						.flat_map(tg::value::Data::children)
+						.map(|child| Self::get_object_metadata_local_sync(&state.index, &child))
 						.try_collect()?;
 					let count = metadata
 						.iter()

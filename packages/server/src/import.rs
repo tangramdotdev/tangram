@@ -452,11 +452,10 @@ impl Server {
 						.iter()
 						.map(|(id, bytes)| async {
 							let data = tg::object::Data::deserialize(id.kind(), bytes.clone())?;
-							let children = data.children();
 							let message =
 								crate::index::Message::PutObject(crate::index::PutObjectMessage {
 									cache_reference: None,
-									children,
+									children: data.children().collect(),
 									id: id.clone(),
 									size: bytes.len().to_u64().unwrap(),
 									touched_at,

@@ -165,7 +165,7 @@ impl Server {
 				let node = &state.graph.nodes[node];
 				let object = node.object.as_ref().unwrap();
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
-					children: object.data.children(),
+					children: object.data.children().collect(),
 					id: object.id.clone(),
 					size: object.bytes.len().to_u64().unwrap(),
 					touched_at,
@@ -184,7 +184,7 @@ impl Server {
 						let children = blob
 							.data
 							.as_ref()
-							.map(tg::blob::Data::children)
+							.map(|data| data.children().collect())
 							.unwrap_or_default();
 						let id = blob.id.clone().into();
 						let size = blob.size;
@@ -238,7 +238,7 @@ impl Server {
 				let node = &state.graph.nodes[node];
 				let object = node.object.as_ref().unwrap();
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
-					children: object.data.children(),
+					children: object.data.children().collect(),
 					id: object.id.clone(),
 					size: object.bytes.len().to_u64().unwrap(),
 					touched_at,
@@ -261,7 +261,7 @@ impl Server {
 						let children = blob
 							.data
 							.as_ref()
-							.map(tg::blob::Data::children)
+							.map(|data| data.children().collect())
 							.unwrap_or_default();
 						let id = blob.id.clone().into();
 						let size = blob.size;

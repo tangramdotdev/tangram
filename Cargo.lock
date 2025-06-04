@@ -6051,6 +6051,7 @@ dependencies = [
  "tangram_either",
  "tangram_futures",
  "tangram_http",
+ "tangram_itertools",
  "tangram_uri",
  "tangram_version",
  "time",
@@ -6144,6 +6145,13 @@ dependencies = [
  "pretty_assertions",
  "tangram_temp",
  "tokio",
+]
+
+[[package]]
+name = "tangram_itertools"
+version = "0.0.0"
+dependencies = [
+ "tangram_either",
 ]
 
 [[package]]

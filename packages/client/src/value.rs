@@ -4,12 +4,10 @@ use bytes::Bytes;
 use futures::{StreamExt as _, stream};
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	pin::pin,
-};
+use std::{collections::BTreeMap, pin::pin};
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
+use tangram_itertools::IteratorExt as _;
 
 pub use self::data::*;
 
@@ -244,17 +242,16 @@ impl Data {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
 			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => {
-				[].into()
+				std::iter::empty().boxed()
 			},
-			Self::Array(array) => array.iter().flat_map(Self::children).collect(),
-			Self::Map(map) => map.values().flat_map(Self::children).collect(),
-			Self::Object(object) => [object.clone()].into(),
-			Self::Mutation(mutation) => mutation.children(),
-			Self::Template(template) => template.children(),
+			Self::Array(array) => array.iter().flat_map(Self::children).boxed(),
+			Self::Map(map) => map.values().flat_map(Self::children).boxed(),
+			Self::Object(object) => std::iter::once(object.clone()).boxed(),
+			Self::Mutation(mutation) => mutation.children().boxed(),
+			Self::Template(template) => template.children().boxed(),
 		}
 	}
 }

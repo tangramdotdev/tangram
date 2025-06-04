@@ -43,7 +43,6 @@ impl Runtime {
 		if self.server.vfs.lock().unwrap().is_none() {
 			command
 				.children()
-				.into_iter()
 				.filter_map(|id| id.try_into().ok())
 				.map(|artifact| async move {
 					let arg = tg::checkout::Arg {

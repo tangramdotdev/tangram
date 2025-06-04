@@ -3,7 +3,7 @@ use crate::{
 	util::serde::{is_false, is_true, return_true},
 };
 use itertools::Itertools as _;
-use std::{collections::BTreeSet, path::PathBuf};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
@@ -116,8 +116,7 @@ pub struct Mount {
 }
 
 impl Mount {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		BTreeSet::new()
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		std::iter::empty()
 	}
 }

@@ -1,7 +1,8 @@
 use crate as tg;
 use bytes::Bytes;
 use itertools::Itertools as _;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
@@ -27,11 +28,10 @@ impl Directory {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
-			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
+			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().left_iterator(),
+			Self::Normal { entries } => entries.values().cloned().map(Into::into).right_iterator(),
 		}
 	}
 }

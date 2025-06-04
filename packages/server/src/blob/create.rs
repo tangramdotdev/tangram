@@ -289,7 +289,7 @@ impl Server {
 			let children = blob
 				.data
 				.as_ref()
-				.map(tg::blob::Data::children)
+				.map(|data| data.children().collect())
 				.unwrap_or_default();
 			let id = blob.id.clone().into();
 			let size = blob.size;

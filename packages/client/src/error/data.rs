@@ -1,9 +1,5 @@
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
-};
-
 use crate as tg;
+use std::{collections::BTreeMap, path::PathBuf};
 
 /// An error.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -53,8 +49,7 @@ pub enum File {
 }
 
 impl Error {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		std::iter::empty()
 			.chain(
 				self.location
@@ -63,19 +58,22 @@ impl Error {
 					.into_iter()
 					.flatten(),
 			)
-			.collect()
+			.chain(
+				self.stack
+					.iter()
+					.flat_map(|stack| stack.iter().map(Location::children))
+					.flatten(),
+			)
 	}
 }
 
 impl Location {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		self.file
 			.try_unwrap_module_ref()
 			.ok()
 			.map(tg::module::Data::children)
 			.into_iter()
 			.flatten()
-			.collect()
 	}
 }

@@ -1,9 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
-};
+use std::{collections::BTreeMap, path::PathBuf};
+use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Command {
@@ -77,8 +75,7 @@ impl Command {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		let executable = self.executable.children();
 		let args = self.args.iter().flat_map(tg::value::Data::children);
 		let env = self.env.values().flat_map(tg::value::Data::children);
@@ -91,42 +88,38 @@ impl Command {
 			.chain(args)
 			.chain(env)
 			.chain(mounts)
-			.collect()
+			.boxed()
 	}
 }
 
 impl Executable {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Artifact(artifact) => artifact.children(),
-			Self::Module(module) => module.children(),
-			Self::Path(_) => [].into(),
+			Self::Artifact(artifact) => artifact.children().boxed(),
+			Self::Module(module) => module.children().boxed(),
+			Self::Path(_) => std::iter::empty().boxed(),
 		}
 	}
 }
 
 impl ArtifactExecutable {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		[self.artifact.clone().into()].into()
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		std::iter::once(self.artifact.clone().into())
 	}
 }
 
 impl ModuleExecutable {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		if let tg::module::data::Item::Object(object) = &self.module.referent.item {
-			[object.clone()].into()
+			std::iter::once(object.clone()).left_iterator()
 		} else {
-			[].into()
+			std::iter::empty().right_iterator()
 		}
 	}
 }
 
 impl Mount {
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		[self.source.clone().into()].into()
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		std::iter::once(self.source.clone().into())
 	}
 }

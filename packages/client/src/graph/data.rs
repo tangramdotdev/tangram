@@ -1,10 +1,8 @@
 use crate::{self as tg, util::serde::is_false};
 use bytes::Bytes;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
-};
+use std::{collections::BTreeMap, path::PathBuf};
 use tangram_either::Either;
+use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Graph {
@@ -66,42 +64,44 @@ impl Graph {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
-		let mut children = BTreeSet::new();
-		for node in &self.nodes {
-			match node {
-				tg::graph::data::Node::Directory(tg::graph::data::Directory { entries }) => {
-					for either in entries.values() {
-						if let Either::Right(id) = either {
-							children.insert(id.clone().into());
-						}
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		self.nodes.iter().flat_map(|node| match node {
+			tg::graph::data::Node::Directory(tg::graph::data::Directory { entries }) => entries
+				.values()
+				.filter_map(|either| {
+					if let Either::Right(id) = either {
+						Some(id.clone().into())
+					} else {
+						None
 					}
-				},
-				tg::graph::data::Node::File(tg::graph::data::File {
-					contents,
-					dependencies,
+				})
+				.boxed(),
+			tg::graph::data::Node::File(tg::graph::data::File {
+				contents,
+				dependencies,
+				..
+			}) => std::iter::empty()
+				.chain(std::iter::once(contents.clone().into()))
+				.chain(dependencies.values().filter_map(|referent| {
+					if let Either::Right(id) = &referent.item {
+						Some(id.clone())
+					} else {
+						None
+					}
+				}))
+				.boxed(),
+			tg::graph::data::Node::Symlink(symlink) => {
+				if let tg::graph::data::Symlink::Artifact {
+					artifact: Either::Right(id),
 					..
-				}) => {
-					children.insert(contents.clone().into());
-					for referent in dependencies.values() {
-						if let Either::Right(id) = &referent.item {
-							children.insert(id.clone());
-						}
-					}
-				},
-				tg::graph::data::Node::Symlink(symlink) => {
-					if let tg::graph::data::Symlink::Artifact {
-						artifact: Either::Right(id),
-						..
-					} = symlink
-					{
-						children.insert(id.clone().into());
-					}
-				},
-			}
-		}
-		children
+				} = symlink
+				{
+					std::iter::once(id.clone().into()).boxed()
+				} else {
+					std::iter::empty().boxed()
+				}
+			},
+		})
 	}
 }
 

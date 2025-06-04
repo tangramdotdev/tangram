@@ -1,7 +1,7 @@
 use crate as tg;
 use bytes::Bytes;
-use itertools::Itertools as _;
-use std::{collections::BTreeSet, path::PathBuf};
+use std::path::PathBuf;
+use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
@@ -35,14 +35,11 @@ impl Symlink {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
 	}
 
-	#[must_use]
-	pub fn children(&self) -> BTreeSet<tg::object::Id> {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
-			Self::Target { .. } => BTreeSet::new(),
-			Self::Artifact { artifact, .. } => {
-				std::iter::once(artifact.clone()).map_into().collect()
-			},
+			Self::Graph { graph, .. } => std::iter::once(graph.clone().into()).boxed(),
+			Self::Target { .. } => std::iter::empty().boxed(),
+			Self::Artifact { artifact, .. } => std::iter::once(artifact.clone().into()).boxed(),
 		}
 	}
 }
