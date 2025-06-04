@@ -49,7 +49,7 @@ impl Server {
 			let progress = progress.clone();
 			async move {
 				// Pull the artifact's incomplete objects.
-				let result = server.pull_incompete(&artifact, &progress).await.map_err(
+				let result = server.pull_incomplete(&artifact, &progress).await.map_err(
 					|source| tg::error!(!source, %artifact, "failed to pull or index the artifact"),
 				);
 				if let Err(error) = result {
