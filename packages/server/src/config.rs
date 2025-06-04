@@ -167,6 +167,7 @@ pub struct Vfs {
 pub struct Watchdog {
 	pub batch_size: usize,
 	pub interval: Duration,
+	pub max_depth: usize,
 	pub ttl: Duration,
 }
 
@@ -290,6 +291,7 @@ impl Default for Watchdog {
 		Self {
 			batch_size: 100,
 			interval: Duration::from_secs(1),
+			max_depth: 1024,
 			ttl: Duration::from_secs(60),
 		}
 	}

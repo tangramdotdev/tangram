@@ -93,6 +93,7 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				command text not null,
 				created_at integer not null,
 				dequeued_at integer,
+				depth integer,
 				enqueued_at integer,
 				error text,
 				exit integer,
@@ -116,9 +117,11 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 
 			create index processes_command_index on processes (command);
 
-			create index processes_status_index on processes (status);
+			create index processes_depth_index on processes (depth) where status = 'started';
 
-			create index processes_heartbeat_index on processes (heartbeat_at) where status = 'started';
+			create index processes_heartbeat_at_index on processes (heartbeat_at) where status = 'started';
+
+			create index processes_status_index on processes (status);
 
 			create trigger processes_delete_trigger
 			after delete on processes
@@ -128,11 +131,55 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 				where process = old.id;
 			end;
 
+			create trigger processes_update_depth_trigger
+			after update of depth on processes
+			for each row
+			begin
+				update processes
+				set depth = updates.depth
+				from (
+					select 
+						processes.id,
+						coalesce(max(child_processes.depth), 0) + 1 as depth
+					from processes
+					left join process_children on process_children.process = processes.id
+					left join processes child_processes on child_processes.id = process_children.child
+					group by processes.id
+				) as updates 
+				where processes.id = updates.id and processes.id in (
+					select process
+					from process_children
+					where process_children.child = new.id
+				);
+			end;
+
 			create table process_children (
 				process text not null,
 				child text not null,
 				position integer not null
 			);
+
+			create trigger process_children_insert_depth_trigger
+			after insert on process_children
+			for each row
+			begin
+				update processes
+				set depth = updates.depth
+				from (
+					select 
+						processes.id,
+						coalesce(max(child_processes.depth), 0) + 1 as depth
+					from processes
+					left join process_children on process_children.process = processes.id
+					left join processes child_processes on child_processes.id = process_children.child
+					group by processes.id
+				) as updates 
+				where processes.id = updates.id and processes.id in (
+					select process
+					from process_children
+					where process_children.child = new.child
+				);
+			end;
 
 			create unique index process_children_process_child_index on process_children (process, child);
 

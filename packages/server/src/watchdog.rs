@@ -25,7 +25,7 @@ impl Server {
 		// Get a database connection.
 		let connection = self
 			.database
-			.write_connection()
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -33,24 +33,37 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				update processes
-				set status = 'started'
-				from (
-					select id
-					from processes
-					where
-						status = 'started' and
-						heartbeat_at <= {p}1
-					limit {p}2
-				) as updates
-				where processes.id = updates.id
-				returning id;
+				select id
+				from processes
+				where
+					status = 'started' and
+					heartbeat_at <= {p}1
+				limit {p}2;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
 		let params = db::params![max_heartbeat_at, config.batch_size];
-		let processes = connection
+		let heartbeat_timeout_exceeded_processes = connection
+			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Get all started processes whose depth exceeds the limit.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id
+				from processes
+				where
+					status = 'started' and
+					depth > {p}1
+				limit {p}2;
+			"
+		);
+		let max_depth = config.max_depth;
+		let params = db::params![max_depth, config.batch_size];
+		let depth_exceeded_processes = connection
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -59,8 +72,9 @@ impl Server {
 		drop(connection);
 
 		// Cancel the processes.
-		processes
-			.iter()
+		std::iter::empty()
+			.chain(&heartbeat_timeout_exceeded_processes)
+			.chain(&depth_exceeded_processes)
 			.map(|process| {
 				let server = self.clone();
 				async move {
@@ -92,6 +106,7 @@ impl Server {
 			.collect::<Vec<_>>()
 			.await;
 
-		Ok(processes.len().to_u64().unwrap())
+		Ok(heartbeat_timeout_exceeded_processes.len().to_u64().unwrap()
+			+ depth_exceeded_processes.len().to_u64().unwrap())
 	}
 }

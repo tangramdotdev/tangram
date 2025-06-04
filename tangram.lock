@@ -4,12 +4,10 @@
       "kind": "directory",
       "entries": {
         "tangram.ts": 1
-      },
-      "id": "dir_014r97ndvjbk8968xkb50ftvtc9kxwv5ng29enaahpq0bdx1v2xdmg"
+      }
     },
     {
-      "kind": "file",
-      "id": "fil_01mx4qse40crmv7emn242096c4y13drc18n288qm0p6z9hb1we4se0"
+      "kind": "file"
     }
   ]
 }

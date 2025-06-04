@@ -869,7 +869,6 @@ async fn directory_get_follows_final_component_symlinks() {
 	test_build(directory, path, export, args, assertions).await;
 }
 
-#[ignore]
 #[tokio::test]
 async fn command_cycle_detection() {
 	let directory = temp::directory! {
