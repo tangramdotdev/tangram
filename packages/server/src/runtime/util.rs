@@ -250,25 +250,27 @@ pub async fn log(
 	stream: tg::process::log::Stream,
 	message: String,
 ) {
-	let is_pty = match stream {
-		tg::process::log::Stream::Stderr => {
-			matches!(
-				process.load(server).await.unwrap().stderr,
-				Some(tg::process::Stdio::Pty(_))
-			)
-		},
-		tg::process::log::Stream::Stdout => {
-			matches!(
-				process.load(server).await.unwrap().stdout,
-				Some(tg::process::Stdio::Pty(_))
-			)
-		},
-	};
-	let message = if is_pty {
-		message.replace('\n', "\r\n")
-	} else {
-		message
-	};
+	let state = process.load(server).await.unwrap();
+	let stderr = state.stderr.as_ref();
+	let stdout = state.stderr.as_ref();
+
+	// If the pty or pipe is set, write to it.
+	if let (tg::process::log::Stream::Stderr, Some(io)) = (stream, stderr) {
+		server
+			.write_bytes_to_io(io, message, process.remote())
+			.await
+			.ok();
+		return;
+	}
+	if let (tg::process::log::Stream::Stdout, Some(io)) = (stream, stdout) {
+		server
+			.write_bytes_to_io(io, message, process.remote())
+			.await
+			.ok();
+		return;
+	}
+
+	// Otherwise post to the process' logs.
 	let arg = tg::process::log::post::Arg {
 		bytes: message.into(),
 		remote: process.remote().cloned(),
@@ -282,6 +284,34 @@ pub async fn log(
 }
 
 impl Server {
+	pub(super) async fn write_bytes_to_io(
+		&self,
+		io: &tg::process::Stdio,
+		message: String,
+		remote: Option<&String>,
+	) -> tg::Result<()> {
+		match io {
+			tg::process::Stdio::Pipe(id) => {
+				let bytes = Bytes::from(message);
+				let stream = stream::once(future::ok(tg::pipe::Event::Chunk(bytes)));
+				let arg = tg::pipe::write::Arg {
+					remote: remote.cloned(),
+				};
+				self.write_pipe(id, arg, Box::new(stream)).await?;
+			},
+			tg::process::Stdio::Pty(id) => {
+				let bytes = Bytes::from(message.replace('\n', "\r\n"));
+				let stream = stream::once(future::ok(tg::pty::Event::Chunk(bytes)));
+				let arg = tg::pty::write::Arg {
+					master: false,
+					remote: remote.cloned(),
+				};
+				self.write_pty(id, arg, Box::new(stream)).await?;
+			},
+		}
+		Ok(())
+	}
+
 	pub(super) fn get_pty_or_pipe_fd(&self, io: &tg::process::Stdio) -> tg::Result<OwnedFd> {
 		match io {
 			tg::process::Stdio::Pipe(pipe) => Ok(self
