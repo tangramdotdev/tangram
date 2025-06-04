@@ -1,5 +1,5 @@
 #![allow(clippy::too_many_arguments)]
-use super::{FileDependency, Graph};
+use super::Graph;
 use crate::{Server, lockfile::Lockfile};
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_client as tg;
@@ -124,33 +124,22 @@ impl Server {
 			)
 			.await
 		{
-			Ok((resolved, path)) => {
-				// Update the file's dependency. Note: only files have unresolved dependencies.
-				for dependency in &mut current.graph.nodes[unresolved.src]
+			Ok(resolved) => {
+				// Add the new node's unresolved edges to the queue.
+				if let Either::Right(node) = &resolved.item {
+					current.queue.append(current.graph.unresolved(*node));
+				}
+				// Update the file's dependencies.
+				current.graph.nodes[unresolved.src]
 					.variant
 					.unwrap_file_mut()
 					.dependencies
-				{
-					match dependency {
-						FileDependency::Import { import, node, .. }
-							if import.reference == unresolved.reference =>
-						{
-							node.replace(resolved);
-						},
-						FileDependency::Referent {
-							reference,
-							referent,
-						} if reference == &unresolved.reference => {
-							referent.item.replace(Either::Right(resolved));
-							referent.path = path;
-						},
-						_ => continue,
-					}
-					break;
-				}
-
-				// Add the new node's unresolved edges to the queue.
-				current.queue.append(current.graph.unresolved(resolved));
+					.iter_mut()
+					.find_map(|(reference, referent)| {
+						(reference == &unresolved.reference).then_some(referent)
+					})
+					.unwrap()
+					.replace(resolved);
 			},
 			Err(error) => {
 				// If there was an error, attempt to backtrack.
@@ -189,7 +178,7 @@ impl Server {
 		referrer: usize,
 		reference: &tg::Reference,
 		progress: &crate::progress::Handle<tg::checkin::Output>,
-	) -> tg::Result<(usize, Option<PathBuf>)> {
+	) -> tg::Result<tg::Referent<Either<tg::object::Id, usize>>> {
 		// Bail if the item is a path.
 		if reference.item().try_unwrap_path_ref().is_ok() {
 			return Err(tg::error!(%reference, "unexpected path reference"));
@@ -207,7 +196,7 @@ impl Server {
 			let node = self
 				.unify_visit_object(current, object, None, None, false)
 				.await?;
-			return Ok((node, None));
+			return Ok(tg::Referent::with_item(Either::Right(node)));
 		}
 
 		// Get the pattern.
@@ -222,7 +211,7 @@ impl Server {
 			if let Some(referent) = current.packages.get(pattern.name()) {
 				let tag = referent.tag.as_ref().unwrap();
 				if pattern.matches(tag) {
-					return Ok((referent.item, referent.path.clone()));
+					return Ok(referent.clone().map(Either::Right));
 				}
 				return Err(tg::error!(%tag, %pattern, "incompatible versions"));
 			}
@@ -324,21 +313,22 @@ impl Server {
 			)
 			.await?;
 
+		let referent = tg::Referent {
+			item: node,
+			path: candidate.path.clone(),
+			tag: Some(candidate.tag.clone()),
+		};
+
 		// Update the list of solved packages.
-		current.packages.insert(
-			candidate.tag.name().to_owned(),
-			tg::Referent {
-				item: node,
-				path: candidate.path.clone(),
-				tag: Some(candidate.tag.clone()),
-			},
-		);
+		current
+			.packages
+			.insert(candidate.tag.name().to_owned(), referent.clone());
 
 		// Checkpoint.
 		checkpoints.push(current.clone());
 
 		// Return.
-		Ok((node, candidate.path))
+		Ok(referent.map(Either::Right))
 	}
 
 	async fn unify_visit_object(
@@ -453,7 +443,6 @@ impl Server {
 					subpath,
 					index,
 					directory,
-					tag.clone(),
 					visited,
 				)
 				.await?;
@@ -465,7 +454,6 @@ impl Server {
 					root,
 					index,
 					file,
-					tag.clone(),
 					visited,
 				)
 				.await?;
@@ -477,7 +465,6 @@ impl Server {
 					root,
 					index,
 					symlink,
-					tag.clone(),
 					visited,
 				)
 				.await?;
@@ -497,7 +484,6 @@ impl Server {
 		subpath: Option<PathBuf>,
 		index: usize,
 		directory: &tg::Directory,
-		tag: Option<tg::Tag>,
 		visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
 		let mut entries = Vec::new();
@@ -521,7 +507,7 @@ impl Server {
 				lockfile_node,
 				Some(root),
 				Some(subpath),
-				tag.clone(),
+				None,
 				true,
 				visited,
 			))
@@ -543,7 +529,6 @@ impl Server {
 		root: usize,
 		index: usize,
 		file: &tg::File,
-		tag: Option<tg::Tag>,
 		visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
 		let mut dependencies = Vec::new();
@@ -562,15 +547,7 @@ impl Server {
 
 			// Leave tag references as unresolved.
 			if reference.item().try_unwrap_tag_ref().is_ok() {
-				let dependency = FileDependency::Referent {
-					reference,
-					referent: tg::Referent {
-						item: None,
-						path: None,
-						tag: None,
-					},
-				};
-				dependencies.push(dependency);
+				dependencies.push((reference, None));
 			} else {
 				let index = Box::pin(self.unify_visit_object_inner(
 					state,
@@ -578,20 +555,17 @@ impl Server {
 					lockfile_node,
 					Some(root),
 					referent.path.clone(),
-					tag.clone(),
+					None,
 					true,
 					visited,
 				))
 				.await?;
-				let dependency = FileDependency::Referent {
-					reference,
-					referent: tg::Referent {
-						item: Some(Either::Right(index)),
-						path: referent.path,
-						tag: None,
-					},
+				let referent = tg::Referent {
+					item: Either::Right(index),
+					path: referent.path,
+					tag: None,
 				};
-				dependencies.push(dependency);
+				dependencies.push((reference, Some(referent)));
 			}
 		}
 		state.graph.nodes[index]
@@ -608,7 +582,6 @@ impl Server {
 		_root: usize,
 		_index: usize,
 		_symlink: &tg::Symlink,
-		_tag: Option<tg::Tag>,
 		_visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
 		Ok(())
@@ -641,26 +614,14 @@ impl super::Graph {
 			super::Variant::File(file) => file
 				.dependencies
 				.iter()
-				.map(|dep| {
-					let (reference, dst) = match dep {
-						FileDependency::Import { import, node, .. } => {
-							(import.reference.clone(), *node)
-						},
-						FileDependency::Referent {
-							reference,
-							referent,
-						} => {
-							let dst = referent
-								.item
-								.as_ref()
-								.and_then(|item| item.as_ref().right().copied());
-							(reference.clone(), dst)
-						},
-					};
+				.map(|(reference, referent)| {
+					let dst = referent
+						.as_ref()
+						.and_then(|referent| referent.item.as_ref().right().copied());
 					Unresolved {
 						src: node,
 						dst,
-						reference,
+						reference: reference.clone(),
 					}
 				})
 				.collect(),

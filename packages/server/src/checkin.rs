@@ -76,27 +76,16 @@ struct Directory {
 struct File {
 	blob: Option<Blob>,
 	executable: bool,
-	dependencies: Vec<FileDependency>, // todo: replace with Option<(Reference, Referent)>
+	dependencies: Vec<(
+		tg::Reference,
+		Option<tg::Referent<Either<tg::object::Id, usize>>>,
+	)>,
 }
 
 #[derive(Clone, Debug)]
 enum Blob {
 	Create(crate::blob::create::Blob),
 	Id(tg::blob::Id),
-}
-
-#[derive(Clone, Debug)]
-enum FileDependency {
-	Import {
-		import: tg::module::Import,
-		node: Option<usize>,
-		path: Option<PathBuf>,
-		tag: Option<tg::Tag>,
-	},
-	Referent {
-		reference: tg::Reference,
-		referent: tg::Referent<Option<Either<tg::object::Id, usize>>>,
-	},
 }
 
 #[derive(Clone, Debug)]
@@ -524,12 +513,7 @@ impl Node {
 			Variant::File(file) => file
 				.dependencies
 				.iter()
-				.filter_map(|dependency| match dependency {
-					FileDependency::Import { node, .. } => *node,
-					FileDependency::Referent { referent, .. } => {
-						referent.item.as_ref()?.as_ref().right().copied()
-					},
-				})
+				.filter_map(|(_, dependency)| dependency.as_ref()?.item.as_ref().right().copied())
 				.collect(),
 			Variant::Symlink(_) | Variant::Object => Vec::new(),
 		}

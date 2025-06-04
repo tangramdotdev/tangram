@@ -172,7 +172,7 @@ async fn file_through_symlink() {
 		        "item": tg.file({
 		          "contents": tg.blob("hello, world!"),
 		        }),
-		        "path": "../b/e/d",
+		        "path": "../b/c/d",
 		      },
 		    },
 		  }),
@@ -501,6 +501,7 @@ async fn import_directory_from_current() {
 		          "dependencies": {
 		            ".": {
 		              "item": 0,
+		              "path": ".",
 		            },
 		          },
 		        },
@@ -530,33 +531,34 @@ async fn import_package_from_current() {
 	let tags = vec![];
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-			tg.directory({
-			  "a": tg.directory({
-			    "graph": tg.graph({
-			      "nodes": [
-			        {
-			          "kind": "directory",
-			          "entries": {
-			            "mod.tg.ts": 1,
-			            "tangram.ts": tg.file({
-			              "contents": tg.blob(""),
-			            }),
-			          },
-			        },
-			        {
-			          "kind": "file",
-			          "contents": tg.blob("import * as a from \".\";"),
-			          "dependencies": {
-			            ".": {
-			              "item": 0,
-			            },
-			          },
-			        },
-			      ],
-			    }),
-			    "node": 0,
-			  }),
-			})
+		tg.directory({
+		  "a": tg.directory({
+		    "graph": tg.graph({
+		      "nodes": [
+		        {
+		          "kind": "directory",
+		          "entries": {
+		            "mod.tg.ts": 1,
+		            "tangram.ts": tg.file({
+		              "contents": tg.blob(""),
+		            }),
+		          },
+		        },
+		        {
+		          "kind": "file",
+		          "contents": tg.blob("import * as a from \".\";"),
+		          "dependencies": {
+		            ".": {
+		              "item": 0,
+		              "path": ".",
+		            },
+		          },
+		        },
+		      ],
+		    }),
+		    "node": 0,
+		  }),
+		})
 		"#);
 		assert!(lockfile.is_none());
 	};
@@ -1318,6 +1320,7 @@ async fn tag_dependency_cycles() {
 		                  },
 		                  "a/*": {
 		                    "item": 3,
+		                    "tag": "a/1.1.0",
 		                  },
 		                },
 		              },
@@ -1333,6 +1336,7 @@ async fn tag_dependency_cycles() {
 		                "dependencies": {
 		                  "b/*": {
 		                    "item": 0,
+		                    "tag": "b/1.0.0",
 		                  },
 		                },
 		              },
@@ -1373,6 +1377,7 @@ async fn tag_dependency_cycles() {
 		                  },
 		                  "a/*": {
 		                    "item": 3,
+		                    "tag": "a/1.1.0",
 		                  },
 		                },
 		              },
@@ -1388,6 +1393,7 @@ async fn tag_dependency_cycles() {
 		                "dependencies": {
 		                  "b/*": {
 		                    "item": 0,
+		                    "tag": "b/1.0.0",
 		                  },
 		                },
 		              },
@@ -1434,7 +1440,8 @@ async fn tag_dependency_cycles() {
 		      "contents": "blb_0158re2012fvbq8s0zxgsdmkmg7k05y79mnbeha500h9k973hk06k0",
 		      "dependencies": {
 		        "b/*": {
-		          "item": 4
+		          "item": 4,
+		          "tag": "b/1.0.0"
 		        }
 		      }
 		    },
@@ -1464,7 +1471,8 @@ async fn tag_dependency_cycles() {
 		          "path": "foo.tg.ts"
 		        },
 		        "a/*": {
-		          "item": 2
+		          "item": 2,
+		          "tag": "a/1.1.0"
 		        }
 		      }
 		    }
@@ -1542,6 +1550,7 @@ async fn tag_diamond_dependency() {
 		                    "contents": tg.blob("export default () => \"a/1.1.0\";\n"),
 		                  }),
 		                }),
+		                "tag": "a/1.1.0",
 		              },
 		            },
 		          }),
@@ -1559,6 +1568,7 @@ async fn tag_diamond_dependency() {
 		                    "contents": tg.blob("export default () => \"a/1.1.0\";\n"),
 		                  }),
 		                }),
+		                "tag": "a/1.1.0",
 		              },
 		            },
 		          }),
@@ -1602,7 +1612,8 @@ async fn tag_diamond_dependency() {
 		      "contents": "blb_01dra984m32dp47yvrynmkcxzcxmgmptmgnyhb8xk6th2wk3wgkae0",
 		      "dependencies": {
 		        "a/^1": {
-		          "item": 4
+		          "item": 4,
+		          "tag": "a/1.1.0"
 		        }
 		      }
 		    },
@@ -1627,7 +1638,8 @@ async fn tag_diamond_dependency() {
 		      "contents": "blb_01xv04mkcazz11b2wsjy0kp279772f9wb2gbsn2maer3qxhbdvvppg",
 		      "dependencies": {
 		        "a/^1.0": {
-		          "item": 4
+		          "item": 4,
+		          "tag": "a/1.1.0"
 		        }
 		      }
 		    }

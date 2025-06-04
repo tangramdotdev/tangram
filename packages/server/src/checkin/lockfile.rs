@@ -140,48 +140,30 @@ impl Server {
 			.unwrap_file_ref()
 			.dependencies
 			.iter()
-			.map(|dependency| match dependency {
-				super::FileDependency::Import {
-					import,
-					node,
-					path,
-					tag,
-				} => {
-					let reference = import.reference.clone();
-					let referent =
-						node.ok_or_else(|| tg::error!(%import = reference, "unresolved import"))?;
-					let item = Self::create_lockfile_node(state, referent, nodes, visited)?;
-					let path = path
-						.clone()
-						.or_else(|| state.graph.referent_path(index, referent));
-					let tag = tag
-						.clone()
-						.or_else(|| state.graph.nodes[referent].tag.clone());
-					let referent = tg::Referent { item, path, tag };
-					Ok::<_, tg::Error>((reference, referent))
-				},
-				super::FileDependency::Referent {
-					reference,
-					referent,
-				} => {
-					let reference = reference.clone();
-					let item = match referent
-						.item
-						.as_ref()
-						.ok_or_else(|| tg::error!("unresolved reference"))?
-					{
-						Either::Left(id) => Either::Right(id.clone()),
-						Either::Right(node) => {
-							Self::create_lockfile_node(state, *node, nodes, visited)?
-						},
-					};
-					let referent = tg::Referent {
-						item,
-						path: referent.path.clone(),
-						tag: referent.tag.clone(),
-					};
-					Ok((reference, referent))
-				},
+			.cloned()
+			.map(|(reference, referent)| {
+				let referent =
+					referent.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
+				match referent.item {
+					Either::Left(id) => {
+						let item = Either::Right(id);
+						let referent = tg::Referent {
+							item,
+							path: referent.path,
+							tag: referent.tag,
+						};
+						Ok((reference, referent))
+					},
+					Either::Right(node) => {
+						let item = Self::create_lockfile_node(state, node, nodes, visited)?;
+						let path = referent
+							.path
+							.or_else(|| state.graph.referent_path(index, node));
+						let tag = referent.tag.or_else(|| state.graph.nodes[node].tag.clone());
+						let referent = tg::Referent { item, path, tag };
+						Ok::<_, tg::Error>((reference, referent))
+					},
+				}
 			})
 			.try_collect()?;
 		let file = tg::lockfile::File {
