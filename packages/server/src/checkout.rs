@@ -115,9 +115,9 @@ impl Server {
 		// Get the path.
 		let Some(path) = arg.path.clone() else {
 			if !self.vfs.lock().unwrap().is_some() {
-				self.cache_artifact(&artifact, progress)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
+				self.cache_artifact(&artifact, progress).await.map_err(
+					|source| tg::error!(!source, %artifact, "failed to cache the artifact"),
+				)?;
 			}
 			let path = self.artifacts_path().join(artifact.to_string());
 			let output = tg::checkout::Output { path };

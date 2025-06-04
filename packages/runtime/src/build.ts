@@ -57,13 +57,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	}
 	let commandMounts: Array<tg.Command.Mount> | undefined;
 	if ("mounts" in arg && arg.mounts !== undefined) {
-		commandMounts = arg.mounts.map((mount) => {
-			if (typeof mount === "string" || mount instanceof tg.Template) {
-				return tg.Command.Mount.parse(mount);
-			} else {
-				return mount;
-			}
-		});
+		commandMounts = arg.mounts;
 	}
 	let commandStdin: tg.Blob.Arg | undefined = undefined;
 	if ("stdin" in arg && arg.stdin !== undefined) {
@@ -249,7 +243,7 @@ export class BuildBuilder<
 	}
 
 	mount(
-		...mounts: Array<tg.Unresolved<string | tg.Template | tg.Command.Mount>>
+		...mounts: Array<tg.Unresolved<tg.Command.Mount>>
 	): this {
 		this.#args.push({ mounts });
 		return this;
@@ -258,7 +252,7 @@ export class BuildBuilder<
 	mounts(
 		...mounts: Array<
 			tg.Unresolved<
-				tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
+				tg.MaybeMutation<Array<tg.Command.Mount>>
 			>
 		>
 	): this {
