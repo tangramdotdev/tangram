@@ -36,18 +36,12 @@ async fn assertion_failure() {
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		insta::with_settings!({
-			filters => vec![
-				(r"^((/private/tmp)|(/tmp))/\w+/", "[TEMP]"),
-			]
-		}, {
-			assert_snapshot!(stderr, @r"
-			error the process failed
-			-> Uncaught Error: failed assertion
-			   ./tangram.ts:2:22
-			   ./foo.tg.ts:1:25
-			");
-		});
+		assert_snapshot!(stderr, @r"
+		error the process failed
+		-> Uncaught Error: failed assertion
+		   ./tangram.ts:2:22
+		   ./foo.tg.ts:1:25
+		");
 	};
 	let args = vec![];
 	let path = "tangram.ts";
@@ -81,18 +75,12 @@ async fn assertion_failure_out_of_tree() {
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		insta::with_settings!({
-			filters => vec![
-				(r"^((/private/tmp)|(/tmp))/\w+/", "[TEMP]"),
-			]
-		}, {
-			assert_snapshot!(stderr, @r"
-			error the process failed
-			-> the child process failed
-			-> Uncaught Error: failed assertion
-			   ./bar/tangram.ts:1:25
-			");
-		});
+		assert_snapshot!(stderr, @r"
+		error the process failed
+		-> the child process failed
+		-> Uncaught Error: failed assertion
+		   ./bar/tangram.ts:1:25
+		");
 	};
 	let args = vec![];
 	let path = "foo";
@@ -126,18 +114,12 @@ async fn assertion_failure_in_path_dependency() {
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		insta::with_settings!({
-			filters => vec![
-				(r"^((/private/tmp)|(/tmp))/\w+/", "[TEMP]"),
-			]
-		}, {
-			assert_snapshot!(stderr, @r"
-			error the process failed
-			-> Uncaught Error: error
-			   ./foo/tangram.ts:2:22
-			   ../bar/tangram.ts:1:25
-			");
-		});
+		assert_snapshot!(stderr, @r"
+		error the process failed
+		-> Uncaught Error: error
+		   ./foo/tangram.ts:2:22
+		   ../bar/tangram.ts:1:25
+		");
 	};
 	let args = vec![];
 	let path = "foo/tangram.ts";
@@ -170,18 +152,12 @@ async fn assertion_failure_in_tag_dependency() {
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		insta::with_settings!({
-			filters => vec![
-				(r"^((/private/tmp)|(/tmp))/\w+/", "[TEMP]"),
-			]
-		}, {
-			assert_snapshot!(stderr, @r"
-			error the process failed
-			-> Uncaught Error: error in foo
-			   ./tangram.ts:2:22
-			   foo:./tangram.ts:1:25
-			");
-		});
+		assert_snapshot!(stderr, @r"
+		error the process failed
+		-> Uncaught Error: error in foo
+		   ./tangram.ts:2:22
+		   foo:./tangram.ts:1:25
+		");
 	};
 	let args = vec![];
 	let path = "tangram.ts";
