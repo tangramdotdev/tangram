@@ -194,21 +194,14 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
 		let stderr = std::str::from_utf8(&output.stderr).unwrap();
-		insta::with_settings!({
-			filters => vec![
-				(r"pcs_[0-9a-z]+", "[PROCESS]"),
-				(r"^((/private/tmp)|(/tmp))/\w+/", "[TEMP]"),
-			]
-		}, {
-			assert_snapshot!(stderr, @r"
-			error the process failed
-			-> Uncaught Error: failure in foo
-			   ./tangram.ts:2:22
-			   foo:./tangram.ts:2:22
-			   foo:../bar/tangram.ts:2:22
-			   foo:./tangram.ts:4:33
-			");
-		});
+		assert_snapshot!(stderr, @r"
+		error the process failed
+		-> Uncaught Error: failure in foo
+		   ./tangram.ts:2:22
+		   foo:./tangram.ts:2:22
+		   foo:../bar/tangram.ts:2:22
+		   foo:./tangram.ts:4:33
+		");
 	};
 	let args = vec![];
 	let path = "tangram.ts";
