@@ -60,20 +60,13 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	let commandMounts: Array<tg.Command.Mount> | undefined;
 	if ("mounts" in arg && arg.mounts !== undefined) {
 		for (let mount of arg.mounts) {
-			if (typeof mount === "string" || mount instanceof tg.Template) {
-				try {
-					let processMount = tg.Process.Mount.parse(mount);
-					processMounts.push(processMount);
-				} catch {}
-			} else {
-				if (tg.Artifact.is(mount.source)) {
-					if (commandMounts === undefined) {
-						commandMounts = [];
-					}
-					commandMounts.push(mount as tg.Command.Mount);
-				} else {
-					processMounts.push(mount as tg.Process.Mount);
+			if (tg.Artifact.is(mount.source)) {
+				if (commandMounts === undefined) {
+					commandMounts = [];
 				}
+				commandMounts.push(mount as tg.Command.Mount);
+			} else {
+				processMounts.push(mount as tg.Process.Mount);
 			}
 		}
 	} else {
@@ -274,9 +267,7 @@ export class RunBuilder<
 	}
 
 	mount(
-		...mounts: Array<
-			tg.Unresolved<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
-		>
+		...mounts: Array<tg.Unresolved<tg.Command.Mount | tg.Process.Mount>>
 	): this {
 		this.#args.push({ mounts });
 		return this;
@@ -285,9 +276,7 @@ export class RunBuilder<
 	mounts(
 		...mounts: Array<
 			tg.Unresolved<
-				tg.MaybeMutation<
-					Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
-				>
+				tg.MaybeMutation<Array<tg.Command.Mount | tg.Process.Mount>>
 			>
 		>
 	): this {

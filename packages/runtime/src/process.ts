@@ -106,69 +106,6 @@ export namespace Process {
 		readonly?: boolean;
 	};
 
-	export namespace Mount {
-		export let parse = (arg: string | tg.Template): tg.Process.Mount => {
-			// If the user passed a template, ensure it contains no artifacts.
-			let s: string | undefined;
-			if (typeof arg === "string") {
-				s = arg;
-			} else if (arg instanceof tg.Template) {
-				s = arg.components.reduce<string>((string, component) => {
-					if (tg.Artifact.is(component)) {
-						throw new Error("expected no artifacts");
-					}
-					return string + component;
-				}, "");
-			} else {
-				throw new Error("expected a template or a string");
-			}
-			tg.assert(s);
-			let readonly: boolean | undefined = undefined;
-
-			// Handle readonly/readwrite option if present
-			if (s.includes(",")) {
-				const [mountPart, option] = s.split(",", 2);
-				tg.assert(mountPart);
-				tg.assert(option);
-
-				if (option === "ro") {
-					readonly = true;
-					s = mountPart;
-				} else if (option === "rw") {
-					readonly = false;
-					s = mountPart;
-				} else {
-					throw new Error(`unknown option: "${option}"`);
-				}
-			}
-
-			// Split into source and target
-			const colonIndex = s.indexOf(":");
-			if (colonIndex === -1) {
-				throw new Error("expected a target path");
-			}
-
-			const sourcePart = s.substring(0, colonIndex);
-			const targetPart = s.substring(colonIndex + 1);
-
-			// Validate target is absolute path
-			if (!targetPart.startsWith("/")) {
-				throw new Error(`expected an absolute path: "${targetPart}"`);
-			}
-
-			// Determine source type
-			let source = sourcePart;
-
-			readonly = readonly ?? false;
-
-			return {
-				source,
-				target: targetPart,
-				readonly,
-			};
-		};
-	}
-
 	export type BuildArg =
 		| undefined
 		| string
@@ -205,9 +142,7 @@ export namespace Process {
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?:
-			| Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
-			| undefined;
+		mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
 		network?: boolean | undefined;
 		stderr?: undefined;
 		stdin?: tg.Blob.Arg | undefined;

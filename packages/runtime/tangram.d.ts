@@ -1122,9 +1122,7 @@ declare namespace tg {
 			host?: string | undefined;
 
 			/** The command's or process's mounts. */
-			mounts?:
-				| Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
-				| undefined;
+			mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
 
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
@@ -1148,13 +1146,6 @@ declare namespace tg {
 			target: string;
 			readonly: boolean;
 		};
-
-		export namespace Mount {
-			/** Parse a mount. */
-			export let parse: (
-				arg: string | tg.Template,
-			) => Promise<tg.Process.Mount>;
-		}
 	}
 
 	export interface BuildBuilder<
@@ -1301,19 +1292,13 @@ declare namespace tg {
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
 		mount(
-			...mounts: Array<
-				tg.Unresolved<
-					string | tg.Template | tg.Command.Mount | tg.Process.Mount
-				>
-			>
+			...mounts: Array<tg.Unresolved<tg.Command.Mount | tg.Process.Mount>>
 		): this;
 
 		mounts(
 			...mounts: Array<
 				tg.Unresolved<
-					tg.MaybeMutation<
-						Array<string | tg.Template | tg.Command.Mount | tg.Process.Mount>
-					>
+					tg.MaybeMutation<Array<tg.Command.Mount | tg.Process.Mount>>
 				>
 			>
 		): this;
