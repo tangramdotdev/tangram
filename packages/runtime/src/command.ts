@@ -558,19 +558,13 @@ export class CommandBuilder<
 		return this;
 	}
 
-	mount(
-		...mounts: Array<tg.Unresolved<tg.Command.Mount>>
-	): this {
+	mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this {
 		this.#args.push({ mounts });
 		return this;
 	}
 
 	mounts(
-		...mounts: Array<
-			tg.Unresolved<
-				tg.MaybeMutation<Array<tg.Command.Mount>>
-			>
-		>
+		...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
 	): this {
 		this.#args.push(...mounts.map((mounts) => ({ mounts })));
 		return this;

@@ -1189,16 +1189,10 @@ declare namespace tg {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
-		mount(
-			...mounts: Array<tg.Unresolved<tg.Command.Mount>>
-		): this;
+		mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this;
 
 		mounts(
-			...mounts: Array<
-				tg.Unresolved<
-					tg.MaybeMutation<Array<tg.Command.Mount>>
-				>
-			>
+			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
 		): this;
 
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
@@ -1249,16 +1243,10 @@ declare namespace tg {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
-		mount(
-			...mounts: Array<tg.Unresolved<tg.Command.Mount>>
-		): this;
+		mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this;
 
 		mounts(
-			...mounts: Array<
-				tg.Unresolved<
-					tg.MaybeMutation<Array<tg.Command.Mount>>
-				>
-			>
+			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
 		): this;
 
 		/** Build this command and return the process's output. */

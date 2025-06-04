@@ -62,13 +62,6 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		for (let mount of arg.mounts) {
 			if (typeof mount === "string" || mount instanceof tg.Template) {
 				try {
-					let commandMount = tg.Command.Mount.parse(mount);
-					if (commandMounts === undefined) {
-						commandMounts = [];
-					}
-					commandMounts.push(commandMount);
-				} catch {}
-				try {
 					let processMount = tg.Process.Mount.parse(mount);
 					processMounts.push(processMount);
 				} catch {}
