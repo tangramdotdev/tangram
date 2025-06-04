@@ -7,7 +7,7 @@ use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 
 impl Server {
-	pub(crate) async fn pull_incompete(
+	pub(crate) async fn pull_incomplete(
 		&self,
 		artifact: &tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::checkout::Output>,
