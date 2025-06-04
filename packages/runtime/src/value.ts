@@ -154,31 +154,32 @@ export namespace Value {
 		let unstored = [];
 		let stack = objects.filter((object) => !object.state.stored);
 		while (stack.length > 0) {
-			let handle = stack.pop()!;
-			unstored.push(handle);
-			let kind = tg.Object.kind(handle);
-			let object = handle.state.object!;
-			let children = tg.Object.Object_.children({
-				kind,
-				value: object,
-			} as tg.Object.Object_);
-			children = children.filter((object) => !object.state.stored);
-			stack.push(...children);
+			let object = stack.pop()!;
+			unstored.push(object);
+			if (object.state.object !== undefined) {
+				let kind = tg.Object.kind(object);
+				let children = tg.Object.Object_.children({
+					kind,
+					value: object.state.object!,
+				} as tg.Object.Object_).filter((object) => !object.state.stored);
+				stack.push(...children);
+			}
 		}
 		unstored.reverse();
 
 		// Import.
 		let items = [];
-		for (let handle of unstored) {
-			let kind = tg.Object.kind(handle);
-			let object = handle.state.object!;
-			let data = tg.Object.Object_.toData({
-				kind,
-				value: object,
-			} as tg.Object.Object_);
-			let id = syscall("object_id", data);
-			handle.state.id = id;
-			items.push({ id, data });
+		for (let object of unstored) {
+			if (object.state.object !== undefined) {
+				let kind = tg.Object.kind(object);
+				let data = tg.Object.Object_.toData({
+					kind,
+					value: object.state.object,
+				} as tg.Object.Object_);
+				let id = syscall("object_id", data);
+				object.state.id = id;
+				items.push({ id, data });
+			}
 		}
 		await syscall("import", items);
 

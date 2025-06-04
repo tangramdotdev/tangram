@@ -239,6 +239,29 @@ impl State {
 		}
 	}
 
+	pub fn set_id(&self, id: tg::object::Id) {
+		match self {
+			Self::Blob(state) => {
+				state.write().unwrap().id.replace(id.try_into().unwrap());
+			},
+			Self::Directory(state) => {
+				state.write().unwrap().id.replace(id.try_into().unwrap());
+			},
+			Self::File(state) => {
+				state.write().unwrap().id.replace(id.try_into().unwrap());
+			},
+			Self::Symlink(state) => {
+				state.write().unwrap().id.replace(id.try_into().unwrap());
+			},
+			Self::Graph(state) => {
+				state.write().unwrap().id.replace(id.try_into().unwrap());
+			},
+			Self::Command(state) => {
+				state.write().unwrap().id.replace(id.try_into().unwrap());
+			},
+		}
+	}
+
 	pub fn set_stored(&self, stored: bool) {
 		match self {
 			Self::Blob(state) => {

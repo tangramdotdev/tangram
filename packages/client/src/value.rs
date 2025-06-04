@@ -126,27 +126,29 @@ impl Value {
 			.collect::<Vec<_>>();
 		while let Some(object) = stack.pop() {
 			unstored.push(object.clone());
-			let children = object
-				.state()
-				.object()
-				.unwrap()
-				.children()
-				.into_iter()
-				.filter(|object| !object.state().stored());
-			stack.extend(children);
+			if let Some(object) = object.state().object() {
+				let children = object
+					.children()
+					.into_iter()
+					.filter(|object| !object.state().stored());
+				stack.extend(children);
+			}
 		}
 		unstored.reverse();
 
 		// Import.
 		let mut items = Vec::new();
 		for object in &unstored {
-			let data = object.state().object().unwrap().to_data();
-			let bytes = data
-				.serialize()
-				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-			let id = tg::object::Id::new(data.kind(), &bytes);
-			let item = tg::export::Item::Object(tg::export::ObjectItem { id, bytes });
-			items.push(item);
+			if let Some(object_) = object.state().object() {
+				let data = object_.to_data();
+				let bytes = data
+					.serialize()
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				let id = tg::object::Id::new(data.kind(), &bytes);
+				object.state().set_id(id.clone());
+				let item = tg::export::Item::Object(tg::export::ObjectItem { id, bytes });
+				items.push(item);
+			}
 		}
 		let arg = tg::import::Arg {
 			items: self

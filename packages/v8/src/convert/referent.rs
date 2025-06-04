@@ -1,4 +1,5 @@
 use super::{FromV8, ToV8};
+use std::path::PathBuf;
 use tangram_client as tg;
 
 impl<T> ToV8 for tg::Referent<T>
@@ -48,12 +49,8 @@ where
 
 		let path = v8::String::new_external_onebyte_static(scope, b"path").unwrap();
 		let path = value.get(scope, path.into()).unwrap();
-		let path: Option<String> = <_>::from_v8(scope, path)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the subpath"))?;
-		let path = path
-			.map(|path| path.parse())
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the subpath"))?;
+		let path: Option<PathBuf> = <_>::from_v8(scope, path)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the path"))?;
 
 		let tag = v8::String::new_external_onebyte_static(scope, b"tag").unwrap();
 		let tag = value.get(scope, tag.into()).unwrap();
