@@ -95,13 +95,7 @@ export class Command<
 			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
 		let mounts: Array<tg.Command.Mount> = [];
 		if (arg.mounts && arg.mounts.length > 0) {
-			mounts = arg.mounts.map((mount) => {
-				if (typeof mount === "string" || mount instanceof tg.Template) {
-					return tg.Command.Mount.parse(mount);
-				} else {
-					return mount;
-				}
-			});
+			mounts = arg.mounts;
 		}
 		if (executable === undefined) {
 			throw new Error("cannot create a command without an executable");
@@ -258,7 +252,7 @@ export namespace Command {
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.ExecutableArg | undefined;
 		host?: string | undefined;
-		mounts?: Array<string | tg.Template | tg.Command.Mount> | undefined;
+		mounts?: Array<tg.Command.Mount> | undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		user?: string | undefined;
 	};
@@ -406,60 +400,6 @@ export namespace Command {
 			return {
 				source: tg.Artifact.withId(data.source),
 				target: data.target,
-			};
-		};
-
-		export let parse = (t: string | tg.Template): tg.Command.Mount => {
-			// If the user passed a template, render a string with artifact IDs.
-			let s: string | undefined;
-			if (typeof t === "string") {
-				s = t;
-			} else if (t instanceof tg.Template) {
-				s = t.components.reduce<string>((s, component) => {
-					if (tg.Artifact.is(component)) {
-						return s + component.id;
-					} else {
-						return s + component;
-					}
-				}, "");
-			} else {
-				throw new Error("expected a template or a string");
-			}
-			tg.assert(s);
-
-			// Handle the readonly/readwrite option if present, rejecting read-write.
-			if (s.includes(",")) {
-				const [mountPart, option] = s.split(",", 2);
-				tg.assert(mountPart);
-				tg.assert(option);
-
-				if (option === "ro") {
-					s = mountPart;
-				} else if (option === "rw") {
-					throw new Error("cannot mount artifacts as read/write");
-				} else {
-					throw new Error(`unknown option: "${option}"`);
-				}
-			}
-
-			// Split the string into source and target.
-			const colonIndex = s.indexOf(":");
-			if (colonIndex === -1) {
-				throw new Error("expected a target path");
-			}
-
-			const sourceId = s.substring(0, colonIndex);
-			const source = tg.Artifact.withId(sourceId);
-			const target = s.substring(colonIndex + 1);
-
-			// Validate the target is an absolute path.
-			if (!target.startsWith("/")) {
-				throw new Error(`expected an absolute path: "${target}"`);
-			}
-
-			return {
-				source,
-				target,
 			};
 		};
 	}
@@ -619,7 +559,7 @@ export class CommandBuilder<
 	}
 
 	mount(
-		...mounts: Array<tg.Unresolved<string | tg.Template | tg.Command.Mount>>
+		...mounts: Array<tg.Unresolved<tg.Command.Mount>>
 	): this {
 		this.#args.push({ mounts });
 		return this;
@@ -628,7 +568,7 @@ export class CommandBuilder<
 	mounts(
 		...mounts: Array<
 			tg.Unresolved<
-				tg.MaybeMutation<Array<string | tg.Template | tg.Command.Mount>>
+				tg.MaybeMutation<Array<tg.Command.Mount>>
 			>
 		>
 	): this {
