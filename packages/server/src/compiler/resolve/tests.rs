@@ -145,6 +145,7 @@ async fn test_path<F, Fut>(
 			locked: false,
 			lockfile: true,
 			path: temp.path().join(path),
+			updates: Vec::new(),
 		};
 		tg::checkin(&server, arg)
 			.await
@@ -194,6 +195,7 @@ async fn test_object<F, Fut>(
 			locked: false,
 			lockfile: true,
 			path: temp.path().join(path),
+			updates: Vec::new(),
 		};
 		let artifact = tg::checkin(&server, arg)
 			.await

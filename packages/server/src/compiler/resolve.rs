@@ -193,30 +193,33 @@ impl Compiler {
 			.dependencies
 			.get(&import.reference)
 			.ok_or_else(|| tg::error!("failed to resolve reference"))?;
-		match &referent.item {
+		let referent = match &referent.item {
 			Either::Left(index) => {
-				let id = self
-					.server
-					.create_object_from_lockfile_node(&lockfile, *index)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to resolve the dependency"))?
-					.id();
-				Ok(tg::Referent {
-					item: tg::module::data::Item::Object(id),
+				let item = crate::Server::create_object_from_lockfile_node(&lockfile.nodes, *index)
+					.map_err(|source| tg::error!(!source, "failed to resolve the dependency"))?;
+				tg::Referent {
+					item,
 					path: referent.path.clone(),
 					tag: referent.tag.clone(),
-				})
+				}
 			},
 			Either::Right(id) => {
 				let path = referent.path.clone().or_else(|| referrer.path.clone());
 				let tag = referent.tag.clone().or_else(|| referent.tag.clone());
-				Ok(tg::Referent {
-					item: tg::module::data::Item::Object(id.clone()),
+				tg::Referent {
+					item: tg::Object::with_id(id.clone()),
 					path,
 					tag,
-				})
+				}
 			},
-		}
+		};
+
+		let referent = self
+			.try_resolve_module_with_kind(import.kind, referent)
+			.await?
+			.map(|item| tg::module::data::Item::Object(item.id()));
+
+		Ok(referent)
 	}
 
 	async fn resolve_module_with_object_referrer(
@@ -229,7 +232,12 @@ impl Compiler {
 			referrer_object.clone().try_unwrap_file().ok().ok_or_else(
 				|| tg::error!(%referrer = referrer.item, "the referrer must be a file"),
 			)?;
-		let referent = file.get_dependency(&self.server, &import.reference).await?;
+		let referent = self
+			.try_resolve_module_with_kind(
+				import.kind,
+				file.get_dependency(&self.server, &import.reference).await?,
+			)
+			.await?;
 
 		let object = referent.item.id();
 		let item = tg::module::data::Item::Object(object);
@@ -241,7 +249,76 @@ impl Compiler {
 			(Some(referrer), None) => Some(referrer.to_owned()),
 			(None, None) => None,
 		};
-
 		Ok(tg::Referent { item, path, tag })
+	}
+
+	async fn try_resolve_module_with_kind(
+		&self,
+		kind: Option<tg::module::Kind>,
+		referent: tg::Referent<tg::Object>,
+	) -> tg::Result<tg::Referent<tg::Object>> {
+		match (kind, &referent.item) {
+			(
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
+				tg::Object::Directory(directory),
+			) => {
+				let path = tg::package::try_get_root_module_file_name(
+					&self.server,
+					Either::Left(&referent.item),
+				)
+				.await?;
+				let (item, path) = if let Some(path) = path {
+					let file = directory
+						.get(&self.server, path)
+						.await?
+						.try_unwrap_file_ref()
+						.map_err(|_| tg::error!("expected a file"))?
+						.clone()
+						.into();
+					(file, path)
+				} else if kind.is_none() {
+					return Ok(referent);
+				} else {
+					return Err(tg::error!("expected a root module"));
+				};
+				let path = referent.path.map_or_else(|| path.into(), |p| p.join(path));
+				Ok(tg::Referent {
+					item,
+					path: Some(path),
+					tag: referent.tag,
+				})
+			},
+			(
+				None
+				| Some(
+					tg::module::Kind::Js
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts
+					| tg::module::Kind::File,
+				),
+				tg::Object::File(_),
+			)
+			| (Some(tg::module::Kind::Object), _)
+			| (Some(tg::module::Kind::Blob), tg::Object::Blob(_))
+			| (Some(tg::module::Kind::Directory), tg::Object::Directory(_))
+			| (Some(tg::module::Kind::Symlink), tg::Object::Symlink(_))
+			| (Some(tg::module::Kind::Graph), tg::Object::Graph(_))
+			| (Some(tg::module::Kind::Command), tg::Object::Command(_))
+			| (
+				Some(tg::module::Kind::Artifact),
+				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_),
+			) => Ok(referent),
+			(
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
+				_,
+			) => Err(tg::error!("expected a file")),
+			(Some(tg::module::Kind::Artifact), _) => Err(tg::error!("expected an artifact")),
+			(Some(tg::module::Kind::Blob), _) => Err(tg::error!("expected a blob")),
+			(Some(tg::module::Kind::Directory), _) => Err(tg::error!("expected a directory")),
+			(Some(tg::module::Kind::File), _) => Err(tg::error!("expected a file")),
+			(Some(tg::module::Kind::Symlink), _) => Err(tg::error!("expected a symlink")),
+			(Some(tg::module::Kind::Graph), _) => Err(tg::error!("expected a graph")),
+			(Some(tg::module::Kind::Command), _) => Err(tg::error!("expected a command")),
+		}
 	}
 }

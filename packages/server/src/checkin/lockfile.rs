@@ -27,6 +27,7 @@ impl Server {
 
 		// Strip the lockfile nodes.
 		let nodes = Self::strip_lockfile_nodes(&nodes, &path_dependencies, root)?;
+
 		Ok(tg::Lockfile { nodes })
 	}
 
@@ -140,48 +141,30 @@ impl Server {
 			.unwrap_file_ref()
 			.dependencies
 			.iter()
-			.map(|dependency| match dependency {
-				super::FileDependency::Import {
-					import,
-					node,
-					path,
-					tag,
-				} => {
-					let reference = import.reference.clone();
-					let referent =
-						node.ok_or_else(|| tg::error!(%import = reference, "unresolved import"))?;
-					let item = Self::create_lockfile_node(state, referent, nodes, visited)?;
-					let path = path
-						.clone()
-						.or_else(|| state.graph.referent_path(index, referent));
-					let tag = tag
-						.clone()
-						.or_else(|| state.graph.nodes[referent].tag.clone());
-					let referent = tg::Referent { item, path, tag };
-					Ok::<_, tg::Error>((reference, referent))
-				},
-				super::FileDependency::Referent {
-					reference,
-					referent,
-				} => {
-					let reference = reference.clone();
-					let item = match referent
-						.item
-						.as_ref()
-						.ok_or_else(|| tg::error!("unresolved reference"))?
-					{
-						Either::Left(id) => Either::Right(id.clone()),
-						Either::Right(node) => {
-							Self::create_lockfile_node(state, *node, nodes, visited)?
-						},
-					};
-					let referent = tg::Referent {
-						item,
-						path: referent.path.clone(),
-						tag: referent.tag.clone(),
-					};
-					Ok((reference, referent))
-				},
+			.cloned()
+			.map(|(reference, referent)| {
+				let referent =
+					referent.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
+				match referent.item {
+					Either::Left(id) => {
+						let item = Either::Right(id);
+						let referent = tg::Referent {
+							item,
+							path: referent.path,
+							tag: referent.tag,
+						};
+						Ok((reference, referent))
+					},
+					Either::Right(node) => {
+						let item = Self::create_lockfile_node(state, node, nodes, visited)?;
+						let path = referent
+							.path
+							.or_else(|| state.graph.referent_path(index, node));
+						let tag = referent.tag.or_else(|| state.graph.nodes[node].tag.clone());
+						let referent = tg::Referent { item, path, tag };
+						Ok::<_, tg::Error>((reference, referent))
+					},
+				}
 			})
 			.try_collect()?;
 		let file = tg::lockfile::File {
@@ -272,52 +255,97 @@ impl Server {
 	}
 }
 
+// Marks nodes if they or any of their transitive children are eligible for deletion.
 fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
-	// First, split into strongly conncected components.
-	let sccs = petgraph::algo::tarjan_scc(&LockfileGraphImpl(nodes));
+	fn union(set: &mut [usize], parent: usize, child: usize) {
+		set[child] = find(set, parent);
+	}
 
-	// Mark nodes that have been tagged or are imported by ID.
-	for scc in sccs.iter().rev() {
-		for node in scc.iter().copied() {
-			let tg::lockfile::Node::File(file) = &nodes[node] else {
-				continue;
-			};
-			for (reference, referent) in &file.dependencies {
-				let Either::Left(index) = &referent.item else {
-					continue;
-				};
-				if referent.tag.is_some()
-					|| (reference.item().try_unwrap_object_ref().is_ok()
-						&& reference.path().is_none())
-				{
-					strip[*index] = false;
-				}
+	fn find(set: &mut [usize], item: usize) -> usize {
+		let mut current = item;
+		loop {
+			if set[current] == current {
+				set[item] = current;
+				return current;
+			}
+			current = set[current];
+		}
+	}
+
+	// Construct the union-find set.
+	let mut set = (0..=nodes.len()).collect::<Vec<_>>();
+
+	// Use a sentinel value for the "tagged" set.
+	let tagged = nodes.len();
+
+	// Mark tagged items.
+	let sccs = petgraph::algo::tarjan_scc(&LockfileGraphImpl(nodes));
+	for scc in &sccs {
+		for parent in scc.iter().copied() {
+			let node = &nodes[parent];
+			match node {
+				tg::lockfile::Node::Directory(directory) => {
+					for child in directory
+						.entries
+						.values()
+						.filter_map(|entry| entry.as_ref().left().copied())
+					{
+						union(&mut set, parent, child);
+					}
+				},
+				tg::lockfile::Node::File(file) => {
+					for (child, is_tagged) in file.dependencies.values().filter_map(|referent| {
+						let child = referent.item.as_ref().left().copied()?;
+						let is_tagged = referent.tag.is_some();
+						Some((child, is_tagged))
+					}) {
+						if is_tagged {
+							union(&mut set, tagged, child);
+						} else {
+							union(&mut set, parent, child);
+						}
+					}
+				},
+				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+					artifact: Either::Left(child),
+					..
+				}) => {
+					union(&mut set, parent, *child);
+				},
+				tg::lockfile::Node::Symlink(_) => (),
 			}
 		}
 	}
 
-	// In a second pass, inherit marks from dependencies.
-	for scc in sccs {
-		for node in scc {
-			strip[node] &= match &nodes[node] {
+	// Now update the marks.
+	for scc in &sccs {
+		for parent in scc.iter().copied() {
+			let node = &nodes[parent];
+			if find(&mut set, parent) == tagged {
+				strip[parent] = false;
+				continue;
+			}
+			let any_child_tagged = match node {
 				tg::lockfile::Node::Directory(directory) => directory
 					.entries
 					.values()
 					.filter_map(|entry| entry.as_ref().left().copied())
-					.all(|node| strip[node]),
-				tg::lockfile::Node::File(file) => file.dependencies.values().all(|referent| {
-					referent
-						.item
-						.as_ref()
-						.left()
-						.is_some_and(|index| strip[*index])
-				}),
+					.any(|child| find(&mut set, child) == tagged),
+				tg::lockfile::Node::File(file) => file
+					.dependencies
+					.values()
+					.filter_map(|referent| referent.item.as_ref().left().copied())
+					.any(|child| find(&mut set, child) == tagged),
 				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-					artifact: Either::Left(index),
+					artifact: Either::Left(child),
 					..
-				}) => strip[*index],
-				tg::lockfile::Node::Symlink(_) => true,
+				}) => find(&mut set, *child) == tagged,
+				tg::lockfile::Node::Symlink(_) => false,
 			};
+			if any_child_tagged {
+				union(&mut set, tagged, parent);
+				strip[parent] = false;
+			}
 		}
 	}
 }
@@ -513,5 +541,99 @@ impl petgraph::visit::IntoNodeIdentifiers for &LockfileGraphImpl<'_> {
 	type NodeIdentifiers = std::ops::Range<usize>;
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
 		0..self.0.len()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use indoc::indoc;
+	use insta::assert_json_snapshot;
+	use tangram_client as tg;
+
+	#[test]
+	fn strip() {
+		let lockfile = serde_json::from_str::<tg::Lockfile>(indoc!(
+			r#"
+				{
+				  "nodes": [
+				    {
+				      "kind": "directory",
+				      "entries": {
+				        "tangram.ts": 1,
+				        "foo.tg.ts": 2
+				      }
+				    },
+				    {
+				      "kind": "file",
+				      "dependencies": {
+				        "a": {
+				          "item": 3,
+				          "tag": "a"
+				        },
+				        "./foo.tg.ts": {
+				          "item": 2
+				        }
+				      }
+				    },
+				    {
+				      "kind": "file"
+				    },	
+				    {
+				      "kind": "directory",
+				      "entries": {
+				        "tangram.ts": 4
+				      }
+				    },
+				    {
+				      "kind": "file",
+				      "contents": "blb_01038pab1jh9r3ztm2811kzr14ff3223xhcp9dgczg1gd1afmje6ng"
+				    }
+				  ]
+				}
+			"#
+		))
+		.unwrap();
+
+		// Test that marking the nodes works.
+		let mut strip = vec![true; lockfile.nodes.len()];
+		super::mark_nodes(&lockfile.nodes, &mut strip);
+		assert_eq!(&strip, &[false, false, true, false, false]);
+
+		// Test that stripping the nodes works.
+		let nodes = crate::Server::strip_lockfile_nodes(
+			&lockfile.nodes,
+			&[true, true, true, false, false],
+			0,
+		)
+		.unwrap();
+		assert_json_snapshot!(nodes, @r#"
+		[
+		  {
+		    "kind": "directory",
+		    "entries": {
+		      "tangram.ts": 1
+		    }
+		  },
+		  {
+		    "kind": "file",
+		    "dependencies": {
+		      "a": {
+		        "item": 2,
+		        "tag": "a"
+		      }
+		    }
+		  },
+		  {
+		    "kind": "directory",
+		    "entries": {
+		      "tangram.ts": 3
+		    }
+		  },
+		  {
+		    "kind": "file",
+		    "contents": "blb_01038pab1jh9r3ztm2811kzr14ff3223xhcp9dgczg1gd1afmje6ng"
+		  }
+		]
+		"#);
 	}
 }

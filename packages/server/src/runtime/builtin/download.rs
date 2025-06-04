@@ -195,6 +195,7 @@ impl Runtime {
 			locked: false,
 			lockfile: false,
 			path: temp.path().to_owned(),
+			updates: Vec::new(),
 		};
 		let artifact = tg::checkin(server, arg)
 			.await

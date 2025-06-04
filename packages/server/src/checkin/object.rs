@@ -1,4 +1,4 @@
-use super::{Blob, FileDependency, GraphObject, Object, State, Variant};
+use super::{Blob, GraphObject, Object, State, Variant};
 use crate::Server;
 use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered};
 use itertools::Itertools as _;
@@ -166,61 +166,30 @@ impl Server {
 				let dependencies = file
 					.dependencies
 					.iter()
-					.map(|dependency| match dependency {
-						FileDependency::Import {
-							import,
-							node,
-							path,
-							tag,
-						} => {
-							let referent = node.ok_or_else(
-								|| tg::error!(%import = import.reference, "unresolved import"),
-							)?;
-							let item = graph_indices
-								.get(&referent)
+					.map(|(reference, referent)| {
+						let referent = referent
+							.as_ref()
+							.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
+						let item = match &referent.item {
+							Either::Left(id) => Either::Right(id.clone()),
+							Either::Right(index) => graph_indices
+								.get(index)
 								.copied()
 								.map(Either::Left)
 								.or_else(|| {
-									state.graph.nodes[referent]
+									state.graph.nodes[*index]
 										.object
 										.as_ref()
 										.map(|object| Either::Right(object.id.clone()))
 								})
-								.unwrap();
-							let path = path
-								.clone()
-								.or_else(|| state.graph.referent_path(index, referent));
-							let tag = tag
-								.clone()
-								.or_else(|| state.graph.nodes[referent].tag.clone());
-							let referent = tg::Referent { item, path, tag };
-							Ok::<_, tg::Error>((import.reference.clone(), referent))
-						},
-						FileDependency::Referent {
-							reference,
-							referent,
-						} => {
-							let item = match referent.item.as_ref().unwrap() {
-								Either::Left(id) => Either::Right(id.clone()),
-								Either::Right(index) => graph_indices
-									.get(index)
-									.copied()
-									.map(Either::Left)
-									.or_else(|| {
-										state.graph.nodes[*index]
-											.object
-											.as_ref()
-											.map(|object| Either::Right(object.id.clone()))
-									})
-									.unwrap(),
-							};
-							let referent = tg::Referent {
-								item,
-								path: referent.path.clone(),
-								tag: referent.tag.clone(),
-							};
-							Ok::<_, tg::Error>((reference.clone(), referent))
-						},
+								.unwrap(),
+						};
+						let referent = tg::Referent {
+							item,
+							path: referent.path.clone(),
+							tag: referent.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), referent))
 					})
 					.try_collect()?;
 				let executable = file.executable;
@@ -273,59 +242,30 @@ impl Server {
 					Blob::Create(blob) => blob.id.clone(),
 					Blob::Id(id) => id.clone(),
 				};
-				let dependencies =
-					file.dependencies
-						.iter()
-						.map(|dependency| match dependency {
-							FileDependency::Import {
-								import,
-								node,
-								path,
-								tag,
-							} => {
-								let referent = node.ok_or_else(
-									|| tg::error!(%import = import.reference, "unresolved import"),
-								)?;
-								let item = state.graph.nodes[referent]
-									.object
-									.as_ref()
-									.unwrap()
-									.id
-									.clone();
-								let path = path
-									.clone()
-									.or_else(|| state.graph.referent_path(index, referent));
-								let tag = tag
-									.clone()
-									.or_else(|| state.graph.nodes[referent].tag.clone());
-								let referent = tg::Referent { item, path, tag };
-								Ok::<_, tg::Error>((import.reference.clone(), referent))
-							},
-							FileDependency::Referent {
-								reference,
-								referent,
-							} => {
-								let item =
-									match referent.item.as_ref().ok_or_else(
-										|| tg::error!(%reference, "unresolved reference"),
-									)? {
-										Either::Left(id) => id.clone(),
-										Either::Right(index) => state.graph.nodes[*index]
-											.object
-											.as_ref()
-											.unwrap()
-											.id
-											.clone(),
-									};
-								let referent = tg::Referent {
-									item,
-									path: referent.path.clone(),
-									tag: referent.tag.clone(),
-								};
-								Ok::<_, tg::Error>((reference.clone(), referent))
-							},
-						})
-						.try_collect()?;
+				let dependencies = file
+					.dependencies
+					.iter()
+					.map(|(reference, referent)| {
+						let referent = referent
+							.as_ref()
+							.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
+						let item = match &referent.item {
+							Either::Left(id) => id.clone(),
+							Either::Right(index) => state.graph.nodes[*index]
+								.object
+								.as_ref()
+								.unwrap()
+								.id
+								.clone(),
+						};
+						let referent = tg::Referent {
+							item,
+							path: referent.path.clone(),
+							tag: referent.tag.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), referent))
+					})
+					.try_collect()?;
 				let executable = file.executable;
 				let data = tg::file::Data::Normal {
 					contents,

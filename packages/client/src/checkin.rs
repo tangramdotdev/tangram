@@ -25,6 +25,9 @@ pub struct Arg {
 	pub lockfile: bool,
 
 	pub path: PathBuf,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub updates: Vec<tg::tag::Pattern>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

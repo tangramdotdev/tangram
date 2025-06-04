@@ -221,6 +221,11 @@ where
 							.handle_request(request.clone())
 							.await
 							.inspect_err(|error| {
+								if request.header.opcode == sys::fuse_opcode::FUSE_LOOKUP
+									&& error.raw_os_error() == Some(libc::ENOENT)
+								{
+									return;
+								}
 								tracing::error!(?error, "request failed");
 							});
 

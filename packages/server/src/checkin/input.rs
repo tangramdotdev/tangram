@@ -1,10 +1,11 @@
-use super::{Directory, File, FileDependency, Node, State, Symlink, Variant};
+use super::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 	sync::Arc,
 };
+use itertools::Itertools;
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -65,8 +66,15 @@ impl Server {
 		// Update the path.
 		state.graph.paths.insert(path.clone(), index);
 
+		// Lookup the lockfile node.
+		let lockfile_node = state
+			.lockfile
+			.as_ref()
+			.and_then(|lockfile| lockfile.get_node_for_path(&path).ok());
+
 		// Create the node.
 		let node = Node {
+			lockfile_index: lockfile_node,
 			variant,
 			metadata: Some(metadata),
 			object: None,
@@ -130,24 +138,21 @@ impl Server {
 		let mut dependencies = self.get_file_dependencies(state, &path)?;
 
 		// Visit path dependencies.
-		for dependency in &mut dependencies {
-			match dependency {
-				FileDependency::Import { import, node, .. }
-					if import.reference.path().is_some() =>
-				{
-					let path = path
-						.parent()
-						.unwrap()
-						.join(import.reference.path().unwrap());
-					let path = crate::util::fs::canonicalize_parent_sync(&path).map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"),
-					)?;
-					let Some(index) = self.checkin_visit(state, path)? else {
-						continue;
-					};
-					*node = Some(index);
-				},
-				_ => (),
+		for (reference, referent) in &mut dependencies {
+			if let Some(reference) = reference.path() {
+				let path = path
+					.parent()
+					.unwrap()
+					.join(reference);
+				let path = crate::util::fs::canonicalize_parent_sync(&path).map_err(						|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"))?;
+				let Some(index) = self.checkin_visit(state, path)? else {
+					continue;
+				};
+				referent.replace(tg::Referent {
+					item: Either::Right(index),
+					path: Some(reference.to_owned()),
+					tag: None
+				});
 			}
 		}
 
@@ -164,7 +169,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-	) -> tg::Result<Vec<FileDependency>> {
+	) -> tg::Result<Vec<(tg::Reference, Option<tg::Referent<Either<tg::object::Id, usize>>>)>> {
 		// Check if this file has dependencies set in the xattr.
 		if let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) {
 			let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents)
@@ -175,25 +180,19 @@ impl Server {
 			let Some(tg::lockfile::Node::File(file_node)) = lockfile.nodes.first() else {
 				return Err(tg::error!(%path = path.display(), "expected a file node"));
 			};
-			return file_node.dependencies.iter().try_fold(
-				Vec::new(),
-				|mut acc, (reference, referent)| match &referent.item {
+			return file_node.dependencies.iter().map(
+				|(reference, referent)| match &referent.item {
 					Either::Left(_) => Err(tg::error!("found a graph node")),
 					Either::Right(object) => {
 						let referent = tg::Referent {
-							item: Some(Either::Left(object.clone())),
+							item: Either::Left(object.clone()),
 							path: referent.path.clone(),
 							tag: referent.tag.clone(),
 						};
-						let dependency = FileDependency::Referent {
-							reference: reference.clone(),
-							referent,
-						};
-						acc.push(dependency);
-						Ok(acc)
+						Ok((reference.clone(), Some(referent)))
 					},
 				},
-			);
+			).try_collect();
 		}
 
 		// If this is not a module, it has no dependencies.
@@ -220,90 +219,30 @@ impl Server {
 			state.progress.diagnostic(diagnostic);
 		}
 
-		// Get the locked dependencies.
-		let locked_dependencies = state
-			.lockfile
-			.as_ref()
-			.and_then(|lockfile| lockfile.get_file_dependencies(path).ok())
-			.unwrap_or_default();
-
-		// Make sure that the lockfile dependencies matches the import set.
-		if state.arg.locked
-			&& (locked_dependencies.len() != analysis.imports.len()
-				|| !locked_dependencies.iter().all(|(reference, _)| {
-					analysis
-						.imports
-						.iter()
-						.any(|import| &import.reference == reference)
-				})) {
-			return Err(tg::error!(
-				"the lockfile needs to be updated but --locked was passed"
-			));
-		}
-
-		let dependencies =
-			analysis
-				.imports
-				.into_iter()
-				.try_fold(Vec::new(), |mut acc, import| {
-					// Use the locked dependency if the reference matches.
-					if let Some((reference, referent)) =
-						locked_dependencies
-							.iter()
-							.find_map(|(reference, referent)| {
-								if &import.reference != reference {
-									return None;
-								}
-								let item = referent.item.as_ref()?.as_ref().right()?.clone();
-								let referent = tg::Referent {
-									item: Some(Either::Left(item)),
-									path: referent.path.clone(),
-									tag: referent.tag.clone(),
-								};
-								Some((reference.clone(), referent))
-							}) {
-						acc.push(FileDependency::Referent {
-							reference,
-							referent,
-						});
-						return Ok(acc);
-					}
-
-					// Return an error if this dependency can't be resolved.
-					if state.locked
-						&& import.reference.path().is_none()
-						&& import.reference.item().try_unwrap_tag_ref().is_ok()
-					{
-						return Err(
-							tg::error!(%import = &import.reference, "unresolved import when --locked"),
-						);
-					}
-
-					// Pull tags.
-					if let Ok(pattern) = import.reference.item().try_unwrap_tag_ref() {
-						tokio::spawn({
-							let server = self.clone();
-							let pattern = pattern.clone();
-							let remote = import
-								.reference
-								.options()
-								.and_then(|options| options.remote.clone());
-							async move {
-								server.pull_tag(pattern.clone(), remote.clone()).await.ok();
-							}
-						});
-					}
-
-					// Add the import.
-					acc.push(FileDependency::Import {
-						import,
-						node: None,
-						path: None,
-						tag: None,
+		// Get the file's dependencies.
+		let dependencies = analysis
+			.imports
+			.into_iter()
+			.map(|import| {
+				// Pull tags.
+				if let Ok(pattern) = import.reference.item().try_unwrap_tag_ref() {
+					tokio::spawn({
+						let server = self.clone();
+						let pattern = pattern.clone();
+						let remote = import
+							.reference
+							.options()
+							.and_then(|options| options.remote.clone());
+						async move {
+							server.pull_tag(pattern.clone(), remote.clone()).await.ok();
+						}
 					});
+				}
 
-					Ok(acc)
-				})?;
+				// Add the import.
+				(import.reference.clone(), None)
+			})
+			.collect();
 
 		Ok(dependencies)
 	}
@@ -452,12 +391,12 @@ mod tests {
 					ignore: true,
 					locked: false,
 					lockfile: true,
+					updates: Vec::new(),
 				},
 				fixup_sender: None,
 				graph: crate::checkin::Graph::default(),
 				graph_objects: Vec::new(),
 				lockfile: None,
-				locked: false,
 				ignorer: None,
 				progress,
 			};

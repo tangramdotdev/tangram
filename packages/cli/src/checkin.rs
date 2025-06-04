@@ -29,11 +29,17 @@ pub struct Args {
 	/// The path to check in.
 	#[arg(default_value = ".", index = 1)]
 	pub path: Option<PathBuf>,
+
+	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
+	pub patterns: Option<Vec<tg::tag::Pattern>>,
 }
 
 impl Cli {
 	pub async fn command_checkin(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+
+		// Update nothing by default.
+		let updates = args.patterns.unwrap_or_default();
 
 		// Get the path.
 		let path = std::path::absolute(args.path.unwrap_or_default())
@@ -47,6 +53,7 @@ impl Cli {
 			locked: args.locked,
 			lockfile: args.lockfile,
 			path,
+			updates,
 		};
 		let stream = handle
 			.checkin(arg)

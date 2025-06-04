@@ -38,6 +38,11 @@ pub enum Component {
 
 impl Pattern {
 	#[must_use]
+	pub fn wildcard() -> Self {
+		Self::with_components(vec![Component::Wildcard])
+	}
+
+	#[must_use]
 	pub fn with_components(components: Vec<Component>) -> Self {
 		let string = components.iter().map(ToString::to_string).join("/");
 		Self { string, components }

@@ -47,6 +47,7 @@ impl Server {
 					locked: false,
 					lockfile: true,
 					path: path.clone(),
+					updates: Vec::new(),
 				};
 				let stream = self.checkin(arg).await?.map_ok(move |event| match event {
 					tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
