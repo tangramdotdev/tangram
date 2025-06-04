@@ -658,13 +658,6 @@ declare namespace tg {
 			source: tg.Artifact;
 			target: string;
 		};
-
-		export namespace Mount {
-			/** Parse a mount. */
-			export let parse: (
-				arg: string | tg.Template,
-			) => Promise<tg.Command.Mount>;
-		}
 	}
 
 	export namespace path {
