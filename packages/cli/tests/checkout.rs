@@ -190,7 +190,7 @@ async fn deeply_nested_directory() {
 		"tangram.ts" => indoc!(r#"
 			export default () => {
 				let artifact = tg.file("hello");
-				for (let i = 0; i < 10; i++) {
+				for (let i = 0; i < 256; i++) {
 					let entries = { "a": artifact };
 					artifact = tg.directory(entries);
 				}

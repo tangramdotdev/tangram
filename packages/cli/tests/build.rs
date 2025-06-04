@@ -839,7 +839,7 @@ async fn directory_get_follows_final_component_symlinks() {
 }
 
 #[tokio::test]
-async fn command_cycle_detection() {
+async fn cycle() {
 	let directory = temp::directory! {
 		"tangram.ts" => "export let x = () => tg.build(x);"
 	};
@@ -852,9 +852,8 @@ async fn command_cycle_detection() {
 	test_build(directory, path, export, args, assertions).await;
 }
 
-#[ignore]
 #[tokio::test]
-async fn command_cycle_detection_between_packages() {
+async fn cycle_between_packages() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => indoc!(r#"
@@ -878,9 +877,8 @@ async fn command_cycle_detection_between_packages() {
 	test_build(directory, path, export, args, assertions).await;
 }
 
-#[ignore]
 #[tokio::test]
-async fn package_cycle_without_command_cycle() {
+async fn import_cycle_without_process_cycle() {
 	let directory = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => indoc!(r#"
