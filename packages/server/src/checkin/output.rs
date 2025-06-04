@@ -424,16 +424,14 @@ impl Server {
 		// Create a lockfile.
 		let lockfile = Self::create_lockfile(state)?;
 
-		// Check if the lockfile changed and --locked was used.
+		// If this is a locked checkin, then verify the lockfile is unchanged.
 		if state.arg.locked
 			&& state
 				.lockfile
 				.as_ref()
 				.is_some_and(|existing| existing.nodes != lockfile.nodes)
 		{
-			return Err(tg::error!(
-				"--locked was passed as an arg to checkin, but the lockfile is out of date"
-			));
+			return Err(tg::error!("the lockfile is out of date"));
 		}
 
 		// Do nothing if the lockfile is empty.

@@ -5,7 +5,7 @@ use std::{
 };
 use tangram_either::Either;
 
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
 	pub nodes: Vec<Node>,
 }
@@ -13,13 +13,13 @@ pub struct Lockfile {
 #[derive(
 	Clone,
 	Debug,
+	Eq,
+	PartialEq,
 	derive_more::From,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	serde::Serialize,
 	serde::Deserialize,
-	Eq,
-	PartialEq,
 )]
 #[try_unwrap(ref)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -29,12 +29,12 @@ pub enum Node {
 	Symlink(Symlink),
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Directory {
 	pub entries: BTreeMap<String, Entry>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
@@ -46,7 +46,7 @@ pub struct File {
 	pub executable: bool,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Symlink {
 	Target {

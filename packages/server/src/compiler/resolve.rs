@@ -257,13 +257,11 @@ impl Compiler {
 		kind: Option<tg::module::Kind>,
 		referent: tg::Referent<tg::Object>,
 	) -> tg::Result<tg::Referent<tg::Object>> {
-		// Validate the item.
 		match (kind, &referent.item) {
 			(
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
-				// Resolve root modules if necessary.
 				let path = tg::package::try_get_root_module_file_name(
 					&self.server,
 					Either::Left(&referent.item),

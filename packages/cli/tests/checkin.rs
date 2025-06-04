@@ -26,19 +26,19 @@ async fn directory() {
 	let tags = vec![];
 	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-			tg.directory({
-			  "hello.txt": tg.file({
-			    "contents": tg.blob("Hello, world!"),
-			  }),
-			  "link": tg.symlink({
-			    "target": "hello.txt",
-			  }),
-			  "subdirectory": tg.directory({
-			    "sublink": tg.symlink({
-			      "target": "../link",
-			    }),
-			  }),
-			})
+		tg.directory({
+		  "hello.txt": tg.file({
+		    "contents": tg.blob("Hello, world!"),
+		  }),
+		  "link": tg.symlink({
+		    "target": "hello.txt",
+		  }),
+		  "subdirectory": tg.directory({
+		    "sublink": tg.symlink({
+		      "target": "../link",
+		    }),
+		  }),
+		})
 		"#);
 		assert_snapshot!(metadata, @r#"
 		{
@@ -312,22 +312,22 @@ async fn simple_path_dependency() {
 	let tags = vec![];
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-			tg.directory({
-			  "tangram.ts": tg.file({
-			    "contents": tg.blob("import * as bar from \"../bar\";"),
-			    "dependencies": {
-			      "../bar": {
-			        "item": tg.directory({
-			          "tangram.ts": tg.file({
-			            "contents": tg.blob(""),
-			          }),
-			        }),
-			        "path": "../bar",
-			      },
-			    },
-			  }),
-			})
-  "#);
+		tg.directory({
+		  "tangram.ts": tg.file({
+		    "contents": tg.blob("import * as bar from \"../bar\";"),
+		    "dependencies": {
+		      "../bar": {
+		        "item": tg.directory({
+		          "tangram.ts": tg.file({
+		            "contents": tg.blob(""),
+		          }),
+		        }),
+		        "path": "../bar",
+		      },
+		    },
+		  }),
+		})
+		"#);
 		assert!(lockfile.is_none());
 	};
 	test_checkin(directory, path, destructive, tags, assertions).await;
@@ -356,59 +356,59 @@ async fn package_with_nested_dependencies() {
 	let tags = vec![];
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-  			tg.directory({
-  			  "bar": tg.directory({
-  			    "tangram.ts": tg.file({
-  			      "contents": tg.blob("import * as baz from \"../baz\";\n"),
-  			      "dependencies": {
-  			        "../baz": {
-  			          "item": tg.directory({
-  			            "tangram.ts": tg.file({
-  			              "contents": tg.blob(""),
-  			            }),
-  			          }),
-  			          "path": "../baz",
-  			        },
-  			      },
-  			    }),
-  			  }),
-  			  "baz": tg.directory({
-  			    "tangram.ts": tg.file({
-  			      "contents": tg.blob(""),
-  			    }),
-  			  }),
-  			  "tangram.ts": tg.file({
-  			    "contents": tg.blob("import * as bar from \"./bar\";\nimport * as baz from \"./baz\";\n"),
-  			    "dependencies": {
-  			      "./bar": {
-  			        "item": tg.directory({
-  			          "tangram.ts": tg.file({
-  			            "contents": tg.blob("import * as baz from \"../baz\";\n"),
-  			            "dependencies": {
-  			              "../baz": {
-  			                "item": tg.directory({
-  			                  "tangram.ts": tg.file({
-  			                    "contents": tg.blob(""),
-  			                  }),
-  			                }),
-  			                "path": "../baz",
-  			              },
-  			            },
-  			          }),
-  			        }),
-  			        "path": "bar",
-  			      },
-  			      "./baz": {
-  			        "item": tg.directory({
-  			          "tangram.ts": tg.file({
-  			            "contents": tg.blob(""),
-  			          }),
-  			        }),
-  			        "path": "baz",
-  			      },
-  			    },
-  			  }),
-  			})
+		tg.directory({
+		  "bar": tg.directory({
+		    "tangram.ts": tg.file({
+		      "contents": tg.blob("import * as baz from \"../baz\";\n"),
+		      "dependencies": {
+		        "../baz": {
+		          "item": tg.directory({
+		            "tangram.ts": tg.file({
+		              "contents": tg.blob(""),
+		            }),
+		          }),
+		          "path": "../baz",
+		        },
+		      },
+		    }),
+		  }),
+		  "baz": tg.directory({
+		    "tangram.ts": tg.file({
+		      "contents": tg.blob(""),
+		    }),
+		  }),
+		  "tangram.ts": tg.file({
+		    "contents": tg.blob("import * as bar from \"./bar\";\nimport * as baz from \"./baz\";\n"),
+		    "dependencies": {
+		      "./bar": {
+		        "item": tg.directory({
+		          "tangram.ts": tg.file({
+		            "contents": tg.blob("import * as baz from \"../baz\";\n"),
+		            "dependencies": {
+		              "../baz": {
+		                "item": tg.directory({
+		                  "tangram.ts": tg.file({
+		                    "contents": tg.blob(""),
+		                  }),
+		                }),
+		                "path": "../baz",
+		              },
+		            },
+		          }),
+		        }),
+		        "path": "bar",
+		      },
+		      "./baz": {
+		        "item": tg.directory({
+		          "tangram.ts": tg.file({
+		            "contents": tg.blob(""),
+		          }),
+		        }),
+		        "path": "baz",
+		      },
+		    },
+		  }),
+		})
 		"#);
 		assert!(lockfile.is_none());
 	};
@@ -611,26 +611,26 @@ async fn import_package_with_type_directory_from_parent() {
 	let tags = vec![];
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-  		tg.directory({
-  		  "a": tg.directory({
-  		    "tangram.ts": tg.file({
-  		      "contents": tg.blob(""),
-  		    }),
-  		  }),
-  		  "tangram.ts": tg.file({
-  		    "contents": tg.blob("import a from \"./a\" with { type: \"directory\" };"),
-  		    "dependencies": {
-  		      "./a": {
-  		        "item": tg.directory({
-  		          "tangram.ts": tg.file({
-  		            "contents": tg.blob(""),
-  		          }),
-  		        }),
-  		        "path": "a",
-  		      },
-  		    },
-  		  }),
-  		})
+		tg.directory({
+		  "a": tg.directory({
+		    "tangram.ts": tg.file({
+		      "contents": tg.blob(""),
+		    }),
+		  }),
+		  "tangram.ts": tg.file({
+		    "contents": tg.blob("import a from \"./a\" with { type: \"directory\" };"),
+		    "dependencies": {
+		      "./a": {
+		        "item": tg.directory({
+		          "tangram.ts": tg.file({
+		            "contents": tg.blob(""),
+		          }),
+		        }),
+		        "path": "a",
+		      },
+		    },
+		  }),
+		})
 		"#);
 		assert!(lockfile.is_none());
 	};
@@ -652,27 +652,27 @@ async fn import_package_from_parent() {
 	let tags = vec![];
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
-  		tg.directory({
-  		  "a": tg.directory({
-  		    "tangram.ts": tg.file({
-  		      "contents": tg.blob(""),
-  		    }),
-  		  }),
-  		  "tangram.ts": tg.file({
-  		    "contents": tg.blob("import a from \"./a\";"),
-  		    "dependencies": {
-  		      "./a": {
-  		        "item": tg.directory({
-  		          "tangram.ts": tg.file({
-  		            "contents": tg.blob(""),
-  		          }),
-  		        }),
-  		        "path": "a",
-  		      },
-  		    },
-  		  }),
-  		})
-  		"#);
+		tg.directory({
+		  "a": tg.directory({
+		    "tangram.ts": tg.file({
+		      "contents": tg.blob(""),
+		    }),
+		  }),
+		  "tangram.ts": tg.file({
+		    "contents": tg.blob("import a from \"./a\";"),
+		    "dependencies": {
+		      "./a": {
+		        "item": tg.directory({
+		          "tangram.ts": tg.file({
+		            "contents": tg.blob(""),
+		          }),
+		        }),
+		        "path": "a",
+		      },
+		    },
+		  }),
+		})
+		"#);
 		assert!(lockfile.is_none());
 	};
 	test_checkin(directory, path, destructive, tags, assertions).await;

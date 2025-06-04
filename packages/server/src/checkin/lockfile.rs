@@ -257,7 +257,6 @@ impl Server {
 
 // Marks nodes if they or any of their transitive children are eligible for deletion.
 fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
-	// Union-find implementation. Since this is the only place in the codebase where we need this algorithm it doesn't make sense to split out into a dedicated struct.
 	fn union(set: &mut [usize], parent: usize, child: usize) {
 		set[child] = find(set, parent);
 	}
@@ -547,51 +546,52 @@ impl petgraph::visit::IntoNodeIdentifiers for &LockfileGraphImpl<'_> {
 
 #[cfg(test)]
 mod tests {
+	use indoc::indoc;
 	use insta::assert_json_snapshot;
 	use tangram_client as tg;
 
 	#[test]
 	fn strip() {
-		let lockfile = serde_json::from_str::<tg::Lockfile>(
+		let lockfile = serde_json::from_str::<tg::Lockfile>(indoc!(
 			r#"
-		{
-		  "nodes": [
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 1,
-				"foo.tg.ts": 2
-		      }
-		    },
-		    {
-		      "kind": "file",
-		      "dependencies": {
-		        "a": {
-		          "item": 3,
-		          "tag": "a"
-		        },
-				"./foo.tg.ts": {
-					"item": 2
+				{
+				  "nodes": [
+				    {
+				      "kind": "directory",
+				      "entries": {
+				        "tangram.ts": 1,
+				        "foo.tg.ts": 2
+				      }
+				    },
+				    {
+				      "kind": "file",
+				      "dependencies": {
+				        "a": {
+				          "item": 3,
+				          "tag": "a"
+				        },
+				        "./foo.tg.ts": {
+				          "item": 2
+				        }
+				      }
+				    },
+				    {
+				      "kind": "file"
+				    },	
+				    {
+				      "kind": "directory",
+				      "entries": {
+				        "tangram.ts": 4
+				      }
+				    },
+				    {
+				      "kind": "file",
+				      "contents": "blb_01038pab1jh9r3ztm2811kzr14ff3223xhcp9dgczg1gd1afmje6ng"
+				    }
+				  ]
 				}
-		      }
-		    },
-			{
-				"kind": "file"
-			},	
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 4
-		      }
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01038pab1jh9r3ztm2811kzr14ff3223xhcp9dgczg1gd1afmje6ng"
-		    }
-		  ]
-		}
-		"#,
-		)
+			"#
+		))
 		.unwrap();
 
 		// Test that marking the nodes works.
