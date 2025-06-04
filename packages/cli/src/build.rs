@@ -1,8 +1,8 @@
 use crate::Cli;
-use anstream::eprintln;
+use anstream::{eprintln, println};
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, TryStreamExt as _};
-use std::{io::IsTerminal as _, path::PathBuf};
+use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
 use tangram_futures::task::Task;
 
@@ -57,7 +57,8 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Build.
-		self.build(args.options, reference, args.trailing).await?;
+		self.build(args.options, reference, args.trailing, true)
+			.await?;
 
 		Ok(())
 	}
@@ -67,6 +68,7 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
+		print: bool,
 	) -> tg::Result<Option<tg::Value>> {
 		let handle = self.handle().await?;
 
@@ -89,7 +91,9 @@ impl Cli {
 
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
-			println!("{}", process.id());
+			if print {
+				println!("{}", process.id());
+			}
 			return Ok(None);
 		}
 
@@ -134,17 +138,14 @@ impl Cli {
 						.enable_all()
 						.build()
 						.unwrap();
-
 					local_set
 						.block_on(&runtime, async move {
 							let viewer_options = crate::viewer::Options {
 								condensed_processes: true,
 								expand_on_create: true,
 							};
-
 							let mut viewer =
 								crate::viewer::Viewer::new(&handle, root, viewer_options);
-
 							match options.view {
 								View::None => (),
 								View::Inline => {
@@ -216,7 +217,9 @@ impl Cli {
 			Self::print_error(&error, Some(&referent), self.config.as_ref());
 		}
 
+		// Set the exit.
 		self.exit.replace(wait.exit);
+
 		let Some(output) = wait.output else {
 			return Ok(None);
 		};
@@ -260,22 +263,9 @@ impl Cli {
 		}
 
 		// Print the output.
-		if !output.is_null() {
-			let stdout = std::io::stdout();
-			let output = if stdout.is_terminal() {
-				let options = tg::value::print::Options {
-					depth: Some(0),
-					style: tg::value::print::Style::Pretty { indentation: "  " },
-				};
-				output.print(options)
-			} else {
-				output.to_string()
-			};
-			println!("{output}");
+		if print && !output.is_null() {
+			Self::print_output(&output);
 		}
-
-		// Update the exit status.
-		self.exit.replace(wait.exit);
 
 		Ok(Some(output))
 	}

@@ -23,7 +23,7 @@ impl Cli {
 		let command = tg::builtin::download_command(&args.url, Some(options));
 		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
-		self.build(args.build, reference, vec![]).await?;
+		self.build(args.build, reference, vec![], true).await?;
 		Ok(())
 	}
 }

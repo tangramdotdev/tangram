@@ -51,8 +51,8 @@ impl Cli {
 		let arg = tg::document::Arg { module, remote };
 		let output = handle.document(arg).await?;
 
-		// Print the output.
-		Self::output_json(&output, args.pretty).await?;
+		// Print the document.
+		Self::print_json(&output, args.pretty).await?;
 
 		Ok(())
 	}

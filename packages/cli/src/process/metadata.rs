@@ -18,7 +18,7 @@ impl Cli {
 		let metadata = handle.get_process_metadata(&args.process).await.map_err(
 			|source| tg::error!(!source, %id = args.process, "failed to get the process metadata"),
 		)?;
-		Self::output_json(&metadata, args.pretty).await?;
+		Self::print_json(&metadata, args.pretty).await?;
 		Ok(())
 	}
 }

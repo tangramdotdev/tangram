@@ -4,11 +4,7 @@ use anstream::eprintln;
 use bytes::Bytes;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
-use std::{
-	io::{IsTerminal as _, Read as _},
-	path::PathBuf,
-	pin::pin,
-};
+use std::{io::Read as _, path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
@@ -83,10 +79,9 @@ impl Cli {
 				spawn,
 				view: crate::build::View::default(),
 			};
-			let output = self
-				.build(options, reference, vec![])
-				.await?
-				.ok_or_else(|| tg::error!("expected the build to have an output"))?;
+			let Some(output) = self.build(options, reference, vec![], false).await? else {
+				return Ok(());
+			};
 			let object = output
 				.try_unwrap_object()
 				.ok()
@@ -206,17 +201,7 @@ impl Cli {
 		// Print the output.
 		if let Some(value) = wait.output {
 			if !value.is_null() {
-				let stdout = std::io::stdout();
-				let output = if stdout.is_terminal() {
-					let options = tg::value::print::Options {
-						depth: Some(0),
-						style: tg::value::print::Style::Pretty { indentation: "  " },
-					};
-					value.print(options)
-				} else {
-					value.to_string()
-				};
-				println!("{output}");
+				Self::print_output(&value);
 			}
 		}
 

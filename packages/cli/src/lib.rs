@@ -5,6 +5,7 @@ use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{
 	fmt::Write as _,
+	io::IsTerminal as _,
 	path::{Path, PathBuf},
 	time::Duration,
 };
@@ -1316,7 +1317,21 @@ impl Cli {
 		eprintln!();
 	}
 
-	async fn output_json<T>(output: &T, pretty: Option<bool>) -> tg::Result<()>
+	fn print_output(value: &tg::Value) {
+		let stdout = std::io::stdout();
+		let output = if stdout.is_terminal() {
+			let options = tg::value::print::Options {
+				depth: Some(0),
+				style: tg::value::print::Style::Pretty { indentation: "  " },
+			};
+			value.print(options)
+		} else {
+			value.to_string()
+		};
+		println!("{output}");
+	}
+
+	async fn print_json<T>(output: &T, pretty: Option<bool>) -> tg::Result<()>
 	where
 		T: serde::Serialize,
 	{

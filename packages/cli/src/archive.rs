@@ -27,7 +27,7 @@ impl Cli {
 		let command = tg::builtin::archive_command(&artifact, format, compression);
 		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(&command.into());
-		self.build(args.build, reference, vec![]).await?;
+		self.build(args.build, reference, vec![], true).await?;
 		Ok(())
 	}
 }

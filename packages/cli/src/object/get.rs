@@ -43,7 +43,7 @@ impl Cli {
 					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 			},
 			Format::Json => {
-				Self::output_json(&data, args.pretty).await?;
+				Self::print_json(&data, args.pretty).await?;
 			},
 			Format::Tgvn => {
 				let depth = args.depth;

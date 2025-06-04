@@ -18,7 +18,7 @@ impl Cli {
 		let metadata = handle.get_object_metadata(&args.object).await.map_err(
 			|source| tg::error!(!source, %id = args.object, "failed to get the object metadata"),
 		)?;
-		Self::output_json(&metadata, args.pretty).await?;
+		Self::print_json(&metadata, args.pretty).await?;
 		Ok(())
 	}
 }

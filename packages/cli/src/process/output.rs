@@ -1,5 +1,4 @@
 use crate::Cli;
-use std::io::IsTerminal as _;
 use tangram_client as tg;
 
 /// Get a process's output.
@@ -21,17 +20,7 @@ impl Cli {
 		let output = process.output(&handle).await?;
 
 		// Print the output.
-		let stdout = std::io::stdout();
-		let output = if stdout.is_terminal() {
-			let options = tg::value::print::Options {
-				depth: Some(0),
-				style: tg::value::print::Style::Pretty { indentation: "  " },
-			};
-			output.print(options)
-		} else {
-			output.to_string()
-		};
-		println!("{output}");
+		Self::print_output(&output);
 
 		Ok(())
 	}
