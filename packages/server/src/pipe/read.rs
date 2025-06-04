@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt as _};
 use tangram_client as tg;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
-use tokio::io::AsyncReadExt;
+use tokio::io::AsyncReadExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 

@@ -1,6 +1,6 @@
 use std::{
 	ffi::{OsStr, OsString},
-	os::unix::ffi::OsStrExt,
+	os::unix::ffi::OsStrExt as _,
 	path::PathBuf,
 };
 

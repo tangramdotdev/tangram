@@ -1,4 +1,4 @@
-use futures::TryStreamExt;
+use futures::TryStreamExt as _;
 use std::{io::Write as _, pin::pin};
 use tangram_client::{self as tg, handle::Ext as _};
 

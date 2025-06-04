@@ -10,7 +10,7 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::read::shared_position_reader::SharedPositionReader;
 use tangram_futures::stream::TryExt as _;
-use tokio::io::{AsyncBufReadExt, AsyncRead};
+use tokio::io::{AsyncBufReadExt as _, AsyncRead};
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 impl Runtime {
