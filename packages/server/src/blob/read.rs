@@ -106,7 +106,7 @@ impl Server {
 		sender: async_channel::Sender<tg::Result<tg::blob::read::Event>>,
 	) -> tg::Result<()> {
 		let position = arg.position.unwrap_or(std::io::SeekFrom::Start(0));
-		let size = arg.size.unwrap_or(4096).to_usize().unwrap();
+		let size = arg.size.unwrap_or(65_536).to_usize().unwrap();
 		let mut length = 0;
 		let mut buffer = vec![0u8; size];
 		let mut reader = pin!(reader);
