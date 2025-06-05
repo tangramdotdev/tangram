@@ -321,16 +321,14 @@ export namespace Graph {
 					contents: object.contents.id,
 					dependencies: globalThis.Object.fromEntries(
 						globalThis.Object.entries(object.dependencies).map(
-							([reference, referent]) => [
-								reference,
-								{
-									...referent,
-									item:
-										typeof referent.item === "number"
-											? referent.item
-											: referent.item.id,
-								},
-							],
+							([reference, referent]) => {
+								return [
+									reference,
+									tg.Referent.toData(referent, (item) =>
+										typeof item === "number" ? item : item.id,
+									),
+								];
+							},
 						),
 					),
 					executable: object.executable,
@@ -378,16 +376,18 @@ export namespace Graph {
 					contents: tg.Blob.withId(data.contents),
 					dependencies: globalThis.Object.fromEntries(
 						globalThis.Object.entries(data.dependencies ?? {}).map(
-							([reference, referent]) => [
-								reference,
-								{
-									...referent,
-									item:
-										typeof referent.item === "number"
-											? referent.item
-											: tg.Object.withId(referent.item),
-								},
-							],
+							([reference, referent]) => {
+								return [
+									reference,
+									tg.Referent.fromData(referent, (item) =>
+										typeof item === "number"
+											? item
+											: !Number.isNaN(Number.parseInt(item))
+												? Number.parseInt(item)
+												: tg.Object.withId(item),
+									),
+								];
+							},
 						),
 					),
 					executable: data.executable ?? false,
@@ -454,7 +454,7 @@ export namespace Graph {
 		kind: "file";
 		contents: tg.Blob.Id;
 		dependencies?: {
-			[reference: tg.Reference]: tg.Referent<number | tg.Object.Id>;
+			[reference: tg.Reference]: tg.Referent.Data<number | tg.Object.Id>;
 		};
 		executable?: boolean;
 	};

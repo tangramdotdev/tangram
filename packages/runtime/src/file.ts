@@ -330,7 +330,7 @@ export namespace File {
 						globalThis.Object.entries(object.dependencies).map(
 							([reference, referent]) => [
 								reference,
-								{ ...referent, item: referent.item.id },
+								tg.Referent.toData(referent, (item) => item.id),
 							],
 						),
 					),
@@ -352,7 +352,7 @@ export namespace File {
 						globalThis.Object.entries(data.dependencies ?? {}).map(
 							([reference, referent]) => [
 								reference,
-								{ ...referent, item: tg.Object.withId(referent.item) },
+								tg.Referent.fromData(referent, tg.Object.withId),
 							],
 						),
 					),
@@ -377,7 +377,9 @@ export namespace File {
 	export type Data =
 		| {
 				contents: tg.Blob.Id;
-				dependencies?: { [reference: tg.Reference]: tg.Referent<tg.Object.Id> };
+				dependencies?: {
+					[reference: tg.Reference]: tg.Referent.Data<tg.Object.Id>;
+				};
 				executable?: boolean;
 		  }
 		| { graph: tg.Graph.Id; node: number };

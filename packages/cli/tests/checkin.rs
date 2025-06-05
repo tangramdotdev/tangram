@@ -182,7 +182,7 @@ async fn file_through_symlink() {
 		{
 		  "count": 5,
 		  "depth": 4,
-		  "weight": 382
+		  "weight": 375
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -226,7 +226,7 @@ async fn artifact_symlink() {
 		{
 		  "count": 4,
 		  "depth": 3,
-		  "weight": 303
+		  "weight": 294
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -289,7 +289,7 @@ async fn lockfile_out_of_date() {
 		{
 		  "count": 7,
 		  "depth": 4,
-		  "weight": 515
+		  "weight": 502
 		}
 		"#);
 		assert!(lockfile.is_none());

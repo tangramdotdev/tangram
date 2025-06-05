@@ -27,7 +27,7 @@ import { Object as Object_ } from "./object.ts";
 import { path } from "./path.ts";
 import { Process } from "./process.ts";
 import type { Reference } from "./reference.ts";
-import type { Referent } from "./referent.ts";
+import { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
 import { RunBuilder, run } from "./run.ts";
@@ -59,7 +59,6 @@ export type {
 	MaybeReferent,
 	MutationMap,
 	Reference,
-	Referent,
 	Resolved,
 	ResolvedArgs,
 	ResolvedReturnValue,
@@ -86,6 +85,7 @@ export {
 	Mutation,
 	Object_ as Object,
 	Process,
+	Referent,
 	RunBuilder,
 	Symlink,
 	Template,

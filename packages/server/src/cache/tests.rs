@@ -121,7 +121,7 @@ async fn file_with_dependency() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "fil_011fd0zvc0853ztfq0sm0p8gxf3w874a6zwfmsf14bgm8way2yj8eg": {
+		    "fil_012aqdy9h7v8bermq0hvx4jgpr8apz26st50tx734bha2hdfd0hpa0": {
 		      "kind": "file",
 		      "contents": "foo"
 		    },
@@ -208,7 +208,7 @@ async fn directory_with_file_with_dependency() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_01kepgqkqmm2f3am76vhcf612mmjppedkjpqdmrve5zqk5enhx1tyg": {
+		    "dir_0173ef9z62g971hya06x9qh9da0cv5nrksgff5g3e73texf2h9gx50": {
 		      "kind": "directory",
 		      "entries": {
 		        "foo": {

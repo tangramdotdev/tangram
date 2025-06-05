@@ -23,29 +23,28 @@ export namespace Module {
 
 	export type Data = {
 		kind: Module.Kind;
-		referent: tg.Referent<tg.Object.Id>;
+		referent: tg.Referent.Data<tg.Object.Id>;
 	};
 
 	export let toData = (value: Module): Data => {
 		return {
 			kind: value.kind,
-			referent: {
-				...value.referent,
-				item:
-					typeof value.referent.item === "string"
-						? value.referent.item
-						: value.referent.item.id,
-			},
+			referent: tg.Referent.toData(value.referent, (item) =>
+				typeof item === "string" ? item : item.id,
+			),
 		};
 	};
 
 	export let fromData = (data: Data): Module => {
 		return {
 			kind: data.kind,
-			referent: {
-				...data.referent,
-				item: tg.Object.withId(data.referent.item),
-			},
+			referent: tg.Referent.fromData(data.referent, (item) => {
+				if (item.startsWith(".") || item.startsWith("/")) {
+					return item;
+				} else {
+					return tg.Object.withId(item);
+				}
+			}),
 		};
 	};
 

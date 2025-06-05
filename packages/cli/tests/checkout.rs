@@ -103,7 +103,7 @@ async fn file_with_dependency() {
 		  "contents": "foo",
 		  "xattrs": {
 		    "user.tangram.dependencies": "[\"bar\"]",
-		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"contents\":\"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\"dependencies\":{\"bar\":{\"item\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}}]}"
+		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"contents\":\"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\"dependencies\":{\"bar\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}]}"
 		  }
 		}
 		"#);
