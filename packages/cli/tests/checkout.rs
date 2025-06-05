@@ -182,27 +182,6 @@ async fn symlink_shared_target() {
 	test_checkout(directory, dependencies, assertions).await;
 }
 
-/// Test checking out a very deep directory.
-#[ignore]
-#[tokio::test]
-async fn deeply_nested_directory() {
-	let directory = temp::directory! {
-		"tangram.ts" => indoc!(r#"
-			export default () => {
-				let artifact = tg.file("hello");
-				for (let i = 0; i < 256; i++) {
-					let entries = { "a": artifact };
-					artifact = tg.directory(entries);
-				}
-				return artifact;
-			}
-		"#),
-	};
-	let dependencies = false;
-	let assertions = |_artifact: temp::Artifact| async move {};
-	test_checkout(directory, dependencies, assertions).await;
-}
-
 /// Test checking out a directory with a file with a dependency.
 #[tokio::test]
 async fn directory_with_file_with_dependency() {

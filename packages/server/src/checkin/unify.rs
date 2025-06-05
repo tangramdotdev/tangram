@@ -448,26 +448,12 @@ impl Server {
 				.await?;
 			},
 			tg::Object::File(file) if unify => {
-				self.unify_visit_file_edges(
-					state,
-					lockfile_node,
-					root,
-					index,
-					file,
-					visited,
-				)
-				.await?;
+				self.unify_visit_file_edges(state, lockfile_node, root, index, file, visited)
+					.await?;
 			},
 			tg::Object::Symlink(symlink) if unify => {
-				self.unify_visit_symlink_edges(
-					state,
-					lockfile_node,
-					root,
-					index,
-					symlink,
-					visited,
-				)
-				.await?;
+				self.unify_visit_symlink_edges(state, lockfile_node, root, index, symlink, visited)
+					.await?;
 			},
 			_ => (),
 		}

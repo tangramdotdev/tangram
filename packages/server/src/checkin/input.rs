@@ -1,11 +1,11 @@
 use super::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
+use itertools::Itertools as _;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
 	sync::Arc,
 };
-use itertools::Itertools;
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -140,18 +140,17 @@ impl Server {
 		// Visit path dependencies.
 		for (reference, referent) in &mut dependencies {
 			if let Some(reference) = reference.path() {
-				let path = path
-					.parent()
-					.unwrap()
-					.join(reference);
-				let path = crate::util::fs::canonicalize_parent_sync(&path).map_err(						|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"))?;
+				let path = path.parent().unwrap().join(reference);
+				let path = crate::util::fs::canonicalize_parent_sync(&path).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"),
+				)?;
 				let Some(index) = self.checkin_visit(state, path)? else {
 					continue;
 				};
 				referent.replace(tg::Referent {
 					item: Either::Right(index),
 					path: Some(reference.to_owned()),
-					tag: None
+					tag: None,
 				});
 			}
 		}
@@ -169,7 +168,12 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-	) -> tg::Result<Vec<(tg::Reference, Option<tg::Referent<Either<tg::object::Id, usize>>>)>> {
+	) -> tg::Result<
+		Vec<(
+			tg::Reference,
+			Option<tg::Referent<Either<tg::object::Id, usize>>>,
+		)>,
+	> {
 		// Check if this file has dependencies set in the xattr.
 		if let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) {
 			let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents)
@@ -180,8 +184,10 @@ impl Server {
 			let Some(tg::lockfile::Node::File(file_node)) = lockfile.nodes.first() else {
 				return Err(tg::error!(%path = path.display(), "expected a file node"));
 			};
-			return file_node.dependencies.iter().map(
-				|(reference, referent)| match &referent.item {
+			return file_node
+				.dependencies
+				.iter()
+				.map(|(reference, referent)| match &referent.item {
 					Either::Left(_) => Err(tg::error!("found a graph node")),
 					Either::Right(object) => {
 						let referent = tg::Referent {
@@ -191,8 +197,8 @@ impl Server {
 						};
 						Ok((reference.clone(), Some(referent)))
 					},
-				},
-			).try_collect();
+				})
+				.try_collect();
 		}
 
 		// If this is not a module, it has no dependencies.
