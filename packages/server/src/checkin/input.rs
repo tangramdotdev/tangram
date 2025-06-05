@@ -1,6 +1,5 @@
 use super::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
-use itertools::Itertools as _;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
