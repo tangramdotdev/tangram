@@ -16,8 +16,8 @@ pub struct Args {
 	#[arg(long)]
 	pub pretty: Option<bool>,
 
-	#[arg(long)]
-	pub depth: Option<u64>,
+	#[arg(long, default_value_t = 1)]
+	pub depth: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
@@ -31,18 +31,19 @@ pub enum Format {
 impl Cli {
 	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
-		let data = tg::object::Data::deserialize(args.object.kind(), bytes.clone())?;
 		let mut stdout = tokio::io::stdout();
 		let pretty = args.pretty.unwrap_or(stdout.is_tty());
 		match args.format.unwrap_or_default() {
 			Format::Bytes => {
+				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
 				stdout
 					.write_all(&bytes)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 			},
 			Format::Json => {
+				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
+				let data = tg::object::Data::deserialize(args.object.kind(), bytes.clone())?;
 				Self::print_json(&data, args.pretty).await?;
 			},
 			Format::Tgvn => {
@@ -53,10 +54,10 @@ impl Cli {
 					tg::value::print::Style::Compact
 				};
 				let options = tg::value::print::Options { depth, style };
-				let object = tg::Object::with_object(data.try_into()?);
-				if depth.is_none_or(|arg| arg >= 1) {
+				let object = tg::Object::with_id(args.object);
+				if depth > 1 {
 					object.load_recursive(&handle).await?;
-				} else {
+				} else if depth > 0 {
 					object.load(&handle).await?;
 				}
 				let value = tg::Value::from(object);

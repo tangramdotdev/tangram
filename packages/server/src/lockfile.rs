@@ -1192,20 +1192,18 @@ mod tests {
 				})
 				.collect::<Vec<_>>();
 			let output = tg::Value::Array(value).print(tg::value::print::Options {
-				depth: None,
-				style: tg::value::print::Style::Pretty {
-					indentation: "    ",
-				},
+				depth: 1,
+				style: tg::value::print::Style::Pretty { indentation: "  " },
 			});
 			assert_snapshot!(&output, @r#"
 			[
-			    null,
-			    null,
-			    tg.file({
-			        "contents": blb_01qc4k8f53qz0mh9e1wwmymcqj99bebd2r9t65g8ry4a2bx1hcr2v0,
-			    }),
+			  null,
+			  null,
+			  tg.file({
+			    "contents": blb_01qc4k8f53qz0mh9e1wwmymcqj99bebd2r9t65g8ry4a2bx1hcr2v0,
+			  }),
 			]
-   			"#);
+			"#);
 		})
 		.await;
 	}

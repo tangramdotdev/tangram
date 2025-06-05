@@ -80,7 +80,7 @@ where
 					Self::object_id(object)
 				} else {
 					let options = tg::value::print::Options {
-						depth: Some(0),
+						depth: 0,
 						style: tg::value::print::Style::Compact,
 					};
 					value.print(options)
@@ -204,7 +204,7 @@ where
 								value => value,
 							};
 							let options = tg::value::print::Options {
-								depth: Some(1),
+								depth: 1,
 								style: tg::value::print::Style::Pretty { indentation: "  " },
 							};
 							value.print(options)

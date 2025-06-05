@@ -14,8 +14,8 @@ pub struct Args {
 	#[arg(long)]
 	pub pretty: Option<bool>,
 
-	#[arg(long)]
-	pub depth: Option<u64>,
+	#[arg(long, default_value_t = 1)]
+	pub depth: u64,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,

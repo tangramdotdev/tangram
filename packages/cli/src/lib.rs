@@ -1321,7 +1321,7 @@ impl Cli {
 		let stdout = std::io::stdout();
 		let output = if stdout.is_terminal() {
 			let options = tg::value::print::Options {
-				depth: Some(0),
+				depth: 0,
 				style: tg::value::print::Style::Pretty { indentation: "  " },
 			};
 			value.print(options)

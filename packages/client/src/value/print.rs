@@ -14,7 +14,7 @@ pub struct Printer<W> {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-	pub depth: Option<u64>,
+	pub depth: u64,
 	pub style: Style,
 }
 
@@ -33,7 +33,7 @@ where
 {
 	pub fn new(writer: W, options: Options) -> Self {
 		Self {
-			depth: options.depth.unwrap_or(u64::MAX),
+			depth: 0,
 			first: true,
 			indent: 0,
 			options,
@@ -189,14 +189,13 @@ where
 
 	pub fn blob(&mut self, value: &tg::Blob) -> Result {
 		let state = value.state().read().unwrap();
-		match (&state.id, &state.object, self.recurse()) {
+		let recurse = self.depth < self.options.depth;
+		self.depth += 1;
+		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
 			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				if let Some(depth) = self.options.depth.as_mut() {
-					*depth -= 1;
-				}
 				self.blob_object(object)?;
 			},
 			(None, None, _) => unreachable!(),
@@ -227,7 +226,9 @@ where
 
 	pub fn directory(&mut self, value: &tg::Directory) -> Result {
 		let state = value.state().read().unwrap();
-		match (&state.id, &state.object, self.recurse()) {
+		let recurse = self.depth < self.options.depth;
+		self.depth += 1;
+		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -260,7 +261,9 @@ where
 
 	pub fn file(&mut self, value: &tg::File) -> Result {
 		let state = value.state().read().unwrap();
-		match (&state.id, &state.object, self.recurse()) {
+		let recurse = self.depth < self.options.depth;
+		self.depth += 1;
+		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -321,7 +324,9 @@ where
 
 	pub fn symlink(&mut self, value: &tg::Symlink) -> Result {
 		let state = value.state().read().unwrap();
-		match (&state.id, &state.object, self.recurse()) {
+		let recurse = self.depth < self.options.depth;
+		self.depth += 1;
+		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -358,7 +363,9 @@ where
 
 	pub fn graph(&mut self, value: &tg::Graph) -> Result {
 		let state = value.state().read().unwrap();
-		match (&state.id, &state.object, self.recurse()) {
+		let recurse = self.depth < self.options.depth;
+		self.depth += 1;
+		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -486,7 +493,9 @@ where
 
 	pub fn command(&mut self, value: &tg::Command) -> Result {
 		let state = value.state().read().unwrap();
-		match (&state.id, &state.object, self.recurse()) {
+		let recurse = self.depth < self.options.depth;
+		self.depth += 1;
+		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
 				write!(self.writer, "{id}")?;
 			},
@@ -661,14 +670,6 @@ where
 		self.finish_array()?;
 		write!(self.writer, ")")?;
 		Ok(())
-	}
-
-	fn recurse(&mut self) -> bool {
-		if self.depth == 0 {
-			return false;
-		}
-		self.depth -= 1;
-		true
 	}
 }
 
