@@ -3,16 +3,28 @@ use futures::{TryStreamExt as _, stream::FuturesOrdered};
 use itertools::Itertools as _;
 use std::borrow::Cow;
 
-pub use self::component::Component;
+pub use self::data::Template as Data;
+
+pub mod data;
 
 #[derive(Clone, Debug, Default)]
 pub struct Template {
 	pub components: Vec<Component>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct Data {
-	pub components: Vec<component::Data>,
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Component {
+	String(String),
+	Artifact(tg::Artifact),
 }
 
 impl Template {
@@ -82,8 +94,8 @@ impl Template {
 	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
 		let data = Data::unrender(prefix, string)?;
 		let components = data.components.into_iter().map(|data| match data {
-			component::Data::Artifact(id) => Component::Artifact(tg::Artifact::with_id(id)),
-			component::Data::String(string) => Component::String(string),
+			data::Component::Artifact(id) => Component::Artifact(tg::Artifact::with_id(id)),
+			data::Component::String(string) => Component::String(string),
 		});
 		Ok(Self::with_components(components))
 	}
@@ -91,13 +103,13 @@ impl Template {
 
 impl Data {
 	#[must_use]
-	pub fn with_components(components: impl IntoIterator<Item = component::Data>) -> Self {
+	pub fn with_components(components: impl IntoIterator<Item = data::Component>) -> Self {
 		let components = components.into_iter().collect();
 		Self { components }
 	}
 
 	#[must_use]
-	pub fn components(&self) -> &[component::Data] {
+	pub fn components(&self) -> &[data::Component] {
 		&self.components
 	}
 
@@ -105,14 +117,14 @@ impl Data {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
-				component::Data::String(_) => None,
-				component::Data::Artifact(id) => Some(id.clone().into()),
+				data::Component::String(_) => None,
+				data::Component::Artifact(id) => Some(id.clone().into()),
 			})
 	}
 
 	pub fn try_render<'a, F>(&'a self, mut f: F) -> tg::Result<String>
 	where
-		F: (FnMut(&'a self::component::Data) -> tg::Result<Cow<'a, str>>) + 'a,
+		F: (FnMut(&'a self::data::Component) -> tg::Result<Cow<'a, str>>) + 'a,
 	{
 		let mut string = String::new();
 		for component in &self.components {
@@ -124,7 +136,7 @@ impl Data {
 
 	pub fn render<'a, F>(&'a self, mut f: F) -> String
 	where
-		F: (FnMut(&'a self::component::Data) -> Cow<'a, str>) + 'a,
+		F: (FnMut(&'a self::data::Component) -> Cow<'a, str>) + 'a,
 	{
 		let mut string = String::new();
 		for component in &self.components {
@@ -147,7 +159,7 @@ impl Data {
 			// Add the text leading up to the capture as a string component.
 			let match_ = captures.get(0).unwrap();
 			if match_.start() > i {
-				components.push(component::Data::String(
+				components.push(data::Component::String(
 					string[i..match_.start()].to_owned(),
 				));
 			}
@@ -157,7 +169,7 @@ impl Data {
 			let id = id.as_str().parse().unwrap();
 
 			// Add an artifact component.
-			components.push(component::Data::Artifact(id));
+			components.push(data::Component::Artifact(id));
 
 			// Advance the cursor to the end of the match.
 			i = match_.end();
@@ -165,11 +177,21 @@ impl Data {
 
 		// Add the remaining text as a string component.
 		if i < string.len() {
-			components.push(component::Data::String(string[i..].to_owned()));
+			components.push(data::Component::String(string[i..].to_owned()));
 		}
 
 		// Create the template.
 		Ok(Self { components })
+	}
+}
+
+impl Component {
+	#[must_use]
+	pub fn to_data(&self) -> data::Component {
+		match self {
+			Self::String(string) => data::Component::String(string.clone()),
+			Self::Artifact(artifact) => data::Component::Artifact(artifact.id()),
+		}
 	}
 }
 
@@ -218,62 +240,14 @@ impl From<&str> for Template {
 	}
 }
 
-pub mod component {
-	use crate as tg;
+impl TryFrom<data::Component> for Component {
+	type Error = tg::Error;
 
-	#[derive(
-		Clone,
-		Debug,
-		derive_more::From,
-		derive_more::IsVariant,
-		derive_more::TryUnwrap,
-		derive_more::Unwrap,
-	)]
-	#[try_unwrap(ref)]
-	#[unwrap(ref)]
-	pub enum Component {
-		String(String),
-		Artifact(tg::Artifact),
-	}
-
-	#[derive(
-		Clone,
-		Debug,
-		PartialEq,
-		derive_more::From,
-		derive_more::IsVariant,
-		derive_more::TryUnwrap,
-		derive_more::Unwrap,
-		serde::Deserialize,
-		serde::Serialize,
-	)]
-	#[try_unwrap(ref)]
-	#[unwrap(ref)]
-	#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-	pub enum Data {
-		String(String),
-		Artifact(tg::artifact::Id),
-	}
-
-	impl Component {
-		#[must_use]
-		pub fn to_data(&self) -> Data {
-			match self {
-				Self::String(string) => Data::String(string.clone()),
-				Self::Artifact(artifact) => Data::Artifact(artifact.id()),
-			}
-		}
-	}
-
-	impl TryFrom<Data> for Component {
-		type Error = tg::Error;
-
-		fn try_from(data: Data) -> tg::Result<Self, Self::Error> {
-			Ok(match data {
-				Data::String(string) => Self::String(string),
-				Data::Artifact(id) => Self::Artifact(tg::Artifact::with_id(id)),
-			})
-		}
+	fn try_from(data: data::Component) -> tg::Result<Self, Self::Error> {
+		Ok(match data {
+			data::Component::String(string) => Self::String(string),
+			data::Component::Artifact(id) => Self::Artifact(tg::Artifact::with_id(id)),
+		})
 	}
 }
 
@@ -299,24 +273,6 @@ impl From<tg::File> for Component {
 
 impl From<tg::Symlink> for Component {
 	fn from(value: tg::Symlink) -> Self {
-		Self::Artifact(value.into())
-	}
-}
-
-impl From<tg::directory::Id> for component::Data {
-	fn from(value: tg::directory::Id) -> Self {
-		Self::Artifact(value.into())
-	}
-}
-
-impl From<tg::file::Id> for component::Data {
-	fn from(value: tg::file::Id) -> Self {
-		Self::Artifact(value.into())
-	}
-}
-
-impl From<tg::symlink::Id> for component::Data {
-	fn from(value: tg::symlink::Id) -> Self {
 		Self::Artifact(value.into())
 	}
 }

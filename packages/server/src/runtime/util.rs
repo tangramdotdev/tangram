@@ -28,8 +28,8 @@ pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {
 	}
 	if let Ok(template) = value.try_unwrap_template_ref() {
 		let string = template.render(|component| match component {
-			tg::template::component::Data::String(string) => string.clone().into(),
-			tg::template::component::Data::Artifact(artifact) => artifacts_path
+			tg::template::data::Component::String(string) => string.clone().into(),
+			tg::template::data::Component::Artifact(artifact) => artifacts_path
 				.join(artifact.to_string())
 				.to_str()
 				.unwrap()

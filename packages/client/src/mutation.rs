@@ -309,7 +309,7 @@ impl Data {
 				};
 
 				let template = if let Some(separator) = separator {
-					let separator = tg::template::component::Data::from(separator.clone());
+					let separator = tg::template::data::Component::from(separator.clone());
 					let components = first
 						.components
 						.clone()
@@ -353,7 +353,7 @@ impl Data {
 				};
 
 				let template = if let Some(separator) = separator {
-					let separator = tg::template::component::Data::from(separator.clone());
+					let separator = tg::template::data::Component::from(separator.clone());
 					let components = first
 						.components
 						.clone()
