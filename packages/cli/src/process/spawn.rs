@@ -1,5 +1,4 @@
 use crate::Cli;
-use itertools::Itertools as _;
 use std::path::{Path, PathBuf};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
@@ -24,7 +23,7 @@ pub struct Args {
 #[group(skip)]
 pub struct Options {
 	/// Set arguments.
-	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
+	#[arg(short, long, num_args = 1, action = clap::ArgAction::Append)]
 	pub arg: Vec<String>,
 
 	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created. Omit this flag to use a cached process if possible, and create a new process if not.
@@ -40,8 +39,8 @@ pub struct Options {
 	pub cwd: Option<PathBuf>,
 
 	/// Set environment variables.
-	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
-	pub env: Vec<Vec<String>>,
+	#[arg(short, long, num_args = 1, action = clap::ArgAction::Append)]
+	pub env: Vec<String>,
 
 	/// Set the host.
 	#[arg(long)]
@@ -281,9 +280,9 @@ impl Cli {
 		let args_: Vec<tg::Value> = options
 			.arg
 			.into_iter()
-			.map(|arg| arg.parse())
-			.chain(trailing.into_iter().map(tg::Value::String).map(Ok))
-			.try_collect::<tg::Value, _, _>()?;
+			.map(tg::Value::String)
+			.chain(trailing.into_iter().map(tg::Value::String))
+			.collect();
 		command = command.args(args_);
 
 		// Set the cwd.
@@ -308,17 +307,16 @@ impl Cli {
 				env.insert(key, value);
 			}
 		}
-		for string in options.env.into_iter().flatten() {
-			let map = string
-				.parse::<tg::Value>()?
-				.try_unwrap_map()
-				.map_err(|_| tg::error!("expected a map"))?;
-			for (key, value) in map {
-				if let Ok(mutation) = value.try_unwrap_mutation_ref() {
-					mutation.apply(&mut env, &key)?;
-				} else {
-					env.insert(key, value);
-				}
+		for string in options.env {
+			let (key, value) = string
+				.split_once('=')
+				.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
+			let key = key.to_owned();
+			let value = tg::Value::String(value.to_owned());
+			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+				mutation.apply(&mut env, &key)?;
+			} else {
+				env.insert(key, value);
 			}
 		}
 		if !env.contains_key("TANGRAM_HOST") {

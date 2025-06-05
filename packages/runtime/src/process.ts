@@ -63,11 +63,11 @@ export class Process {
 	async env(
 		name?: string,
 	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
-		let commandEnv = await (await this.command()).env();
+		let env = await (await this.command()).env();
 		if (name === undefined) {
-			return commandEnv;
+			return env;
 		} else {
-			return commandEnv[name];
+			return env[name];
 		}
 	}
 
