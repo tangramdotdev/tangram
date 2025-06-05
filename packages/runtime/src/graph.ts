@@ -442,7 +442,7 @@ export namespace Graph {
 		kind: "file";
 		contents: tg.Blob.Id;
 		dependencies?: {
-			[reference: tg.Reference]: tg.Referent<number | tg.Object.Id>;
+			[reference: tg.Reference]: tg.Referent.String<number | tg.Object.Id>;
 		};
 		executable?: boolean;
 	};

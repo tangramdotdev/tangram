@@ -370,7 +370,9 @@ export namespace File {
 	export type Data =
 		| {
 				contents: tg.Blob.Id;
-				dependencies?: { [reference: tg.Reference]: tg.Referent<tg.Object.Id> };
+				dependencies?: {
+					[reference: tg.Reference]: tg.Referent.String<tg.Object.Id>;
+				};
 				executable?: boolean;
 		  }
 		| { graph: tg.Graph.Id; node: number };

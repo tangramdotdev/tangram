@@ -23,7 +23,7 @@ export namespace Module {
 
 	export type Data = {
 		kind: Module.Kind;
-		referent: tg.Referent<tg.Object.Id>;
+		referent: tg.Referent.String<tg.Object.Id>;
 	};
 
 	export let toData = (value: Module): Data => {
