@@ -294,11 +294,15 @@ fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
 					}
 				},
 				tg::lockfile::Node::File(file) => {
-					for (child, is_tagged) in file.dependencies.values().filter_map(|referent| {
-						let child = referent.item.as_ref().left().copied()?;
-						let is_tagged = referent.tag.is_some();
-						Some((child, is_tagged))
-					}) {
+					for (child, is_tagged) in
+						file.dependencies
+							.iter()
+							.filter_map(|(reference, referent)| {
+								let child = referent.item.as_ref().left().copied()?;
+								let is_tagged = reference.item().try_unwrap_tag_ref().is_ok()
+									&& reference.path().is_none();
+								Some((child, is_tagged))
+							}) {
 						if is_tagged {
 							union(&mut set, tagged, child);
 						} else {
@@ -331,11 +335,17 @@ fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
 					.values()
 					.filter_map(|entry| entry.as_ref().left().copied())
 					.any(|child| find(&mut set, child) == tagged),
-				tg::lockfile::Node::File(file) => file
-					.dependencies
-					.values()
-					.filter_map(|referent| referent.item.as_ref().left().copied())
-					.any(|child| find(&mut set, child) == tagged),
+				tg::lockfile::Node::File(file) => {
+					file.dependencies.iter().any(|(reference, referent)| {
+						referent
+							.item
+							.as_ref()
+							.left()
+							.is_some_and(|child| find(&mut set, *child) == tagged)
+							|| (reference.item().try_unwrap_tag_ref().is_ok()
+								&& reference.path().is_none())
+					})
+				},
 				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
 					artifact: Either::Left(child),
 					..
