@@ -683,8 +683,30 @@ where
 			file.dependencies(handle)
 				.await?
 				.into_values()
-				.map(|referent| {
-					let tg::Referent { item, path, tag } = referent;
+				.map(|child| {
+					let tg::Referent {
+						item,
+						mut path,
+						mut tag,
+					} = child;
+					if tag.is_none() {
+						tag = referent.tag.clone();
+						path = referent
+							.path
+							.as_ref()
+							.map(|referent_path| {
+								let referent_path = if tg::package::is_module_path(referent_path) {
+									referent_path.parent().unwrap()
+								} else {
+									referent_path.as_ref()
+								};
+								path.as_ref().map_or(referent_path.to_owned(), |path| {
+									referent_path.join(path)
+								})
+							})
+							.or_else(|| path.clone())
+							.map(|path| path.canonicalize().unwrap_or(path));
+					}
 					let id = item.id();
 					tg::Referent {
 						item: id,
