@@ -40,7 +40,14 @@ export class Graph {
 					return {
 						kind: "file" as const,
 						contents: await tg.blob(node.contents),
-						dependencies: node.dependencies ?? {},
+						dependencies: Object.fromEntries(
+							Object.entries(node.dependencies ?? {}).map(([key, value]) => {
+								if (typeof value === "number" || tg.Object.is(value)) {
+									value = { item: value };
+								}
+								return [key, value];
+							}),
+						),
 						executable: node.executable ?? false,
 					};
 				} else if (node.kind === "symlink") {
@@ -104,16 +111,21 @@ export class Graph {
 						if (argNode.dependencies !== undefined) {
 							node.dependencies = {};
 							for (let reference in argNode.dependencies) {
-								if (typeof argNode.dependencies[reference]?.item === "number") {
+								let referent: tg.Referent<number | tg.Object>;
+								let value = argNode.dependencies[reference]!;
+								if (typeof value === "number" || tg.Object.is(value)) {
+									referent = { item: value };
+								} else {
+									referent = value;
+								}
+								argNode.dependencies[reference];
+								if (typeof referent.item === "number") {
 									node.dependencies[reference] = {
-										...argNode.dependencies[reference],
-										item: argNode.dependencies[reference].item + offset,
+										...referent,
+										item: referent.item + offset,
 									};
-								} else if (
-									tg.Object.is(argNode.dependencies[reference]?.item)
-								) {
-									node.dependencies[reference] =
-										argNode.dependencies[reference];
+								} else if (tg.Object.is(referent.item)) {
+									node.dependencies[reference] = referent;
 								}
 							}
 						} else {
@@ -224,7 +236,7 @@ export namespace Graph {
 		kind: "file";
 		contents: tg.Blob.Arg;
 		dependencies?:
-			| { [reference: tg.Reference]: tg.Referent<number | tg.Object> }
+			| { [reference: tg.Reference]: tg.MaybeReferent<number | tg.Object> }
 			| undefined;
 		executable?: boolean | undefined;
 	};

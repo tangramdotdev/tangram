@@ -443,8 +443,7 @@ declare namespace tg {
 			kind: "file";
 			contents: tg.Blob.Arg;
 			dependencies?:
-				| Array<number | tg.Object>
-				| { [reference: string]: number | tg.Object }
+				| { [reference: string]: tg.MaybeReferent<number | tg.Object> }
 				| undefined;
 			executable?: boolean | undefined;
 		};
@@ -471,7 +470,7 @@ declare namespace tg {
 			kind: "file";
 			contents: tg.Blob;
 			dependencies: {
-				[reference: tg.Reference]: tg.Referent<number | tg.Object>;
+				[reference: tg.Reference]: tg.MaybeReferent<number | tg.Object>;
 			};
 			executable: boolean;
 		};
@@ -1428,6 +1427,8 @@ declare namespace tg {
 		: T extends { [key: string]: tg.Value }
 			? tg.MaybeMutationMap<T>
 			: never;
+
+	type MaybeReferent<T> = T | tg.Referent<T>;
 
 	type UnresolvedArgs<T extends Array<tg.Value>> = {
 		[K in keyof T]: tg.Unresolved<T[K]>;

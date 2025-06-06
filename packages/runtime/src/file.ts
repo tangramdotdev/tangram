@@ -80,7 +80,14 @@ export class File {
 		}
 		let arg = await File.arg(...args);
 		let contents = await tg.blob(arg.contents);
-		let dependencies = arg.dependencies ?? {};
+		let dependencies = Object.fromEntries(
+			Object.entries(arg.dependencies ?? {}).map(([key, value]) => {
+				if (tg.Object.is(value)) {
+					value = { item: value };
+				}
+				return [key, value];
+			}),
+		);
 		let executable = arg.executable ?? false;
 		const object = { contents, dependencies, executable };
 		return File.withObject(object);
@@ -288,7 +295,7 @@ export namespace File {
 				contents?: tg.Blob.Arg | undefined;
 				dependencies?:
 					| {
-							[reference: tg.Reference]: tg.Referent<tg.Object>;
+							[reference: tg.Reference]: tg.MaybeReferent<tg.Object>;
 					  }
 					| undefined;
 				executable?: boolean | undefined;
