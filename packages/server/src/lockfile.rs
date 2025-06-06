@@ -1139,6 +1139,7 @@ impl petgraph::visit::IntoNodeIdentifiers for LockfileGraph<'_> {
 #[cfg(test)]
 mod tests {
 	use crate::test::test;
+	use indoc::indoc;
 	use insta::assert_snapshot;
 	use tangram_client as tg;
 	use tangram_temp as temp;
@@ -1148,32 +1149,32 @@ mod tests {
 		test(async move |context| {
 			let server = context.start_server().await;
 			let lockfile: temp::Artifact = temp::directory! {
-				"tangram.lock" => r#"
-				{
-					"nodes": [
-						{
-							"kind": "directory",
-							"entries": {
-								"tangram.ts": 1
-							}
-						},
-						{
-							"kind": "file",
-							"dependencies": {
-								"a/^1": {
-									"item": 2,
-									"path": "tangram.ts",
-									"tag": "a/1.0.0"
-								}
-							}
-						},
-						{
-							"kind": "file",
-							"contents": "blb_01qc4k8f53qz0mh9e1wwmymcqj99bebd2r9t65g8ry4a2bx1hcr2v0"
-						}
-					]
-				}
-			"#
+				"tangram.lock" => indoc!(r#"
+					{
+					  "nodes": [
+					    {
+					     "kind": "directory",
+					     "entries": {
+					      "tangram.ts": 1
+					     }
+					    },
+					    {
+					     "kind": "file",
+					     "dependencies": {
+					      "a/^1": {
+					      	"item": 2,
+					      	"path": "tangram.ts",
+					      	"tag": "a/1.0.0"
+					      }
+					     }
+					    },
+					    {
+					     "kind": "file",
+					     "contents": "blb_01qc4k8f53qz0mh9e1wwmymcqj99bebd2r9t65g8ry4a2bx1hcr2v0"
+					    }
+					  ]
+	  			}
+				"#),
 			}
 			.into();
 			let temp = temp::Temp::new();

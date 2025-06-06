@@ -35,10 +35,10 @@ async fn nonexistent_function() {
 #[tokio::test]
 async fn blob_template_rejects_non_strings() {
 	let directory = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import file from "./file.txt";
 			export default () => tg.blob`\n\t${file}\n`;
-		"#,
+		"#),
 		"file.txt" => "Hello, world!"
 	};
 	let assertions = |output: std::process::Output| async move {
@@ -51,10 +51,10 @@ async fn blob_template_rejects_non_strings() {
 #[tokio::test]
 async fn file_template_rejects_non_strings() {
 	let directory = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import file from "./file.txt";
 			export default () => tg.file`\n\t${file}\n`;
-		"#,
+		"#),
 		"file.txt" => "Hello, world!"
 	};
 	let assertions = |output: std::process::Output| async move {

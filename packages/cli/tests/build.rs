@@ -321,9 +321,9 @@ async fn import_directory() {
 #[tokio::test]
 async fn template_raw() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r"
+		"tangram.ts" => indoc!(r"
 			export default () => tg.Template.raw`\n\tHello, World!\n`;
-		",
+		"),
 	}
 	.into();
 	let assertions = |output: std::process::Output| async move {
@@ -340,10 +340,10 @@ async fn template_raw() {
 #[tokio::test]
 async fn template_single_line() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import file from "./hello.txt";
 			export default () => tg`cat ${file}`;
-		"#,
+		"#),
 		"hello.txt" => "Hello, World!",
 	}
 	.into();
@@ -361,7 +361,7 @@ async fn template_single_line() {
 #[tokio::test]
 async fn template_with_quote() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import file from "./hello.txt";
 			export default () => tg`
 				other_command
@@ -372,7 +372,7 @@ async fn template_with_quote() {
 
 				echo 'exec ${file} "$@"' >> script.sh
 			`;
-		"#,
+		"#),
 		"hello.txt" => "Hello, World!",
 	}
 	.into();
@@ -390,11 +390,11 @@ async fn template_with_quote() {
 #[tokio::test]
 async fn template_single_line_two_artifacts() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import foo from "./foo.txt";
 			import bar from "./bar.txt";
 			export default () => tg`${foo} ${bar}`;
-		"#,
+		"#),
 		"foo.txt" => "foo",
 		"bar.txt" => "bar",
 	}
@@ -413,14 +413,14 @@ async fn template_single_line_two_artifacts() {
 #[tokio::test]
 async fn template_empty_lines() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			export default () => tg`
 				function foo() {
 					echo "Hello, World!"
 
 				}
 			`;
-		"#,
+		"#),
 	}
 	.into();
 	let path = "";
@@ -437,12 +437,12 @@ async fn template_empty_lines() {
 #[tokio::test]
 async fn template_only_placeholders_on_a_line() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import file from "./hello.txt";
 			export default () => tg`
 				${file}${file}
 			`;
-		"#,
+		"#),
 		"hello.txt" => "Hello, World!",
 	}
 	.into();
@@ -460,11 +460,11 @@ async fn template_only_placeholders_on_a_line() {
 #[tokio::test]
 async fn template_single_line_explicit_newline() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import foo from "./foo.txt";
 			import bar from "./bar.txt";
 			export default () => tg`${foo}\n${bar}`;
-		"#,
+		"#),
 		"foo.txt" => "foo",
 		"bar.txt" => "bar",
 	}
@@ -483,14 +483,14 @@ async fn template_single_line_explicit_newline() {
 #[tokio::test]
 async fn template_multiple_placeholders() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			import file1 from "./hello.txt";
 			import file2 from "./hello.txt";
 			import file3 from "./hello.txt";
 			export default () => tg`
 				cat\t${file1}\t${file1}
 			`;
-		"#,
+		"#),
 		"hello.txt" => "Hello, World!",
 	}
 	.into();
@@ -508,9 +508,9 @@ async fn template_multiple_placeholders() {
 #[tokio::test]
 async fn blob_template() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r"
+		"tangram.ts" => indoc!(r"
 			export default () => tg.blob`\n\tHello, World!\n`.then((b) => b.text());
-		",
+		"),
 	}
 	.into();
 	let path = "";
@@ -527,12 +527,12 @@ async fn blob_template() {
 #[tokio::test]
 async fn blob_template_two_placeholders() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			export default () => {
 				let a = "string!";
 				return tg.blob`\n\tHello, World!\n\t${a}\n`.then((f) => f.text());
 			}
-		"#,
+		"#),
 	}
 	.into();
 	let path = "";
@@ -549,9 +549,9 @@ async fn blob_template_two_placeholders() {
 #[tokio::test]
 async fn blob_template_raw() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r"
+		"tangram.ts" => indoc!(r"
 			export default () => tg.Blob.raw`\n\tHello, World!\n`.then((b) => b.text());
-		",
+		"),
 	}
 	.into();
 	let path = "";
@@ -568,9 +568,9 @@ async fn blob_template_raw() {
 #[tokio::test]
 async fn file_template() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r"
+		"tangram.ts" => indoc!(r"
 			export default () => tg.file`\n\tHello, World!\n`.then((f) => f.text());
-		",
+		"),
 	}
 	.into();
 	let path = "";
@@ -587,12 +587,12 @@ async fn file_template() {
 #[tokio::test]
 async fn file_template_two_placeholders() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r#"
+		"tangram.ts" => indoc!(r#"
 			export default () => {
 				let a = "string!";
 				return tg.file`\n\tHello, World!\n\t${a}\n`.then((f) => f.text());
 			}
-		"#,
+		"#),
 	}
 	.into();
 	let path = "";
@@ -609,9 +609,9 @@ async fn file_template_two_placeholders() {
 #[tokio::test]
 async fn file_template_raw() {
 	let artifact = temp::directory! {
-		"tangram.ts" => r"
+		"tangram.ts" => indoc!(r"
 			export default () => tg.File.raw`\n\tHello, World!\n`.then((f) => f.text());
-		",
+		"),
 	}
 	.into();
 	let path = "";

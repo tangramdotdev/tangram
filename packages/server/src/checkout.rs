@@ -466,6 +466,7 @@ impl Server {
 				tokio::io::copy(&mut reader, &mut file_).await.map_err(
 					|source| tg::error!(!source, ?path = path, "failed to write to the file"),
 				)?;
+
 				Ok::<_, tg::Error>(())
 			};
 			let result = tokio::runtime::Handle::current().block_on(future);
@@ -480,6 +481,15 @@ impl Server {
 		}
 		if !done {
 			return Err(tg::error!(?error, "failed to copy the file"));
+		}
+
+		// Get the dependencies' references.
+		let dependencies = dependencies.keys().cloned().collect::<Vec<_>>();
+		if !dependencies.is_empty() {
+			let dependencies = serde_json::to_vec(&dependencies)
+				.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
+			xattr::set(dst, tg::file::XATTR_DEPENDENCIES_NAME, &dependencies)
+				.map_err(|source| tg::error!(!source, "failed to write dependencies' xattr"))?;
 		}
 
 		// Set the file's permissions.
@@ -712,6 +722,17 @@ impl Server {
 				}
 				if !done {
 					return Err(tg::error!(?error, "failed to copy the file"));
+				}
+
+				// Get the dependencies' references.
+				let dependencies = dependencies.keys().cloned().collect::<Vec<_>>();
+				if !dependencies.is_empty() {
+					let dependencies = serde_json::to_vec(&dependencies).map_err(|source| {
+						tg::error!(!source, "failed to serialize dependencies")
+					})?;
+					xattr::set(dst, tg::file::XATTR_DEPENDENCIES_NAME, &dependencies).map_err(
+						|source| tg::error!(!source, "failed to write dependencies' xattr"),
+					)?;
 				}
 
 				// Set the file's permissions.

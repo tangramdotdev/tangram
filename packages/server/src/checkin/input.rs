@@ -1,6 +1,5 @@
 use super::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
-use itertools::Itertools as _;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
@@ -175,30 +174,13 @@ impl Server {
 		)>,
 	> {
 		// Check if this file has dependencies set in the xattr.
-		if let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_LOCK_NAME) {
-			let lockfile = serde_json::from_slice::<tg::Lockfile>(&contents)
-				.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))?;
-			if lockfile.nodes.len() != 1 {
-				return Err(tg::error!(%path = path.display(), "expected single node in lockfile"));
-			}
-			let Some(tg::lockfile::Node::File(file_node)) = lockfile.nodes.first() else {
-				return Err(tg::error!(%path = path.display(), "expected a file node"));
-			};
-			return file_node
-				.dependencies
-				.iter()
-				.map(|(reference, referent)| match &referent.item {
-					Either::Left(_) => Err(tg::error!("found a graph node")),
-					Either::Right(object) => {
-						let referent = tg::Referent {
-							item: Either::Left(object.clone()),
-							path: referent.path.clone(),
-							tag: referent.tag.clone(),
-						};
-						Ok((reference.clone(), Some(referent)))
-					},
-				})
-				.try_collect();
+		if let Ok(Some(contents)) = xattr::get(path, tg::file::XATTR_DEPENDENCIES_NAME) {
+			let dependencies = serde_json::from_slice::<Vec<tg::Reference>>(&contents)
+				.map_err(|source| tg::error!(!source, "failed to deserialize dependencies"))?;
+			return Ok(dependencies
+				.into_iter()
+				.map(|reference| (reference, None))
+				.collect());
 		}
 
 		// If this is not a module, it has no dependencies.
