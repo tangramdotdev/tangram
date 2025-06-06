@@ -402,11 +402,12 @@ impl Server {
 				})
 			},
 			tg::Object::Symlink(symlink) => {
-				let target = symlink
-					.subpath(self)
+				let artifact = symlink
+					.artifact(self)
 					.await?
-					.ok_or_else(|| tg::error!("unimplemented"))?;
-				super::Variant::Symlink(super::Symlink { target })
+					.map(|artifact| Either::Left(artifact.id()));
+				let target = symlink.subpath(self).await?.unwrap_or_default();
+				super::Variant::Symlink(super::Symlink { artifact, target })
 			},
 			_ => super::Variant::Object,
 		};
@@ -563,13 +564,58 @@ impl Server {
 
 	async fn unify_visit_symlink_edges(
 		&self,
-		_state: &mut State<'_>,
-		_lockfile_node: Option<usize>,
-		_root: usize,
-		_index: usize,
+		state: &mut State<'_>,
+		lockfile_node: Option<usize>,
+		root: usize,
+		index: usize,
 		_symlink: &tg::Symlink,
-		_visited: &mut BTreeMap<tg::object::Id, usize>,
+		visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<()> {
+		if let Some(artifact) = state.graph.nodes[index]
+			.variant
+			.try_unwrap_symlink_ref()
+			.unwrap()
+			.artifact
+			.as_ref()
+			.and_then(|artifact| artifact.as_ref().left())
+		{
+			let lockfile_node = lockfile_node.and_then(|node| {
+				let symlink = state.lockfile.unwrap().nodes[node]
+					.try_unwrap_symlink_ref()
+					.ok()?;
+				let tg::lockfile::Symlink::Artifact {
+					artifact: Either::Left(node),
+					..
+				} = symlink
+				else {
+					return None;
+				};
+				Some(*node)
+			});
+			let path = Some(
+				state.graph.nodes[index]
+					.variant
+					.unwrap_symlink_ref()
+					.target
+					.clone(),
+			);
+			let node = Box::pin(self.unify_visit_object_inner(
+				state,
+				&tg::Object::with_id(artifact.clone().into()),
+				lockfile_node,
+				Some(root),
+				path,
+				None,
+				true,
+				visited,
+			))
+			.await?;
+			state.graph.nodes[index]
+				.variant
+				.unwrap_symlink_mut()
+				.artifact
+				.replace(Either::Right(node));
+		}
 		Ok(())
 	}
 }

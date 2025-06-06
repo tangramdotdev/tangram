@@ -24,6 +24,7 @@ mod unify;
 
 struct State {
 	arg: tg::checkin::Arg,
+	artifacts_path: PathBuf,
 	fixup_sender: Option<std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>>,
 	graph: Graph,
 	graph_objects: Vec<GraphObject>,
@@ -90,6 +91,7 @@ enum Blob {
 
 #[derive(Clone, Debug)]
 struct Symlink {
+	artifact: Option<Either<tg::artifact::Id, usize>>,
 	target: PathBuf,
 }
 
@@ -205,6 +207,16 @@ impl Server {
 			.unwrap_or(&arg.path)
 			.to_owned();
 
+		let mut artifacts_path = None;
+		for path in root_path.ancestors() {
+			let path = path.join(".tangram/artifacts");
+			if matches!(tokio::fs::try_exists(&path).await, Ok(true)) {
+				artifacts_path.replace(path);
+				break;
+			}
+		}
+		let artifacts_path = artifacts_path.unwrap_or_else(|| self.artifacts_path());
+
 		// Parse a lockfile if it exists.
 		let lockfile = self
 			.try_parse_lockfile(&root_path)
@@ -224,6 +236,7 @@ impl Server {
 		};
 		let mut state = State {
 			arg: arg.clone(),
+			artifacts_path,
 			fixup_sender,
 			graph,
 			graph_objects: Vec::new(),
@@ -515,7 +528,13 @@ impl Node {
 				.iter()
 				.filter_map(|(_, dependency)| dependency.as_ref()?.item.as_ref().right().copied())
 				.collect(),
-			Variant::Symlink(_) | Variant::Object => Vec::new(),
+			Variant::Symlink(symlink) => symlink
+				.artifact
+				.as_ref()
+				.and_then(|either| either.as_ref().right().copied())
+				.into_iter()
+				.collect(),
+			Variant::Object => Vec::new(),
 		}
 	}
 }

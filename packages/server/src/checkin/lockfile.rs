@@ -178,12 +178,12 @@ impl Server {
 	#[allow(clippy::ptr_arg)]
 	fn checkin_create_lockfile_symlink_node(
 		state: &super::State,
-		_node: usize,
+		node: usize,
 		data: &tg::symlink::Data,
-		_nodes: &mut Vec<Option<tg::lockfile::Node>>,
-		_visited: &mut [Option<Either<usize, tg::object::Id>>],
+		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
-		let subpath = match data {
+		let (artifact, subpath) = match data {
 			tg::symlink::Data::Graph {
 				graph: graph_id,
 				node,
@@ -197,7 +197,7 @@ impl Server {
 				let symlink = graph.nodes[*node].clone().try_unwrap_symlink().unwrap();
 				match symlink {
 					tg::graph::data::Symlink::Artifact {
-						artifact: _,
+						artifact: artifact,
 						subpath,
 					} => subpath,
 					tg::graph::data::Symlink::Target { target } => Some(target),
@@ -205,7 +205,7 @@ impl Server {
 			},
 			tg::symlink::Data::Target { target } => Some(PathBuf::from(target)),
 			tg::symlink::Data::Artifact {
-				artifact: _,
+				artifact: ,
 				subpath,
 			} => subpath.clone(),
 		};

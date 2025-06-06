@@ -49,7 +49,10 @@ impl Server {
 		} else if metadata.is_symlink() {
 			let target = std::fs::read_link(&path)
 				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
-			Variant::Symlink(Symlink { target })
+			Variant::Symlink(Symlink {
+				artifact: None,
+				target,
+			})
 		} else {
 			return Err(tg::error!(?metadata, "invalid file type"));
 		};
@@ -238,7 +241,47 @@ impl Server {
 	}
 
 	#[allow(clippy::unnecessary_wraps)]
-	fn checkin_visit_symlink_edges(_state: &mut State, _index: usize) -> tg::Result<()> {
+	fn checkin_visit_symlink_edges(state: &mut State, index: usize) -> tg::Result<()> {
+		let path = state.graph.nodes[index].path();
+		let target = std::fs::read_link(path)
+			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+
+		// Allow broken links.
+		let Ok(target) =
+			crate::util::fs::canonicalize_parent_sync(path.parent().unwrap().join(target))
+		else {
+			return Ok(());
+		};
+
+		// If this is within the .tangram/artifacts directory, treat it like an artifact symlink.
+		let Ok(diff) = target.strip_prefix(&state.artifacts_path) else {
+			return Ok(());
+		};
+
+		// Get the first item of the diff.
+		let mut components = diff.components();
+		let Some(artifact) = components.next().and_then(|component| {
+			if let std::path::Component::Normal(component) = component {
+				component.to_str()?.parse::<tg::artifact::Id>().ok()
+			} else {
+				None
+			}
+		}) else {
+			return Ok(());
+		};
+
+		// Get the subpath.
+		let mut subpath = PathBuf::new();
+		subpath.extend(components);
+
+		// Update the symlink.
+		state.graph.nodes[index]
+			.variant
+			.unwrap_symlink_mut()
+			.artifact
+			.replace(Either::Left(artifact));
+		state.graph.nodes[index].variant.unwrap_symlink_mut().target = subpath;
+
 		Ok(())
 	}
 
@@ -383,6 +426,7 @@ mod tests {
 					lockfile: true,
 					updates: Vec::new(),
 				},
+				artifacts_path: server.artifacts_path(),
 				fixup_sender: None,
 				graph: crate::checkin::Graph::default(),
 				graph_objects: Vec::new(),

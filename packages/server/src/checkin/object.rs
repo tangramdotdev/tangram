@@ -201,8 +201,33 @@ impl Server {
 				tg::graph::data::Node::File(data)
 			},
 			Variant::Symlink(symlink) => {
-				let target = symlink.target.clone();
-				let data = tg::graph::data::Symlink::Target { target };
+				let data = match &symlink.artifact {
+					Some(Either::Left(artifact)) => {
+						let artifact = Either::Right(artifact.clone());
+						let subpath = (!symlink.target.as_os_str().is_empty())
+							.then(|| symlink.target.clone());
+						tg::graph::data::Symlink::Artifact { artifact, subpath }
+					},
+					Some(Either::Right(index)) => {
+						let artifact = graph_indices
+							.get(&index)
+							.copied()
+							.map(Either::Left)
+							.or_else(|| {
+								state.graph.nodes[*index].object.as_ref().map(|object| {
+									Either::Right(object.id.clone().try_into().unwrap())
+								})
+							})
+							.unwrap();
+						let subpath = (!symlink.target.as_os_str().is_empty())
+							.then(|| symlink.target.clone());
+						tg::graph::data::Symlink::Artifact { artifact, subpath }
+					},
+					None => {
+						let target = symlink.target.clone();
+						tg::graph::data::Symlink::Target { target }
+					},
+				};
 				tg::graph::data::Node::Symlink(data)
 			},
 			Variant::Object => return Ok(()),
@@ -277,8 +302,30 @@ impl Server {
 			},
 			Variant::Symlink(symlink) => {
 				let kind = tg::object::Kind::Symlink;
-				let target = symlink.target.clone();
-				let data = tg::symlink::Data::Target { target };
+				let data = match &symlink.artifact {
+					Some(Either::Left(artifact)) => {
+						let artifact = artifact.clone();
+						let subpath = (!symlink.target.as_os_str().is_empty())
+							.then(|| symlink.target.clone());
+						tg::symlink::data::Symlink::Artifact { artifact, subpath }
+					},
+					Some(Either::Right(index)) => {
+						let artifact = state.graph.nodes[*index]
+							.object
+							.as_ref()
+							.map(|object| object.id.clone())
+							.unwrap()
+							.try_into()
+							.unwrap();
+						let subpath = (!symlink.target.as_os_str().is_empty())
+							.then(|| symlink.target.clone());
+						tg::symlink::data::Symlink::Artifact { artifact, subpath }
+					},
+					None => {
+						let target = symlink.target.clone();
+						tg::symlink::data::Symlink::Target { target }
+					},
+				};
 				let data = tg::object::Data::from(data);
 				(kind, data)
 			},
