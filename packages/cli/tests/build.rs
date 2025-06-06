@@ -87,7 +87,7 @@ async fn args() {
 	.into();
 	let path = "";
 	let export = "default";
-	let args = vec![r#""Tangram""#.into()];
+	let args = vec!["Tangram".into()];
 	let assertions = |output: std::process::Output| async move {
 		assert_success!(output);
 		let stdout = std::str::from_utf8(&output.stdout).unwrap();

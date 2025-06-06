@@ -14,7 +14,7 @@ pub struct Printer<W> {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-	pub depth: u64,
+	pub depth: Option<u64>,
 	pub style: Style,
 }
 
@@ -189,7 +189,7 @@ where
 
 	pub fn blob(&mut self, value: &tg::Blob) -> Result {
 		let state = value.state().read().unwrap();
-		let recurse = self.depth < self.options.depth;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
 		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -226,7 +226,7 @@ where
 
 	pub fn directory(&mut self, value: &tg::Directory) -> Result {
 		let state = value.state().read().unwrap();
-		let recurse = self.depth < self.options.depth;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
 		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -261,7 +261,7 @@ where
 
 	pub fn file(&mut self, value: &tg::File) -> Result {
 		let state = value.state().read().unwrap();
-		let recurse = self.depth < self.options.depth;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
 		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -324,7 +324,7 @@ where
 
 	pub fn symlink(&mut self, value: &tg::Symlink) -> Result {
 		let state = value.state().read().unwrap();
-		let recurse = self.depth < self.options.depth;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
 		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -363,7 +363,7 @@ where
 
 	pub fn graph(&mut self, value: &tg::Graph) -> Result {
 		let state = value.state().read().unwrap();
-		let recurse = self.depth < self.options.depth;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
 		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -493,7 +493,7 @@ where
 
 	pub fn command(&mut self, value: &tg::Command) -> Result {
 		let state = value.state().read().unwrap();
-		let recurse = self.depth < self.options.depth;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
 		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {

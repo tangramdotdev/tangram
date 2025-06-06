@@ -1,4 +1,4 @@
-use crate::Cli;
+use crate::{Cli, get::Depth};
 use crossterm::tty::IsTty as _;
 use tangram_client::{self as tg, prelude::*};
 use tokio::io::AsyncWriteExt as _;
@@ -16,8 +16,8 @@ pub struct Args {
 	#[arg(long)]
 	pub pretty: Option<bool>,
 
-	#[arg(long, default_value_t = 1)]
-	pub depth: u64,
+	#[arg(long, default_value = "1")]
+	pub depth: Depth,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
@@ -47,13 +47,19 @@ impl Cli {
 				Self::print_json(&data, args.pretty).await?;
 			},
 			Format::Tgvn => {
-				let depth = args.depth;
+				let depth = match args.depth {
+					Depth::Finite(depth) => depth,
+					Depth::Infinite => u64::MAX,
+				};
 				let style = if pretty {
 					tg::value::print::Style::Pretty { indentation: "  " }
 				} else {
 					tg::value::print::Style::Compact
 				};
-				let options = tg::value::print::Options { depth, style };
+				let options = tg::value::print::Options {
+					depth: Some(depth),
+					style,
+				};
 				let object = tg::Object::with_id(args.object);
 				if depth > 1 {
 					object.load_recursive(&handle).await?;

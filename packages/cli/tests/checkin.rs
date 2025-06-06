@@ -2088,10 +2088,9 @@ async fn test_checkin_inner(
 		.arg("object")
 		.arg("get")
 		.arg(id.clone())
-		.arg("--format")
-		.arg("tgvn")
-		.arg("--pretty")
-		.arg("true")
+		.arg("--depth=inf")
+		.arg("--format=tgvn")
+		.arg("--pretty=true")
 		.output()
 		.await
 		.unwrap();

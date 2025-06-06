@@ -36,10 +36,9 @@ async fn create_from_file() {
 			.tg()
 			.arg("get")
 			.arg(id)
-			.arg("--format")
-			.arg("tgvn")
-			.arg("--pretty")
-			.arg("true")
+			.arg("--depth=inf")
+			.arg("--format=tgvn")
+			.arg("--pretty=true")
 			.output()
 			.await
 			.unwrap();

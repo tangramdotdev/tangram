@@ -14,11 +14,17 @@ pub struct Args {
 	#[arg(long)]
 	pub pretty: Option<bool>,
 
-	#[arg(long, default_value_t = 1)]
-	pub depth: u64,
+	#[arg(long, default_value = "1")]
+	pub depth: Depth,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
+}
+
+#[derive(Clone, Debug)]
+pub enum Depth {
+	Finite(u64),
+	Infinite,
 }
 
 impl Cli {
@@ -62,5 +68,20 @@ impl Cli {
 			},
 		}
 		Ok(())
+	}
+}
+
+impl std::str::FromStr for Depth {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let depth = if s.starts_with("inf") {
+			Depth::Infinite
+		} else {
+			s.parse()
+				.map(Depth::Finite)
+				.map_err(|_| tg::error!("invalid depth"))?
+		};
+		Ok(depth)
 	}
 }

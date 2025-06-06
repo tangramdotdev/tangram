@@ -1192,7 +1192,7 @@ mod tests {
 				})
 				.collect::<Vec<_>>();
 			let output = tg::Value::Array(value).print(tg::value::print::Options {
-				depth: 1,
+				depth: Some(1),
 				style: tg::value::print::Style::Pretty { indentation: "  " },
 			});
 			assert_snapshot!(&output, @r#"
