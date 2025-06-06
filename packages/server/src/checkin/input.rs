@@ -151,6 +151,8 @@ impl Server {
 					path: Some(reference.to_owned()),
 					tag: None,
 				});
+			} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+				referent.replace(tg::Referent::with_item(Either::Left(id.clone())));
 			}
 		}
 

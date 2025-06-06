@@ -92,7 +92,7 @@ pub fn try_get_root_module_file_name_for_package_path(
 
 pub fn try_get_nearest_package_path_for_path(path: &Path) -> tg::Result<Option<&Path>> {
 	for path in path.ancestors() {
-		let metadata = std::fs::metadata(path).map_err(
+		let metadata = std::fs::symlink_metadata(path).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
 		)?;
 		if metadata.is_dir() && try_get_root_module_file_name_for_package_path(path)?.is_some() {
