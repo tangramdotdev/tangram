@@ -330,7 +330,7 @@ impl Server {
 				.pipes
 				.get(pipe)
 				.ok_or_else(|| tg::error!("failed to get pipe"))?
-				.read
+				.write
 				.try_clone()
 				.map_err(|source| tg::error!(!source, "failed to get pipe"))?
 				.into()),

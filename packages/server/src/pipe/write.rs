@@ -41,7 +41,7 @@ impl Server {
 				tg::pipe::Event::End => {
 					pipe.shutdown()
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write pipe"))?;
+						.map_err(|source| tg::error!(!source, "failed to shutdown pipe"))?;
 				},
 			}
 		}

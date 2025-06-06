@@ -45,7 +45,7 @@ impl Server {
 							send.send(Ok(tg::pipe::Event::Chunk(buf.into()))).await.ok();
 						},
 						Err(source) => {
-							send.send(Err(tg::error!(!source, "failed to write pipe")))
+							send.send(Err(tg::error!(!source, "failed to read pipe")))
 								.await
 								.ok();
 							break;
