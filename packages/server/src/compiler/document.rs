@@ -108,6 +108,18 @@ impl Compiler {
 		Ok(())
 	}
 
+	// Save a document.
+	pub async fn save_document(&self, module: &tg::module::Data) -> tg::Result<()> {
+		// Mark the document as clean.
+		let mut document = self
+			.documents
+			.get_mut(module)
+			.ok_or_else(|| tg::error!("failed to get document"))?;
+		document.dirty = false;
+
+		Ok(())
+	}
+
 	/// Close a document.
 	pub async fn close_document(&self, module: &tg::module::Data) -> tg::Result<()> {
 		// Get the document.
@@ -143,34 +155,6 @@ impl Compiler {
 
 		Ok(())
 	}
-
-	// Close a document.
-	pub async fn save_document(&self, module: &tg::module::Data) -> tg::Result<()> {
-		// Mark the document as clean.
-		let mut document = self
-			.documents
-			.get_mut(module)
-			.ok_or_else(|| tg::error!("failed to get document"))?;
-		document.dirty = false;
-
-		// Check in the object if necessary.
-		let tg::module::data::Item::Path(package_path) = module.referent.item.clone() else {
-			return Ok(());
-		};
-		let arg = tg::checkin::Arg {
-			path: package_path.clone(),
-			destructive: false,
-			deterministic: false,
-			ignore: true,
-			locked: false,
-			lockfile: true,
-			updates: Vec::new(),
-		};
-		tg::checkin(&self.server, arg).await.map_err(
-			|source| tg::error!(!source, %package = package_path.display(), "failed to check in package"),
-		)?;
-		Ok(())
-	}
 }
 
 impl Compiler {
@@ -178,23 +162,6 @@ impl Compiler {
 		&self,
 		params: lsp::DidOpenTextDocumentParams,
 	) -> tg::Result<()> {
-		// Check in the object if necessary.
-		if params.text_document.uri.scheme().unwrap().as_str() != "file" {
-			return Err(tg::error!(%uri = params.text_document.uri, "expected a file URI"));
-		}
-		let arg = tg::checkin::Arg {
-			path: params.text_document.uri.path().as_str().into(),
-			destructive: false,
-			deterministic: false,
-			ignore: true,
-			locked: false,
-			lockfile: true,
-			updates: Vec::new(),
-		};
-		tg::checkin(&self.server, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to check in the package"))?;
-
 		// Get the module.
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
