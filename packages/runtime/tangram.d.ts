@@ -333,7 +333,7 @@ declare namespace tg {
 			| {
 					contents?: tg.Blob.Arg | Array<tg.Blob.Arg> | undefined;
 					dependencies?:
-						| { [reference: tg.Reference]: tg.Referent<tg.Object> }
+						| { [reference: tg.Reference]: tg.MaybeReferent<tg.Object> }
 						| undefined;
 					executable?: boolean | undefined;
 			  };

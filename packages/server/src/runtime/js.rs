@@ -1,5 +1,5 @@
 use self::syscall::syscall;
-use crate::{Server, compiler::Compiler, runtime::util};
+use crate::{Server, runtime::util};
 use futures::{
 	FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 	future::{self, LocalBoxFuture},
@@ -27,7 +27,6 @@ struct State {
 	process: tg::Process,
 	futures: RefCell<FuturesUnordered<LocalBoxFuture<'static, FutureOutput>>>,
 	global_source_map: Option<SourceMap>,
-	compiler: Compiler,
 	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<syscall::log::Message>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
@@ -184,7 +183,6 @@ impl Runtime {
 			process: process.clone(),
 			futures: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			compiler: Compiler::new(&self.server, main_runtime_handle.clone()),
 			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
@@ -578,11 +576,11 @@ fn resolve_module_sync(
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let compiler = state.compiler.clone();
+		let server = state.server.clone();
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let result = compiler.resolve_module(&referrer, &import).await;
+			let result = server.resolve_module(&referrer, &import).await;
 			sender.send(result).unwrap();
 		}
 	});
@@ -607,10 +605,10 @@ fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> O
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let compiler = state.compiler.clone();
+		let server = state.server.clone();
 		let module = module.clone();
 		async move {
-			let result = compiler.load_module(&module).await;
+			let result = server.load_module(&module).await;
 			sender.send(result).unwrap();
 		}
 	});
@@ -640,10 +638,10 @@ fn compile_module<'s>(
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Transpile the module.
-	let crate::compiler::transpile::Output {
+	let crate::module::transpile::Output {
 		transpiled_text,
 		source_map,
-	} = match Compiler::transpile_module(text)
+	} = match Server::transpile_module(text)
 		.map_err(|source| tg::error!(!source, "failed to transpile the module"))
 	{
 		Ok(output) => output,

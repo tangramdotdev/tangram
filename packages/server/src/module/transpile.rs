@@ -1,4 +1,4 @@
-use super::Compiler;
+use crate::Server;
 use swc_core::{self as swc, ecma::ast::Pass as _};
 use tangram_client as tg;
 
@@ -14,7 +14,7 @@ pub struct Error {
 	column: usize,
 }
 
-impl Compiler {
+impl Server {
 	pub fn transpile_module(text: String) -> tg::Result<Output> {
 		let globals = swc::common::Globals::default();
 		swc::common::GLOBALS.set(&globals, move || {

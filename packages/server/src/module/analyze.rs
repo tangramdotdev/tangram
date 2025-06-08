@@ -1,4 +1,4 @@
-use super::Compiler;
+use crate::Server;
 use std::{
 	collections::{BTreeMap, HashSet},
 	rc::Rc,
@@ -20,7 +20,7 @@ pub struct Error {
 	pub column: usize,
 }
 
-impl Compiler {
+impl Server {
 	/// Analyze a module.
 	pub fn analyze_module(text: String) -> tg::Result<Analysis> {
 		// Parse the text.
@@ -229,7 +229,7 @@ mod tests {
 			export { namedExport } from "tg:named_export";
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;
-		let found = Compiler::analyze_module(text.to_owned()).unwrap().imports;
+		let found = Server::analyze_module(text.to_owned()).unwrap().imports;
 		let expected = [
 			"tg:default_import",
 			"./named_import.tg.js",

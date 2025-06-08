@@ -27,15 +27,16 @@ impl Compiler {
 		let super::Response::Diagnostics(response) = response else {
 			return Err(tg::error!("unexpected response type"));
 		};
-
-		// Get the result the response.
 		let Response { diagnostics } = response;
 
 		Ok(diagnostics)
 	}
 
 	pub async fn update_diagnostics(&self) -> tg::Result<()> {
-		// Get the diagnostics.
+		// Get the new diagnostics.
+		let new_diagnostics = self.get_diagnostics().await?;
+
+		// Lock the diagnostics.
 		let mut diagnostics = self.diagnostics.write().await;
 
 		// Clear the diagnostics.
@@ -45,7 +46,7 @@ impl Compiler {
 
 		// Update the diagnostics.
 		diagnostics.extend(
-			stream::iter(self.get_diagnostics().await?)
+			stream::iter(new_diagnostics)
 				.map(Ok::<_, tg::Error>)
 				.try_fold(BTreeMap::default(), {
 					move |mut map: BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>, diagnostic| {

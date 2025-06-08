@@ -18,7 +18,6 @@ use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
 
-pub mod analysis;
 pub mod check;
 pub mod completion;
 pub mod definition;
@@ -29,14 +28,10 @@ pub mod format;
 pub mod hover;
 pub mod initialize;
 pub mod jsonrpc;
-pub mod load;
-pub mod parse;
 pub mod references;
 pub mod rename;
-pub mod resolve;
 pub mod symbols;
 pub mod syscall;
-pub mod transpile;
 pub mod version;
 pub mod workspace;
 
@@ -284,13 +279,8 @@ impl Compiler {
 				break;
 			}
 
-			// Spawn a task to handle the message.
-			task_tracker.spawn({
-				let compiler = self.clone();
-				async move {
-					compiler.handle_message(message).await;
-				}
-			});
+			// Handle the message.
+			self.handle_message(message).await;
 		}
 
 		// Wait for all tasks to complete.
@@ -779,19 +769,23 @@ impl Compiler {
 				.as_os_str()
 				.to_str()
 				.ok_or_else(|| tg::error!("invalid path"))?
-				.parse()
+				.parse::<tg::object::Id>()
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
-			let item = tg::module::data::Item::Object(object);
 			let path = path.components().skip(1).collect::<PathBuf>();
-			let path = if path.as_os_str().is_empty() {
-				None
+			let object = if path.as_os_str().is_empty() {
+				object
 			} else {
-				Some(path)
+				let directory = tg::Object::with_id(object)
+					.try_unwrap_directory()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a directory"))?;
+				directory.get(&self.server, path).await?.id().into()
 			};
+			let item = tg::module::data::Item::Object(object);
 			let referent = tg::Referent {
 				item,
-				path,
+				path: None,
 				tag: None,
 			};
 			let module = tg::module::Data { kind, referent };
@@ -816,10 +810,6 @@ impl Compiler {
 				..
 			} => {
 				let path = path.strip_prefix("./").unwrap_or(path);
-				let contents = self::load::LIBRARY
-					.get_file(path)
-					.ok_or_else(|| tg::error!("invalid path"))?
-					.contents();
 				let path = self.library_temp.path().join(path);
 				let exists = tokio::fs::try_exists(&path)
 					.await
@@ -830,6 +820,10 @@ impl Compiler {
 						.map_err(|source| {
 							tg::error!(!source, "failed create the library temp directory")
 						})?;
+					let contents = crate::module::load::LIBRARY
+						.get_file(&path)
+						.ok_or_else(|| tg::error!("invalid path"))?
+						.contents();
 					tokio::fs::write(&path, contents)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
@@ -843,20 +837,22 @@ impl Compiler {
 						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
 				}
 				let path = path.display();
-				Ok(format!("file://{path}").parse().unwrap())
+				let uri = format!("file://{path}").parse().unwrap();
+				Ok(uri)
 			},
 
 			tg::module::Data {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Object(object),
-						path,
 						..
 					},
 				..
 			} => {
-				let artifact = tg::artifact::Id::try_from(object.clone())
-					.map_err(|_| tg::error!("the module must be an artifact"))?;
+				let artifact = object
+					.clone()
+					.try_into()
+					.map_err(|_| tg::error!("expected an artifact"))?;
 				if self.server.vfs.lock().unwrap().is_none() {
 					let arg = tg::checkout::Arg {
 						artifact,
@@ -872,13 +868,8 @@ impl Compiler {
 						.try_collect::<()>()
 						.await?;
 				}
-				let path = if let Some(path) = path {
-					self.server.cache_path().join(object.to_string()).join(path)
-				} else {
-					self.server.cache_path().join(object.to_string())
-				};
-				let path = path.display();
-				let uri = format!("file://{path}").parse().unwrap();
+				let path = self.server.cache_path().join(object.to_string());
+				let uri = format!("file://{}", path.display()).parse().unwrap();
 				Ok(uri)
 			},
 
@@ -895,6 +886,21 @@ impl Compiler {
 				Ok(uri)
 			},
 		}
+	}
+
+	/// Load a module.
+	pub async fn load_module(&self, module: &tg::module::Data) -> tg::Result<String> {
+		// If there is an opened document, then return its contents.
+		if let Some(document) = self.documents.get(module) {
+			if document.open {
+				return Ok(document.text.clone().unwrap());
+			}
+		}
+
+		// Otherwise, load the module.
+		let module = self.server.load_module(module).await?;
+
+		Ok(module)
 	}
 }
 

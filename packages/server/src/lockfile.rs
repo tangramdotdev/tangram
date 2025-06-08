@@ -1148,7 +1148,7 @@ mod tests {
 	async fn parse() {
 		test(async move |context| {
 			let server = context.start_server().await;
-			let lockfile: temp::Artifact = temp::directory! {
+			let artifact: temp::Artifact = temp::directory! {
 				"tangram.lock" => indoc!(r#"
 					{
 					  "nodes": [
@@ -1178,7 +1178,7 @@ mod tests {
 			}
 			.into();
 			let temp = temp::Temp::new();
-			lockfile.to_path(temp.path()).await.unwrap();
+			artifact.to_path(temp.path()).await.unwrap();
 			let lockfile = server
 				.try_parse_lockfile(temp.path())
 				.expect("failed to parse lockfile")

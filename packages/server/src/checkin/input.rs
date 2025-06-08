@@ -196,7 +196,7 @@ impl Server {
 		)?;
 		let text = String::from_utf8(contents)
 			.map_err(|source| tg::error!(!source, %path = path.display(), "invalid utf8"))?;
-		let analysis = crate::Compiler::analyze_module(text).map_err(
+		let analysis = Self::analyze_module(text).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to analyze the module"),
 		)?;
 		for error in analysis.errors {

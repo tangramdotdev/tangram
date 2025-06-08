@@ -1,4 +1,4 @@
-use super::Compiler;
+use crate::Server;
 use std::rc::Rc;
 use swc_core as swc;
 use tangram_client as tg;
@@ -8,7 +8,7 @@ pub struct Output {
 	pub source_map: Rc<swc::common::SourceMap>,
 }
 
-impl Compiler {
+impl Server {
 	/// Parse a module.
 	pub fn parse_module(text: String) -> tg::Result<Output> {
 		// Create the parser.

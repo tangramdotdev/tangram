@@ -1,10 +1,10 @@
-use super::Compiler;
+use crate::Server;
 use include_dir::include_dir;
 use tangram_client as tg;
 
 pub const LIBRARY: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 
-impl Compiler {
+impl Server {
 	/// Load a module.
 	pub async fn load_module(&self, module: &tg::module::Data) -> tg::Result<String> {
 		match module {
@@ -34,13 +34,6 @@ impl Compiler {
 					},
 				..
 			} => {
-				// If there is an opened document, then return its contents.
-				if let Some(document) = self.documents.get(module) {
-					if document.open {
-						return Ok(document.text.clone().unwrap());
-					}
-				}
-
 				// Otherwise, load from the path.
 				let text = tokio::fs::read_to_string(&path).await.map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to read the file"),
@@ -64,7 +57,7 @@ impl Compiler {
 					.try_unwrap_file()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let text = file.text(&self.server).await?;
+				let text = file.text(self).await?;
 				Ok(text)
 			},
 

@@ -10,16 +10,6 @@ pub struct Request {
 
 pub type Response = serde_json::Value;
 
-/// A document.
-#[derive(Clone, Debug)]
-pub struct Document {
-	pub open: bool,
-	pub dirty: bool,
-	pub version: i32,
-	pub modified: Option<std::time::SystemTime>,
-	pub text: Option<String>,
-}
-
 impl Compiler {
 	/// Document a module.
 	pub async fn document(&self, module: &tg::module::Data) -> tg::Result<Response> {
@@ -38,6 +28,16 @@ impl Compiler {
 
 		Ok(response)
 	}
+}
+
+/// A document.
+#[derive(Clone, Debug)]
+pub struct Document {
+	pub open: bool,
+	pub dirty: bool,
+	pub version: i32,
+	pub modified: Option<std::time::SystemTime>,
+	pub text: Option<String>,
 }
 
 impl Compiler {
@@ -67,43 +67,6 @@ impl Compiler {
 
 		// Insert the document.
 		self.documents.insert(module.clone(), document);
-
-		Ok(())
-	}
-
-	/// Update a document.
-	pub async fn update_document(
-		&self,
-		module: &tg::module::Data,
-		range: Option<tg::Range>,
-		version: i32,
-		text: String,
-	) -> tg::Result<()> {
-		// Get the document.
-		let Some(mut document) = self.documents.get_mut(module) else {
-			return Err(tg::error!("failed to find the document"));
-		};
-
-		// Ensure the document is open.
-		if !document.open {
-			return Err(tg::error!("expected the document to open"));
-		}
-
-		// Update the version.
-		document.version = version;
-
-		// Mark the document as dirty.
-		document.dirty = true;
-
-		// Convert the range to bytes.
-		let range = if let Some(range) = range {
-			range.to_byte_range_in_string(document.text.as_ref().unwrap())
-		} else {
-			0..document.text.as_mut().unwrap().len()
-		};
-
-		// Replace the text.
-		document.text.as_mut().unwrap().replace_range(range, &text);
 
 		Ok(())
 	}
@@ -183,16 +146,37 @@ impl Compiler {
 		// Get the module.
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
-		// Apply the changes.
-		for change in params.content_changes {
-			self.update_document(
-				&module,
-				change.range.map(Into::into),
-				params.text_document.version,
-				change.text,
-			)
-			.await?;
+		// Get the document.
+		let Some(mut document) = self.documents.get_mut(&module) else {
+			return Err(tg::error!("failed to find the document"));
+		};
+
+		// Ensure it is open.
+		if !document.open {
+			return Err(tg::error!("expected the document to be open"));
 		}
+
+		// Mark it dirty.
+		document.dirty = true;
+
+		// Apply the changes.
+		let text = document.text.as_mut().unwrap();
+		for change in &params.content_changes {
+			let range = if let Some(range) = change.range {
+				tg::Range::from(range).to_byte_range_in_string(text)
+			} else {
+				0..text.len()
+			};
+			text.replace_range(range, &change.text);
+		}
+
+		// Set the version.
+		document.version = params.text_document.version;
+
+		dbg!(&params, &document.text);
+
+		// Drop the document.
+		drop(document);
 
 		// Update all diagnostics.
 		self.update_diagnostics().await?;

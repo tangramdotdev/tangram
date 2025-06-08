@@ -1,4 +1,4 @@
-use super::Compiler;
+use crate::Server;
 use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
@@ -6,7 +6,7 @@ use tangram_either::Either;
 #[cfg(test)]
 mod tests;
 
-impl Compiler {
+impl Server {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
 		&self,
@@ -138,8 +138,7 @@ impl Compiler {
 					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
 				) {
 				if let Some(root_module_name) =
-					tg::package::try_get_root_module_file_name(&self.server, Either::Right(&path))
-						.await?
+					tg::package::try_get_root_module_file_name(self, Either::Right(&path)).await?
 				{
 					let path = path.join(root_module_name);
 					return Ok(tg::Referent::with_item(tg::module::data::Item::Path(path)));
@@ -179,7 +178,6 @@ impl Compiler {
 
 		// Find the referrer in the lockfile.
 		let module_index = self
-			.server
 			.find_node_index_in_lockfile(referrer.item, &lockfile_path, &lockfile)
 			.await?;
 
@@ -235,7 +233,7 @@ impl Compiler {
 		let referent = self
 			.try_resolve_module_with_kind(
 				import.kind,
-				file.get_dependency(&self.server, &import.reference).await?,
+				file.get_dependency(self, &import.reference).await?,
 			)
 			.await?;
 
@@ -262,14 +260,12 @@ impl Compiler {
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
-				let path = tg::package::try_get_root_module_file_name(
-					&self.server,
-					Either::Left(&referent.item),
-				)
-				.await?;
+				let path =
+					tg::package::try_get_root_module_file_name(self, Either::Left(&referent.item))
+						.await?;
 				let (item, path) = if let Some(path) = path {
 					let file = directory
-						.get(&self.server, path)
+						.get(self, path)
 						.await?
 						.try_unwrap_file_ref()
 						.map_err(|_| tg::error!("expected a file"))?

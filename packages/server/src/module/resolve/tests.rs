@@ -1,4 +1,4 @@
-use crate::{Server, compiler::Compiler, test::test};
+use crate::{Server, test::test};
 use futures::Future;
 use pretty_assertions::assert_eq;
 use std::path::{Path, PathBuf};
@@ -128,7 +128,6 @@ async fn test_path<F, Fut>(
 {
 	test(async move |context| {
 		let server = context.start_server().await;
-		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 		let temp = Temp::new();
 		let artifact = artifact.into();
 		artifact
@@ -159,7 +158,7 @@ async fn test_path<F, Fut>(
 				tag: None,
 			},
 		};
-		let module = compiler.resolve_module(&referrer, &import).await.unwrap();
+		let module = server.resolve_module(&referrer, &import).await.unwrap();
 		(assertions)(server, temp.path().to_owned(), module).await;
 	})
 	.await;
@@ -178,7 +177,6 @@ async fn test_object<F, Fut>(
 {
 	test(async move |context| {
 		let server = context.start_server().await;
-		let compiler = Compiler::new(&server, tokio::runtime::Handle::current());
 		let temp = Temp::new();
 		let artifact = artifact.into();
 		artifact
@@ -217,7 +215,7 @@ async fn test_object<F, Fut>(
 				tag: None,
 			},
 		};
-		let module = compiler.resolve_module(&referrer, &import).await.unwrap();
+		let module = server.resolve_module(&referrer, &import).await.unwrap();
 		(assertions)(server, artifact, module).await;
 	})
 	.await;

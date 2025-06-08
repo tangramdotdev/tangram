@@ -2,6 +2,12 @@ use crate::Server;
 use std::path::Path;
 use tangram_client as tg;
 
+pub mod analyze;
+pub mod load;
+pub mod parse;
+pub mod resolve;
+pub mod transpile;
+
 impl Server {
 	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::module::Data> {
 		// Get the file name.
