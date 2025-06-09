@@ -1083,7 +1083,7 @@ async fn test_build<F, Fut>(
 async fn test_build_remote<F, Fut>(
 	artifact: temp::Artifact,
 	path: &str,
-	command: &str,
+	export: &str,
 	_args: Vec<String>,
 	assertions: F,
 ) where
@@ -1096,7 +1096,7 @@ async fn test_build_remote<F, Fut>(
 		artifact.to_path(temp.as_ref()).await.unwrap();
 
 		let path = temp.path().join(path);
-		let command = format!("{path}#{command}", path = path.display());
+		let command = format!("{path}#{export}", path = path.display());
 
 		// Create a remote server.
 		let remote_server = context.spawn_server().await.unwrap();
