@@ -51,7 +51,7 @@ pub struct TouchObjectMessage {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutProcessMessage {
-	pub children: Option<Vec<tg::process::Id>>,
+	pub children: Option<Vec<tg::Referent<tg::process::Id>>>,
 	pub id: tg::process::Id,
 	pub touched_at: i64,
 	pub objects: Vec<(tg::object::Id, ProcessObjectKind)>,
@@ -461,8 +461,8 @@ impl Server {
 
 		let child_statement = indoc!(
 			"
-				insert into process_children (process, position, child)
-				values (?1, ?2, ?3)
+				insert into process_children (process, position, child, path, tag)
+				values (?1, ?2, ?3, ?4, ?5)
 				on conflict (process, child) do nothing;
 			"
 		);
@@ -494,8 +494,13 @@ impl Server {
 			// Insert the children.
 			if let Some(children) = message.children {
 				for (position, child) in children.iter().enumerate() {
-					let params =
-						sqlite::params![message.id.to_string(), position, child.to_string()];
+					let params = sqlite::params![
+						message.id.to_string(),
+						position,
+						child.item.to_string(),
+						child.path.as_ref().map(|path| path.display().to_string()),
+						child.tag.as_ref().map(ToString::to_string),
+					];
 					child_statement
 						.execute(params)
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -788,8 +793,8 @@ impl Server {
 				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
 				let statement = indoc!(
 					"
-						insert into process_children (process, position, child)
-						select $1, unnest($2::int8[]), unnest($3::text[])
+						insert into process_children (process, position, child, path, tag)
+						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($3::text[]), unnest($4::text[])
 						on conflict (process, child) do nothing;
 					"
 				);
@@ -800,7 +805,23 @@ impl Server {
 						&[
 							&message.id.to_string(),
 							&positions.as_slice(),
-							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
+							&children
+								.iter()
+								.map(|referent| referent.item.to_string())
+								.collect::<Vec<_>>(),
+							&children
+								.iter()
+								.map(|referent| {
+									referent
+										.path
+										.as_ref()
+										.map(|path| path.display().to_string())
+								})
+								.collect::<Vec<_>>(),
+							&children
+								.iter()
+								.map(|referent| referent.tag.as_ref().map(ToString::to_string))
+								.collect::<Vec<_>>(),
 						],
 					)
 					.await
@@ -1492,7 +1513,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create table process_children (
 				process text not null,
 				child text not null,
-				position integer not null
+				position integer not null,
+				path text,
+				tag text
 			);
 
 			create unique index process_children_process_child_index on process_children (process, child);

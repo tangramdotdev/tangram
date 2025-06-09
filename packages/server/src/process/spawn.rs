@@ -3,7 +3,7 @@ use bytes::Bytes;
 use futures::{FutureExt as _, future};
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use std::pin::pin;
+use std::{path::PathBuf, pin::pin};
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -42,9 +42,11 @@ impl Server {
 		if !cacheable {
 			let id = self.spawn_local_process(&arg).await?;
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id).await.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
+				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
+					.await
+					.map_err(
+						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+					)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -56,9 +58,11 @@ impl Server {
 		// Return a matching local process if one exists.
 		if let Some(id) = self.try_get_cached_process_local(&arg).await? {
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id).await.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
+				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
+					.await
+					.map_err(
+						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+					)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -70,9 +74,11 @@ impl Server {
 		// Reuse a local process if possible.
 		if let Some(id) = self.try_reuse_process_local(&arg).await? {
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id).await.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
+				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
+					.await
+					.map_err(
+						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+					)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -87,9 +93,11 @@ impl Server {
 				return Ok(None);
 			};
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id).await.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
+				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
+					.await
+					.map_err(
+						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+					)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -142,9 +150,11 @@ impl Server {
 
 		// Add the process to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.try_add_process_child(parent, &id).await.map_err(
-				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-			)?;
+			self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 		}
 
 		// Create the output.
@@ -316,8 +326,8 @@ impl Server {
 		// Insert the process children.
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child)
-				select process, position, child from process_children where process = {p}1;
+				insert into process_children (process, position, child, path, tag)
+				select process, position, child, path, tag from process_children where process = {p}1;
 			"
 		);
 		let params = db::params![id];
@@ -628,6 +638,8 @@ impl Server {
 		&self,
 		parent: &tg::process::Id,
 		child: &tg::process::Id,
+		path: Option<&PathBuf>,
+		tag: Option<&tg::Tag>,
 	) -> tg::Result<()> {
 		// Verify the process is local and started.
 		if self.try_get_current_process_status_local(parent).await?
@@ -684,12 +696,12 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2)
+				insert into process_children (process, position, child, path, tag)
+				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4)
 				on conflict (process, child) do nothing;
 			"
 		);
-		let params = db::params![parent, child];
+		let params = db::params![parent, child, path, tag];
 		connection
 			.execute(statement.into(), params)
 			.await

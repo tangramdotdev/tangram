@@ -29,7 +29,7 @@ pub enum Event {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
 	pub position: u64,
-	pub data: Vec<tg::process::Id>,
+	pub data: Vec<tg::Referent<tg::process::Id>>,
 }
 
 impl tg::Process {
@@ -37,7 +37,7 @@ impl tg::Process {
 		&self,
 		handle: &H,
 		arg: tg::process::children::get::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<Self>> + Send + 'static>
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::Referent<Self>>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
@@ -50,7 +50,7 @@ impl tg::Process {
 		&self,
 		handle: &H,
 		arg: tg::process::children::get::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<Self>> + Send + 'static>>
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::Referent<Self>>> + Send + 'static>>
 	where
 		H: tg::Handle,
 	{
@@ -64,7 +64,9 @@ impl tg::Process {
 							chunk
 								.data
 								.into_iter()
-								.map(|id| tg::Process::new(id, None, None, None, None))
+								.map(|referent| {
+									referent.map(|id| tg::Process::new(id, None, None, None, None))
+								})
 								.map(Ok),
 						)
 					})

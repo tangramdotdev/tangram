@@ -4,7 +4,7 @@ use crate as tg;
 pub struct State {
 	pub actual_checksum: Option<tg::Checksum>,
 	pub cacheable: bool,
-	pub children: Option<Vec<tg::Process>>,
+	pub children: Option<Vec<tg::Referent<tg::Process>>>,
 	pub command: tg::Command,
 	pub created_at: i64,
 	pub dequeued_at: Option<i64>,
@@ -34,7 +34,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let children = value.children.map(|children| {
 			children
 				.into_iter()
-				.map(|id| tg::Process::new(id, None, None, None, None))
+				.map(|referent| referent.map(|id| tg::Process::new(id, None, None, None, None)))
 				.collect()
 		});
 		let command = tg::Command::with_id(value.command);

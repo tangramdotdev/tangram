@@ -2,6 +2,7 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
+use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
@@ -57,9 +58,15 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
+		#[derive(Clone, serde::Deserialize)]
+		struct Row {
+			child: tg::process::Id,
+			path: Option<PathBuf>,
+			tag: Option<tg::Tag>,
+		}
 		let statement = formatdoc!(
 			"
-				select child
+				select child, path, tag
 				from process_children
 				where process = {p}1
 				order by position;
@@ -67,7 +74,7 @@ impl Server {
 		);
 		let params = db::params![id];
 		let children = connection
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.query_all_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
@@ -76,7 +83,7 @@ impl Server {
 		children
 			.clone()
 			.into_iter()
-			.map(|child| async move {
+			.map(|row| async move {
 				let error = tg::error!(
 					code = tg::error::Code::Cancelation,
 					"the parent was finished"
@@ -90,7 +97,7 @@ impl Server {
 					output: None,
 					remote: None,
 				};
-				self.finish_process(&child, arg).await.ok();
+				self.finish_process(&row.child, arg).await.ok();
 				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -184,6 +191,14 @@ impl Server {
 				.map(|object| (object, crate::index::ProcessObjectKind::Output)),
 		)
 		.collect();
+		let children = children
+			.into_iter()
+			.map(|row| tg::Referent {
+				item: row.child,
+				path: row.path,
+				tag: row.tag,
+			})
+			.collect();
 		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
 			id: id.clone(),
 			touched_at: now,

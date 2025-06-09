@@ -44,7 +44,7 @@ impl Cli {
 		let mut stream = pin!(stream);
 		while let Some(chunk) = stream.try_next().await? {
 			for child in chunk.data {
-				println!("{child}");
+				println!("{}", child.item);
 			}
 		}
 

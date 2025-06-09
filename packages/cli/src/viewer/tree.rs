@@ -474,7 +474,7 @@ where
 	where
 		H: tg::Handle,
 	{
-		if let Some(title) = Self::process_title(handle, process).await {
+		if let Some(title) = Self::process_title(handle, process, options).await {
 			update_sender
 				.send(Box::new(|node| {
 					node.borrow_mut().title = title;
@@ -661,114 +661,30 @@ where
 			update_sender.send(Box::new(update)).unwrap();
 		}
 
-		// Get the dependencies of the parent executable, if they exist.
-		let dependencies = if let Some(file) = referent
-			.item
-			.command(handle)
-			.await?
-			.executable(handle)
-			.await?
-			.try_unwrap_module_ref()
-			.ok()
-			.and_then(|module| {
-				module
-					.module
-					.referent
-					.item
-					.try_unwrap_object_ref()
-					.ok()?
-					.try_unwrap_file_ref()
-					.ok()
-			}) {
-			file.dependencies(handle)
-				.await?
-				.into_values()
-				.map(|child| {
-					let tg::Referent {
-						item,
-						mut path,
-						mut tag,
-					} = child;
-					if tag.is_none() {
-						tag = referent.tag.clone();
-						path = referent
-							.path
-							.as_ref()
-							.map(|referent_path| {
-								let referent_path = if tg::package::is_module_path(referent_path) {
-									referent_path.parent().unwrap()
-								} else {
-									referent_path.as_ref()
-								};
-								path.as_ref().map_or(referent_path.to_owned(), |path| {
-									referent_path.join(path)
-								})
-							})
-							.or_else(|| path.clone())
-							.map(|path| path.canonicalize().unwrap_or(path));
-					}
-					let id = item.id();
-					tg::Referent {
-						item: id,
-						path,
-						tag,
-					}
-				})
-				.collect()
-		} else {
-			Vec::default()
-		};
-
 		// Create the children stream.
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
-		while let Some(process) = children.try_next().await? {
-			// Get the executable of the child process.
-			let executable = process
-				.load(handle)
-				.await?
-				.command
-				.executable(handle)
-				.await?
-				.clone();
+		while let Some(mut child) = children.try_next().await? {
+			// Inherit the parent's tag if necessary.
+			if child.tag.is_none() && referent.tag.is_some() {
+				child.tag = referent.tag.clone();
+			}
 
-			// Get the ID of the executable, if it exists.
-			let dependency_id = match executable {
-				tg::command::Executable::Artifact(artifact) => Some(artifact.artifact.id().into()),
-				tg::command::Executable::Module(tg::command::ModuleExecutable {
-					module:
-						tg::Module {
-							referent:
-								tg::Referent {
-									item: tg::module::Item::Object(object),
-									..
-								},
-							..
-						},
-					..
-				}) => Some(object.id()),
-				_ => None,
-			};
-
-			// Lookup the path, subpath, and tag of the executable from the referrers' dependencies.
-			let (path, tag) = if let Some(id) = dependency_id {
-				dependencies
-					.iter()
-					.find_map(|referent| {
-						(referent.item == id).then(|| (referent.path.clone(), referent.tag.clone()))
-					})
-					.unwrap_or((None, None))
-			} else {
-				(None, None)
-			};
-
-			// Inherit the parent's path/tag if necessary.
-			let path = path.or_else(|| referent.path.clone());
-			let tag = tag.or_else(|| referent.tag.clone());
+			// Append the parent's path if necessary.
+			if child.path.is_some() && referent.path.is_some() {
+				let mut parent_path = referent.path.as_ref().unwrap().as_ref();
+				if tg::package::is_module_path(parent_path) {
+					parent_path = parent_path.parent().unwrap();
+				}
+				let path = parent_path.join(child.path.as_ref().unwrap());
+				let path = tokio::fs::canonicalize(&path).await.unwrap_or(path);
+				child.path.replace(parent_path.join(path));
+			}
 
 			// Check the status of the process.
-			let finished = process
+			let finished = child
+				.item
 				.status(handle)
 				.await?
 				.try_next()
@@ -799,38 +715,23 @@ where
 					node.borrow().children[0].clone()
 				};
 
-				// Create the child.
-				let referent = tg::Referent {
-					item: Item::Process(process.clone()),
-					path: path.clone(),
-					tag: tag.clone(),
-				};
-				let child = Self::create_node(&handle, &parent, None, Some(referent));
+				let item = child.clone().map(Item::Process);
+				let child_node = Self::create_node(&handle, &parent, None, Some(item));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
-					let options = child.borrow().options.clone();
-					let update_sender = child.borrow().update_sender.clone();
-					let process = tg::Referent {
-						item: process.clone(),
-						path,
-						tag,
-					};
+					let options = child_node.borrow().options.clone();
+					let update_sender = child_node.borrow().update_sender.clone();
 					|_| async move {
-						Self::process_update_task(
-							&handle,
-							&process,
-							options.as_ref(),
-							update_sender,
-						)
-						.await
-						.ok();
+						Self::process_update_task(&handle, &child, options.as_ref(), update_sender)
+							.await
+							.ok();
 					}
 				});
-				child.borrow_mut().update_task.replace(update_task);
+				child_node.borrow_mut().update_task.replace(update_task);
 
 				// Add the child to the children node.
-				parent.borrow_mut().children.push(child);
+				parent.borrow_mut().children.push(child_node);
 			};
 			update_sender.send(Box::new(update)).unwrap();
 		}
@@ -856,7 +757,11 @@ where
 		Ok(())
 	}
 
-	async fn process_title(handle: &H, process: &tg::Referent<tg::Process>) -> Option<String> {
+	async fn process_title(
+		handle: &H,
+		process: &tg::Referent<tg::Process>,
+		options: &Options,
+	) -> Option<String> {
 		// Get the original commands' executable.
 		let command = process.item.command(handle).await.ok()?.clone();
 		let executable = command.executable(handle).await.ok()?.clone();
@@ -868,8 +773,20 @@ where
 
 		// Use the referent if its fields are set.
 		let title = match (&process.path, &process.tag) {
-			(Some(path), None) => path.display().to_string(),
-			(Some(subpath), Some(tag)) => format!("{tag}:{}", subpath.display()),
+			(Some(path), None) => {
+				if options.display_paths_relative_to_cwd {
+					std::env::current_dir()
+						.ok()
+						.and_then(|cwd| crate::util::path_diff(&cwd, path).ok())
+						.map_or_else(
+							|| path.display().to_string(),
+							|path| path.display().to_string(),
+						)
+				} else {
+					path.display().to_string()
+				}
+			},
+			(Some(path), Some(tag)) => format!("{tag}:{}", path.display()),
 			(None, Some(tag)) => tag.to_string(),
 			_ => {
 				if let Some(object) = executable.object().first() {

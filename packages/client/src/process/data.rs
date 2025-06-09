@@ -14,7 +14,7 @@ pub struct Data {
 	pub cacheable: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub children: Option<Vec<tg::process::Id>>,
+	pub children: Option<Vec<tg::Referent<tg::process::Id>>>,
 
 	pub command: tg::command::Id,
 

@@ -59,9 +59,12 @@ impl Cli {
 				.unwrap();
 			local_set
 				.block_on(&runtime, async move {
+					let display_paths_relative_to_cwd =
+						root.path.as_ref().is_some_and(|path| path.is_relative());
 					let options = crate::viewer::Options {
 						condensed_processes: false,
 						expand_on_create: matches!(kind, Kind::Inline),
+						display_paths_relative_to_cwd,
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);
 					match kind {

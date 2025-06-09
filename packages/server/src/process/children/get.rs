@@ -3,7 +3,7 @@ use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
@@ -219,10 +219,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the children.
+		#[derive(serde::Deserialize)]
+		struct Row {
+			child: tg::process::Id,
+			path: Option<PathBuf>,
+			tag: Option<tg::Tag>,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select child
+				select child, path, tag
 				from process_children
 				where process = {p}1
 				order by position
@@ -232,9 +238,16 @@ impl Server {
 		);
 		let params = db::params![id, length, position];
 		let children = connection
-			.query_all_value_into(statement.into(), params)
+			.query_all_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.into_iter()
+			.map(|row| tg::Referent {
+				item: row.child,
+				path: row.path,
+				tag: row.tag,
+			})
+			.collect();
 
 		// Drop the database connection.
 		drop(connection);
