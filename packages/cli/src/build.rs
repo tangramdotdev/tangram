@@ -138,14 +138,15 @@ impl Cli {
 						.enable_all()
 						.build()
 						.unwrap();
-					let display_paths_relative_to_cwd =
-						root.path.as_ref().is_some_and(|path| path.is_relative());
 					local_set
 						.block_on(&runtime, async move {
 							let viewer_options = crate::viewer::Options {
-								condensed_processes: true,
-								expand_on_create: true,
-								display_paths_relative_to_cwd,
+								auto_expand_and_collapse_processes: true,
+								display_paths_relative_to_cwd: root
+									.path
+									.as_ref()
+									.is_some_and(|path| path.is_relative()),
+								show_process_commands: false,
 							};
 							let mut viewer =
 								crate::viewer::Viewer::new(&handle, root, viewer_options);

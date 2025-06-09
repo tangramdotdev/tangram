@@ -254,7 +254,7 @@ where
 			.as_ref()
 			.map_or(String::new(), |referent| Self::item_title(&referent.item));
 
-		let expand_task = match (&referent, options.expand_on_create) {
+		let expand_task = match (&referent, options.auto_expand_and_collapse_processes) {
 			(Some(referent), true) => {
 				let handle = handle.clone();
 				let referent = referent.clone();
@@ -492,7 +492,7 @@ where
 				tg::process::Status::Started => Indicator::Started,
 				tg::process::Status::Finished => {
 					// Remove the child if necessary.
-					if options.condensed_processes {
+					if options.auto_expand_and_collapse_processes {
 						let update = move |node: Rc<RefCell<Node>>| {
 							// Get the parent if it exists.
 							let Some(parent) =
@@ -626,7 +626,7 @@ where
 			.send({
 				let handle = handle.clone();
 				Box::new(move |node| {
-					if !node.borrow().options.condensed_processes {
+					if !node.borrow().options.show_process_commands {
 						let child = Self::create_node(
 							&handle,
 							&node,
@@ -694,10 +694,10 @@ where
 			// Post the update.
 			let handle = handle.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
-				if node.borrow().options.condensed_processes && finished {
+				if node.borrow().options.auto_expand_and_collapse_processes && finished {
 					return;
 				}
-				if !node.borrow().options.condensed_processes
+				if !node.borrow().options.auto_expand_and_collapse_processes
 					&& node
 						.borrow()
 						.children
@@ -709,7 +709,7 @@ where
 					node.borrow_mut().children.insert(0, child);
 				}
 
-				let parent = if node.borrow().options.condensed_processes {
+				let parent = if node.borrow().options.auto_expand_and_collapse_processes {
 					node
 				} else {
 					node.borrow().children[0].clone()
@@ -1427,7 +1427,7 @@ where
 		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let title = Self::item_title(&referent.item);
-		let expand_task = if options.expand_on_create {
+		let expand_task = if options.auto_expand_and_collapse_processes {
 			let handle = handle.clone();
 			let referent = referent.clone();
 			let update_sender = update_sender.clone();

@@ -44,9 +44,9 @@ pub enum Item {
 
 #[derive(Clone, Debug)]
 pub struct Options {
-	pub condensed_processes: bool,
-	pub expand_on_create: bool,
+	pub auto_expand_and_collapse_processes: bool,
 	pub display_paths_relative_to_cwd: bool,
+	pub show_process_commands: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
