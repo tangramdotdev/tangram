@@ -416,7 +416,7 @@ impl Server {
 				.map(|child| {
 					self.export_inner_process(
 						Some(process),
-						child,
+						&child.item,
 						graph,
 						event_sender,
 						arg.clone(),
@@ -589,7 +589,12 @@ impl Server {
 			let outputs: Vec<_> = children
 				.iter()
 				.map(|child| {
-					self.export_sync_inner_process(state, arg, Some(&Either::Left(process)), child)
+					self.export_sync_inner_process(
+						state,
+						arg,
+						Some(&Either::Left(process)),
+						&child.item,
+					)
 				})
 				.try_collect()?;
 			outputs.into_iter().fold(

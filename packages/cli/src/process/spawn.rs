@@ -388,11 +388,13 @@ impl Cli {
 			mounts,
 			network,
 			parent: None,
+			path: None,
 			remote: remote.clone(),
 			retry,
 			stderr,
 			stdin,
 			stdout,
+			tag: None,
 		};
 		let process = tg::Process::spawn(&handle, arg).await?;
 

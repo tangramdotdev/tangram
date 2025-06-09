@@ -50,11 +50,13 @@ where
 		mounts: vec![],
 		network: arg.network,
 		parent: arg.parent,
+		path: None,
 		remote: arg.remote,
 		retry: arg.retry,
 		stderr: None,
 		stdin: None,
 		stdout: None,
+		tag: None,
 	};
 	let process = tg::Process::spawn(handle, arg).await?;
 	let output = process.output(handle).await?;

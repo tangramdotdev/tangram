@@ -189,8 +189,8 @@ impl Server {
 		if let Some(children) = &arg.data.children {
 			let statement = indoc!(
 				"
-					insert into process_children (process, position, child)
-					values (?1, ?2, ?3)
+					insert into process_children (process, position, child, tag, path)
+					values (?1, ?2, ?3, ?4, ?5)
 					on conflict (process, child) do nothing;
 				"
 			);
@@ -200,7 +200,13 @@ impl Server {
 				.map(|(position, child)| {
 					let transaction = transaction.clone();
 					async move {
-						let params = db::params![id, position, child];
+						let params = db::params![
+							id,
+							position,
+							child.item,
+							child.path.as_ref(),
+							child.tag.as_ref()
+						];
 						transaction
 							.execute(statement.into(), params)
 							.await
@@ -372,8 +378,8 @@ impl Server {
 				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
 				let statement = indoc!(
 					"
-						insert into process_children (process, position, child)
-						select $1, unnest($2::int8[]), unnest($3::text[])
+						insert into process_children (process, position, child, path, tag)
+						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
 						on conflict (process, child) do nothing;
 					"
 				);
@@ -383,7 +389,23 @@ impl Server {
 						&[
 							&id.to_string(),
 							&positions.as_slice(),
-							&children.iter().map(ToString::to_string).collect::<Vec<_>>(),
+							&children
+								.iter()
+								.map(|referent| referent.item.to_string())
+								.collect::<Vec<_>>(),
+							&children
+								.iter()
+								.map(|referent| {
+									referent
+										.path
+										.as_ref()
+										.map(|path| path.display().to_string())
+								})
+								.collect::<Vec<_>>(),
+							&children
+								.iter()
+								.map(|referent| referent.tag.as_ref().map(ToString::to_string))
+								.collect::<Vec<_>>(),
 						],
 					)
 					.await

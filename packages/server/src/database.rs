@@ -156,7 +156,9 @@ async fn migration_0000(database: &Database) -> tg::Result<()> {
 			create table process_children (
 				process text not null,
 				child text not null,
-				position integer not null
+				position integer not null,
+				path text,
+				tag text
 			);
 
 			create trigger process_children_insert_depth_trigger

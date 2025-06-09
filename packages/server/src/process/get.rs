@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::Server;
 use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::{formatdoc, indoc};
@@ -265,7 +267,7 @@ impl Server {
 		// Get the children.
 		let statement = indoc!(
 			"
-				select child
+				select child, path, tag
 				from process_children
 				where process = ?1;
 			"
@@ -280,11 +282,21 @@ impl Server {
 		rows.advance()
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
 		while let Some(row) = rows.get() {
-			let id = row
+			let item = row
 				.get::<_, String>(0)
 				.map_err(|source| tg::error!(!source, "expected a string"))?
 				.parse()?;
-			children.push(id);
+			let path = row
+				.get::<_, Option<String>>(0)
+				.map_err(|source| tg::error!(!source, "expected a string"))?
+				.map(PathBuf::from);
+			let tag = row
+				.get::<_, Option<String>>(0)
+				.map_err(|source| tg::error!(!source, "expected a string"))?
+				.map(|tag| tag.parse())
+				.transpose()
+				.map_err(|source| tg::error!(!source, "expected a valid tag"))?;
+			children.push(tg::Referent { item, path, tag });
 			rows.advance()
 				.map_err(|source| tg::error!(!source, "query failed"))?;
 		}

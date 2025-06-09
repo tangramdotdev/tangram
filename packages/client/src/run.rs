@@ -127,11 +127,13 @@ where
 		mounts: process_mounts,
 		network,
 		parent: arg.parent,
+		path: None,
 		remote: arg.remote,
 		retry: arg.retry,
 		stderr,
 		stdin,
 		stdout,
+		tag: None,
 	};
 	let process = tg::Process::spawn(handle, arg).await?;
 	let output = process.output(handle).await?;

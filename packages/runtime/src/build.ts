@@ -86,11 +86,13 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		mounts: [],
 		network,
 		parent: undefined,
+		path,
 		remote: undefined,
 		retry: false,
 		stderr: undefined,
 		stdin: undefined,
 		stdout: undefined,
+		tag,
 	});
 	let process = new tg.Process({
 		id: spawnOutput.process,
