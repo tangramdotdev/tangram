@@ -249,6 +249,9 @@ impl File {
 		file.write_all(self.contents.as_bytes())
 			.await
 			.map_err(|error| tg::error!(source = error, "failed to write the file contents"))?;
+		file.sync_all()
+			.await
+			.map_err(|error| tg::error!(source = error, "failed to sync the file"))?;
 		if self.executable {
 			file.set_permissions(std::fs::Permissions::from_mode(0o755))
 				.await
