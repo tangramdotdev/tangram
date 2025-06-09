@@ -1029,6 +1029,11 @@ fn get_paths(root_path: &Path, lockfile: &tg::Lockfile) -> tg::Result<Vec<Option
 		node: usize,
 		visited: &mut Vec<Option<PathBuf>>,
 	) -> tg::Result<()> {
+		// Avoid cycles.
+		if visited[node].is_some() {
+			return Ok(());
+		}
+
 		// Check if the file system object exists. If it doesn't, leave the node empty.
 		if !matches!(node_path.try_exists(), Ok(true)) {
 			return Ok(());
@@ -1207,5 +1212,57 @@ mod tests {
 			"#);
 		})
 		.await;
+	}
+
+	#[tokio::test]
+	async fn parse_with_cycles() {
+		test(async move |context| {
+			let server = context.start_server().await;
+			let artifact: temp::Artifact = temp::directory! {
+				"left" => temp::file!(""),
+				"right" => temp::file!(""),
+				"tangram.lock" => temp::file!(indoc!(r#"
+					{
+						"nodes": [
+							{
+								"kind": "directory",
+								"entries": {
+									"left": 1,
+									"right": 2
+								}
+							},
+							{
+								"kind": "file",
+								"dependencies": {
+									"./left": {
+										"item": 2,
+										"path": "right"
+									}
+								}
+							},
+							{
+								"kind": "file",
+								"dependencies": {
+									"./right": {
+										"item": 1,
+										"path": "left"
+									}
+								}
+							}
+						]
+					}
+				"#))
+			}
+			.into();
+			let temp = temp::Temp::new();
+			artifact.to_path(temp.path()).await.unwrap();
+			let lockfile = server
+				.try_parse_lockfile(temp.path())
+				.expect("failed to parse lockfile")
+				.expect("failed to parse lockfile");
+			assert_eq!(lockfile.paths[1], Some(temp.path().join("left")));
+			assert_eq!(lockfile.paths[2], Some(temp.path().join("right")));
+		})
+		.await
 	}
 }
