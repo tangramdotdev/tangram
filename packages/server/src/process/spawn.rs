@@ -538,7 +538,6 @@ impl Server {
 
 		// Drop the connection.
 		drop(connection);
-		tracing::trace!("spawned {id}");
 
 		// Publish the message.
 		tokio::spawn({
