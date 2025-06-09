@@ -13,9 +13,11 @@ pub struct Arg {
 	pub mounts: Vec<tg::command::Mount>,
 	pub network: bool,
 	pub parent: Option<tg::process::Id>,
+	pub path: Option<tg::PathBuf>,
 	pub remote: Option<String>,
 	pub retry: bool,
 	pub stdin: Option<tg::Blob>,
+	pub tag: Option<tg::Tag>,
 	pub user: Option<String>,
 }
 
@@ -50,13 +52,13 @@ where
 		mounts: vec![],
 		network: arg.network,
 		parent: arg.parent,
-		path: None,
+		path: arg.path,
 		remote: arg.remote,
 		retry: arg.retry,
 		stderr: None,
 		stdin: None,
 		stdout: None,
-		tag: None,
+		tag: arg.tag,
 	};
 	let process = tg::Process::spawn(handle, arg).await?;
 	let output = process.output(handle).await?;
