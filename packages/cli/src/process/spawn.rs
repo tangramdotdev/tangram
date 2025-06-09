@@ -22,9 +22,13 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Options {
-	/// Set arguments.
-	#[arg(short, long, num_args = 1, action = clap::ArgAction::Append)]
-	pub arg: Vec<String>,
+	/// Set arguments as strings.
+	#[arg(short = 'a', long = "arg-string", num_args = 1, action = clap::ArgAction::Append)]
+	pub arg_strings: Vec<String>,
+
+	/// Set arguments as values.
+	#[arg(short = 'A', long = "arg-value", num_args = 1, action = clap::ArgAction::Append)]
+	pub arg_values: Vec<String>,
 
 	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created. Omit this flag to use a cached process if possible, and create a new process if not.
 	#[arg(long, action = clap::ArgAction::Set)]
@@ -38,9 +42,13 @@ pub struct Options {
 	#[arg(short = 'C', long)]
 	pub cwd: Option<PathBuf>,
 
-	/// Set environment variables.
-	#[arg(short, long, num_args = 1, action = clap::ArgAction::Append)]
-	pub env: Vec<String>,
+	/// Set environment variables as strings.
+	#[arg(short = 'e', long = "env-string", num_args = 1, action = clap::ArgAction::Append)]
+	pub env_strings: Vec<String>,
+
+	/// Set environment variables as values.
+	#[arg(short = 'E', long = "env-value", num_args = 1, action = clap::ArgAction::Append)]
+	pub env_values: Vec<String>,
 
 	/// Set the host.
 	#[arg(long)]
@@ -51,8 +59,8 @@ pub struct Options {
 	pub locked: bool,
 
 	/// Configure mounts.
-	#[arg(long)]
-	pub mount: Vec<Either<tg::process::Mount, tg::command::Mount>>,
+	#[arg(short, long = "mount", num_args = 1, action = clap::ArgAction::Append)]
+	pub mounts: Vec<Either<tg::process::Mount, tg::command::Mount>>,
 
 	/// Enable network access.
 	#[arg(long)]
@@ -277,12 +285,29 @@ impl Cli {
 		};
 
 		// Set the args.
-		let args_: Vec<tg::Value> = options
-			.arg
-			.into_iter()
-			.map(tg::Value::String)
-			.chain(trailing.into_iter().map(tg::Value::String))
-			.collect();
+		let mut args_: Vec<tg::Value> = Vec::new();
+		let mut matches = &self.matches;
+		while let Some((_, matches_)) = matches.subcommand() {
+			matches = matches_;
+		}
+		let arg_string_indices = matches.indices_of("arg_strings").unwrap_or_default();
+		let arg_value_indices = matches.indices_of("arg_values").unwrap_or_default();
+		let mut indexed: Vec<(usize, tg::Value)> = Vec::new();
+		for (index, value) in arg_string_indices.zip(options.arg_strings) {
+			let value = tg::Value::String(value);
+			indexed.push((index, value));
+		}
+		for (index, value) in arg_value_indices.zip(options.arg_values) {
+			let value = value
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+			indexed.push((index, value));
+		}
+		indexed.sort_by_key(|&(index, _)| index);
+		args_.extend(indexed.into_iter().map(|(_, value)| value));
+		for arg in trailing {
+			args_.push(tg::Value::String(arg));
+		}
 		command = command.args(args_);
 
 		// Set the cwd.
@@ -307,12 +332,26 @@ impl Cli {
 				env.insert(key, value);
 			}
 		}
-		for string in options.env {
+		for string in options.env_strings {
 			let (key, value) = string
 				.split_once('=')
 				.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
 			let key = key.to_owned();
 			let value = tg::Value::String(value.to_owned());
+			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+				mutation.apply(&mut env, &key)?;
+			} else {
+				env.insert(key, value);
+			}
+		}
+		for string in options.env_values {
+			let (key, value) = string
+				.split_once('=')
+				.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
+			let key = key.to_owned();
+			let value = value
+				.parse::<tg::Value>()
+				.map_err(|error| tg::error!(!error, "failed to parse the value"))?;
 			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
 				mutation.apply(&mut env, &key)?;
 			} else {
@@ -330,7 +369,7 @@ impl Cli {
 		command = command.env(env);
 
 		// Set the mounts.
-		for mount in &options.mount {
+		for mount in &options.mounts {
 			if let Either::Right(mount) = mount {
 				command = command.mount(mount.clone());
 			}
@@ -367,7 +406,7 @@ impl Cli {
 				readonly: false,
 			});
 		}
-		for mount in &options.mount {
+		for mount in &options.mounts {
 			if let Either::Left(mount) = mount {
 				let source = tokio::fs::canonicalize(&mount.source)
 					.await
@@ -421,14 +460,16 @@ impl Cli {
 impl Default for Options {
 	fn default() -> Self {
 		Self {
-			arg: vec![],
+			arg_strings: vec![],
+			arg_values: vec![],
 			cached: None,
 			checksum: None,
 			cwd: None,
-			env: vec![],
+			env_strings: vec![],
+			env_values: vec![],
 			host: None,
 			locked: false,
-			mount: vec![],
+			mounts: vec![],
 			network: false,
 			remote: None,
 			retry: false,

@@ -1263,6 +1263,6 @@ mod tests {
 			assert_eq!(lockfile.paths[1], Some(temp.path().join("left")));
 			assert_eq!(lockfile.paths[2], Some(temp.path().join("right")));
 		})
-		.await
+		.await;
 	}
 }

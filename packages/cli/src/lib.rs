@@ -1,5 +1,5 @@
 use anstream::{eprint, eprintln};
-use clap::Parser as _;
+use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
@@ -70,6 +70,7 @@ pub struct Cli {
 	config: Option<Config>,
 	exit: Option<u8>,
 	handle: Option<Either<Client, Server>>,
+	matches: clap::ArgMatches,
 	mode: Mode,
 }
 
@@ -245,6 +246,7 @@ impl Cli {
 	pub fn main() -> std::process::ExitCode {
 		// Parse the args.
 		let args = Args::parse();
+		let matches = Args::command().get_matches();
 
 		// Read the config.
 		let config = match Cli::read_config(args.config.clone()) {
@@ -314,6 +316,7 @@ impl Cli {
 			config,
 			exit: None,
 			handle: None,
+			matches,
 			mode,
 		};
 
