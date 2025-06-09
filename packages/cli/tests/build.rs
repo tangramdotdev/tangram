@@ -1070,7 +1070,7 @@ async fn test_build<F, Fut>(
 		let mut command = server.tg();
 		command.arg("build").arg(reference);
 		for arg in args {
-			command.arg("--arg");
+			command.arg("-a");
 			command.arg(arg);
 		}
 		let output = command.output().await.unwrap();
