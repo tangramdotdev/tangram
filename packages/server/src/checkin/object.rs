@@ -210,7 +210,7 @@ impl Server {
 					},
 					Some(Either::Right(index)) => {
 						let artifact = graph_indices
-							.get(&index)
+							.get(index)
 							.copied()
 							.map(Either::Left)
 							.or_else(|| {

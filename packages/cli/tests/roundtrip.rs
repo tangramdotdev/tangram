@@ -112,7 +112,7 @@ async fn object_dependency() {
 			executable: false,
 			xattrs: [
 				("user.tangram.dependencies".into(), r#"["dir_01s3sv3tm5ntjq5fdst2zc28zy23wq0t20m2hyhnkaqvtdkhwqa2tg"]"#.into())
-			].into_iter().collect(),
+			].into(),
 		}
 	};
 	let assertions = async move |_server, a: tg::Artifact, b: tg::Artifact| {
