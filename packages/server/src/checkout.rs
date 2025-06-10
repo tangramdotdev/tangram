@@ -762,8 +762,8 @@ impl Server {
 				self.checkout_inner(state, path, id, artifact)?;
 			},
 			tg::symlink::Data::Target { target } => {
-				std::os::unix::fs::symlink(target, path)
-					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+				std::os::unix::fs::symlink(&target, &path)
+					.map_err(|source| tg::error!(!source, %target = target.display(), %path = path.display(), "failed to create the symlink"))?;
 			},
 			tg::symlink::Data::Artifact { artifact, subpath } => {
 				// Check out the artifact.
