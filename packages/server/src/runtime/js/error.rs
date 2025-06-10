@@ -2,13 +2,29 @@ use super::State;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, rc::Rc};
 use tangram_client as tg;
-use tangram_v8::{FromV8 as _, ToV8 as _};
+use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	error: &tg::Error,
 ) -> v8::Local<'s, v8::Value> {
-	error.to_v8(scope).unwrap()
+	let context = scope.get_current_context();
+	let global = context.global(scope);
+	let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
+	let tangram = global.get(scope, tangram.into()).unwrap();
+	let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
+
+	let error_constructor = v8::String::new_external_onebyte_static(scope, b"Error").unwrap();
+	let error_constructor = tangram.get(scope, error_constructor.into()).unwrap();
+	let error_constructor = v8::Local::<v8::Object>::try_from(error_constructor).unwrap();
+
+	let from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
+	let from_data = error_constructor.get(scope, from_data.into()).unwrap();
+	let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
+
+	let data = Serde(error.to_data()).to_v8(scope).unwrap();
+	let undefined = v8::undefined(scope);
+	from_data.call(scope, undefined.into(), &[data]).unwrap()
 }
 
 pub(super) fn from_exception<'s>(
@@ -22,15 +38,23 @@ pub(super) fn from_exception<'s>(
 	let tangram = global.get(scope, tangram.into()).unwrap();
 	let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
-	let error = v8::String::new_external_onebyte_static(scope, b"Error").unwrap();
-	let error = tangram.get(scope, error.into()).unwrap();
-	let error = v8::Local::<v8::Function>::try_from(error).unwrap();
+	let error_constructor = v8::String::new_external_onebyte_static(scope, b"Error").unwrap();
+	let error_constructor = tangram.get(scope, error_constructor.into()).unwrap();
+	let error_constructor = v8::Local::<v8::Function>::try_from(error_constructor).unwrap();
 
 	if exception
-		.instance_of(scope, error.into())
+		.instance_of(scope, error_constructor.into())
 		.unwrap_or_default()
 	{
-		return tg::Error::from_v8(scope, exception)
+		let to_data = v8::String::new_external_onebyte_static(scope, b"toData").unwrap();
+		let to_data = error_constructor.get(scope, to_data.into()).unwrap();
+		let to_data = v8::Local::<v8::Function>::try_from(to_data).unwrap();
+
+		let undefined = v8::undefined(scope);
+		let data = to_data.call(scope, undefined.into(), &[exception]).unwrap();
+
+		return Serde::<tg::error::Data>::from_v8(scope, data)
+			.and_then(|data| data.0.try_into())
 			.inspect_err(|error| {
 				let options = tg::error::TraceOptions::internal();
 				let trace = error.trace(&options);
@@ -39,27 +63,28 @@ pub(super) fn from_exception<'s>(
 			.unwrap();
 	}
 
-	let message = v8::Exception::create_message(scope, exception);
+	let v8_message = v8::Exception::create_message(scope, exception);
 
 	// Get the location.
-	let id = message
+	let id = v8_message
 		.get_script_resource_name(scope)
 		.and_then(|resource_name| <v8::Local<v8::Integer>>::try_from(resource_name).ok())
 		.map(|resource_name| resource_name.value().to_usize().unwrap());
 	let line = if id.is_some() {
-		Some(message.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
+		Some(v8_message.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
 	} else {
 		None
 	};
 	let column = if id.is_some() {
-		Some(message.get_start_column().to_u32().unwrap())
+		Some(v8_message.get_start_column().to_u32().unwrap())
 	} else {
 		None
 	};
-	let location = get_location(state, None, id, line, column);
+	let location =
+		get_location(state, None, id, line, column).and_then(|location| location.try_into().ok());
 
 	// Get the message.
-	let message = Some(message.get(scope).to_rust_string_lossy(scope));
+	let message = Some(v8_message.get(scope).to_rust_string_lossy(scope));
 
 	// Get the source.
 	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
@@ -81,7 +106,29 @@ pub(super) fn from_exception<'s>(
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, stack.into()))
-		.and_then(|value| Vec::<tg::error::Location>::from_v8(scope, value).ok());
+		.map(|value| {
+			let location_namespace =
+				v8::String::new_external_onebyte_static(scope, b"Location").unwrap();
+			let location_namespace = error_constructor
+				.get(scope, location_namespace.into())
+				.unwrap();
+			let location_namespace = v8::Local::<v8::Object>::try_from(location_namespace).unwrap();
+			let to_data = v8::String::new_external_onebyte_static(scope, b"toData").unwrap();
+			let to_data = location_namespace.get(scope, to_data.into()).unwrap();
+			let to_data = v8::Local::<v8::Function>::try_from(to_data).unwrap();
+			let value = v8::Local::<v8::Array>::try_from(value).unwrap();
+			let len = value.length().to_usize().unwrap();
+			let mut output = Vec::with_capacity(len);
+			for i in 0..len {
+				let value = value.get_index(scope, i.to_u32().unwrap()).unwrap();
+				let undefined = v8::undefined(scope);
+				let data = to_data.call(scope, undefined.into(), &[value]).unwrap();
+				let data = Serde::<tg::error::data::Location>::from_v8(scope, data).unwrap();
+				let data = data.0.try_into().unwrap();
+				output.push(data);
+			}
+			output
+		});
 
 	tg::Error {
 		code: None,
@@ -100,9 +147,33 @@ pub fn prepare_stack_trace_callback<'s>(
 ) -> v8::Local<'s, v8::Value> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let global = context.global(scope);
+
+	// Get Tangram.Error.Location.fromData
+	let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
+	let tangram = global.get(scope, tangram.into()).unwrap();
+	let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
+
+	let error_constructor = v8::String::new_external_onebyte_static(scope, b"Error").unwrap();
+	let error_constructor = tangram.get(scope, error_constructor.into()).unwrap();
+	let error_constructor = v8::Local::<v8::Object>::try_from(error_constructor).unwrap();
+
+	let location_namespace = v8::String::new_external_onebyte_static(scope, b"Location").unwrap();
+	let location_namespace = error_constructor
+		.get(scope, location_namespace.into())
+		.unwrap();
+	let location_namespace = v8::Local::<v8::Object>::try_from(location_namespace).unwrap();
+
+	let location_from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
+	let location_from_data = location_namespace
+		.get(scope, location_from_data.into())
+		.unwrap();
+	let location_from_data = v8::Local::<v8::Function>::try_from(location_from_data).unwrap();
 
 	let length = call_sites.length();
-	let mut stack = Vec::with_capacity(length.to_usize().unwrap());
+	let stack = v8::Array::new(scope, 0);
+	let mut stack_index = 0;
+
 	for index in (0..length).rev() {
 		let call_site = call_sites.get_index(scope, index).unwrap();
 		let call_site = v8::Local::<v8::Object>::try_from(call_site).unwrap();
@@ -178,11 +249,17 @@ pub fn prepare_stack_trace_callback<'s>(
 			line_number,
 			column_number,
 		) {
-			stack.push(location);
+			let data = Serde(location).to_v8(scope).unwrap();
+			let undefined = v8::undefined(scope);
+			let location = location_from_data
+				.call(scope, undefined.into(), &[data])
+				.unwrap();
+			stack.set_index(scope, stack_index, location);
+			stack_index += 1;
 		}
 	}
 
-	stack.to_v8(scope).unwrap()
+	stack.into()
 }
 
 fn get_location(
@@ -191,7 +268,7 @@ fn get_location(
 	id: Option<usize>,
 	line: Option<u32>,
 	column: Option<u32>,
-) -> Option<tg::error::Location> {
+) -> Option<tg::error::data::Location> {
 	match id {
 		Some(0) => {
 			let line = line?;
@@ -201,8 +278,9 @@ fn get_location(
 			let line = token.get_src_line();
 			let column = token.get_src_col();
 			let symbol = token.get_name().map(String::from);
-			let source = tg::error::File::Internal(token.get_source().unwrap().parse().unwrap());
-			let location = tg::error::Location {
+			let source =
+				tg::error::data::File::Internal(token.get_source().unwrap().parse().unwrap());
+			let location = tg::error::data::Location {
 				symbol,
 				file: source,
 				line,
@@ -217,7 +295,7 @@ fn get_location(
 			let module = modules.get(id - 1)?;
 
 			// Get the source.
-			let source = tg::error::File::Module(module.module.clone().into());
+			let source = tg::error::data::File::Module(module.module.clone());
 
 			// Get the line and column and apply a source map if one is available.
 			let mut line = line?;
@@ -230,7 +308,7 @@ fn get_location(
 			}
 
 			// Create the location.
-			let location = tg::error::Location {
+			let location = tg::error::data::Location {
 				symbol,
 				file: source,
 				line,

@@ -1,36 +1,24 @@
 use super::SOURCE_MAP;
+use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use sourcemap::SourceMap;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_v8::{FromV8 as _, ToV8 as _};
+use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	error: &tg::Error,
 ) -> v8::Local<'s, v8::Value> {
-	error.to_v8(scope).unwrap()
+	Serde(error.to_data()).to_v8(scope).unwrap()
 }
 
 pub(super) fn from_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	exception: v8::Local<'s, v8::Value>,
 ) -> tg::Error {
-	let context = scope.get_current_context();
-	let global = context.global(scope);
-	let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
-	let tangram = global.get(scope, tangram.into()).unwrap();
-	let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
-
-	let error = v8::String::new_external_onebyte_static(scope, b"Error").unwrap();
-	let error = tangram.get(scope, error.into()).unwrap();
-	let error = v8::Local::<v8::Function>::try_from(error).unwrap();
-
-	if exception
-		.instance_of(scope, error.into())
-		.unwrap_or_default()
-	{
-		return tg::Error::from_v8(scope, exception).unwrap();
+	if exception.is_object() && !exception.is_native_error() {
+		return Serde::from_v8(scope, exception).unwrap().0;
 	}
 
 	// Get the message.
@@ -40,15 +28,7 @@ pub(super) fn from_exception<'s>(
 	// Get the location.
 	let line = message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1;
 	let column = message_.get_start_column().to_u32().unwrap();
-	let location = get_location(line, column);
-
-	// Get the stack trace.
-	let stack = v8::String::new_external_onebyte_static(scope, b"stack").unwrap();
-	let stack = exception
-		.is_native_error()
-		.then(|| exception.to_object(scope).unwrap())
-		.and_then(|exception| exception.get(scope, stack.into()))
-		.and_then(|value| Vec::<tg::error::Location>::from_v8(scope, value).ok());
+	let location = get_location(line, column).and_then(|location| location.try_into().ok());
 
 	// Get the source.
 	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
@@ -62,6 +42,22 @@ pub(super) fn from_exception<'s>(
 			item: Box::new(error),
 			path: None,
 			tag: None,
+		});
+
+	// Get the stack trace.
+	let stack = v8::String::new_external_onebyte_static(scope, b"stack").unwrap();
+	let stack = exception
+		.is_native_error()
+		.then(|| exception.to_object(scope).unwrap())
+		.and_then(|exception| exception.get(scope, stack.into()))
+		.and_then(|value| Serde::<Vec<tg::error::data::Location>>::from_v8(scope, value).ok())
+		.and_then(|stack| {
+			stack
+				.0
+				.into_iter()
+				.map(TryInto::try_into)
+				.try_collect()
+				.ok()
 		});
 
 	let values = BTreeMap::new();
@@ -124,18 +120,18 @@ pub fn prepare_stack_trace_callback<'s>(
 	}
 
 	// Return the stack as a serialized value.
-	stack.to_v8(scope).unwrap()
+	Serde(stack).to_v8(scope).unwrap()
 }
 
-fn get_location(line: u32, column: u32) -> Option<tg::error::Location> {
+fn get_location(line: u32, column: u32) -> Option<tg::error::data::Location> {
 	let source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
 	let token = source_map.lookup_token(line, column)?;
 	let symbol = token.get_name().map(String::from);
 	let path = token.get_source().unwrap().parse().unwrap();
-	let file = tg::error::File::Internal(path);
+	let file = tg::error::data::File::Internal(path);
 	let line = token.get_src_line();
 	let column = token.get_src_col();
-	let location = tg::error::Location {
+	let location = tg::error::data::Location {
 		symbol,
 		file,
 		line,

@@ -110,6 +110,9 @@ impl Runtime {
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<super::Output> {
+		// Get the data.
+		let data = self.server.try_get_process(process.id()).await?;
+
 		// Get the root module.
 		let command = process.command(&self.server).await?;
 		let executable = command
@@ -258,10 +261,12 @@ impl Runtime {
 			// Create the arg.
 			let arg = v8::Object::new(scope);
 
+			// Set the id.
 			let key = v8::String::new_external_onebyte_static(scope, b"id").unwrap();
 			let value = Serde(process.id()).to_v8(scope)?;
 			arg.set(scope, key.into(), value);
 
+			// Set the remote.
 			if let Some(remote) = process.remote() {
 				let key = v8::String::new_external_onebyte_static(scope, b"remote").unwrap();
 				let value = remote.to_v8(scope)?;
@@ -273,6 +278,51 @@ impl Runtime {
 			let tangram = context.global(scope).get(scope, tangram.into()).unwrap();
 			let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
 
+			// Get the Process constructor.
+			let process_constructor =
+				v8::String::new_external_onebyte_static(scope, b"Process").unwrap();
+			let process_constructor = tangram.get(scope, process_constructor.into()).unwrap();
+			let process_constructor =
+				v8::Local::<v8::Object>::try_from(process_constructor).unwrap();
+
+			// Get the State namespace.
+			let state_namespace = v8::String::new_external_onebyte_static(scope, b"State").unwrap();
+			let state_namespace = process_constructor
+				.get(scope, state_namespace.into())
+				.unwrap();
+			let state_namespace = v8::Local::<v8::Object>::try_from(state_namespace).unwrap();
+
+			// Get fromData.
+			let from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
+			let from_data = state_namespace.get(scope, from_data.into()).unwrap();
+			let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
+
+			// Call fromData.
+			let data = Serde(data).to_v8(scope)?;
+			let undefined = v8::undefined(scope);
+			let value = from_data.call(scope, undefined.into(), &[data]).unwrap();
+
+			// Set the state.
+			let key = v8::String::new_external_onebyte_static(scope, b"state").unwrap();
+			arg.set(scope, key.into(), value);
+
+			// Get the Tangram global.
+			let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
+			let tangram = context.global(scope).get(scope, tangram.into()).unwrap();
+			let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
+
+			// Get the Process constructor.
+			let process_constructor =
+				v8::String::new_external_onebyte_static(scope, b"Process").unwrap();
+			let process_constructor = tangram.get(scope, process_constructor.into()).unwrap();
+			let process_constructor =
+				v8::Local::<v8::Function>::try_from(process_constructor).unwrap();
+
+			// Create the Tangram.Process.
+			let process = process_constructor
+				.new_instance(scope, &[arg.into()])
+				.unwrap();
+
 			// Get the start function.
 			let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
 			let start = tangram.get(scope, start.into()).unwrap();
@@ -280,7 +330,9 @@ impl Runtime {
 
 			// Call the start function.
 			let undefined = v8::undefined(scope);
-			let value = start.call(scope, undefined.into(), &[arg.into()]).unwrap();
+			let value = start
+				.call(scope, undefined.into(), &[process.into()])
+				.unwrap();
 
 			// Make the value global.
 			v8::Global::new(scope, value)
@@ -734,9 +786,30 @@ extern "C" fn host_initialize_import_meta_object_callback(
 		.module
 		.clone();
 
+	// Get the Tangram global.
+	let context = scope.get_current_context();
+	let global = context.global(scope);
+	let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
+	let tangram = global.get(scope, tangram.into()).unwrap();
+	let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
+
+	// Get the Module constructor.
+	let module_constructor = v8::String::new_external_onebyte_static(scope, b"Module").unwrap();
+	let module_constructor = tangram.get(scope, module_constructor.into()).unwrap();
+	let module_constructor = v8::Local::<v8::Object>::try_from(module_constructor).unwrap();
+
+	// Get the fromData method.
+	let from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
+	let from_data = module_constructor.get(scope, from_data.into()).unwrap();
+	let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
+
+	// Call fromData with the module data.
+	let data = Serde(module).to_v8(scope).unwrap();
+	let undefined = v8::undefined(scope);
+	let value = from_data.call(scope, undefined.into(), &[data]).unwrap();
+
 	// Set import.meta.module.
 	let key = v8::String::new_external_onebyte_static(scope, b"module").unwrap();
-	let value = tg::Module::from(module).to_v8(scope).unwrap();
 	meta.set(scope, key.into(), value).unwrap();
 }
 

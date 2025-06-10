@@ -8,25 +8,6 @@ mod de;
 mod ser;
 mod serde;
 
-mod artifact;
-mod blob;
-mod builtin;
-mod checksum;
-mod command;
-mod directory;
-mod error;
-mod file;
-mod graph;
-mod module;
-mod mutation;
-mod object;
-mod process;
-mod reference;
-mod referent;
-mod symlink;
-mod template;
-mod value;
-
 pub use self::serde::Serde;
 
 pub trait ToV8 {

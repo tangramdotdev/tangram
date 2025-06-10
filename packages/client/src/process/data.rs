@@ -97,14 +97,6 @@ impl Data {
 	}
 }
 
-fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>
-where
-	D: serde::Deserializer<'de>,
-{
-	use serde::Deserialize as _;
-	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Mount {
 	pub source: PathBuf,
@@ -119,4 +111,12 @@ impl Mount {
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		std::iter::empty()
 	}
+}
+
+fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	use serde::Deserialize as _;
+	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
 }

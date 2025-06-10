@@ -122,9 +122,14 @@ export namespace Error {
 		}
 		if (value.source !== undefined) {
 			data.source = {
-				...value.source,
 				item: Error.toData(value.source.item),
 			};
+			if (value.source.path !== undefined) {
+				data.source.path = value.source.path;
+			}
+			if (value.source.tag !== undefined) {
+				data.source.tag = value.source.tag;
+			}
 		}
 		if (value.stack !== undefined) {
 			data.stack = value.stack.map(Location.toData);

@@ -3,7 +3,6 @@ import * as completion from "./completion.ts";
 import * as definition from "./definition.ts";
 import * as diagnostics from "./diagnostics.ts";
 import * as document from "./document.ts";
-import { Error_ } from "./error.ts";
 import * as hover from "./hover.ts";
 import * as references from "./references.ts";
 import * as rename from "./rename.ts";
@@ -78,12 +77,6 @@ let handle = ({ kind, request }: Request): Response => {
 	}
 };
 
-let Tangram = {
-	Error: Error_,
-	handle,
-};
-
 Object.defineProperties(globalThis, {
-	Tangram: { value: Tangram },
-	tg: { value: Tangram },
+	handle: { value: handle },
 });

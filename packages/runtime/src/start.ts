@@ -1,18 +1,6 @@
 import * as tg from "./index.ts";
 
-export type Arg = {
-	id: tg.Process.Id;
-	remote?: string | undefined;
-};
-
-export let start = async (arg: Arg): Promise<tg.Value.Data> => {
-	// Create and load the process.
-	let process = new tg.Process({
-		id: arg.id,
-		remote: arg.remote,
-	});
-	await process.load();
-
+export let start = async (process: tg.Process): Promise<tg.Value.Data> => {
 	// Set the current process.
 	tg.Process.current = process;
 
