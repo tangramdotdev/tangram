@@ -64,6 +64,7 @@ async fn symlink() {
 
 #[tokio::test]
 async fn artifact_symlink() {
+	let tags = [("empty".to_owned(), temp::directory!().into())];
 	let directory = temp::directory! {
 		".tangram" => temp::directory! {
 			"artifacts" => temp::directory! {
@@ -75,12 +76,14 @@ async fn artifact_symlink() {
 	let assertions = async move |server: Arc<test::Server>, a: tg::Artifact, b: tg::Artifact| {
 		assert_eq!(a.id(), b.id());
 		assert_snapshot!(display(server.as_ref(), a).await, @r#"
-		tg.symlink({
-		  "artifact": "dir_01s3sv3tm5ntjq5fdst2zc28zy23wq0t20m2hyhnkaqvtdkhwqa2tg",
+		tg.directory({
+		  "link": tg.symlink({
+		    "artifact": tg.directory({}),
+		  }),
 		})
 		"#);
 	};
-	test_roundtrip(directory, "", false, [], assertions).await;
+	test_roundtrip(directory, "", false, tags, assertions).await;
 }
 
 async fn display(server: &test::Server, object: impl Into<tg::Object>) -> String {
@@ -196,19 +199,6 @@ async fn test_roundtrip<'a, F, Fut>(
 			.await
 			.unwrap();
 		assert_success!(output);
-
-		// Clean.
-		for (tag, _) in &tags {
-			server
-				.tg()
-				.arg("tag")
-				.arg("delete")
-				.arg(tag)
-				.output()
-				.await
-				.unwrap();
-		}
-		server.tg().arg("clean").output().await.unwrap();
 
 		// Check back in.
 		let mut command = server.tg();

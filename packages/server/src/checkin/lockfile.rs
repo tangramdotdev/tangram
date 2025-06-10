@@ -183,7 +183,19 @@ impl Server {
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
-		let (artifact, subpath) = match data {
+		// Get the artifact, if it exists.
+		let variant = &state.graph.nodes[node].variant.unwrap_symlink_ref();
+		let artifact = variant
+			.artifact
+			.as_ref()
+			.map(|artifact| match artifact {
+				Either::Left(id) => Ok(Either::Right(id.clone().into())),
+				Either::Right(index) => Self::create_lockfile_node(state, *index, nodes, visited),
+			})
+			.transpose()?;
+
+		// Get the subpath, if it exists.
+		let subpath = match data {
 			tg::symlink::Data::Graph {
 				graph: graph_id,
 				node,
@@ -197,7 +209,7 @@ impl Server {
 				let symlink = graph.nodes[*node].clone().try_unwrap_symlink().unwrap();
 				match symlink {
 					tg::graph::data::Symlink::Artifact {
-						artifact: artifact,
+						artifact: _,
 						subpath,
 					} => subpath,
 					tg::graph::data::Symlink::Target { target } => Some(target),
@@ -205,13 +217,10 @@ impl Server {
 			},
 			tg::symlink::Data::Target { target } => Some(PathBuf::from(target)),
 			tg::symlink::Data::Artifact {
-				artifact: ,
+				artifact: _,
 				subpath,
 			} => subpath.clone(),
 		};
-
-		// The artifact is either another point in the graph, or referred to explicitly by data.
-		let artifact = None;
 
 		// Create the lockfile node.
 		if let Some(artifact) = artifact {
