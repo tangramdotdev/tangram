@@ -337,6 +337,14 @@ impl Server {
 			.serialize()
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 		let id = tg::object::Id::new(kind, &bytes);
+
+		// Validate if this object came from the artifacts directory.
+		if let Some(expected) = &state.graph.nodes[index].id {
+			if expected != &id {
+				return Err(tg::error!(%expected, %found = id, "artifacts directory is corrupted"));
+			}
+		}
+
 		let object = Object { bytes, data, id };
 		state.graph.nodes[index].object = Some(object);
 		Ok(())

@@ -21,6 +21,23 @@ impl Server {
 			return Ok(Some(*index));
 		}
 
+		// Get the object ID if this is under the artifacts directory.
+		let id = path
+			.strip_prefix(&state.artifacts_path)
+			.ok()
+			.map(|path| {
+				if path.components().count() != 1 {
+					return Err(
+						tg::error!(%path = path.display(), "invalid path in artifacts directory"),
+					);
+				}
+				let name = path.to_str().ok_or_else(
+					|| tg::error!(%path = path.display(), "non utf8 path in artifacts directory"),
+				)?;
+				name.parse()
+			})
+			.transpose()?;
+
 		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(&path).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
@@ -76,6 +93,7 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
+			id,
 			lockfile_index: lockfile_node,
 			variant,
 			metadata: Some(metadata),
@@ -91,7 +109,7 @@ impl Server {
 		match &state.graph.nodes[index].variant {
 			Variant::Directory(_) => self.checkin_visit_directory_edges(state, index)?,
 			Variant::File(_) => self.checkin_visit_file_edges(state, index)?,
-			Variant::Symlink(_) => Self::checkin_visit_symlink_edges(state, index)?,
+			Variant::Symlink(_) => self.checkin_visit_symlink_edges(state, index)?,
 			Variant::Object => return Err(tg::error!("unreachable")),
 		}
 
@@ -111,6 +129,9 @@ impl Server {
 				.to_str()
 				.ok_or_else(|| tg::error!("expected the entry name to be a string"))?
 				.to_owned();
+			if name == ".tangram" {
+				continue;
+			}
 			names.push(name);
 		}
 
@@ -241,7 +262,7 @@ impl Server {
 	}
 
 	#[allow(clippy::unnecessary_wraps)]
-	fn checkin_visit_symlink_edges(state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_symlink_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		let path = state.graph.nodes[index].path();
 		let target = std::fs::read_link(path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
@@ -269,6 +290,9 @@ impl Server {
 		}) else {
 			return Ok(());
 		};
+		let artifact = self
+			.checkin_visit(state, state.artifacts_path.join(artifact.to_string()))?
+			.ok_or_else(|| tg::error!("failed to visit dependency"))?;
 
 		// Get the subpath.
 		let mut subpath = PathBuf::new();
@@ -279,7 +303,7 @@ impl Server {
 			.variant
 			.unwrap_symlink_mut()
 			.artifact
-			.replace(Either::Left(artifact));
+			.replace(Either::Right(artifact));
 		state.graph.nodes[index].variant.unwrap_symlink_mut().target = subpath;
 
 		Ok(())
@@ -299,6 +323,17 @@ impl Server {
 			let Some(path) = state.graph.nodes[index].path.as_ref() else {
 				continue;
 			};
+
+			// Check if this is a root in the artifacts directory and treat it as a root.
+			if state.graph.nodes[index].object.is_some() {
+				state.graph.roots.entry(index).or_default();
+				let children = state.graph.nodes[index]
+					.edges()
+					.into_iter()
+					.map(|child| (child, Some(index)));
+				stack.extend(children);
+				continue 'outer;
+			}
 
 			// Check if the hint matches.
 			if let Some(hint) = hint {

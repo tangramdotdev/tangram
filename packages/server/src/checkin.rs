@@ -48,6 +48,7 @@ pub struct Graph {
 
 #[derive(Clone, Debug)]
 struct Node {
+	id: Option<tg::object::Id>,
 	lockfile_index: Option<usize>,
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
@@ -396,7 +397,6 @@ impl Server {
 			"
 				.DS_Store
 				.git
-				.tangram
 				tangram.lock
 			"
 		);
