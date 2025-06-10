@@ -1,13 +1,19 @@
 #![allow(clippy::too_many_arguments)]
 use super::Graph;
 use crate::{Server, lockfile::Lockfile};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+	collections::BTreeMap,
+	path::{Path, PathBuf},
+};
 use tangram_client as tg;
 use tangram_either::Either;
 
 #[derive(Clone, Debug)]
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
+
+	// The current artifacts path
+	artifacts_path: &'a Path,
 
 	// The lockfile, if it exists.
 	lockfile: Option<&'a Lockfile>,
@@ -63,6 +69,7 @@ impl Server {
 		// Create the current state.
 		let mut current = State {
 			arg: &state.arg,
+			artifacts_path: state.artifacts_path.as_ref(),
 			lockfile: state.lockfile.as_ref(),
 			packages: im::HashMap::new(),
 			errored: false,
@@ -364,10 +371,10 @@ impl Server {
 		unify: bool,
 		visited: &mut BTreeMap<tg::object::Id, usize>,
 	) -> tg::Result<usize> {
-		let object_id = object.id();
+		let id = object.id();
 
 		// Skip if already visited.
-		if let Some(id) = visited.get(&object_id) {
+		if let Some(id) = visited.get(&id) {
 			return Ok(*id);
 		}
 
@@ -379,7 +386,7 @@ impl Server {
 			let data = object.data(self).await?;
 			let bytes = data.serialize()?;
 			Some(super::Object {
-				id: object_id.clone(),
+				id: id.clone(),
 				bytes,
 				data,
 			})
@@ -412,9 +419,20 @@ impl Server {
 			_ => super::Variant::Object,
 		};
 
+		// Check if we have this in the artifacts directory.
+		let path = state.artifacts_path.join(id.to_string());
+		let path = tokio::fs::try_exists(&path)
+			.await
+			.is_ok_and(|exists| exists)
+			.then_some(path);
+
+		// Use the ID if the path exists and --locked is true, which will be used to later verify that the object we're checking in is not corrupted.
+		let id_ = (state.arg.locked && path.is_some()).then(|| id.clone());
+
 		// Create the node.
 		let node = super::Node {
 			lockfile_index: lockfile_node,
+			id: id_,
 			metadata: None,
 			object: object_,
 			tag: tag.clone(),
@@ -427,7 +445,7 @@ impl Server {
 		// Add the node to the graph.
 		let index = state.graph.nodes.len();
 		state.graph.nodes.push_back(node);
-		visited.insert(object_id.clone(), index);
+		visited.insert(id.clone(), index);
 
 		if let Some(root) = root {
 			state.graph.roots.entry(root).or_default().push(index);
