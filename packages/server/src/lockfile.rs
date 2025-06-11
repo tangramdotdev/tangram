@@ -57,8 +57,39 @@ impl Server {
 			})
 			.collect::<tg::Result<_>>()?;
 
+		// Enumerate path dependencies reachable from the root.
+		let mut stack = vec![0];
+		let mut path_dependencies = vec![false; nodes.len()];
+		while let Some(node) = stack.pop() {
+			if path_dependencies[node] {
+				continue;
+			}
+			path_dependencies[node] = true;
+			match &nodes[node] {
+				tg::lockfile::Node::Directory(directory) => {
+					stack.extend(
+						directory
+							.entries
+							.values()
+							.filter_map(|entry| entry.as_ref().left().copied()),
+					);
+				},
+				tg::lockfile::Node::File(file) => {
+					stack.extend(
+						file.dependencies
+							.iter()
+							.filter_map(|(reference, referent)| {
+								reference.path()?;
+								referent.item.as_ref().left().copied()
+							}),
+					);
+				},
+				tg::lockfile::Node::Symlink(_) => (),
+			}
+		}
+
 		// Strip nodes.
-		let nodes = Self::strip_lockfile_nodes(&nodes, &vec![false; nodes.len()], root)?;
+		let nodes = Self::strip_lockfile_nodes(&nodes, &path_dependencies, root)?;
 
 		// Create the lockfile.
 		let lockfile = tg::Lockfile { nodes };

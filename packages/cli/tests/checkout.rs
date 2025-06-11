@@ -103,7 +103,7 @@ async fn file_with_dependency() {
 		  "contents": "foo",
 		  "xattrs": {
 		    "user.tangram.dependencies": "[\"bar\"]",
-		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"contents\":\"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\"dependencies\":{\"bar\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}]}"
+		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}]}"
 		  }
 		}
 		"#);
@@ -231,7 +231,7 @@ async fn directory_with_file_with_dependency() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": 2\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\"\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": 2\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\"\n    }\n  ]\n}"
 		    }
 		  }
 		}
