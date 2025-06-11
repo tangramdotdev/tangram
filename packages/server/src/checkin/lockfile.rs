@@ -22,7 +22,11 @@ impl Server {
 			.graph
 			.nodes
 			.iter()
-			.map(|node| node.path.is_some())
+			.map(|node| {
+				node.path
+					.as_deref()
+					.is_some_and(|path| path.strip_prefix(&state.artifacts_path).is_err())
+			})
 			.collect::<Vec<_>>();
 
 		// Strip the lockfile nodes.
