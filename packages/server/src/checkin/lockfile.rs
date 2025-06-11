@@ -343,19 +343,21 @@ fn mark_nodes_to_preserve(nodes: &[tg::lockfile::Node]) -> Vec<bool> {
 		for node in scc.iter().copied() {
 			let is_tagged = find(&mut set, node) == tagged;
 			let has_dependencies = match &nodes[node] {
-				tg::lockfile::Node::Directory(directory) => {
-					directory
-							.entries
-							.values()
-							.filter_map(|entry| entry.as_ref().left().copied())
-							.any(|node| preserve[node])
-				},
+				tg::lockfile::Node::Directory(directory) => directory
+					.entries
+					.values()
+					.filter_map(|entry| entry.as_ref().left().copied())
+					.any(|node| preserve[node]),
 				tg::lockfile::Node::File(file) => {
-					file
-							.dependencies
-							.values()
-							.filter_map(|referent| referent.item.as_ref().left().copied())
-							.any(|node| preserve[node])
+					file.dependencies.iter().any(|(reference, referent)| {
+						(reference.item().try_unwrap_tag_ref().is_ok()
+							&& reference.path().is_none())
+							|| referent
+								.item
+								.as_ref()
+								.left()
+								.is_some_and(|item| preserve[*item])
+					})
 				},
 				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
 					artifact: Either::Left(node),
