@@ -7,7 +7,6 @@ use tangram_cli::{
 use tangram_client as tg;
 use tangram_temp::{self as temp, Temp};
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
-use indoc::indoc;
 
 #[tokio::test]
 async fn directory() {
