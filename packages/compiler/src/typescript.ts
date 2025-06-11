@@ -32,11 +32,11 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	getCurrentDirectory: () => {
-		return "/";
+		return "";
 	},
 
 	getDefaultLibFileName: () => {
-		return "/library/tangram.d.ts";
+		return "lib:/tangram.d.ts";
 	},
 
 	getNewLine: () => {
@@ -103,21 +103,29 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 			} else {
 				return unreachable();
 			}
-			let resolvedFileName: string | undefined;
+			let resolvedFileName: string;
+			let extension: string;
+			let module = moduleFromFileName(fileName);
+			let resolvedModule: Module;
 			try {
-				resolvedFileName = fileNameFromModule(
-					syscall(
-						"module_resolve",
-						moduleFromFileName(fileName),
-						specifier,
-						attributes,
-					),
+				resolvedModule = syscall(
+					"module_resolve",
+					module,
+					specifier,
+					attributes,
 				);
 			} catch (error) {
 				log(error);
 				return { resolvedModule: undefined };
 			}
-			let extension = resolvedFileName.slice(-3);
+			resolvedFileName = fileNameFromModule(resolvedModule);
+			if (resolvedModule.kind === "js") {
+				extension = ".js";
+			} else if (resolvedModule.kind === "ts") {
+				extension = ".ts";
+			} else {
+				extension = ".ts";
+			}
 			return {
 				resolvedModule: {
 					resolvedFileName,
@@ -193,11 +201,15 @@ let getImportAttributesFromImportExpression = (
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module: Module): string => {
 	if (module.kind === "dts") {
-		return `/library/${module.referent.item!.slice(2)}`;
+		return `lib:/${module.referent.slice(2)}`;
 	}
-	let json = syscall("encoding_json_encode", module);
-	let utf8 = syscall("encoding_utf8_encode", json);
-	let hex = syscall("encoding_hex_encode", utf8);
+	let string = module.referent;
+	if (string.indexOf("?") === -1) {
+		string += "?";
+	} else {
+		string += "&";
+	}
+	string += `kind=${module.kind}`;
 	let extension: string;
 	if (module.kind === "js") {
 		extension = ".js";
@@ -206,24 +218,24 @@ export let fileNameFromModule = (module: Module): string => {
 	} else {
 		extension = ".ts";
 	}
-	return `/${hex}${extension}`;
+	string += `&extension=${extension}`;
+	return string;
 };
 
 /** Convert a TypeScript file name to a module. */
 export let moduleFromFileName = (fileName: string): Module => {
-	if (fileName.startsWith("/library/")) {
-		let path = fileName.slice(9);
-		let referent = { item: `./${path}` };
+	if (fileName.startsWith("lib:/")) {
+		let path = fileName.slice(5);
+		let referent = `./${path}`;
 		return {
 			kind: "dts",
 			referent,
 		};
 	}
-	let hex = fileName.slice(1, -3);
-	let utf8 = syscall("encoding_hex_decode", hex);
-	let json = syscall("encoding_utf8_decode", utf8);
-	let module = syscall("encoding_json_decode", json) as Module;
-	return module;
+	let index = fileName.indexOf("kind=");
+	let referent = fileName.slice(0, index - 1);
+	let kind = fileName.match(/kind=([a-z]+)/)![1]!;
+	return { kind, referent };
 };
 
 /** Convert a diagnostic. */

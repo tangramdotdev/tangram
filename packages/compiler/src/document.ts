@@ -2398,7 +2398,7 @@ function isExported(
 		(thisModule.kind === "ts" || thisModule.kind === "js")
 	) {
 		// If the symbol is from a different package, then it is exported.
-		if (module_.referent.item !== thisModule.referent.item) {
+		if (module_.referent !== thisModule.referent) {
 			return true;
 		}
 	}
