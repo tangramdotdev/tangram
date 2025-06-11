@@ -17,10 +17,13 @@ use tokio::io::AsyncWriteExt as _;
 	Ord,
 	derive_more::From,
 	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
 	serde::Deserialize,
 	serde::Serialize,
 )]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[unwrap(ref)]
 pub enum Artifact {
 	Directory(Directory),
 	File(File),
