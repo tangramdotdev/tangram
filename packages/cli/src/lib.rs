@@ -99,6 +99,7 @@ struct Args {
 	#[arg(short, long)]
 	mode: Option<Mode>,
 
+	/// Whether to show progress and other helpful information.
 	#[arg(short, long)]
 	quiet: bool,
 

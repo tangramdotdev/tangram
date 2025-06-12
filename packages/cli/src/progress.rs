@@ -24,6 +24,17 @@ impl Cli {
 		&self,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	) -> tg::Result<T> {
+		if self.args.quiet {
+			let output = pin!(stream)
+				.try_last()
+				.await?
+				.ok_or_else(|| tg::error!("expected an event"))?
+				.try_unwrap_output()
+				.ok()
+				.ok_or_else(|| tg::error!("expected the output"))?;
+			return Ok(output);
+		}
+
 		let tty = std::io::stderr();
 
 		if !tty.is_terminal() {
