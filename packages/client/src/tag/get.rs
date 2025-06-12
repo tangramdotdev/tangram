@@ -7,6 +7,8 @@ pub struct Output {
 	pub tag: tg::Tag,
 
 	pub item: Either<tg::process::Id, tg::object::Id>,
+
+	pub remote: Option<String>,
 }
 
 impl tg::Client {

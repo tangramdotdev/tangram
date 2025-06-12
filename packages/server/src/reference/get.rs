@@ -75,7 +75,8 @@ impl Server {
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 			tg::reference::Item::Tag(tag) => {
-				let Some(tg::tag::get::Output { item, tag }) = self.try_get_tag(tag).await? else {
+				let Some(tg::tag::get::Output { item, tag, .. }) = self.try_get_tag(tag).await?
+				else {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());
 				};

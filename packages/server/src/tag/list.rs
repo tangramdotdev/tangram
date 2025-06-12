@@ -1,4 +1,5 @@
 use crate::Server;
+use futures::{TryStreamExt, stream::FuturesUnordered};
 use indoc::formatdoc;
 use num::ToPrimitive;
 use tangram_client as tg;
@@ -22,24 +23,33 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Attempt to list the tags locally.
-		let output = self.list_tags_local(arg.clone()).await?;
+		// List the tags locally.
+		let mut output = self.list_tags_local(arg.clone()).await?;
 
-		// If the output is not empty, then return it.
-		if !output.data.is_empty() {
-			return Ok(output);
-		}
-
-		// Otherwise, try the default remote.
-		if let Some(remote) = self.try_get_remote_client("default".to_owned()).await? {
-			if let Ok(output) = remote.list_tags(arg.clone()).await {
-				if !output.data.is_empty() {
-					return Ok(output);
+		// List the tags remotely.
+		let remote = self
+			.get_remote_clients()
+			.await?
+			.into_iter()
+			.map(|(remote, client)| {
+				let arg = arg.clone();
+				async move {
+					let mut output = client.list_tags(arg).await?;
+					for output in &mut output.data {
+						output.remote = Some(remote.clone());
+					}
+					Ok::<_, tg::Error>(output)
 				}
-			}
-		}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
 
-		Ok(tg::tag::list::Output { data: vec![] })
+		output
+			.data
+			.extend(remote.into_iter().flat_map(|output| output.data));
+
+		Ok(output)
 	}
 
 	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
@@ -98,6 +108,7 @@ impl Server {
 			.map(|row| tg::tag::get::Output {
 				tag: row.tag,
 				item: row.item,
+				remote: None,
 			})
 			.collect();
 		let output = tg::tag::list::Output { data };
