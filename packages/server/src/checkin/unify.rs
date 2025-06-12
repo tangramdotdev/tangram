@@ -43,6 +43,7 @@ pub struct Candidate {
 	object: tg::Object,
 	path: Option<PathBuf>,
 	tag: tg::Tag,
+	unify: bool,
 }
 
 // An unresolved reference in the graph.
@@ -150,15 +151,6 @@ impl Server {
 			},
 			Err(error) => {
 				// If there was an error, attempt to backtrack.
-				progress.diagnostic(tg::Diagnostic {
-					location: None,
-					severity: tg::diagnostic::Severity::Warning,
-					message: format!(
-						"(backtracking) could not resolve dependency {} {}: {error}",
-						current.graph.fmt_node(unresolved.src),
-						unresolved.reference,
-					),
-				});
 				if let Some(previous) = try_backtrack(checkpoints, &unresolved) {
 					*current = previous;
 					return;
@@ -173,6 +165,7 @@ impl Server {
 						unresolved.reference,
 					),
 				});
+
 				current.errored = true;
 			},
 		}
@@ -249,6 +242,7 @@ impl Server {
 						lockfile_node: None,
 						tag: output.tag,
 						path: None,
+						unify: true,
 					})
 				})
 				.collect()
@@ -278,15 +272,23 @@ impl Server {
 						return None;
 					}
 
-					let object = match &referent.item {
-						Either::Left(node) => current.lockfile.unwrap().objects[*node].clone()?,
-						Either::Right(object) => tg::Object::with_id(object.clone()),
+					let (object, unify) = match &referent.item {
+						Either::Left(node) => {
+							let object = current.lockfile.unwrap().objects[*node].clone()?;
+							(object, true)
+						},
+						Either::Right(object) => {
+							// If the object is referred to by ID within the lockfile, don't attempt to unify it.
+							let object = tg::Object::with_id(object.clone());
+							(object, false)
+						},
 					};
 					Some(Candidate {
 						lockfile_node,
 						object,
 						tag: version,
 						path: referent.path.clone(),
+						unify,
 					})
 				}) {
 				candidates.push_back(candidate);
@@ -316,7 +318,7 @@ impl Server {
 				&candidate.object,
 				candidate.lockfile_node,
 				Some(candidate.tag.clone()),
-				true,
+				candidate.unify,
 			)
 			.await?;
 
@@ -379,27 +381,32 @@ impl Server {
 		}
 
 		// Get the object data.
-		let object_ = if matches!(
-			&object,
-			tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_)
-		) {
+		let object_ = if unify
+			&& matches!(
+				&object,
+				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_)
+			) {
 			let data = object.data(self).await?;
 			let bytes = data.serialize()?;
-			Some(super::Object {
+			super::Object {
 				id: id.clone(),
-				bytes,
-				data,
-			})
+				bytes: Some(bytes),
+				data: Some(data),
+			}
 		} else {
-			None
+			super::Object {
+				id: id.clone(),
+				bytes: None,
+				data: None,
+			}
 		};
 
 		// Create the variant.
 		let variant = match &object {
-			tg::Object::Directory(_) => super::Variant::Directory(super::Directory {
+			tg::Object::Directory(_) if unify => super::Variant::Directory(super::Directory {
 				entries: Vec::new(),
 			}),
-			tg::Object::File(file) => {
+			tg::Object::File(file) if unify => {
 				let executable = file.executable(self).await?;
 				let blob = file.contents(self).await?.id();
 				super::Variant::File(super::File {
@@ -408,7 +415,7 @@ impl Server {
 					dependencies: Vec::new(),
 				})
 			},
-			tg::Object::Symlink(symlink) => {
+			tg::Object::Symlink(symlink) if unify => {
 				let artifact = symlink
 					.artifact(self)
 					.await?
@@ -434,7 +441,7 @@ impl Server {
 			lockfile_index: lockfile_node,
 			id: id_,
 			metadata: None,
-			object: object_,
+			object: Some(object_),
 			tag: tag.clone(),
 			path: None,
 			parent: None,
@@ -453,28 +460,37 @@ impl Server {
 		let root = root.unwrap_or(index);
 
 		// Recurse.
-		match object {
-			tg::Object::Directory(directory) if unify => {
-				self.unify_visit_directory_edges(
-					state,
-					lockfile_node,
-					root,
-					subpath,
-					index,
-					directory,
-					visited,
-				)
-				.await?;
-			},
-			tg::Object::File(file) if unify => {
-				self.unify_visit_file_edges(state, lockfile_node, root, index, file, visited)
+		if unify {
+			match object {
+				tg::Object::Directory(directory) => {
+					self.unify_visit_directory_edges(
+						state,
+						lockfile_node,
+						root,
+						subpath,
+						index,
+						directory,
+						visited,
+					)
 					.await?;
-			},
-			tg::Object::Symlink(symlink) if unify => {
-				self.unify_visit_symlink_edges(state, lockfile_node, root, index, symlink, visited)
+				},
+				tg::Object::File(file) => {
+					self.unify_visit_file_edges(state, lockfile_node, root, index, file, visited)
+						.await?;
+				},
+				tg::Object::Symlink(symlink) => {
+					self.unify_visit_symlink_edges(
+						state,
+						lockfile_node,
+						root,
+						index,
+						symlink,
+						visited,
+					)
 					.await?;
-			},
-			_ => (),
+				},
+				_ => (),
+			}
 		}
 
 		// Return the index.
@@ -496,6 +512,16 @@ impl Server {
 			let subpath = subpath
 				.as_ref()
 				.map_or_else(|| name.as_str().into(), |subpath| subpath.join(&name));
+			let unify = lockfile_node.is_none_or(|node| {
+				let Ok(directory) = state.lockfile.unwrap().nodes[node].try_unwrap_directory_ref()
+				else {
+					return true;
+				};
+				let Some(entry) = directory.entries.get(&name) else {
+					return true;
+				};
+				entry.is_left()
+			});
 			let lockfile_node = lockfile_node.and_then(|node| {
 				state.lockfile.unwrap().nodes[node]
 					.try_unwrap_directory_ref()
@@ -513,7 +539,7 @@ impl Server {
 				Some(root),
 				Some(subpath),
 				None,
-				true,
+				unify,
 				visited,
 			))
 			.await?;
@@ -538,6 +564,15 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut dependencies = Vec::new();
 		for (reference, referent) in file.dependencies(self).await? {
+			let unify = lockfile_node.is_none_or(|node| {
+				let Ok(file) = state.lockfile.unwrap().nodes[node].try_unwrap_file_ref() else {
+					return true;
+				};
+				let Some(referent) = file.dependencies.get(&reference) else {
+					return true;
+				};
+				referent.item.is_left()
+			});
 			let lockfile_node = lockfile_node.and_then(|node| {
 				state.lockfile.unwrap().nodes[node]
 					.try_unwrap_file_ref()
@@ -561,7 +596,7 @@ impl Server {
 					Some(root),
 					referent.path.clone(),
 					None,
-					true,
+					unify,
 					visited,
 				))
 				.await?;
@@ -597,6 +632,16 @@ impl Server {
 			.as_ref()
 			.and_then(|artifact| artifact.as_ref().left())
 		{
+			let unify = lockfile_node.is_none_or(|node| {
+				let Ok(symlink) = state.lockfile.unwrap().nodes[node].try_unwrap_symlink_ref()
+				else {
+					return true;
+				};
+				let tg::lockfile::Symlink::Artifact { artifact, .. } = symlink else {
+					return true;
+				};
+				artifact.is_left()
+			});
 			let lockfile_node = lockfile_node.and_then(|node| {
 				let symlink = state.lockfile.unwrap().nodes[node]
 					.try_unwrap_symlink_ref()
@@ -624,7 +669,7 @@ impl Server {
 				Some(root),
 				path,
 				None,
-				true,
+				unify,
 				visited,
 			))
 			.await?;

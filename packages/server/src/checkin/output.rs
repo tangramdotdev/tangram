@@ -177,10 +177,13 @@ impl Server {
 			for node in nodes {
 				let node = &state.graph.nodes[node];
 				let object = node.object.as_ref().unwrap();
+				if object.data.is_none() || object.bytes.is_none() {
+					continue;
+				}
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
-					children: object.data.children().collect(),
+					children: object.data.as_ref().unwrap().children().collect(),
 					id: object.id.clone(),
-					size: object.bytes.len().to_u64().unwrap(),
+					size: object.bytes.as_ref().unwrap().len().to_u64().unwrap(),
 					touched_at,
 					cache_reference: None,
 				});
@@ -250,10 +253,13 @@ impl Server {
 			for node in nodes {
 				let node = &state.graph.nodes[node];
 				let object = node.object.as_ref().unwrap();
+				if object.data.is_none() || object.bytes.is_none() {
+					continue;
+				}
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
-					children: object.data.children().collect(),
+					children: object.data.as_ref().unwrap().children().collect(),
 					id: object.id.clone(),
-					size: object.bytes.len().to_u64().unwrap(),
+					size: object.bytes.as_ref().unwrap().len().to_u64().unwrap(),
 					touched_at,
 					cache_reference: None,
 				});
@@ -371,7 +377,14 @@ impl Server {
 
 				// Add the object to the list to store.
 				let object = node.object.as_ref().unwrap();
-				objects.push((object.id.clone(), Some(object.bytes.clone()), None));
+				if object.bytes.is_none() {
+					continue;
+				}
+				objects.push((
+					object.id.clone(),
+					Some(object.bytes.as_ref().unwrap().clone()),
+					None,
+				));
 
 				// If the file has a blob and it's on disk, add it too.
 				let Some(root_path) = root_path else {

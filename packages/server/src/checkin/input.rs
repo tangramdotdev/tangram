@@ -1,5 +1,6 @@
 use super::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
+use itertools::Itertools;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
@@ -158,27 +159,42 @@ impl Server {
 	fn checkin_visit_file_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Get the list of all dependencies.
 		let path = state.graph.nodes[index].path().to_owned();
-		let mut dependencies = self.get_file_dependencies(state, &path)?;
 
 		// Visit path dependencies.
-		for (reference, referent) in &mut dependencies {
-			if let Some(reference) = reference.path() {
-				let path = path.parent().unwrap().join(reference);
-				let path = crate::util::fs::canonicalize_parent_sync(&path).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to canonicalize path"),
-				)?;
-				let Some(index) = self.checkin_visit(state, path)? else {
-					continue;
-				};
-				referent.replace(tg::Referent {
-					item: Either::Right(index),
-					path: Some(reference.to_owned()),
-					tag: None,
-				});
-			} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
-				referent.replace(tg::Referent::with_item(Either::Left(id.clone())));
-			}
-		}
+		let dependencies = self
+			.get_file_dependencies(state, &path)?
+			.into_iter()
+			.map(|(import, mut referent)| {
+				if let Some(reference) = import.reference.path() {
+					let reference = path.parent().unwrap().join(reference);
+					let reference = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
+						crate::util::fs::canonicalize_parent_sync(&reference).map_err(
+							|source| tg::error!(!source, %path = reference.display(), "failed to canonicalize path"),
+						)?
+					} else {
+						reference.canonicalize().map_err(|source| {
+							tg::error!(!source, "failed to canonicalize the path")
+						})?
+					};
+					if let Some(index) = self.checkin_visit(state, reference.clone())? {
+						let path = crate::util::path::diff(path.parent().unwrap(), &reference)?;
+						let path = if path.as_os_str().is_empty() {
+							".".into()
+						} else {
+							path
+						};
+						referent.replace(tg::Referent {
+							item: Either::Right(index),
+							path: Some(path),
+							tag: None,
+						});
+					}
+				} else if let Ok(id) = import.reference.item().try_unwrap_object_ref() {
+					referent.replace(tg::Referent::with_item(Either::Left(id.clone())));
+				}
+				Ok::<_, tg::Error>((import.reference, referent))
+			})
+			.try_collect()?;
 
 		// Update the graph.
 		state.graph.nodes[index]
@@ -195,7 +211,7 @@ impl Server {
 		path: &Path,
 	) -> tg::Result<
 		Vec<(
-			tg::Reference,
+			tg::module::Import,
 			Option<tg::Referent<Either<tg::object::Id, usize>>>,
 		)>,
 	> {
@@ -205,7 +221,13 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to deserialize dependencies"))?;
 			return Ok(dependencies
 				.into_iter()
-				.map(|reference| (reference, None))
+				.map(|reference| {
+					let import = tg::module::Import {
+						reference,
+						kind: None,
+					};
+					(import, None)
+				})
 				.collect());
 		}
 
@@ -254,7 +276,7 @@ impl Server {
 				}
 
 				// Add the import.
-				(import.reference.clone(), None)
+				(import, None)
 			})
 			.collect();
 

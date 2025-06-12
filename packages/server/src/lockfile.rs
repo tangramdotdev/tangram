@@ -36,14 +36,17 @@ impl Server {
 	) -> tg::Result<tg::Lockfile> {
 		// Create the state.
 		let mut nodes = Vec::new();
+		let mut objects = Vec::new();
 		let mut visited = HashMap::default();
 		let mut graphs = HashMap::default();
 
 		// Create nodes in the lockfile for the graph.
 		let root = self.get_or_create_lockfile_node_for_artifact(
 			artifact.clone(),
+			true,
 			checkout_dependencies,
 			&mut nodes,
+			&mut objects,
 			&mut visited,
 			&mut graphs,
 		)?;
@@ -57,39 +60,8 @@ impl Server {
 			})
 			.collect::<tg::Result<_>>()?;
 
-		// Enumerate path dependencies reachable from the root.
-		let mut stack = vec![0];
-		let mut path_dependencies = vec![false; nodes.len()];
-		while let Some(node) = stack.pop() {
-			if path_dependencies[node] {
-				continue;
-			}
-			path_dependencies[node] = true;
-			match &nodes[node] {
-				tg::lockfile::Node::Directory(directory) => {
-					stack.extend(
-						directory
-							.entries
-							.values()
-							.filter_map(|entry| entry.as_ref().left().copied()),
-					);
-				},
-				tg::lockfile::Node::File(file) => {
-					stack.extend(
-						file.dependencies
-							.iter()
-							.filter_map(|(reference, referent)| {
-								reference.path()?;
-								referent.item.as_ref().left().copied()
-							}),
-					);
-				},
-				tg::lockfile::Node::Symlink(_) => (),
-			}
-		}
-
 		// Strip nodes.
-		let nodes = Self::strip_lockfile_nodes(&nodes, &path_dependencies, root)?;
+		let nodes = Self::strip_lockfile_nodes(&nodes, &objects, root)?;
 
 		// Create the lockfile.
 		let lockfile = tg::Lockfile { nodes };
@@ -97,11 +69,14 @@ impl Server {
 		Ok(lockfile)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	fn get_or_create_lockfile_node_for_artifact(
 		&self,
 		id: tg::artifact::Id,
+		is_path_dependency: bool,
 		checkout_dependencies: bool,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		objects: &mut Vec<Option<tg::object::Id>>,
 		visited: &mut HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
 		graphs: &mut HashMap<tg::graph::Id, Vec<usize>, fnv::FnvBuildHasher>,
 	) -> tg::Result<usize> {
@@ -147,9 +122,11 @@ impl Server {
 				},
 			};
 			let nodes = self.create_lockfile_node_with_graph(
-				checkout_dependencies,
 				graph,
+				checkout_dependencies,
+				is_path_dependency,
 				nodes,
+				objects,
 				visited,
 				graphs,
 			)?;
@@ -158,6 +135,7 @@ impl Server {
 
 		// Only create a distinct node for non-graph artifacts.
 		nodes.push(None);
+		objects.push((!is_path_dependency).then(|| id.clone().into()));
 		visited.insert(id, index);
 
 		// Create a new lockfile node for the artifact, recursing over dependencies.
@@ -170,8 +148,10 @@ impl Server {
 				for (name, artifact) in entries {
 					let index = self.get_or_create_lockfile_node_for_artifact(
 						artifact.clone(),
+						is_path_dependency,
 						checkout_dependencies,
 						nodes,
+						objects,
 						visited,
 						graphs,
 					)?;
@@ -191,12 +171,15 @@ impl Server {
 				};
 				let mut dependencies_ = BTreeMap::new();
 				for (reference, referent) in dependencies {
+					let is_path_dependency = is_path_dependency && reference.path().is_some();
 					let item = match &referent.item {
 						tg::object::Id::Directory(id) if checkout_dependencies => {
 							let index = self.get_or_create_lockfile_node_for_artifact(
 								id.clone().into(),
+								is_path_dependency,
 								checkout_dependencies,
 								nodes,
+								objects,
 								visited,
 								graphs,
 							)?;
@@ -205,8 +188,10 @@ impl Server {
 						tg::object::Id::File(id) if checkout_dependencies => {
 							let index = self.get_or_create_lockfile_node_for_artifact(
 								id.clone().into(),
+								is_path_dependency,
 								checkout_dependencies,
 								nodes,
+								objects,
 								visited,
 								graphs,
 							)?;
@@ -215,8 +200,10 @@ impl Server {
 						tg::object::Id::Symlink(id) if checkout_dependencies => {
 							let index = self.get_or_create_lockfile_node_for_artifact(
 								id.clone().into(),
+								is_path_dependency,
 								checkout_dependencies,
 								nodes,
+								objects,
 								visited,
 								graphs,
 							)?;
@@ -250,8 +237,10 @@ impl Server {
 					let artifact = {
 						let index = self.get_or_create_lockfile_node_for_artifact(
 							artifact.clone(),
+							false,
 							checkout_dependencies,
 							nodes,
+							objects,
 							visited,
 							graphs,
 						)?;
@@ -272,11 +261,14 @@ impl Server {
 		Ok(index)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	fn create_lockfile_node_with_graph(
 		&self,
-		checkout_dependencies: bool,
 		id: &tg::graph::Id,
+		is_path_dependency: bool,
+		checkout_dependencies: bool,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		objects: &mut Vec<Option<tg::object::Id>>,
 		visited: &mut HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
 		graphs: &mut HashMap<tg::graph::Id, Vec<usize>, fnv::FnvBuildHasher>,
 	) -> tg::Result<Vec<usize>> {
@@ -325,6 +317,7 @@ impl Server {
 				let index = nodes.len();
 				visited.insert(id.clone(), index);
 				nodes.push(None);
+				objects.push((!is_path_dependency).then(|| id.clone().into()));
 				index
 			});
 			indices.push(index);
@@ -342,8 +335,10 @@ impl Server {
 							Either::Right(artifact) => self
 								.get_or_create_lockfile_node_for_artifact(
 									artifact.clone(),
+									is_path_dependency,
 									checkout_dependencies,
 									nodes,
+									objects,
 									visited,
 									graphs,
 								)?,
@@ -362,8 +357,10 @@ impl Server {
 								tg::object::Id::Directory(id) => {
 									let index = self.get_or_create_lockfile_node_for_artifact(
 										id.clone().into(),
+										is_path_dependency,
 										checkout_dependencies,
 										nodes,
+										objects,
 										visited,
 										graphs,
 									)?;
@@ -372,8 +369,10 @@ impl Server {
 								tg::object::Id::File(id) => {
 									let index = self.get_or_create_lockfile_node_for_artifact(
 										id.clone().into(),
+										is_path_dependency,
 										checkout_dependencies,
 										nodes,
+										objects,
 										visited,
 										graphs,
 									)?;
@@ -382,8 +381,10 @@ impl Server {
 								tg::object::Id::Symlink(id) => {
 									let index = self.get_or_create_lockfile_node_for_artifact(
 										id.clone().into(),
+										is_path_dependency,
 										checkout_dependencies,
 										nodes,
+										objects,
 										visited,
 										graphs,
 									)?;
@@ -418,8 +419,10 @@ impl Server {
 							Either::Right(artifact) => self
 								.get_or_create_lockfile_node_for_artifact(
 									artifact.clone(),
+									is_path_dependency,
 									checkout_dependencies,
 									nodes,
+									objects,
 									visited,
 									graphs,
 								)?,
