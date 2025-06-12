@@ -286,11 +286,11 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "expected a string"))?
 				.parse()?;
 			let path = row
-				.get::<_, Option<String>>(0)
+				.get::<_, Option<String>>(1)
 				.map_err(|source| tg::error!(!source, "expected a string"))?
 				.map(PathBuf::from);
 			let tag = row
-				.get::<_, Option<String>>(0)
+				.get::<_, Option<String>>(2)
 				.map_err(|source| tg::error!(!source, "expected a string"))?
 				.map(|tag| tag.parse())
 				.transpose()
