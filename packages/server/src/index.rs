@@ -794,7 +794,7 @@ impl Server {
 				let statement = indoc!(
 					"
 						insert into process_children (process, position, child, path, tag)
-						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($3::text[]), unnest($4::text[])
+						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
 						on conflict (process, child) do nothing;
 					"
 				);
