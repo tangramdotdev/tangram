@@ -194,7 +194,7 @@ async fn file_through_symlink() {
 async fn file_with_symlink_no_kind() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			import foo from "foo.tg.ts";
+			import foo from "./foo.tg.ts";
 		"#),
 		"foo.tg.ts" => temp::symlink!("bar.tg.ts"),
 		"bar.tg.ts" => indoc!(r#"
@@ -214,15 +214,23 @@ async fn file_with_symlink_no_kind() {
 		    "target": "bar.tg.ts",
 		  }),
 		  "tangram.ts": tg.file({
-		    "contents": tg.blob("import foo from \"foo.tg.ts\";\n"),
+		    "contents": tg.blob("import foo from \"./foo.tg.ts\";\n"),
+		    "dependencies": {
+		      "./foo.tg.ts": {
+		        "item": tg.file({
+		          "contents": tg.blob("export default bar = \"bar\";\n"),
+		        }),
+		        "path": "bar.tg.ts",
+		      },
+		    },
 		  }),
 		})
 		"#);
 		assert_snapshot!(metadata, @r#"
 		{
-		  "count": 6,
-		  "depth": 3,
-		  "weight": 460
+		  "count": 8,
+		  "depth": 4,
+		  "weight": 671
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -234,7 +242,7 @@ async fn file_with_symlink_no_kind() {
 async fn file_with_symlink() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			import foo from "foo.tg.ts" with { kind: "symlink" };
+			import foo from "./foo.tg.ts" with { kind: "symlink" };
 		"#),
 		"foo.tg.ts" => temp::symlink!("bar.tg.ts"),
 		"bar.tg.ts" => indoc!(r#"
@@ -254,15 +262,23 @@ async fn file_with_symlink() {
 		    "target": "bar.tg.ts",
 		  }),
 		  "tangram.ts": tg.file({
-		    "contents": tg.blob("import foo from \"foo.tg.ts\" with { kind: \"symlink\" };\n"),
+		    "contents": tg.blob("import foo from \"./foo.tg.ts\" with { kind: \"symlink\" };\n"),
+		    "dependencies": {
+		      "./foo.tg.ts": {
+		        "item": tg.symlink({
+		          "target": "bar.tg.ts",
+		        }),
+		        "path": "foo.tg.ts",
+		      },
+		    },
 		  }),
 		})
 		"#);
 		assert_snapshot!(metadata, @r#"
 		{
-		  "count": 6,
+		  "count": 7,
 		  "depth": 3,
-		  "weight": 485
+		  "weight": 616
 		}
 		"#);
 		assert!(lockfile.is_none());
