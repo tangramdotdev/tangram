@@ -1,5 +1,5 @@
 use super::{Blob, File, State, Variant};
-use crate::Server;
+use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use num::ToPrimitive;
@@ -19,45 +19,26 @@ impl Server {
 			.iter()
 			.map(|(root, nodes)| {
 				let server = self.clone();
+				let state = state.clone();
 				let root = *root;
 				let nodes = nodes.clone();
-				let state = state.clone();
 				async move {
-					let semaphore = self.file_descriptor_semaphore.acquire().await.unwrap();
-					tokio::task::spawn_blocking({
-						let server = server.clone();
-						let state = state.clone();
-						move || server.checkin_cache_task_inner(&state, root, &nodes)
-					})
-					.await
-					.unwrap()
-					.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
-					drop(semaphore);
-
 					if state.arg.destructive {
-						let id = state.graph.nodes[root]
-							.object
-							.as_ref()
-							.unwrap()
-							.id
-							.clone()
-							.try_into()
-							.unwrap();
-						let message = crate::index::Message::PutCacheEntry(
-							crate::index::PutCacheEntryMessage { id, touched_at },
-						);
-						let message = serde_json::to_vec(&message).map_err(|source| {
-							tg::error!(!source, "failed to serialize the message")
-						})?;
-						let _published = server
-							.messenger
-							.stream_publish("index".to_owned(), message.into())
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to publish the message")
-							})?;
+						server
+							.checkin_cache_task_destructive(state, touched_at, root)
+							.await?;
+					} else {
+						let semaphore = self.file_descriptor_semaphore.acquire().await.unwrap();
+						tokio::task::spawn_blocking({
+							let server = server.clone();
+							let state = state.clone();
+							move || server.checkin_cache_task_inner(&state, root, &nodes)
+						})
+						.await
+						.unwrap()
+						.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
+						drop(semaphore);
 					}
-
 					Ok::<_, tg::Error>(())
 				}
 			})
@@ -67,38 +48,60 @@ impl Server {
 		Ok(())
 	}
 
+	pub(super) async fn checkin_cache_task_destructive(
+		&self,
+		state: Arc<State>,
+		touched_at: i64,
+		root: usize,
+	) -> tg::Result<()> {
+		// Rename the root to the cache directory.
+		let id = &state.graph.nodes[root].object.as_ref().unwrap().id;
+		let path = state.graph.nodes[root].path();
+		let dst = self.cache_path().join(id.to_string());
+		match tokio::fs::rename(path, &dst).await {
+			Ok(()) => {
+				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+				filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
+					|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
+				)?;
+			},
+			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {
+			},
+			Err(source) => {
+				return Err(tg::error!(!source, "failed to rename root"));
+			},
+		}
+
+		// Publish the cache entry message for the root.
+		let id = state.graph.nodes[root]
+			.object
+			.as_ref()
+			.unwrap()
+			.id
+			.clone()
+			.try_into()
+			.unwrap();
+		let message = crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
+			id,
+			touched_at,
+		});
+		let message = serde_json::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		let _published = self
+			.messenger
+			.stream_publish("index".to_owned(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+
+		Ok(())
+	}
+
 	fn checkin_cache_task_inner(
 		&self,
 		state: &State,
 		root: usize,
 		nodes: &[usize],
 	) -> tg::Result<()> {
-		// Attempt to rename if this is a destructive checkin.
-		if state.arg.destructive {
-			let id = &state.graph.nodes[root].object.as_ref().unwrap().id;
-			let path = state.graph.nodes[root].path();
-			let dst = self.cache_path().join(id.to_string());
-			match std::fs::rename(path, &dst) {
-				Ok(()) => {
-					let epoch =
-						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-					filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
-						|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
-					)?;
-					return Ok(());
-				},
-				Err(error)
-					if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) =>
-				{
-					return Ok(());
-				},
-				Err(source) => {
-					return Err(tg::error!(!source, "failed to rename root"));
-				},
-			}
-		}
-
-		// If this is not a destructive checkin, then copy the blobs to the cache.
 		for node in std::iter::once(root).chain(nodes.iter().copied()) {
 			if !state.graph.nodes[node]
 				.metadata
@@ -113,22 +116,32 @@ impl Server {
 				.unwrap()
 				.id
 				.to_string();
+
+			// Copy the file to a temp.
 			let src = state.graph.nodes[node].path();
-			let dst = self.cache_path().join(id);
-			match std::fs::copy(src, &dst) {
-				Ok(_) => {
-					Self::set_permissions_and_times(
-						&dst,
-						state.graph.nodes[node].metadata.as_ref().unwrap(),
+			let temp = Temp::new(self);
+			let dst = temp.path();
+			std::fs::copy(src, dst)
+				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+
+			// Rename the temp to the cache directory.
+			let src = temp.path();
+			let dst = &self.cache_path().join(id);
+			match std::fs::rename(src, dst) {
+				Ok(()) => {
+					let epoch =
+						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+					filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
+						|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
 					)?;
 				},
-				Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST)) => (),
+				Err(error)
+					if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {},
 				Err(source) => {
-					return Err(tg::error!(!source, "failed to copy the file"));
+					return Err(tg::error!(!source, "failed to rename file"));
 				},
 			}
 		}
-
 		Ok(())
 	}
 

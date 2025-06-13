@@ -9,7 +9,7 @@ use tangram_client as tg;
 use tangram_either::Either;
 
 impl Server {
-	pub(super) fn checkin_collect_input(&self, state: &mut State, root: PathBuf) -> tg::Result<()> {
+	pub(super) fn checkin_input(&self, state: &mut State, root: PathBuf) -> tg::Result<()> {
 		self.checkin_visit(state, root)?;
 		Self::checkin_find_roots(state);
 		Ok(())
@@ -472,8 +472,8 @@ mod tests {
 
 			let state = tokio::task::spawn_blocking(move || {
 				server
-					.checkin_collect_input(&mut state, temp.path().join(path))
-					.expect("collect input failed");
+					.checkin_input(&mut state, temp.path().join(path))
+					.expect("input failed");
 				state
 			})
 			.await

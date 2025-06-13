@@ -59,7 +59,7 @@ struct Unresolved {
 }
 
 impl Server {
-	pub(super) async fn unify_file_dependencies(&self, state: &mut super::State) -> tg::Result<()> {
+	pub(super) async fn checkin_unify(&self, state: &mut super::State) -> tg::Result<()> {
 		// Copy the current state of the graph.
 		let graph = state.graph.clone();
 

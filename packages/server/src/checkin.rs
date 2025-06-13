@@ -110,10 +110,6 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 	> {
-		if arg.destructive && arg.ignore {
-			return Err(tg::error!("ignore is forbidden for destructive checkins"));
-		}
-
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({
 			let server = self.clone();
@@ -150,6 +146,11 @@ impl Server {
 		mut arg: tg::checkin::Arg,
 		progress: &crate::progress::Handle<tg::checkin::Output>,
 	) -> tg::Result<tg::checkin::Output> {
+		// Validate the arg.
+		if arg.destructive && arg.ignore {
+			return Err(tg::error!("ignore is forbidden for destructive checkins"));
+		}
+
 		// Canonicalize the path's parent.
 		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
 			.await
@@ -207,7 +208,6 @@ impl Server {
 		let root_path = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
 			.unwrap_or(&arg.path)
 			.to_owned();
-
 		let mut artifacts_path = None;
 		for path in root_path.ancestors() {
 			let path = path.join(".tangram/artifacts");
@@ -257,7 +257,7 @@ impl Server {
 			let server = self.clone();
 			let root = root_path.clone();
 			move || {
-				server.checkin_collect_input(&mut state, root)?;
+				server.checkin_input(&mut state, root)?;
 				Ok::<_, tg::Error>(state)
 			}
 		})
@@ -274,7 +274,7 @@ impl Server {
 		// Unify.
 		if !(state.arg.deterministic || state.arg.locked) {
 			let start = Instant::now();
-			self.unify_file_dependencies(&mut state).await?;
+			self.checkin_unify(&mut state).await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "unify");
 		}
 
@@ -290,6 +290,7 @@ impl Server {
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
 		let state = Arc::new(state);
 
 		let cache_and_store_future = tokio::spawn({
@@ -315,6 +316,7 @@ impl Server {
 						tg::error!(!source, "failed to write the objects to the store")
 					})?;
 				tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
+
 				Ok::<_, tg::Error>(())
 			}
 			.inspect_err(|error| tracing::error!(?error, "cache and store task failed"))
