@@ -10,7 +10,7 @@ pub async fn format<H: tg::Handle>(handle: &H, blob: &tg::Blob) -> tg::Result<St
 		return Err(tg::error!("cannot view blobs larger than 1Mib"));
 	}
 	let mut contents = Vec::new();
-	let mut stream = handle
+	let stream = handle
 		.try_read_blob(
 			&blob.id(),
 			tg::blob::read::Arg {

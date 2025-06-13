@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import type { Range } from "./range.ts";
 
 // biome-ignore lint/suspicious/noShadowRestrictedNames:
 export class Error {
@@ -81,8 +82,7 @@ export namespace Error {
 	export type Location = {
 		symbol?: string;
 		file: File;
-		line: number;
-		column: number;
+		range: Range;
 	};
 
 	export type File =
@@ -101,8 +101,7 @@ export namespace Error {
 	export type LocationData = {
 		symbol?: string;
 		file: FileData;
-		line: number;
-		column: number;
+		range: Range;
 	};
 
 	export type FileData =

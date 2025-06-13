@@ -195,7 +195,8 @@ impl Cli {
 		// Print the error.
 		if let Some(error) = wait.error {
 			eprintln!("{} the process failed", "error".red().bold());
-			Self::print_error(&error, Some(&referent), self.config.as_ref());
+			let handle = self.handle.take().unwrap();
+			Self::print_error(&error, Some(&referent), self.config.as_ref(), Some(&handle)).await;
 		}
 
 		// Print the output.

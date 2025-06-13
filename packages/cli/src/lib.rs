@@ -2,6 +2,7 @@ use anstream::{eprint, eprintln};
 use clap::{CommandFactory as _, Parser as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
+use miette::{LabeledSpan, SourceSpan, miette};
 use num::ToPrimitive as _;
 use std::{
 	fmt::Write as _,
@@ -9,10 +10,10 @@ use std::{
 	path::{Path, PathBuf},
 	time::Duration,
 };
-use tangram_client::{self as tg, Client, prelude::*};
+use tangram_client::{self as tg, Client, Handle, prelude::*};
 use tangram_either::Either;
 use tangram_server::Server;
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
 use tracing_subscriber::prelude::*;
 use url::Url;
 
@@ -249,12 +250,19 @@ impl Cli {
 		let args = Args::parse();
 		let matches = Args::command().get_matches();
 
+		// Create the tokio runtime and block on the future.
+		let mut builder = tokio::runtime::Builder::new_multi_thread();
+		builder.enable_all();
+		let runtime = builder.build().unwrap();
+
 		// Read the config.
 		let config = match Cli::read_config(args.config.clone()) {
 			Ok(config) => config,
 			Err(error) => {
 				eprintln!("{} failed to read the config", "error".red().bold());
-				Cli::print_error(&error, None, None);
+				runtime.block_on(async {
+					Cli::print_error::<Client>(&error, None, None, None).await;
+				});
 				return std::process::ExitCode::FAILURE;
 			},
 		};
@@ -321,11 +329,6 @@ impl Cli {
 			mode,
 		};
 
-		// Create the tokio runtime and block on the future.
-		let mut builder = tokio::runtime::Builder::new_multi_thread();
-		builder.enable_all();
-		let runtime = builder.build().unwrap();
-
 		// Run the command.
 		let result = runtime.block_on(cli.command(cli.args.clone()).boxed());
 
@@ -348,18 +351,23 @@ impl Cli {
 			}
 		});
 
-		// Drop the runtime.
-		drop(runtime);
-
 		// Handle the result.
-		match result {
+		let exit = match result {
 			Ok(()) => cli.exit.unwrap_or_default().into(),
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
-				Cli::print_error(&error, None, cli.config.as_ref());
+				let handle = cli.handle.unwrap();
+				runtime.block_on(async {
+					Cli::print_error(&error, None, cli.config.as_ref(), Some(&handle)).await;
+				});
 				std::process::ExitCode::FAILURE
 			},
-		}
+		};
+
+		// Drop the runtime.
+		drop(runtime);
+
+		exit
 	}
 
 	async fn handle(&mut self) -> tg::Result<Either<Client, Server>> {
@@ -1150,10 +1158,11 @@ impl Cli {
 		Ok(())
 	}
 
-	fn print_error(
+	async fn print_error<T: Handle>(
 		error: &tg::Error,
 		referent: Option<&tg::Referent<tg::object::Id>>,
 		config: Option<&Config>,
+		handle: Option<&T>,
 	) {
 		let internal = config
 			.as_ref()
@@ -1171,14 +1180,30 @@ impl Cli {
 
 			// Print the location.
 			if let Some(location) = &error.location {
-				Self::print_error_location(location, &mut path.clone(), &mut tag.clone(), internal);
+				Self::print_error_location(
+					location,
+					&mut path.clone(),
+					&mut tag.clone(),
+					internal,
+					message,
+					handle,
+				)
+				.await;
 			}
 
 			// Print the stack.
 			let mut stack_path = path.clone();
 			let mut stack_tag = tag.clone();
 			for location in error.stack.iter().flatten() {
-				Self::print_error_location(location, &mut stack_path, &mut stack_tag, internal);
+				Self::print_error_location(
+					location,
+					&mut stack_path,
+					&mut stack_tag,
+					internal,
+					message,
+					handle,
+				)
+				.await;
 			}
 
 			// Print the values.
@@ -1214,11 +1239,13 @@ impl Cli {
 		}
 	}
 
-	fn print_error_location(
+	async fn print_error_location<T: Handle>(
 		location: &tg::error::Location,
 		path: &mut Option<PathBuf>,
 		tag: &mut Option<tg::Tag>,
 		internal: bool,
+		message: &str,
+		handle: Option<&T>,
 	) {
 		match &location.file {
 			tg::error::File::Internal(path) => {
@@ -1226,8 +1253,8 @@ impl Cli {
 					eprintln!(
 						"   internal:{}:{}:{}",
 						path.display(),
-						location.line + 1,
-						location.column + 1
+						location.range.start.line + 1,
+						location.range.start.character + 1
 					);
 				}
 			},
@@ -1236,11 +1263,11 @@ impl Cli {
 					eprintln!(
 						"   {}:{}:{}",
 						path.display(),
-						location.line + 1,
-						location.column + 1,
+						location.range.start.line + 1,
+						location.range.start.character + 1,
 					);
 				},
-				tg::module::Item::Object(_) => {
+				tg::module::Item::Object(object) => {
 					if let Some(tag_) = &module.referent.tag {
 						tag.replace(tag_.clone());
 					}
@@ -1268,9 +1295,49 @@ impl Cli {
 								Some(path)
 							})
 							.unwrap_or_else(|| path.clone());
+						let file = object.clone().try_unwrap_file().ok().unwrap();
+						if let Some(handle) = handle {
+							let mut reader = file
+								.read(handle, tg::blob::read::Arg::default())
+								.await
+								.unwrap();
+							let mut buffer = Vec::new();
+							reader
+								.read_to_end(&mut buffer)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to read blob contents")
+								})
+								.unwrap();
+							let content = String::from_utf8(buffer)
+								.map_err(|source| {
+									tg::error!(!source, "failed to convert blob contents to string")
+								})
+								.unwrap();
+							let start = miette::SourceOffset::from_location(
+								&content,
+								location.range.start.line as usize + 1,
+								location.range.start.character as usize + 1,
+							);
+							let len = location.range.end.character - location.range.start.character;
+							let report = miette!(
+								labels = vec![LabeledSpan::at(
+									SourceSpan::new(start, len.try_into().unwrap()),
+									message,
+								),],
+								"",
+							)
+							.with_source_code(content);
+							eprint!("{:?}", &report);
+						}
+
 						eprint!("   {}", path.display());
 					}
-					eprintln!(":{}:{}", location.line + 1, location.column + 1);
+					eprintln!(
+						":{}:{}",
+						location.range.start.line + 1,
+						location.range.start.character + 1,
+					);
 				},
 			},
 		}
@@ -1309,6 +1376,91 @@ impl Cli {
 			} else {
 				let object = location.module.referent.item.unwrap_object_ref();
 				write!(string, "{object}").unwrap();
+				if let Some(path) = &location.module.referent.path {
+					write!(string, ":{}", path.display()).unwrap();
+				}
+			}
+			let line = location.range.start.line + 1;
+			let character = location.range.start.character + 1;
+			write!(string, ":{line}:{character}").unwrap();
+			eprint!(" {}", string.yellow());
+		}
+		eprintln!();
+	}
+
+	async fn print_diagnostic_with_handle<T: Handle>(diagnostic: &tg::Diagnostic, handle: &T) {
+		let severity = match diagnostic.severity {
+			tg::diagnostic::Severity::Error => "error".red().bold(),
+			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
+			tg::diagnostic::Severity::Info => "info".blue().bold(),
+			tg::diagnostic::Severity::Hint => "hint".cyan().bold(),
+		};
+		eprint!("{severity}");
+		if let Some(location) = &diagnostic.location {
+			let mut string = String::new();
+			let path = location
+				.module
+				.referent
+				.item
+				.try_unwrap_path_ref()
+				.ok()
+				.or(location.module.referent.path.as_ref());
+			if let Some(path) = path {
+				let path = location
+					.module
+					.referent
+					.path
+					.as_ref()
+					.map_or_else(|| path.to_owned(), |subpath| path.join(subpath));
+				write!(string, "{}", path.display()).unwrap();
+			} else if let Some(tag) = &location.module.referent.tag {
+				write!(string, "{tag}").unwrap();
+				if let Some(path) = &location.module.referent.path {
+					write!(string, ":{}", path.display()).unwrap();
+				}
+			} else {
+				let object = location.module.referent.item.unwrap_object_ref();
+				write!(string, "{object}").unwrap();
+				let id = object.clone().try_unwrap_file().unwrap();
+				let file = tg::File::with_id(id);
+				let mut reader = file
+					.read(handle, tg::blob::read::Arg::default())
+					.await
+					.unwrap();
+				let mut buffer = Vec::new();
+				reader
+					.read_to_end(&mut buffer)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read blob contents"))
+					.unwrap();
+				let content = String::from_utf8(buffer)
+					.map_err(|source| {
+						tg::error!(!source, "failed to convert blob contents to string")
+					})
+					.unwrap();
+				let start = miette::SourceOffset::from_location(
+					&content,
+					location.range.start.line as usize + 1,
+					location.range.start.character as usize + 1,
+				);
+				let len = location.range.end.character - location.range.start.character;
+				let severity = match diagnostic.severity {
+					tg::diagnostic::Severity::Error => miette::Severity::Error,
+					tg::diagnostic::Severity::Warning => miette::Severity::Warning,
+					tg::diagnostic::Severity::Info => miette::Severity::Advice,
+					tg::diagnostic::Severity::Hint => miette::Severity::Advice,
+				};
+				let report = miette!(
+					severity = severity,
+					labels = vec![LabeledSpan::at(
+						SourceSpan::new(start, len.try_into().unwrap()),
+						diagnostic.message.clone(),
+					),],
+					"",
+				)
+				.with_source_code(content);
+				write!(string, "{:?}", &report).unwrap();
+
 				if let Some(path) = &location.module.referent.path {
 					write!(string, ":{}", path.display()).unwrap();
 				}

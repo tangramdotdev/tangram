@@ -40,6 +40,7 @@ indexmap = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
+miette = { workspace = true }
 num = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
@@ -52,6 +53,7 @@ tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_server = { workspace = true }
 tangram_temp = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }

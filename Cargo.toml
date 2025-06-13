@@ -101,6 +101,7 @@ insta = { version = "1", features = ["filters", "json", "redactions", "yaml"] }
 itertools = "0.14"
 libc = "0.2"
 lsp-types = "0.97"
+miette = { version = "7.6", features = ["fancy"] }
 mime = "0.3"
 moka = { version = "0.12", features = ["sync"] }
 notify = "8"
@@ -167,6 +168,7 @@ tangram_version = { path = "packages/version" }
 tangram_vfs = { path = "packages/vfs" }
 tar = { version = "0.4" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
+thiserror = "2"
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-postgres = { version = "0.7", features = [
   "runtime",
