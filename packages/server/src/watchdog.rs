@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{StreamExt as _, stream::FuturesUnordered};
+use futures::{FutureExt, StreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
 use tangram_client as tg;
@@ -72,36 +72,66 @@ impl Server {
 		drop(connection);
 
 		// Cancel the processes.
-		std::iter::empty()
-			.chain(&heartbeat_timeout_exceeded_processes)
-			.chain(&depth_exceeded_processes)
-			.map(|process| {
-				let server = self.clone();
-				async move {
-					let error = Some(
-						tg::error!(
-							code = tg::error::Code::Cancelation,
-							"the process's heartbeat expired"
-						)
-						.to_data(),
-					);
-					let arg = tg::process::finish::Arg {
-						checksum: None,
-						error,
-						exit: 1,
-						force: false,
-						output: None,
-						remote: None,
-					};
-					server
-						.finish_process(process, arg)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(?error, "failed to cancel the process");
-						})
-						.ok();
-				}
-			})
+		let heartbeat_futures = heartbeat_timeout_exceeded_processes.iter().map(|process| {
+			let server = self.clone();
+			async move {
+				let error = Some(
+					tg::error!(
+						code = tg::error::Code::Cancelation,
+						"the process's heartbeat expired"
+					)
+					.to_data(),
+				);
+				let arg = tg::process::finish::Arg {
+					checksum: None,
+					error,
+					exit: 1,
+					force: false,
+					output: None,
+					remote: None,
+				};
+				server
+					.finish_process(process, arg)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "failed to cancel the process");
+					})
+					.ok();
+			}
+			.boxed()
+		});
+
+		let depth_futures = depth_exceeded_processes.iter().map(|process| {
+			let server = self.clone();
+			async move {
+				let error = Some(
+					tg::error!(
+						code = tg::error::Code::Cancelation,
+						"the process exceeded the maximum depth limit"
+					)
+					.to_data(),
+				);
+				let arg = tg::process::finish::Arg {
+					checksum: None,
+					error,
+					exit: 1,
+					force: false,
+					output: None,
+					remote: None,
+				};
+				server
+					.finish_process(process, arg)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "failed to cancel the process");
+					})
+					.ok();
+			}
+			.boxed()
+		});
+
+		heartbeat_futures
+			.chain(depth_futures)
 			.collect::<FuturesUnordered<_>>()
 			.collect::<Vec<_>>()
 			.await;
