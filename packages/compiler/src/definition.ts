@@ -64,7 +64,7 @@ export let handle = (request: Request): Response => {
 	};
 };
 
-export let handleType = (request: Request): Response => {
+export let handleTypeDefinition = (request: Request): Response => {
 	// Get the source file and position.
 	let sourceFile = typescript.host.getSourceFile(
 		typescript.fileNameFromModule(request.module),

@@ -17,26 +17,28 @@ impl Compiler {
 
 		let output = lsp::InitializeResult {
 			capabilities: lsp::ServerCapabilities {
+				completion_provider: Some(lsp::CompletionOptions::default()),
+				definition_provider: Some(lsp::OneOf::Left(true)),
+				diagnostic_provider: Some(lsp::DiagnosticServerCapabilities::Options(
+					lsp::DiagnosticOptions {
+						identifier: Some("tangram".to_owned()),
+						inter_file_dependencies: true,
+						..Default::default()
+					},
+				)),
+				document_formatting_provider: Some(lsp::OneOf::Left(true)),
+				document_symbol_provider: Some(lsp::OneOf::Left(true)),
+				hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
+				references_provider: Some(lsp::OneOf::Left(true)),
+				rename_provider: Some(lsp::OneOf::Left(true)),
+				type_definition_provider: Some(lsp::TypeDefinitionProviderCapability::Simple(true)),
 				text_document_sync: Some(lsp::TextDocumentSyncCapability::Options(
 					lsp::TextDocumentSyncOptions {
 						open_close: Some(true),
-						save: Some(lsp::TextDocumentSyncSaveOptions::SaveOptions(
-							lsp::SaveOptions {
-								include_text: Some(true),
-							},
-						)),
 						change: Some(lsp::TextDocumentSyncKind::INCREMENTAL),
 						..Default::default()
 					},
 				)),
-				hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
-				completion_provider: Some(lsp::CompletionOptions::default()),
-				definition_provider: Some(lsp::OneOf::Left(true)),
-				type_definition_provider: Some(lsp::TypeDefinitionProviderCapability::Simple(true)),
-				references_provider: Some(lsp::OneOf::Left(true)),
-				document_formatting_provider: Some(lsp::OneOf::Left(true)),
-				document_symbol_provider: Some(lsp::OneOf::Left(true)),
-				rename_provider: Some(lsp::OneOf::Left(true)),
 				workspace: Some(lsp::WorkspaceServerCapabilities {
 					workspace_folders: Some(lsp::WorkspaceFoldersServerCapabilities {
 						supported: Some(true),
@@ -46,7 +48,10 @@ impl Compiler {
 				}),
 				..Default::default()
 			},
-			..Default::default()
+			server_info: Some(lsp::ServerInfo {
+				name: "tangram".to_owned(),
+				version: Some(self.server.version.clone()),
+			}),
 		};
 
 		Ok(output)

@@ -12,25 +12,25 @@ type Request =
 	| { kind: "check"; request: check.Request }
 	| { kind: "completion"; request: completion.Request }
 	| { kind: "definition"; request: definition.Request }
-	| { kind: "type_definition"; request: definition.Request }
-	| { kind: "diagnostics"; request: diagnostics.Request }
 	| { kind: "document"; request: document.Request }
+	| { kind: "document_diagnostics"; request: diagnostics.Request }
 	| { kind: "hover"; request: hover.Request }
 	| { kind: "references"; request: references.Request }
 	| { kind: "rename"; request: rename.Request }
-	| { kind: "symbols"; request: symbols.Request };
+	| { kind: "symbols"; request: symbols.Request }
+	| { kind: "type_definition"; request: definition.Request };
 
 type Response =
 	| { kind: "check"; response: check.Response }
 	| { kind: "completion"; response: completion.Response }
 	| { kind: "definition"; response: definition.Response }
-	| { kind: "type_definition"; response: definition.Response }
-	| { kind: "diagnostics"; response: diagnostics.Response }
 	| { kind: "document"; response: document.Response }
+	| { kind: "document_diagnostics"; response: diagnostics.Response }
 	| { kind: "hover"; response: hover.Response }
 	| { kind: "references"; response: references.Response }
 	| { kind: "rename"; response: rename.Response }
-	| { kind: "symbols"; response: symbols.Response };
+	| { kind: "symbols"; response: symbols.Response }
+	| { kind: "type_definition"; response: definition.Response };
 
 let handle = ({ kind, request }: Request): Response => {
 	switch (kind) {
@@ -46,17 +46,13 @@ let handle = ({ kind, request }: Request): Response => {
 			let response = definition.handle(request);
 			return { kind: "definition", response };
 		}
-		case "type_definition": {
-			let response = definition.handleType(request);
-			return { kind: "type_definition", response };
-		}
-		case "diagnostics": {
-			let response = diagnostics.handle(request);
-			return { kind: "diagnostics", response };
-		}
 		case "document": {
 			let response = document.handle(request);
 			return { kind: "document", response };
+		}
+		case "document_diagnostics": {
+			let response = diagnostics.handle(request);
+			return { kind: "document_diagnostics", response };
 		}
 		case "hover": {
 			let response = hover.handle(request);
@@ -73,6 +69,10 @@ let handle = ({ kind, request }: Request): Response => {
 		case "symbols": {
 			let response = symbols.handle(request);
 			return { kind: "symbols", response };
+		}
+		case "type_definition": {
+			let response = definition.handleTypeDefinition(request);
+			return { kind: "type_definition", response };
 		}
 	}
 };

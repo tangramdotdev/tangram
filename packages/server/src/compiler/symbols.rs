@@ -165,7 +165,7 @@ fn collect_symbol_tree(symbol: Symbol) -> lsp::DocumentSymbol {
 }
 
 impl Compiler {
-	pub(super) async fn handle_symbols_request(
+	pub(super) async fn handle_document_symbol_request(
 		&self,
 		params: lsp::DocumentSymbolParams,
 	) -> tg::Result<Option<lsp::DocumentSymbolResponse>> {

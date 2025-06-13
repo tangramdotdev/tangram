@@ -1,7 +1,10 @@
 import type { Location } from "./location.ts";
+import type { Module } from "./module.ts";
 import * as typescript from "./typescript.ts";
 
-export type Request = unknown;
+export type Request = {
+	modules: Array<Module>;
+};
 
 export type Response = {
 	diagnostics: Array<Diagnostic>;
@@ -9,18 +12,15 @@ export type Response = {
 
 export type Diagnostic = {
 	location: Location | null;
-	severity: Severity;
 	message: string;
+	severity: Severity;
 };
 
 export type Severity = "error" | "warning" | "info" | "hint";
 
-export let handle = (_request: Request): Response => {
-	// Get the documents.
-	let documents = syscall("document_list");
-
+export let handle = (request: Request): Response => {
 	// Collect the diagnostics.
-	let diagnostics = documents
+	let diagnostics = request.modules
 		.flatMap((module) => {
 			let fileName = typescript.fileNameFromModule(module);
 			return [
@@ -30,7 +30,6 @@ export let handle = (_request: Request): Response => {
 			];
 		})
 		.map(typescript.convertDiagnostic);
-
 	return {
 		diagnostics,
 	};

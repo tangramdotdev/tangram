@@ -4,11 +4,11 @@ use dashmap::DashMap;
 use futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future};
 use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
 use std::{
-	collections::{BTreeMap, BTreeSet, HashMap},
+	collections::{BTreeSet, HashMap},
 	ops::Deref,
 	path::{Path, PathBuf},
 	pin::pin,
-	sync::{Arc, Mutex},
+	sync::{Arc, Mutex, RwLock},
 };
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
@@ -43,9 +43,6 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/compiler.js.
 pub struct Compiler(Arc<Inner>);
 
 pub struct Inner {
-	/// The diagnostics.
-	diagnostics: tokio::sync::RwLock<BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>>,
-
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
@@ -62,7 +59,7 @@ pub struct Inner {
 	request_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 
 	/// The sender.
-	sender: std::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
+	sender: RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
 
 	/// The serve task.
 	serve_task: tokio::sync::Mutex<Option<Task<()>>>,
@@ -72,6 +69,9 @@ pub struct Inner {
 
 	/// The task.
 	task: Mutex<Option<Task<()>>>,
+
+	/// The task tracker.
+	task_tracker: tokio::sync::Mutex<Option<tokio_util::task::TaskTracker>>,
 
 	/// The workspaces.
 	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
@@ -83,13 +83,13 @@ enum Request {
 	Check(check::Request),
 	Completion(completion::Request),
 	Definition(definition::Request),
-	TypeDefinition(definition::Request),
-	Diagnostics(diagnostics::Request),
+	DocumentDiagnostics(diagnostics::DocumentRequest),
 	Document(document::Request),
 	Hover(hover::Request),
 	References(references::Request),
 	Rename(rename::Request),
 	Symbols(symbols::Request),
+	TypeDefinition(definition::Request),
 }
 
 #[derive(Debug, derive_more::Unwrap, serde::Deserialize)]
@@ -98,13 +98,13 @@ enum Response {
 	Check(check::Response),
 	Completion(completion::Response),
 	Definition(definition::Response),
-	TypeDefinition(definition::Response),
-	Diagnostics(diagnostics::Response),
+	DocumentDiagnostics(diagnostics::DocumentResponse),
 	Document(document::Response),
 	Hover(hover::Response),
 	References(references::Response),
 	Rename(rename::Response),
 	Symbols(symbols::Response),
+	TypeDefinition(definition::Response),
 }
 
 type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
@@ -115,19 +115,18 @@ type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<Response>>;
 impl Compiler {
 	#[must_use]
 	pub fn new(server: &crate::Server, main_runtime_handle: tokio::runtime::Handle) -> Self {
-		let diagnostics = tokio::sync::RwLock::new(BTreeMap::new());
 		let documents = DashMap::default();
 		let library_temp = Temp::new(server);
 		let request_sender = Mutex::new(None);
 		let request_thread = Mutex::new(None);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = tokio::sync::Mutex::new(None);
-		let stop_task = Mutex::new(None);
+		let task = Mutex::new(None);
+		let task_tracker = tokio::sync::Mutex::new(None);
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(Inner {
-			diagnostics,
 			documents,
 			library_temp,
 			main_runtime_handle,
@@ -136,7 +135,8 @@ impl Compiler {
 			sender,
 			serve_task,
 			server: server.clone(),
-			task: stop_task,
+			task,
+			task_tracker,
 			workspaces,
 		}));
 
@@ -214,7 +214,10 @@ impl Compiler {
 		stop: Stop,
 	) {
 		// Create the task tracker.
-		let task_tracker = tokio_util::task::TaskTracker::new();
+		self.task_tracker
+			.lock()
+			.await
+			.replace(tokio_util::task::TaskTracker::new());
 
 		// Create a channel to send outgoing messages.
 		let (outgoing_message_sender, mut outgoing_message_receiver) =
@@ -284,8 +287,11 @@ impl Compiler {
 		}
 
 		// Wait for all tasks to complete.
+		let task_tracker_guard = self.task_tracker.lock().await;
+		let task_tracker = task_tracker_guard.as_ref().unwrap();
 		task_tracker.close();
 		task_tracker.wait().await;
+		drop(task_tracker_guard);
 
 		// Drop the outgoing message sender.
 		self.sender.write().unwrap().take().unwrap();
@@ -358,7 +364,12 @@ impl Compiler {
 		match message {
 			// Handle a request.
 			jsonrpc::Message::Request(request) => {
-				self.handle_request(request).await;
+				self.task_tracker.lock().await.as_ref().unwrap().spawn({
+					let compiler = self.clone();
+					async move {
+						compiler.handle_request(request).await;
+					}
+				});
 			},
 
 			// Handle a response.
@@ -379,10 +390,17 @@ impl Compiler {
 				})
 				.boxed(),
 
+			lsp::request::DocumentDiagnosticRequest::METHOD => self
+				.handle_request_with::<lsp::request::DocumentDiagnosticRequest, _, _>(
+					request,
+					|params| self.handle_document_diagnostic_request(params),
+				)
+				.boxed(),
+
 			lsp::request::DocumentSymbolRequest::METHOD => self
 				.handle_request_with::<lsp::request::DocumentSymbolRequest, _, _>(
 					request,
-					|params| self.handle_symbols_request(params),
+					|params| self.handle_document_symbol_request(params),
 				)
 				.boxed(),
 
@@ -576,6 +594,7 @@ impl Compiler {
 			.ok();
 	}
 
+	#[allow(dead_code)]
 	fn send_notification<T>(&self, params: T::Params)
 	where
 		T: lsp::notification::Notification,

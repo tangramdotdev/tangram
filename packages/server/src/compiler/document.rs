@@ -133,9 +133,6 @@ impl Compiler {
 		let text = params.text_document.text;
 		self.open_document(&module, version, text).await?;
 
-		// Update all diagnostics.
-		self.update_diagnostics().await?;
-
 		Ok(())
 	}
 
@@ -173,13 +170,8 @@ impl Compiler {
 		// Set the version.
 		document.version = params.text_document.version;
 
-		dbg!(&params, &document.text);
-
 		// Drop the document.
 		drop(document);
-
-		// Update all diagnostics.
-		self.update_diagnostics().await?;
 
 		Ok(())
 	}
@@ -194,9 +186,6 @@ impl Compiler {
 		// Close the document.
 		self.close_document(&module).await?;
 
-		// Update all diagnostics.
-		self.update_diagnostics().await?;
-
 		Ok(())
 	}
 
@@ -209,9 +198,6 @@ impl Compiler {
 
 		// Save the module.
 		self.save_document(&module).await?;
-
-		// Update all diagnostics.
-		self.update_diagnostics().await?;
 
 		Ok(())
 	}

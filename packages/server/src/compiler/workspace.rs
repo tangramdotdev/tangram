@@ -56,9 +56,6 @@ impl Compiler {
 		// Update the workspaces.
 		self.update_workspaces(added, removed).await?;
 
-		// Update the diagnostics.
-		self.update_diagnostics().await?;
-
 		Ok(())
 	}
 }

@@ -1,85 +1,65 @@
 use super::Compiler;
-use futures::{StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools as _;
 use lsp_types as lsp;
-use std::collections::BTreeMap;
 use tangram_client as tg;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Request {}
+pub struct DocumentRequest {
+	modules: Vec<tg::module::Data>,
+}
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Response {
+pub struct DocumentResponse {
 	pub diagnostics: Vec<tg::Diagnostic>,
 }
 
 impl Compiler {
-	pub async fn get_diagnostics(&self) -> tg::Result<Vec<tg::Diagnostic>> {
+	pub async fn get_document_diagnostics(
+		&self,
+		modules: Vec<tg::module::Data>,
+	) -> tg::Result<Vec<tg::Diagnostic>> {
 		// Create the request.
-		let request = super::Request::Diagnostics(Request {});
+		let request = super::Request::DocumentDiagnostics(DocumentRequest { modules });
 
 		// Perform the request.
 		let response = self.request(request).await?;
 
 		// Get the response.
-		let super::Response::Diagnostics(response) = response else {
+		let super::Response::DocumentDiagnostics(response) = response else {
 			return Err(tg::error!("unexpected response type"));
 		};
-		let Response { diagnostics } = response;
+		let DocumentResponse { diagnostics } = response;
 
 		Ok(diagnostics)
 	}
+}
 
-	pub async fn update_diagnostics(&self) -> tg::Result<()> {
-		// Get the new diagnostics.
-		let new_diagnostics = self.get_diagnostics().await?;
+impl Compiler {
+	pub(super) async fn handle_document_diagnostic_request(
+		&self,
+		params: lsp::DocumentDiagnosticParams,
+	) -> tg::Result<lsp::DocumentDiagnosticReportResult> {
+		// Get the module.
+		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
-		// Lock the diagnostics.
-		let mut diagnostics = self.diagnostics.write().await;
+		// Get the diagnostics.
+		let diagnostics = self
+			.get_document_diagnostics(vec![module])
+			.await?
+			.into_iter()
+			.map_into()
+			.collect();
 
-		// Clear the diagnostics.
-		for (_, diagnostics) in diagnostics.iter_mut() {
-			diagnostics.drain(..);
-		}
-
-		// Update the diagnostics.
-		diagnostics.extend(
-			stream::iter(new_diagnostics)
-				.map(Ok::<_, tg::Error>)
-				.try_fold(BTreeMap::default(), {
-					move |mut map: BTreeMap<lsp::Uri, Vec<tg::Diagnostic>>, diagnostic| {
-						let compiler = self.clone();
-						async move {
-							let Some(location) = diagnostic.location.clone() else {
-								return Ok(map);
-							};
-							let uri = compiler.lsp_uri_for_module(&location.module).await?;
-							map.entry(uri).or_default().push(diagnostic.clone());
-							Ok(map)
-						}
-					}
-				})
-				.await?,
-		);
-
-		// Publish the diagnostics.
-		for (uri, diagnostics) in diagnostics.iter() {
-			let module = self.module_for_lsp_uri(uri).await?;
-			let version = self.get_module_version(&module).await?;
-			let diagnostics = diagnostics.iter().cloned().map_into().collect();
-			let params = lsp::PublishDiagnosticsParams {
-				uri: uri.clone(),
-				diagnostics,
-				version: Some(version),
-			};
-			self.send_notification::<lsp::notification::PublishDiagnostics>(params);
-		}
-
-		// Remove the modules with no diagnostics.
-		diagnostics.retain(|_, diagnostics| !diagnostics.is_empty());
-
-		Ok(())
+		Ok(lsp::DocumentDiagnosticReportResult::Report(
+			lsp::DocumentDiagnosticReport::Full(lsp::RelatedFullDocumentDiagnosticReport {
+				full_document_diagnostic_report: lsp::FullDocumentDiagnosticReport {
+					items: diagnostics,
+					..Default::default()
+				},
+				..Default::default()
+			}),
+		))
 	}
 }
