@@ -626,7 +626,7 @@ where
 			.send({
 				let handle = handle.clone();
 				Box::new(move |node| {
-					if !node.borrow().options.show_process_commands {
+					if node.borrow().options.show_process_commands {
 						let child = Self::create_node(
 							&handle,
 							&node,
