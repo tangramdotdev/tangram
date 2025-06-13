@@ -34,7 +34,6 @@ use tower::ServiceExt as _;
 use tower_http::ServiceBuilderExt as _;
 use url::Url;
 
-mod artifact;
 mod blob;
 mod cache;
 mod check;

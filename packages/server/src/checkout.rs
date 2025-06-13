@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{FutureExt as _, Stream, StreamExt as _};
+use futures::{FutureExt as _, Stream, StreamExt as _, future};
 use num::ToPrimitive;
 use reflink_copy::reflink;
 use std::{
@@ -10,7 +10,7 @@ use std::{
 };
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_futures::stream::Ext as _;
+use tangram_futures::stream::{Ext as _, TryExt as _};
 use tangram_http::{Body, request::Ext as _};
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
@@ -48,15 +48,18 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			async move {
-				// Pull the artifact's incomplete objects.
-				let result = server.pull_incomplete(&artifact, &progress).await.map_err(
-					|source| tg::error!(!source, %artifact, "failed to pull or index the artifact"),
-				);
+				// Ensure the artifact is complete.
+				let result = server
+					.checkout_ensure_complete(&artifact, &progress)
+					.await
+					.map_err(
+						|source| tg::error!(!source, %artifact, "failed to ensure the artifact is complete"),
+					);
 				if let Err(error) = result {
 					tracing::warn!(?error);
 					progress.log(
 						tg::progress::Level::Warning,
-						"failed to pull the incomplete objects".into(),
+						"failed to ensure the artifact is complete".into(),
 					);
 				}
 
@@ -104,6 +107,70 @@ impl Server {
 		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = progress.stream().attach(abort_handle);
 		Ok(stream)
+	}
+
+	pub(crate) async fn checkout_ensure_complete(
+		&self,
+		artifact: &tg::artifact::Id,
+		progress: &crate::progress::Handle<tg::checkout::Output>,
+	) -> tg::Result<()> {
+		// Check if the artifact is complete.
+		let complete = self
+			.try_get_object_complete_local(&artifact.clone().into())
+			.await?
+			.unwrap_or_default();
+		if complete {
+			return Ok(());
+		}
+
+		// Create a future to pull the artifact.
+		let pull_future = {
+			let progress = progress.clone();
+			let server = self.clone();
+			async move {
+				let stream = server
+					.pull(tg::pull::Arg {
+						items: vec![Either::Right(artifact.clone().into())],
+						remote: Some("default".to_owned()),
+						..tg::pull::Arg::default()
+					})
+					.await?;
+				progress.spinner("pull", "pull");
+				let mut stream = std::pin::pin!(stream);
+				while let Some(event) = stream.next().await {
+					progress.forward(event);
+				}
+				Ok::<_, tg::Error>(())
+			}
+		}
+		.boxed();
+
+		// Create a future to index then check if the artifact is complete.
+		let index_future = {
+			let artifact = artifact.clone();
+			let server = self.clone();
+			async move {
+				let stream = server.index().await?;
+				let stream = std::pin::pin!(stream);
+				stream.try_last().await?;
+				let complete = server
+					.try_get_object_complete_local(&artifact.clone().into())
+					.await?
+					.ok_or_else(|| tg::error!(%artifact, "expected an object"))?;
+				if !complete {
+					return Err(tg::error!("expected the object to be complete"));
+				}
+				Ok::<_, tg::Error>(())
+			}
+		}
+		.boxed();
+
+		// Select the pull and index futures.
+		future::select_ok([pull_future, index_future]).await?;
+
+		progress.finish_all();
+
+		Ok(())
 	}
 
 	async fn checkout_task(
