@@ -53,7 +53,6 @@ tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_server = { workspace = true }
 tangram_temp = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }

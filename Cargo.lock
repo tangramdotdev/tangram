@@ -6098,7 +6098,6 @@ dependencies = [
  "tangram_http",
  "tangram_server",
  "tangram_temp",
- "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
  "tokio-util",
