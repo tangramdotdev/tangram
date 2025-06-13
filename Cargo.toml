@@ -56,7 +56,7 @@ astral-tokio-tar = "0.5"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.41"
+async-nats = "0.42"
 async_zip = { version = "0.0.17", features = ["full"] }
 aws-credential-types = "1"
 aws-sigv4 = "1"
@@ -137,7 +137,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "26", features = [
+swc_core = { version = "27", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
