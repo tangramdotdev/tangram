@@ -85,6 +85,44 @@ async fn artifact_symlink() {
 	test_roundtrip(directory, "", false, [], assertions).await;
 }
 
+#[tokio::test]
+async fn cyclic_artifact_symlink() {
+	let directory = temp::directory! {
+		".tangram" => temp::directory! {
+			"artifacts" => temp::directory! {
+				"sym_01jxvmh7z5daw3yztgjbrr3hmjv9cp0jhg1mjatcqccvyez83ff2eg" => temp::symlink!("sym_01tf70d3w3nm5tx0ghnhmcb6kcvms71967febephw12qmd9zkc1pvg"),
+				"sym_01tf70d3w3nm5tx0ghnhmcb6kcvms71967febephw12qmd9zkc1pvg" => temp::symlink!("sym_01jxvmh7z5daw3yztgjbrr3hmjv9cp0jhg1mjatcqccvyez83ff2eg")
+			}
+		},
+		"link" => temp::symlink!(".tangram/artifacts/sym_01jxvmh7z5daw3yztgjbrr3hmjv9cp0jhg1mjatcqccvyez83ff2eg"),
+	};
+	let assertions = async move |server: Arc<test::Server>, a: tg::Artifact, b: tg::Artifact| {
+		assert_eq!(a.id(), b.id());
+		assert_snapshot!(display(server.as_ref(), a).await, @r#"
+		tg.directory({
+		  "link": tg.symlink({
+		    "artifact": tg.symlink({
+		      "graph": tg.graph({
+		        "nodes": [
+		          {
+		            "kind": "symlink",
+		            "artifact": 1,
+		          },
+		          {
+		            "kind": "symlink",
+		            "artifact": 0,
+		          },
+		        ],
+		      }),
+		      "node": 0,
+		    }),
+		  }),
+		})
+		"#);
+	};
+	test_roundtrip(directory, "", false, [], assertions).await;
+}
+
 async fn display(server: &test::Server, object: impl Into<tg::Object>) -> String {
 	let object = object.into().id().to_string();
 	let object_output = server

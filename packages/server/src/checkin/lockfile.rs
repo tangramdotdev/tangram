@@ -17,20 +17,21 @@ impl Server {
 			.map(|node| node.unwrap())
 			.collect::<Vec<_>>();
 
-		// Collect a list of which nodes are path dependencies on the local file sysstem.
-		let path_dependencies = state
+		// Collect a list of which nodes are path dependencies on the local file system.
+		let object_ids = state
 			.graph
 			.nodes
 			.iter()
 			.map(|node| {
 				node.path
 					.as_deref()
-					.is_some_and(|path| path.strip_prefix(&state.artifacts_path).is_err())
+					.is_none_or(|path| path.strip_prefix(&state.artifacts_path).is_ok())
+					.then(|| node.object.as_ref().unwrap().id.clone())
 			})
 			.collect::<Vec<_>>();
 
 		// Strip the lockfile nodes.
-		let nodes = Self::strip_lockfile_nodes(&nodes, &path_dependencies, root)?;
+		let nodes = Self::strip_lockfile_nodes(&nodes, &object_ids, root)?;
 
 		Ok(tg::Lockfile { nodes })
 	}
@@ -58,20 +59,23 @@ impl Server {
 			return Ok(Either::Right(id));
 		}
 
-		// Otherwise createa a slot for it.
-		let index = nodes.len();
-		visited[node].replace(Either::Left(index));
-		nodes.push(None);
-
 		// Get the artifact data.
-		let data: tg::artifact::data::Artifact = state.graph.nodes[node]
+		let Some(data) = state.graph.nodes[node]
 			.object
 			.as_ref()
 			.unwrap()
 			.data
 			.clone()
-			.try_into()
-			.unwrap();
+			.map(|data| data.try_into().unwrap())
+		else {
+			let id = state.graph.nodes[node].object.as_ref().unwrap().id.clone();
+			return Ok(Either::Right(id));
+		};
+
+		// Otherwise createa a slot for it.
+		let index = nodes.len();
+		visited[node].replace(Either::Left(index));
+		nodes.push(None);
 
 		// Create the node.
 		let node = match data {
@@ -245,11 +249,10 @@ impl Server {
 
 	pub fn strip_lockfile_nodes(
 		old_nodes: &[tg::lockfile::Node],
-		path_dependencies: &[bool],
+		object_ids: &[Option<tg::object::Id>],
 		root: usize,
 	) -> tg::Result<Vec<tg::lockfile::Node>> {
-		let mut strip = vec![true; old_nodes.len()];
-		mark_nodes(old_nodes, &mut strip);
+		let preserve = mark_nodes_to_preserve(old_nodes);
 
 		// Strip nodes that don't reference tag dependencies.
 		let mut new_nodes = Vec::with_capacity(old_nodes.len());
@@ -259,8 +262,8 @@ impl Server {
 			root,
 			&mut visited,
 			&mut new_nodes,
-			path_dependencies,
-			&strip,
+			object_ids,
+			&preserve,
 		);
 
 		// Construct a new lockfile with only stripped nodes.
@@ -269,11 +272,13 @@ impl Server {
 }
 
 // Marks nodes if they or any of their transitive children are eligible for deletion.
-fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
+fn mark_nodes_to_preserve(nodes: &[tg::lockfile::Node]) -> Vec<bool> {
+	// Add the child to the same set as the parent.
 	fn union(set: &mut [usize], parent: usize, child: usize) {
 		set[child] = find(set, parent);
 	}
 
+	// Find the characteristic set of an item.
 	fn find(set: &mut [usize], item: usize) -> usize {
 		let mut current = item;
 		loop {
@@ -284,25 +289,24 @@ fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
 			current = set[current];
 		}
 	}
-
-	// Construct the union-find set.
-	let mut set = (0..=nodes.len()).collect::<Vec<_>>();
-
-	// Use a sentinel value for the "tagged" set.
-	let tagged = nodes.len();
+	// Split into sccs.
+	let sccs = petgraph::algo::tarjan_scc(&LockfileGraphImpl(nodes));
 
 	// Mark tagged items.
-	let sccs = petgraph::algo::tarjan_scc(&LockfileGraphImpl(nodes));
+	let mut set = (0..=nodes.len()).collect::<Vec<_>>();
+	let tagged = nodes.len();
+
+	// First mark nodes to tag. This is done in a separate pass because it operates top-down.
 	for scc in &sccs {
 		for parent in scc.iter().copied() {
-			let node = &nodes[parent];
-			match node {
+			match &nodes[parent] {
 				tg::lockfile::Node::Directory(directory) => {
 					for child in directory
 						.entries
 						.values()
 						.filter_map(|entry| entry.as_ref().left().copied())
 					{
+						// Mark directory children as part of the same set as their parent.
 						union(&mut set, parent, child);
 					}
 				},
@@ -317,8 +321,10 @@ fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
 								Some((child, is_tagged))
 							}) {
 						if is_tagged {
+							// If a dependency is tagged, add it to the set of tagged nodes.
 							union(&mut set, tagged, child);
 						} else {
+							// Otherwise, mark it as part of the same set as the parent.
 							union(&mut set, parent, child);
 						}
 					}
@@ -334,43 +340,37 @@ fn mark_nodes(nodes: &[tg::lockfile::Node], strip: &mut [bool]) {
 		}
 	}
 
-	// Now update the marks.
-	for scc in &sccs {
-		for parent in scc.iter().copied() {
-			let node = &nodes[parent];
-			if find(&mut set, parent) == tagged {
-				strip[parent] = false;
-				continue;
-			}
-			let any_child_tagged = match node {
+	// Now, determine which nodes to preserve.
+	let mut preserve = vec![false; nodes.len()];
+	for scc in sccs {
+		// Next, check if any dependencies are marked.
+		for node in scc.iter().copied() {
+			let has_dependencies = match &nodes[node] {
 				tg::lockfile::Node::Directory(directory) => directory
 					.entries
 					.values()
 					.filter_map(|entry| entry.as_ref().left().copied())
-					.any(|child| find(&mut set, child) == tagged),
+					.any(|node| preserve[node] || find(&mut set, node) == tagged),
 				tg::lockfile::Node::File(file) => {
 					file.dependencies.iter().any(|(reference, referent)| {
-						referent
-							.item
-							.as_ref()
-							.left()
-							.is_some_and(|child| find(&mut set, *child) == tagged)
-							|| (reference.item().try_unwrap_tag_ref().is_ok()
-								&& reference.path().is_none())
+						(reference.item().try_unwrap_tag_ref().is_ok()
+							&& reference.path().is_none())
+							|| referent.item.as_ref().left().is_some_and(|item| {
+								preserve[*item] || find(&mut set, node) == tagged
+							})
 					})
 				},
 				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-					artifact: Either::Left(child),
+					artifact: Either::Left(node),
 					..
-				}) => find(&mut set, *child) == tagged,
+				}) => preserve[*node] || find(&mut set, *node) == tagged,
 				tg::lockfile::Node::Symlink(_) => false,
 			};
-			if any_child_tagged {
-				union(&mut set, tagged, parent);
-				strip[parent] = false;
-			}
+			preserve[node] = has_dependencies;
 		}
 	}
+
+	preserve
 }
 
 fn strip_nodes_inner(
@@ -378,16 +378,15 @@ fn strip_nodes_inner(
 	node: usize,                      // the current node we're visiting
 	visited: &mut Vec<Option<usize>>, // visited set for cycle handling
 	new_nodes: &mut Vec<Option<tg::lockfile::Node>>, // the list of nodes we're adding to
-	path_dependencies: &[bool],       // a list of which nodes are local path dependencies
-	strip: &[bool],                   // a list of whether nodes should be stripped.
-) -> Option<usize> {
-	// Strip nodes that don't reference modules, are untagged, and not contained within graphs.
-	if strip[node] {
-		return None;
+	object_ids: &[Option<tg::object::Id>], // a list of each node's object ID, None if they are a path dependency.
+	preserve: &[bool],                     // a list of whether nodes should be preserved.
+) -> Option<Either<usize, tg::object::Id>> {
+	if !preserve[node] {
+		return object_ids[node].clone().map(Either::Right);
 	}
 
 	if let Some(visited) = visited[node] {
-		return Some(visited);
+		return Some(Either::Left(visited));
 	}
 
 	let new_node = new_nodes.len();
@@ -402,14 +401,8 @@ fn strip_nodes_inner(
 				.filter_map(|(name, entry)| {
 					let entry = match entry {
 						Either::Left(node) => strip_nodes_inner(
-							old_nodes,
-							node,
-							visited,
-							new_nodes,
-							path_dependencies,
-							strip,
-						)
-						.map(Either::Left),
+							old_nodes, node, visited, new_nodes, object_ids, preserve,
+						),
 						Either::Right(id) => Some(Either::Right(id)),
 					};
 					Some((name, entry?))
@@ -431,14 +424,9 @@ fn strip_nodes_inner(
 					let item: Either<usize, tg::object::Id> = match item {
 						Either::Left(node) => {
 							if let Some(node) = strip_nodes_inner(
-								old_nodes,
-								node,
-								visited,
-								new_nodes,
-								path_dependencies,
-								strip,
+								old_nodes, node, visited, new_nodes, object_ids, preserve,
 							) {
-								Either::Left(node)
+								node
 							} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
 								Either::Right(id.clone())
 							} else {
@@ -452,7 +440,7 @@ fn strip_nodes_inner(
 				.collect();
 
 			// Retain the contents if this is not a path dependency.
-			let contents = if path_dependencies[node] {
+			let contents = if object_ids[node].is_none() {
 				None
 			} else {
 				file.contents
@@ -477,15 +465,9 @@ fn strip_nodes_inner(
 		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
-				Either::Left(node) => strip_nodes_inner(
-					old_nodes,
-					node,
-					visited,
-					new_nodes,
-					path_dependencies,
-					strip,
-				)
-				.map(Either::Left),
+				Either::Left(node) => {
+					strip_nodes_inner(old_nodes, node, visited, new_nodes, object_ids, preserve)
+				},
 				Either::Right(id) => Some(Either::Right(id)),
 			};
 
@@ -506,7 +488,7 @@ fn strip_nodes_inner(
 		},
 	}
 
-	Some(new_node)
+	Some(Either::Left(new_node))
 }
 
 struct LockfileGraphImpl<'a>(&'a [tg::lockfile::Node]);
@@ -570,7 +552,6 @@ impl petgraph::visit::IntoNodeIdentifiers for &LockfileGraphImpl<'_> {
 #[cfg(test)]
 mod tests {
 	use indoc::indoc;
-	use insta::assert_json_snapshot;
 	use tangram_client as tg;
 
 	#[test]
@@ -618,45 +599,7 @@ mod tests {
 		.unwrap();
 
 		// Test that marking the nodes works.
-		let mut strip = vec![true; lockfile.nodes.len()];
-		super::mark_nodes(&lockfile.nodes, &mut strip);
-		assert_eq!(&strip, &[false, false, true, false, false]);
-
-		// Test that stripping the nodes works.
-		let nodes = crate::Server::strip_lockfile_nodes(
-			&lockfile.nodes,
-			&[true, true, true, false, false],
-			0,
-		)
-		.unwrap();
-		assert_json_snapshot!(nodes, @r#"
-		[
-		  {
-		    "kind": "directory",
-		    "entries": {
-		      "tangram.ts": 1
-		    }
-		  },
-		  {
-		    "kind": "file",
-		    "dependencies": {
-		      "a": {
-		        "item": 2,
-		        "tag": "a"
-		      }
-		    }
-		  },
-		  {
-		    "kind": "directory",
-		    "entries": {
-		      "tangram.ts": 3
-		    }
-		  },
-		  {
-		    "kind": "file",
-		    "contents": "blb_01038pab1jh9r3ztm2811kzr14ff3223xhcp9dgczg1gd1afmje6ng"
-		  }
-		]
-		"#);
+		let preserve = super::mark_nodes_to_preserve(&lockfile.nodes);
+		assert_eq!(&preserve, &[true, true, false, true, false]);
 	}
 }

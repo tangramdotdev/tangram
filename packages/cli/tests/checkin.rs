@@ -172,7 +172,7 @@ async fn file_through_symlink() {
 		        "item": tg.file({
 		          "contents": tg.blob("hello, world!"),
 		        }),
-		        "path": "../b/c/d",
+		        "path": "../b/e/d",
 		      },
 		    },
 		  }),
@@ -183,6 +183,86 @@ async fn file_through_symlink() {
 		  "count": 5,
 		  "depth": 4,
 		  "weight": 375
+		}
+		"#);
+		assert!(lockfile.is_none());
+	};
+	test_checkin(directory, path, destructive, tags, assertions).await;
+}
+
+#[tokio::test]
+async fn file_with_symlink_no_kind() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import foo from "foo.tg.ts";
+		"#),
+		"foo.tg.ts" => temp::symlink!("bar.tg.ts"),
+		"bar.tg.ts" => indoc!(r#"
+			export default bar = "bar";
+		"#),
+	};
+	let path = "";
+	let destructive = false;
+	let tags = vec![];
+	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
+		assert_snapshot!(object, @r#"
+		tg.directory({
+		  "bar.tg.ts": tg.file({
+		    "contents": tg.blob("export default bar = \"bar\";\n"),
+		  }),
+		  "foo.tg.ts": tg.symlink({
+		    "target": "bar.tg.ts",
+		  }),
+		  "tangram.ts": tg.file({
+		    "contents": tg.blob("import foo from \"foo.tg.ts\";\n"),
+		  }),
+		})
+		"#);
+		assert_snapshot!(metadata, @r#"
+		{
+		  "count": 6,
+		  "depth": 3,
+		  "weight": 460
+		}
+		"#);
+		assert!(lockfile.is_none());
+	};
+	test_checkin(directory, path, destructive, tags, assertions).await;
+}
+
+#[tokio::test]
+async fn file_with_symlink() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import foo from "foo.tg.ts" with { kind: "symlink" };
+		"#),
+		"foo.tg.ts" => temp::symlink!("bar.tg.ts"),
+		"bar.tg.ts" => indoc!(r#"
+			export default bar = "bar";
+		"#),
+	};
+	let path = "";
+	let destructive = false;
+	let tags = vec![];
+	let assertions = |object: String, metadata: String, lockfile: Option<tg::Lockfile>| async move {
+		assert_snapshot!(object, @r#"
+		tg.directory({
+		  "bar.tg.ts": tg.file({
+		    "contents": tg.blob("export default bar = \"bar\";\n"),
+		  }),
+		  "foo.tg.ts": tg.symlink({
+		    "target": "bar.tg.ts",
+		  }),
+		  "tangram.ts": tg.file({
+		    "contents": tg.blob("import foo from \"foo.tg.ts\" with { kind: \"symlink\" };\n"),
+		  }),
+		})
+		"#);
+		assert_snapshot!(metadata, @r#"
+		{
+		  "count": 6,
+		  "depth": 3,
+		  "weight": 485
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -213,10 +293,12 @@ async fn artifact_symlink() {
 		    "contents": tg.blob("import \"../b/c\";"),
 		    "dependencies": {
 		      "../b/c": {
-		        "item": tg.symlink({
-		          "target": "e",
+		        "item": tg.directory({
+		          "d": tg.file({
+		            "contents": tg.blob("hello, world!"),
+		          }),
 		        }),
-		        "path": "../b/c",
+		        "path": "../b/e",
 		      },
 		    },
 		  }),
@@ -224,9 +306,9 @@ async fn artifact_symlink() {
 		"#);
 		assert_snapshot!(metadata, @r#"
 		{
-		  "count": 4,
-		  "depth": 3,
-		  "weight": 294
+		  "count": 6,
+		  "depth": 5,
+		  "weight": 445
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -1007,15 +1089,8 @@ async fn tagged_object() {
 		    {
 		      "kind": "file",
 		      "dependencies": {
-		        "hello": {
-		          "item": 2,
-		          "tag": "hello"
-		        }
+		        "hello": "fil_01b64fk2r3af0mp8wek1630m1k57bq8fqp0yvqjq7701b3tngbfyxg?tag=hello"
 		      }
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01ad8gw7fez4t8d2bqjsd1f2e6te1tqmfenfhkzcz2smex3w6pchm0"
 		    }
 		  ]
 		}
@@ -1084,12 +1159,8 @@ async fn simple_tagged_package() {
 		    {
 		      "kind": "directory",
 		      "entries": {
-		        "tangram.ts": 3
+		        "tangram.ts": "fil_01wfv1nny15t09ts6estb4pw7qsz3j7bqq2wyfyhapnydarven8jng"
 		      }
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01038pab1jh9r3ztm2811kzr14ff3223xhcp9dgczg1gd1afmje6ng"
 		    }
 		  ]
 		}
@@ -1596,7 +1667,7 @@ async fn tag_diamond_dependency() {
 		          "tag": "b"
 		        },
 		        "c": {
-		          "item": 6,
+		          "item": 5,
 		          "tag": "c"
 		        }
 		      }
@@ -1620,17 +1691,13 @@ async fn tag_diamond_dependency() {
 		    {
 		      "kind": "directory",
 		      "entries": {
-		        "tangram.ts": 5
+		        "tangram.ts": "fil_01enbxr8gh2vp76d2t7sy5hy4j6erzy2y0vdxjt1kv9tfgtb3gattg"
 		      }
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01m5trn2pegd6rtt2phdq9ggagexa9w1w57e4ckkc6gj7rfxnnbbh0"
 		    },
 		    {
 		      "kind": "directory",
 		      "entries": {
-		        "tangram.ts": 7
+		        "tangram.ts": 6
 		      }
 		    },
 		    {
@@ -1878,12 +1945,8 @@ async fn update_tagged_package() {
 		    {
 		      "kind": "directory",
 		      "entries": {
-		        "tangram.ts": 3
+		        "tangram.ts": "fil_0124wz8r6hhv205c0xxe0k2dq20yrbs71cpjr74np8rhrtak3jnv1g"
 		      }
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01qc4k8f53qz0mh9e1wwmymcqj99bebd2r9t65g8ry4a2bx1hcr2v0"
 		    }
 		  ]
 		}
@@ -1938,21 +2001,8 @@ async fn update_tagged_package() {
 		    {
 		      "kind": "file",
 		      "dependencies": {
-		        "a/^1": {
-		          "item": 2,
-		          "tag": "a/1.0.0"
-		        }
+		        "a/^1": "dir_013a21q59fsmhghm22hyzfnbh9c9j0h4h1v6ep59t8f7tyvs8vdpeg?tag=a%2F1.0.0"
 		      }
-		    },
-		    {
-		      "kind": "directory",
-		      "entries": {
-		        "tangram.ts": 3
-		      }
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01qc4k8f53qz0mh9e1wwmymcqj99bebd2r9t65g8ry4a2bx1hcr2v0"
 		    }
 		  ]
 		}
@@ -1997,12 +2047,8 @@ async fn update_tagged_package() {
 		    {
 		      "kind": "directory",
 		      "entries": {
-		        "tangram.ts": 3
+		        "tangram.ts": "fil_01es7rz5mgcv9zas8dnavagvd3j80nz8vzvgar41fw7xt2b66qa3j0"
 		      }
-		    },
-		    {
-		      "kind": "file",
-		      "contents": "blb_01m5trn2pegd6rtt2phdq9ggagexa9w1w57e4ckkc6gj7rfxnnbbh0"
 		    }
 		  ]
 		}

@@ -631,7 +631,7 @@ impl Server {
 						.artifacts_path
 						.as_ref()
 						.ok_or_else(|| tg::error!("expected there to be an artifacts path"))?;
-					artifacts_path.join(artifact.to_string())
+					artifacts_path.join(id.to_string())
 				};
 				if let Some(subpath) = subpath {
 					target = target.join(subpath);

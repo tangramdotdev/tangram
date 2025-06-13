@@ -119,8 +119,12 @@ impl Server {
 					.serialize()
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(kind, &bytes);
-				let object = Object { bytes, data, id };
-				state.graph.nodes[global].object = Some(object);
+				let object = Object {
+					bytes: Some(bytes),
+					data: Some(data),
+					id,
+				};
+				state.graph.nodes[global].object.replace(object);
 			}
 
 			// Store the graph.
@@ -345,8 +349,12 @@ impl Server {
 			}
 		}
 
-		let object = Object { bytes, data, id };
-		state.graph.nodes[index].object = Some(object);
+		let object = Object {
+			bytes: Some(bytes),
+			data: Some(data),
+			id,
+		};
+		state.graph.nodes[index].object.replace(object);
 		Ok(())
 	}
 }

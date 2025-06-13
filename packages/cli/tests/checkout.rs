@@ -80,7 +80,7 @@ async fn executable_file() {
 }
 
 #[tokio::test]
-async fn file_with_dependency() {
+async fn file_with_tag_dependency() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default () => {
@@ -103,7 +103,37 @@ async fn file_with_dependency() {
 		  "contents": "foo",
 		  "xattrs": {
 		    "user.tangram.dependencies": "[\"bar\"]",
-		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"contents\":\"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\"dependencies\":{\"bar\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}]}"
+		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}]}"
+		  }
+		}
+		"#);
+	};
+	test_checkout(directory, dependencies, assertions).await;
+}
+
+#[tokio::test]
+async fn file_with_id_dependency() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let dependency = await tg.file("bar");
+				return tg.file({
+					contents: "foo",
+					dependencies: {
+						[dependency.id]: dependency, 
+					}
+				})
+			}
+		"#),
+	};
+	let dependencies = false;
+	let assertions = |artifact: temp::Artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+		{
+		  "kind": "file",
+		  "contents": "foo",
+		  "xattrs": {
+		    "user.tangram.dependencies": "[\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"]"
 		  }
 		}
 		"#);
@@ -231,9 +261,183 @@ async fn directory_with_file_with_dependency() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": 2\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\"\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": \"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"\n      }\n    }\n  ]\n}"
 		    }
 		  }
+		}
+		"#);
+		let lockfile = artifact
+			.unwrap_directory_ref()
+			.entries
+			.get("tangram.lock")
+			.unwrap()
+			.unwrap_file_ref();
+		let lockfile = serde_json::from_str::<serde_json::Value>(&lockfile.contents).unwrap();
+		assert_json_snapshot!(lockfile, @r#"
+		{
+		  "nodes": [
+		    {
+		      "entries": {
+		        "foo": 1
+		      },
+		      "kind": "directory"
+		    },
+		    {
+		      "dependencies": {
+		        "bar": "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
+		      },
+		      "kind": "file"
+		    }
+		  ]
+		}
+		"#);
+	};
+	test_checkout(directory, dependencies, assertions).await;
+}
+
+/// Test checking out a directory with a file with a dependency.
+#[tokio::test]
+async fn directory_with_file_with_id_dependency() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let dependency = await tg.file("bar");
+				return tg.directory({
+					"foo": tg.file({
+						contents: "foo", 
+						dependencies: {
+							[dependency.id]: dependency,
+						},
+					}) 
+				})
+			}
+		"#),
+	};
+	let dependencies = true;
+	let assertions = |artifact: temp::Artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+		{
+		  "kind": "directory",
+		  "entries": {
+		    ".tangram": {
+		      "kind": "directory",
+		      "entries": {
+		        "artifacts": {
+		          "kind": "directory",
+		          "entries": {
+		            "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg": {
+		              "kind": "file",
+		              "contents": "bar"
+		            }
+		          }
+		        }
+		      }
+		    },
+		    "foo": {
+		      "kind": "file",
+		      "contents": "foo",
+		      "xattrs": {
+		        "user.tangram.dependencies": "[\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"]"
+		      }
+		    }
+		  }
+		}
+		"#);
+	};
+	test_checkout(directory, dependencies, assertions).await;
+}
+
+/// Test checking out a directory with a file with a dependency.
+#[tokio::test]
+async fn directory_with_file_with_id_dependency_with_tag_dependency() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default async () => {
+				let dependency = await tg.file("bar", { dependencies: { baz: tg.file("baz") } });
+				return tg.directory({
+					"foo": tg.file({
+						contents: "foo", 
+						dependencies: {
+							[dependency.id]: dependency,
+						},
+					}) 
+				})
+			}
+		"#),
+	};
+	let dependencies = true;
+	let assertions = |artifact: temp::Artifact| async move {
+		assert_json_snapshot!(artifact, @r#"
+		{
+		  "kind": "directory",
+		  "entries": {
+		    ".tangram": {
+		      "kind": "directory",
+		      "entries": {
+		        "artifacts": {
+		          "kind": "directory",
+		          "entries": {
+		            "fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg": {
+		              "kind": "file",
+		              "contents": "bar",
+		              "xattrs": {
+		                "user.tangram.dependencies": "[\"baz\"]"
+		              }
+		            },
+		            "fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg": {
+		              "kind": "file",
+		              "contents": "baz"
+		            }
+		          }
+		        }
+		      }
+		    },
+		    "foo": {
+		      "kind": "file",
+		      "contents": "foo",
+		      "xattrs": {
+		        "user.tangram.dependencies": "[\"fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg\"]"
+		      }
+		    },
+		    "tangram.lock": {
+		      "kind": "file",
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg\": {\n          \"item\": 2\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\",\n      \"dependencies\": {\n        \"baz\": \"fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg\"\n      }\n    }\n  ]\n}"
+		    }
+		  }
+		}
+		"#);
+		let lockfile = artifact
+			.unwrap_directory_ref()
+			.entries
+			.get("tangram.lock")
+			.unwrap()
+			.unwrap_file_ref();
+		let lockfile = serde_json::from_str::<serde_json::Value>(&lockfile.contents).unwrap();
+		assert_json_snapshot!(lockfile, @r#"
+		{
+		  "nodes": [
+		    {
+		      "entries": {
+		        "foo": 1
+		      },
+		      "kind": "directory"
+		    },
+		    {
+		      "dependencies": {
+		        "fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg": {
+		          "item": 2
+		        }
+		      },
+		      "kind": "file"
+		    },
+		    {
+		      "contents": "blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg",
+		      "dependencies": {
+		        "baz": "fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg"
+		      },
+		      "kind": "file"
+		    }
+		  ]
 		}
 		"#);
 	};
