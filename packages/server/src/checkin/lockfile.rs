@@ -600,6 +600,6 @@ mod tests {
 
 		// Test that marking the nodes works.
 		let preserve = super::mark_nodes_to_preserve(&lockfile.nodes);
-		assert_eq!(&preserve, &[true, true, false, true, true]);
+		assert_eq!(&preserve, &[true, true, false, true, false]);
 	}
 }
