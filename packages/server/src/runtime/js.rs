@@ -688,12 +688,24 @@ fn compile_module<'s>(
 	// Get the context and state.
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let file = match &module.referent.item {
+		tg::module::data::Item::Path(path) => tg::error::File::Module(tg::module::Module {
+			kind: tg::module::Kind::Ts,
+			referent: tg::Referent::with_item(tg::module::Item::Path(path.into())),
+		}),
+		tg::module::data::Item::Object(object) => tg::error::File::Module(tg::Module {
+			kind: module.kind,
+			referent: tg::Referent::with_item(tg::module::Item::Object(tg::Object::with_id(
+				object.clone(),
+			))),
+		}),
+	};
 
 	// Transpile the module.
 	let crate::module::transpile::Output {
 		transpiled_text,
 		source_map,
-	} = match Server::transpile_module(text)
+	} = match Server::transpile_module(text, file)
 		.map_err(|source| tg::error!(!source, "failed to transpile the module"))
 	{
 		Ok(output) => output,

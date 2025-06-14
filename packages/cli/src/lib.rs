@@ -332,6 +332,19 @@ impl Cli {
 		// Run the command.
 		let result = runtime.block_on(cli.command(cli.args.clone()).boxed());
 
+		// Handle the result.
+		let exit = match result {
+			Ok(()) => cli.exit.unwrap_or_default().into(),
+			Err(error) => {
+				eprintln!("{} failed to run the command", "error".red().bold());
+				let handle = cli.handle.as_ref().unwrap();
+				runtime.block_on(async {
+					Cli::print_error(&error, None, cli.config.as_ref(), Some(handle)).await;
+				});
+				std::process::ExitCode::FAILURE
+			},
+		};
+
 		// Drop the handle.
 		runtime.block_on(async {
 			let handle = cli.handle.take();
@@ -350,19 +363,6 @@ impl Cli {
 				None => (),
 			}
 		});
-
-		// Handle the result.
-		let exit = match result {
-			Ok(()) => cli.exit.unwrap_or_default().into(),
-			Err(error) => {
-				eprintln!("{} failed to run the command", "error".red().bold());
-				let handle = cli.handle.unwrap();
-				runtime.block_on(async {
-					Cli::print_error(&error, None, cli.config.as_ref(), Some(&handle)).await;
-				});
-				std::process::ExitCode::FAILURE
-			},
-		};
 
 		// Drop the runtime.
 		drop(runtime);
@@ -1260,6 +1260,38 @@ impl Cli {
 			},
 			tg::error::File::Module(module) => match &module.referent.item {
 				tg::module::Item::Path(path) => {
+					// Open the file at the given path
+					let file = tokio::fs::File::open(path).await.unwrap();
+
+					// Create a buffered reader for the file
+					let mut reader = tokio::io::BufReader::new(file);
+
+					let mut buffer = Vec::new();
+					reader
+						.read_to_end(&mut buffer)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read blob contents"))
+						.unwrap();
+					let content = String::from_utf8(buffer)
+						.map_err(|source| {
+							tg::error!(!source, "failed to convert blob contents to string")
+						})
+						.unwrap();
+					let start = miette::SourceOffset::from_location(
+						&content,
+						location.range.start.line as usize + 1,
+						location.range.start.character as usize + 1,
+					);
+					let len = location.range.end.character - location.range.start.character;
+					let report = miette!(
+						labels = vec![LabeledSpan::at(
+							SourceSpan::new(start, len.try_into().unwrap()),
+							message,
+						),],
+						"",
+					)
+					.with_source_code(content);
+					eprint!("{:?}", &report);
 					eprintln!(
 						"   {}:{}:{}",
 						path.display(),

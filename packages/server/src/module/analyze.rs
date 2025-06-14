@@ -22,12 +22,12 @@ pub struct Error {
 
 impl Server {
 	/// Analyze a module.
-	pub fn analyze_module(text: String) -> tg::Result<Analysis> {
+	pub fn analyze_module(text: String, file: tg::error::File) -> tg::Result<Analysis> {
 		// Parse the text.
 		let super::parse::Output {
 			program,
 			source_map,
-		} = Self::parse_module(text)
+		} = Self::parse_module(text, file)
 			.map_err(|source| tg::error!(!source, "failed to parse the module"))?;
 
 		// Create the visitor and visit the module.
@@ -229,7 +229,13 @@ mod tests {
 			export { namedExport } from "tg:named_export";
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;
-		let found = Server::analyze_module(text.to_owned()).unwrap().imports;
+		let file = tg::error::File::Module(tg::module::Module {
+			kind: tg::module::Kind::Ts,
+			referent: tg::Referent::with_item(tg::module::Item::Path("test.tg.ts".into())),
+		});
+		let found = Server::analyze_module(text.to_owned(), file)
+			.unwrap()
+			.imports;
 		let expected = [
 			"tg:default_import",
 			"./named_import.tg.js",

@@ -13,7 +13,7 @@ pub struct Output {
 
 impl Server {
 	/// Parse a module.
-	pub fn parse_module(text: String) -> tg::Result<Output> {
+	pub fn parse_module(text: String, file: tg::error::File) -> tg::Result<Output> {
 		// Create the parser.
 		let syntax = swc::ecma::parser::TsSyntax::default();
 		let syntax = swc::ecma::parser::Syntax::Typescript(syntax);
@@ -24,7 +24,6 @@ impl Server {
 
 		// Parse the text.
 		let program = parser.parse_program().map_err(|error| {
-			// TODO we know the location of the error in the underlyign tangram file but we dont know the path because all we have in parse is the text.
 			let start_line = source_map
 				.lookup_line(error.span().lo)
 				.map_err(|_| tg::error!("failed to lookup line"))
@@ -45,11 +44,10 @@ impl Server {
 				})
 				.unwrap();
 			let end_column = source_map.lookup_char_pos(error.span().hi).col.to_u32();
-			dbg!((start_line, start_column, end_line, end_column));
 			let message = Some(error.into_kind().msg().to_string());
 			let location = Some(tg::error::Location {
 				symbol: None,
-				file: tg::error::File::Internal("".into()),
+				file,
 				range: tg::Range {
 					start: tg::Position {
 						line: start_line,
