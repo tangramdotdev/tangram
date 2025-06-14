@@ -27,8 +27,10 @@ pub(super) fn from_exception<'s>(
 
 	// Get the location.
 	let line = message_.get_line_number(scope).unwrap().to_u32().unwrap() - 1;
-	let column = message_.get_start_column().to_u32().unwrap();
-	let location = get_location(line, column).and_then(|location| location.try_into().ok());
+	let start_column = message_.get_start_column().to_u32().unwrap();
+	let end_column = message_.get_end_column().to_u32().unwrap();
+	let location = get_location(line, start_column, line, end_column)
+		.and_then(|location| location.try_into().ok());
 
 	// Get the source.
 	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
@@ -113,7 +115,7 @@ pub fn prepare_stack_trace_callback<'s>(
 
 		// Convert to location using the get_location function.
 		if let (Some(line), Some(column)) = (line_number, column_number) {
-			if let Some(location) = get_location(line, column) {
+			if let Some(location) = get_location(line, column, line, column) {
 				stack.push(location);
 			}
 		}
@@ -123,19 +125,35 @@ pub fn prepare_stack_trace_callback<'s>(
 	Serde(stack).to_v8(scope).unwrap()
 }
 
-fn get_location(line: u32, column: u32) -> Option<tg::error::data::Location> {
+fn get_location(
+	start_line: u32,
+	start_column: u32,
+	end_line: u32,
+	end_column: u32,
+) -> Option<tg::error::data::Location> {
 	let source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
-	let token = source_map.lookup_token(line, column)?;
-	let symbol = token.get_name().map(String::from);
-	let path = token.get_source().unwrap().parse().unwrap();
+	let start_token = source_map.lookup_token(start_line, start_column)?;
+	let end_token = source_map.lookup_token(end_line, end_column)?;
+	let symbol = start_token.get_name().map(String::from);
+	let path = start_token.get_source().unwrap().parse().unwrap();
 	let file = tg::error::data::File::Internal(path);
-	let line = token.get_src_line();
-	let column = token.get_src_col();
+	let start_line = start_token.get_src_line();
+	let start_column = start_token.get_src_col();
+	let end_line = end_token.get_src_line();
+	let end_column = end_token.get_src_col();
 	let location = tg::error::data::Location {
 		symbol,
 		file,
-		line,
-		column,
+		range: tg::Range {
+			start: tg::Position {
+				line: start_line,
+				character: start_column,
+			},
+			end: tg::Position {
+				line: end_line,
+				character: end_column,
+			},
+		},
 	};
 	Some(location)
 }

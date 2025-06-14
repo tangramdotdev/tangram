@@ -40,6 +40,7 @@ indexmap = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
+miette = { workspace = true }
 num = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }

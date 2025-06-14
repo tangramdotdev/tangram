@@ -75,13 +75,18 @@ pub(super) fn from_exception<'s>(
 	} else {
 		None
 	};
-	let column = if id.is_some() {
+	let start_column = if id.is_some() {
 		Some(v8_message.get_start_column().to_u32().unwrap())
 	} else {
 		None
 	};
-	let location =
-		get_location(state, None, id, line, column).and_then(|location| location.try_into().ok());
+	let end_column = if id.is_some() {
+		Some(v8_message.get_end_column().to_u32().unwrap())
+	} else {
+		None
+	};
+	let location = get_location(state, None, id, line, start_column, end_column)
+		.and_then(|location| location.try_into().ok());
 
 	// Get the message.
 	let message = Some(v8_message.get(scope).to_rust_string_lossy(scope));
@@ -248,6 +253,7 @@ pub fn prepare_stack_trace_callback<'s>(
 			file_name,
 			line_number,
 			column_number,
+			column_number,
 		) {
 			let data = Serde(location).to_v8(scope).unwrap();
 			let undefined = v8::undefined(scope);
@@ -267,24 +273,37 @@ fn get_location(
 	symbol: Option<String>,
 	id: Option<usize>,
 	line: Option<u32>,
-	column: Option<u32>,
+	start_column: Option<u32>,
+	end_column: Option<u32>,
 ) -> Option<tg::error::data::Location> {
 	match id {
 		Some(0) => {
 			let line = line?;
-			let column = column?;
+			let start_column = start_column?;
+			let end_column = end_column?;
 			let global_source_map = state.global_source_map.as_ref()?;
-			let token = global_source_map.lookup_token(line, column)?;
-			let line = token.get_src_line();
-			let column = token.get_src_col();
-			let symbol = token.get_name().map(String::from);
+			let start_token = global_source_map.lookup_token(line, start_column)?;
+			let start_line = start_token.get_src_line();
+			let start_column = start_token.get_src_col();
+			let end_token = global_source_map.lookup_token(line, end_column)?;
+			let end_line = end_token.get_src_line();
+			let end_column = end_token.get_src_col();
+			let symbol = start_token.get_name().map(String::from);
 			let source =
-				tg::error::data::File::Internal(token.get_source().unwrap().parse().unwrap());
+				tg::error::data::File::Internal(start_token.get_source().unwrap().parse().unwrap());
 			let location = tg::error::data::Location {
 				symbol,
 				file: source,
-				line,
-				column,
+				range: tg::Range {
+					start: tg::Position {
+						line: start_line,
+						character: start_column,
+					},
+					end: tg::Position {
+						line: end_line,
+						character: end_column,
+					},
+				},
 			};
 			Some(location)
 		},
@@ -298,12 +317,18 @@ fn get_location(
 			let source = tg::error::data::File::Module(module.module.clone());
 
 			// Get the line and column and apply a source map if one is available.
-			let mut line = line?;
-			let mut column = column?;
+			let mut start_line = line?;
+			let mut start_column = start_column?;
+			let mut end_line = line?;
+			let mut end_column = end_column?;
 			if let Some(source_map) = module.source_map.as_ref() {
-				if let Some(token) = source_map.lookup_token(line, column) {
-					line = token.get_src_line();
-					column = token.get_src_col();
+				if let Some(start_token) = source_map.lookup_token(start_line, start_column) {
+					start_line = start_token.get_src_line();
+					start_column = start_token.get_src_col();
+				}
+				if let Some(end_token) = source_map.lookup_token(end_line, end_column) {
+					end_line = end_token.get_src_line();
+					end_column = end_token.get_src_col();
 				}
 			}
 
@@ -311,8 +336,16 @@ fn get_location(
 			let location = tg::error::data::Location {
 				symbol,
 				file: source,
-				line,
-				column,
+				range: tg::Range {
+					start: tg::Position {
+						line: start_line,
+						character: start_column,
+					},
+					end: tg::Position {
+						line: end_line,
+						character: end_column,
+					},
+				},
 			};
 
 			Some(location)

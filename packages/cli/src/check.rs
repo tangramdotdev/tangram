@@ -36,7 +36,7 @@ impl Cli {
 
 		// Print the diagnostics.
 		for diagnostic in &output.diagnostics {
-			Self::print_diagnostic(diagnostic);
+			Self::print_diagnostic_with_handle(diagnostic, &handle).await;
 		}
 
 		if !output.diagnostics.is_empty() {

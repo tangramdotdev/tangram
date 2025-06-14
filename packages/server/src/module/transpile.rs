@@ -15,14 +15,14 @@ pub struct Error {
 }
 
 impl Server {
-	pub fn transpile_module(text: String) -> tg::Result<Output> {
+	pub fn transpile_module(text: String, file: tg::error::File) -> tg::Result<Output> {
 		let globals = swc::common::Globals::default();
 		swc::common::GLOBALS.set(&globals, move || {
 			// Parse the text.
 			let super::parse::Output {
 				mut program,
 				source_map,
-			} = Self::parse_module(text)?;
+			} = Self::parse_module(text, file)?;
 
 			let unresolved_mark = swc::common::Mark::new();
 			let top_level_mark = swc::common::Mark::new();

@@ -242,7 +242,12 @@ impl Server {
 		)?;
 		let text = String::from_utf8(contents)
 			.map_err(|source| tg::error!(!source, %path = path.display(), "invalid utf8"))?;
-		let analysis = Self::analyze_module(text).map_err(
+
+		let file = tg::error::File::Module(tg::module::Module {
+			kind: tg::module::Kind::Ts,
+			referent: tg::Referent::with_item(tg::module::Item::Path(path.into())),
+		});
+		let analysis = Self::analyze_module(text, file).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to analyze the module"),
 		)?;
 		for error in analysis.errors {

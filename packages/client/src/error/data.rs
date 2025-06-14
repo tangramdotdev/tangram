@@ -35,8 +35,7 @@ pub struct Location {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub symbol: Option<String>,
 	pub file: File,
-	pub line: u32,
-	pub column: u32,
+	pub range: tg::Range,
 }
 
 /// An error location's source.
