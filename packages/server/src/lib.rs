@@ -891,6 +891,11 @@ impl Server {
 	}
 
 	#[must_use]
+	pub fn tags_path(&self) -> PathBuf {
+		self.path.join("tags")
+	}
+
+	#[must_use]
 	pub fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
 	}
