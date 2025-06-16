@@ -1,6 +1,9 @@
 use crate::Server;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use swc_core as swc;
+use swc_core::common::Spanned;
+use swc_core::common::source_map::SmallPos;
 use tangram_client as tg;
 
 pub struct Output {
@@ -10,7 +13,7 @@ pub struct Output {
 
 impl Server {
 	/// Parse a module.
-	pub fn parse_module(text: String) -> tg::Result<Output> {
+	pub fn parse_module(module: &tg::module::Data, text: String) -> tg::Result<Output> {
 		// Create the parser.
 		let syntax = swc::ecma::parser::TsSyntax::default();
 		let syntax = swc::ecma::parser::Syntax::Typescript(syntax);
@@ -20,9 +23,66 @@ impl Server {
 		let mut parser = swc::ecma::parser::Parser::new(syntax, input, None);
 
 		// Parse the text.
-		let program = parser
-			.parse_program()
-			.map_err(|error| tg::error!("{}", error.into_kind().msg()))?;
+		let program = parser.parse_program().map_err(|error| {
+			let start_line = source_map
+				.lookup_line(error.span().lo)
+				.map_err(|_| tg::error!("failed to lookup line"))
+				.and_then(|line| {
+					line.line
+						.try_into()
+						.map_err(|_| tg::error!("line number too large"))
+				})
+				.unwrap();
+			let start_column = source_map.lookup_char_pos(error.span().lo).col.to_u32();
+			let end_line = source_map
+				.lookup_line(error.span().hi)
+				.map_err(|_| tg::error!("failed to lookup line"))
+				.and_then(|line| {
+					line.line
+						.try_into()
+						.map_err(|_| tg::error!("line number too large"))
+				})
+				.unwrap();
+			let end_column = source_map.lookup_char_pos(error.span().hi).col.to_u32();
+			let message = Some(error.into_kind().msg().to_string());
+			let file = match &module.referent.item {
+				tg::module::data::Item::Path(path) => tg::error::File::Module(tg::module::Module {
+					kind: tg::module::Kind::Ts,
+					referent: tg::Referent::with_item(tg::module::Item::Path(path.into())),
+				}),
+				tg::module::data::Item::Object(id) => tg::error::File::Module(tg::Module {
+					kind: tg::module::Kind::Ts,
+					referent: tg::Referent::with_item(tg::module::Item::Object(
+						tg::Object::with_id(id.clone()),
+					)),
+				}),
+			};
+			let location = Some(tg::error::Location {
+				symbol: None,
+				file,
+				range: tg::Range {
+					start: tg::Position {
+						line: start_line,
+						character: start_column,
+					},
+					end: tg::Position {
+						line: end_line,
+						character: end_column,
+					},
+				},
+			});
+			let stack = None;
+			let source = None;
+			let values = BTreeMap::new();
+			tg::Error {
+				code: None,
+				message,
+				location,
+				stack,
+				source,
+				values,
+			}
+		})?;
 
 		Ok(Output {
 			program,

@@ -1,4 +1,5 @@
 use crate::Cli;
+use futures::FutureExt as _;
 use std::path::{Path, PathBuf};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
@@ -93,6 +94,7 @@ impl Cli {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 		let (_, process) = self
 			.spawn(args.options, reference, args.trailing, None, None, None)
+			.boxed()
 			.await?;
 		println!("{}", process.id());
 		Ok(())
@@ -228,19 +230,13 @@ impl Cli {
 			},
 
 			tg::Object::File(file) => {
-				let path = reference
-					.item()
-					.try_unwrap_path_ref()
-					.ok()
-					.and_then(|path| {
-						if tg::package::is_root_module_path(path)
-							|| tg::package::is_module_path(path)
-						{
-							Some(path)
-						} else {
-							None
-						}
-					});
+				let path = referent.path.as_ref().and_then(|path| {
+					if tg::package::is_root_module_path(path) || tg::package::is_module_path(path) {
+						Some(path)
+					} else {
+						None
+					}
+				});
 				if let Some(path) = path {
 					let kind = if path.extension().is_some_and(|extension| extension == "js") {
 						tg::module::Kind::Js

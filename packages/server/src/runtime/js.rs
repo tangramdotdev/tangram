@@ -693,7 +693,7 @@ fn compile_module<'s>(
 	let crate::module::transpile::Output {
 		transpiled_text,
 		source_map,
-	} = match Server::transpile_module(text)
+	} = match Server::transpile_module(text, module)
 		.map_err(|source| tg::error!(!source, "failed to transpile the module"))
 	{
 		Ok(output) => output,

@@ -33,8 +33,7 @@ pub enum Code {
 pub struct Location {
 	pub symbol: Option<String>,
 	pub file: File,
-	pub line: u32,
-	pub column: u32,
+	pub range: tg::Range,
 }
 
 /// An error location's source.
@@ -126,13 +125,11 @@ impl Location {
 	pub fn to_data(&self) -> data::Location {
 		let symbol = self.symbol.clone();
 		let file = self.file.to_data();
-		let line = self.line;
-		let column = self.column;
+		let range = self.range;
 		data::Location {
 			symbol,
 			file,
-			line,
-			column,
+			range,
 		}
 	}
 }
@@ -214,8 +211,7 @@ impl TryFrom<data::Location> for Location {
 		Ok(Self {
 			symbol: value.symbol,
 			file: value.file.try_into()?,
-			line: value.line,
-			column: value.column,
+			range: value.range,
 		})
 	}
 }
@@ -289,8 +285,16 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 		Self {
 			symbol: None,
 			file: File::Internal(location.file().parse().unwrap()),
-			line: location.line() - 1,
-			column: location.column() - 1,
+			range: tg::Range {
+				start: tg::Position {
+					line: location.line() - 1,
+					character: location.column() - 1,
+				},
+				end: tg::Position {
+					line: location.line() - 1,
+					character: location.column() - 1,
+				},
+			},
 		}
 	}
 }
@@ -333,7 +337,13 @@ impl std::fmt::Display for Trace<'_> {
 
 impl std::fmt::Display for Location {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}:{}:{}", self.file, self.line + 1, self.column + 1)?;
+		write!(
+			f,
+			"{}:{}:{}",
+			self.file,
+			self.range.start.line + 1,
+			self.range.start.character + 1,
+		)?;
 		if let Some(symbol) = &self.symbol {
 			write!(f, " {symbol}")?;
 		}
@@ -433,8 +443,10 @@ macro_rules! error {
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
 				file: $crate::error::File::Internal(format!("{}", ::std::file!()).parse().unwrap()),
-				line: line!() - 1,
-				column: column!() - 1,
+				range: tg::Range {
+					start: tg::Position { line: line!() - 1, character: column!() - 1 },
+					end: tg::Position { line: line!() - 1, character: column!() - 1 }
+				}
 			}),
 			source: None,
 			stack: None,

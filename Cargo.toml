@@ -101,6 +101,7 @@ insta = { version = "1", features = ["filters", "json", "redactions", "yaml"] }
 itertools = "0.14"
 libc = "0.2"
 lsp-types = "0.97"
+miette = { version = "7.6", features = ["fancy"] }
 mime = "0.3"
 moka = { version = "0.12", features = ["sync"] }
 notify = "8"
