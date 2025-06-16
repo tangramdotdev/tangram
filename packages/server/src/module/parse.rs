@@ -13,7 +13,7 @@ pub struct Output {
 
 impl Server {
 	/// Parse a module.
-	pub fn parse_module(text: String, file: tg::error::File) -> tg::Result<Output> {
+	pub fn parse_module(text: String, module: &tg::module::Data) -> tg::Result<Output> {
 		// Create the parser.
 		let syntax = swc::ecma::parser::TsSyntax::default();
 		let syntax = swc::ecma::parser::Syntax::Typescript(syntax);
@@ -45,6 +45,18 @@ impl Server {
 				.unwrap();
 			let end_column = source_map.lookup_char_pos(error.span().hi).col.to_u32();
 			let message = Some(error.into_kind().msg().to_string());
+			let file = match &module.referent.item {
+				tg::module::data::Item::Path(path) => tg::error::File::Module(tg::module::Module {
+					kind: tg::module::Kind::Ts,
+					referent: tg::Referent::with_item(tg::module::Item::Path(path.into())),
+				}),
+				tg::module::data::Item::Object(id) => tg::error::File::Module(tg::Module {
+					kind: tg::module::Kind::Ts,
+					referent: tg::Referent::with_item(tg::module::Item::Object(
+						tg::Object::with_id(id.clone()),
+					)),
+				}),
+			};
 			let location = Some(tg::error::Location {
 				symbol: None,
 				file,
