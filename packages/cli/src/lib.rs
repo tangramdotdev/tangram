@@ -543,7 +543,7 @@ impl Cli {
 	}
 
 	async fn server(&self) -> tg::Result<Server> {
-		// Get the directory path.
+		// Create the default config.
 		let directory = self
 			.args
 			.directory
@@ -553,8 +553,6 @@ impl Cli {
 				.as_ref()
 				.and_then(|config| config.directory.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-
-		// Create the default config.
 		let parallelism = std::thread::available_parallelism().unwrap().into();
 		let advanced = tangram_server::config::Advanced::default();
 		let authentication = None;
@@ -568,7 +566,9 @@ impl Cli {
 			connections: parallelism,
 			path: directory.join("index"),
 		});
-		let http = Some(tangram_server::config::Http::default());
+		let http = Some(tangram_server::config::Http {
+			url: self.args.url.clone(),
+		});
 		let indexer = Some(tangram_server::config::Indexer::default());
 		let messenger = tangram_server::config::Messenger::default();
 		let remotes = None;
