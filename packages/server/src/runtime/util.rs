@@ -1,6 +1,9 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{Stream, TryStreamExt as _, future, stream};
+use futures::{
+	FutureExt, Stream, TryStreamExt as _, future,
+	stream::{self, BoxStream, FuturesUnordered},
+};
 use std::{
 	collections::BTreeMap,
 	os::fd::OwnedFd,
@@ -284,6 +287,72 @@ pub async fn log(
 }
 
 impl Server {
+	pub(super) async fn checkout_children(&self, process: &tg::Process) -> tg::Result<()> {
+		if self.vfs.lock().unwrap().is_some() {
+			return Ok(());
+		}
+		let streams = process
+			.command(self)
+			.await?
+			.children(self)
+			.await?
+			.into_iter()
+			.filter_map(|object| object.id().try_into().ok())
+			.map(|artifact| {
+				let arg = tg::checkout::Arg {
+					artifact,
+					dependencies: false,
+					force: false,
+					lockfile: false,
+					path: None,
+				};
+				self.checkout(arg)
+					.then(|stream| future::ready(stream.map(stream::StreamExt::boxed)))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		self.log_checkout_progress_streams(process, "bytes", streams)
+			.await?;
+		Ok(())
+	}
+
+	async fn log_checkout_progress_streams(
+		&self,
+		process: &tg::Process,
+		stream_name: &str,
+		streams: Vec<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>,
+	) -> tg::Result<()> {
+		let mut total = None;
+		let mut stream = stream::select_all(streams);
+		while let Some(event) = stream.try_next().await? {
+			let mut indicator = match event {
+				tg::progress::Event::Start(indicator) if indicator.name == stream_name => {
+					total = total
+						.and_then(|t| indicator.total.map(|i| t + i))
+						.or(indicator.total);
+					indicator
+				},
+				tg::progress::Event::Finish(indicator) | tg::progress::Event::Update(indicator)
+					if indicator.name == stream_name =>
+				{
+					indicator
+				},
+				_ => continue,
+			};
+			indicator.total = total;
+			let message = format!("{indicator}\r");
+			log(
+				self,
+				process,
+				tg::process::log::Stream::Stderr,
+				message.clone(),
+			)
+			.await;
+		}
+		Ok(())
+	}
+
 	pub(super) async fn write_message_to_stdio(
 		&self,
 		io: &tg::process::Stdio,
