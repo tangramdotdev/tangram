@@ -52,7 +52,8 @@ impl Runtime {
 						lockfile: false,
 						path: None,
 					};
-					tg::checkout(&self.server, arg).await?;
+					let stream = self.server.checkout(arg).await?;
+					self.server.log_progress_stream(process, stream).await?;
 					Ok::<_, tg::Error>(())
 				})
 				.collect::<FuturesUnordered<_>>()

@@ -1,5 +1,5 @@
 use crate::{ProcessPermit, Server, runtime};
-use futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future};
+use futures::{FutureExt as _, Stream, TryFutureExt as _, TryStreamExt as _, future};
 use std::{pin::pin, sync::Arc, time::Duration};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
@@ -113,7 +113,6 @@ impl Server {
 		// If the process is remote, then push the output.
 		if let Some(remote) = process.remote() {
 			if let Some(output) = &output {
-				// Push the objects.
 				let objects = output.children();
 				let arg = tg::push::Arg {
 					items: objects.into_iter().map(Either::Right).collect(),
@@ -121,29 +120,7 @@ impl Server {
 					..Default::default()
 				};
 				let stream = self.push(arg).await?;
-
-				// Consume the stream and log progress.
-				let mut stream = pin!(stream);
-				while let Some(event) = stream.try_next().await? {
-					match event {
-						tg::progress::Event::Start(indicator)
-						| tg::progress::Event::Update(indicator) => {
-							if indicator.name == "bytes" {
-								let message = format!("{indicator}\n");
-								let arg = tg::process::log::post::Arg {
-									bytes: message.into(),
-									remote: process.remote().cloned(),
-									stream: tg::process::log::Stream::Stderr,
-								};
-								self.post_process_log(process.id(), arg).await.ok();
-							}
-						},
-						tg::progress::Event::Output(()) => {
-							break;
-						},
-						_ => {},
-					}
-				}
+				self.log_progress_stream(process, stream).await?;
 			}
 		}
 
@@ -199,5 +176,31 @@ impl Server {
 			tokio::time::sleep(config.heartbeat_interval).await;
 		}
 		Ok(())
+	}
+
+	pub(crate) async fn log_progress_stream<T>(
+		&self,
+		process: &tg::Process,
+		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
+	) -> tg::Result<T> {
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			match event {
+				tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
+					let message = format!("{indicator}\n");
+					let arg = tg::process::log::post::Arg {
+						bytes: message.into(),
+						remote: process.remote().cloned(),
+						stream: tg::process::log::Stream::Stderr,
+					};
+					self.post_process_log(process.id(), arg).await.ok();
+				},
+				tg::progress::Event::Output(output) => {
+					return Ok(output);
+				},
+				_ => {},
+			}
+		}
+		Err(tg::error!("expected the stream to have an output"))
 	}
 }
