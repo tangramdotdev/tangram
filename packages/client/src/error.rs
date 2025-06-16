@@ -287,12 +287,12 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 			file: File::Internal(location.file().parse().unwrap()),
 			range: tg::Range {
 				start: tg::Position {
-					line: location.line(),
-					character: location.column(),
+					line: location.line() - 1,
+					character: location.column() - 1,
 				},
 				end: tg::Position {
-					line: location.line(),
-					character: location.column(),
+					line: location.line() - 1,
+					character: location.column() - 1,
 				},
 			},
 		}
@@ -340,7 +340,9 @@ impl std::fmt::Display for Location {
 		write!(
 			f,
 			"{}:{}:{}",
-			self.file, self.range.start.line, self.range.start.character
+			self.file,
+			self.range.start.line + 1,
+			self.range.start.character + 1,
 		)?;
 		if let Some(symbol) = &self.symbol {
 			write!(f, " {symbol}")?;
@@ -442,8 +444,8 @@ macro_rules! error {
 				symbol: Some($crate::function!().to_owned()),
 				file: $crate::error::File::Internal(format!("{}", ::std::file!()).parse().unwrap()),
 				range: tg::Range {
-					start: tg::Position {line: line!() - 1, character: column!() - 1},
-					end: tg::Position {line: line!() - 1, character: column!() - 1}
+					start: tg::Position { line: line!() - 1, character: column!() - 1 },
+					end: tg::Position { line: line!() - 1, character: column!() - 1 }
 				}
 			}),
 			source: None,

@@ -21,7 +21,7 @@ struct State<T> {
 
 impl Cli {
 	pub async fn render_progress_stream<T>(
-		&self,
+		&mut self,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	) -> tg::Result<T> {
 		if self.args.quiet {
@@ -64,7 +64,7 @@ impl Cli {
 			match either {
 				future::Either::Left((Some(Ok(event)), _)) => {
 					let is_update = event.is_update();
-					state.update(event);
+					self.render_progress_stream_update(&mut state, event).await;
 					if is_update {
 						continue;
 					}
@@ -89,49 +89,53 @@ impl Cli {
 
 		Ok(output)
 	}
-}
 
-impl<T> State<T> {
-	fn update(&mut self, event: tg::progress::Event<T>) {
+	async fn render_progress_stream_update<T>(
+		&mut self,
+		state: &mut State<T>,
+		event: tg::progress::Event<T>,
+	) {
 		match event {
 			tg::progress::Event::Log(log) => {
 				if let Some(level) = log.level {
 					match level {
 						tg::progress::Level::Success => {
-							write!(self.tty, "{} ", "success".green().bold()).unwrap();
+							write!(state.tty, "{} ", "success".green().bold()).unwrap();
 						},
 						tg::progress::Level::Info => {
-							write!(self.tty, "{} ", "info".blue().bold()).unwrap();
+							write!(state.tty, "{} ", "info".blue().bold()).unwrap();
 						},
 						tg::progress::Level::Warning => {
-							write!(self.tty, "{} ", "warning".yellow().bold()).unwrap();
+							write!(state.tty, "{} ", "warning".yellow().bold()).unwrap();
 						},
 						tg::progress::Level::Error => {
-							write!(self.tty, "{} ", "error".red().bold()).unwrap();
+							write!(state.tty, "{} ", "error".red().bold()).unwrap();
 						},
 					}
 				}
-				writeln!(self.tty, "{}", log.message).unwrap();
+				writeln!(state.tty, "{}", log.message).unwrap();
 			},
 
 			tg::progress::Event::Diagnostic(diagnostic) => {
-				Cli::print_diagnostic(&diagnostic);
+				self.print_diagnostic(&diagnostic).await;
 			},
 
 			tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
-				self.indicators.insert(indicator.name.clone(), indicator);
+				state.indicators.insert(indicator.name.clone(), indicator);
 			},
 
 			tg::progress::Event::Finish(indicator) => {
-				self.indicators.shift_remove(&indicator.name);
+				state.indicators.shift_remove(&indicator.name);
 			},
 
 			tg::progress::Event::Output(output) => {
-				self.output.replace(output);
+				state.output.replace(output);
 			},
 		}
 	}
+}
 
+impl<T> State<T> {
 	fn clear(&mut self) {
 		match self.lines.take() {
 			Some(n) if n > 0 => {

@@ -249,7 +249,7 @@ impl Server {
 			kind,
 			referent: tg::Referent::with_item(tg::module::data::Item::Path(path.into())),
 		};
-		let analysis = Self::analyze_module(text, &module).map_err(
+		let analysis = Self::analyze_module(&module, text).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to analyze the module"),
 		)?;
 		for error in analysis.errors {

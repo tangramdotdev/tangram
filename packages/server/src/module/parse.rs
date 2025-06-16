@@ -13,7 +13,7 @@ pub struct Output {
 
 impl Server {
 	/// Parse a module.
-	pub fn parse_module(text: String, module: &tg::module::Data) -> tg::Result<Output> {
+	pub fn parse_module(module: &tg::module::Data, text: String) -> tg::Result<Output> {
 		// Create the parser.
 		let syntax = swc::ecma::parser::TsSyntax::default();
 		let syntax = swc::ecma::parser::Syntax::Typescript(syntax);

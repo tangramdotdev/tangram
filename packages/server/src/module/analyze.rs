@@ -22,12 +22,12 @@ pub struct Error {
 
 impl Server {
 	/// Analyze a module.
-	pub fn analyze_module(text: String, module: &tg::module::Data) -> tg::Result<Analysis> {
+	pub fn analyze_module(module: &tg::module::Data, text: String) -> tg::Result<Analysis> {
 		// Parse the text.
 		let super::parse::Output {
 			program,
 			source_map,
-		} = Self::parse_module(text, module)
+		} = Self::parse_module(module, text)
 			.map_err(|source| tg::error!(!source, "failed to parse the module"))?;
 
 		// Create the visitor and visit the module.
@@ -233,7 +233,7 @@ mod tests {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent::with_item(tg::module::data::Item::Path("test.tg.ts".into())),
 		};
-		let found = Server::analyze_module(text.to_owned(), &module)
+		let found = Server::analyze_module(&module, text.to_owned())
 			.unwrap()
 			.imports;
 		let expected = [

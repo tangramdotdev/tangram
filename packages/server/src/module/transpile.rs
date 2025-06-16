@@ -22,7 +22,7 @@ impl Server {
 			let super::parse::Output {
 				mut program,
 				source_map,
-			} = Self::parse_module(text, module)?;
+			} = Self::parse_module(module, text)?;
 
 			let unresolved_mark = swc::common::Mark::new();
 			let top_level_mark = swc::common::Mark::new();
