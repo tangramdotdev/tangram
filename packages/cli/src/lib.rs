@@ -1288,10 +1288,10 @@ impl Cli {
 							SourceSpan::new(start, len.try_into().unwrap()),
 							message,
 						),],
-						"",
+						"An error occurred.",
 					)
 					.with_source_code(content);
-					eprint!("{:?}", &report);
+					eprintln!("{:?}", &report);
 					eprintln!(
 						"   {}:{}:{}",
 						path.display(),
@@ -1357,12 +1357,11 @@ impl Cli {
 									SourceSpan::new(start, len.try_into().unwrap()),
 									message,
 								),],
-								"",
+								"An error occurred.",
 							)
 							.with_source_code(content);
-							eprint!("{:?}", &report);
+							eprintln!("{:?}", &report);
 						}
-
 						eprint!("   {}", path.display());
 					}
 					eprintln!(
@@ -1488,7 +1487,7 @@ impl Cli {
 						SourceSpan::new(start, len.try_into().unwrap()),
 						diagnostic.message.clone(),
 					),],
-					"",
+					"An error occurred.",
 				)
 				.with_source_code(content);
 				write!(string, "{:?}", &report).unwrap();
