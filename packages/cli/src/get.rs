@@ -30,29 +30,18 @@ pub enum Depth {
 impl Cli {
 	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
 		let referent = self.get_reference(&args.reference).await?;
-		let item = match &referent.item {
-			Either::Left(process) => process.id().to_string(),
-			Either::Right(item) => item.to_string(),
-		};
-		eprintln!("{} {item}", "info".blue().bold());
-		if let Some(path) = &referent.path {
-			let path = path.display();
-			eprintln!("{} path {path}", "info".blue().bold());
-		}
-		if let Some(tag) = &referent.tag {
-			eprintln!("{} tag {tag}", "info".blue().bold());
-		}
-		let item = match referent.item {
+		let referent = referent.map(|item| match item {
 			Either::Left(process) => Either::Left(process.id().clone()),
 			Either::Right(object) => Either::Right(object.id().clone()),
-		};
+		});
+		eprintln!("{} {referent}", "info".blue().bold());
 		let Args {
 			format,
 			pretty,
 			depth,
 			..
 		} = args;
-		match item {
+		match referent.item {
 			Either::Left(process) => {
 				self.command_process_get(crate::process::get::Args { pretty, process })
 					.await?;
