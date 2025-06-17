@@ -1217,11 +1217,7 @@ impl Cli {
 				let mut tag = tag;
 				match (&path, &source.path, &tag, &source.tag) {
 					(Some(path_), Some(source), None, None) => {
-						if tg::package::is_module_path(path_) {
-							path.replace(path_.parent().unwrap().join(source));
-						} else {
-							path.replace(path_.join(source));
-						}
+						path.replace(path_.parent().unwrap().join(source));
 					},
 					(None, Some(source), None, None) => {
 						path.replace(source.clone());
@@ -1290,16 +1286,9 @@ impl Cli {
 					path.take();
 				}
 				if let Some(path_) = &module.referent.path {
-					let path_ = path.take().map_or_else(
-						|| path_.clone(),
-						|path| {
-							if tg::package::is_module_path(&path) {
-								path.parent().unwrap().join(path_)
-							} else {
-								path.join(path_)
-							}
-						},
-					);
+					let path_ = path
+						.take()
+						.map_or_else(|| path_.clone(), |path| path.parent().unwrap().join(path_));
 					path.replace(path_);
 				}
 				if let Some(tag) = &tag {
@@ -1536,7 +1525,7 @@ impl Cli {
 					.path
 					.as_ref()
 					.ok_or_else(|| tg::error!("expected a path"))?;
-				if !(tg::package::is_root_module_path(path) || tg::package::is_module_path(path)) {
+				if !tg::package::is_module_path(path) {
 					return Err(tg::error!("expected a module path"));
 				}
 				let kind = if path.extension().is_some_and(|extension| extension == "js") {

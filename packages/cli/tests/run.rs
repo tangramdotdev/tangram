@@ -52,19 +52,19 @@ async fn assertion_failure() {
 		assert_snapshot!(stderr, @r#"
 		error the process failed
 		-> Uncaught Error: failed assertion
+		   ./tangram.ts:2:22
 		   ╭─[2:22]
 		 1 │ import foo from "./foo.tg.ts";
 		 2 │ export default () => foo();
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: failed assertion
 		   ╰────
-		   ./tangram.ts:2:22
+		   ./foo.tg.ts:1:25
 		   ╭────
 		 1 │ export default () => tg.assert(false);
 		   ·                         ▲
 		   ·                         ╰── Uncaught Error: failed assertion
 		   ╰────
-		   ./foo.tg.ts:1:25
 		"#);
 	};
 	test_run(artifact, tags, path, export, args, assertions).await;
@@ -97,12 +97,12 @@ async fn assertion_failure_out_of_tree() {
 		error the process failed
 		-> the child process failed
 		-> Uncaught Error: failed assertion
+		   ./bar/tangram.ts:1:25
 		   ╭────
 		 1 │ export default () => tg.assert(false);
 		   ·                         ▲
 		   ·                         ╰── Uncaught Error: failed assertion
 		   ╰────
-		   ./bar/tangram.ts:1:25
 		");
 	};
 	test_run(artifact, tags, path, export, args, assertions).await;
@@ -134,19 +134,19 @@ async fn assertion_failure_in_path_dependency() {
 		assert_snapshot!(stderr, @r#"
 		error the process failed
 		-> Uncaught Error: error
+		   ./foo/tangram.ts:2:22
 		   ╭─[2:22]
 		 1 │ import foo from "../bar";
 		 2 │ export default () => foo();
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: error
 		   ╰────
-		   ./foo/tangram.ts:2:22
+		   ./bar/tangram.ts:1:25
 		   ╭────
 		 1 │ export default () => tg.assert(false, "error")
 		   ·                         ▲
 		   ·                         ╰── Uncaught Error: error
 		   ╰────
-		   ../bar/tangram.ts:1:25
 		"#);
 	};
 	test_run(artifact, tags, path, export, args, assertions).await;
@@ -177,19 +177,19 @@ async fn assertion_failure_in_tag_dependency() {
 		assert_snapshot!(stderr, @r#"
 		error the process failed
 		-> Uncaught Error: error in foo
+		   ./tangram.ts:2:22
 		   ╭─[2:22]
 		 1 │ import foo from "foo";
 		 2 │ export default () => foo();
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: error in foo
 		   ╰────
-		   ./tangram.ts:2:22
+		   foo:./tangram.ts:1:25
 		   ╭────
 		 1 │ export default () => tg.assert(false, "error in foo");
 		   ·                         ▲
 		   ·                         ╰── Uncaught Error: error in foo
 		   ╰────
-		   foo:./tangram.ts:1:25
 		"#);
 	};
 	test_run(artifact, tags, path, export, args, assertions).await;
@@ -230,13 +230,14 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 		assert_snapshot!(stderr, @r#"
 		error the process failed
 		-> Uncaught Error: failure in foo
+		   ./tangram.ts:2:22
 		   ╭─[2:22]
 		 1 │ import foo from "foo";
 		 2 │ export default () => foo();
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: failure in foo
 		   ╰────
-		   ./tangram.ts:2:22
+		   foo:./tangram.ts:2:22
 		   ╭─[2:22]
 		 1 │ import bar from "../bar";
 		 2 │ export default () => bar();
@@ -244,21 +245,20 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 		   ·                      ╰── Uncaught Error: failure in foo
 		 3 │ export const failure = () => tg.assert(false, "failure in foo");
 		   ╰────
-		   foo:./tangram.ts:2:22
+		   foo:../bar/tangram.ts:2:22
 		   ╭─[2:22]
 		 1 │ import { failure } from "../foo";
 		 2 │ export default () => failure();
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: failure in foo
 		   ╰────
-		   foo:../bar/tangram.ts:2:22
+		   foo:../bar/../foo/tangram.ts:3:33
 		   ╭─[3:33]
 		 2 │ export default () => bar();
 		 3 │ export const failure = () => tg.assert(false, "failure in foo");
 		   ·                                 ▲
 		   ·                                 ╰── Uncaught Error: failure in foo
 		   ╰────
-		   foo:./tangram.ts:3:33
 		"#);
 	};
 	test_run(artifact, tags, path, export, args, assertions).await;

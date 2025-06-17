@@ -231,7 +231,7 @@ impl Cli {
 
 			tg::Object::File(file) => {
 				let path = referent.path.as_ref().and_then(|path| {
-					if tg::package::is_root_module_path(path) || tg::package::is_module_path(path) {
+					if tg::package::is_module_path(path) {
 						Some(path)
 					} else {
 						None

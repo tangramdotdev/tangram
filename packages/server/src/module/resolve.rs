@@ -3,9 +3,6 @@ use std::path::Path;
 use tangram_client as tg;
 use tangram_either::Either;
 
-#[cfg(test)]
-mod tests;
-
 impl Server {
 	/// Resolve an import from a module.
 	pub async fn resolve_module(
