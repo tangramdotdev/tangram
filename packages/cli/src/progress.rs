@@ -183,7 +183,11 @@ impl<T> State<T> {
 			const LENGTH: u64 = 20;
 			if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
 				write!(line, " [").unwrap();
-				let n = if total > 0 { current / total } else { 1 } * LENGTH;
+				let n = if total > 0 {
+					(current * LENGTH / total).min(LENGTH)
+				} else {
+					LENGTH
+				};
 				for _ in 0..n {
 					write!(line, "=").unwrap();
 				}
