@@ -238,14 +238,92 @@ impl Server {
 		pty: &tg::pty::Id,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<()> {
+		let mut state = State {
+			indicators: IndexMap::new(),
+			lines: None,
+			output: None,
+		};
+		let mut interval = tokio::time::interval(interval);
 		let mut stream = pin!(stream);
+		let (send, recv) = async_channel::bounded(1024);
+		loop {
+			let next = stream.next();
+			let tick = interval.tick().boxed();
+			let either = future::select(next, tick).await;
+			match either {
+				future::Either::Left((Some(Ok(event)), _)) => {
+					let is_update = event.is_update();
+					state.update(event);
+					if is_update {
+						continue;
+					}
+				},
+				future::Either::Left((Some(Err(error)), _)) => {
+					state.clear();
+					return Err(error);
+				},
+				future::Either::Left((None, _)) => {
+					state.clear();
+					break;
+				},
+				future::Either::Right(_) => (),
+			}
 
+			state.clear().await;
+			state.print().await;
+		}
 		Ok(())
 	}
 }
 
-struct State<T> {
+struct State {
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
-	output: Option<T>,
+	send: async_channel::Sender<tg::Result<tg::pty::Event>>,
+}
+
+impl State {
+		async fn update<T>(&mut self, event: tg::progress::Event<T>) {
+		match event {
+			tg::progress::Event::Log(log) => {
+				if let Some(level) = log.level {
+					let output = match level {
+						tg::progress::Level::Success => {
+							format!("{} ", "success".green().bold())
+						},
+						tg::progress::Level::Info => {
+							format!("{} ", "info".blue().bold())
+						},
+						tg::progress::Level::Warning => {
+							format!("{} ", "warning".yellow().bold())
+						},
+						tg::progress::Level::Error => {
+							format!("{} ", "error".red().bold())
+						},
+					};
+					self.send.send(Ok(tg::pty::Event::Chunk(output.into()))).await.ok();
+				}
+			},
+
+			tg::progress::Event::Diagnostic(diagnostic) => {
+				let output = diagnostic.fo
+					self.send.send(Ok(tg::pty::Event::Chunk(output.into()))).await.ok();
+			},
+
+			tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
+				self.indicators.insert(indicator.name.clone(), indicator);
+			},
+
+			tg::progress::Event::Finish(indicator) => {
+				self.indicators.shift_remove(&indicator.name);
+			},
+
+			tg::progress::Event::Output(output) => {
+				self.output.replace(output);
+			},
+		}
+	}
+	async fn clear(&self) {
+
+	}
 }
