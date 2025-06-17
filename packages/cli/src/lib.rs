@@ -1290,9 +1290,16 @@ impl Cli {
 					path.take();
 				}
 				if let Some(path_) = &module.referent.path {
-					let path_ = path
-						.take()
-						.map_or_else(|| path_.clone(), |path| path.join(path_));
+					let path_ = path.take().map_or_else(
+						|| path_.clone(),
+						|path| {
+							if tg::package::is_module_path(&path) {
+								path.parent().unwrap().join(path_)
+							} else {
+								path.join(path_)
+							}
+						},
+					);
 					path.replace(path_);
 				}
 				if let Some(tag) = &tag {
