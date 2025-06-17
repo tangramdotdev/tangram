@@ -1,5 +1,7 @@
 use crate::{ProcessPermit, Server, runtime};
+use bytes::Bytes;
 use futures::{FutureExt as _, Stream, TryFutureExt as _, TryStreamExt as _, future};
+use indexmap::IndexMap;
 use std::{pin::pin, sync::Arc, time::Duration};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
@@ -182,25 +184,68 @@ impl Server {
 		&self,
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
-	) -> tg::Result<T> {
+	) -> tg::Result<()> {
+		// Get the remote/stderr output.
+		let remote = process.remote().cloned();
+		let stderr = process.load(self).await?.stderr.clone();
+
+		match stderr {
+			Some(tg::process::Stdio::Pipe(_)) => (),
+			Some(tg::process::Stdio::Pty(pty)) => self.write_progress_to_pty(&pty, stream).await?,
+			None => self.write_progress_to_log(process, stream).await?,
+		}
+		Ok(())
+	}
+
+	async fn write_progress_to_log<T>(
+		&self,
+		process: &tg::Process,
+		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
+	) -> tg::Result<()> {
+		let mut total = Some(0);
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			match event {
-				tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
-					let message = format!("{indicator}\n");
-					let arg = tg::process::log::post::Arg {
-						bytes: message.into(),
-						remote: process.remote().cloned(),
-						stream: tg::process::log::Stream::Stderr,
-					};
-					self.post_process_log(process.id(), arg).await.ok();
+			let mut indicator = match event {
+				tg::progress::Event::Start(indicator) if indicator.name.starts_with("bytes") => {
+					total = total
+						.and_then(|t| indicator.total.map(|i| t + i))
+						.or(indicator.total);
+					indicator
 				},
-				tg::progress::Event::Output(output) => {
-					return Ok(output);
+				tg::progress::Event::Finish(indicator)
+				| tg::progress::Event::Update(indicator)
+					if indicator.name.starts_with("bytes") =>
+				{
+					indicator
 				},
-				_ => {},
-			}
+				_ => continue,
+			};
+			indicator.name = "bytes".to_owned();
+			indicator.total = total;
+			let message = format!("{indicator}\n");
+			let arg = tg::process::log::post::Arg {
+				bytes: message.into(),
+				stream: tg::process::log::Stream::Stderr,
+				remote: process.remote().cloned(),
+			};
+			self.post_process_log(process.id(), arg).await?;
 		}
-		Err(tg::error!("expected the stream to have an output"))
+		Ok(())
 	}
+
+	async fn write_progress_to_pty<T>(
+		&self,
+		pty: &tg::pty::Id,
+		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
+	) -> tg::Result<()> {
+		let mut stream = pin!(stream);
+
+		Ok(())
+	}
+}
+
+struct State<T> {
+	indicators: IndexMap<String, tg::progress::Indicator>,
+	lines: Option<u16>,
+	output: Option<T>,
 }

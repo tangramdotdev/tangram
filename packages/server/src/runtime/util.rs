@@ -1,9 +1,9 @@
 use crate::Server;
 use bytes::Bytes;
 use futures::{
-	FutureExt, Stream, TryStreamExt as _, future,
-	stream::{self, BoxStream, FuturesUnordered},
+	future, stream::{self, BoxStream, FuturesUnordered}, FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt as _
 };
+use tangram_either::Either;
 use std::{
 	collections::BTreeMap,
 	os::fd::OwnedFd,
@@ -247,6 +247,29 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Pat
 	Err(tg::error!(%path = exe.display(), "failed to find the executable"))
 }
 
+pub async fn clear_screen(
+	server: &Server,
+	process: &tg::Process,
+	stream: tg::process::log::Stream,
+) {
+	let state = process.load(server).await.unwrap();
+	let stdio = match stream {
+		tg::process::log::Stream::Stderr => state.stderr.as_ref(),
+		tg::process::log::Stream::Stdout => state.stderr.as_ref(),
+	};
+	let Some(tg::process::Stdio::Pty(pty)) = stdio else {
+		return;
+	};
+	let message = "\\033[2J".to_owned();
+	let bytes = Bytes::from(message.replace('\n', "\r\n"));
+	let stream = stream::once(future::ok(tg::pty::Event::Chunk(bytes)));
+	let arg = tg::pty::write::Arg {
+		master: false,
+		remote: process.remote().cloned(),
+	};
+	server.write_pty(pty, arg, Box::new(stream)).await.ok();
+}
+
 pub async fn log(
 	server: &Server,
 	process: &tg::Process,
@@ -272,7 +295,6 @@ pub async fn log(
 			.ok();
 		return;
 	}
-
 	// Otherwise post to the process' logs.
 	let arg = tg::process::log::post::Arg {
 		bytes: message.into(),
@@ -288,32 +310,65 @@ pub async fn log(
 
 impl Server {
 	pub(super) async fn checkout_children(&self, process: &tg::Process) -> tg::Result<()> {
+		// Do nothing if the VFS is enabled.
 		if self.vfs.lock().unwrap().is_some() {
 			return Ok(());
 		}
-		let streams = process
+
+		// Pull children.
+		let children = process
 			.command(self)
 			.await?
 			.children(self)
-			.await?
+			.await?;
+		let arg = tg::pull::Arg {
+			items: children.clone().into_iter().map(|object| Either::Right(object.id())).collect(),
+			recursive: true,
+			remote: process.remote().cloned(),
+			..tg::pull::Arg::default()
+		};
+		let stream = self.pull(arg).await.map_err(|source| tg::error!(!source, "failed to pull children"))?;
+		self.log_progress_stream(process, stream).await
+			.map_err(|source| tg::error!(!source, "failed to pull children"))?;
+
+		// Checkout children and collect their progress streams.
+		let streams =
+			children
 			.into_iter()
 			.filter_map(|object| object.id().try_into().ok())
-			.map(|artifact| {
+			.map(async |artifact: tg::artifact::Id| {
 				let arg = tg::checkout::Arg {
-					artifact,
+					artifact: artifact.clone(),
 					dependencies: false,
 					force: false,
 					lockfile: false,
 					path: None,
 				};
-				self.checkout(arg)
-					.then(|stream| future::ready(stream.map(stream::StreamExt::boxed)))
+				let stream = self.checkout(arg)
+					.await?;
+				let artifact = artifact.clone();
+				let stream = stream
+					.map_ok(move |mut event| {
+						match &mut event {
+							tg::progress::Event::Start(ind)
+							| tg::progress::Event::Update(ind)
+							| tg::progress::Event::Finish(ind) => {
+								ind.name = format!("{} ({artifact})", ind.name);
+							}
+							_ => (),
+						};
+						event
+					})
+					.boxed();
+				Ok::<_, tg::Error>(stream)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-		self.log_checkout_progress_streams(process, "bytes", streams)
-			.await?;
+
+		// Merge all the streams into one
+		let stream = stream::select_all(streams);
+		self.log_progress_stream(process, stream).await?;
 		Ok(())
 	}
 
@@ -350,6 +405,7 @@ impl Server {
 			)
 			.await;
 		}
+		clear_screen(self, process, tg::process::log::Stream::Stderr).await;
 		Ok(())
 	}
 
