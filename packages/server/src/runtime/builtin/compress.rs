@@ -84,6 +84,7 @@ impl Runtime {
 		let blob = tg::Blob::with_reader(server, reader).await?;
 
 		log_task.abort();
+		util::clear_screen(server, process).await;
 
 		// Log that the compression finished.
 		let message = "finished compressing\n";

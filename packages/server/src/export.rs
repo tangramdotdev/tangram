@@ -161,7 +161,7 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await
-			.map_or(false, |complete| {
+			.is_ok_and(|complete| {
 				complete.into_iter().all(|complete| complete)
 			});
 		if all_complete

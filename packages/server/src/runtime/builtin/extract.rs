@@ -107,6 +107,7 @@ impl Runtime {
 
 		// Abort and await the log task.
 		log_task.abort();
+		util::clear_screen(server, process).await;
 		match log_task.await {
 			Ok(()) => Ok(()),
 			Err(error) if error.is_cancelled() => Ok(()),

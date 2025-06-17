@@ -1,9 +1,9 @@
 use crate::Server;
 use bytes::Bytes;
 use futures::{
-	future, stream::{self, BoxStream, FuturesUnordered}, FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt as _
+	Stream, StreamExt as _, TryStreamExt as _, future,
+	stream::{self, FuturesUnordered},
 };
-use tangram_either::Either;
 use std::{
 	collections::BTreeMap,
 	os::fd::OwnedFd,
@@ -11,6 +11,7 @@ use std::{
 	pin::pin,
 };
 use tangram_client as tg;
+use tangram_either::Either;
 use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
@@ -247,16 +248,9 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Pat
 	Err(tg::error!(%path = exe.display(), "failed to find the executable"))
 }
 
-pub async fn clear_screen(
-	server: &Server,
-	process: &tg::Process,
-	stream: tg::process::log::Stream,
-) {
+pub async fn clear_screen(server: &Server, process: &tg::Process) {
 	let state = process.load(server).await.unwrap();
-	let stdio = match stream {
-		tg::process::log::Stream::Stderr => state.stderr.as_ref(),
-		tg::process::log::Stream::Stdout => state.stderr.as_ref(),
-	};
+	let stdio = state.stderr.as_ref();
 	let Some(tg::process::Stdio::Pty(pty)) = stdio else {
 		return;
 	};
@@ -316,24 +310,27 @@ impl Server {
 		}
 
 		// Pull children.
-		let children = process
-			.command(self)
-			.await?
-			.children(self)
-			.await?;
+		let children = process.command(self).await?.children(self).await?;
 		let arg = tg::pull::Arg {
-			items: children.clone().into_iter().map(|object| Either::Right(object.id())).collect(),
+			items: children
+				.clone()
+				.into_iter()
+				.map(|object| Either::Right(object.id()))
+				.collect(),
 			recursive: true,
 			remote: process.remote().cloned(),
 			..tg::pull::Arg::default()
 		};
-		let stream = self.pull(arg).await.map_err(|source| tg::error!(!source, "failed to pull children"))?;
-		self.log_progress_stream(process, stream).await
+		let stream = self
+			.pull(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to pull children"))?;
+		self.log_progress_stream(process, stream)
+			.await
 			.map_err(|source| tg::error!(!source, "failed to pull children"))?;
 
 		// Checkout children and collect their progress streams.
-		let streams =
-			children
+		let streams = children
 			.into_iter()
 			.filter_map(|object| object.id().try_into().ok())
 			.map(async |artifact: tg::artifact::Id| {
@@ -344,8 +341,7 @@ impl Server {
 					lockfile: false,
 					path: None,
 				};
-				let stream = self.checkout(arg)
-					.await?;
+				let stream = self.checkout(arg).await?;
 				let artifact = artifact.clone();
 				let stream = stream
 					.map_ok(move |mut event| {
@@ -354,9 +350,9 @@ impl Server {
 							| tg::progress::Event::Update(ind)
 							| tg::progress::Event::Finish(ind) => {
 								ind.name = format!("{} ({artifact})", ind.name);
-							}
+							},
 							_ => (),
-						};
+						}
 						event
 					})
 					.boxed();
@@ -369,43 +365,6 @@ impl Server {
 		// Merge all the streams into one
 		let stream = stream::select_all(streams);
 		self.log_progress_stream(process, stream).await?;
-		Ok(())
-	}
-
-	async fn log_checkout_progress_streams(
-		&self,
-		process: &tg::Process,
-		stream_name: &str,
-		streams: Vec<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>,
-	) -> tg::Result<()> {
-		let mut total = None;
-		let mut stream = stream::select_all(streams);
-		while let Some(event) = stream.try_next().await? {
-			let mut indicator = match event {
-				tg::progress::Event::Start(indicator) if indicator.name == stream_name => {
-					total = total
-						.and_then(|t| indicator.total.map(|i| t + i))
-						.or(indicator.total);
-					indicator
-				},
-				tg::progress::Event::Finish(indicator) | tg::progress::Event::Update(indicator)
-					if indicator.name == stream_name =>
-				{
-					indicator
-				},
-				_ => continue,
-			};
-			indicator.total = total;
-			let message = format!("{indicator}\r");
-			log(
-				self,
-				process,
-				tg::process::log::Stream::Stderr,
-				message.clone(),
-			)
-			.await;
-		}
-		clear_screen(self, process, tg::process::log::Stream::Stderr).await;
 		Ok(())
 	}
 
