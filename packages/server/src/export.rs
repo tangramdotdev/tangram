@@ -1,5 +1,4 @@
 use crate::Server;
-use async_compression::tokio::bufread::ZstdEncoder;
 use dashmap::DashMap;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
@@ -19,11 +18,7 @@ use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
-use tangram_http::{
-	Body,
-	header::{accept_encoding::AcceptEncoding, content_encoding::ContentEncoding},
-	request::Ext as _,
-};
+use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -206,29 +201,24 @@ impl Server {
 				async move {
 					match item {
 						Either::Left(process) => {
-							let result = server
+							server
 								.export_inner_process(None, process, &graph, event_sender, arg)
 								.boxed()
-								.await;
-							if let Err(error) = result {
-								event_sender.send(Err(error)).await.ok();
-							}
+								.await?;
 						},
 						Either::Right(object) => {
-							let result = server
+							server
 								.export_inner_object(None, object, &graph, event_sender)
 								.boxed()
-								.await;
-							if let Err(error) = result {
-								event_sender.send(Err(error)).await.ok();
-							}
+								.await?;
 						},
 					}
+					Ok::<_, tg::Error>(())
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
-			.collect::<()>()
-			.await;
+			.try_collect::<()>()
+			.await?;
 
 		Ok(())
 	}
@@ -272,16 +262,13 @@ impl Server {
 
 		// Export each item.
 		for item in &arg.items {
-			let result = match item {
-				Either::Left(process) => self
-					.export_sync_inner_process(&mut state, arg, None, process)
-					.map(|_| ()),
-				Either::Right(object) => self
-					.export_sync_inner_object(&mut state, None, object)
-					.map(|_| ()),
-			};
-			if let Err(error) = result {
-				state.event_sender.blocking_send(Err(error)).ok();
+			match item {
+				Either::Left(process) => {
+					self.export_sync_inner_process(&mut state, arg, None, process)?;
+				},
+				Either::Right(object) => {
+					self.export_sync_inner_object(&mut state, None, object)?;
+				},
 			}
 		}
 
@@ -1117,11 +1104,6 @@ impl Server {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
-		// Get the accept encoding header.
-		let accept_encoding = request
-			.parse_header::<AcceptEncoding, _>(http::header::ACCEPT_ENCODING)
-			.transpose()?;
-
 		// Get the stop signal.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 
@@ -1152,56 +1134,32 @@ impl Server {
 		let stream = stream.take_until(stop);
 
 		// Create the response body.
-		let (content_type, body) = match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			Some((mime::APPLICATION, mime::OCTET_STREAM)) => {
-				let content_type = Some(mime::APPLICATION_OCTET_STREAM);
-				let stream = stream.then(|result| async {
-					let frame = match result {
-						Ok(item) => {
-							let bytes = item.to_bytes().await;
-							hyper::body::Frame::data(bytes)
-						},
-						Err(error) => {
-							let mut trailers = http::HeaderMap::new();
-							trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-							let json = serde_json::to_string(&error.to_data()).unwrap();
-							trailers
-								.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-							hyper::body::Frame::trailers(trailers)
-						},
-					};
-					Ok::<_, tg::Error>(frame)
-				});
-				let body = Body::with_stream(stream);
-				(content_type, body)
-			},
-			_ => {
-				return Err(tg::error!(?accept, "invalid accept header"));
-			},
-		};
-
-		// Compress the response body if accepted.
-		let (content_encoding, body) = if accept_encoding.is_some_and(|accept_encoding| {
-			accept_encoding
-				.preferences
-				.iter()
-				.any(|preference| preference.encoding == ContentEncoding::Zstd)
-		}) {
-			let body = Body::with_reader(ZstdEncoder::new(body.into_reader()));
-			(Some(ContentEncoding::Zstd), body)
+		let (content_type, body) = if accept == Some(tg::export::CONTENT_TYPE.parse().unwrap()) {
+			let content_type = Some(tg::export::CONTENT_TYPE);
+			let stream = stream.then(|result| async {
+				let frame = match result {
+					Ok(item) => {
+						let bytes = item.to_bytes().await;
+						hyper::body::Frame::data(bytes)
+					},
+					Err(error) => {
+						let mut trailers = http::HeaderMap::new();
+						trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+						let json = serde_json::to_string(&error.to_data()).unwrap();
+						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+						hyper::body::Frame::trailers(trailers)
+					},
+				};
+				Ok::<_, tg::Error>(frame)
+			});
+			let body = Body::with_stream(stream);
+			(content_type, body)
 		} else {
-			(None, body)
+			return Err(tg::error!(?accept, "invalid accept header"));
 		};
 
 		// Create the response.
 		let mut response = http::Response::builder();
-		if let Some(content_encoding) = content_encoding {
-			response =
-				response.header(http::header::CONTENT_ENCODING, content_encoding.to_string());
-		}
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}

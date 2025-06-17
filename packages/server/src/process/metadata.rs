@@ -153,10 +153,13 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let Some(metadata) = handle.try_get_process_metadata(&id).await? else {
+		let Some(output) = handle.try_get_process_metadata(&id).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let response = http::Response::builder().json(metadata).unwrap();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+			.unwrap();
 		Ok(response)
 	}
 }

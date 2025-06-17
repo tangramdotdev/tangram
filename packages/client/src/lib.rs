@@ -149,7 +149,7 @@ impl Client {
 					drop(guard);
 					sender
 						.send_request(request)
-						.map_ok(|response| response.map(Body::with_body))
+						.map_ok(|response| response.map(Body::new))
 						.map_err(|source| tg::error!(!source, "failed to send the request"))
 						.await
 				}
@@ -168,6 +168,27 @@ impl Client {
 				http::HeaderName::from_str("x-tg-version").unwrap(),
 				http::HeaderValue::from_str(&version).unwrap(),
 			)
+			.layer(
+				tangram_http::layer::compression::RequestCompressionLayer::new(|parts, _| {
+					let has_content_length =
+						parts.headers.get(http::header::CONTENT_LENGTH).is_some();
+					let is_import_or_export = parts
+						.headers
+						.get(http::header::CONTENT_TYPE)
+						.is_some_and(|content_type| {
+							matches!(
+								content_type.to_str(),
+								Ok(tg::import::CONTENT_TYPE | tg::export::CONTENT_TYPE)
+							)
+						});
+					if has_content_length || is_import_or_export {
+						Some((tangram_http::body::compression::Algorithm::Zstd, 3))
+					} else {
+						None
+					}
+				}),
+			)
+			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
 		let service = Service::new(service);
 		Self(Arc::new(Inner {

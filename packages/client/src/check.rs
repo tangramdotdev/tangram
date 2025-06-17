@@ -18,10 +18,12 @@ impl tg::Client {
 	pub async fn check(&self, arg: Arg) -> tg::Result<tg::check::Output> {
 		let method = http::Method::POST;
 		let uri = "/check";
+		let arg = serde_json::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.json(arg)
+			.bytes(arg)
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

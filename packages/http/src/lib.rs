@@ -4,7 +4,6 @@ pub mod body;
 pub mod header;
 pub mod idle;
 pub mod layer;
-pub mod middleware;
 pub mod request;
 pub mod response;
 pub mod sse;

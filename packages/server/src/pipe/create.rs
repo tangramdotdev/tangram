@@ -32,7 +32,10 @@ impl Server {
 	{
 		let arg = request.json().await?;
 		let output = handle.create_pipe(arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+			.unwrap();
 		Ok(response)
 	}
 }

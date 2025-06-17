@@ -1,5 +1,4 @@
 use crate::{Server, store::Store};
-use async_compression::tokio::bufread::ZstdDecoder;
 use bytes::Bytes;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
@@ -16,7 +15,7 @@ use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
-use tangram_http::{Body, header::content_encoding::ContentEncoding, request::Ext as _};
+use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::prelude::*;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
@@ -516,21 +515,16 @@ impl Server {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
-		// Get the content encoding header.
-		let content_encoding = request
-			.parse_header::<ContentEncoding, _>(http::header::CONTENT_ENCODING)
+		// Validate the request content type.
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
+		if content_type != Some(tg::import::CONTENT_TYPE.parse().unwrap()) {
+			return Err(tg::error!(?content_type, "invalid content type"));
+		}
 
 		// Get the stop signal.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-
-		// Decompress the request body if necessary.
-		let request = match content_encoding {
-			None => request,
-			Some(ContentEncoding::Zstd) => {
-				request.map(|body| Body::with_reader(ZstdDecoder::new(body.into_reader())))
-			},
-		};
 
 		// Create the request stream.
 		let body = request.reader();

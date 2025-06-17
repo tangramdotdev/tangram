@@ -2,18 +2,20 @@ use crate::{
 	self as tg,
 	util::serde::{CommaSeparatedString, is_false},
 };
-use async_compression::tokio::bufread::ZstdDecoder;
 use bytes::Bytes;
 use futures::{Stream, StreamExt as _, TryStreamExt as _, stream};
+use http_body_util::BodyStream;
 use num::ToPrimitive as _;
 use serde_with::serde_as;
 use std::pin::Pin;
 use tangram_either::Either;
-use tangram_futures::{read::Ext as _, write::Ext as _};
-use tangram_http::{
-	Body, header::content_encoding::ContentEncoding, request::builder::Ext as _, response::Ext as _,
-};
+use tangram_futures::{read::Ext as _, stream::Ext as _, write::Ext as _};
+use tangram_http::{request::builder::Ext as _, response::Ext as _};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::{io::StreamReader, task::AbortOnDropHandle};
+
+pub const CONTENT_TYPE: &str = "application/vnd.tangram.export";
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -132,14 +134,7 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(
-				http::header::ACCEPT,
-				mime::APPLICATION_OCTET_STREAM.to_string(),
-			)
-			.header(
-				http::header::ACCEPT_ENCODING,
-				ContentEncoding::Zstd.to_string(),
-			)
+			.header(http::header::ACCEPT, CONTENT_TYPE.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
 				mime::TEXT_EVENT_STREAM.to_string(),
@@ -152,31 +147,40 @@ impl tg::Client {
 			return Err(error);
 		}
 
-		// Decompress the body if necessary.
-		let content_encoding = response
-			.parse_header::<ContentEncoding, _>(http::header::CONTENT_ENCODING)
-			.transpose()?;
-		let response = match content_encoding {
-			None => response,
-			Some(ContentEncoding::Zstd) => {
-				response.map(|body| Body::with_reader(ZstdDecoder::new(body.into_reader())))
-			},
-		};
-
+		// Validate the response content type.
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
-		if !matches!(
-			content_type
-				.as_ref()
-				.map(|content_type| (content_type.type_(), content_type.subtype())),
-			Some((mime::APPLICATION, mime::OCTET_STREAM)),
-		) {
+		if content_type != Some(tg::export::CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
 
-		let (reader, trailers) = response.reader_and_trailers();
+		let mut stream = BodyStream::new(response.into_body());
+		let (data_sender, data_receiver) = tokio::sync::mpsc::channel(1);
+		let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
+		let task = tokio::spawn(async move {
+			while let Some(result) = stream.next().await {
+				match result {
+					Ok(frame) => {
+						if frame.is_data() {
+							let data = frame.into_data().unwrap();
+							data_sender.send(Ok(data)).await.ok();
+						} else if frame.is_trailers() {
+							let trailers = frame.into_trailers().unwrap();
+							trailer_sender.send(trailers).await.ok();
+						} else {
+							unreachable!()
+						}
+					},
+					Err(error) => {
+						data_sender.send(Err(error)).await.ok();
+					},
+				}
+			}
+		});
 
+		let reader =
+			StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
 		let reader_events = stream::try_unfold(reader, |mut reader| async move {
 			let Some(item) = tg::export::Event::from_reader(&mut reader).await? else {
 				return Ok(None);
@@ -184,32 +188,32 @@ impl tg::Client {
 			Ok(Some((item, reader)))
 		});
 
-		let trailer_events = trailers
-			.map_err(|source| tg::error!(!source, "failed to get the trailers"))
-			.and_then(|trailers| async move {
-				let event = trailers
-					.get("x-tg-event")
-					.ok_or_else(|| tg::error!("missing event"))?
-					.to_str()
-					.map_err(|source| tg::error!(!source, "invalid event"))?;
-				match event {
-					"end" => Ok(tg::export::Event::End),
-					"error" => {
-						let data = trailers
-							.get("x-tg-data")
-							.ok_or_else(|| tg::error!("missing data"))?
-							.to_str()
-							.map_err(|source| tg::error!(!source, "invalid data"))?;
-						let error = serde_json::from_str(data).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the header value")
-						})?;
-						Err(error)
-					},
-					_ => Err(tg::error!("invalid event")),
-				}
-			});
+		let trailers = ReceiverStream::new(trailer_receiver);
+		let trailer_events = trailers.then(|trailers| async move {
+			let event = trailers
+				.get("x-tg-event")
+				.ok_or_else(|| tg::error!("missing event"))?
+				.to_str()
+				.map_err(|source| tg::error!(!source, "invalid event"))?;
+			match event {
+				"end" => Ok(tg::export::Event::End),
+				"error" => {
+					let data = trailers
+						.get("x-tg-data")
+						.ok_or_else(|| tg::error!("missing data"))?
+						.to_str()
+						.map_err(|source| tg::error!(!source, "invalid data"))?;
+					let error = serde_json::from_str(data).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the header value")
+					})?;
+					Err(error)
+				},
+				_ => Err(tg::error!("invalid event")),
+			}
+		});
 
-		let stream = stream::select(reader_events, trailer_events);
+		let stream =
+			stream::select(reader_events, trailer_events).attach(AbortOnDropHandle::new(task));
 
 		Ok(stream)
 	}

@@ -19,6 +19,7 @@ impl tg::Client {
 			.method(method)
 			.uri(uri)
 			.json(arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();
 		self.send(request)
 			.await

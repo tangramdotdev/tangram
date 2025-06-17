@@ -16,6 +16,7 @@ impl tg::Client {
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.json(arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

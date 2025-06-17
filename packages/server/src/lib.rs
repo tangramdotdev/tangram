@@ -940,10 +940,36 @@ impl Server {
 				.add_extension(stop.clone())
 				.map_response_body({
 					let idle = idle.clone();
-					move |body: Body| {
-						Body::with_body(tangram_http::idle::Body::new(idle.token(), body))
-					}
+					move |body: Body| Body::new(tangram_http::idle::Body::new(idle.token(), body))
 				})
+				.layer(tangram_http::layer::compression::RequestDecompressionLayer)
+				.layer(
+					tangram_http::layer::compression::ResponseCompressionLayer::new(
+						|accept_encoding, parts, _| {
+							let has_content_length =
+								parts.headers.get(http::header::CONTENT_LENGTH).is_some();
+							let is_import_or_export = parts
+								.headers
+								.get(http::header::CONTENT_TYPE)
+								.is_some_and(|content_type| {
+									matches!(
+										content_type.to_str(),
+										Ok(tg::import::CONTENT_TYPE | tg::export::CONTENT_TYPE)
+									)
+								});
+							if (has_content_length || is_import_or_export)
+								&& accept_encoding.is_some_and(|accept_encoding| {
+									accept_encoding.preferences.iter().any(|preference| {
+										preference.encoding == tangram_http::header::content_encoding::ContentEncoding::Zstd
+									})
+								}) {
+								Some((tangram_http::body::compression::Algorithm::Zstd, 3))
+							} else {
+								None
+							}
+						},
+					),
+				)
 				.service_fn({
 					let handle = handle.clone();
 					move |request| {
@@ -965,7 +991,7 @@ impl Server {
 					builder.http2().max_concurrent_streams(None);
 					let service =
 						service.map_request(|request: http::Request<hyper::body::Incoming>| {
-							request.map(Body::with_body)
+							request.map(Body::new)
 						});
 					let service = hyper_util::service::TowerToHyperService::new(service);
 					let connection = builder.serve_connection_with_upgrades(stream, service);
@@ -1178,9 +1204,12 @@ impl Server {
 		// Handle an error.
 		let mut response = response.unwrap_or_else(|error| {
 			tracing::error!(?error);
+			let bytes = serde_json::to_string(&error.to_data())
+				.ok()
+				.unwrap_or_default();
 			http::Response::builder()
 				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-				.json(error.to_data())
+				.bytes(bytes)
 				.unwrap()
 		});
 
@@ -1190,7 +1219,7 @@ impl Server {
 		response.headers_mut().insert(key, value);
 
 		response.map(|body| {
-			Body::with_body(body.map_err(|error| {
+			Body::new(body.map_err(|error| {
 				tracing::error!(?error, "response body error");
 				error
 			}))

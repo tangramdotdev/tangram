@@ -42,34 +42,29 @@ impl Server {
 	where
 		H: tg::Handle,
 	{
-		let Some(user) = Self::try_get_user_from_request(handle, &request).await? else {
+		// Get the token.
+		let Some(token) = request.token(None) else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
 				.empty()
 				.unwrap();
 			return Ok(response);
 		};
-		let response = http::Response::builder().json(user).unwrap();
-		Ok(response)
-	}
-
-	async fn try_get_user_from_request<H>(
-		handle: &H,
-		request: &http::Request<Body>,
-	) -> tg::Result<Option<tg::user::User>>
-	where
-		H: tg::Handle,
-	{
-		// Get the token.
-		let Some(token) = request.token(None) else {
-			return Ok(None);
-		};
 
 		// Get the user.
-		let Some(user) = handle.get_user(token).await? else {
-			return Ok(None);
+		let Some(output) = handle.get_user(token).await? else {
+			let response = http::Response::builder()
+				.status(http::StatusCode::UNAUTHORIZED)
+				.empty()
+				.unwrap();
+			return Ok(response);
 		};
 
-		Ok(Some(user))
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+			.unwrap();
+
+		Ok(response)
 	}
 }

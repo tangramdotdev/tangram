@@ -366,7 +366,10 @@ impl Server {
 		H: tg::Handle,
 	{
 		let output = handle.create_blob(request.reader()).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+			.unwrap();
 		Ok(response)
 	}
 }

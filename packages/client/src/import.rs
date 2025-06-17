@@ -2,12 +2,13 @@ use crate::{
 	self as tg,
 	util::serde::{CommaSeparatedString, is_false},
 };
-use async_compression::tokio::bufread::ZstdEncoder;
 use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use serde_with::serde_as;
 use std::pin::Pin;
 use tangram_either::Either;
-use tangram_http::{Body, header::content_encoding::ContentEncoding, response::Ext as _};
+use tangram_http::{Body, response::Ext as _};
+
+pub const CONTENT_TYPE: &str = "application/vnd.tangram.import";
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -27,21 +28,21 @@ pub struct QueryArg {
 	remote: Option<String>,
 }
 
-#[derive(Debug, Clone, derive_more::TryUnwrap)]
+#[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Event {
 	Complete(tg::import::Complete),
 	Progress(tg::import::Progress),
 	End,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Complete {
 	Process(ProcessComplete),
 	Object(ObjectComplete),
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ProcessComplete {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub commands_complete: bool,
@@ -55,12 +56,12 @@ pub struct ProcessComplete {
 	pub outputs_complete: bool,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ObjectComplete {
 	pub id: tg::object::Id,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Progress {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub processes: Option<u64>,
@@ -96,19 +97,11 @@ impl tg::Client {
 			Ok::<_, tg::Error>(frame)
 		}));
 
-		// Compress the request body.
-		let content_encoding = ContentEncoding::Zstd;
-		let body = Body::with_reader(ZstdEncoder::new(body.into_reader()));
-
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_OCTET_STREAM.to_string(),
-			)
-			.header(http::header::CONTENT_ENCODING, content_encoding.to_string())
+			.header(http::header::CONTENT_TYPE, CONTENT_TYPE.to_string())
 			.body(body)
 			.unwrap();
 		let response = self.send(request).await?;

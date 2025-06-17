@@ -10,9 +10,9 @@ pub trait Ext: Sized {
 	where
 		T: Into<Bytes>;
 
-	fn json<T>(self, value: T) -> http::Result<http::Request<Body>>
+	fn json<T>(self, value: T) -> Result<http::Result<http::Request<Body>>, Error>
 	where
-		T: serde::Serialize + Send + Sync + 'static;
+		T: serde::Serialize;
 
 	fn stream<S, T, E>(self, value: S) -> http::Result<http::Request<Body>>
 	where
@@ -38,21 +38,31 @@ pub trait Ext: Sized {
 
 impl Ext for http::request::Builder {
 	fn empty(self) -> http::Result<http::Request<Body>> {
-		self.body(Body::empty())
+		self.header(
+			http::header::CONTENT_LENGTH,
+			http::HeaderValue::from_static("0"),
+		)
+		.body(Body::empty())
 	}
 
 	fn bytes<T>(self, value: T) -> http::Result<http::Request<Body>>
 	where
 		T: Into<Bytes>,
 	{
-		self.body(Body::with_bytes(value))
+		let value = value.into();
+		self.header(
+			http::header::CONTENT_LENGTH,
+			http::HeaderValue::from_str(&value.len().to_string()).unwrap(),
+		)
+		.body(Body::with_bytes(value))
 	}
 
-	fn json<T>(self, value: T) -> http::Result<http::Request<Body>>
+	fn json<T>(self, value: T) -> Result<http::Result<http::Request<Body>>, Error>
 	where
-		T: serde::Serialize + Send + Sync + 'static,
+		T: serde::Serialize,
 	{
-		self.body(Body::with_json(value))
+		let value = serde_json::to_string(&value)?;
+		Ok(self.body(Body::with_bytes(value)))
 	}
 
 	fn stream<S, T, E>(self, value: S) -> http::Result<http::Request<Body>>

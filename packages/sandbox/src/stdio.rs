@@ -1,10 +1,9 @@
+use crate::common::socket_pair;
 use std::{
 	os::fd::{IntoRawFd, OwnedFd, RawFd},
 	pin::pin,
 	task::Poll,
 };
-
-use crate::common::socket_pair;
 
 pub struct Stdio {
 	inner: Inner,

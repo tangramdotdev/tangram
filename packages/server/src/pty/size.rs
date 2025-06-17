@@ -56,8 +56,11 @@ impl Server {
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
-		let size = handle.get_pty_size(&id, arg).await?;
-		let response = http::Response::builder().json(size).unwrap();
+		let output = handle.get_pty_size(&id, arg).await?;
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+			.unwrap();
 		Ok(response)
 	}
 }

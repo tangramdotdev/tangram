@@ -42,6 +42,7 @@ impl tg::Client {
 				mime::APPLICATION_JSON.to_string(),
 			)
 			.json(arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self.send(request).await?;
 		if !response.status().is_success() {

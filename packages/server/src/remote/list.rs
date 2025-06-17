@@ -52,7 +52,10 @@ impl Server {
 	{
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let output = handle.list_remotes(arg).await?;
-		let response = http::Response::builder().json(output).unwrap();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+			.unwrap();
 		Ok(response)
 	}
 }
