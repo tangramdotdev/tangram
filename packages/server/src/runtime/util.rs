@@ -313,26 +313,25 @@ impl Server {
 		let children = process.command(self).await?.children(self).await?;
 
 		// Pull children.
-		if let Some(remote) = process.remote() {
-			eprintln!("{remote}");
-			let arg = tg::pull::Arg {
-				items: children
-					.clone()
-					.into_iter()
-					.map(|object| Either::Right(object.id()))
-					.collect(),
-				recursive: true,
-				remote: Some(remote.clone()),
-				..tg::pull::Arg::default()
-			};
-			let stream = self
-				.pull(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to pull children"))?;
-			self.log_progress_stream(process, stream)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to pull children"))?;
-		}
+		// if let Some(remote) = process.remote() {
+		// 	let arg = tg::pull::Arg {
+		// 		items: children
+		// 			.clone()
+		// 			.into_iter()
+		// 			.map(|object| Either::Right(object.id()))
+		// 			.collect(),
+		// 		recursive: true,
+		// 		remote: Some(remote.clone()),
+		// 		..tg::pull::Arg::default()
+		// 	};
+		// 	let stream = self
+		// 		.pull(arg)
+		// 		.await
+		// 		.map_err(|source| tg::error!(!source, "failed to pull children"))?;
+		// 	self.log_progress_stream(process, stream)
+		// 		.await
+		// 		.map_err(|source| tg::error!(!source, "failed to pull children"))?;
+		// }
 
 		// Checkout children and collect their progress streams.
 		let streams = children
