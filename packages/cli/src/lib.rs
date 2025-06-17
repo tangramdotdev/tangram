@@ -1276,13 +1276,13 @@ impl Cli {
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
 			tg::module::data::Item::Path(path) => {
-				Self::print_code_path(range, message, path).await;
 				eprintln!(
 					"   {}:{}:{}",
 					path.display(),
 					location.range.start.line + 1,
 					location.range.start.character + 1,
 				);
+				Self::print_code_path(range, message, path).await;
 			},
 			tg::module::data::Item::Object(object) => {
 				if let Some(tag_) = &module.referent.tag {
@@ -1291,7 +1291,6 @@ impl Cli {
 				if let Some(path_) = &module.referent.path {
 					path.replace(path_.clone());
 				}
-				self.print_code_object(range, message, object).await;
 				if let Some(tag) = &tag {
 					eprint!("   {tag}");
 					if let Some(path) = &path {
@@ -1322,6 +1321,7 @@ impl Cli {
 					location.range.start.line + 1,
 					location.range.start.character + 1,
 				);
+				self.print_code_object(range, message, object).await;
 			},
 		}
 	}
