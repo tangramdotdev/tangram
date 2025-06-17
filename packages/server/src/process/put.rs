@@ -189,7 +189,7 @@ impl Server {
 		if let Some(children) = &arg.data.children {
 			let statement = indoc!(
 				"
-					insert into process_children (process, position, child, tag, path)
+					insert into process_children (process, position, child, path, tag)
 					values (?1, ?2, ?3, ?4, ?5)
 					on conflict (process, child) do nothing;
 				"
