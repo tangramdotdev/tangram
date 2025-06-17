@@ -242,7 +242,9 @@ impl Server {
 		let tag = referent.tag;
 		let referrer_path = referrer.path.as_deref().and_then(|path| path.parent());
 		let path = match (referrer_path, &referent.path) {
-			(Some(referrer), Some(referent)) => Some(referrer.join(referent)),
+			(Some(referrer), Some(referent)) => {
+				Some(crate::util::path::normalize(referrer.join(referent)))
+			},
 			(None, Some(referent)) => Some(referent.clone()),
 			(Some(referrer), None) => Some(referrer.to_owned()),
 			(None, None) => None,
