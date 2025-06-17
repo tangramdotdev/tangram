@@ -34,7 +34,10 @@ pub fn normalize(src: impl AsRef<Path>) -> PathBuf {
 			(component, _) => components.push(component),
 		}
 	}
-	if matches!(components.first(), None | Some(std::path::Component::Normal(_))) {
+	if matches!(
+		components.first(),
+		None | Some(std::path::Component::Normal(_))
+	) {
 		components.insert(0, std::path::Component::CurDir);
 	}
 	components.into_iter().collect()
@@ -42,7 +45,7 @@ pub fn normalize(src: impl AsRef<Path>) -> PathBuf {
 
 #[cfg(test)]
 mod test {
-    use std::path::PathBuf;
+	use std::path::PathBuf;
 
 	#[test]
 	fn normalize() {

@@ -1287,9 +1287,13 @@ impl Cli {
 			tg::module::data::Item::Object(object) => {
 				if let Some(tag_) = &module.referent.tag {
 					tag.replace(tag_.clone());
+					path.take();
 				}
 				if let Some(path_) = &module.referent.path {
-					path.replace(path_.clone());
+					let path_ = path
+						.take()
+						.map_or_else(|| path_.clone(), |path| path.join(path_));
+					path.replace(path_);
 				}
 				if let Some(tag) = &tag {
 					eprint!("   {tag}");
