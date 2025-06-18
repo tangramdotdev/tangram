@@ -184,21 +184,25 @@ impl Server {
 			error: Option<db::value::Json<tg::Error>>,
 			exit: Option<u8>,
 		}
-		let p = connection.p();
+		let params = match &connection {
+			Either::Left(_) => "with params as (?1 as command, ?2 as checksum)",
+			Either::Right(_) => "with params as (select $1::text as command, $2::text as checksum)",
+		};
 		let statement = formatdoc!(
 			"
+				{params}
 				select id, error, exit
-				from processes
+				from processes, params
 				where
-					cacheable = 1 and
-					command = {p}1 and
+					processes.cacheable = 1 and
+					processes.command = params.command and
 					case
-						when {p}2 is null then true
-						when actual_checksum is null then false
-						when split_part(actual_checksum, ':', 1) = split_part({p}2, ':', 1) then true
+						when params.checksum is null then true
+						when processes.actual_checksum is null then false
+						when split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1) then true
 						else false
 					end
-				order by created_at desc
+				order by processes.created_at desc
 				limit 1;
 			"
 		);
