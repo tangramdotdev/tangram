@@ -192,7 +192,12 @@ impl Server {
 				where
 					cacheable = 1 and
 					command = {p}1 and
-					coalesce(expected_checksum = {p}2, expected_checksum is null)
+					case
+						when {p}2 is null then true
+						when actual_checksum is null then false
+						when split_part(actual_checksum, 1, ':') = split_part({p}2, 1, ':') then true
+						else false
+					end
 				order by created_at desc
 				limit 1;
 			"
