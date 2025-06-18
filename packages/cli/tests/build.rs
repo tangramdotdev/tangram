@@ -1024,6 +1024,88 @@ async fn import_from_tag() {
 }
 
 #[tokio::test]
+async fn import_from_tag_with_nested_module() {
+	test(TG, async move |context| {
+		// Create a local server.
+		let server = context.spawn_server().await.unwrap();
+
+		// Create a package and tag it.
+		let a = temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				export { foo } from "./foo/foo.tg.ts";
+				export { bar } from "./bar.tg.ts";
+				export const baz = () => "baz";
+			"#),
+			"bar.tg.ts" => indoc!(r#"
+					import * as b from "./tangram.ts";
+					export const bar = () => b.foo();
+				"#),
+			"foo" => temp::directory! {
+				"foo.tg.ts" => indoc!(r#"
+						export const foo = () => "foo";
+					"#)
+			}
+		};
+		let artifact: temp::Artifact = a.into();
+		let a_temp = Temp::new();
+		artifact.to_path(&a_temp).await.unwrap();
+		let tag = "a";
+		let output = server
+			.tg()
+			.arg("tag")
+			.arg(tag)
+			.arg(a_temp.path())
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+
+		// Create a package that imports a by tag.
+		let b = temp::directory! {
+			"tangram.ts" => indoc!(r#"
+					import * as a from "a";
+					export default async () => {
+					  return a.bar();
+					};
+				"#)
+		};
+		let artifact: temp::Artifact = b.into();
+		let b_temp = Temp::new();
+		artifact.to_path(&b_temp).await.unwrap();
+		let output = server
+			.tg()
+			.arg("build")
+			.arg(b_temp.path())
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+
+		// Mutate b_temp/tangram.ts to instead call a.baz();
+		let tangram_ts_path = b_temp.path().join("tangram.ts");
+		let new_content = indoc!(
+			r#"
+			import * as a from "a";
+			export default async () => {
+			  return a.baz();
+			};
+		"#
+		);
+		std::fs::write(&tangram_ts_path, new_content).unwrap();
+		// Rebuild.
+		let output = server
+			.tg()
+			.arg("build")
+			.arg(b_temp.path())
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+	})
+	.await;
+}
+
+#[tokio::test]
 async fn builtin_blob_compress_decompress_gz_roundtrip() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
