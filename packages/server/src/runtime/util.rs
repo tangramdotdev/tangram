@@ -11,7 +11,6 @@ use std::{
 	pin::pin,
 };
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
@@ -254,9 +253,14 @@ pub async fn clear_screen(server: &Server, process: &tg::Process) {
 	let Some(tg::process::Stdio::Pty(pty)) = stdio else {
 		return;
 	};
-	let message = "\\033[2J".to_owned();
-	let bytes = Bytes::from(message.replace('\n', "\r\n"));
-	let stream = stream::once(future::ok(tg::pty::Event::Chunk(bytes)));
+	let mut message = Vec::new();
+	crossterm::queue!(
+		&mut message,
+		crossterm::cursor::MoveToPreviousLine(1),
+		crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
+	)
+	.unwrap();
+	let stream = stream::once(future::ok(tg::pty::Event::Chunk(message.into())));
 	let arg = tg::pty::write::Arg {
 		master: false,
 		remote: process.remote().cloned(),
@@ -311,27 +315,6 @@ impl Server {
 
 		// Get the children.
 		let children = process.command(self).await?.children(self).await?;
-
-		// Pull children.
-		// if let Some(remote) = process.remote() {
-		// 	let arg = tg::pull::Arg {
-		// 		items: children
-		// 			.clone()
-		// 			.into_iter()
-		// 			.map(|object| Either::Right(object.id()))
-		// 			.collect(),
-		// 		recursive: true,
-		// 		remote: Some(remote.clone()),
-		// 		..tg::pull::Arg::default()
-		// 	};
-		// 	let stream = self
-		// 		.pull(arg)
-		// 		.await
-		// 		.map_err(|source| tg::error!(!source, "failed to pull children"))?;
-		// 	self.log_progress_stream(process, stream)
-		// 		.await
-		// 		.map_err(|source| tg::error!(!source, "failed to pull children"))?;
-		// }
 
 		// Checkout children and collect their progress streams.
 		let streams = children

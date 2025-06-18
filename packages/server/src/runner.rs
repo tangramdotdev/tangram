@@ -193,7 +193,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn log_progress_stream<T: Send>(
+	pub(crate) async fn log_progress_stream<T: Send + Debug>(
 		&self,
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
@@ -211,7 +211,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn write_progress_to_log<T>(
+	async fn write_progress_to_log<T: std::fmt::Debug>(
 		&self,
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
@@ -219,6 +219,7 @@ impl Server {
 		let mut total = Some(0);
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
+			eprintln!("handling {event:?}");
 			let mut indicator = match event {
 				tg::progress::Event::Start(indicator) if indicator.name.starts_with("bytes") => {
 					total = total
@@ -285,6 +286,7 @@ impl Server {
 					},
 					future::Either::Right(_) => (),
 				}
+				state.clear().await;
 				state.print().await?;
 			}
 
@@ -346,12 +348,23 @@ impl ProgressPtyState {
 		}
 	}
 
-	async fn clear(&self) {
-		let message = b"\\033[2J".to_vec().into();
-		self.send
-			.send(Ok(tg::pty::Event::Chunk(message)))
-			.await
-			.ok();
+	async fn clear(&mut self) {
+		match self.lines.take() {
+			Some(n) if n > 0 => {
+				let mut message = Vec::new();
+				crossterm::queue!(
+					&mut message,
+					crossterm::cursor::MoveToPreviousLine(n),
+					crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
+				)
+				.unwrap();
+				self.send
+					.send(Ok(tg::pty::Event::Chunk(message.into())))
+					.await
+					.ok();
+			},
+			_ => (),
+		}
 	}
 
 	async fn print(&mut self) -> tg::Result<()> {
@@ -360,7 +373,7 @@ impl ProgressPtyState {
 			.server
 			.get_pty_size(&self.pty, tg::pty::read::Arg::default())
 			.await?
-			.map_or((64, 64), |size| (size.rows, size.cols));
+			.map_or((128, 128), |size| (size.rows, size.cols));
 
 		// Render the indicators.
 		let title_length = self
@@ -373,10 +386,6 @@ impl ProgressPtyState {
 			.unwrap()
 			.as_millis();
 		let mut buffer = Vec::new();
-
-		// Clear
-		buffer.extend_from_slice(b"\\033[2J");
-
 		for indicator in self.indicators.values() {
 			let mut line = String::new();
 			const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -441,6 +450,7 @@ impl ProgressPtyState {
 			buffer.extend_from_slice(clip(&line, size.0.into()).as_bytes());
 			buffer.extend_from_slice(b"\r\n");
 		}
+		eprintln!("wrote {} lines", self.indicators.len());
 
 		// Send the chunk.
 		self.send

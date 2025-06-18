@@ -15,6 +15,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		eprintln!("put process {arg:#?}");
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the database.
@@ -127,7 +128,7 @@ impl Server {
 					?19,
 					?20,
 					?21,
-					?22, 
+					?22,
 					?23
 				)
 				on conflict (id) do update set
@@ -302,7 +303,7 @@ impl Server {
 					$19,
 					$20,
 					$21,
-					$22, 
+					$22,
 					$23
 				)
 				on conflict (id) do update set

@@ -5,11 +5,11 @@ use num::ToPrimitive as _;
 use std::{
 	pin::Pin,
 	sync::{Arc, Mutex, atomic::AtomicU64},
-	time::Duration,
 };
 use tangram_client as tg;
+use tangram_futures::stream::Ext;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead};
-use tokio_util::io::StreamReader;
+use tokio_util::{io::StreamReader, task::AbortOnDropHandle};
 use url::Url;
 
 enum Mode {
@@ -57,27 +57,34 @@ impl Runtime {
 		let message = format!("downloading from \"{url}\"\n");
 		util::log(server, process, tg::process::log::Stream::Stderr, message).await;
 
-		// Create the log task.
+		// Create the log/progress tasks.
 		let downloaded = Arc::new(AtomicU64::new(0));
 		let content_length = response.content_length();
+		let (send, recv) = async_channel::bounded(1024);
+		let progress_task = tokio::spawn({
+			let downloaded = downloaded.clone();
+			async move {
+				let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
+				let indicator = tg::progress::Indicator {
+					current: Some(downloaded),
+					format: tg::progress::IndicatorFormat::Bytes,
+					name: String::new(),
+					title: "downloading".to_owned(),
+					total: content_length,
+				};
+				send.send(Ok::<_, tg::Error>(tg::progress::Event::Update::<()>(
+					dbg!(indicator),
+				)))
+				.await
+				.ok();
+			}
+		});
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let process = process.clone();
-			let downloaded = downloaded.clone();
 			async move {
-				loop {
-					let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
-					let indicator = tg::progress::Indicator {
-						current: Some(downloaded),
-						format: tg::progress::IndicatorFormat::Bytes,
-						name: String::new(),
-						title: "downloading".to_owned(),
-						total: content_length,
-					};
-					let message = format!("{indicator}\n");
-					util::log(&server, &process, tg::process::log::Stream::Stderr, message).await;
-					tokio::time::sleep(Duration::from_secs(1)).await;
-				}
+				let stream = recv.attach(AbortOnDropHandle::new(progress_task));
+				server.log_progress_stream(&process, stream).await.ok()
 			}
 		});
 		let log_task_abort_handle = log_task.abort_handle();
@@ -203,13 +210,7 @@ impl Runtime {
 
 		// Abort and await the log task.
 		log_task.abort();
-		util::clear_screen(server, process).await;
-		match log_task.await {
-			Ok(()) => Ok(()),
-			Err(error) if error.is_cancelled() => Ok(()),
-			Err(error) => Err(error),
-		}
-		.unwrap();
+		log_task.await.ok();
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
