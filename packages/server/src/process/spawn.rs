@@ -185,7 +185,7 @@ impl Server {
 			exit: Option<u8>,
 		}
 		let params = match &connection {
-			Either::Left(_) => "with params as (?1 as command, ?2 as checksum)",
+			Either::Left(_) => "with params as (select ?1 as command, ?2 as checksum)",
 			Either::Right(_) => "with params as (select $1::text as command, $2::text as checksum)",
 		};
 		let statement = formatdoc!(
