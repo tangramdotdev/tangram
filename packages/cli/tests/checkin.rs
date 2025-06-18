@@ -1707,7 +1707,7 @@ async fn tag_diamond_dependency() {
 		    {
 		      "kind": "directory",
 		      "entries": {
-		        "tangram.ts": "fil_01enbxr8gh2vp76d2t7sy5hy4j6erzy2y0vdxjt1kv9tfgtb3gattg"
+		        "tangram.ts": "fil_01es7rz5mgcv9zas8dnavagvd3j80nz8vzvgar41fw7xt2b66qa3j0"
 		      }
 		    },
 		    {
