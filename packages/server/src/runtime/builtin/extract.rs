@@ -120,7 +120,7 @@ impl Runtime {
 
 		// Abort and await the log task.
 		log_task.abort();
-		log_task.await;
+		log_task.await.ok();
 
 		// Log that the extraction finished.
 		let message = "finished extracting\n";

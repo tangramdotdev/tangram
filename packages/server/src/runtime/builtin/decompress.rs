@@ -99,7 +99,7 @@ impl Runtime {
 		let blob = tg::Blob::with_reader(server, reader).await?;
 
 		log_task.abort();
-		log_task.await;
+		log_task.await.ok();
 
 		// Log that the decompression finished.
 		let message = "finished decompressing\n";

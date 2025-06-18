@@ -218,11 +218,11 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			let indicator = match event {
-				tg::progress::Event::Start(indicator)
-				| tg::progress::Event::Finish(indicator)
-				| tg::progress::Event::Update(indicator) => indicator,
-				_ => continue,
+			let (tg::progress::Event::Start(indicator)
+			| tg::progress::Event::Finish(indicator)
+			| tg::progress::Event::Update(indicator)) = event
+			else {
+				continue;
 			};
 			let message = format!("{indicator}\n");
 			let arg = tg::process::log::post::Arg {

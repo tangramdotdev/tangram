@@ -101,7 +101,7 @@ impl Runtime {
 
 		// Abort and wait the log task.
 		log_task.abort();
-		log_task.await;
+		log_task.await.ok();
 
 		// Log that the compression finished.
 		let message = "finished compressing\n";
