@@ -110,9 +110,6 @@ impl Runtime {
 		main_runtime_handle: tokio::runtime::Handle,
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<super::Output> {
-		// Get the data.
-		let data = self.server.try_get_process(process.id()).await?;
-
 		// Get the root module.
 		let command = process.command(&self.server).await?;
 		let executable = command
@@ -283,39 +280,6 @@ impl Runtime {
 				v8::String::new_external_onebyte_static(scope, b"Process").unwrap();
 			let process_constructor = tangram.get(scope, process_constructor.into()).unwrap();
 			let process_constructor =
-				v8::Local::<v8::Object>::try_from(process_constructor).unwrap();
-
-			// Get the State namespace.
-			let state_namespace = v8::String::new_external_onebyte_static(scope, b"State").unwrap();
-			let state_namespace = process_constructor
-				.get(scope, state_namespace.into())
-				.unwrap();
-			let state_namespace = v8::Local::<v8::Object>::try_from(state_namespace).unwrap();
-
-			// Get fromData.
-			let from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
-			let from_data = state_namespace.get(scope, from_data.into()).unwrap();
-			let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
-
-			// Call fromData.
-			let data = Serde(data).to_v8(scope)?;
-			let undefined = v8::undefined(scope);
-			let value = from_data.call(scope, undefined.into(), &[data]).unwrap();
-
-			// Set the state.
-			let key = v8::String::new_external_onebyte_static(scope, b"state").unwrap();
-			arg.set(scope, key.into(), value);
-
-			// Get the Tangram global.
-			let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
-			let tangram = context.global(scope).get(scope, tangram.into()).unwrap();
-			let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
-
-			// Get the Process constructor.
-			let process_constructor =
-				v8::String::new_external_onebyte_static(scope, b"Process").unwrap();
-			let process_constructor = tangram.get(scope, process_constructor.into()).unwrap();
-			let process_constructor =
 				v8::Local::<v8::Function>::try_from(process_constructor).unwrap();
 
 			// Create the Tangram.Process.
@@ -448,7 +412,6 @@ impl Runtime {
 		let rejection = pin!(rejection);
 		let signal = pin!(signal);
 		let error_or_signal = future::select(rejection, signal);
-
 		let output = match future::select(pin!(future), pin!(error_or_signal)).await {
 			future::Either::Left((Ok(output), _)) => super::Output {
 				exit: 0,

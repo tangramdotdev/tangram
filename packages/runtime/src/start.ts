@@ -4,6 +4,9 @@ export let start = async (process: tg.Process): Promise<tg.Value.Data> => {
 	// Set the current process.
 	tg.Process.current = process;
 
+	// Load the process.
+	await process.load();
+
 	// Load the command.
 	const command = await process.command();
 	await command.load();
