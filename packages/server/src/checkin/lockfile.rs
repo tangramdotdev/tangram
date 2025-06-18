@@ -8,8 +8,10 @@ impl Server {
 	pub(super) fn create_lockfile(state: &super::State) -> tg::Result<tg::Lockfile> {
 		// Create lockfile nodes for every node of the graph.
 		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
+		let mut objects = vec![None; state.graph.nodes.len()];
 		let mut visited = vec![None; state.graph.nodes.len()];
-		let root = Self::create_lockfile_node(state, 0, &mut nodes, &mut visited)?.unwrap_left();
+		let root = Self::create_lockfile_node(state, 0, &mut nodes, &mut objects, &mut visited)?
+			.unwrap_left();
 
 		// Collect the full lockfile graph.
 		let nodes = nodes
@@ -17,21 +19,8 @@ impl Server {
 			.map(|node| node.unwrap())
 			.collect::<Vec<_>>();
 
-		// Collect a list of which nodes are path dependencies on the local file system.
-		let object_ids = state
-			.graph
-			.nodes
-			.iter()
-			.map(|node| {
-				node.path
-					.as_deref()
-					.is_none_or(|path| path.strip_prefix(&state.artifacts_path).is_ok())
-					.then(|| node.object.as_ref().unwrap().id.clone())
-			})
-			.collect::<Vec<_>>();
-
 		// Strip the lockfile nodes.
-		let nodes = Self::strip_lockfile_nodes(&nodes, &object_ids, root)?;
+		let nodes = Self::strip_lockfile_nodes(&nodes, &objects, root)?;
 
 		Ok(tg::Lockfile { nodes })
 	}
@@ -40,11 +29,12 @@ impl Server {
 		state: &super::State,
 		node: usize,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		objects: &mut Vec<Option<tg::object::Id>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<Either<usize, tg::object::Id>> {
 		// Make sure parents are visited first.
 		if let Some(parent) = state.graph.nodes[node].parent {
-			Self::create_lockfile_node(state, parent, nodes, visited)?;
+			Self::create_lockfile_node(state, parent, nodes, objects, visited)?;
 		}
 
 		// Check if this node is visited.
@@ -66,7 +56,6 @@ impl Server {
 			.unwrap()
 			.data
 			.clone()
-			.map(|data| data.try_into().unwrap())
 		else {
 			let id = state.graph.nodes[node].object.as_ref().unwrap().id.clone();
 			return Ok(Either::Right(id));
@@ -77,20 +66,28 @@ impl Server {
 		visited[node].replace(Either::Left(index));
 		nodes.push(None);
 
+		// Update the object ID.
+		objects[index] = state.graph.nodes[node]
+			.path
+			.as_deref()
+			.is_none_or(|path| path.strip_prefix(&state.artifacts_path).is_ok())
+			.then(|| state.graph.nodes[node].object.as_ref().unwrap().id.clone());
+
 		// Create the node.
-		let node = match data {
-			tg::artifact::Data::Directory(data) => {
-				Self::checkin_create_lockfile_directory_node(state, node, &data, nodes, visited)?
-			},
+		let data = data.try_into().unwrap();
+		let lockfile_node = match &data {
+			tg::artifact::Data::Directory(data) => Self::checkin_create_lockfile_directory_node(
+				state, node, data, nodes, objects, visited,
+			)?,
 			tg::artifact::Data::File(data) => {
-				Self::checkin_create_lockfile_file_node(state, node, &data, nodes, visited)?
+				Self::checkin_create_lockfile_file_node(state, node, data, nodes, objects, visited)?
 			},
-			tg::artifact::Data::Symlink(data) => {
-				Self::checkin_create_lockfile_symlink_node(state, node, &data, nodes, visited)?
-			},
+			tg::artifact::Data::Symlink(data) => Self::checkin_create_lockfile_symlink_node(
+				state, node, data, nodes, objects, visited,
+			)?,
 		};
 
-		nodes[index].replace(node);
+		nodes[index].replace(lockfile_node);
 		Ok(Either::Left(index))
 	}
 
@@ -99,6 +96,7 @@ impl Server {
 		node: usize,
 		_data: &tg::directory::Data,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		objects: &mut Vec<Option<tg::object::Id>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
 		let entries = state.graph.nodes[node]
@@ -107,7 +105,7 @@ impl Server {
 			.entries
 			.iter()
 			.map(|(name, node)| {
-				let entry = Self::create_lockfile_node(state, *node, nodes, visited)?;
+				let entry = Self::create_lockfile_node(state, *node, nodes, objects, visited)?;
 				Ok::<_, tg::Error>((name.clone(), entry))
 			})
 			.try_collect()?;
@@ -120,6 +118,7 @@ impl Server {
 		index: usize,
 		data: &tg::file::Data,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		objects: &mut Vec<Option<tg::object::Id>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
 		let (contents, executable) = match data {
@@ -164,7 +163,8 @@ impl Server {
 						Ok((reference, referent))
 					},
 					Either::Right(node) => {
-						let item = Self::create_lockfile_node(state, node, nodes, visited)?;
+						let item =
+							Self::create_lockfile_node(state, node, nodes, objects, visited)?;
 						let path = referent
 							.path
 							.or_else(|| state.graph.referent_path(index, node));
@@ -189,6 +189,7 @@ impl Server {
 		node: usize,
 		data: &tg::symlink::Data,
 		nodes: &mut Vec<Option<tg::lockfile::Node>>,
+		objects: &mut Vec<Option<tg::object::Id>>,
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
 		// Get the artifact, if it exists.
@@ -198,7 +199,9 @@ impl Server {
 			.as_ref()
 			.map(|artifact| match artifact {
 				Either::Left(id) => Ok(Either::Right(id.clone().into())),
-				Either::Right(index) => Self::create_lockfile_node(state, *index, nodes, visited),
+				Either::Right(index) => {
+					Self::create_lockfile_node(state, *index, nodes, objects, visited)
+				},
 			})
 			.transpose()?;
 
@@ -581,7 +584,7 @@ mod tests {
 				    },
 				    {
 				      "kind": "file"
-				    },	
+				    },
 				    {
 				      "kind": "directory",
 				      "entries": {
