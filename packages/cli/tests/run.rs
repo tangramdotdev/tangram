@@ -252,7 +252,7 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: failure in foo
 		   ╰────
-		   foo:../bar/../foo/tangram.ts:3:33
+		   foo:../foo/tangram.ts:3:33
 		   ╭─[3:33]
 		 2 │ export default () => bar();
 		 3 │ export const failure = () => tg.assert(false, "failure in foo");

@@ -22,3 +22,23 @@ pub fn path_diff(src: &Path, dst: &Path) -> tg::Result<PathBuf> {
 	}
 	Ok(result)
 }
+
+pub fn normalize_path(src: impl AsRef<Path>) -> PathBuf {
+	let mut components = Vec::new();
+	for component in src.as_ref().components() {
+		match (component, components.last()) {
+			(std::path::Component::CurDir, _) => (),
+			(std::path::Component::ParentDir, Some(std::path::Component::Normal(_))) => {
+				components.pop();
+			},
+			(component, _) => components.push(component),
+		}
+	}
+	if matches!(
+		components.first(),
+		None | Some(std::path::Component::Normal(_))
+	) {
+		components.insert(0, std::path::Component::CurDir);
+	}
+	components.into_iter().collect()
+}

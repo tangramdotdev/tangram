@@ -1295,9 +1295,7 @@ impl Cli {
 					eprint!("   {tag}");
 					if let Some(path) = &path {
 						eprint!(":");
-						if path.is_relative() && !path.starts_with("..") {
-							eprint!("./");
-						}
+						let path = crate::util::normalize_path(path);
 						eprint!("{}", path.display());
 					}
 				} else if let Some(path) = &path {
