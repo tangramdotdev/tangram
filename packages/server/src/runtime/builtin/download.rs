@@ -64,19 +64,26 @@ impl Runtime {
 		let progress_task = tokio::spawn({
 			let downloaded = downloaded.clone();
 			async move {
-				let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
-				let indicator = tg::progress::Indicator {
-					current: Some(downloaded),
-					format: tg::progress::IndicatorFormat::Bytes,
-					name: String::new(),
-					title: "downloading".to_owned(),
-					total: content_length,
-				};
-				send.send(Ok::<_, tg::Error>(tg::progress::Event::Update::<()>(
-					dbg!(indicator),
-				)))
-				.await
-				.ok();
+				loop {
+					let downloaded = downloaded.load(std::sync::atomic::Ordering::Relaxed);
+					let indicator = tg::progress::Indicator {
+						current: Some(downloaded),
+						format: tg::progress::IndicatorFormat::Bytes,
+						name: String::new(),
+						title: "downloading".to_owned(),
+						total: content_length,
+					};
+					if send
+						.send(Ok::<_, tg::Error>(tg::progress::Event::Update::<()>(
+							indicator,
+						)))
+						.await
+						.is_err()
+					{
+						break;
+					}
+					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+				}
 			}
 		});
 		let log_task = tokio::spawn({

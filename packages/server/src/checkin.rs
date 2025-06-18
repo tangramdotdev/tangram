@@ -357,7 +357,6 @@ impl Server {
 		})
 		.map(|result| {
 			result
-				.inspect_err(|error| eprintln!("lockfile task panicked: {error}"))
 				.unwrap()
 		});
 

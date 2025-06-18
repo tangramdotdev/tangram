@@ -15,7 +15,6 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		eprintln!("put process {arg:#?}");
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the database.

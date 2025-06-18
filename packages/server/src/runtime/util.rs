@@ -247,27 +247,6 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Pat
 	Err(tg::error!(%path = exe.display(), "failed to find the executable"))
 }
 
-pub async fn clear_screen(server: &Server, process: &tg::Process) {
-	let state = process.load(server).await.unwrap();
-	let stdio = state.stderr.as_ref();
-	let Some(tg::process::Stdio::Pty(pty)) = stdio else {
-		return;
-	};
-	let mut message = Vec::new();
-	crossterm::queue!(
-		&mut message,
-		crossterm::cursor::MoveToPreviousLine(1),
-		crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
-	)
-	.unwrap();
-	let stream = stream::once(future::ok(tg::pty::Event::Chunk(message.into())));
-	let arg = tg::pty::write::Arg {
-		master: false,
-		remote: process.remote().cloned(),
-	};
-	server.write_pty(pty, arg, Box::new(stream)).await.ok();
-}
-
 pub async fn log(
 	server: &Server,
 	process: &tg::Process,

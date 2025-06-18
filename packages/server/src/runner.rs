@@ -193,7 +193,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn log_progress_stream<T: Send + Debug>(
+	pub(crate) async fn log_progress_stream<T: Send + std::fmt::Debug>(
 		&self,
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
@@ -216,26 +216,14 @@ impl Server {
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<()> {
-		let mut total = Some(0);
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			eprintln!("handling {event:?}");
-			let mut indicator = match event {
-				tg::progress::Event::Start(indicator) if indicator.name.starts_with("bytes") => {
-					total = total
-						.and_then(|t| indicator.total.map(|i| t + i))
-						.or(indicator.total);
-					indicator
-				},
-				tg::progress::Event::Finish(indicator) | tg::progress::Event::Update(indicator)
-					if indicator.name.starts_with("bytes") =>
-				{
-					indicator
-				},
+			let indicator = match event {
+				tg::progress::Event::Start(indicator)
+				| tg::progress::Event::Finish(indicator)
+				| tg::progress::Event::Update(indicator) => indicator,
 				_ => continue,
 			};
-			indicator.name = "bytes".to_owned();
-			indicator.total = total;
 			let message = format!("{indicator}\n");
 			let arg = tg::process::log::post::Arg {
 				bytes: message.into(),
@@ -450,7 +438,6 @@ impl ProgressPtyState {
 			buffer.extend_from_slice(clip(&line, size.0.into()).as_bytes());
 			buffer.extend_from_slice(b"\r\n");
 		}
-		eprintln!("wrote {} lines", self.indicators.len());
 
 		// Send the chunk.
 		self.send
@@ -458,7 +445,7 @@ impl ProgressPtyState {
 			.await
 			.ok();
 
-		// Set the lines.
+		// Update the number of lines.
 		self.lines.replace(self.indicators.len().to_u16().unwrap());
 		Ok(())
 	}

@@ -161,9 +161,7 @@ impl Server {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await
-			.is_ok_and(|complete| {
-				complete.into_iter().all(|complete| complete)
-			});
+			.is_ok_and(|complete| complete.into_iter().all(|complete| complete));
 		if all_complete
 			&& self.database.is_left()
 			&& self.index.is_left()
