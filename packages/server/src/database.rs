@@ -98,13 +98,13 @@ pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 	connection.pragma_update(None, "temp_store", "memory")?;
 	let function = |context: &sqlite::functions::Context| -> sqlite::Result<sqlite::types::Value> {
 		let string = context.get::<String>(0)?;
-		let delim = context.get::<String>(1)?;
+		let delimiter = context.get::<String>(1)?;
 		let index = context.get::<i64>(2)? - 1;
 		if index < 0 {
 			return Ok(sqlite::types::Value::Null);
 		}
 		let string = string
-			.split(&delim)
+			.split(&delimiter)
 			.nth(index.to_usize().unwrap())
 			.map(ToOwned::to_owned)
 			.map_or(sqlite::types::Value::Null, sqlite::types::Value::Text);
