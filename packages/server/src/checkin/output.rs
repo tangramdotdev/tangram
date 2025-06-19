@@ -150,20 +150,8 @@ impl Server {
 		state: &Arc<State>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		if self.messenger.is_left() {
-			self.checkin_messenger_memory(state, touched_at).await?;
-		} else {
-			self.checkin_messenger_nats(state, touched_at).await?;
-		}
-		Ok(())
-	}
-
-	async fn checkin_messenger_memory(
-		&self,
-		state: &Arc<State>,
-		touched_at: i64,
-	) -> tg::Result<()> {
 		let mut messages: Vec<Bytes> = Vec::new();
+
 		for (root, nodes) in &state.graph.roots {
 			let nodes = std::iter::once(*root).chain(nodes.iter().copied());
 			let root: tg::artifact::Id = state.graph.nodes[*root]
@@ -226,6 +214,20 @@ impl Server {
 				}
 			}
 		}
+
+		for graph in &state.graph_objects {
+			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+				cache_reference: None,
+				children: graph.data.children().collect(),
+				id: graph.id.clone().into(),
+				size: graph.bytes.len().to_u64().unwrap(),
+				touched_at,
+			});
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			messages.push(message.into());
+		}
+
 		while !messages.is_empty() {
 			let published = self
 				.messenger
@@ -236,82 +238,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
 			messages = messages.split_off(published.len());
 		}
-		Ok(())
-	}
 
-	async fn checkin_messenger_nats(&self, state: &Arc<State>, touched_at: i64) -> tg::Result<()> {
-		for (root, nodes) in &state.graph.roots {
-			let nodes = std::iter::once(*root).chain(nodes.iter().copied());
-			let root: tg::artifact::Id = state.graph.nodes[*root]
-				.object
-				.as_ref()
-				.unwrap()
-				.id
-				.clone()
-				.try_into()
-				.unwrap();
-			for node in nodes {
-				let node = &state.graph.nodes[node];
-				let object = node.object.as_ref().unwrap();
-				if object.data.is_none() || object.bytes.is_none() {
-					continue;
-				}
-				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
-					children: object.data.as_ref().unwrap().children().collect(),
-					id: object.id.clone(),
-					size: object.bytes.as_ref().unwrap().len().to_u64().unwrap(),
-					touched_at,
-					cache_reference: None,
-				});
-				let message = serde_json::to_vec(&message)
-					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-				let _published = self
-					.messenger
-					.stream_publish("index".to_owned(), message.into())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-				if let Variant::File(File {
-					blob: Some(Blob::Create(blob)),
-					..
-				}) = &node.variant
-				{
-					let mut stack = vec![blob];
-					while let Some(blob) = stack.pop() {
-						let children = blob
-							.data
-							.as_ref()
-							.map(|data| data.children().collect())
-							.unwrap_or_default();
-						let id = blob.id.clone().into();
-						let size = blob.size;
-						let cache_reference = if state.arg.destructive {
-							root.clone()
-						} else {
-							object.id.clone().try_into().unwrap()
-						};
-						let message =
-							crate::index::Message::PutObject(crate::index::PutObjectMessage {
-								cache_reference: Some(cache_reference),
-								children,
-								id,
-								size,
-								touched_at,
-							});
-						let message = serde_json::to_vec(&message).map_err(|source| {
-							tg::error!(!source, "failed to serialize the message")
-						})?;
-						let _published = self
-							.messenger
-							.stream_publish("index".to_owned(), message.into())
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to publish the message")
-							})?;
-						stack.extend(&blob.children);
-					}
-				}
-			}
-		}
 		Ok(())
 	}
 
@@ -474,6 +401,7 @@ impl Server {
 		tokio::fs::write(&lockfile_path, contents)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+
 		Ok(())
 	}
 }
