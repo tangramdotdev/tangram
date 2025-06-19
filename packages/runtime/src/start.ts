@@ -13,7 +13,7 @@ export let start = async (process: tg.Process): Promise<tg.Value.Data> => {
 
 	// Import the module.
 	// @ts-ignore
-	// biome-ignore lint/security/noGlobalEval:
+	// biome-ignore lint/security/noGlobalEval: <reason>
 	let namespace = await eval(`import("!")`);
 
 	// Get the export.

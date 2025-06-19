@@ -2,8 +2,8 @@ import ts from "typescript";
 import { assert } from "./assert.ts";
 import type { Module } from "./module.ts";
 import type { Range } from "./range.ts";
-import { compilerOptions, host } from "./typescript.ts";
 import * as typescript from "./typescript.ts";
+import { compilerOptions, host } from "./typescript.ts";
 
 declare module "typescript" {
 	interface TypeChecker {
@@ -699,7 +699,7 @@ let convertClassSymbol = (
 
 	// Get the constructor signature.
 	let signature = staticType.getConstructSignatures()[0]!;
-	let constructSignature = undefined;
+	let constructSignature: Signature | undefined;
 	let constructSignatureParent = signature.declaration?.parent;
 	if (
 		constructSignatureParent &&
@@ -1271,7 +1271,7 @@ let convertEnumMemberSymbol = (
 	let constantValue = typeChecker.getConstantValue(declaration);
 
 	// Convert the value.
-	let value: EnumMemberConstantValue | undefined = undefined;
+	let value: EnumMemberConstantValue | undefined;
 	let initializer = declaration.initializer?.getText();
 	if (typeof constantValue === "string") {
 		value = {

@@ -1,6 +1,6 @@
 import * as path from "node:path";
-import * as vscode from "vscode";
 import type { OutputChannel } from "vscode";
+import * as vscode from "vscode";
 import {
 	LanguageClient,
 	type LanguageClientOptions,

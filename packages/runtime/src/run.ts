@@ -74,7 +74,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		processMounts = state.mounts;
 	}
 	let processStdin = state.stdin;
-	let commandStdin: tg.Blob.Arg | undefined = undefined;
+	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg) {
 		processStdin = undefined;
 		if (arg.stdin !== undefined) {
@@ -202,6 +202,7 @@ export interface RunBuilder<
 
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.
 export class RunBuilder<
+	// biome-ignore lint/correctness/noUnusedVariables: <reason>
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > extends Function {

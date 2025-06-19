@@ -59,7 +59,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	if ("mounts" in arg && arg.mounts !== undefined) {
 		commandMounts = arg.mounts;
 	}
-	let commandStdin: tg.Blob.Arg | undefined = undefined;
+	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg && arg.stdin !== undefined) {
 		commandStdin = arg.stdin;
 	}
@@ -178,6 +178,7 @@ export interface BuildBuilder<
 
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.
 export class BuildBuilder<
+	// biome-ignore lint/correctness/noUnusedVariables: <reason>
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > extends Function {

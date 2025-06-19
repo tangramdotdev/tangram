@@ -1,7 +1,7 @@
 import * as tg from "./index.ts";
 import type { Range } from "./range.ts";
 
-// biome-ignore lint/suspicious/noShadowRestrictedNames:
+// biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 export class Error {
 	code: string | undefined;
 	location: tg.Error.Location | undefined;

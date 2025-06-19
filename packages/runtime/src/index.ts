@@ -5,9 +5,9 @@ import { Blob, blob } from "./blob.ts";
 import { BuildBuilder, build } from "./build.ts";
 import {
 	type ArchiveFormat,
-	type CompressionFormat,
 	archive,
 	bundle,
+	type CompressionFormat,
 	compress,
 	decompress,
 	download,
@@ -17,7 +17,7 @@ import { Checksum, checksum } from "./checksum.ts";
 import { Command, CommandBuilder, command } from "./command.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
-// biome-ignore lint/suspicious/noShadowRestrictedNames:
+// biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 import { Error } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";

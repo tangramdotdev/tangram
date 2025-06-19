@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/1.6.3/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
 	"json": {
 		"formatter": {
 			"indentStyle": "tab"
@@ -9,9 +9,6 @@
 		"rules": {
 			"complexity": {
 				"noBannedTypes": "off"
-			},
-			"correctness": {
-				"noUnnecessaryContinue": "off"
 			},
 			"style": {
 				"noNonNullAssertion": "off",
