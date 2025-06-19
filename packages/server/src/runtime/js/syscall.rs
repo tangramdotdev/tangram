@@ -1,6 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::{FutureOutput, State};
+use super::{Promise, State};
 use futures::FutureExt as _;
 use itertools::Itertools as _;
 use std::rc::Rc;
@@ -64,7 +64,9 @@ pub fn syscall<'s>(
 
 		Err(error) => {
 			// Throw an exception.
-			let exception = super::error::to_exception(scope, &error);
+			let Some(exception) = super::error::to_exception(scope, &error) else {
+				return;
+			};
 			scope.throw_exception(exception);
 		},
 	}
@@ -131,11 +133,11 @@ where
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Create the promise.
-	let promise_resolver = v8::PromiseResolver::new(scope).unwrap();
-	let promise = promise_resolver.get_promise(scope);
+	let resolver = v8::PromiseResolver::new(scope).unwrap();
+	let promise = resolver.get_promise(scope);
 
 	// Move the promise resolver to the global scope.
-	let promise_resolver = v8::Global::new(scope, promise_resolver);
+	let resolver = v8::Global::new(scope, resolver);
 
 	// Create the future.
 	let future = {
@@ -144,16 +146,13 @@ where
 			let result = f(state, args)
 				.await
 				.map(|value| Box::new(value) as Box<dyn ToV8>);
-			FutureOutput {
-				promise_resolver,
-				result,
-			}
+			Promise { resolver, result }
 		}
 		.boxed_local()
 	};
 
-	// Add the future to the context's futures.
-	state.futures.borrow_mut().push(future);
+	// Add the promise.
+	state.promises.borrow_mut().push(future);
 
 	Ok(promise.into())
 }

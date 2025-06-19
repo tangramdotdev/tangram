@@ -7,7 +7,7 @@ use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	error: &tg::Error,
-) -> v8::Local<'s, v8::Value> {
+) -> Option<v8::Local<'s, v8::Value>> {
 	let context = scope.get_current_context();
 	let global = context.global(scope);
 	let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
@@ -24,14 +24,16 @@ pub(super) fn to_exception<'s>(
 
 	let data = Serde(error.to_data()).to_v8(scope).unwrap();
 	let undefined = v8::undefined(scope);
-	from_data.call(scope, undefined.into(), &[data]).unwrap()
+	let exception = from_data.call(scope, undefined.into(), &[data])?;
+
+	Some(exception)
 }
 
 pub(super) fn from_exception<'s>(
 	state: &State,
 	scope: &mut v8::HandleScope<'s>,
 	exception: v8::Local<'s, v8::Value>,
-) -> tg::Error {
+) -> Option<tg::Error> {
 	let context = scope.get_current_context();
 	let global = context.global(scope);
 	let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
@@ -42,25 +44,19 @@ pub(super) fn from_exception<'s>(
 	let error_constructor = tangram.get(scope, error_constructor.into()).unwrap();
 	let error_constructor = v8::Local::<v8::Function>::try_from(error_constructor).unwrap();
 
-	if exception
-		.instance_of(scope, error_constructor.into())
-		.unwrap_or_default()
-	{
+	if exception.instance_of(scope, error_constructor.into())? {
 		let to_data = v8::String::new_external_onebyte_static(scope, b"toData").unwrap();
 		let to_data = error_constructor.get(scope, to_data.into()).unwrap();
 		let to_data = v8::Local::<v8::Function>::try_from(to_data).unwrap();
 
 		let undefined = v8::undefined(scope);
-		let data = to_data.call(scope, undefined.into(), &[exception]).unwrap();
+		let data = to_data.call(scope, undefined.into(), &[exception])?;
 
-		return Serde::<tg::error::Data>::from_v8(scope, data)
+		let error = Serde::<tg::error::Data>::from_v8(scope, data)
 			.and_then(|data| data.0.try_into())
-			.inspect_err(|error| {
-				let options = tg::error::TraceOptions::internal();
-				let trace = error.trace(&options);
-				tracing::error!(error = %trace, "failed to deserialize the error");
-			})
 			.unwrap();
+
+		return Some(error);
 	}
 
 	let v8_message = v8::Exception::create_message(scope, exception);
@@ -93,56 +89,62 @@ pub(super) fn from_exception<'s>(
 
 	// Get the source.
 	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
-	let source = exception
+	let source = if let Some(source) = exception
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
-		.map(|cause| from_exception(state, scope, cause.into()))
-		.map(|error| tg::Referent {
+	{
+		let error = from_exception(state, scope, source.into())?;
+		Some(tg::Referent {
 			item: Box::new(error),
 			path: None,
 			tag: None,
-		});
+		})
+	} else {
+		None
+	};
 
 	// Get the stack.
 	let stack = v8::String::new_external_onebyte_static(scope, b"stack").unwrap();
-	let stack = exception
+	let stack = if let Some(stack) = exception
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, stack.into()))
-		.map(|value| {
-			let location_namespace =
-				v8::String::new_external_onebyte_static(scope, b"Location").unwrap();
-			let location_namespace = error_constructor
-				.get(scope, location_namespace.into())
-				.unwrap();
-			let location_namespace = v8::Local::<v8::Object>::try_from(location_namespace).unwrap();
-			let to_data = v8::String::new_external_onebyte_static(scope, b"toData").unwrap();
-			let to_data = location_namespace.get(scope, to_data.into()).unwrap();
-			let to_data = v8::Local::<v8::Function>::try_from(to_data).unwrap();
-			let value = v8::Local::<v8::Array>::try_from(value).unwrap();
-			let len = value.length().to_usize().unwrap();
-			let mut output = Vec::with_capacity(len);
-			for i in 0..len {
-				let value = value.get_index(scope, i.to_u32().unwrap()).unwrap();
-				let undefined = v8::undefined(scope);
-				let data = to_data.call(scope, undefined.into(), &[value]).unwrap();
-				let data = Serde::<tg::error::data::Location>::from_v8(scope, data).unwrap();
-				let data = data.0.try_into().unwrap();
-				output.push(data);
-			}
-			output
-		});
+	{
+		let location_namespace =
+			v8::String::new_external_onebyte_static(scope, b"Location").unwrap();
+		let location_namespace = error_constructor
+			.get(scope, location_namespace.into())
+			.unwrap();
+		let location_namespace = v8::Local::<v8::Object>::try_from(location_namespace).unwrap();
+		let to_data = v8::String::new_external_onebyte_static(scope, b"toData").unwrap();
+		let to_data = location_namespace.get(scope, to_data.into()).unwrap();
+		let to_data = v8::Local::<v8::Function>::try_from(to_data).unwrap();
+		let value = v8::Local::<v8::Array>::try_from(stack).unwrap();
+		let len = value.length().to_usize().unwrap();
+		let mut output = Vec::with_capacity(len);
+		for i in 0..len {
+			let value = value.get_index(scope, i.to_u32().unwrap()).unwrap();
+			let undefined = v8::undefined(scope);
+			let data = to_data.call(scope, undefined.into(), &[value])?;
+			let data = Serde::<tg::error::data::Location>::from_v8(scope, data).unwrap();
+			let data = data.0.try_into().unwrap();
+			output.push(data);
+		}
+		Some(output)
+	} else {
+		None
+	};
 
-	tg::Error {
+	Some(tg::Error {
 		code: None,
 		message,
 		location,
 		stack,
 		source,
 		values: BTreeMap::new(),
-	}
+	})
 }
 
 pub fn prepare_stack_trace_callback<'s>(
@@ -257,9 +259,9 @@ pub fn prepare_stack_trace_callback<'s>(
 		) {
 			let data = Serde(location).to_v8(scope).unwrap();
 			let undefined = v8::undefined(scope);
-			let location = location_from_data
-				.call(scope, undefined.into(), &[data])
-				.unwrap();
+			let Some(location) = location_from_data.call(scope, undefined.into(), &[data]) else {
+				return v8::undefined(scope).into();
+			};
 			stack.set_index(scope, stack_index, location);
 			stack_index += 1;
 		}
