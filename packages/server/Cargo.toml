@@ -13,6 +13,14 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+default = ["format"]
+format = [
+  "dep:biome_js_formatter",
+  "dep:biome_js_parser",
+  "dep:biome_js_syntax",
+]
+
 [build-dependencies]
 data-encoding = { workspace = true }
 glob = { workspace = true }
@@ -35,9 +43,9 @@ async-nats = { workspace = true }
 async_zip = { workspace = true }
 aws-credential-types = { workspace = true }
 aws-sigv4 = { workspace = true }
-biome_js_formatter = { workspace = true }
-biome_js_parser = { workspace = true }
-biome_js_syntax = { workspace = true }
+biome_js_formatter = { workspace = true, optional = true }
+biome_js_parser = { workspace = true, optional = true }
+biome_js_syntax = { workspace = true, optional = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }
 crossterm = { workspace = true }
@@ -94,7 +102,7 @@ tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
-tangram_messenger  = { workspace = true }
+tangram_messenger = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_temp = { workspace = true }
 tangram_uri = { workspace = true }
