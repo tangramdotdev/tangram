@@ -901,13 +901,7 @@ impl Server {
 						tokio_util::either::Either::Left(listener.accept().await?.0)
 					},
 					tokio_util::either::Either::Right(listener) => {
-						tokio_util::either::Either::Right(
-							listener
-								.accept()
-								.await
-								.inspect(|(_, addr)| tracing::trace!("accepted connection {addr}"))?
-								.0,
-						)
+						tokio_util::either::Either::Right(listener.accept().await.0)
 					},
 				};
 				Ok::<_, std::io::Error>(TokioIo::new(stream))
