@@ -151,6 +151,12 @@ pub trait Object {
 }
 
 pub trait Process {
+	fn cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,

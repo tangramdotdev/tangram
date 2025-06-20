@@ -9,6 +9,7 @@ pub use self::{
 	status::Status, stdio::Stdio, wait::Wait,
 };
 
+pub mod cancel;
 pub mod children;
 pub mod data;
 pub mod dequeue;
@@ -26,6 +27,7 @@ pub mod start;
 pub mod state;
 pub mod status;
 pub mod stdio;
+pub mod token;
 pub mod touch;
 pub mod wait;
 
@@ -40,7 +42,7 @@ pub struct Inner {
 	remote: Option<String>,
 	state: RwLock<Option<Arc<State>>>,
 	metadata: RwLock<Option<Arc<Metadata>>>,
-	token: Option<String>,
+	token: Option<tg::process::token::Id>,
 }
 
 impl Process {
@@ -50,7 +52,7 @@ impl Process {
 		remote: Option<String>,
 		state: Option<State>,
 		metadata: Option<Metadata>,
-		token: Option<String>,
+		token: Option<tg::process::token::Id>,
 	) -> Self {
 		let state = RwLock::new(state.map(Arc::new));
 		let metadata = RwLock::new(metadata.map(Arc::new));
@@ -97,7 +99,7 @@ impl Process {
 	}
 
 	#[must_use]
-	pub fn token(&self) -> Option<&String> {
+	pub fn token(&self) -> Option<&tg::process::token::Id> {
 		self.token.as_ref()
 	}
 

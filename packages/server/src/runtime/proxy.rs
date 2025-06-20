@@ -256,6 +256,14 @@ impl tg::handle::Object for Proxy {
 }
 
 impl tg::handle::Process for Proxy {
+	fn cancel_process(
+		&self,
+		id: &tangram_client::process::Id,
+		arg: tangram_client::process::cancel::Arg,
+	) -> impl Future<Output = tangram_client::Result<()>> + Send {
+		self.server.cancel_process(id, arg)
+	}
+
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,

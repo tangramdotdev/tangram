@@ -47,6 +47,8 @@ pub struct Arg {
 pub struct Output {
 	pub process: tg::process::Id,
 
+	pub token: tg::process::token::Id,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }

@@ -122,6 +122,9 @@ impl Cli {
 				.boxed()
 				.await?;
 			println!("{}", process.id());
+			if let Some(token) = process.token() {
+				println!("{token}");
+			}
 			return Ok(());
 		}
 
@@ -147,6 +150,9 @@ impl Cli {
 		// Print the process ID.
 		if !self.args.quiet {
 			eprintln!("{} {}", "info".blue().bold(), process.id());
+			if let Some(token) = process.token() {
+				eprintln!("{} {}", "token".blue().bold(), token);
+			}
 		}
 
 		// Enable raw mode.
