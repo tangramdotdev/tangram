@@ -1,6 +1,9 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{Stream, TryStreamExt as _, future, stream};
+use futures::{
+	Stream, StreamExt as _, TryStreamExt as _, future,
+	stream::{self, FuturesUnordered},
+};
 use std::{
 	collections::BTreeMap,
 	os::fd::OwnedFd,
@@ -269,7 +272,6 @@ pub async fn log(
 			.ok();
 		return;
 	}
-
 	// Otherwise post to the process' logs.
 	let arg = tg::process::log::post::Arg {
 		bytes: message.into(),
@@ -284,6 +286,54 @@ pub async fn log(
 }
 
 impl Server {
+	pub(super) async fn checkout_children(&self, process: &tg::Process) -> tg::Result<()> {
+		// Do nothing if the VFS is enabled.
+		if self.vfs.lock().unwrap().is_some() {
+			return Ok(());
+		}
+
+		// Get the children.
+		let children = process.command(self).await?.children(self).await?;
+
+		// Checkout children and collect their progress streams.
+		let streams = children
+			.into_iter()
+			.filter_map(|object| object.id().try_into().ok())
+			.map(async |artifact: tg::artifact::Id| {
+				let arg = tg::checkout::Arg {
+					artifact: artifact.clone(),
+					dependencies: false,
+					force: false,
+					lockfile: false,
+					path: None,
+				};
+				let stream = self.checkout(arg).await?;
+				let artifact = artifact.clone();
+				let stream = stream
+					.map_ok(move |mut event| {
+						match &mut event {
+							tg::progress::Event::Start(ind)
+							| tg::progress::Event::Update(ind)
+							| tg::progress::Event::Finish(ind) => {
+								ind.name = format!("{} ({artifact})", ind.name);
+							},
+							_ => (),
+						}
+						event
+					})
+					.boxed();
+				Ok::<_, tg::Error>(stream)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+
+		// Merge all the streams into one
+		let stream = stream::select_all(streams);
+		self.log_progress_stream(process, stream).await?;
+		Ok(())
+	}
+
 	pub(super) async fn write_message_to_stdio(
 		&self,
 		io: &tg::process::Stdio,

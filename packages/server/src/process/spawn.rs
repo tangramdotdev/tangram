@@ -411,7 +411,7 @@ impl Server {
 			now,
 			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
 			exit,
-			arg.checksum,
+			dbg!(arg.checksum.clone()),
 			now,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
@@ -672,7 +672,7 @@ impl Server {
 					select {p}1 as id
 					union all
 					select process_children.process as id
-					from ancestors 
+					from ancestors
 					join process_children on ancestors.id = process_children.child
 				)
 				select exists(

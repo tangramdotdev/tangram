@@ -1,9 +1,10 @@
 use super::Runtime;
 use crate::runtime::util;
-use std::{pin::Pin, time::Duration};
+use std::pin::Pin;
 use tangram_client as tg;
-use tangram_futures::read::shared_position_reader::SharedPositionReader;
+use tangram_futures::{read::shared_position_reader::SharedPositionReader, stream::Ext as _};
 use tokio::io::{AsyncBufReadExt as _, AsyncRead};
+use tokio_util::task::AbortOnDropHandle;
 
 impl Runtime {
 	pub async fn decompress(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
@@ -38,11 +39,12 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("invalid compression format"))?;
 
 		// Spawn a task to log progress.
+		// Spawn a task to log progress.
 		let position = reader.shared_position();
 		let size = blob.length(server).await?;
-		let log_task = tokio::spawn({
-			let server = server.clone();
-			let process = process.clone();
+		let (send, recv) = async_channel::bounded(1024);
+		let progress_task = tokio::spawn({
+			let position = position.clone();
 			async move {
 				loop {
 					let position = position.load(std::sync::atomic::Ordering::Relaxed);
@@ -50,20 +52,34 @@ impl Runtime {
 						current: Some(position),
 						format: tg::progress::IndicatorFormat::Bytes,
 						name: String::new(),
-						title: "decompressing".to_owned(),
+						title: "compressing".to_owned(),
 						total: Some(size),
 					};
-					let message = format!("{indicator}\n");
-					util::log(&server, &process, tg::process::log::Stream::Stderr, message).await;
-					tokio::time::sleep(Duration::from_secs(1)).await;
+					if send
+						.send(Ok::<_, tg::Error>(tg::progress::Event::Update::<()>(
+							indicator,
+						)))
+						.await
+						.is_err()
+					{
+						break;
+					}
+					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 				}
+			}
+		});
+		let log_task = tokio::spawn({
+			let server = server.clone();
+			let process = process.clone();
+			async move {
+				let stream = recv.attach(AbortOnDropHandle::new(progress_task));
+				server.log_progress_stream(&process, stream).await.ok()
 			}
 		});
 		let log_task_abort_handle = log_task.abort_handle();
 		scopeguard::defer! {
 			log_task_abort_handle.abort();
 		};
-
 		// Decompress the blob.
 		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match format {
 			tg::CompressionFormat::Bz2 => {
@@ -83,6 +99,7 @@ impl Runtime {
 		let blob = tg::Blob::with_reader(server, reader).await?;
 
 		log_task.abort();
+		log_task.await.ok();
 
 		// Log that the decompression finished.
 		let message = "finished decompressing\n";

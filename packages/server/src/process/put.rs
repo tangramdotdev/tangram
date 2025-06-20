@@ -127,7 +127,7 @@ impl Server {
 					?19,
 					?20,
 					?21,
-					?22, 
+					?22,
 					?23
 				)
 				on conflict (id) do update set
@@ -302,7 +302,7 @@ impl Server {
 					$19,
 					$20,
 					$21,
-					$22, 
+					$22,
 					$23
 				)
 				on conflict (id) do update set

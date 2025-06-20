@@ -139,7 +139,31 @@ impl Server {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
-		if self.database.is_left()
+		// Check if all items are complete.
+		let all_complete = arg
+			.items
+			.iter()
+			.map(async |item| {
+				let object = match item {
+					Either::Left(process) => {
+						tg::Process::new(process.clone(), None, None, None, None)
+							.command(self)
+							.await?
+							.id()
+							.into()
+					},
+					Either::Right(object) => object.clone(),
+				};
+				let complete = self.export_get_object_complete(&object).await?;
+				let is_complete = complete.count.is_some() && complete.weight.is_some();
+				Ok::<_, tg::Error>(is_complete)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await
+			.is_ok_and(|complete| complete.into_iter().all(|complete| complete));
+		if all_complete
+			&& self.database.is_left()
 			&& self.index.is_left()
 			&& matches!(self.store, crate::Store::Lmdb(_) | crate::Store::Memory(_))
 		{

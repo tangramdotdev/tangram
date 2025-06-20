@@ -3,7 +3,6 @@ use super::{
 	util::{render_env, render_value, signal_task, stdio_task, which},
 };
 use crate::{Server, temp::Temp};
-use futures::stream::{FuturesUnordered, TryStreamExt as _};
 use indoc::formatdoc;
 use std::path::Path;
 use tangram_client as tg;
@@ -38,26 +37,8 @@ impl Runtime {
 		let command = command.data(&self.server).await?;
 		let remote = process.remote();
 
-		// If the VFS is disabled, then check out the target's children.
-		if self.server.vfs.lock().unwrap().is_none() {
-			command
-				.children()
-				.filter_map(|id| id.try_into().ok())
-				.map(|artifact| async move {
-					let arg = tg::checkout::Arg {
-						artifact,
-						dependencies: false,
-						force: false,
-						lockfile: false,
-						path: None,
-					};
-					tg::checkout(&self.server, arg).await?;
-					Ok::<_, tg::Error>(())
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await?;
-		}
+		// Checkout the process's chidlren.
+		self.server.checkout_children(process).await?;
 
 		// Determine if there is a root mount.
 		let root_bind_mount = state

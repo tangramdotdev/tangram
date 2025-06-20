@@ -39,26 +39,8 @@ impl Runtime {
 		let command = command.data(&self.server).await?;
 		let remote = process.remote();
 
-		// If the VFS is disabled, then check out the command's children.
-		if self.server.vfs.lock().unwrap().is_none() {
-			command
-				.children()
-				.filter_map(|id| id.try_into().ok())
-				.map(|artifact| async move {
-					let arg = tg::checkout::Arg {
-						artifact,
-						dependencies: false,
-						force: false,
-						lockfile: false,
-						path: None,
-					};
-					tg::checkout(&self.server, arg).await?;
-					Ok::<_, tg::Error>(())
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await?;
-		}
+		// Checkout the process's children.
+		self.server.checkout_children(process).await?;
 
 		// Determine if the hosts' root is mounted.
 		let root_mount = state
