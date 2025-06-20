@@ -1,22 +1,22 @@
 [workspace]
 default-members = ["packages/cli"]
 members = [
-    "packages/cli",
-    "packages/client",
-    "packages/database",
-    "packages/either",
-    "packages/futures",
-    "packages/http",
-    "packages/ignore",
-    "packages/itertools",
-    "packages/messenger",
-    "packages/sandbox",
-    "packages/server",
-    "packages/temp",
-    "packages/uri",
-    "packages/v8",
-    "packages/version",
-    "packages/vfs",
+  "packages/cli",
+  "packages/client",
+  "packages/database",
+  "packages/either",
+  "packages/futures",
+  "packages/http",
+  "packages/ignore",
+  "packages/itertools",
+  "packages/messenger",
+  "packages/sandbox",
+  "packages/server",
+  "packages/temp",
+  "packages/uri",
+  "packages/v8",
+  "packages/version",
+  "packages/vfs",
 ]
 resolver = "2"
 
@@ -84,10 +84,7 @@ fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
 fnv = "1"
-foundationdb = { version = "0.9", features = [
-    "fdb-7_3",
-    "embedded-fdb-include",
-] }
+foundationdb = { version = "0.9", features = ["fdb-7_3", "embedded-fdb-include"] }
 foundationdb-tuple = "0.9"
 futures = "0.3"
 glob = "0.3"
@@ -126,10 +123,10 @@ rayon = "1"
 reflink-copy = "0.1"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = [
-    "blocking",
-    "json",
-    "stream",
-    "rustls-tls",
+  "blocking",
+  "json",
+  "stream",
+  "rustls-tls",
 ] }
 rusqlite = { version = "0.36", features = ["blob", "bundled", "functions"] }
 rustls = "0.23"
@@ -145,16 +142,16 @@ sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
 swc_core = { version = "28", features = [
-    "common",
-    "common_sourcemap",
-    "ecma_ast",
-    "ecma_codegen",
-    "ecma_parser",
-    "ecma_parser_typescript",
-    "ecma_transforms",
-    "ecma_transforms_module",
-    "ecma_transforms_typescript",
-    "ecma_visit",
+  "common",
+  "common_sourcemap",
+  "ecma_ast",
+  "ecma_codegen",
+  "ecma_parser",
+  "ecma_parser_typescript",
+  "ecma_transforms",
+  "ecma_transforms_module",
+  "ecma_transforms_typescript",
+  "ecma_visit",
 ] }
 sync_wrapper = "1"
 syntect = { version = "5", features = ["default-fancy"] }
@@ -177,24 +174,15 @@ tar = { version = "0.4" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-postgres = { version = "0.7", features = [
-    "runtime",
-    "with-serde_json-1",
+  "runtime",
+  "with-serde_json-1",
 ] }
 tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 toml = { version = "0.8" }
 tower = { version = "0.5", features = ["timeout", "util"] }
-tower-http = { version = "0.6", features = [
-    "add-extension",
-    "compression-zstd",
-    "decompression-zstd",
-    "map-request-body",
-    "map-response-body",
-    "set-header",
-    "timeout",
-    "util",
-] }
+tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"
