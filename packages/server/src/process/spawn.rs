@@ -40,74 +40,103 @@ impl Server {
 
 		// If the process is not cacheable, then spawn a local process, add it as a child of the parent, and return it.
 		if !cacheable {
-			let id = self.spawn_local_process(&arg).await?;
+			let (id, token) = self.spawn_local_process(&arg).await?;
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
-					.await
-					.map_err(
-						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-					)?;
+				self.try_add_process_child(
+					parent,
+					&id,
+					arg.path.as_ref(),
+					arg.tag.as_ref(),
+					Some(&token),
+				)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
+				token,
 			};
 			return Ok(Some(output));
 		}
 
 		// Return a matching local process if one exists.
-		if let Some(id) = self.try_get_cached_process_local(&arg).await? {
+		if let Some((id, token)) = self.try_get_cached_process_local(&arg).await? {
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
-					.await
-					.map_err(
-						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-					)?;
+				self.try_add_process_child(
+					parent,
+					&id,
+					arg.path.as_ref(),
+					arg.tag.as_ref(),
+					Some(&token),
+				)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
+				token,
 			};
 			return Ok(Some(output));
 		}
 
 		// Reuse a local process if possible.
-		if let Some(id) = self.try_reuse_process_local(&arg).await? {
+		if let Some((id, token)) = self.try_reuse_process_local(&arg).await? {
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
-					.await
-					.map_err(
-						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-					)?;
+				self.try_add_process_child(
+					parent,
+					&id,
+					arg.path.as_ref(),
+					arg.tag.as_ref(),
+					Some(&token),
+				)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
+				token,
 			};
 			return Ok(Some(output));
 		}
 
 		// If cached is true, then attempt to get a remote process.
 		if matches!(arg.cached, Some(true)) {
-			let Some(id) = self.try_get_cached_process_remote(&arg).await? else {
+			let Some(output) = self.try_get_cached_process_remote(&arg).await? else {
 				return Ok(None);
 			};
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
-					.await
-					.map_err(
-						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-					)?;
+				// TODO: why aren't we calling this on the remote client that we got the process from?
+				self.try_add_process_child(
+					parent,
+					&output.process,
+					arg.path.as_ref(),
+					arg.tag.as_ref(),
+					Some(&output.token),
+				)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %parent, %child = output.process, "failed to add the process as a child"),
+				)?;
 			}
 			let output = tg::process::spawn::Output {
-				process: id,
-				remote: None,
+				process: output.process,
+				token: output.token,
+				remote: None, // TODO: shouldn't this be set??
 			};
 			return Ok(Some(output));
 		}
 
 		// Spawn a local process.
-		let local_id = self.spawn_local_process(&arg).await?;
+		let (local_id, local_token) = self.spawn_local_process(&arg).await?;
 
 		// Create a future that will await the local process.
 		let local = async { self.wait_process(&local_id).await };
@@ -116,51 +145,50 @@ impl Server {
 		let remote = async { self.try_get_cached_process_remote(&arg).await };
 
 		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
-		let id = match future::select(pin!(local), pin!(remote)).await {
-			future::Either::Left((_, _)) => local_id.clone(),
+		let (id, token) = match future::select(pin!(local), pin!(remote)).await {
+			future::Either::Left((_, _)) => (local_id.clone(), local_token.clone()),
 			future::Either::Right((remote, _)) => {
-				if let Ok(Some(remote_id)) = remote {
+				if let Ok(Some(output)) = remote {
+					// TODO: don't we need to preserve the remote?
 					tokio::spawn({
 						let server = self.clone();
-						let local_id = local_id.clone();
+						let id = local_id.clone();
+						let token = local_token.clone();
 						async move {
-							let arg = tg::process::finish::Arg {
-								checksum: None,
-								error: Some(
-									tg::error!(
-										code = tg::error::Code::Cancelation,
-										"the process was canceled"
-									)
-									.to_data(),
-								),
-								exit: 1,
-								force: false,
-								output: None,
+							let arg = tg::process::cancel::Arg {
 								remote: None,
+								token,
 							};
-							server.finish_process(&local_id, arg).boxed().await.ok();
+							server.cancel_process(&id, arg).boxed().await.ok();
 						}
 					});
-					remote_id
+					(output.process, output.token)
 				} else {
-					local_id.clone()
+					(local_id.clone(), local_token.clone())
 				}
 			},
 		};
 
 		// Add the process to the parent.
 		if let Some(parent) = arg.parent.as_ref() {
-			self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
+			self.try_add_process_child(
+				parent,
+				&id,
+				arg.path.as_ref(),
+				arg.tag.as_ref(),
+				Some(&token),
+			)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+			)?;
 		}
 
 		// Create the output.
 		let output = tg::process::spawn::Output {
 			process: id,
 			remote: None,
+			token,
 		};
 
 		Ok(Some(output))
@@ -169,7 +197,7 @@ impl Server {
 	async fn try_get_cached_process_local(
 		&self,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::Id>> {
+	) -> tg::Result<Option<(tg::process::Id, tg::process::token::Id)>> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -242,13 +270,35 @@ impl Server {
 			}
 		});
 
-		Ok(Some(id))
+		// Create a new token.
+		let token = tg::process::token::Id::new();
+
+		// Insert the process token.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into process_tokens (process, token)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![id, token];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		Ok(Some((id, token)))
 	}
 
 	async fn try_reuse_process_local(
 		&self,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::Id>> {
+	) -> tg::Result<Option<(tg::process::Id, tg::process::token::Id)>> {
 		// If the checksum is not set, then return.
 		let Some(expected_checksum) = arg.checksum.clone() else {
 			return Ok(None);
@@ -315,6 +365,9 @@ impl Server {
 
 		// Create an ID.
 		let id = tg::process::Id::new();
+
+		// Create a token.
+		let token = tg::process::token::Id::new();
 
 		// Get the host.
 		let command = tg::Command::with_id(arg.command.clone().unwrap());
@@ -426,13 +479,26 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		Ok(Some(id))
+		// Insert the process token.
+		let statement = formatdoc!(
+			"
+				insert into process_tokens (process, token)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![id, token];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		Ok(Some((id, token)))
 	}
 
 	async fn spawn_local_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<tg::process::Id> {
+	) -> tg::Result<(tg::process::Id, tg::process::token::Id)> {
 		// Touch the command.
 		if let Some(command) = &arg.command {
 			let arg = tg::object::touch::Arg { remote: None };
@@ -441,6 +507,9 @@ impl Server {
 
 		// Create an ID.
 		let id = tg::process::Id::new();
+
+		// Create a token.
+		let token = tg::process::token::Id::new();
 
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some()
@@ -545,6 +614,19 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		// Insert the process token.
+		let statement = formatdoc!(
+			"
+				insert into process_tokens (process, token)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![id, token];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 		// Drop the connection.
 		drop(connection);
 
@@ -594,13 +676,13 @@ impl Server {
 			server.spawn_process_task(&process, permit);
 		});
 
-		Ok(id)
+		Ok((id, token))
 	}
 
 	async fn try_get_cached_process_remote(
 		&self,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::Id>> {
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Find a process.
 		let futures = self
 			.get_remote_clients()
@@ -640,7 +722,7 @@ impl Server {
 			}
 		});
 
-		Ok(Some(output.process))
+		Ok(Some(output))
 	}
 
 	async fn try_add_process_child(
@@ -649,6 +731,7 @@ impl Server {
 		child: &tg::process::Id,
 		path: Option<&PathBuf>,
 		tag: Option<&tg::Tag>,
+		token: Option<&tg::process::token::Id>,
 	) -> tg::Result<()> {
 		// Verify the process is local and started.
 		if self.try_get_current_process_status_local(parent).await?
@@ -672,7 +755,7 @@ impl Server {
 					select {p}1 as id
 					union all
 					select process_children.process as id
-					from ancestors 
+					from ancestors
 					join process_children on ancestors.id = process_children.child
 				)
 				select exists(
@@ -705,12 +788,12 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child, path, tag)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4)
+				insert into process_children (process, position, child, path, tag, token)
+				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4, {p}5)
 				on conflict (process, child) do nothing;
 			"
 		);
-		let params = db::params![parent, child, path, tag];
+		let params = db::params![parent, child, path, tag, token];
 		connection
 			.execute(statement.into(), params)
 			.await

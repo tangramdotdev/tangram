@@ -63,10 +63,11 @@ impl Server {
 			child: tg::process::Id,
 			path: Option<PathBuf>,
 			tag: Option<tg::Tag>,
+			token: Option<tg::process::token::Id>,
 		}
 		let statement = formatdoc!(
 			"
-				select child, path, tag
+				select child, path, tag, token
 				from process_children
 				where process = {p}1
 				order by position;
@@ -79,26 +80,21 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 
-		// Cancel unfinished children.
+		// Cancel children.
 		children
 			.clone()
 			.into_iter()
-			.map(|row| async move {
-				let error = tg::error!(
-					code = tg::error::Code::Cancelation,
-					"the parent was finished"
-				)
-				.to_data();
-				let arg = tg::process::finish::Arg {
-					checksum: None,
-					error: Some(error),
-					exit: 1,
-					force: false,
-					output: None,
-					remote: None,
+			.filter_map(|row| {
+				let id = row.child;
+				let token = row.token?;
+				let future = async move {
+					let arg = tg::process::cancel::Arg {
+						token,
+						remote: None,
+					};
+					self.cancel_process(&id, arg).await
 				};
-				self.finish_process(&row.child, arg).await.ok();
-				Ok::<_, tg::Error>(())
+				Some(future)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()

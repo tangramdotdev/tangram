@@ -901,7 +901,7 @@ impl Server {
 						tokio_util::either::Either::Left(listener.accept().await?.0)
 					},
 					tokio_util::either::Either::Right(listener) => {
-						tokio_util::either::Either::Right(listener.accept().await?.0)
+						tokio_util::either::Either::Right(listener.accept().await.0)
 					},
 				};
 				Ok::<_, std::io::Error>(TokioIo::new(stream))
@@ -1013,8 +1013,9 @@ impl Server {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
-		let method = request.method().clone();
+		let method: http::Method = request.method().clone();
 		let path = request.uri().path().to_owned();
+		tracing::trace!("{method} {}", request.uri());
 		let path_components = path.split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
 			(http::Method::POST, ["check"]) => Self::handle_check_request(handle, request).boxed(),
@@ -1069,6 +1070,9 @@ impl Server {
 			},
 
 			// Processes.
+			(http::Method::POST, ["processes", process, "cancel"]) => {
+				Self::handle_cancel_process_request(handle, request, process).boxed()
+			},
 			(http::Method::POST, ["processes", "spawn"]) => {
 				Self::handle_spawn_process_request(handle, request).boxed()
 			},
@@ -1394,6 +1398,14 @@ impl tg::handle::Object for Server {
 }
 
 impl tg::handle::Process for Server {
+	fn cancel_process(
+		&self,
+		id: &tangram_client::process::Id,
+		arg: tangram_client::process::cancel::Arg,
+	) -> impl Future<Output = tangram_client::Result<()>> + Send {
+		self.cancel_process(id, arg)
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

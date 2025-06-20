@@ -828,6 +828,14 @@ impl tg::handle::Object for Client {
 }
 
 impl tg::handle::Process for Client {
+	fn cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.cancel_process(id, arg)
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

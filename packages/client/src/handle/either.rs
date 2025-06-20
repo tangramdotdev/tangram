@@ -317,6 +317,17 @@ where
 	L: tg::handle::Process,
 	R: tg::handle::Process,
 {
+	fn cancel_process(
+		&self,
+		id: &crate::process::Id,
+		arg: crate::process::cancel::Arg,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.cancel_process(id, arg).left_future(),
+			Either::Right(s) => s.cancel_process(id, arg).right_future(),
+		}
+	}
+
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
