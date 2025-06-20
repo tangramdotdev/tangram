@@ -15,7 +15,7 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["format", "foundationdb"]
+default = ["format"]
 format = ["tangram_server/format"]
 foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
 

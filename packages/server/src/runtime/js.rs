@@ -4,7 +4,7 @@ use self::{
 	},
 	syscall::syscall,
 };
-use crate::{Server, runtime::util};
+use crate::Server;
 use futures::{
 	FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 	future::{self, LocalBoxFuture},
@@ -32,7 +32,6 @@ struct State {
 	process: tg::Process,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, Promise>>>,
 	global_source_map: Option<SourceMap>,
-	log_sender: RefCell<Option<tokio::sync::mpsc::UnboundedSender<syscall::log::Message>>>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
@@ -119,34 +118,6 @@ impl Runtime {
 			.ok()
 			.ok_or_else(|| tg::error!("expected the executable to be a module"))?;
 
-		// Start the log task.
-		let (log_sender, mut log_receiver) =
-			tokio::sync::mpsc::unbounded_channel::<syscall::log::Message>();
-		let log_task = main_runtime_handle.spawn({
-			let server = self.server.clone();
-			let process = process.clone();
-			async move {
-				while let Some(message) = log_receiver.recv().await {
-					let syscall::log::Message { stream, string } = message;
-					match stream {
-						syscall::log::Stream::Stdout => {
-							util::log(&server, &process, tg::process::log::Stream::Stdout, string)
-								.await;
-						},
-						syscall::log::Stream::Stderr => {
-							util::log(&server, &process, tg::process::log::Stream::Stderr, string)
-								.await;
-						},
-					}
-				}
-				Ok::<(), tg::Error>(())
-			}
-		});
-		let log_task_abort_handle = log_task.abort_handle();
-		scopeguard::defer! {
-			log_task_abort_handle.abort();
-		}
-
 		// Create the signal task.
 		let (signal_sender, mut signal_receiver) =
 			tokio::sync::mpsc::channel::<tg::process::Signal>(1);
@@ -182,7 +153,6 @@ impl Runtime {
 			process: process.clone(),
 			promises: RefCell::new(FuturesUnordered::new()),
 			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			log_sender: RefCell::new(Some(log_sender)),
 			main_runtime_handle,
 			modules: RefCell::new(Vec::new()),
 			rejection,
