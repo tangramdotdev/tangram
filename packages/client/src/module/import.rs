@@ -35,14 +35,6 @@ impl Import {
 				);
 				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
-				let name = reference
-					.options()
-					.and_then(|query| query.name.clone())
-					.or(attributes.name);
-				let overrides = reference
-					.options()
-					.and_then(|query| query.overrides.clone())
-					.or(attributes.overrides);
 				let path = reference
 					.options()
 					.and_then(|query| query.path.clone())
@@ -51,12 +43,7 @@ impl Import {
 					.options()
 					.and_then(|query| query.remote.clone())
 					.or(attributes.remote);
-				let query = tg::reference::Options {
-					name,
-					overrides,
-					path,
-					remote,
-				};
+				let query = tg::reference::Options { path, remote };
 				let query = serde_urlencoded::to_string(query)
 					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
 				let uri = reference.uri().to_builder().query(query).build().unwrap();

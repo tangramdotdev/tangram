@@ -1,7 +1,6 @@
 use crate::{self as tg, prelude::*};
 use itertools::Itertools as _;
 use std::{
-	collections::BTreeMap,
 	os::unix::ffi::OsStrExt as _,
 	path::{Path, PathBuf},
 	pin::pin,
@@ -36,12 +35,6 @@ pub enum Item {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Options {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub overrides: Option<BTreeMap<String, tg::Reference>>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
@@ -155,13 +148,10 @@ impl Reference {
 
 impl Reference {
 	pub fn name(&self) -> Option<&str> {
-		self.options()
-			.and_then(|options| options.name.as_deref())
-			.or(self
-				.item()
-				.try_unwrap_tag_ref()
-				.ok()
-				.map(tg::tag::Pattern::name))
+		self.item()
+			.try_unwrap_tag_ref()
+			.ok()
+			.map(tg::tag::Pattern::name)
 	}
 
 	pub fn path(&self) -> Option<&Path> {
