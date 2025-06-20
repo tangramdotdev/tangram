@@ -19,6 +19,20 @@ async fn hello_world() {
 }
 
 #[tokio::test]
+async fn hello_world_file() {
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default () => tg.file("Hello, World!");
+		"#),
+	};
+	let assertions = |output: std::process::Output| async move {
+		assert_success!(output);
+	};
+	let path = "";
+	test_check(directory, path, assertions).await;
+}
+
+#[tokio::test]
 async fn nonexistent_function() {
 	let directory = temp::directory! {
 		"tangram.ts" => indoc!(r"

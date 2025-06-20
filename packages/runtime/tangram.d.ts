@@ -1,10 +1,10 @@
 /// <reference lib="es2023" />
 
-export interface ImportAttributes {
+declare interface ImportAttributes {
 	path?: string;
 }
 
-export interface ImportMeta {
+declare interface ImportMeta {
 	module: tg.Module;
 }
 
