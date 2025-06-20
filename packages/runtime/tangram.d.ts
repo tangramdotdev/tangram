@@ -1,11 +1,10 @@
 /// <reference lib="es2023" />
 
-interface ImportAttributes {
+export interface ImportAttributes {
 	path?: string;
-	subpath?: string;
 }
 
-interface ImportMeta {
+export interface ImportMeta {
 	module: tg.Module;
 }
 
@@ -891,7 +890,7 @@ declare namespace tg {
 			input: string | Uint8Array | tg.Blob | tg.Artifact,
 			algorithm: tg.Checksum.Algorithm,
 		) => tg.Checksum;
-		export { new_ as new };
+		export type { new_ as new };
 	}
 
 	/** Assert that a condition is truthy. If not, throw an error with an optional message. */
@@ -1156,6 +1155,7 @@ declare namespace tg {
 	}
 
 	export class BuildBuilder<
+		// biome-ignore lint/correctness/noUnusedVariables: <reason>
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {
@@ -1267,6 +1267,7 @@ declare namespace tg {
 	}
 
 	export class RunBuilder<
+		// biome-ignore lint/correctness/noUnusedVariables: <reason>
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {

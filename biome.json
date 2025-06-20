@@ -1,5 +1,8 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
+	"formatter": {
+		"useEditorconfig": true
+	},
 	"json": {
 		"formatter": {
 			"indentStyle": "tab"

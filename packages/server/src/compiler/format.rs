@@ -3,6 +3,7 @@ use lsp_types as lsp;
 use tangram_client as tg;
 
 impl Compiler {
+	#[cfg(feature = "format")]
 	pub fn format(text: &str) -> tg::Result<String> {
 		let source_type = biome_js_syntax::JsFileSource::ts();
 		let options = biome_js_parser::JsParserOptions::default();
@@ -15,6 +16,11 @@ impl Compiler {
 			.map_err(|source| tg::error!(!source, "failed to format"))?
 			.into_code();
 		Ok(text)
+	}
+
+	#[cfg(not(feature = "format"))]
+	pub fn format(_text: &str) -> tg::Result<String> {
+		Err(tg::error!("formatting not enabled"))
 	}
 }
 
