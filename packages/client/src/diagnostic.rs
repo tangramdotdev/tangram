@@ -70,3 +70,18 @@ impl std::str::FromStr for Severity {
 		}
 	}
 }
+
+impl std::fmt::Display for Diagnostic {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let Self {
+			severity,
+			message,
+			location,
+		} = self;
+		write!(f, "{severity} {message}")?;
+		if let Some(location) = location {
+			write!(f, " {location}")?;
+		}
+		Ok(())
+	}
+}

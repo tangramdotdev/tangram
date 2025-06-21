@@ -3,7 +3,6 @@ use bytes::Bytes;
 use futures::{Stream, TryStreamExt as _, future, stream};
 use std::{
 	collections::BTreeMap,
-	os::fd::OwnedFd,
 	path::{Path, PathBuf},
 	pin::pin,
 };
@@ -138,7 +137,6 @@ pub async fn stdio_task(
 	Ok::<_, tg::Error>(())
 }
 
-// Helper to create an event stream from pipes
 fn chunk_stream_from_reader(
 	reader: impl AsyncRead + Unpin + Send + 'static,
 ) -> impl Stream<Item = tg::Result<Bytes>> + Send + 'static {
@@ -270,7 +268,7 @@ pub async fn log(
 		return;
 	}
 
-	// Otherwise post to the process' logs.
+	// Otherwise, post to the process's logs.
 	let arg = tg::process::log::post::Arg {
 		bytes: message.into(),
 		remote: process.remote().cloned(),
@@ -284,13 +282,38 @@ pub async fn log(
 }
 
 impl Server {
+	pub(super) async fn checkout_children(&self, process: &tg::Process) -> tg::Result<()> {
+		// Do nothing if the VFS is enabled.
+		if self.vfs.lock().unwrap().is_some() {
+			return Ok(());
+		}
+
+		// Get the process's command's children that are artifacts.
+		let artifacts: Vec<tg::artifact::Id> = process
+			.command(self)
+			.await?
+			.children(self)
+			.await?
+			.into_iter()
+			.filter_map(|object| object.id().try_into().ok())
+			.collect::<Vec<_>>();
+
+		// Check out the artifacts.
+		let stream = self.cache(artifacts).await?;
+
+		// Log the progress stream.
+		self.log_progress_stream(process, stream).await?;
+
+		Ok(())
+	}
+
 	pub(super) async fn write_message_to_stdio(
 		&self,
-		io: &tg::process::Stdio,
+		stdio: &tg::process::Stdio,
 		message: String,
 		remote: Option<&String>,
 	) -> tg::Result<()> {
-		match io {
+		match stdio {
 			tg::process::Stdio::Pipe(id) => {
 				let bytes = Bytes::from(message);
 				let stream = stream::once(future::ok(tg::pipe::Event::Chunk(bytes)));
@@ -310,39 +333,5 @@ impl Server {
 			},
 		}
 		Ok(())
-	}
-
-	pub(super) fn get_pty_or_pipe_fd(
-		&self,
-		io: &tg::process::Stdio,
-		read: bool,
-	) -> tg::Result<OwnedFd> {
-		match (io, read) {
-			(tg::process::Stdio::Pipe(pipe), true) => Ok(self
-				.pipes
-				.get(pipe)
-				.ok_or_else(|| tg::error!("failed to get pipe"))?
-				.read
-				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to get pipe"))?
-				.into()),
-			(tg::process::Stdio::Pipe(pipe), false) => Ok(self
-				.pipes
-				.get(pipe)
-				.ok_or_else(|| tg::error!("failed to get pipe"))?
-				.write
-				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to get pipe"))?
-				.into()),
-			(tg::process::Stdio::Pty(pty), _) => {
-				let pty = self
-					.ptys
-					.get(pty)
-					.ok_or_else(|| tg::error!("failed to get pty"))?;
-				pty.guest
-					.try_clone()
-					.map_err(|source| tg::error!(!source, "failed to get pty"))
-			},
-		}
 	}
 }

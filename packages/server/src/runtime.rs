@@ -2,6 +2,7 @@ use crate::Server;
 use futures::FutureExt as _;
 use tangram_client as tg;
 
+mod progress;
 mod proxy;
 mod util;
 

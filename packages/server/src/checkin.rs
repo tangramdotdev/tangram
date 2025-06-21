@@ -355,11 +355,7 @@ impl Server {
 			}
 			.inspect_err(|error| tracing::error!(?error, "lockfile task failed"))
 		})
-		.map(|result| {
-			result
-				.inspect_err(|error| eprintln!("lockfile task panicked: {error}"))
-				.unwrap()
-		});
+		.map(|result| result.unwrap());
 
 		futures::try_join!(cache_and_store_future, messenger_future, lockfile_future)?;
 

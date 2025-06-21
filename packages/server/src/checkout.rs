@@ -38,9 +38,6 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
-		let metadata = self
-			.try_get_object_metadata(&arg.artifact.clone().into())
-			.await?;
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({
 			let server = self.clone();
@@ -64,6 +61,11 @@ impl Server {
 				}
 
 				progress.spinner("checkout", "checkout");
+				let metadata = server
+					.try_get_object_metadata(&arg.artifact.clone().into())
+					.await
+					.ok()
+					.flatten();
 				let count = metadata.as_ref().and_then(|metadata| metadata.count);
 				let weight = metadata.as_ref().and_then(|metadata| metadata.weight);
 				progress.start(
@@ -180,16 +182,10 @@ impl Server {
 		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<tg::checkout::Output> {
 		// Get the path.
-		let Some(path) = arg.path.clone() else {
-			if !self.vfs.lock().unwrap().is_some() {
-				self.cache_artifact(&artifact, progress).await.map_err(
-					|source| tg::error!(!source, %artifact, "failed to cache the artifact"),
-				)?;
-			}
-			let path = self.artifacts_path().join(artifact.to_string());
-			let output = tg::checkout::Output { path };
-			return Ok(output);
-		};
+		let path = arg
+			.path
+			.clone()
+			.ok_or_else(|| tg::error!("expected the path to be set"))?;
 
 		// Canonicalize the path's parent.
 		let path = crate::util::fs::canonicalize_parent(path)
@@ -253,7 +249,9 @@ impl Server {
 			return Err(error);
 		}
 
-		Ok(tg::checkout::Output { path })
+		let output = tg::checkout::Output { path };
+
+		Ok(output)
 	}
 
 	fn checkout_dependency(
