@@ -57,19 +57,19 @@ impl Server {
 		}
 		let statement = formatdoc!(
 			"
-				select id, null, 'maximum depth exceeded'
+				select id, null as code, 'maximum depth exceeded' as message
 				from processes
 				where status = 'started' and depth > {p}1
 
 				union all
 
-				select id, 'cancellation', 'the process was canceled'
+				select id, 'cancellation' as code, 'the process was canceled' as message
 				from processes
 				where status != 'finished' and token_count = 0
 
 				union all
 
-				select id, null, 'heartbeat expired'
+				select id, null as code, 'heartbeat expired' as message
 				from processes
 				where status = 'started' and heartbeat_at <= {p}2
 
