@@ -11,7 +11,7 @@ pub mod data;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// An error.
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize)]
 #[serde(try_from = "Data")]
 pub struct Error {
 	pub code: Option<tg::error::Code>,
