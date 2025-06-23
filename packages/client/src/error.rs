@@ -25,7 +25,7 @@ pub struct Error {
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
-	Cancelation,
+	Cancellation,
 }
 
 /// An error location.

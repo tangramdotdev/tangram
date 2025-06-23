@@ -36,8 +36,8 @@ impl Server {
 				select id
 				from processes
 				where
-					status = 'started' and
-					heartbeat_at <= {p}1
+					(status = 'started' and heartbeat_at <= {p}1) or
+					(token_count = 0 and status != 'finished')
 				limit {p}2;
 			"
 		);
@@ -77,8 +77,8 @@ impl Server {
 			async move {
 				let error = Some(
 					tg::error!(
-						code = tg::error::Code::Cancelation,
-						"the process's heartbeat expired"
+						code = tg::error::Code::Cancellation,
+						"the process was canceled"
 					)
 					.to_data(),
 				);
@@ -106,7 +106,7 @@ impl Server {
 			async move {
 				let error = Some(
 					tg::error!(
-						code = tg::error::Code::Cancelation,
+						code = tg::error::Code::Cancellation,
 						"the process exceeded the maximum depth limit"
 					)
 					.to_data(),

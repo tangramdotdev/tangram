@@ -103,6 +103,7 @@ impl Server {
 					stderr,
 					stdin,
 					stdout,
+					token_count,
 					touched_at
 				)
 				values (
@@ -128,7 +129,8 @@ impl Server {
 					?20,
 					?21,
 					?22, 
-					?23
+					?23,
+					?24
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
@@ -152,7 +154,8 @@ impl Server {
 					stderr = ?20,
 					stdin = ?21,
 					stdout = ?22,
-					touched_at = ?23
+					token_count = ?23,
+					touched_at = ?24
 			"
 		);
 		let params = db::params![
@@ -178,6 +181,7 @@ impl Server {
 			arg.data.stderr,
 			arg.data.stdin,
 			arg.data.stdout,
+			0,
 			touched_at
 		];
 		transaction
@@ -278,6 +282,7 @@ impl Server {
 					stderr,
 					stdin,
 					stdout,
+					token_count,
 					touched_at
 				)
 				values (
@@ -303,7 +308,8 @@ impl Server {
 					$20,
 					$21,
 					$22, 
-					$23
+					$23,
+					$24
 				)
 				on conflict (id) do update set
 					actual_checksum = $2,
@@ -327,7 +333,8 @@ impl Server {
 					stderr = $20,
 					stdin = $21,
 					stdout = $22,
-					touched_at = $23;
+					token_count = $23,
+					touched_at = $24;
 			"
 		);
 		transaction
@@ -366,6 +373,7 @@ impl Server {
 					&arg.data.stderr.as_ref().map(ToString::to_string),
 					&arg.data.stdin.as_ref().map(ToString::to_string),
 					&arg.data.stdout.as_ref().map(ToString::to_string),
+					&0i64,
 					&touched_at,
 				],
 			)

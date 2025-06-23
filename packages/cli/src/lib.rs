@@ -253,11 +253,8 @@ impl Cli {
 		let config = match Cli::read_config(args.config.clone()) {
 			Ok(config) => config,
 			Err(error) => {
-				eprintln!(
-					"{} failed to read the config: {}",
-					"error".red().bold(),
-					error
-				);
+				eprintln!("{} failed to run the command", "error".red().bold());
+				Self::print_error_basic(&error, None);
 				return std::process::ExitCode::FAILURE;
 			},
 		};

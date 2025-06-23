@@ -115,16 +115,6 @@ impl Cli {
 			.clone()
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
-		// If the detach flag is set, then spawn without stdio and return.
-		if options.detach {
-			let (_, process) = self
-				.spawn(options.spawn, reference, trailing, None, None, None)
-				.boxed()
-				.await?;
-			println!("{}", process.id());
-			return Ok(());
-		}
-
 		// Create the stdio.
 		let stdio = self
 			.create_stdio(remote.clone(), &options)
@@ -144,9 +134,19 @@ impl Cli {
 			.boxed()
 			.await?;
 
-		// Print the process ID.
+		// If the detach flag is set, then print the process ID and return.
+		if options.detach {
+			println!("{}", process.id());
+			return Ok(());
+		}
+
+		// Print the process.
 		if !self.args.quiet {
-			eprintln!("{} {}", "info".blue().bold(), process.id());
+			eprint!("{} {}", "info".blue().bold(), process.id());
+			if let Some(token) = process.token() {
+				eprint!(" {token}");
+			}
+			eprintln!();
 		}
 
 		// Enable raw mode.

@@ -435,6 +435,17 @@ where
 		}
 	}
 
+	fn cancel_process(
+		&self,
+		id: &crate::process::Id,
+		arg: crate::process::cancel::Arg,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		match self {
+			Either::Left(s) => s.cancel_process(id, arg).left_future(),
+			Either::Right(s) => s.cancel_process(id, arg).right_future(),
+		}
+	}
+
 	fn try_dequeue_process(
 		&self,
 		arg: tg::process::dequeue::Arg,

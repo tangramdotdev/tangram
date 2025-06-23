@@ -870,6 +870,14 @@ impl tg::handle::Process for Client {
 		self.put_process(id, arg)
 	}
 
+	fn cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.cancel_process(id, arg)
+	}
+
 	fn try_dequeue_process(
 		&self,
 		arg: tg::process::dequeue::Arg,

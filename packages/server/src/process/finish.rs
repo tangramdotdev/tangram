@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use futures::{StreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
 use std::path::PathBuf;
 use tangram_client as tg;
@@ -63,10 +63,11 @@ impl Server {
 			child: tg::process::Id,
 			path: Option<PathBuf>,
 			tag: Option<tg::Tag>,
+			token: Option<String>,
 		}
 		let statement = formatdoc!(
 			"
-				select child, path, tag
+				select child, path, tag, token
 				from process_children
 				where process = {p}1
 				order by position;
@@ -79,30 +80,26 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 
-		// Cancel unfinished children.
+		// Cancel the children.
 		children
 			.clone()
 			.into_iter()
-			.map(|row| async move {
-				let error = tg::error!(
-					code = tg::error::Code::Cancelation,
-					"the parent was finished"
-				)
-				.to_data();
-				let arg = tg::process::finish::Arg {
-					checksum: None,
-					error: Some(error),
-					exit: 1,
-					force: false,
-					output: None,
-					remote: None,
-				};
-				self.finish_process(&row.child, arg).await.ok();
-				Ok::<_, tg::Error>(())
+			.map(|row| {
+				let id = row.child;
+				let token = row.token;
+				async move {
+					if let Some(token) = token {
+						let arg = tg::process::cancel::Arg {
+							token,
+							remote: None,
+						};
+						self.cancel_process(&id, arg).await.ok();
+					}
+				}
 			})
 			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
+			.collect::<Vec<_>>()
+			.await;
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = &data.expected_checksum {
@@ -165,6 +162,18 @@ impl Server {
 		if n != 1 {
 			return Err(tg::error!("the process must be started"));
 		}
+
+		// Delete the tokens.
+		let statement = formatdoc!(
+			"
+				delete from process_tokens where process = {p}1;
+			"
+		);
+		let params = db::params![id];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);

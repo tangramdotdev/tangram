@@ -98,7 +98,6 @@ impl Server {
 		// Update state.
 		state.graph = current.graph;
 
-		// Return.
 		Ok(())
 	}
 
@@ -336,7 +335,6 @@ impl Server {
 		// Checkpoint.
 		checkpoints.push(current.clone());
 
-		// Return.
 		Ok(referent.map(Either::Right))
 	}
 

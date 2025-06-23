@@ -23,7 +23,7 @@ impl Cli {
 	) -> tg::Result<Stdio> {
 		let handle = self.handle().await?;
 
-		// If the process is detached, don't create any interactive stdio.
+		// If the process is detached or the the tty flag is false, then do not create a pty.
 		if options.detach || !options.spawn.tty {
 			let stdin = create(&handle, remote.clone(), None).await?;
 			let stdout = create(&handle, remote.clone(), None).await?;

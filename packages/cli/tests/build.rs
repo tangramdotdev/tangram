@@ -1,5 +1,6 @@
 use indoc::indoc;
 use insta::assert_snapshot;
+use num::ToPrimitive as _;
 use tangram_cli::{assert_failure, assert_success, test::test};
 use tangram_temp::{self as temp, Temp};
 
@@ -1127,6 +1128,111 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() {
 		assert_snapshot!(stdout, @r#""contents""#);
 	};
 	test_build(artifact, path, export, args, assertions).await;
+}
+
+#[tokio::test]
+async fn test_single_cancellation() {
+	test(TG, async move |context| {
+		let server = context.spawn_server().await.unwrap();
+
+		let artifact = temp::directory! {
+			"tangram.ts" => indoc!(r"
+				export let foo = async () => {
+					return await tg.build(baz);
+				};
+
+				export let bar = async () => {
+					return await tg.build(baz);
+				};
+
+				export let baz = async () => {
+					await tg.sleep(10);
+					return 42;
+				};
+			")
+		};
+		let temp = Temp::new();
+		artifact.to_path(temp.as_ref()).await.unwrap();
+
+		let foo = server
+			.tg()
+			.arg("build")
+			.arg(format!("{}#foo", temp.path().display()))
+			.spawn()
+			.unwrap();
+		let bar = server
+			.tg()
+			.arg("build")
+			.arg(format!("{}#bar", temp.path().display()))
+			.spawn()
+			.unwrap();
+
+		// send ctrl+C to foo.
+		unsafe {
+			libc::kill(foo.id().unwrap().to_i32().unwrap(), libc::SIGINT);
+		}
+
+		let foo_output = foo.wait_with_output().await.unwrap();
+		let bar_output = bar.wait_with_output().await.unwrap();
+		assert_failure!(foo_output);
+		assert_success!(bar_output);
+		let output = String::from_utf8(bar_output.stdout).unwrap();
+		assert_snapshot!(output, @"42");
+	})
+	.await;
+}
+
+#[tokio::test]
+async fn test_multiple_cancellation() {
+	test(TG, async move |context| {
+		let server = context.spawn_server().await.unwrap();
+
+		let artifact = temp::directory! {
+			"tangram.ts" => indoc!(r"
+				export let foo = async () => {
+					return await tg.build(baz);
+				};
+
+				export let bar = async () => {
+					return await tg.build(baz);
+				};
+
+				export let baz = async () => {
+					await tg.sleep(10);
+					return 42;
+				};
+			")
+		};
+		let temp = Temp::new();
+		artifact.to_path(temp.as_ref()).await.unwrap();
+
+		let foo = server
+			.tg()
+			.arg("build")
+			.arg(format!("{}#foo", temp.path().display()))
+			.spawn()
+			.unwrap();
+		let bar = server
+			.tg()
+			.arg("build")
+			.arg(format!("{}#bar", temp.path().display()))
+			.spawn()
+			.unwrap();
+
+		unsafe {
+			libc::kill(foo.id().unwrap().to_i32().unwrap(), libc::SIGINT);
+			libc::kill(bar.id().unwrap().to_i32().unwrap(), libc::SIGINT);
+		}
+
+		let foo_output = foo.wait_with_output().await.unwrap();
+		let bar_output = bar.wait_with_output().await.unwrap();
+		assert_failure!(foo_output);
+		assert_failure!(bar_output);
+
+		let output = String::from_utf8(bar_output.stderr).unwrap();
+		assert_snapshot!(output, @"");
+	})
+	.await;
 }
 
 async fn test_build<F, Fut>(

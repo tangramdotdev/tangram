@@ -210,6 +210,12 @@ pub trait Process {
 		>,
 	> + Send;
 
+	fn cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn try_dequeue_process(
 		&self,
 		arg: tg::process::dequeue::Arg,
