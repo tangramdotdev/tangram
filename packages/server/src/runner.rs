@@ -33,7 +33,7 @@ impl Server {
 						let arg = tg::process::dequeue::Arg::default();
 						let output = client.dequeue_process(arg).await?;
 						let process =
-							tg::Process::new(output.process, Some(name.clone()), None, None, None);
+							tg::Process::new(output.process, None, Some(name.clone()), None, None);
 						Ok::<_, tg::Error>(process)
 					}
 					.boxed()

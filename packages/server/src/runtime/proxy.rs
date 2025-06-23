@@ -385,6 +385,14 @@ impl tg::handle::Process for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	fn cancel_process(
+		&self,
+		id: &tangram_client::process::Id,
+		arg: tangram_client::process::cancel::Arg,
+	) -> impl Future<Output = tangram_client::Result<()>> + Send {
+		self.server.cancel_process(id, arg)
+	}
+
 	async fn finish_process(
 		&self,
 		_id: &tg::process::Id,

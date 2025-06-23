@@ -72,13 +72,6 @@ impl Cli {
 	) -> tg::Result<Option<tg::Value>> {
 		let handle = self.handle().await?;
 
-		// Get the remote.
-		let remote = options
-			.spawn
-			.remote
-			.clone()
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
-
 		// Spawn the process.
 		let spawn = crate::process::spawn::Options {
 			sandbox: true,
@@ -99,7 +92,11 @@ impl Cli {
 
 		// Print the process.
 		if !self.args.quiet {
-			eprintln!("{} {}", "info".blue().bold(), process.id());
+			eprint!("{} {}", "info".blue().bold(), process.id());
+			if let Some(token) = process.token() {
+				eprint!(" {token}");
+			}
+			eprintln!();
 		}
 
 		// Get the process's status.
@@ -173,27 +170,14 @@ impl Cli {
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
-						let arg = tg::process::finish::Arg {
-							checksum: None,
-							error: Some(
-								tg::error!(
-									code = tg::error::Code::Cancelation,
-									"the process was explicitly canceled"
-								)
-								.to_data(),
-							),
-							exit: 1,
-							force: false,
-							output: None,
-							remote,
-						};
 						process
-							.finish(&handle, arg)
+							.cancel(&handle)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(?error, "failed to cancel the process");
 							})
 							.ok();
+						std::process::exit(130);
 					});
 					tokio::signal::ctrl_c().await.unwrap();
 					std::process::exit(130);

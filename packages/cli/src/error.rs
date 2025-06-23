@@ -9,6 +9,130 @@ use tangram_client::{self as tg};
 use tokio::io::AsyncReadExt;
 
 impl Cli {
+	pub(crate) fn print_error_basic(
+		error: &tg::Error,
+		referent: Option<&tg::Referent<tg::object::Id>>,
+	) {
+		let mut stack = vec![(
+			error,
+			referent.and_then(|referent| referent.path.clone()),
+			referent.and_then(|referent| referent.tag.clone()),
+		)];
+
+		while let Some((error, path, tag)) = stack.pop() {
+			// Print the message.
+			let message = error.message.as_deref().unwrap_or("an error occurred");
+			eprintln!("{} {message}", "->".red());
+
+			// Print the values.
+			for (key, value) in &error.values {
+				let key = key.as_str();
+				let value = value.as_str();
+				eprintln!("   {key} = {value}");
+			}
+
+			// Print the location.
+			if let Some(location) = &error.location {
+				Self::print_error_location_basic(path.as_ref(), tag.as_ref(), location, message);
+			}
+
+			// Print the stack.
+			for location in error.stack.iter().flatten() {
+				Self::print_error_location_basic(path.as_ref(), tag.as_ref(), location, message);
+			}
+
+			// Add the source to the stack.
+			if let Some(source) = &error.source {
+				let mut new_path = path.clone();
+				let mut new_tag = tag.clone();
+				match (&path, &source.path, &tag, &source.tag) {
+					(Some(path_), Some(source_path), None, None) => {
+						new_path = Some(path_.parent().unwrap().join(source_path));
+					},
+					(None, Some(source_path), None, None) => {
+						new_path = Some(source_path.clone());
+					},
+					(_, path_, _, Some(tag_)) => {
+						new_tag = Some(tag_.clone());
+						new_path = path_.clone();
+					},
+					_ => (),
+				}
+				stack.push((source.item.as_ref(), new_path, new_tag));
+			}
+		}
+	}
+
+	fn print_error_location_basic(
+		path: Option<&PathBuf>,
+		tag: Option<&tg::Tag>,
+		location: &tg::error::Location,
+		_message: &str,
+	) {
+		match &location.file {
+			tg::error::File::Internal(path) => {
+				eprintln!(
+					"   internal:{}:{}:{}",
+					path.display(),
+					location.range.start.line + 1,
+					location.range.start.character + 1
+				);
+			},
+			tg::error::File::Module(module) => {
+				Self::print_location_basic(path, tag, module, &location.range);
+			},
+		}
+	}
+
+	fn print_location_basic(
+		path: Option<&PathBuf>,
+		tag: Option<&tg::Tag>,
+		module: &tg::Module,
+		range: &tg::Range,
+	) {
+		match &module.referent.item {
+			tg::module::Item::Path(path) => {
+				eprintln!(
+					"   {}:{}:{}",
+					path.display(),
+					range.start.line + 1,
+					range.start.character + 1,
+				);
+			},
+			tg::module::Item::Object(_) => {
+				let mut name = String::new();
+				if let Some(tag) = &module.referent.tag.as_ref().or(tag) {
+					write!(name, "{tag}").unwrap();
+					if let Some(path) = &module.referent.path.as_ref().or(path) {
+						write!(name, ":").unwrap();
+						let path = crate::util::normalize_path(path);
+						write!(name, "{}", path.display()).unwrap();
+					}
+				} else if let Some(path) = module.referent.path.as_ref().or(path) {
+					let path = std::env::current_dir()
+						.ok()
+						.and_then(|cwd| {
+							let path = std::fs::canonicalize(cwd.join(path)).ok()?;
+							let path = crate::util::path_diff(&cwd, &path).ok()?;
+							if path.is_relative() && !path.starts_with("..") {
+								return Some(PathBuf::from(".").join(path));
+							}
+							Some(path)
+						})
+						.unwrap_or_else(|| path.clone());
+					write!(name, "{}", path.display()).unwrap();
+				} else {
+					write!(name, "<unknown>").unwrap();
+				}
+				eprintln!(
+					"   {name}:{}:{}",
+					range.start.line + 1,
+					range.start.character + 1,
+				);
+			},
+		}
+	}
+
 	pub(crate) async fn print_error(
 		&mut self,
 		error: &tg::Error,
@@ -28,6 +152,13 @@ impl Cli {
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
+
+			// Print the values.
+			for (key, value) in &error.values {
+				let key = key.as_str();
+				let value = value.as_str();
+				eprintln!("   {key} = {value}");
+			}
 
 			// Print the location.
 			if let Some(location) = &error.location {
@@ -53,13 +184,6 @@ impl Cli {
 					message,
 				)
 				.await;
-			}
-
-			// Print the values.
-			for (key, value) in &error.values {
-				let key = key.as_str();
-				let value = value.as_str();
-				eprintln!("   {key} = {value}");
 			}
 
 			// Add the source to the stack.

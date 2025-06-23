@@ -2,18 +2,36 @@ use crate::Server;
 use futures::{FutureExt, StreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
+use std::pin::pin;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
 
 impl Server {
-	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) {
+	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) -> tg::Result<()> {
 		loop {
+			// Reap processes.
 			let result = self
 				.watchdog_task_inner(config)
 				.await
 				.inspect_err(|error| tracing::error!(%error, "failed to cancel processes"));
+
+			// If an error occurred or no processes were reaped, wait to be signaled or for the timeout to expire.
 			if matches!(result, Err(_) | Ok(0)) {
-				tokio::time::sleep(config.interval).await;
+				let mut stream = self
+					.messenger
+					.subscribe("watchdog".into(), None)
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to subscribe to the cancellation message stream"
+						)
+					})?;
+				let mut stream = pin!(stream);
+				tokio::time::timeout(config.interval, stream.next())
+					.await
+					.ok();
 			}
 		}
 	}
@@ -28,115 +46,82 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get all started processes whose heartbeat_at exceeds the timeout.
 		let p = connection.p();
+
+		// Get processes to finish.
+		#[derive(Debug, serde::Deserialize)]
+		struct Row {
+			id: tg::process::Id,
+			code: Option<tg::error::Code>,
+			message: String,
+		}
 		let statement = formatdoc!(
 			"
-				select id
+				select id, null, 'maximum depth exceeded'
 				from processes
-				where
-					status = 'started' and
-					heartbeat_at <= {p}1
-				limit {p}2;
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
-		let params = db::params![max_heartbeat_at, config.batch_size];
-		let heartbeat_timeout_exceeded_processes = connection
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				where status = 'started' and depth > {p}1
 
-		// Get all started processes whose depth exceeds the limit.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select id
+				union all
+
+				select id, 'cancellation', 'the process was canceled'
 				from processes
-				where
-					status = 'started' and
-					depth > {p}1
+				where status != 'finished' and token_count = 0
+
+				union all
+
+				select id, null, 'heartbeat expired'
+				from processes
+				where status = 'started' and heartbeat_at <= {p}1
+
 				limit {p}2;
 			"
 		);
 		let max_depth = config.max_depth;
-		let params = db::params![max_depth, config.batch_size];
-		let depth_exceeded_processes = connection
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
+		let params = db::params![max_depth, max_heartbeat_at, config.batch_size];
+		let rows = connection
+			.query_all_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
 
-		// Cancel the processes.
-		let heartbeat_futures = heartbeat_timeout_exceeded_processes.iter().map(|process| {
-			let server = self.clone();
-			async move {
-				let error = Some(
-					tg::error!(
-						code = tg::error::Code::Cancelation,
-						"the process's heartbeat expired"
-					)
-					.to_data(),
-				);
-				let arg = tg::process::finish::Arg {
-					checksum: None,
-					error,
-					exit: 1,
-					force: false,
-					output: None,
-					remote: None,
-				};
-				server
-					.finish_process(process, arg)
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?error, "failed to cancel the process");
-					})
-					.ok();
-			}
-			.boxed()
-		});
-
-		let depth_futures = depth_exceeded_processes.iter().map(|process| {
-			let server = self.clone();
-			async move {
-				let error = Some(
-					tg::error!(
-						code = tg::error::Code::Cancelation,
-						"the process exceeded the maximum depth limit"
-					)
-					.to_data(),
-				);
-				let arg = tg::process::finish::Arg {
-					checksum: None,
-					error,
-					exit: 1,
-					force: false,
-					output: None,
-					remote: None,
-				};
-				server
-					.finish_process(process, arg)
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?error, "failed to cancel the process");
-					})
-					.ok();
-			}
-			.boxed()
-		});
-
-		heartbeat_futures
-			.chain(depth_futures)
+		// Finish the processes.
+		let n = rows.len().to_u64().unwrap();
+		rows.into_iter()
+			.map(|row| {
+				let server = self.clone();
+				async move {
+					let error = tg::Error {
+						code: row.code,
+						message: Some(row.message),
+						..Default::default()
+					};
+					let error = Some(error.to_data());
+					let arg = tg::process::finish::Arg {
+						checksum: None,
+						error,
+						exit: 1,
+						force: false,
+						output: None,
+						remote: None,
+					};
+					server
+						.finish_process(&row.id, arg)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "failed to cancel the process");
+						})
+						.ok();
+				}
+				.boxed()
+			})
 			.collect::<FuturesUnordered<_>>()
 			.collect::<Vec<_>>()
 			.await;
 
-		Ok(heartbeat_timeout_exceeded_processes.len().to_u64().unwrap()
-			+ depth_exceeded_processes.len().to_u64().unwrap())
+		Ok(n)
 	}
 }

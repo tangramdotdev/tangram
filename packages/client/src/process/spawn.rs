@@ -49,6 +49,9 @@ pub struct Output {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 impl tg::Client {

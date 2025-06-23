@@ -3,6 +3,7 @@ use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
+pub(crate) mod cancel;
 pub(crate) mod children;
 pub(crate) mod dequeue;
 pub(crate) mod finish;

@@ -9,6 +9,7 @@ pub use self::{
 	status::Status, stdio::Stdio, wait::Wait,
 };
 
+pub mod cancel;
 pub mod children;
 pub mod data;
 pub mod dequeue;
@@ -37,9 +38,9 @@ pub struct Process(Arc<Inner>);
 #[derive(Debug)]
 pub struct Inner {
 	id: Id,
+	metadata: RwLock<Option<Arc<Metadata>>>,
 	remote: Option<String>,
 	state: RwLock<Option<Arc<State>>>,
-	metadata: RwLock<Option<Arc<Metadata>>>,
 	token: Option<String>,
 }
 
@@ -47,18 +48,18 @@ impl Process {
 	#[must_use]
 	pub fn new(
 		id: Id,
+		metadata: Option<Metadata>,
 		remote: Option<String>,
 		state: Option<State>,
-		metadata: Option<Metadata>,
 		token: Option<String>,
 	) -> Self {
-		let state = RwLock::new(state.map(Arc::new));
 		let metadata = RwLock::new(metadata.map(Arc::new));
+		let state = RwLock::new(state.map(Arc::new));
 		Self(Arc::new(Inner {
 			id,
+			metadata,
 			remote,
 			state,
-			metadata,
 			token,
 		}))
 	}
@@ -148,7 +149,7 @@ impl Process {
 		H: tg::Handle,
 	{
 		let output = handle.spawn_process(arg).await?;
-		let process = tg::Process::new(output.process, output.remote, None, None, None);
+		let process = tg::Process::new(output.process, None, output.remote, None, output.token);
 		Ok(process)
 	}
 

@@ -539,7 +539,7 @@ where
 			.try_get_process(process.item.id())
 			.await?
 			.and_then(|output| output.data.error)
-			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancelation)))
+			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancellation)))
 		{
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(Indicator::Canceled);

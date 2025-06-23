@@ -30,7 +30,6 @@ pub enum Kind {
 	Pipe,
 	Pty,
 	User,
-	Token,
 	Request,
 }
 
@@ -100,8 +99,7 @@ impl Id {
 			Kind::Pipe => 7,
 			Kind::Pty => 8,
 			Kind::User => 9,
-			Kind::Token => 10,
-			Kind::Request => 11,
+			Kind::Request => 10,
 		};
 		writer
 			.write_u8(kind)
@@ -153,8 +151,7 @@ impl Id {
 			7 => Kind::Pipe,
 			8 => Kind::Pty,
 			9 => Kind::User,
-			10 => Kind::Token,
-			11 => Kind::Request,
+			10 => Kind::Request,
 			_ => return Err(tg::error!(%kind, "invalid kind")),
 		};
 
@@ -280,7 +277,6 @@ impl std::fmt::Display for Kind {
 			Self::Pipe => "pip",
 			Self::Pty => "pty",
 			Self::User => "usr",
-			Self::Token => "tok",
 			Self::Request => "req",
 		};
 		write!(f, "{kind}")?;
@@ -303,7 +299,6 @@ impl std::str::FromStr for Kind {
 			"pip" | "pipe" => Self::Pipe,
 			"pty" => Self::Pty,
 			"usr" | "user" => Self::User,
-			"tok" | "token" => Self::Token,
 			"req" | "request" => Self::Request,
 			_ => {
 				return Err(tg::error!(%s, "invalid kind"));

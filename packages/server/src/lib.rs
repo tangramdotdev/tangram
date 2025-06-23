@@ -621,7 +621,11 @@ impl Server {
 				let server = server.clone();
 				let config = config.clone();
 				async move {
-					server.watchdog_task(&config).await;
+					server
+						.watchdog_task(&config)
+						.await
+						.inspect_err(|error| tracing::error!(?error, "the watchdog task failed"))
+						.ok();
 				}
 			})
 		});
@@ -1081,6 +1085,9 @@ impl Server {
 			(http::Method::PUT, ["processes", process]) => {
 				Self::handle_put_process_request(handle, request, process).boxed()
 			},
+			(http::Method::POST, ["processes", process, "cancel"]) => {
+				Self::handle_cancel_process_request(handle, request, process).boxed()
+			},
 			(http::Method::POST, ["processes", "dequeue"]) => {
 				Self::handle_dequeue_process_request(handle, request).boxed()
 			},
@@ -1434,6 +1441,14 @@ impl tg::handle::Process for Server {
 		arg: tg::process::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_process(id, arg)
+	}
+
+	fn cancel_process(
+		&self,
+		id: &tangram_client::process::Id,
+		arg: tangram_client::process::cancel::Arg,
+	) -> impl Future<Output = tangram_client::Result<()>> + Send {
+		self.cancel_process(id, arg)
 	}
 
 	fn try_dequeue_process(
