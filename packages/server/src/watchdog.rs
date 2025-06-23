@@ -14,7 +14,7 @@ impl Server {
 			let result = self
 				.watchdog_task_inner(config)
 				.await
-				.inspect_err(|error| tracing::error!(%error, "failed to cancel processes"));
+				.inspect_err(|error| tracing::error!(?error, "failed to cancel processes"));
 
 			// If an error occurred or no processes were reaped, wait to be signaled or for the timeout to expire.
 			if matches!(result, Err(_) | Ok(0)) {
@@ -71,9 +71,9 @@ impl Server {
 
 				select id, null, 'heartbeat expired'
 				from processes
-				where status = 'started' and heartbeat_at <= {p}1
+				where status = 'started' and heartbeat_at <= {p}2
 
-				limit {p}2;
+				limit {p}3;
 			"
 		);
 		let max_depth = config.max_depth;
