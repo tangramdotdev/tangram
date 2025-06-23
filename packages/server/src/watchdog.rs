@@ -4,16 +4,36 @@ use indoc::formatdoc;
 use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_messenger::Messenger as _;
+// use tokio_stream::StreamExt;
+use std::pin::pin;
 
 impl Server {
-	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) {
+	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) -> tg::Result<()> {
+		// Subscribe to the cancellation stream.
+		let mut stream = self
+			.messenger
+			.subscribe("processes.canceled".into(), None)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to subscribe to the cancellation message stream"
+				)
+			})?;
+		let mut stream = pin!(stream);
 		loop {
+			// Try and reap processes.
 			let result = self
 				.watchdog_task_inner(config)
 				.await
 				.inspect_err(|error| tracing::error!(%error, "failed to cancel processes"));
+
+			// If nothing was reaped, wait to be signaled or the timeout to expire.
 			if matches!(result, Err(_) | Ok(0)) {
-				tokio::time::sleep(config.interval).await;
+				tokio::time::timeout(config.interval, stream.next())
+					.await
+					.ok();
 			}
 		}
 	}

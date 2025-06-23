@@ -170,6 +170,7 @@ impl Cli {
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
+						// Cancel the process, wait, and exit if successful.
 						process
 							.cancel(&handle)
 							.await
@@ -177,6 +178,7 @@ impl Cli {
 								tracing::error!(?error, "failed to cancel the process");
 							})
 							.ok();
+						std::process::exit(130);
 					});
 					tokio::signal::ctrl_c().await.unwrap();
 					std::process::exit(130);

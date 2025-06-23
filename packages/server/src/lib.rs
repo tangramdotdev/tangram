@@ -621,7 +621,11 @@ impl Server {
 				let server = server.clone();
 				let config = config.clone();
 				async move {
-					server.watchdog_task(&config).await;
+					server
+						.watchdog_task(&config)
+						.await
+						.inspect_err(|error| tracing::error!(?error, "the watchdog task failed"))
+						.ok();
 				}
 			})
 		});

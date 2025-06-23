@@ -1,6 +1,8 @@
 use crate::Server;
+use indoc::indoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
 impl Server {
@@ -30,18 +32,32 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Update the heartbeat.
-		let p = connection.p();
-		let statement = format!(
-			"
-				update processes
-				set heartbeat_at = case
-					when status = 'started' then {p}1
-					else null
-				end
-				where id = {p}2
-				returning status;
-			"
-		);
+		let statement = match &connection {
+			Either::Left(_) => indoc!(
+				"
+					update processes
+					set heartbeat_at = case
+						when status = 'started' then ?1
+						else null
+					end
+					where id = ?2
+					returning status;
+				"
+			),
+			Either::Right(_) => indoc!(
+				"
+					with params as (select $1::int8 as now, $2::text as process)
+					update processes
+					set heartbeat_at = case
+						when status = 'started' then params.now
+						else null
+					end
+					from params
+					where id = params.process
+					returning status;
+				"
+			),
+		};
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![now, id];
 		let status = connection

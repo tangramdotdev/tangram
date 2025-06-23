@@ -1,8 +1,10 @@
 use crate::Server;
+use bytes::Bytes;
 use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use tangram_messenger::Messenger as _;
 
 impl Server {
 	pub async fn cancel_process(
@@ -36,6 +38,21 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Publish the cancellation message.
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("processes.canceled".into(), Bytes::new())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "failed to publish cancellation message");
+					})
+					.ok();
+			}
+		});
 
 		Ok(())
 	}
