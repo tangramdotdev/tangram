@@ -88,7 +88,7 @@ begin
   where id = new.process;
 end;
 
-create trigger process_token_count_on_delete
+create trigger process_token_delete_trigger
 after delete on process_tokens
 for each row
 begin
