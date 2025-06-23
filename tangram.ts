@@ -1,42 +1,95 @@
 import bun from "bun" with { path: "../packages/packages/bun" };
 import { cargo } from "rust" with { path: "../packages/packages/rust" };
+import xz from "xz" with { path: "../packages/packages/xz" };
 import * as std from "std" with { path: "../packages/packages/std" };
+import { $ } from "std" with { path: "../packages/packages/std" };
 
-import cargoToml from "./Cargo.toml" with { type: "file" };
-import cargoLock from "./Cargo.lock" with { type: "file" };
-import biomeJson from "./biome.json" with { type: "file" };
-import bunLockb from "./bun.lockb" with { type: "file" };
-import packageJson from "./package.json" with { type: "file" };
-import packages from "./packages" with { type: "directory" };
+import source from "." with { type: "directory" };
 
-export const source = () =>
-	tg.directory({
-		"Cargo.toml": cargoToml,
-		"Cargo.lock": cargoLock,
-		"biome.json": biomeJson,
-		"bun.lockb": bunLockb,
-		"package.json": packageJson,
-		packages: packages,
-	}),
-;
-
-export default async () => {
-	const host = std.triple.host();
-	const bunArtifact = bun({ host });
-	const env = std.env.arg(
-		bunArtifact,
-		librustyv8(cargoLock, host),
-		linuxRuntimeComponents(),
-	);
-	const output = cargo.build({
+export const build = async () => {
+	const host = await std.triple.host();
+	const cargoLock = await source.get("Cargo.lock").then(tg.File.expect);
+	const env = std.env.arg(bunEnvArg(host), librustyv8(cargoLock, host));
+	const output = await cargo.build({
 		buildInTree: true,
-		checksum: "unsafe",
-		source: source(),
+		disableDefaultFeatures: true,
 		env,
+		pre: tg`
+			mkdir node_modules
+			cp -R ${nodeModules(host)}/. node_modules
+			export NODE_PATH=$PWD/node_modules
+			export PATH=$PATH:$NODE_PATH/.bin
+		`,
+		source,
+		useCargoVendor: true,
 	});
-	return tg.directory(output, {
+	const xzLibDir = await xz({ host })
+		.then((d) => d.get("lib"))
+		.then(tg.Directory.expect);
+	const unwrapped = await output.get("bin/tangram").then(tg.File.expect);
+	const wrapped = await std.wrap(unwrapped, { libraryPaths: [xzLibDir] });
+	return tg.directory({
+		["bin/tangram"]: wrapped,
 		["bin/tg"]: tg.symlink("tangram"),
 	});
+};
+
+export default build;
+
+export const nodeModules = async (hostArg?: string) => {
+	const host = hostArg ?? (await std.triple.host());
+	const hostOs = std.triple.os(host);
+	const packageJson = source.get("package.json").then(tg.File.expect);
+	const bunLock = source.get("bun.lock").then(tg.File.expect);
+	const compiler = source.get("packages/compiler").then(tg.Directory.expect);
+	const runtime = source.get("packages/runtime").then(tg.Directory.expect);
+	const vscode = source.get("packages/vscode").then(tg.Directory.expect);
+	const env = std.env.arg(bunEnvArg(host));
+	let output = await $`
+		mkdir work
+		cd work
+		cp ${packageJson} package.json
+		cp ${bunLock} bun.lock
+		mkdir packages
+		cp -R ${compiler} packages/compiler
+		cp -R ${runtime} packages/runtime
+		cp -R ${vscode} packages/vscode
+		mkdir -p $OUTPUT
+		bun install --frozen-lockfile
+		cp -R node_modules/. $OUTPUT
+		`
+		.checksum("sha256:any")
+		.network(true)
+		.env(env)
+		.then(tg.Directory.expect);
+
+	// On Linux, we need to wrap the biome executable.
+	if (hostOs === "linux") {
+		const hostArch = std.triple.arch(host);
+		const pathArch = hostArch === "aarch64" ? "arm64" : "x64";
+		const path = `@biomejs/cli-linux-${pathArch}/biome`;
+		const unwrapped = await output.get(path).then(tg.File.expect);
+		const wrapped = await std.wrap(unwrapped);
+		output = await tg.directory(output, {
+			[`${path}`]: wrapped,
+		});
+	}
+
+	return output;
+};
+
+const bunEnvArg = async (hostArg?: string) => {
+	const host = hostArg ?? (await std.triple.host());
+	const hostOs = std.triple.os(host);
+	const bunArtifact = await bun({ host });
+	if (hostOs === "linux") {
+		return std.env.arg(
+			bunArtifact,
+			tg.directory({ ["bin/node"]: tg.symlink(tg`${bunArtifact}/bin/bun`) }),
+		);
+	} else {
+		return bunArtifact;
+	}
 };
 
 export const librustyv8 = async (lockfile: tg.File, hostArg?: string) => {
@@ -49,20 +102,20 @@ export const librustyv8 = async (lockfile: tg.File, hostArg?: string) => {
 	} else {
 		throw new Error(`unsupported host ${host}`);
 	}
-	const checksum = "unsafe";
+	const checksum = "sha256:any";
 	const file = `librusty_v8_release_${std.triple.arch(host)}-${os}.a.gz`;
 	const version = await getRustyV8Version(lockfile);
 	const lib = await std
 		.download({
 			checksum,
-			decompress: true,
+			mode: "decompress",
 			url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
 		})
 		.then(tg.File.expect);
 	return {
 		RUSTY_V8_ARCHIVE: lib,
 	};
-}
+};
 
 const getRustyV8Version = async (lockfile: tg.File) => {
 	const v8 = await lockfile
@@ -81,28 +134,10 @@ type CargoLock = {
 	package: Array<{ name: string; version: string }>;
 };
 
-export const linuxRuntimeComponents = async () => {
-	const version = "v2024.10.03";
-	const urlBase = `https://github.com/tangramdotdev/bootstrap/releases/download/${version}`;
-
-	const checksums: { [key: string]: tg.Checksum } = {
-		["DASH_AARCH64_LINUX"]:
-			"sha256:d1e6ed42b0596507ebfa9ce231e2f42cc67f823cc56c0897c126406004636ce7",
-		["DASH_X86_64_LINUX"]:
-			"sha256:d23258e559012dc66cc82d9def66b51e9c41f9fb88f8e9e6a5bd19d231028a64",
-		["ENV_AARCH64_LINUX"]:
-			"sha256:b2985354036c4deea9b107f099d853ac2d7c91a095dc285922f6dab72ae1474c",
-		["ENV_X86_64_LINUX"]:
-			"sha256:fceb5be5a7d6f59a026817ebb17be2bcc294d753f1528cbc921eb9015b9ff87b",
-	};
-	return Object.fromEntries(
-		await Promise.all(
-			Object.entries(checksums).map(async ([name, checksum]) => {
-				const file = await tg
-					.download(`${urlBase}/${name.toLowerCase()}.tar.zst`, checksum)
-					.then((blob) => tg.file(blob));
-				return [name, file];
-			}),
-		),
-	);
+export const test = async () => {
+	const output = await $`tg --help > $OUTPUT`
+		.env(build())
+		.then(tg.File.expect)
+		.then((f) => f.text());
+	tg.assert(output.includes("Usage:"));
 };
