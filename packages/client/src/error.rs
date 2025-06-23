@@ -22,9 +22,17 @@ pub struct Error {
 	pub values: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
 pub enum Code {
+	#[display("cancellation")]
 	Cancellation,
 }
 
