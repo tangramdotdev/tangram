@@ -35,7 +35,7 @@ create index processes_heartbeat_at_index on processes (heartbeat_at) where stat
 
 create index processes_status_index on processes (status);
 
-create index process_token_count_index on processes (token_count) where token_count = 0 and status != 'finished';
+create index processes_token_count_index on processes (token_count) where token_count = 0 and status != 'finished';
 
 create trigger processes_delete_trigger
 after delete on processes
@@ -79,7 +79,7 @@ create index process_tokens_process_index on process_tokens (process);
 
 create index process_tokens_token_index on process_tokens (token);
 
-create trigger process_token_insert_trigger
+create trigger process_tokens_insert_trigger
 after insert on process_tokens
 for each row
 begin
@@ -88,7 +88,7 @@ begin
   where id = new.process;
 end;
 
-create trigger process_token_delete_trigger
+create trigger process_tokens_delete_trigger
 after delete on process_tokens
 for each row
 begin
@@ -112,7 +112,7 @@ create unique index process_children_index on process_children (process, positio
 
 create index process_children_child_process_index on process_children (child);
 
-create trigger process_children_insert_depth_trigger
+create trigger process_children_insert_trigger
 after insert on process_children
 for each row
 begin

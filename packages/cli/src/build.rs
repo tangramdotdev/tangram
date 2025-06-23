@@ -170,7 +170,6 @@ impl Cli {
 				async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
-						// Cancel the process, wait, and exit if successful.
 						process
 							.cancel(&handle)
 							.await

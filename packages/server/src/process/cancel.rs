@@ -39,13 +39,13 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Publish the cancellation message.
+		// Publish the watchdog message.
 		tokio::spawn({
 			let server = self.clone();
 			async move {
 				server
 					.messenger
-					.publish("processes.canceled".into(), Bytes::new())
+					.publish("watchdog".into(), Bytes::new())
 					.await
 					.inspect_err(|error| {
 						tracing::error!(?error, "failed to publish cancellation message");
