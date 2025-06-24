@@ -1131,6 +1131,54 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() {
 }
 
 #[tokio::test]
+async fn test_signal_cacheable_processs() {
+	test(TG, async move |context| {
+		let server = context.spawn_server().await.unwrap();
+		let artifact = temp::directory! {
+			"tangram.ts" => indoc!(r"
+				export let foo = async () => {
+					await tg.sleep(1);
+					return 42;
+				};
+			")
+		};
+		let temp = Temp::new();
+		artifact.to_path(temp.as_ref()).await.unwrap();
+		let output = server
+			.tg()
+			.arg("build")
+			.arg("--detach")
+			.arg(format!("{}#foo", temp.path().display()))
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+		let process = String::from_utf8(output.stdout).unwrap();
+		let process = process.trim();
+		let output = server
+			.tg()
+			.arg("signal")
+			.arg(process)
+			.output()
+			.await
+			.unwrap();
+		assert_failure!(output);
+		let error_msg = String::from_utf8(output.stderr).unwrap();
+
+		insta::with_settings!({
+			filters => vec![(process, "[PROCESS]")],
+		}, {
+			assert_snapshot!(error_msg, @r"
+			error failed to run the command
+			-> failed to post process signal
+			-> cannot signal cacheable processes
+			   id = [PROCESS]
+			");
+		})
+	}).await;
+}
+
+#[tokio::test]
 async fn test_single_cancellation() {
 	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
@@ -1146,7 +1194,7 @@ async fn test_single_cancellation() {
 				};
 
 				export let baz = async () => {
-					await tg.sleep(10);
+					await tg.sleep(2);
 					return 42;
 				};
 			")
@@ -1183,48 +1231,6 @@ async fn test_single_cancellation() {
 }
 
 #[tokio::test]
-async fn test_signal_cacheable_processs() {
-	test(TG, async move |context| {
-		let server = context.spawn_server().await.unwrap();
-		let artifact = temp::directory! {
-			"tangram.ts" => indoc!(r"
-				export let foo = async () => {
-					await tg.sleep(1);
-					return 42;
-				};
-			")
-		};
-		let temp = Temp::new();
-		artifact.to_path(temp.as_ref()).await.unwrap();
-		let output = server
-			.tg()
-			.arg("build")
-			.arg("--detach")
-			.arg(format!("{}#foo", temp.path().display()))
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
-		let process = String::from_utf8(output.stdout).unwrap();
-		let output = server
-			.tg()
-			.arg("signal")
-			.arg(process.trim())
-			.output()
-			.await
-			.unwrap();
-		assert_failure!(output);
-		let error_msg = String::from_utf8(output.stderr).unwrap();
-		assert_snapshot!(error_msg, @r"
-		error failed to run the command
-		-> failed to post process signal
-		-> cannot signal cacheable processes
-		   id = pcs_0006bt6jje2dt053ya6fdrzh8cww
-		");
-	}).await;
-}
-
-#[tokio::test]
 async fn test_multiple_cancellation() {
 	test(TG, async move |context| {
 		let server = context.spawn_server().await.unwrap();
@@ -1240,7 +1246,7 @@ async fn test_multiple_cancellation() {
 				};
 
 				export let baz = async () => {
-					await tg.sleep(10);
+					await tg.sleep(2);
 					return 42;
 				};
 			")
