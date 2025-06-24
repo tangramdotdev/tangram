@@ -3,7 +3,7 @@ use bytes::Bytes;
 use foundationdb::{self as fdb, FdbBindingError};
 use foundationdb_tuple::TuplePack as _;
 use futures::{TryStreamExt as _, future};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
 

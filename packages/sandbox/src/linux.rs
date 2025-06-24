@@ -2,7 +2,7 @@ use crate::{
 	Child, Command, ExitStatus,
 	common::{CStringVec, cstring, envstring, socket_pair},
 };
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{ffi::CString, os::fd::RawFd};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 

@@ -5,7 +5,7 @@ use futures::{
 	stream::{self, FuturesUnordered},
 };
 use indoc::formatdoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	pin::{Pin, pin},
 	sync::{Arc, atomic::AtomicU64},

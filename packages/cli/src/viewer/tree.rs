@@ -1,5 +1,4 @@
 use super::{Item, Options, data, log::Log};
-use copypasta::ClipboardProvider as _;
 use crossterm as ct;
 use futures::{TryStreamExt as _, future};
 use num::ToPrimitive as _;
@@ -7,6 +6,7 @@ use ratatui::{self as tui, prelude::*};
 use std::{
 	cell::RefCell,
 	collections::BTreeMap,
+	io::Write as _,
 	pin::pin,
 	rc::{Rc, Weak},
 };
@@ -87,10 +87,16 @@ where
 				}
 			},
 		};
-		let Ok(mut context) = copypasta::ClipboardContext::new() else {
+		let Ok(mut tty) = std::fs::OpenOptions::new()
+			.read(true)
+			.write(true)
+			.open("/dev/tty")
+		else {
 			return;
 		};
-		context.set_contents(contents).ok();
+		let encoded = data_encoding::BASE64.encode(contents.as_bytes());
+		write!(tty, "\x1B]52;c;{encoded}\x07").ok();
+		tty.flush().ok();
 	}
 
 	fn ancestors(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {

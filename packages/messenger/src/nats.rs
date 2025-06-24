@@ -5,7 +5,7 @@ use crate::{
 use async_nats as nats;
 use bytes::Bytes;
 use futures::{FutureExt as _, TryFutureExt as _, prelude::*};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::error::Error as _;
 
 pub struct Messenger {

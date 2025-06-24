@@ -1,7 +1,7 @@
 use super::CacheReference;
 use bytes::Bytes;
 use dashmap::DashMap;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use tangram_client as tg;
 
 pub struct Memory(DashMap<tg::object::Id, Entry, fnv::FnvBuildHasher>);

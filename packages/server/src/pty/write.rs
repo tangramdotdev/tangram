@@ -4,7 +4,7 @@ use futures::{
 	stream::{FuturesUnordered, TryStreamExt as _},
 };
 use indoc::formatdoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	os::fd::{AsRawFd, RawFd},
 	pin::pin,

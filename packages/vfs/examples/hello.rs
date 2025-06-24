@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use dashmap::DashMap;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	io::{Error, Result},
 	path::PathBuf,

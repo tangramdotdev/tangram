@@ -1,5 +1,5 @@
 use crate::Server;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_futures::write::Ext as _;
 use tokio::io::AsyncWriteExt as _;

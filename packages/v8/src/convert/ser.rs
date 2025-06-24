@@ -1,4 +1,4 @@
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use serde::ser::Error as _;
 
 pub struct Serializer<'a, 's> {

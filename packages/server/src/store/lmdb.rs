@@ -2,7 +2,7 @@ use super::CacheReference;
 use bytes::Bytes;
 use foundationdb_tuple::TuplePack as _;
 use heed as lmdb;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use tangram_client as tg;
 
 pub struct Lmdb {

@@ -1,5 +1,5 @@
 use crate::Server;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -16,6 +16,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the process health.
+		let permits = if self.config.runner.is_some() {
+			Some(self.process_semaphore.available_permits().to_u64().unwrap())
+		} else {
+			None
+		};
 		#[derive(serde::Deserialize)]
 		struct Row {
 			created: u64,
@@ -45,6 +50,7 @@ impl Server {
 			created,
 			enqueued,
 			dequeued,
+			permits,
 			started,
 		};
 

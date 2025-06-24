@@ -5,7 +5,7 @@ use async_broadcast as broadcast;
 use bytes::Bytes;
 use dashmap::DashMap;
 use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	collections::HashMap,
 	ops::Deref,

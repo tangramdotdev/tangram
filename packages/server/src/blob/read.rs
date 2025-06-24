@@ -1,7 +1,7 @@
 use crate::Server;
 use bytes::{Buf as _, Bytes};
 use futures::{FutureExt as _, Stream, StreamExt as _, future::BoxFuture};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	io::Cursor,
 	panic::AssertUnwindSafe,

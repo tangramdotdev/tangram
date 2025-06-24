@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::indoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};

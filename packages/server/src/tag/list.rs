@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{TryStreamExt, stream::FuturesUnordered};
 use indoc::formatdoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;

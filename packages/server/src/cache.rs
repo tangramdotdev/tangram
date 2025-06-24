@@ -1,7 +1,7 @@
 use crate::{Server, temp::Temp};
 use futures::{FutureExt as _, Stream, StreamExt as _, future, stream};
 use itertools::Itertools as _;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use reflink_copy::reflink;
 use std::{
 	collections::HashMap,

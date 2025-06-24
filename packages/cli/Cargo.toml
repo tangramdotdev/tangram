@@ -32,8 +32,8 @@ byte-unit = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 console-subscriber = { workspace = true }
-copypasta = { workspace = true }
 crossterm = { workspace = true }
+data-encoding = { workspace = true }
 deno_core_icudata = { workspace = true }
 derive_more = { workspace = true }
 foundationdb = { workspace = true, optional = true }

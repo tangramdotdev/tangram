@@ -6,7 +6,7 @@ use crate::{
 use bytes::Bytes;
 use futures::{Stream, StreamExt as _, TryStreamExt as _, stream};
 use http_body_util::BodyStream;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use serde_with::serde_as;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 use tokio::io::AsyncBufRead;

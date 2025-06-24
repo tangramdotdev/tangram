@@ -1,4 +1,4 @@
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use unicode_segmentation::UnicodeSegmentation;
 

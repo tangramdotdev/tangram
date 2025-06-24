@@ -237,10 +237,10 @@ where
 					"failed to get termios"
 				));
 			}
-			let old_termios = termios.assume_init();
+			let termios = termios.assume_init();
 
 			// Enable raw mode.
-			let mut new_termios = old_termios;
+			let mut new_termios = termios;
 			new_termios.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
 			new_termios.c_iflag &=
 				!(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
@@ -252,8 +252,7 @@ where
 				));
 			}
 
-			// Return the original termios.
-			old_termios
+			termios
 		};
 
 		// Create the event stream.

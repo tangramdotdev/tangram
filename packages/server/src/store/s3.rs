@@ -1,7 +1,7 @@
 use super::CacheReference;
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use tangram_client as tg;
 use time::format_description::well_known::Rfc2822;
 

@@ -1,6 +1,6 @@
 use crate::Server;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use reflink_copy::reflink;
 use std::{
 	collections::{HashMap, HashSet},

@@ -1,7 +1,7 @@
 use crate::Attrs;
 use bytes::Bytes;
 use dashmap::DashMap;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	io::{Error, Result},
 	sync::atomic::{AtomicU64, Ordering},

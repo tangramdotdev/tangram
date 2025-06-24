@@ -1,7 +1,7 @@
 use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use futures::{StreamExt as _, TryStreamExt as _, stream};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{collections::BTreeMap, pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};

@@ -3,18 +3,33 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Health {
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
+
+	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub diagnostics: Vec<tg::Diagnostic>,
+
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub file_descriptor_semaphore: Option<FileDescriptorSemaphore>,
+
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub processes: Option<Processes>,
+
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Processes {
 	pub created: u64,
+
 	pub dequeued: u64,
+
 	pub enqueued: u64,
+
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub permits: Option<u64>,
+
 	pub started: u64,
 }
 

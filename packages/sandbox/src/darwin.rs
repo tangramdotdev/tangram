@@ -3,7 +3,7 @@ use crate::{
 	common::{CStringVec, abort_errno, cstring, envstring, redirect_stdio},
 };
 use indoc::writedoc;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	ffi::{CStr, CString},
 	fmt::Write,

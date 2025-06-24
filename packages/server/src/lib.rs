@@ -80,7 +80,7 @@ pub mod test;
 pub struct Server(pub Arc<Inner>);
 
 pub struct Inner {
-	cache_task_map: ArtifactCacheTaskMap,
+	cache_task_map: CacheTaskMap,
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
 	database: Database,
@@ -106,7 +106,7 @@ pub struct Inner {
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
-type ArtifactCacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
+type CacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
 
 struct Http {
 	url: Url,

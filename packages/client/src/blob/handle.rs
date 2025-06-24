@@ -2,7 +2,7 @@ use super::{Data, Id, Object};
 use crate as tg;
 use bytes::Bytes;
 use futures::FutureExt as _;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{pin::pin, sync::Arc};
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 

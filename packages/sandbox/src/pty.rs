@@ -1,5 +1,5 @@
 use crate::Tty;
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{
 	ffi::{CStr, CString},
 	os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},

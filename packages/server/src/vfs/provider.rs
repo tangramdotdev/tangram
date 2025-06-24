@@ -3,7 +3,7 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use futures::TryStreamExt as _;
 use indoc::{formatdoc, indoc};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::{
 	os::unix::ffi::OsStrExt as _,

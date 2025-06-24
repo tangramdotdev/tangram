@@ -2,7 +2,7 @@ use super::{Blob, File, State, Variant};
 use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use num::ToPrimitive;
+use num::ToPrimitive as _;
 use std::{ops::Not, sync::Arc};
 use tangram_client as tg;
 use tangram_messenger::Messenger as _;
