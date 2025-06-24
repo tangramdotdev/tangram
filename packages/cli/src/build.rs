@@ -85,7 +85,11 @@ impl Cli {
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
 			if print {
-				println!("{}", process.id());
+				print!("{}", process.id());
+				if let Some(token) = process.token() {
+					print!(" {token}");
+				}
+				println!();
 			}
 			return Ok(None);
 		}
