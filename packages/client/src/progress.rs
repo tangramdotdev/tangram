@@ -52,6 +52,19 @@ pub enum IndicatorFormat {
 	Bytes,
 }
 
+impl<T> Event<T> {
+	pub fn map_output<U>(self, f: impl FnOnce(T) -> U) -> Event<U> {
+		match self {
+			Self::Log(log) => Event::Log(log),
+			Self::Diagnostic(diagnostic) => Event::Diagnostic(diagnostic),
+			Self::Start(indicator) => Event::Start(indicator),
+			Self::Update(indicator) => Event::Update(indicator),
+			Self::Finish(indicator) => Event::Finish(indicator),
+			Self::Output(value) => Event::Output(f(value)),
+		}
+	}
+}
+
 impl std::fmt::Display for Indicator {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		const LENGTH: u64 = 20;

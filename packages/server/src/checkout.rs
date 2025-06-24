@@ -1,5 +1,5 @@
 use crate::Server;
-use futures::{FutureExt as _, Stream, StreamExt as _, future};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use num::ToPrimitive;
 use reflink_copy::reflink;
 use std::{
@@ -38,6 +38,29 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
+		if arg.path.is_none() {
+			let path = self.artifacts_path().join(arg.artifact.to_string());
+			if self.vfs.lock().unwrap().is_none() {
+				let stream = self.cache(vec![arg.artifact.clone()]).await?;
+				return Ok(stream
+					.map_ok({
+						let server = self.clone();
+						move |event| {
+							event.map_output(|()| {
+								let path = server.artifacts_path().join(arg.artifact.to_string());
+								tg::checkout::Output { path }
+							})
+						}
+					})
+					.left_stream()
+					.left_stream());
+			}
+			return Ok(stream::once(future::ok(tg::progress::Event::Output(
+				tg::checkout::Output { path },
+			)))
+			.right_stream()
+			.left_stream());
+		}
 		let progress = crate::progress::Handle::new();
 		let task = tokio::spawn({
 			let server = self.clone();
@@ -107,7 +130,7 @@ impl Server {
 			}
 		});
 		let abort_handle = AbortOnDropHandle::new(task);
-		let stream = progress.stream().attach(abort_handle);
+		let stream = progress.stream().attach(abort_handle).right_stream();
 		Ok(stream)
 	}
 
