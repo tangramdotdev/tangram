@@ -9,10 +9,23 @@ impl Server {
 		id: &tg::process::Id,
 		mut arg: tg::process::signal::post::Arg,
 	) -> tg::Result<()> {
+		// Forward to the remote.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.post_process_signal(id, arg).await;
 		}
+
+		// Check if the process is cacheable.
+		if tg::Process::new(id.clone(), None, None, None, None)
+			.load(self)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to load the process"))?
+			.cacheable
+		{
+			return Err(tg::error!(%id, "cannot signal cacheable processes"));
+		}
+
+		// Publish the signal message.
 		let payload = serde_json::to_vec(&tg::process::signal::get::Event::Signal(arg.signal))
 			.unwrap()
 			.into();
@@ -20,6 +33,7 @@ impl Server {
 			.publish(format!("processes.{id}.signal"), payload)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
+
 		Ok(())
 	}
 
