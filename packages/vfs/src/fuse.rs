@@ -221,12 +221,10 @@ where
 							.handle_request(request.clone())
 							.await
 							.inspect_err(|error| {
-								if request.header.opcode == sys::fuse_opcode::FUSE_LOOKUP
-									&& error.raw_os_error() == Some(libc::ENOENT)
-								{
-									return;
+								let opcode = request.header.opcode;
+								if !is_expected_error(opcode, error.raw_os_error()) {
+									tracing::error!(?error, ?opcode, "unexpected error");
 								}
-								tracing::error!(?error, "request failed");
 							});
 
 					// Write the response.
@@ -475,7 +473,7 @@ where
 	) -> Result<Option<Response>> {
 		let name = request
 			.to_str()
-			.map_err(|_| Error::from_raw_os_error(libc::EINVAL))?;
+			.map_err(|_| Error::from_raw_os_error(libc::ENOENT))?;
 		let node = self
 			.provider
 			.lookup(header.nodeid, name)
@@ -709,7 +707,7 @@ where
 		header: fuse_in_header,
 		request: u32,
 	) -> Result<Option<Response>> {
-		tracing::error!(?header, %request, "unsupported request");
+		tracing::trace!(?header, %request, "unsupported request");
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 
@@ -960,4 +958,17 @@ pub async fn unmount(path: &Path) -> Result<()> {
 		.status()
 		.await?;
 	Ok(())
+}
+
+// There are a small number of "expected" error conditions, where the request correctly returns an error, but not due to a filesystem error. These are:
+// - lookups that return ENOENT (None)
+// - getxattrs that return ENODATA (None)
+// - getxattr/listxattr that return ERANGE (blame the caller, they provided garbage data)
+// - ENOSYS: only returned when the filesystem doesn't support a request.
+fn is_expected_error(opcode: sys::fuse_opcode::Type, error: Option<i32>) -> bool {
+	(opcode == sys::fuse_opcode::FUSE_LOOKUP && error == Some(libc::ENOENT))
+		| (opcode == sys::fuse_opcode::FUSE_GETXATTR && error == Some(libc::ENODATA))
+		| (opcode == sys::fuse_opcode::FUSE_GETXATTR && error == Some(libc::ERANGE))
+		| (opcode == sys::fuse_opcode::FUSE_LISTXATTR && error == Some(libc::ERANGE))
+		| (error == Some(libc::ENOSYS))
 }
