@@ -47,10 +47,6 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		};
 
-		if data.status != tg::process::Status::Started {
-			return Err(tg::error!("the process must be started"));
-		}
-
 		// Get the process's children.
 		let connection = self
 			.database
@@ -141,7 +137,7 @@ impl Server {
 					touched_at = {p}7
 				where
 					id = {p}8 and
-					status = 'started';
+					status != 'finished';
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -160,7 +156,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		if n != 1 {
-			return Err(tg::error!("the process must be started"));
+			return Err(tg::error!("the process was already finished"));
 		}
 
 		// Delete the tokens.
