@@ -19,6 +19,7 @@ mod archive;
 mod blob;
 mod build;
 mod bundle;
+mod cache;
 mod cat;
 mod check;
 mod checkin;
@@ -142,6 +143,8 @@ enum Command {
 	Build(self::build::Args),
 
 	Bundle(self::bundle::Args),
+
+	Cache(self::cache::Args),
 
 	Cancel(self::process::cancel::Args),
 
@@ -1078,6 +1081,7 @@ impl Cli {
 			Command::Blob(args) => self.command_blob(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Bundle(args) => self.command_bundle(args).boxed(),
+			Command::Cache(args) => self.command_cache(args).boxed(),
 			Command::Cancel(args) => self.command_process_cancel(args).boxed(),
 			Command::Cat(args) => self.command_cat(args).boxed(),
 			Command::Check(args) => self.command_check(args).boxed(),

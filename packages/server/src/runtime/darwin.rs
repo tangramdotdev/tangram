@@ -3,7 +3,6 @@ use super::{
 	util::{render_env, render_value, signal_task, stdio_task, which},
 };
 use crate::{Server, temp::Temp};
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::path::Path;
 use tangram_client as tg;
 use tangram_futures::task::Task;
@@ -39,28 +38,10 @@ impl Runtime {
 		let command = command.data(&self.server).await?;
 		let remote = process.remote();
 
-		// If the VFS is disabled, then check out the command's children.
-		if self.server.vfs.lock().unwrap().is_none() {
-			command
-				.children()
-				.filter_map(|id| id.try_into().ok())
-				.map(|artifact| async move {
-					let arg = tg::checkout::Arg {
-						artifact,
-						dependencies: false,
-						force: false,
-						lockfile: false,
-						path: None,
-					};
-					tg::checkout(&self.server, arg).await?;
-					Ok::<_, tg::Error>(())
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<Vec<_>>()
-				.await?;
-		}
+		// Checkout the process's children.
+		self.server.checkout_children(process).await?;
 
-		// Determine if the hosts' root is mounted.
+		// Determine if the host's root is mounted.
 		let root_mount = state
 			.mounts
 			.iter()
@@ -178,27 +159,21 @@ impl Runtime {
 				.map(|mount| (mount.source.clone(), mount.target.clone(), mount.readonly)),
 		);
 
-		// Get or create stdio.
+		// Create the stdio.
 		let stdin = match state.stdin.as_ref() {
 			_ if command.stdin.is_some() => sandbox::Stdio::piped(),
-			Some(stdio) => {
-				let fd = self.server.get_pty_or_pipe_fd(stdio, true)?;
-				sandbox::Stdio::from(fd)
-			},
+			Some(tg::process::Stdio::Pipe(pipe)) => self.server.get_pipe_fd(pipe, true)?.into(),
+			Some(tg::process::Stdio::Pty(pty)) => self.server.get_pty_fd(pty, false)?.into(),
 			None => sandbox::Stdio::piped(),
 		};
 		let stdout = match state.stdout.as_ref() {
-			Some(stdio) => {
-				let fd = self.server.get_pty_or_pipe_fd(stdio, false)?;
-				sandbox::Stdio::from(fd)
-			},
+			Some(tg::process::Stdio::Pipe(pipe)) => self.server.get_pipe_fd(pipe, true)?.into(),
+			Some(tg::process::Stdio::Pty(pty)) => self.server.get_pty_fd(pty, false)?.into(),
 			None => sandbox::Stdio::piped(),
 		};
 		let stderr = match state.stderr.as_ref() {
-			Some(stdio) => {
-				let fd = self.server.get_pty_or_pipe_fd(stdio, false)?;
-				sandbox::Stdio::from(fd)
-			},
+			Some(tg::process::Stdio::Pipe(pipe)) => self.server.get_pipe_fd(pipe, true)?.into(),
+			Some(tg::process::Stdio::Pty(pty)) => self.server.get_pty_fd(pty, false)?.into(),
 			None => sandbox::Stdio::piped(),
 		};
 

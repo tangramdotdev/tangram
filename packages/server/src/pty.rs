@@ -1,3 +1,4 @@
+use crate::Server;
 use std::os::fd::{FromRawFd, OwnedFd};
 use tangram_client as tg;
 
@@ -54,5 +55,19 @@ impl Pty {
 		.await
 		.unwrap()
 		.map_err(|source| tg::error!(!source, "failed to open pty"))
+	}
+}
+
+impl Server {
+	pub(crate) fn get_pty_fd(&self, pty: &tg::pty::Id, host: bool) -> tg::Result<OwnedFd> {
+		let pty = self
+			.ptys
+			.get(pty)
+			.ok_or_else(|| tg::error!("failed to find the pty"))?;
+		let end = if host { &pty.host } else { &pty.guest };
+		let fd = end
+			.try_clone()
+			.map_err(|source| tg::error!(!source, "failed to clone the fd"))?;
+		Ok(fd)
 	}
 }

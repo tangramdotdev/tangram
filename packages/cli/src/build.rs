@@ -37,7 +37,7 @@ pub struct Options {
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
 
-	/// The view to display if the process' stdio is not attached.
+	/// The view to display if the process's stdio is not attached.
 	#[arg(default_value = "inline", short, long)]
 	pub view: View,
 }

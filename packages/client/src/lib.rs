@@ -57,6 +57,7 @@ pub mod blob;
 pub mod build;
 pub mod builtin;
 pub mod bytes;
+pub mod cache;
 pub mod check;
 pub mod checkin;
 pub mod checkout;
@@ -651,6 +652,17 @@ impl Client {
 }
 
 impl tg::Handle for Client {
+	fn cache(
+		&self,
+		arg: tg::cache::Arg,
+	) -> impl Future<
+		Output = crate::Result<
+			impl Stream<Item = crate::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send {
+		self.cache(arg)
+	}
+
 	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		self.check(arg)
 	}

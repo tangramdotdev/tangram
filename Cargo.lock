@@ -6524,6 +6524,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "tracing",
+ "unicode-width 0.2.0",
  "url",
  "urlencoding",
  "uuid",

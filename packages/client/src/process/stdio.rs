@@ -18,6 +18,7 @@ impl std::fmt::Display for Stdio {
 
 impl std::str::FromStr for Stdio {
 	type Err = tg::Error;
+
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let id = tg::Id::from_str(s)?;
 		match id.kind() {
