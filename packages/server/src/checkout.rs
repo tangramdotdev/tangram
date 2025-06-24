@@ -41,7 +41,10 @@ impl Server {
 		if arg.path.is_none() {
 			let path = self.artifacts_path().join(arg.artifact.to_string());
 			if self.vfs.lock().unwrap().is_none() {
-				let stream = self.cache(vec![arg.artifact.clone()]).await?;
+				let cache_arg = tg::cache::Arg {
+					artifacts: vec![arg.artifact.clone()],
+				};
+				let stream = self.cache(cache_arg).await?;
 				return Ok(stream
 					.map_ok({
 						let server = self.clone();

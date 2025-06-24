@@ -11,6 +11,15 @@ pub use self::ext::Ext;
 pub trait Handle:
 	Object + Process + Pipe + Pty + Remote + Tag + User + Clone + Unpin + Send + Sync + 'static
 {
+	fn cache(
+		&self,
+		arg: tg::cache::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> + Send;
+
 	fn check(
 		&self,
 		arg: tg::check::Arg,

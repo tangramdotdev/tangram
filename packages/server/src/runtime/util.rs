@@ -299,7 +299,8 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Check out the artifacts.
-		let stream = self.cache(artifacts).await?;
+		let arg = tg::cache::Arg { artifacts };
+		let stream = self.cache(arg).await?;
 
 		// Log the progress stream.
 		self.log_progress_stream(process, stream).await?;

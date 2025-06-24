@@ -1021,6 +1021,7 @@ impl Server {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect_vec();
 		let response = match (method, path_components.as_slice()) {
+			(http::Method::POST, ["cache"]) => Self::handle_cache_request(handle, request).boxed(),
 			(http::Method::POST, ["check"]) => Self::handle_check_request(handle, request).boxed(),
 			(http::Method::POST, ["checkin"]) => {
 				Self::handle_checkin_request(handle, request).boxed()
@@ -1224,6 +1225,17 @@ impl Server {
 }
 
 impl tg::Handle for Server {
+	fn cache(
+		&self,
+		arg: tg::cache::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		self.cache(arg)
+	}
+
 	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		self.check(arg)
 	}

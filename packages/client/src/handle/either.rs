@@ -9,6 +9,26 @@ where
 	L: tg::Handle,
 	R: tg::Handle,
 {
+	fn cache(
+		&self,
+		arg: tg::cache::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.cache(arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.cache(arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
 	fn check(
 		&self,
 		arg: tg::check::Arg,

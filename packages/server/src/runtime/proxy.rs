@@ -83,6 +83,13 @@ impl Proxy {
 }
 
 impl tg::Handle for Proxy {
+	async fn cache(
+		&self,
+		arg: tg::cache::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		self.server.cache(arg).await
+	}
+
 	async fn health(&self) -> tg::Result<tg::Health> {
 		Err(tg::error!("forbidden"))
 	}
