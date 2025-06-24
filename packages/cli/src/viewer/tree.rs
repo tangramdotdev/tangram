@@ -1,3 +1,5 @@
+use crate::util;
+
 use super::{Item, Options, data, log::Log};
 use crossterm as ct;
 use futures::{TryStreamExt as _, future};
@@ -678,14 +680,10 @@ where
 			}
 
 			// Append the parent's path if necessary.
-			if child.path.is_some() && referent.path.is_some() {
-				let mut parent_path = referent.path.as_ref().unwrap().as_ref();
-				if tg::package::is_module_path(parent_path) {
-					parent_path = parent_path.parent().unwrap();
-				}
-				let path = parent_path.join(child.path.as_ref().unwrap());
-				let path = tokio::fs::canonicalize(&path).await.unwrap_or(path);
-				child.path.replace(parent_path.join(path));
+			if let (Some(child_path), Some(referent_path)) = (&child.path, &referent.path) {
+				let parent_path = referent_path.parent().unwrap_or(referent_path);
+				let path = util::normalize_path(parent_path.join(child_path));
+				child.path.replace(path);
 			}
 
 			// Check the status of the process.
