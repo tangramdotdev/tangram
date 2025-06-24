@@ -1174,8 +1174,9 @@ async fn test_signal_cacheable_processs() {
 			-> cannot signal cacheable processes
 			   id = [PROCESS]
 			");
-		})
-	}).await;
+		});
+	})
+	.await;
 }
 
 #[tokio::test]
