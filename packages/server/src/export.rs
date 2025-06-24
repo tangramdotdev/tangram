@@ -514,15 +514,36 @@ impl Server {
 
 		let process_count = stats.process_count.map_or_else(
 			|| 1 + children_process_count,
-			|process_count| process_count - 1 - children_process_count,
+			|process_count| {
+				process_count
+					.checked_sub(1 + children_process_count)
+					.unwrap_or_else(|| {
+						tracing::error!("object count underflow");
+						0
+					})
+			},
 		);
 		let object_count = stats.object_count.map_or_else(
 			|| self_object_count + children_object_count,
-			|object_count| object_count - self_object_count - children_object_count,
+			|object_count| {
+				object_count
+					.checked_sub(self_object_count + children_object_count)
+					.unwrap_or_else(|| {
+						tracing::error!("object count underflow");
+						0
+					})
+			},
 		);
 		let object_weight = stats.object_weight.map_or_else(
 			|| self_object_weight + children_object_weight,
-			|object_weight| object_weight - self_object_weight - children_object_weight,
+			|object_weight| {
+				object_weight
+					.checked_sub(self_object_weight + children_object_weight)
+					.unwrap_or_else(|| {
+						tracing::error!("object weight underflow");
+						0
+					})
+			},
 		);
 
 		Ok(InnerProcessOutput {
@@ -686,15 +707,36 @@ impl Server {
 
 		let process_count = stats.process_count.map_or_else(
 			|| 1 + children_process_count,
-			|process_count| process_count - 1 - children_process_count,
+			|process_count| {
+				process_count
+					.checked_sub(1 + children_process_count)
+					.unwrap_or_else(|| {
+						tracing::error!("object count underflow");
+						0
+					})
+			},
 		);
 		let object_count = stats.object_count.map_or_else(
 			|| self_object_count + children_object_count,
-			|object_count| object_count - self_object_count - children_object_count,
+			|object_count| {
+				object_count
+					.checked_sub(self_object_count + children_object_count)
+					.unwrap_or_else(|| {
+						tracing::error!("object count underflow");
+						0
+					})
+			},
 		);
 		let object_weight = stats.object_weight.map_or_else(
 			|| self_object_weight + children_object_weight,
-			|object_weight| object_weight - self_object_weight - children_object_weight,
+			|object_weight| {
+				object_weight
+					.checked_sub(self_object_weight + children_object_weight)
+					.unwrap_or_else(|| {
+						tracing::error!("object weight underflow");
+						0
+					})
+			},
 		);
 
 		Ok(InnerProcessOutput {
