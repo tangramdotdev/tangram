@@ -321,12 +321,39 @@ impl vfs::Provider for Provider {
 		Ok(target)
 	}
 
-	async fn listxattrs(&self, _id: u64) -> std::io::Result<Vec<String>> {
-		Ok(Vec::new())
+	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
+		let node = self.get(id).await?;
+		let Some(tg::Artifact::File(file)) = node.artifact else {
+			return Ok(Vec::new());
+		};
+		let dependencies = file.dependencies(&self.server).await.map_err(|error| {
+			tracing::error!(?error, "failed to get file dependencies");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		if dependencies.is_empty() {
+			return Ok(Vec::new());
+		}
+		Ok(vec![tg::file::XATTR_DEPENDENCIES_NAME.to_owned()])
 	}
 
-	async fn getxattr(&self, _id: u64, _name: &str) -> std::io::Result<Option<Bytes>> {
-		Ok(None)
+	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+		let node = self.get(id).await?;
+		let Some(tg::Artifact::File(file)) = node.artifact else {
+			return Ok(None);
+		};
+		if name != tg::file::XATTR_DEPENDENCIES_NAME {
+			return Ok(None);
+		}
+		let dependencies = file.dependencies(&self.server).await.map_err(|error| {
+			tracing::error!(?error, "failed to get file dependencies");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		if dependencies.is_empty() {
+			return Ok(None);
+		}
+		let references = dependencies.keys().cloned().collect::<Vec<_>>();
+		let data = serde_json::to_vec(&references).unwrap();
+		Ok(Some(data.into()))
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
