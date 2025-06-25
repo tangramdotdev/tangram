@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 use url::Url;
 
 #[derive(Clone, Debug)]
@@ -14,6 +14,7 @@ pub struct Config {
 	pub messenger: Messenger,
 	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
+	pub runtimes: HashMap<String, Runtime>,
 	pub store: Store,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
@@ -127,6 +128,18 @@ pub struct Runner {
 }
 
 #[derive(Clone, Debug)]
+pub struct Runtime {
+	pub kind: RuntimeKind,
+	pub executable: PathBuf,
+	pub args: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum RuntimeKind {
+	Tangram,
+}
+
+#[derive(Clone, Debug)]
 pub enum Store {
 	#[cfg(feature = "foundationdb")]
 	Fdb(FdbStore),
@@ -187,6 +200,7 @@ impl Config {
 		let indexer = Some(Indexer::default());
 		let messenger = Messenger::default();
 		let remotes = None;
+		let runtimes = HashMap::default();
 		let runner = Some(Runner::default());
 		let store = Store::Lmdb(LmdbStore {
 			path: directory.join("store"),
@@ -207,6 +221,7 @@ impl Config {
 			messenger,
 			remotes,
 			runner,
+			runtimes,
 			store,
 			version,
 			vfs,

@@ -1,14 +1,25 @@
 use crate::{
-	Child, Command, ExitStatus,
-	common::{CStringVec, cstring, envstring, socket_pair},
+	Command,
+	common::{CStringVec, cstring, envstring},
 };
+use bytes::Bytes;
 use num::ToPrimitive as _;
-use std::{ffi::CString, os::fd::RawFd};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use std::{
+	ffi::{CString, OsStr},
+	io::Write,
+};
 
 mod guest;
-mod init;
 mod root;
+
+#[derive(Debug)]
+struct Mount {
+	source: Option<CString>,
+	target: Option<CString>,
+	fstype: Option<CString>,
+	flags: libc::c_ulong,
+	data: Option<Bytes>,
+}
 
 struct Context {
 	argv: CStringVec,
@@ -20,34 +31,35 @@ struct Context {
 	mounts: Vec<Mount>,
 	network: bool,
 	socket: std::os::unix::net::UnixStream,
-	stdin: RawFd,
-	stdout: RawFd,
-	stderr: RawFd,
 }
 
-struct Mount {
-	source: CString,
-	target: CString,
-	fstype: Option<CString>,
-	flags: libc::c_ulong,
-	data: Option<Vec<u8>>,
-	readonly: bool,
-}
-
-pub async fn spawn(command: &mut Command) -> std::io::Result<Child> {
+pub fn spawn(mut command: Command) -> std::io::Result<libc::c_int> {
 	if !command.mounts.is_empty() && command.chroot.is_none() {
 		return Err(std::io::Error::other(
 			"cannot create mounts without a chroot directory",
 		));
 	}
 
+	// Sort the mounts.
+	command.mounts.sort_unstable_by_key(|mount| {
+		mount
+			.target
+			.as_ref()
+			.map_or(0, |path| path.components().count())
+	});
+
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
-		.chain(command.args.iter().map(cstring))
+		.chain(command.trailing.iter().map(cstring))
 		.collect::<CStringVec>();
-	let cwd = cstring(&command.cwd);
+	let cwd = command
+		.cwd
+		.clone()
+		.map_or_else(std::env::current_dir, Ok::<_, std::io::Error>)
+		.inspect_err(|_| eprintln!("failed to get cwd"))
+		.map(cstring)?;
 	let envp = command
-		.envs
+		.env
 		.iter()
 		.map(|(k, v)| envstring(k, v))
 		.collect::<CStringVec>();
@@ -58,33 +70,31 @@ pub async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 	let mut mounts = Vec::with_capacity(command.mounts.len());
 	for mount in &command.mounts {
 		// Remap the target path.
-		let target = if let Some(chroot) = &command.chroot {
-			chroot.join(mount.target.strip_prefix("/").unwrap())
-		} else {
-			mount.target.clone()
-		};
+		let target = mount.target.as_ref().map(|target| {
+			if let Some(chroot) = &command.chroot {
+				chroot.join(target.strip_prefix("/").unwrap())
+			} else {
+				target.clone()
+			}
+		});
 
 		// Create the mount.
 		let mount = Mount {
-			source: cstring(&mount.source),
-			target: cstring(&target),
+			source: mount.source.as_ref().map(cstring),
+			target: target.map(cstring),
 			fstype: mount.fstype.as_ref().map(cstring),
 			flags: mount.flags,
 			data: mount.data.clone(),
-			readonly: mount.readonly,
 		};
 		mounts.push(mount);
 	}
 
+	// Get the chroot path.
 	let root = command.chroot.as_ref().map(cstring);
 
 	// Create the socket for guest control. This will be used to send the guest process its PID w.r.t the parent's PID namespace and to indicate to the child when it may exec.
-	let (mut parent_socket, child_socket) = socket_pair()?;
-
-	// Create stdio.
-	let (parent_stdin, child_stdin) = command.stdin.take().unwrap().split_stdin()?;
-	let (parent_stdout, child_stdout) = command.stdout.take().unwrap().split_stdout()?;
-	let (parent_stderr, child_stderr) = command.stderr.take().unwrap().split_stderr()?;
+	let (mut parent_socket, child_socket) = std::os::unix::net::UnixStream::pair()
+		.inspect_err(|_| eprintln!("failed to create socket"))?;
 
 	// Create the context.
 	let context = Context {
@@ -97,14 +107,13 @@ pub async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 		mounts,
 		network: command.network,
 		socket: child_socket,
-		stdin: child_stdin,
-		stdout: child_stdout,
-		stderr: child_stderr,
 	};
 
 	// Fork.
 	let mut clone_args: libc::clone_args = libc::clone_args {
-		flags: libc::CLONE_NEWUSER.try_into().unwrap(),
+		flags: (libc::CLONE_NEWUSER | libc::CLONE_NEWPID)
+			.try_into()
+			.unwrap(),
 		stack: 0,
 		stack_size: 0,
 		pidfd: 0,
@@ -123,140 +132,107 @@ pub async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 			std::mem::size_of::<libc::clone_args>(),
 		)
 	};
-	let root_pid = root_pid.to_i32().unwrap();
+	let pid = root_pid.to_i32().unwrap();
 
 	// Check if clone3 failed.
-	if root_pid < 0 {
+	if pid < 0 {
+		eprintln!("clone3 failed");
 		return Err(std::io::Error::last_os_error());
 	}
 
 	// Run the root process.
-	if root_pid == 0 {
+	if pid == 0 {
 		root::main(context);
 	}
 
 	// Signal the root/guest process to start and get the guest PID.
-	let uid = command.uid.unwrap_or_else(|| unsafe { libc::getuid() });
-	let gid = command.gid.unwrap_or_else(|| unsafe { libc::getgid() });
+	let (uid, gid) = get_user(command.user.as_ref())?;
 
-	let guest_pid = match try_start(command.chroot.is_some(), gid, uid, &mut parent_socket).await {
+	// Start the process and get the pid of the guest process.
+	match try_start(command.chroot.is_some(), pid, gid, uid, &mut parent_socket) {
 		Ok(pid) => pid,
 		Err(error) => unsafe {
-			libc::kill(root_pid, libc::SIGKILL);
+			libc::kill(pid, libc::SIGKILL);
 			return Err(error);
 		},
-	};
-
-	// Close unused fds.
-	for fd in [child_stdin, child_stdout, child_stderr] {
-		unsafe {
-			libc::close(fd);
-		}
 	}
 
-	// Create the child.
-	let child = Child {
-		guest_pid,
-		root_pid,
-		socket: parent_socket,
-		stdin: parent_stdin,
-		stdout: parent_stdout,
-		stderr: parent_stderr,
-	};
+	// Wait for the root process to exit.
+	let mut status: libc::c_int = 0;
+	let ret = unsafe { libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::__WALL) };
+	if ret == -1 {
+		eprintln!("wait failed");
+		return Err(std::io::Error::last_os_error());
+	}
 
-	Ok(child)
+	if libc::WIFEXITED(status) {
+		let status = libc::WEXITSTATUS(status);
+		return Ok(status);
+	}
+
+	if libc::WIFSIGNALED(status) {
+		let signal = libc::WTERMSIG(status);
+		return Ok(signal + 128);
+	}
+
+	eprintln!("unknown process termination");
+	Ok(1)
 }
 
-async fn try_start(
+fn try_start(
 	chroot: bool,
+	pid: libc::pid_t,
 	child_gid: libc::gid_t,
 	child_uid: libc::gid_t,
-	socket: &mut tokio::net::UnixStream,
-) -> std::io::Result<libc::pid_t> {
-	// Read the pid of the guest process.
-	let pid = socket.read_i32_le().await?;
-
+	socket: &mut std::os::unix::net::UnixStream,
+) -> std::io::Result<()> {
 	// If the guest process is running in a chroot jail, it's current state is blocked waiting for the host process (the caller) to update its uid and gid maps. We need to wait for the root process to notify the host of the guest's PID after it is cloned.
 	if chroot {
 		// Write the guest process's UID map.
 		let uid = unsafe { libc::getuid() };
-		tokio::fs::write(
+		std::fs::write(
 			format!("/proc/{pid}/uid_map"),
 			format!("{child_uid} {uid} 1\n"),
 		)
-		.await?;
+		.inspect_err(|_| eprintln!("failed to write uid map"))?;
 
 		// Deny setgroups to the process.
-		tokio::fs::write(format!("/proc/{pid}/setgroups"), "deny").await?;
+		std::fs::write(format!("/proc/{pid}/setgroups"), "deny")
+			.inspect_err(|_| eprintln!("failed to deny setgroups"))?;
 
 		// Write the guest process's GID map.
 		let gid = unsafe { libc::getgid() };
-		tokio::fs::write(
+		std::fs::write(
 			format!("/proc/{pid}/gid_map"),
 			format!("{child_gid} {gid} 1\n"),
 		)
-		.await?;
+		.inspect_err(|_| eprintln!("failed to write gid map"))?;
 	}
 
 	// Notify the guest that it may continue.
-	socket.write_u8(1).await?;
+	socket
+		.write_all(&[1u8])
+		.inspect_err(|_| eprintln!("failed to signal process"))?;
 
 	// Return the child pid.
-	Ok(pid)
+	Ok(())
 }
 
-pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
-	// If this future is dropped, then kill the root process.
-	let root_process = child.root_pid;
-	let guest_process = child.guest_pid;
-	scopeguard::defer! {
+fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, libc::gid_t)> {
+	let Some(name) = name else {
 		unsafe {
-			libc::kill(root_process, libc::SIGKILL);
-			libc::kill(guest_process, libc::SIGKILL);
+			let uid = libc::getuid();
+			let gid = libc::getgid();
+			return Ok((uid, gid));
 		}
-	}
-
-	// Wait for the root process to exit.
-	tokio::task::spawn_blocking(move || {
-		let mut status: libc::c_int = 0;
-		let ret =
-			unsafe { libc::waitpid(root_process, std::ptr::addr_of_mut!(status), libc::__WALL) };
-		if ret == -1 {
-			return Err(std::io::Error::last_os_error());
+	};
+	unsafe {
+		let passwd = libc::getpwnam(cstring(name.as_ref()).as_ptr());
+		if passwd.is_null() {
+			return Err(std::io::Error::other("getpwname failed"));
 		}
-		if libc::WIFEXITED(status) {
-			let code = libc::WEXITSTATUS(status);
-			if code != 0 {
-				return Err(std::io::Error::other(
-					"the root process exited with a nonzero exit code",
-				));
-			}
-		}
-
-		if libc::WIFSIGNALED(status) {
-			return Err(std::io::Error::other(
-				"the root process exited with a signal",
-			));
-		}
-
-		Ok(())
-	})
-	.await
-	.unwrap()?;
-
-	// Get the status.
-	let status = child.socket.read_i32_le().await?;
-	if libc::WIFEXITED(status) {
-		let code = libc::WEXITSTATUS(status);
-		let code = code.to_u8().unwrap();
-		Ok(ExitStatus::Code(code))
-	} else if libc::WIFSIGNALED(status) {
-		let signal = libc::WTERMSIG(status);
-		let signal = signal.to_u8().unwrap();
-		Ok(ExitStatus::Signal(signal))
-	} else {
-		Err(std::io::Error::other(
-			"process exited with unknown code or signal",
-		))
+		let uid = (*passwd).pw_uid;
+		let gid = (*passwd).pw_gid;
+		Ok((uid, gid))
 	}
 }
