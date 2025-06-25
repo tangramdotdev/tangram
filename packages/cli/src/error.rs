@@ -293,17 +293,21 @@ impl Cli {
 						write!(name, "{}", path.display()).unwrap();
 					}
 				} else if let Some(path) = &path {
-					let path = std::env::current_dir()
-						.ok()
-						.and_then(|cwd| {
-							let path = std::fs::canonicalize(cwd.join(path)).ok()?;
-							let path = crate::util::path_diff(&cwd, &path).ok()?;
-							if path.is_relative() && !path.starts_with("..") {
-								return Some(PathBuf::from(".").join(path));
-							}
-							Some(path)
-						})
-						.unwrap_or_else(|| path.clone());
+					let path = if path.is_relative() {
+						std::env::current_dir()
+							.ok()
+							.and_then(|cwd| {
+								let path = std::fs::canonicalize(cwd.join(path)).ok()?;
+								let path = crate::util::path_diff(&cwd, &path).ok()?;
+								if path.is_relative() && !path.starts_with("..") {
+									return Some(PathBuf::from(".").join(path));
+								}
+								Some(path)
+							})
+							.unwrap_or_else(|| path.clone())
+					} else {
+						crate::util::normalize_path(path)
+					};
 					write!(name, "{}", path.display()).unwrap();
 				} else {
 					write!(name, "<unknown>").unwrap();
