@@ -454,7 +454,7 @@ impl Server {
 					output = {p}13,
 					retry = {p}14,
 					status = {p}15,
-					token_count = {p}16;
+					token_count = {p}16,
 					touched_at = {p}17;
 			"
 		);
