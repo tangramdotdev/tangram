@@ -52,7 +52,7 @@ pub fn main(context: Context) -> ! {
 	}
 }
 
-// We forward all signals except SIGCHILD.
+// Forward all signals except SIGCHILD.
 const FORWARDED_SIGNALS: [libc::c_int; 29] = [
 	libc::SIGINT,
 	libc::SIGQUIT,

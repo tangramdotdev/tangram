@@ -10,28 +10,28 @@ mod guest;
 mod init;
 mod root;
 
-pub(crate) struct Mount {
-	pub source: CString,
-	pub target: CString,
-	pub fstype: Option<CString>,
-	pub flags: libc::c_ulong,
-	pub data: Option<Vec<u8>>,
-	pub readonly: bool,
+struct Context {
+	argv: CStringVec,
+	cwd: CString,
+	envp: CStringVec,
+	executable: CString,
+	hostname: Option<CString>,
+	root: Option<CString>,
+	mounts: Vec<Mount>,
+	network: bool,
+	socket: std::os::unix::net::UnixStream,
+	stdin: RawFd,
+	stdout: RawFd,
+	stderr: RawFd,
 }
 
-pub(crate) struct Context {
-	pub argv: CStringVec,
-	pub cwd: CString,
-	pub envp: CStringVec,
-	pub executable: CString,
-	pub hostname: Option<CString>,
-	pub root: Option<CString>,
-	pub mounts: Vec<Mount>,
-	pub network: bool,
-	pub socket: std::os::unix::net::UnixStream,
-	pub stdin: RawFd,
-	pub stdout: RawFd,
-	pub stderr: RawFd,
+struct Mount {
+	source: CString,
+	target: CString,
+	fstype: Option<CString>,
+	flags: libc::c_ulong,
+	data: Option<Vec<u8>>,
+	readonly: bool,
 }
 
 pub async fn spawn(command: &mut Command) -> std::io::Result<Child> {
