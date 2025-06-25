@@ -28,7 +28,7 @@ impl Server {
 							.checkin_cache_task_destructive(state, touched_at, root)
 							.await?;
 					} else {
-						let semaphore = self.file_descriptor_semaphore.acquire().await.unwrap();
+						let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
 						tokio::task::spawn_blocking({
 							let server = server.clone();
 							let state = state.clone();
@@ -37,7 +37,7 @@ impl Server {
 						.await
 						.unwrap()
 						.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
-						drop(semaphore);
+						drop(permit);
 					}
 					Ok::<_, tg::Error>(())
 				}
