@@ -673,18 +673,11 @@ where
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
-		while let Some(mut child) = children.try_next().await? {
-			// Inherit the parent's tag if necessary.
-			if child.tag.is_none() && referent.tag.is_some() {
-				child.tag = referent.tag.clone();
-			}
-
-			// Append the parent's path if necessary.
-			if let (Some(child_path), Some(referent_path)) = (&child.path, &referent.path) {
-				let parent_path = referent_path.parent().unwrap_or(referent_path);
-				let path = util::normalize_path(parent_path.join(child_path));
-				child.path.replace(path);
-			}
+		while let Some(child) = children.try_next().await? {
+			// Attempt to convert path/tag.
+			let child = get_child_process_with_path_and_tag(handle, &referent, &child)
+				.await
+				.unwrap_or(child);
 
 			// Check the status of the process.
 			let finished = child
@@ -1659,6 +1652,55 @@ where
 			}
 		}
 	}
+}
+
+async fn get_child_process_with_path_and_tag<H>(
+	handle: &H,
+	parent: &tg::Referent<tg::Process>,
+	child: &tg::Referent<tg::Process>,
+) -> tg::Result<tg::Referent<tg::Process>>
+where
+	H: tg::Handle,
+{
+	let mut child = child.clone();
+
+	// Inherit the parent's tag if necessary.
+	if child.tag.is_none() && parent.tag.is_some() {
+		child.tag = parent.tag.clone();
+	}
+
+	if child.path.is_none() && parent.path.is_some() {
+		// Check if the child has the same executable as the parent.
+		let child_executable = child
+			.item
+			.command(handle)
+			.await?
+			.executable(handle)
+			.await?
+			.object()
+			.first()
+			.map(tg::Object::id);
+		let parent_executable = parent
+			.item
+			.command(handle)
+			.await?
+			.executable(handle)
+			.await?
+			.object()
+			.first()
+			.map(tg::Object::id);
+		if child_executable == parent_executable {
+			child.path = parent.path.clone();
+		}
+	} else if let (Some(child_path), Some(referent_path)) = (&child.path, &parent.path) {
+		// Join child paths if necessary.
+		let parent_path = referent_path.parent().unwrap_or(referent_path);
+		let path = util::normalize_path(parent_path.join(child_path));
+		child.path.replace(path);
+		return Ok(child);
+	}
+
+	Ok(child)
 }
 
 impl<H> Drop for Tree<H> {
