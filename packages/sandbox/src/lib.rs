@@ -9,7 +9,6 @@ mod common;
 mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
-// mod pty;
 mod stdio;
 pub use stdio::*;
 
