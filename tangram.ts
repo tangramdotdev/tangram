@@ -1,4 +1,8 @@
 import bun from "bun" with { path: "../packages/packages/bun" };
+import foundationdb from "foundationdb" with {
+	path: "../packages/packages/foundationdb",
+};
+import { libclang } from "llvm" with { path: "../packages/packages/llvm" };
 import { cargo } from "rust" with { path: "../packages/packages/rust" };
 import xz from "xz" with { path: "../packages/packages/xz" };
 import * as std from "std" with { path: "../packages/packages/std" };
@@ -6,20 +10,46 @@ import { $ } from "std" with { path: "../packages/packages/std" };
 
 import source from "." with { type: "directory" };
 
-export const build = async () => {
+type Arg = {
+	foundationdb?: boolean;
+};
+
+export const build = async (arg?: Arg) => {
 	const host = await std.triple.host();
 	const cargoLock = await source.get("Cargo.lock").then(tg.File.expect);
-	const env = std.env.arg(bunEnvArg(host), librustyv8(cargoLock, host));
-	const output = await cargo.build({
-		buildInTree: true,
-		disableDefaultFeatures: true,
-		env,
-		pre: tg`
+	const envs: Array<tg.Unresolved<std.env.Arg>> = [
+		bunEnvArg(host),
+		librustyv8(cargoLock, host),
+	];
+	let pre = tg`
 			mkdir node_modules
 			cp -R ${nodeModules(host)}/. node_modules
 			export NODE_PATH=$PWD/node_modules
 			export PATH=$PATH:$NODE_PATH/.bin
-		`,
+	`;
+	const features = [];
+	if (arg?.foundationdb) {
+		if (std.triple.os(host) !== "linux") {
+			throw new Error("the foundationdb feature is only available on Linux");
+		}
+		features.push("foundationdb");
+		envs.push(foundationdb({ host }), {
+			LIBCLANG_PATH: tg`${libclang({ host })}/lib`,
+		});
+		pre = tg`
+			${pre}
+			export LD_LIBRARY_PATH=$LIBRARY_PATH
+			export CPATH=$CPATH:$(gcc -print-sysroot)/include
+			export FDB_LIB_PATH=${foundationdb({ host })}/lib
+		`;
+	}
+	const env = std.env.arg(...envs);
+	const output = await cargo.build({
+		buildInTree: true,
+		disableDefaultFeatures: true,
+		env,
+		features,
+		pre,
 		source,
 		useCargoVendor: true,
 	});
@@ -35,6 +65,10 @@ export const build = async () => {
 };
 
 export default build;
+
+export const withFdb = () => {
+	return build({ foundationdb: true });
+};
 
 export const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? (await std.triple.host());
