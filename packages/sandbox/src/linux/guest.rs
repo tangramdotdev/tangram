@@ -1,5 +1,5 @@
 use super::Context;
-use crate::{abort_errno, common::redirect_stdio};
+use crate::abort_errno;
 use std::{ffi::CString, mem::MaybeUninit, os::fd::AsRawFd};
 
 pub fn main(mut context: Context) -> ! {
@@ -10,13 +10,6 @@ pub fn main(mut context: Context) -> ! {
 				abort_errno!("failed to set hostname");
 			}
 		}
-
-		// Redirect stdio.
-		redirect_stdio(
-			context.stdin.as_raw_fd(),
-			context.stdout.as_raw_fd(),
-			context.stderr.as_raw_fd(),
-		);
 
 		// Wait for the notification from the host process to continue.
 		let mut notification = 0u8;
@@ -59,10 +52,18 @@ fn mount_and_chroot(context: &mut Context) {
 	unsafe {
 		let root = context.root.as_ref().unwrap();
 		for mount in &mut context.mounts {
-			create_mountpoint_if_not_exists(&mount.source, &mut mount.target);
-
-			let source = mount.source.as_ptr();
-			let target = mount.target.as_ptr();
+			// Create the mount point.
+			if let (Some(source), Some(target)) = (&mount.source, &mut mount.target) {
+				create_mountpoint_if_not_exists(source, target);
+			}
+			let source = mount
+				.source
+				.as_ref()
+				.map_or_else(std::ptr::null, |s| s.as_ptr());
+			let target = mount
+				.target
+				.as_ref()
+				.map_or_else(std::ptr::null, |s| s.as_ptr());
 			let fstype = mount
 				.fstype
 				.as_ref()
@@ -71,31 +72,11 @@ fn mount_and_chroot(context: &mut Context) {
 			let data = mount
 				.data
 				.as_ref()
-				.map_or_else(std::ptr::null, Vec::as_ptr)
+				.map_or_else(std::ptr::null, |bytes| bytes.as_ptr())
 				.cast();
 			let ret = libc::mount(source, target, fstype, flags, data);
 			if ret == -1 {
-				abort_errno!(
-					r#"failed to mount "{}" to "{}""#,
-					mount.source.to_str().unwrap(),
-					mount.target.to_str().unwrap(),
-				);
-			}
-			if mount.readonly {
-				let ret = libc::mount(
-					source,
-					target,
-					fstype,
-					flags | libc::MS_RDONLY | libc::MS_REMOUNT,
-					data,
-				);
-				if ret == -1 {
-					abort_errno!(
-						r#"failed to mount "{}" to "{}""#,
-						mount.source.to_str().unwrap(),
-						mount.target.to_str().unwrap(),
-					);
-				}
+				abort_errno!("failed to mount");
 			}
 		}
 
