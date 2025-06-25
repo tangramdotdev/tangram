@@ -271,7 +271,7 @@ impl Event {
 		let Some(tag) = reader
 			.try_read_uvarint()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the tag"))?
+			.map_err(|source| tg::error!(!source, "failed to read export stream"))?
 		else {
 			return Ok(None);
 		};

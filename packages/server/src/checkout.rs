@@ -165,8 +165,8 @@ impl Server {
 					.await?;
 				progress.spinner("pull", "pull");
 				let mut stream = std::pin::pin!(stream);
-				while let Some(event) = stream.next().await {
-					progress.forward(event);
+				while let Some(event) = stream.try_next().await? {
+					progress.forward(Ok(event));
 				}
 				Ok::<_, tg::Error>(())
 			}

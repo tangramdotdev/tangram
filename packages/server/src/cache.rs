@@ -1,5 +1,5 @@
 use crate::{Server, temp::Temp};
-use futures::{FutureExt as _, Stream, StreamExt as _, future, stream};
+use futures::{future, stream, FutureExt as _, Stream, StreamExt as _, TryStreamExt as _};
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use reflink_copy::reflink;
@@ -176,8 +176,8 @@ impl Server {
 					.await?;
 				progress.spinner("pull", "pull");
 				let mut stream = std::pin::pin!(stream);
-				while let Some(event) = stream.next().await {
-					progress.forward(event);
+				while let Some(event) = stream.try_next().await? {
+					progress.forward(Ok(event));
 				}
 				Ok::<_, tg::Error>(())
 			}
