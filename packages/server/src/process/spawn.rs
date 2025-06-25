@@ -38,8 +38,8 @@ impl Server {
 				&& arg.stdout.is_none()
 				&& arg.stderr.is_none());
 
-		// If the process is not cacheable, then spawn a local process, add it as a child of the parent, and return it.
-		if !cacheable {
+		// If the process is not cacheable or cached is false, then spawn a local process, add it as a child of the parent, and return it.
+		if !cacheable || matches!(arg.cached, Some(false)) {
 			let (id, token) = self.spawn_local_process(&arg).await?;
 			if let Some(parent) = arg.parent.as_ref() {
 				self.try_add_process_child(
@@ -102,11 +102,8 @@ impl Server {
 			return Ok(Some(output));
 		}
 
-		// If cached is true, then attempt to get a remote process.
-		if matches!(arg.cached, Some(true)) {
-			let Some(output) = self.try_get_cached_process_remote(&arg).await? else {
-				return Ok(None);
-			};
+		// Attempt to get a remote process.
+		if let Some(output) = self.try_get_cached_process_remote(&arg).await? {
 			if let Some(parent) = arg.parent.as_ref() {
 				self.try_add_process_child(
 					parent,
@@ -121,6 +118,11 @@ impl Server {
 				)?;
 			}
 			return Ok(Some(output));
+		}
+
+		// If cached is true, then return none.
+		if matches!(arg.cached, Some(true)) {
+			return Ok(None);
 		}
 
 		// Spawn a local process.
@@ -220,9 +222,8 @@ impl Server {
 					processes.cacheable = 1 and
 					processes.command = params.command and
 					case
-						when params.checksum is null then true
-						when processes.actual_checksum is null then false
-						when split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1) then true
+						when processes.expected_checksum is null and params.checksum is null then true
+						when processes.expected_checksum = params.checksum then true
 						else false
 					end
 				order by processes.created_at desc
@@ -322,19 +323,29 @@ impl Server {
 			output: Option<db::value::Json<tg::value::Data>>,
 		}
 		let p = connection.p();
+		let params = match &connection {
+			Either::Left(_) => "with params as (select ?1 as command, ?2 as checksum)",
+			Either::Right(_) => "with params as (select $1::text as command, $2::text as checksum)",
+		};
 		let statement = formatdoc!(
 			"
+				{params}
 				select id, actual_checksum, output
-				from processes
+				from processes, params
 				where
-					actual_checksum is not null and
-					cacheable = 1 and
-					command = {p}1
-				order by created_at desc
+					processes.cacheable = 1 and
+					processes.command = {p}1 and
+					case
+						when params.checksum is null then true
+						when processes.actual_checksum is null then false
+						when split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1) then true
+						else false
+					end
+				order by processes.created_at desc
 				limit 1;
 			"
 		);
-		let params = db::params![arg.command];
+		let params = db::params![arg.command, arg.checksum];
 		let Some(Row {
 			id: existing_id,
 			actual_checksum,
@@ -379,11 +390,17 @@ impl Server {
 		tokio::fs::copy(src, dst).await.ok();
 
 		// Get a database connection.
-		let connection = self
+		let mut connection = self
 			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Insert the process children.
 		let statement = formatdoc!(
@@ -393,7 +410,7 @@ impl Server {
 			"
 		);
 		let params = db::params![id];
-		connection
+		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -478,10 +495,16 @@ impl Server {
 			0,
 			now,
 		];
-		connection
+		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(Some(id))
 	}
