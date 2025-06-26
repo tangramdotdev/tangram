@@ -2,12 +2,22 @@ use std::{path::Path, process::Command};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
+	println!("cargo:rerun-if-env-changed=FDB_LIB_PATH");
 	if std::env::var("CARGO_FEATURE_FOUNDATIONDB").is_ok() {
 		fdb();
 	}
 }
 
 fn fdb() {
+	if let Ok(fdb_lib_path) = std::env::var("FDB_LIB_PATH") {
+		let lib_path = Path::new(&fdb_lib_path);
+		if lib_path.exists() {
+			println!("cargo:rustc-link-search=native={}", lib_path.display());
+			return;
+		}
+		panic!("FDB_LIB_PATH directory does not exist: {fdb_lib_path}");
+	}
+
 	let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 	let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
 	let out_dir = std::env::var("OUT_DIR").unwrap();
