@@ -133,7 +133,7 @@ impl Server {
 		// Wait for the server to start.
 		let mut started = false;
 		for _ in 0..100 {
-			let output = tokio::process::Command::new(tg)
+			let status = tokio::process::Command::new(tg)
 				.arg("--config")
 				.arg(&config_path)
 				.arg("--directory")
@@ -142,10 +142,11 @@ impl Server {
 				.arg("client")
 				.arg("--quiet")
 				.arg("health")
-				.output()
+				.stdout(std::process::Stdio::null())
+				.status()
 				.await
 				.unwrap();
-			if output.status.success() {
+			if status.success() {
 				started = true;
 				break;
 			}
