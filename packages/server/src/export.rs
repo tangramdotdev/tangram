@@ -117,85 +117,8 @@ impl Server {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
-		// If all items are complete, then export synchronously.
-		let complete = arg
-			.items
-			.iter()
-			.map(async |item| match item {
-				Either::Left(process) => {
-					if arg.recursive {
-						let Some(output) =
-							self.try_get_process_complete_local(process).await.map_err(
-								|source| tg::error!(!source, "failed to get the process complete"),
-							)?
-						else {
-							return Ok(false);
-						};
-						Ok(output.complete
-							&& (!arg.commands || output.commands_complete)
-							&& (!arg.outputs || output.outputs_complete))
-					} else {
-						let Some(process) = self
-							.try_get_process_local(process)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to get the process"))?
-						else {
-							return Ok(false);
-						};
-						if arg.commands {
-							let command_complete = self
-								.try_get_object_complete_local(&process.data.command.clone().into())
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to get the object complete")
-								})?
-								.is_some_and(|complete| complete);
-							if !command_complete {
-								return Ok(false);
-							}
-						}
-						if arg.outputs {
-							if let Some(output) = process.data.output {
-								let output_complete = output
-									.children()
-									.map(|child| async move {
-										Ok::<_, tg::Error>(
-											self.try_get_object_complete_local(&child)
-												.await
-												.map_err(|source| {
-													tg::error!(
-														!source,
-														"failed to get the object complete"
-													)
-												})?
-												.is_some_and(|complete| complete),
-										)
-									})
-									.collect::<FuturesUnordered<_>>()
-									.try_collect::<Vec<_>>()
-									.await?
-									.into_iter()
-									.all(|complete| complete);
-								if !output_complete {
-									return Ok(false);
-								}
-							}
-						}
-						Ok(true)
-					}
-				},
-				Either::Right(object) => Ok::<_, tg::Error>(
-					self.try_get_object_complete_local(object)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the object complete"))?
-						.is_some_and(|complete| complete),
-				),
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?
-			.into_iter()
-			.all(|complete| complete);
+		// If all items are complete and the database, index, and store are synchronous, then export synchronously.
+		let complete = self.export_items_complete(&arg).await?;
 		if complete
 			&& self.database.is_left()
 			&& self.index.is_left()
@@ -279,6 +202,87 @@ impl Server {
 			.await?;
 
 		Ok(())
+	}
+
+	async fn export_items_complete(&self, arg: &tg::export::Arg) -> tg::Result<bool> {
+		Ok(arg
+			.items
+			.iter()
+			.map(async |item| match item {
+				Either::Left(process) => {
+					if arg.recursive {
+						let Some(output) =
+							self.try_get_process_complete_local(process).await.map_err(
+								|source| tg::error!(!source, "failed to get the process complete"),
+							)?
+						else {
+							return Ok(false);
+						};
+						Ok(output.complete
+							&& (!arg.commands || output.commands_complete)
+							&& (!arg.outputs || output.outputs_complete))
+					} else {
+						let Some(process) = self
+							.try_get_process_local(process)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get the process"))?
+						else {
+							return Ok(false);
+						};
+						if arg.commands {
+							let command_complete = self
+								.try_get_object_complete_local(&process.data.command.clone().into())
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to get the object complete")
+								})?
+								.is_some_and(|complete| complete);
+							if !command_complete {
+								return Ok(false);
+							}
+						}
+						if arg.outputs {
+							if let Some(output) = process.data.output {
+								let output_complete = output
+									.children()
+									.map(|child| async move {
+										Ok::<_, tg::Error>(
+											self.try_get_object_complete_local(&child)
+												.await
+												.map_err(|source| {
+													tg::error!(
+														!source,
+														"failed to get the object complete"
+													)
+												})?
+												.is_some_and(|complete| complete),
+										)
+									})
+									.collect::<FuturesUnordered<_>>()
+									.try_collect::<Vec<_>>()
+									.await?
+									.into_iter()
+									.all(|complete| complete);
+								if !output_complete {
+									return Ok(false);
+								}
+							}
+						}
+						Ok(true)
+					}
+				},
+				Either::Right(object) => Ok::<_, tg::Error>(
+					self.try_get_object_complete_local(object)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the object complete"))?
+						.is_some_and(|complete| complete),
+				),
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.all(|complete| complete))
 	}
 
 	fn export_sync_task(
