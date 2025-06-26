@@ -35,20 +35,20 @@ struct Node {
 
 #[derive(Clone)]
 struct ProcessComplete {
-	pub commands_complete: bool,
-	pub complete: bool,
-	pub outputs_complete: bool,
+	commands_complete: bool,
+	complete: bool,
+	outputs_complete: bool,
 }
 
 struct InnerObjectOutput {
-	pub count: u64,
-	pub weight: u64,
+	count: u64,
+	weight: u64,
 }
 
 struct InnerProcessOutput {
-	pub process_count: u64,
-	pub object_count: u64,
-	pub object_weight: u64,
+	process_count: u64,
+	object_count: u64,
+	object_weight: u64,
 }
 
 struct ProcessStats {
