@@ -5,7 +5,6 @@ use futures::{
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
-use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use smallvec::SmallVec;
 use std::{
@@ -38,23 +37,6 @@ struct ProcessComplete {
 	commands_complete: bool,
 	complete: bool,
 	outputs_complete: bool,
-}
-
-struct InnerObjectOutput {
-	count: u64,
-	weight: u64,
-}
-
-struct InnerProcessOutput {
-	process_count: u64,
-	object_count: u64,
-	object_weight: u64,
-}
-
-struct ProcessStats {
-	process_count: Option<u64>,
-	object_count: Option<u64>,
-	object_weight: Option<u64>,
 }
 
 struct StateSync {
@@ -139,7 +121,7 @@ impl Server {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
-		// If all items are compete, then export synchronously.
+		// If all items are complete, then export synchronously.
 		let complete = arg
 			.items
 			.iter()
@@ -362,7 +344,7 @@ impl Server {
 		graph: &Graph,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 		arg: tg::export::Arg,
-	) -> tg::Result<InnerProcessOutput> {
+	) -> tg::Result<()> {
 		// Get the process
 		let tg::process::get::Output { data, .. } = self
 			.get_process(process)
@@ -380,16 +362,8 @@ impl Server {
 			return Err(tg::error!(%process, "process is not finished"));
 		}
 
-		// Get the stats.
-		let stats =
-			Self::export_get_process_stats(&self.clone(), &arg, &data, &process_complete).await?;
-
 		if !graph.insert(parent.map(Either::Left).as_ref(), &Either::Left(process)) {
-			return Ok(InnerProcessOutput {
-				process_count: stats.process_count.unwrap_or(1),
-				object_count: stats.object_count.unwrap_or(0),
-				object_weight: stats.object_weight.unwrap_or(0),
-			});
+			return Ok(());
 		}
 
 		// Send the process if it is not complete.
@@ -452,33 +426,20 @@ impl Server {
 				}
 			}
 		}
-		let self_object_count_and_weight = objects
+		objects
 			.iter()
 			.map(|object| async {
-				let output = self
-					.export_inner_object(Some(Either::Left(process)), object, graph, event_sender)
+				self.export_inner_object(Some(Either::Left(process)), object, graph, event_sender)
 					.await?;
-				Ok::<_, tg::Error>((output.count, output.weight))
+				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-		let self_object_count = self_object_count_and_weight
-			.iter()
-			.map(|(count, _)| count)
-			.sum::<u64>();
-		let self_object_weight = self_object_count_and_weight
-			.iter()
-			.map(|(_, weight)| weight)
-			.sum::<u64>();
 
 		// Recurse into the children.
-		let InnerProcessOutput {
-			process_count: children_process_count,
-			object_count: children_object_count,
-			object_weight: children_object_weight,
-		} = if arg.recursive {
-			let outputs = children
+		if arg.recursive {
+			children
 				.iter()
 				.map(|child| {
 					self.export_inner_process(
@@ -492,65 +453,9 @@ impl Server {
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?;
-			outputs.into_iter().fold(
-				InnerProcessOutput {
-					process_count: 0,
-					object_count: 0,
-					object_weight: 0,
-				},
-				|a, b| InnerProcessOutput {
-					process_count: a.process_count + b.process_count,
-					object_count: a.object_count + b.object_count,
-					object_weight: a.object_weight + b.object_weight,
-				},
-			)
-		} else {
-			InnerProcessOutput {
-				process_count: 0,
-				object_count: 0,
-				object_weight: 0,
-			}
-		};
+		}
 
-		let process_count = stats.process_count.map_or_else(
-			|| 1 + children_process_count,
-			|process_count| {
-				process_count
-					.checked_sub(1 + children_process_count)
-					.unwrap_or_else(|| {
-						tracing::error!("object count underflow");
-						0
-					})
-			},
-		);
-		let object_count = stats.object_count.map_or_else(
-			|| self_object_count + children_object_count,
-			|object_count| {
-				object_count
-					.checked_sub(self_object_count + children_object_count)
-					.unwrap_or_else(|| {
-						tracing::error!("object count underflow");
-						0
-					})
-			},
-		);
-		let object_weight = stats.object_weight.map_or_else(
-			|| self_object_weight + children_object_weight,
-			|object_weight| {
-				object_weight
-					.checked_sub(self_object_weight + children_object_weight)
-					.unwrap_or_else(|| {
-						tracing::error!("object weight underflow");
-						0
-					})
-			},
-		);
-
-		Ok(InnerProcessOutput {
-			process_count,
-			object_count,
-			object_weight,
-		})
+		Ok(())
 	}
 
 	fn export_sync_inner_process(
@@ -559,7 +464,7 @@ impl Server {
 		arg: &tg::export::Arg,
 		parent: Option<&Either<&tg::process::Id, &tg::object::Id>>,
 		process: &tg::process::Id,
-	) -> tg::Result<InnerProcessOutput> {
+	) -> tg::Result<()> {
 		// Update the complete graph.
 		let len = state.import_complete_receiver.len();
 		let mut buffer = Vec::with_capacity(len);
@@ -587,15 +492,8 @@ impl Server {
 			return Err(tg::error!(%process, "process is not finished"));
 		}
 
-		// Get the stats.
-		let stats = Self::export_sync_get_process_stats(state, arg, &data, &process_complete)?;
-
 		if !state.graph.insert(parent, &Either::Left(process)) {
-			return Ok(InnerProcessOutput {
-				process_count: stats.process_count.unwrap_or(1),
-				object_count: stats.object_count.unwrap_or(0),
-				object_weight: stats.object_weight.unwrap_or(0),
-			});
+			return Ok(());
 		}
 
 		// Send the process if it is not complete.
@@ -651,30 +549,17 @@ impl Server {
 			}
 		}
 
-		let self_object_count_and_weight: Vec<_> = objects
+		objects
 			.iter()
 			.map(|object| {
-				let output =
-					self.export_sync_inner_object(state, Some(&Either::Left(process)), object)?;
-				Ok::<_, tg::Error>((output.count, output.weight))
+				self.export_sync_inner_object(state, Some(&Either::Left(process)), object)?;
+				Ok::<_, tg::Error>(())
 			})
-			.try_collect()?;
-		let self_object_count = self_object_count_and_weight
-			.iter()
-			.map(|(count, _)| count)
-			.sum::<u64>();
-		let self_object_weight = self_object_count_and_weight
-			.iter()
-			.map(|(_, weight)| weight)
-			.sum::<u64>();
+			.try_collect::<_, (), _>()?;
 
 		// Recurse into the children.
-		let InnerProcessOutput {
-			process_count: children_process_count,
-			object_count: children_object_count,
-			object_weight: children_object_weight,
-		} = if arg.recursive {
-			let outputs: Vec<_> = children
+		if arg.recursive {
+			children
 				.iter()
 				.map(|child| {
 					self.export_sync_inner_process(
@@ -684,66 +569,10 @@ impl Server {
 						&child.item,
 					)
 				})
-				.try_collect()?;
-			outputs.into_iter().fold(
-				InnerProcessOutput {
-					process_count: 0,
-					object_count: 0,
-					object_weight: 0,
-				},
-				|a, b| InnerProcessOutput {
-					process_count: a.process_count + b.process_count,
-					object_count: a.object_count + b.object_count,
-					object_weight: a.object_weight + b.object_weight,
-				},
-			)
-		} else {
-			InnerProcessOutput {
-				process_count: 0,
-				object_count: 0,
-				object_weight: 0,
-			}
-		};
+				.try_collect::<_, (), _>()?;
+		}
 
-		let process_count = stats.process_count.map_or_else(
-			|| 1 + children_process_count,
-			|process_count| {
-				process_count
-					.checked_sub(1 + children_process_count)
-					.unwrap_or_else(|| {
-						tracing::error!("object count underflow");
-						0
-					})
-			},
-		);
-		let object_count = stats.object_count.map_or_else(
-			|| self_object_count + children_object_count,
-			|object_count| {
-				object_count
-					.checked_sub(self_object_count + children_object_count)
-					.unwrap_or_else(|| {
-						tracing::error!("object count underflow");
-						0
-					})
-			},
-		);
-		let object_weight = stats.object_weight.map_or_else(
-			|| self_object_weight + children_object_weight,
-			|object_weight| {
-				object_weight
-					.checked_sub(self_object_weight + children_object_weight)
-					.unwrap_or_else(|| {
-						tracing::error!("object weight underflow");
-						0
-					})
-			},
-		);
-
-		Ok(InnerProcessOutput {
-			process_count,
-			object_count,
-			object_weight,
-		})
+		Ok(())
 	}
 
 	async fn export_inner_object(
@@ -752,7 +581,7 @@ impl Server {
 		object: &tg::object::Id,
 		graph: &Graph,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
-	) -> tg::Result<InnerObjectOutput> {
+	) -> tg::Result<()> {
 		// Get the object.
 		let tg::object::get::Output { bytes, .. } = self
 			.get_object(object)
@@ -769,7 +598,6 @@ impl Server {
 				)
 			})?;
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
-		let size = bytes.len().to_u64().unwrap();
 
 		// If the object has already been sent or is complete, then update the progress and return.
 		let inserted = graph.insert(parent.as_ref(), &Either::Right(object));
@@ -786,10 +614,7 @@ impl Server {
 		}
 
 		if !inserted || is_complete {
-			let count = object_complete.count.unwrap_or(1);
-			let weight = object_complete.weight.unwrap_or(size);
-			let output = InnerObjectOutput { count, weight };
-			return Ok(output);
+			return Ok(());
 		}
 
 		// Send the object.
@@ -803,12 +628,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		// Recurse into the children.
-		let (children_count, children_weight) = data
-			.children()
+		data.children()
 			.map(|child| {
 				let server = self.clone();
 				async move {
-					let output = server
+					server
 						.export_inner_object(
 							Some(Either::Right(object)),
 							&child,
@@ -816,23 +640,14 @@ impl Server {
 							event_sender,
 						)
 						.await?;
-					Ok::<_, tg::Error>(output)
+					Ok::<_, tg::Error>(())
 				}
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
-			.await?
-			.into_iter()
-			.fold((0, 0), |a, b| (a.0 + b.count, a.1 + b.weight));
+			.await?;
 
-		// Create the output.
-		let count = object_complete.count.unwrap_or_else(|| 1 + children_count);
-		let weight = object_complete
-			.weight
-			.unwrap_or_else(|| size + children_weight);
-		let output = InnerObjectOutput { count, weight };
-
-		Ok(output)
+		Ok(())
 	}
 
 	fn export_sync_inner_object(
@@ -840,7 +655,7 @@ impl Server {
 		state: &mut StateSync,
 		parent: Option<&Either<&tg::process::Id, &tg::object::Id>>,
 		object: &tg::object::Id,
-	) -> tg::Result<InnerObjectOutput> {
+	) -> tg::Result<()> {
 		// Update the complete graph.
 		let len = state.import_complete_receiver.len();
 		let mut buffer = Vec::with_capacity(len);
@@ -870,9 +685,6 @@ impl Server {
 		// Get the data.
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
 
-		// Get the size.
-		let size = bytes.len().to_u64().unwrap();
-
 		// If the object has already been sent or is complete, then update the progress and return.
 		let inserted = state.graph.insert(parent, &Either::Right(object));
 		let is_complete = state.graph.is_complete(&Either::Right(object));
@@ -886,10 +698,7 @@ impl Server {
 		}
 
 		if !inserted || is_complete {
-			let count = object_complete.count.unwrap_or(1);
-			let weight = object_complete.weight.unwrap_or(size);
-			let output = InnerObjectOutput { count, weight };
-			return Ok(output);
+			return Ok(());
 		}
 
 		// Send the object.
@@ -903,25 +712,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		// Recurse into the children.
-		let children: Vec<_> = data
-			.children()
+		data.children()
 			.map(move |child| {
 				self.export_sync_inner_object(state, Some(&Either::Right(object)), &child)
 			})
-			.try_collect()?;
+			.try_collect::<_, (), _>()?;
 
-		let (children_count, children_weight) = children
-			.into_iter()
-			.fold((0, 0), |a, b| (a.0 + b.count, a.1 + b.weight));
-
-		// Create the output.
-		let count = object_complete.count.unwrap_or_else(|| 1 + children_count);
-		let weight = object_complete
-			.weight
-			.unwrap_or_else(|| size + children_weight);
-		let output = InnerObjectOutput { count, weight };
-
-		Ok(output)
+		Ok(())
 	}
 
 	async fn export_get_process_complete(
@@ -1020,191 +817,6 @@ impl Server {
 			weight: metadata.as_ref().and_then(|metadata| metadata.weight),
 		};
 		Ok(complete)
-	}
-
-	async fn export_get_process_stats(
-		src: &impl tg::Handle,
-		arg: &tg::export::Arg,
-		data: &tg::process::Data,
-		process_complete: &tg::export::ProcessComplete,
-	) -> tg::Result<ProcessStats> {
-		let process_count = if arg.recursive {
-			process_complete.count
-		} else {
-			Some(1)
-		};
-		let (object_count, object_weight) = if arg.recursive {
-			let commands_count = if arg.commands {
-				process_complete.commands_count
-			} else {
-				Some(0)
-			};
-			let outputs_count = if arg.outputs {
-				process_complete.outputs_count
-			} else {
-				Some(0)
-			};
-			let count = std::iter::empty()
-				.chain(Some(commands_count))
-				.chain(Some(outputs_count))
-				.sum::<Option<u64>>();
-			let commands_weight = if arg.commands {
-				process_complete.commands_weight
-			} else {
-				Some(0)
-			};
-			let outputs_weight = if arg.outputs {
-				process_complete.outputs_weight
-			} else {
-				Some(0)
-			};
-			let weight = std::iter::empty()
-				.chain(Some(commands_weight))
-				.chain(Some(outputs_weight))
-				.sum::<Option<u64>>();
-			(count, weight)
-		} else {
-			let (command_count, command_weight) = {
-				if let Some(metadata) = src
-					.try_get_object_metadata(&data.command.clone().into())
-					.await?
-				{
-					(metadata.count, metadata.weight)
-				} else {
-					(Some(0), Some(0))
-				}
-			};
-			let (output_count, output_weight) = if arg.outputs {
-				if data.status.is_finished() {
-					let metadata: Vec<Option<tg::object::Metadata>> = data
-						.output
-						.iter()
-						.flat_map(tg::value::Data::children)
-						.map(|child| async move { src.try_get_object_metadata(&child).await })
-						.collect::<FuturesUnordered<_>>()
-						.try_collect::<Vec<_>>()
-						.await?;
-					let count = metadata
-						.iter()
-						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.count))
-						.sum::<Option<u64>>();
-					let weight = metadata
-						.iter()
-						.map(|metadata| metadata.as_ref().and_then(|metadata| metadata.weight))
-						.sum::<Option<u64>>();
-					(count, weight)
-				} else {
-					(Some(0), Some(0))
-				}
-			} else {
-				(Some(0), Some(0))
-			};
-			let count = std::iter::empty()
-				.chain(Some(command_count))
-				.chain(Some(output_count))
-				.sum::<Option<u64>>();
-			let weight = std::iter::empty()
-				.chain(Some(command_weight))
-				.chain(Some(output_weight))
-				.sum::<Option<u64>>();
-			(count, weight)
-		};
-		Ok(ProcessStats {
-			process_count,
-			object_count,
-			object_weight,
-		})
-	}
-
-	fn export_sync_get_process_stats(
-		state: &mut StateSync,
-		arg: &tg::export::Arg,
-		data: &tg::process::Data,
-		process_complete: &tg::export::ProcessComplete,
-	) -> tg::Result<ProcessStats> {
-		let process_count = if arg.recursive {
-			process_complete.count
-		} else {
-			Some(1)
-		};
-		let (object_count, object_weight) = if arg.recursive {
-			// If the push is recursive, then use the command's and outputs' counts and weights.
-			let commands_count = if arg.commands {
-				process_complete.commands_count
-			} else {
-				Some(0)
-			};
-			let outputs_count = if arg.outputs {
-				process_complete.outputs_count
-			} else {
-				Some(0)
-			};
-			let count = std::iter::empty()
-				.chain(Some(commands_count))
-				.chain(Some(outputs_count))
-				.sum::<Option<u64>>();
-			let commands_weight = if arg.commands {
-				process_complete.commands_weight
-			} else {
-				Some(0)
-			};
-			let outputs_weight = if arg.outputs {
-				process_complete.outputs_weight
-			} else {
-				Some(0)
-			};
-			let weight = std::iter::empty()
-				.chain(Some(commands_weight))
-				.chain(Some(outputs_weight))
-				.sum::<Option<u64>>();
-			(count, weight)
-		} else {
-			// If the push is not recursive, then use the count and weight of the command and output.
-			let (command_count, command_weight) = {
-				let metadata = Self::get_object_metadata_local_sync(
-					&state.index,
-					&data.command.clone().into(),
-				)?;
-				(metadata.count, metadata.weight)
-			};
-			let (output_count, output_weight) = if arg.outputs {
-				if data.status.is_finished() {
-					let metadata: Vec<tg::object::Metadata> = data
-						.output
-						.iter()
-						.flat_map(tg::value::Data::children)
-						.map(|child| Self::get_object_metadata_local_sync(&state.index, &child))
-						.try_collect()?;
-					let count = metadata
-						.iter()
-						.map(|metadata| metadata.count)
-						.sum::<Option<u64>>();
-					let weight = metadata
-						.iter()
-						.map(|metadata| metadata.weight)
-						.sum::<Option<u64>>();
-					(count, weight)
-				} else {
-					(Some(0), Some(0))
-				}
-			} else {
-				(Some(0), Some(0))
-			};
-			let count = std::iter::empty()
-				.chain(Some(command_count))
-				.chain(Some(output_count))
-				.sum::<Option<u64>>();
-			let weight = std::iter::empty()
-				.chain(Some(command_weight))
-				.chain(Some(output_weight))
-				.sum::<Option<u64>>();
-			(count, weight)
-		};
-		Ok(ProcessStats {
-			process_count,
-			object_count,
-			object_weight,
-		})
 	}
 
 	pub(crate) async fn handle_export_request<H>(

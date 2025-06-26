@@ -53,14 +53,6 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn get_object_metadata_local_sync(
-		index: &sqlite::Connection,
-		id: &tg::object::Id,
-	) -> tg::Result<tg::object::Metadata> {
-		Self::try_get_object_metadata_local_sync(index, id)?
-			.ok_or_else(|| tg::error!("failed to find the object"))
-	}
-
 	pub(crate) fn try_get_object_metadata_local_sync(
 		index: &sqlite::Connection,
 		id: &tg::object::Id,
