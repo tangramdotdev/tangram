@@ -7,6 +7,7 @@ impl Server {
 		&self,
 		mut arg: tg::pipe::create::Arg,
 	) -> tg::Result<tg::pipe::create::Output> {
+		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.create_pipe(arg).await;

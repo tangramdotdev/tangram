@@ -51,16 +51,12 @@ struct StateSync {
 impl Server {
 	pub async fn export(
 		&self,
-		arg: tg::export::Arg,
+		mut arg: tg::export::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote {
+		if let Some(remote) = arg.remote.take() {
 			let client = self.get_remote_client(remote.clone()).await?;
-			let arg = tg::export::Arg {
-				remote: None,
-				..arg
-			};
 			let stream = client.export(arg, stream).await?;
 			return Ok(stream.left_stream());
 		}

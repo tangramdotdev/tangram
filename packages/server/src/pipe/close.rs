@@ -3,10 +3,13 @@ use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
 impl Server {
-	pub async fn close_pipe(&self, id: &tg::pipe::Id, arg: tg::pipe::close::Arg) -> tg::Result<()> {
-		if let Some(remote) = arg.remote {
+	pub async fn close_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		mut arg: tg::pipe::close::Arg,
+	) -> tg::Result<()> {
+		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			let arg = tg::pipe::close::Arg::default();
 			remote.close_pipe(id, arg).await?;
 			return Ok(());
 		}

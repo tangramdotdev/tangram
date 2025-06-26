@@ -7,6 +7,7 @@ impl Server {
 		&self,
 		mut arg: tg::pty::create::Arg,
 	) -> tg::Result<tg::pty::create::Output> {
+		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.create_pty(arg).await;

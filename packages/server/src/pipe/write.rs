@@ -14,6 +14,7 @@ impl Server {
 		mut arg: tg::pipe::write::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
+		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;
 			return remote.write_pipe(id, arg, stream.boxed()).await;
@@ -45,6 +46,7 @@ impl Server {
 				},
 			}
 		}
+
 		Ok(())
 	}
 
