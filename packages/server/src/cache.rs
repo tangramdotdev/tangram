@@ -615,7 +615,6 @@ impl Server {
 		if !done {
 			let server = self.clone();
 			let future = async move {
-				let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 				let reader = tg::Blob::with_id(contents)
 					.read(&server, tg::blob::read::Arg::default())
 					.await
@@ -859,7 +858,6 @@ impl Server {
 				if !done {
 					let server = self.clone();
 					let future = async move {
-						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 						let reader = tg::Blob::with_id(contents)
 							.read(&server, tg::blob::read::Arg::default())
 							.await

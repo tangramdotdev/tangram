@@ -22,7 +22,6 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub struct Advanced {
-	pub file_descriptor_semaphore_size: usize,
 	pub preserve_temp_directories: bool,
 	pub process_dequeue_timeout: Duration,
 	pub shared_directory: bool,
@@ -174,10 +173,7 @@ pub struct Watchdog {
 impl Config {
 	#[must_use]
 	pub fn with_directory(directory: PathBuf) -> Self {
-		let advanced = Advanced {
-			file_descriptor_semaphore_size: 1,
-			..Default::default()
-		};
+		let advanced = Advanced::default();
 		let authentication = None;
 		let cleaner = None;
 		let database = Database::Sqlite(SqliteDatabase {
@@ -223,7 +219,6 @@ impl Default for Advanced {
 	fn default() -> Self {
 		Self {
 			process_dequeue_timeout: Duration::from_secs(3600),
-			file_descriptor_semaphore_size: 100,
 			preserve_temp_directories: false,
 			shared_directory: true,
 			write_process_logs_to_stderr: false,

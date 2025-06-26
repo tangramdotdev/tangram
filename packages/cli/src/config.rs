@@ -76,10 +76,6 @@ pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub error_trace_options: Option<tg::error::TraceOptions>,
 
-	/// The maximum number of file descriptors the server will open at a time.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub file_descriptor_semaphore_size: Option<usize>,
-
 	/// The path to the preferred autobuild package for `tangram init`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub init_autobuild_reference: Option<tg::Reference>,

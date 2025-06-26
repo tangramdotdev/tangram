@@ -85,7 +85,6 @@ pub struct Inner {
 	config: Config,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
-	file_descriptor_semaphore: tokio::sync::Semaphore,
 	http: Option<Http>,
 	index: Database,
 	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
@@ -264,10 +263,6 @@ impl Server {
 		// Create the diagnostics.
 		let diagnostics = Mutex::new(Vec::new());
 
-		// Create the file system semaphore.
-		let file_descriptor_semaphore =
-			tokio::sync::Semaphore::new(config.advanced.file_descriptor_semaphore_size);
-
 		// Create the index.
 		let index = match &config.index {
 			self::config::Index::Sqlite(options) => {
@@ -383,7 +378,6 @@ impl Server {
 			config,
 			database,
 			diagnostics,
-			file_descriptor_semaphore,
 			http,
 			index,
 			local_pool_handle,

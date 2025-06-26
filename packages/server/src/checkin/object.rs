@@ -1,6 +1,6 @@
 use super::{Blob, GraphObject, Object, State, Variant};
 use crate::Server;
-use futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered};
+use futures::{StreamExt, TryStreamExt as _, stream};
 use itertools::Itertools as _;
 use std::collections::BTreeMap;
 use tangram_client as tg;
@@ -8,32 +8,34 @@ use tangram_either::Either;
 
 impl Server {
 	pub(super) async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {
-		let blobs = state
+		let server = self.clone();
+		let nodes = state
 			.graph
 			.nodes
 			.iter()
 			.enumerate()
 			.filter_map(|(index, node)| {
-				node.variant.try_unwrap_file_ref().ok().and_then(|_| {
-					let path = node.path.as_ref()?.clone();
-					let future = tokio::spawn({
-						let server = self.clone();
-						async move {
-							let _permit = server.file_descriptor_semaphore.acquire().await;
-							let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
-								|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
-							)?;
-							let blob = server.create_blob_inner(&mut file, None).await.map_err(
-								|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
-							)?;
-							Ok::<_, tg::Error>((index, blob))
-						}
-					})
-					.map(|result| result.unwrap());
-					Some(future)
-				})
+				if !node.variant.is_file() {
+					return None;
+				}
+				let path = node.path.clone()?;
+				Some((index, path))
 			})
-			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>();
+		let blobs = stream::iter(nodes)
+			.map(|(index, path)| {
+				let server = server.clone();
+				async move {
+					let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
+						|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+					)?;
+					let blob = server.create_blob_inner(&mut file, None).await.map_err(
+						|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
+					)?;
+					Ok::<_, tg::Error>((index, blob))
+				}
+			})
+			.buffer_unordered(8)
 			.try_collect::<Vec<_>>()
 			.await?;
 		for (index, blob) in blobs {

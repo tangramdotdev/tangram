@@ -1,7 +1,6 @@
 use super::{Blob, File, State, Variant};
 use crate::{Server, temp::Temp};
 use bytes::Bytes;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use num::ToPrimitive as _;
 use std::{ops::Not, sync::Arc};
 use tangram_client as tg;
@@ -13,38 +12,26 @@ impl Server {
 		state: Arc<State>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		state
-			.graph
-			.roots
-			.iter()
-			.map(|(root, nodes)| {
-				let server = self.clone();
-				let state = state.clone();
-				let root = *root;
-				let nodes = nodes.clone();
-				async move {
-					if state.arg.destructive {
-						server
-							.checkin_cache_task_destructive(state, touched_at, root)
-							.await?;
-					} else {
-						let permit = self.file_descriptor_semaphore.acquire().await.unwrap();
-						tokio::task::spawn_blocking({
-							let server = server.clone();
-							let state = state.clone();
-							move || server.checkin_cache_task_inner(&state, root, &nodes)
-						})
-						.await
-						.unwrap()
-						.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
-						drop(permit);
-					}
-					Ok::<_, tg::Error>(())
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<()>()
-			.await?;
+		for (root, nodes) in &state.graph.roots {
+			let server = self.clone();
+			let state = state.clone();
+			let root = *root;
+			let nodes = nodes.clone();
+			if state.arg.destructive {
+				server
+					.checkin_cache_task_destructive(state, touched_at, root)
+					.await?;
+			} else {
+				tokio::task::spawn_blocking({
+					let server = server.clone();
+					let state = state.clone();
+					move || server.checkin_cache_task_inner(&state, root, &nodes)
+				})
+				.await
+				.unwrap()
+				.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
+			}
+		}
 		Ok(())
 	}
 

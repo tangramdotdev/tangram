@@ -540,7 +540,6 @@ impl Server {
 			let server = self.clone();
 			let path = path.clone();
 			let future = async move {
-				let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 				let reader = tg::Blob::with_id(contents)
 					.read(&server, tg::blob::read::Arg::default())
 					.await
@@ -557,7 +556,6 @@ impl Server {
 				tokio::io::copy(&mut reader, &mut file_).await.map_err(
 					|source| tg::error!(!source, ?path = path, "failed to write to the file"),
 				)?;
-
 				Ok::<_, tg::Error>(())
 			};
 			let result = tokio::runtime::Handle::current().block_on(future);
@@ -781,7 +779,6 @@ impl Server {
 					let path = path.clone();
 					let progress = state.progress.clone();
 					let future = async move {
-						let _permit = server.file_descriptor_semaphore.acquire().await.unwrap();
 						let reader = tg::Blob::with_id(contents)
 							.read(&server, tg::blob::read::Arg::default())
 							.await

@@ -616,9 +616,6 @@ impl Cli {
 			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
 				config.advanced.process_dequeue_timeout = process_dequeue_timeout;
 			}
-			if let Some(file_descriptor_semaphore_size) = advanced.file_descriptor_semaphore_size {
-				config.advanced.file_descriptor_semaphore_size = file_descriptor_semaphore_size;
-			}
 			if let Some(preserve_temp_directories) = advanced.preserve_temp_directories {
 				config.advanced.preserve_temp_directories = preserve_temp_directories;
 			}

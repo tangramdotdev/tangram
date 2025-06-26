@@ -68,18 +68,9 @@ impl Server {
 			available_connections,
 		};
 
-		let file_descriptor_semaphore = tg::health::FileDescriptorSemaphore {
-			available_permits: self
-				.file_descriptor_semaphore
-				.available_permits()
-				.to_u64()
-				.unwrap(),
-		};
-
 		let health = tg::Health {
 			database: Some(database),
 			diagnostics: self.diagnostics.lock().unwrap().clone(),
-			file_descriptor_semaphore: Some(file_descriptor_semaphore),
 			processes: Some(processes),
 			version: Some(self.version.clone()),
 		};

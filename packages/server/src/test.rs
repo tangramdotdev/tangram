@@ -41,10 +41,7 @@ impl Context {
 	pub async fn start_server(&mut self) -> Server {
 		let temp = Temp::new();
 		let directory = temp.path().to_owned();
-		let advanced = crate::config::Advanced {
-			file_descriptor_semaphore_size: 1,
-			..Default::default()
-		};
+		let advanced = crate::config::Advanced::default();
 		let authentication = None;
 		let cleaner = None;
 		let database = crate::config::Database::Sqlite(crate::config::SqliteDatabase {
