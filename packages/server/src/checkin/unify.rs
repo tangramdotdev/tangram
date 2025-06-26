@@ -92,7 +92,7 @@ impl Server {
 
 		// Validate.
 		if current.errored {
-			return Err(tg::error!("could not unify dependencies"));
+			return Err(tg::error!("failed to unify dependencies"));
 		}
 
 		// Update state.

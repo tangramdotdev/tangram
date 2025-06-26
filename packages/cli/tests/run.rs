@@ -17,8 +17,7 @@ async fn hello_world() {
 	}
 	.into();
 	let tags = vec![];
-	let path = "";
-	let export = "default";
+	let reference = ".";
 	let args = vec![];
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_success!(output);
@@ -27,7 +26,7 @@ async fn hello_world() {
 		Hello, World!
 		");
 	};
-	test_run(artifact, tags, path, export, args, assertions).await;
+	test_run(artifact, tags, reference, args, assertions).await;
 }
 
 #[tokio::test]
@@ -43,8 +42,7 @@ async fn assertion_failure() {
 	}
 	.into();
 	let tags = vec![];
-	let path = "tangram.ts";
-	let export = "default";
+	let reference = "./tangram.ts";
 	let args = vec![];
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
@@ -65,7 +63,7 @@ async fn assertion_failure() {
 		   ╰────
 		"#);
 	};
-	test_run(artifact, tags, path, export, args, assertions).await;
+	test_run(artifact, tags, reference, args, assertions).await;
 }
 
 #[tokio::test]
@@ -85,8 +83,7 @@ async fn assertion_failure_out_of_tree() {
 	}
 	.into();
 	let tags = vec![];
-	let path = "foo";
-	let export = "default";
+	let reference = "./foo";
 	let args = vec![];
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
@@ -102,7 +99,7 @@ async fn assertion_failure_out_of_tree() {
 		   ╰────
 		");
 	};
-	test_run(artifact, tags, path, export, args, assertions).await;
+	test_run(artifact, tags, reference, args, assertions).await;
 }
 
 #[tokio::test]
@@ -122,8 +119,7 @@ async fn assertion_failure_in_path_dependency() {
 	}
 	.into();
 	let tags = vec![];
-	let path = "foo/tangram.ts";
-	let export = "default";
+	let reference = "./foo/tangram.ts";
 	let args = vec![];
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
@@ -144,7 +140,7 @@ async fn assertion_failure_in_path_dependency() {
 		   ╰────
 		"#);
 	};
-	test_run(artifact, tags, path, export, args, assertions).await;
+	test_run(artifact, tags, reference, args, assertions).await;
 }
 
 #[tokio::test]
@@ -163,8 +159,7 @@ async fn assertion_failure_in_tag_dependency() {
 	}
 	.into();
 	let tags = vec![("foo".into(), foo, None)];
-	let path = "tangram.ts";
-	let export = "default";
+	let reference = "./tangram.ts";
 	let args = vec![];
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
@@ -185,7 +180,7 @@ async fn assertion_failure_in_tag_dependency() {
 		   ╰────
 		"#);
 	};
-	test_run(artifact, tags, path, export, args, assertions).await;
+	test_run(artifact, tags, reference, args, assertions).await;
 }
 
 #[tokio::test]
@@ -214,8 +209,7 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 	}
 	.into();
 	let tags = vec![("foo".into(), foo, Some("foo".into()))];
-	let path = "tangram.ts";
-	let export = "default";
+	let reference = "./tangram.ts";
 	let args = vec![];
 	let assertions = |_path: PathBuf, output: std::process::Output| async move {
 		assert_failure!(output);
@@ -250,14 +244,13 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 		   ╰────
 		"#);
 	};
-	test_run(artifact, tags, path, export, args, assertions).await;
+	test_run(artifact, tags, reference, args, assertions).await;
 }
 
 async fn test_run<F, Fut>(
 	artifact: temp::Artifact,
 	tags: Vec<(String, temp::Artifact, Option<PathBuf>)>,
-	path: &str,
-	export: &str,
+	reference: &str,
 	args: Vec<String>,
 	assertions: F,
 ) where
@@ -288,9 +281,6 @@ async fn test_run<F, Fut>(
 
 		let temp = Temp::new();
 		artifact.to_path(temp.as_ref()).await.unwrap();
-
-		let path = temp.path().join(path);
-		let reference = format!("{path}#{export}", path = path.display());
 
 		let mut command = server.tg();
 		command.current_dir(temp.path()).arg("run").arg(reference);
