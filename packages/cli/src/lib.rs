@@ -1435,7 +1435,7 @@ impl Cli {
 			rlim_cur: 0,
 			rlim_max: 0,
 		};
-		let ret = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlimit_nofile) };
+		let ret = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut rlimit_nofile) };
 		if ret != 0 {
 			return Err(tg::error!(
 				source = std::io::Error::last_os_error(),
@@ -1443,7 +1443,7 @@ impl Cli {
 			));
 		}
 		rlimit_nofile.rlim_cur = rlimit_nofile.rlim_max;
-		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &rlimit_nofile) };
+		let ret = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const rlimit_nofile) };
 		if ret != 0 {
 			return Err(tg::error!(
 				source = std::io::Error::last_os_error(),

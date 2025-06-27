@@ -3,6 +3,8 @@ use std::{
 	path::{Path, PathBuf},
 };
 
+use futures::FutureExt as _;
+
 pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
 	let path = path.as_ref();
 	if !path.is_absolute() {
@@ -56,6 +58,13 @@ pub fn canonicalize_parent_sync(path: impl AsRef<Path>) -> std::io::Result<PathB
 pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 	let path = path.as_ref().to_owned();
 	tokio::task::spawn_blocking(move || remove_sync(&path))
+		.map(|result| match result {
+			Err(error) if error.is_cancelled() => {
+				tracing::error!(?error);
+				Ok(Ok(()))
+			},
+			_ => result,
+		})
 		.await
 		.unwrap()
 }

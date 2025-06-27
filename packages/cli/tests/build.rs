@@ -871,7 +871,7 @@ async fn command_set_checksum() {
 	test_build(artifact, reference, args, assertions).await;
 }
 
-#[ignore]
+#[ignore = "zip is not working"]
 #[tokio::test]
 async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
 	let module = indoc!(

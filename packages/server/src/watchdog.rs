@@ -18,7 +18,7 @@ impl Server {
 
 			// If an error occurred or no processes were reaped, wait to be signaled or for the timeout to expire.
 			if matches!(result, Err(_) | Ok(0)) {
-				let mut stream = self
+				let stream = self
 					.messenger
 					.subscribe("watchdog".into(), None)
 					.await
