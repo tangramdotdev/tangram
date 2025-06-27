@@ -8,6 +8,7 @@ use itertools::Itertools as _;
 use rusqlite as sqlite;
 use smallvec::SmallVec;
 use std::{
+	collections::VecDeque,
 	panic::AssertUnwindSafe,
 	path::PathBuf,
 	pin::{Pin, pin},
@@ -60,6 +61,7 @@ struct StateSync {
 	graph: Graph,
 	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
 	index: sqlite::Connection,
+	queue: VecDeque<QueueItem>,
 }
 
 enum QueueItem {
@@ -376,21 +378,41 @@ impl Server {
 		let mut state = StateSync {
 			arg,
 			database,
-			index,
+			event_sender,
 			file: None,
 			graph: Graph::new(),
 			import_complete_receiver,
-			event_sender,
+			index,
+			queue: VecDeque::new(),
 		};
 
+		// Enqueue the items.
+		for item in state.arg.items.iter().cloned() {
+			let item = match item {
+				Either::Left(process) => QueueItem::Process(ProcessQueueItem {
+					parent: None,
+					process,
+				}),
+				Either::Right(object) => QueueItem::Object(ObjectQueueItem {
+					parent: None,
+					object,
+				}),
+			};
+			state.queue.push_back(item);
+		}
+
 		// Export each item.
-		for item in state.arg.items.clone() {
-			match &item {
-				Either::Left(process) => {
-					self.export_sync_inner_process(&mut state, None, process)?;
+		while let Some(item) = state.queue.pop_front() {
+			match item {
+				QueueItem::Process(ProcessQueueItem { parent, process }) => {
+					Self::export_sync_inner_process(&mut state, parent.as_ref(), &process)?;
 				},
-				Either::Right(object) => {
-					self.export_sync_inner_object(&mut state, None, object)?;
+				QueueItem::Object(ObjectQueueItem { parent, object }) => {
+					self.export_sync_inner_object(
+						&mut state,
+						parent.as_ref().map(|either| either.as_ref()),
+						&object,
+					)?;
 				},
 			}
 		}
@@ -407,7 +429,7 @@ impl Server {
 		// If the process has already been sent or is complete, then update the progress and return.
 		let inserted = state
 			.graph
-			.insert(parent.map(Either::Left).as_ref(), &Either::Left(process));
+			.insert(parent.map(Either::Left), Either::Left(process.clone()));
 		let complete = state.graph.is_complete(&Either::Left(process));
 		if complete {
 			let process_complete = self
@@ -464,7 +486,7 @@ impl Server {
 			.flat_map(|chunk| chunk.data)
 			.collect_vec();
 
-		// Add the objects to the queue.
+		// Enqueue the objects.
 		let process_complete = state
 			.graph
 			.get_complete(&Either::Left(process))
@@ -499,7 +521,7 @@ impl Server {
 			state.queue_sender.force_send(item).unwrap();
 		}
 
-		// Add the children to the queue.
+		// Enqueue the children.
 		if state.arg.recursive {
 			state
 				.queue_counter
@@ -526,7 +548,6 @@ impl Server {
 	}
 
 	fn export_sync_inner_process(
-		&self,
 		state: &mut StateSync,
 		parent: Option<&tg::process::Id>,
 		process: &tg::process::Id,
@@ -551,7 +572,7 @@ impl Server {
 		// If the process has already been sent or is complete, then update the progress and return.
 		let inserted = state
 			.graph
-			.insert(parent.map(Either::Left).as_ref(), &Either::Left(process));
+			.insert(parent.map(Either::Left), Either::Left(process.clone()));
 		let complete = state.graph.is_complete(&Either::Left(process));
 		if complete {
 			let process_complete = Self::export_sync_get_process_complete(state, process)
@@ -573,7 +594,7 @@ impl Server {
 		let data = Self::try_get_process_local_sync(&state.database, process)?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
 
-		// Recurse into the objects.
+		// Enqueue the objects.
 		let process_complete = state
 			.graph
 			.get_complete(&Either::Left(process))
@@ -597,21 +618,23 @@ impl Server {
 				}
 			}
 		}
-		objects
-			.iter()
-			.map(|object| {
-				self.export_sync_inner_object(state, Some(&Either::Left(process)), object)?;
-				Ok::<_, tg::Error>(())
-			})
-			.try_collect::<_, (), _>()?;
+		for child in objects {
+			let item = QueueItem::Object(ObjectQueueItem {
+				parent: Some(Either::Left(process.clone())),
+				object: child,
+			});
+			state.queue.push_back(item);
+		}
 
-		// Recurse into the children.
+		// Enqueue the children.
 		if state.arg.recursive {
-			data.children
-				.iter()
-				.flatten()
-				.map(|child| self.export_sync_inner_process(state, Some(process), &child.item))
-				.try_collect::<_, (), _>()?;
+			for child in data.children.into_iter().flatten() {
+				let item = QueueItem::Process(ProcessQueueItem {
+					parent: Some(process.clone()),
+					process: child.item,
+				});
+				state.queue.push_back(item);
+			}
 		}
 
 		Ok(())
@@ -624,7 +647,7 @@ impl Server {
 		object: &tg::object::Id,
 	) -> tg::Result<()> {
 		// If the object has already been sent or is complete, then update the progress and return.
-		let inserted = state.graph.insert(parent.as_ref(), &Either::Right(object));
+		let inserted = state.graph.insert(parent, Either::Right(object.clone()));
 		let complete = state.graph.is_complete(&Either::Right(object));
 		if complete {
 			let object_complete =
@@ -677,7 +700,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
-		// Add the children to the queue.
+		// Enqueue the children.
 		let children = data.children().collect::<Vec<_>>();
 		state
 			.queue_counter
@@ -705,7 +728,7 @@ impl Server {
 	fn export_sync_inner_object(
 		&self,
 		state: &mut StateSync,
-		parent: Option<&Either<&tg::process::Id, &tg::object::Id>>,
+		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
 		object: &tg::object::Id,
 	) -> tg::Result<()> {
 		// Update the graph.
@@ -726,7 +749,7 @@ impl Server {
 		}
 
 		// If the object has already been sent or is complete, then update the progress and return.
-		let inserted = state.graph.insert(parent, &Either::Right(object));
+		let inserted = state.graph.insert(parent, Either::Right(object.clone()));
 		let complete = state.graph.is_complete(&Either::Right(object));
 		if complete {
 			let object_complete = Self::export_sync_get_object_complete(state, object)?;
@@ -758,10 +781,13 @@ impl Server {
 			.blocking_send(Ok(tg::export::Event::Item(item)))
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
-		// Recurse into the children.
-		data.children()
-			.map(|child| self.export_sync_inner_object(state, Some(&Either::Right(object)), &child))
-			.try_collect::<_, (), _>()?;
+		for child in data.children() {
+			let item = QueueItem::Object(ObjectQueueItem {
+				parent: Some(Either::Right(object.clone())),
+				object: child,
+			});
+			state.queue.push_back(item);
+		}
 
 		Ok(())
 	}
@@ -957,11 +983,9 @@ impl Graph {
 
 	fn insert(
 		&self,
-		parent: Option<&Either<&tg::process::Id, &tg::object::Id>>,
-		item: &Either<&tg::process::Id, &tg::object::Id>,
+		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
+		item: Either<tg::process::Id, tg::object::Id>,
 	) -> bool {
-		let item = item.cloned();
-
 		// Check if the node already exists.
 		if self.nodes.contains_key(&item) {
 			return false;
@@ -1110,7 +1134,7 @@ impl Graph {
 				},
 			}
 		} else {
-			self.insert(None, &item.as_ref());
+			self.insert(None, item.clone());
 			let Some(node) = self.nodes.get(&item) else {
 				tracing::error!(?item, "failed to get node after insertion");
 				return;
