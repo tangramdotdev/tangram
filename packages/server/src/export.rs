@@ -1,21 +1,17 @@
+use self::graph::Graph;
 use crate::Server;
-use dashmap::DashMap;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
 };
 use indoc::formatdoc;
 use itertools::Itertools as _;
 use rusqlite as sqlite;
-use smallvec::SmallVec;
 use std::{
 	collections::VecDeque,
 	panic::AssertUnwindSafe,
 	path::PathBuf,
 	pin::{Pin, pin},
-	sync::{
-		Arc, RwLock, Weak,
-		atomic::{AtomicBool, AtomicUsize},
-	},
+	sync::{Arc, Mutex, atomic::AtomicUsize},
 };
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
@@ -25,30 +21,14 @@ use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
+mod graph;
+
 const CONCURRENCY: usize = 8;
-
-#[derive(Clone)]
-struct Graph {
-	nodes: Arc<DashMap<Either<tg::process::Id, tg::object::Id>, Arc<Node>, fnv::FnvBuildHasher>>,
-}
-
-struct Node {
-	complete: Either<RwLock<ProcessComplete>, AtomicBool>,
-	parents: RwLock<SmallVec<[Weak<Self>; 1]>>,
-	children: RwLock<Vec<Arc<Self>>>,
-}
-
-#[derive(Clone)]
-struct ProcessComplete {
-	commands_complete: bool,
-	complete: bool,
-	outputs_complete: bool,
-}
 
 struct State {
 	arg: tg::export::Arg,
 	event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
-	graph: Graph,
+	graph: Mutex<Graph>,
 	queue_counter: AtomicUsize,
 	queue_sender: async_channel::Sender<QueueItem>,
 }
@@ -185,7 +165,7 @@ impl Server {
 		let (queue_sender, queue_receiver) = async_channel::unbounded::<QueueItem>();
 		let state = Arc::new(State {
 			arg,
-			graph: Graph::new(),
+			graph: Mutex::new(Graph::new()),
 			event_sender,
 			queue_counter,
 			queue_sender,
@@ -193,16 +173,22 @@ impl Server {
 
 		// Spawn a task to receive import completion events and update the graph.
 		let import_complete_task = tokio::spawn({
-			let graph = state.graph.clone();
+			let state = state.clone();
 			async move {
 				let mut stream = pin!(stream);
 				while let Some(complete) = stream.try_next().await? {
-					match &complete {
-						tg::import::Complete::Process(process_complete) => {
-							graph.update_complete(&Either::Left(process_complete));
+					match complete {
+						tg::import::Complete::Process(complete) => {
+							let id = Either::Left(complete.id.clone());
+							let complete = complete.complete
+								&& (!state.arg.commands || complete.commands_complete)
+								&& (!state.arg.outputs || complete.outputs_complete);
+							state.graph.lock().unwrap().update(None, id, complete);
 						},
-						tg::import::Complete::Object(object_complete) => {
-							graph.update_complete(&Either::Right(object_complete));
+						tg::import::Complete::Object(complete) => {
+							let id = Either::Right(complete.id.clone());
+							let complete = true;
+							state.graph.lock().unwrap().update(None, id, complete);
 						},
 					}
 				}
@@ -403,16 +389,36 @@ impl Server {
 
 		// Export each item.
 		while let Some(item) = state.queue.pop_front() {
+			// Update the graph.
+			let len = state.import_complete_receiver.len();
+			let mut buffer = Vec::with_capacity(len);
+			state
+				.import_complete_receiver
+				.blocking_recv_many(&mut buffer, len);
+			for complete in buffer {
+				match complete {
+					tg::import::Complete::Process(complete) => {
+						let id = Either::Left(complete.id.clone());
+						let complete = complete.complete
+							&& (!state.arg.commands || complete.commands_complete)
+							&& (!state.arg.outputs || complete.outputs_complete);
+						state.graph.update(None, id, complete);
+					},
+					tg::import::Complete::Object(complete) => {
+						let id = Either::Right(complete.id.clone());
+						let complete = true;
+						state.graph.update(None, id, complete);
+					},
+				}
+			}
+
+			// Export the item.
 			match item {
 				QueueItem::Process(ProcessQueueItem { parent, process }) => {
-					Self::export_sync_inner_process(&mut state, parent.as_ref(), &process)?;
+					Self::export_sync_inner_process(&mut state, parent, &process)?;
 				},
 				QueueItem::Object(ObjectQueueItem { parent, object }) => {
-					self.export_sync_inner_object(
-						&mut state,
-						parent.as_ref().map(|either| either.as_ref()),
-						&object,
-					)?;
+					self.export_sync_inner_object(&mut state, parent, &object)?;
 				},
 			}
 		}
@@ -427,10 +433,11 @@ impl Server {
 		process: &tg::process::Id,
 	) -> tg::Result<()> {
 		// If the process has already been sent or is complete, then update the progress and return.
-		let inserted = state
-			.graph
-			.insert(parent.map(Either::Left), Either::Left(process.clone()));
-		let complete = state.graph.is_complete(&Either::Left(process));
+		let (inserted, complete) = state.graph.lock().unwrap().update(
+			parent.cloned().map(Either::Left),
+			Either::Left(process.clone()),
+			false,
+		);
 		if complete {
 			let process_complete = self
 				.export_get_process_complete(process)
@@ -447,7 +454,6 @@ impl Server {
 				})?;
 		}
 		if !inserted || complete {
-			// Decrement the queue counter and close the queue if the counter hits zero.
 			if state
 				.queue_counter
 				.fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
@@ -486,41 +492,6 @@ impl Server {
 			.flat_map(|chunk| chunk.data)
 			.collect_vec();
 
-		// Enqueue the objects.
-		let process_complete = state
-			.graph
-			.get_complete(&Either::Left(process))
-			.map(|either| either.left().unwrap());
-		let mut objects: Vec<tg::object::Id> = Vec::new();
-		if state.arg.commands {
-			let commands_complete = process_complete
-				.as_ref()
-				.is_some_and(|process_complete| process_complete.commands_complete);
-			if !commands_complete {
-				objects.push(data.command.clone().into());
-			}
-		}
-		if state.arg.outputs {
-			let outputs_complete = process_complete
-				.as_ref()
-				.is_some_and(|process_complete| process_complete.outputs_complete);
-			if !outputs_complete {
-				if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
-					objects.extend(output_objects);
-				}
-			}
-		}
-		state
-			.queue_counter
-			.fetch_add(objects.len(), std::sync::atomic::Ordering::SeqCst);
-		for child in objects {
-			let item = QueueItem::Object(ObjectQueueItem {
-				parent: Some(Either::Left(process.clone())),
-				object: child,
-			});
-			state.queue_sender.force_send(item).unwrap();
-		}
-
 		// Enqueue the children.
 		if state.arg.recursive {
 			state
@@ -533,6 +504,27 @@ impl Server {
 				});
 				state.queue_sender.force_send(item).unwrap();
 			}
+		}
+
+		// Enqueue the objects.
+		let mut objects: Vec<tg::object::Id> = Vec::new();
+		if state.arg.commands {
+			objects.push(data.command.clone().into());
+		}
+		if state.arg.outputs {
+			if let Some(output) = &data.output {
+				objects.extend(output.children());
+			}
+		}
+		state
+			.queue_counter
+			.fetch_add(objects.len(), std::sync::atomic::Ordering::SeqCst);
+		for child in objects {
+			let item = QueueItem::Object(ObjectQueueItem {
+				parent: Some(Either::Left(process.clone())),
+				object: child,
+			});
+			state.queue_sender.force_send(item).unwrap();
 		}
 
 		// Decrement the queue counter and close the queue if the counter hits zero.
@@ -549,31 +541,15 @@ impl Server {
 
 	fn export_sync_inner_process(
 		state: &mut StateSync,
-		parent: Option<&tg::process::Id>,
+		parent: Option<tg::process::Id>,
 		process: &tg::process::Id,
 	) -> tg::Result<()> {
-		// Update the graph.
-		let len = state.import_complete_receiver.len();
-		let mut buffer = Vec::with_capacity(len);
-		state
-			.import_complete_receiver
-			.blocking_recv_many(&mut buffer, len);
-		for complete in buffer {
-			match &complete {
-				tg::import::Complete::Process(process_complete) => {
-					state.graph.update_complete(&Either::Left(process_complete));
-				},
-				tg::import::Complete::Object(object_complete) => {
-					state.graph.update_complete(&Either::Right(object_complete));
-				},
-			}
-		}
-
 		// If the process has already been sent or is complete, then update the progress and return.
-		let inserted = state
-			.graph
-			.insert(parent.map(Either::Left), Either::Left(process.clone()));
-		let complete = state.graph.is_complete(&Either::Left(process));
+		let (inserted, complete) = state.graph.update(
+			parent.map(Either::Left),
+			Either::Left(process.clone()),
+			false,
+		);
 		if complete {
 			let process_complete = Self::export_sync_get_process_complete(state, process)
 				.map_err(|source| tg::error!(!source, "failed to get the process complete"))?;
@@ -594,38 +570,6 @@ impl Server {
 		let data = Self::try_get_process_local_sync(&state.database, process)?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
 
-		// Enqueue the objects.
-		let process_complete = state
-			.graph
-			.get_complete(&Either::Left(process))
-			.map(|either| either.left().unwrap());
-		let mut objects: Vec<tg::object::Id> = Vec::new();
-		if state.arg.commands {
-			let commands_complete = process_complete
-				.as_ref()
-				.is_some_and(|process_complete| process_complete.commands_complete);
-			if !commands_complete {
-				objects.push(data.command.clone().into());
-			}
-		}
-		if state.arg.outputs {
-			let outputs_complete = process_complete
-				.as_ref()
-				.is_some_and(|process_complete| process_complete.outputs_complete);
-			if !outputs_complete {
-				if let Some(output_objects) = data.output.as_ref().map(tg::value::Data::children) {
-					objects.extend(output_objects);
-				}
-			}
-		}
-		for child in objects {
-			let item = QueueItem::Object(ObjectQueueItem {
-				parent: Some(Either::Left(process.clone())),
-				object: child,
-			});
-			state.queue.push_back(item);
-		}
-
 		// Enqueue the children.
 		if state.arg.recursive {
 			for child in data.children.into_iter().flatten() {
@@ -635,6 +579,24 @@ impl Server {
 				});
 				state.queue.push_back(item);
 			}
+		}
+
+		// Enqueue the objects.
+		let mut objects: Vec<tg::object::Id> = Vec::new();
+		if state.arg.commands {
+			objects.push(data.command.clone().into());
+		}
+		if state.arg.outputs {
+			if let Some(output) = &data.output {
+				objects.extend(output.children());
+			}
+		}
+		for child in objects {
+			let item = QueueItem::Object(ObjectQueueItem {
+				parent: Some(Either::Left(process.clone())),
+				object: child,
+			});
+			state.queue.push_back(item);
 		}
 
 		Ok(())
@@ -647,8 +609,11 @@ impl Server {
 		object: &tg::object::Id,
 	) -> tg::Result<()> {
 		// If the object has already been sent or is complete, then update the progress and return.
-		let inserted = state.graph.insert(parent, Either::Right(object.clone()));
-		let complete = state.graph.is_complete(&Either::Right(object));
+		let (inserted, complete) = state.graph.lock().unwrap().update(
+			parent.as_ref().map(Either::cloned),
+			Either::Right(object.clone()),
+			false,
+		);
 		if complete {
 			let object_complete =
 				self.export_get_object_complete(object)
@@ -728,29 +693,13 @@ impl Server {
 	fn export_sync_inner_object(
 		&self,
 		state: &mut StateSync,
-		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
+		parent: Option<Either<tg::process::Id, tg::object::Id>>,
 		object: &tg::object::Id,
 	) -> tg::Result<()> {
-		// Update the graph.
-		let len = state.import_complete_receiver.len();
-		let mut buffer = Vec::with_capacity(len);
-		state
-			.import_complete_receiver
-			.blocking_recv_many(&mut buffer, len);
-		for complete in buffer {
-			match &complete {
-				tg::import::Complete::Process(process_complete) => {
-					state.graph.update_complete(&Either::Left(process_complete));
-				},
-				tg::import::Complete::Object(object_complete) => {
-					state.graph.update_complete(&Either::Right(object_complete));
-				},
-			}
-		}
-
 		// If the object has already been sent or is complete, then update the progress and return.
-		let inserted = state.graph.insert(parent, Either::Right(object.clone()));
-		let complete = state.graph.is_complete(&Either::Right(object));
+		let (inserted, complete) = state
+			.graph
+			.update(parent, Either::Right(object.clone()), false);
 		if complete {
 			let object_complete = Self::export_sync_get_object_complete(state, object)?;
 			state
@@ -781,6 +730,7 @@ impl Server {
 			.blocking_send(Ok(tg::export::Event::Item(item)))
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
+		// Enqueue the children.
 		for child in data.children() {
 			let item = QueueItem::Object(ObjectQueueItem {
 				parent: Some(Either::Right(object.clone())),
@@ -971,238 +921,5 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
-	}
-}
-
-impl Graph {
-	fn new() -> Self {
-		Self {
-			nodes: Arc::new(DashMap::default()),
-		}
-	}
-
-	fn insert(
-		&self,
-		parent: Option<Either<&tg::process::Id, &tg::object::Id>>,
-		item: Either<tg::process::Id, tg::object::Id>,
-	) -> bool {
-		// Check if the node already exists.
-		if self.nodes.contains_key(&item) {
-			return false;
-		}
-
-		// Create the node.
-		let new_node = match item {
-			Either::Left(_) => Node::process(),
-			Either::Right(_) => Node::object(),
-		};
-		let new_node = Arc::new(new_node);
-
-		// If there's a parent, create the relationship.
-		if let Some(parent) = parent {
-			let parent = parent.cloned();
-			// Add the new node as a child of the parent.
-			if let Some(parent_node) = self.nodes.get(&parent) {
-				parent_node
-					.children
-					.write()
-					.unwrap()
-					.push(Arc::clone(&new_node));
-				// Add the parent as a weak reference to the new node.
-				new_node
-					.parents
-					.write()
-					.unwrap()
-					.push(Arc::downgrade(&parent_node));
-			} else {
-				tracing::error!("parent not found");
-			}
-		}
-
-		// Insert the new node.
-		self.nodes.insert(item, new_node);
-
-		true
-	}
-
-	fn is_complete(&self, item: &Either<&tg::process::Id, &tg::object::Id>) -> bool {
-		let item = item.cloned();
-		let Some(node) = self.nodes.get(&item) else {
-			return false;
-		};
-
-		// If this node is complete, return true.
-		if node.is_complete() {
-			return true;
-		}
-
-		// Track a list of nodes to a specific ancestor.
-		let mut completion_path = Vec::new();
-		let found_complete_ancestor = Self::check_ancestor_completion(&node, &mut completion_path);
-
-		// If we found a path to complete, mark intermediate nodes as complete.
-		if found_complete_ancestor {
-			for node in completion_path {
-				match &node.complete {
-					Either::Left(process_complete) => {
-						process_complete.write().unwrap().complete = true;
-					},
-					Either::Right(object_complete) => {
-						object_complete.store(true, std::sync::atomic::Ordering::SeqCst);
-					},
-				}
-			}
-			true
-		} else {
-			false
-		}
-	}
-
-	fn check_ancestor_completion(node: &Node, completion_path: &mut Vec<Arc<Node>>) -> bool {
-		let parents = node.parents.read().unwrap();
-
-		for parent_weak in parents.iter() {
-			if let Some(parent) = parent_weak.upgrade() {
-				// If this parent is complete, mark this path complete.
-				if parent.is_complete() {
-					return true;
-				}
-
-				// Cycle detection - if we already stored this node, keep looking.
-				if completion_path
-					.iter()
-					.any(|node| Arc::ptr_eq(node, &parent))
-				{
-					continue;
-				}
-
-				// Add this path to the completion path and and check ancestors.
-				completion_path.push(Arc::clone(&parent));
-				if Self::check_ancestor_completion(&parent, completion_path) {
-					// If we found one we're done.
-					return true;
-				}
-				// If not, remove ourselves from the path and try again.
-				completion_path.pop();
-			} else {
-				tracing::error!("failed to upgrade weak pointer");
-			}
-		}
-
-		false
-	}
-
-	fn get_complete(
-		&self,
-		item: &Either<&tg::process::Id, &tg::object::Id>,
-	) -> Option<Either<ProcessComplete, bool>> {
-		let item = item.cloned();
-		let node = self.nodes.get(&item)?;
-		let output = match &node.complete {
-			Either::Left(process_complete) => {
-				Either::Left(process_complete.read().unwrap().clone())
-			},
-			Either::Right(object_complete) => {
-				Either::Right(object_complete.load(std::sync::atomic::Ordering::SeqCst))
-			},
-		};
-		Some(output)
-	}
-
-	fn update_complete(
-		&self,
-		output: &Either<&tg::import::ProcessComplete, &tg::import::ObjectComplete>,
-	) {
-		let (item, new_complete) = match output {
-			Either::Left(process) => (
-				Either::Left(process.id.clone()),
-				Either::Left(ProcessComplete::from((*process).clone())),
-			),
-			Either::Right(object) => (Either::Right(object.id.clone()), Either::Right(true)),
-		};
-		if let Some(node) = self.nodes.get(&item) {
-			match (&node.complete, new_complete) {
-				(Either::Left(old_complete), Either::Left(new_complete)) => {
-					let mut w = old_complete.write().unwrap();
-					*w = new_complete.clone();
-				},
-				(Either::Right(old_complete), Either::Right(value)) => {
-					old_complete.store(value, std::sync::atomic::Ordering::SeqCst);
-				},
-				_ => {
-					tracing::error!("attempted to update complete with mismatched type");
-				},
-			}
-		} else {
-			self.insert(None, item.clone());
-			let Some(node) = self.nodes.get(&item) else {
-				tracing::error!(?item, "failed to get node after insertion");
-				return;
-			};
-			match (&node.complete, new_complete) {
-				(Either::Left(old), Either::Left(new)) => {
-					*old.write().unwrap() = new.clone();
-				},
-				(Either::Right(old), Either::Right(value)) => {
-					old.store(value, std::sync::atomic::Ordering::SeqCst);
-				},
-				_ => {
-					tracing::error!("attempted to update complete with mismatched type");
-				},
-			}
-		}
-	}
-}
-
-impl Node {
-	fn object() -> Self {
-		Self {
-			parents: RwLock::new(SmallVec::new()),
-			children: RwLock::new(Vec::new()),
-			complete: Either::Right(AtomicBool::new(false)),
-		}
-	}
-
-	fn process() -> Self {
-		Self {
-			parents: RwLock::new(SmallVec::new()),
-			children: RwLock::new(Vec::new()),
-			complete: Either::Left(RwLock::new(ProcessComplete::new())),
-		}
-	}
-
-	fn is_complete(&self) -> bool {
-		match &self.complete {
-			Either::Left(process_complete) => process_complete.read().unwrap().complete,
-			Either::Right(object_complete) => {
-				object_complete.load(std::sync::atomic::Ordering::SeqCst)
-			},
-		}
-	}
-}
-
-impl ProcessComplete {
-	fn new() -> Self {
-		Self {
-			commands_complete: false,
-			complete: false,
-			outputs_complete: false,
-		}
-	}
-}
-
-impl From<tg::import::ProcessComplete> for ProcessComplete {
-	fn from(value: tg::import::ProcessComplete) -> Self {
-		let tg::import::ProcessComplete {
-			commands_complete,
-			complete,
-			outputs_complete,
-			..
-		} = value;
-		Self {
-			commands_complete,
-			complete,
-			outputs_complete,
-		}
 	}
 }
