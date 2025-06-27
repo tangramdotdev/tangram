@@ -11,19 +11,10 @@ version.workspace = true
 
 [dependencies]
 bytes = { workspace = true }
-dashmap = { workspace = true }
+clap = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 scopeguard = { workspace = true }
-tangram_temp = { workspace = true }
-tangram_either = { workspace = true }
-tokio = { workspace = true }
-tokio-util = { workspace = true }
-
-[dev-dependencies]
-futures = { workspace = true }
-tangram_futures = { workspace = true }
-
 [lints]
 workspace = true

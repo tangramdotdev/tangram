@@ -1,4 +1,4 @@
-use super::{Context, guest, init};
+use super::{Context, guest};
 use crate::common::abort_errno;
 use num::ToPrimitive as _;
 use std::os::fd::AsRawFd as _;
@@ -11,18 +11,22 @@ pub fn main(context: Context) -> ! {
 			abort_errno!("prctl failed");
 		}
 
+		// Register signal handlers.
+		for signum in FORWARDED_SIGNALS {
+			libc::signal(signum, handler as *const () as _);
+		}
+
 		// Get the clone flags.
 		let mut flags = 0;
 		if context.root.is_some() {
 			flags |= libc::CLONE_NEWNS;
-			flags |= libc::CLONE_NEWPID;
 			flags |= libc::CLONE_NEWUTS;
 		}
 		if !context.network {
 			flags |= libc::CLONE_NEWNET;
 		}
 
-		// Spawn the next process.
+		// Spawn the guest process.
 		let mut clone_args = libc::clone_args {
 			flags: flags.try_into().unwrap(),
 			stack: 0,
@@ -49,27 +53,7 @@ pub fn main(context: Context) -> ! {
 
 		// If this is the child process, run either init or guest.
 		if pid == 0 {
-			if context.root.is_some() {
-				init::main(context);
-			} else {
-				guest::main(context);
-			}
-		}
-
-		// Close unused fds.
-		for fd in [context.stdin, context.stdout, context.stderr] {
-			libc::close(fd);
-		}
-
-		// Send the child process's PID to the host process.
-		let ret = libc::send(
-			context.socket.as_raw_fd(),
-			std::ptr::addr_of!(pid).cast(),
-			std::mem::size_of_val(&pid),
-			0,
-		);
-		if ret == -1 {
-			abort_errno!("send failed");
+			guest::main(context);
 		}
 
 		// Wait for the child.
@@ -78,22 +62,54 @@ pub fn main(context: Context) -> ! {
 		if ret == -1 {
 			abort_errno!("waitpid failed");
 		}
-
-		// If there's no init process, send the exit code to the waiting parent.
-		// Send the child process's PID to the host process.
-		if context.root.is_none() {
-			let ret = libc::send(
-				context.socket.as_raw_fd(),
-				std::ptr::addr_of!(status).cast(),
-				std::mem::size_of_val(&status),
-				0,
-			);
-			if ret == -1 {
-				abort_errno!("send failed");
-			}
+		if libc::WIFEXITED(status) {
+			let status = libc::WEXITSTATUS(status);
+			libc::exit(status);
 		}
 
-		// Exit.
-		libc::exit(0);
+		if libc::WIFSIGNALED(status) {
+			let signal = libc::WTERMSIG(status);
+			libc::exit(signal + 128);
+		}
+
+		// Exit with the same status.
+		libc::exit(1);
 	}
+}
+
+// We forward all signals except SIGCHILD.
+const FORWARDED_SIGNALS: [libc::c_int; 29] = [
+	libc::SIGINT,
+	libc::SIGQUIT,
+	libc::SIGILL,
+	libc::SIGTRAP,
+	libc::SIGABRT,
+	libc::SIGBUS,
+	libc::SIGFPE,
+	libc::SIGKILL,
+	libc::SIGUSR1,
+	libc::SIGSEGV,
+	libc::SIGUSR2,
+	libc::SIGPIPE,
+	libc::SIGALRM,
+	libc::SIGTERM,
+	libc::SIGSTKFLT,
+	libc::SIGCONT,
+	libc::SIGSTOP,
+	libc::SIGTSTP,
+	libc::SIGTTIN,
+	libc::SIGTTOU,
+	libc::SIGURG,
+	libc::SIGXCPU,
+	libc::SIGXFSZ,
+	libc::SIGVTALRM,
+	libc::SIGPROF,
+	libc::SIGWINCH,
+	libc::SIGPOLL,
+	libc::SIGPWR,
+	libc::SIGSYS,
+];
+
+unsafe extern "C" fn handler(signal: libc::c_int) {
+	unsafe { libc::kill(-1, signal) };
 }

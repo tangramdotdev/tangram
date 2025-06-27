@@ -3,10 +3,10 @@ use super::{
 	util::{render_env, render_value, signal_task, stdio_task, which},
 };
 use crate::{Server, temp::Temp};
-use std::path::Path;
+use num::ToPrimitive as _;
+use std::{os::unix::process::ExitStatusExt as _, path::Path};
 use tangram_client as tg;
 use tangram_futures::task::Task;
-use tangram_sandbox as sandbox;
 use url::Url;
 
 const MAX_URL_LEN: usize = 100;
@@ -33,6 +33,17 @@ impl Runtime {
 	}
 
 	pub async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
+		let sandbox = self
+			.server
+			.config()
+			.runtimes
+			.get("darwin")
+			.ok_or_else(|| tg::error!("server has no runtime configured for darwin"))
+			.cloned()?;
+		if !matches!(sandbox.kind, crate::config::RuntimeKind::Tangram) {
+			return Err(tg::error!("unsupported sandbox kind"));
+		}
+
 		let state = process.load(&self.server).await?;
 		let command = process.command(&self.server).await?;
 		let command = command.data(&self.server).await?;
@@ -58,6 +69,10 @@ impl Runtime {
 
 		// Create the output path.
 		let output_path = root.path().join("output");
+
+		// Create the command.
+		let mut os_command = tokio::process::Command::new(sandbox.executable);
+		os_command.args(sandbox.args);
 
 		// Create the working directory.
 		let cwd = command
@@ -104,7 +119,10 @@ impl Runtime {
 			.collect();
 
 		// Render the env.
-		let mut env = render_env(&artifacts_path, &command.env)?;
+		let env = render_env(&artifacts_path, &command.env)?;
+		for (name, value) in &env {
+			os_command.arg("-E").arg(format!("{name}={value}"));
+		}
 
 		// Render the executable.
 		let executable = match command.executable {
@@ -124,13 +142,14 @@ impl Runtime {
 		};
 
 		// Set `$OUTPUT`.
-		env.insert(
-			"OUTPUT".to_owned(),
-			output_path.to_str().unwrap().to_owned(),
-		);
+		os_command
+			.arg("-E")
+			.arg(format!("OUTPUT={}", output_path.display()));
 
 		// Set `$TANGRAM_PROCESS`.
-		env.insert("TANGRAM_PROCESS".to_owned(), process.id().to_string());
+		os_command
+			.arg("-E")
+			.arg(format!("TANGRAM_PROCESS={}", process.id()));
 
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
@@ -141,55 +160,85 @@ impl Runtime {
 			},
 			|(_, url)| url.to_string(),
 		);
-		env.insert("TANGRAM_URL".to_owned(), url);
+		os_command.arg("-E").arg(format!("TANGRAM_URL={url}"));
 
 		// Create the mounts.
-		let mut mounts = Vec::new();
 		if !root_mount {
-			mounts.extend([
-				(root.path().to_owned(), root.path().to_owned(), false),
-				(artifacts_path.clone(), artifacts_path.clone(), true),
-				(cwd.clone(), cwd.clone(), false),
-			]);
+			os_command
+				.arg("--mount")
+				.arg(format!("source={}", root.path().display()))
+				.arg("--mount")
+				.arg(format!("source={},ro", artifacts_path.display()))
+				.arg("--mount")
+				.arg(format!("source={}", cwd.display()));
 		}
-		mounts.extend(
-			state
-				.mounts
-				.iter()
-				.map(|mount| (mount.source.clone(), mount.target.clone(), mount.readonly)),
-		);
+		for mount in &state.mounts {
+			let mount = if mount.readonly {
+				format!("source={},ro", mount.source.display())
+			} else {
+				format!("source={}", mount.source.display())
+			};
+			os_command.arg("--mount").arg(mount);
+		}
 
 		// Create the stdio.
-		let stdin = match state.stdin.as_ref() {
-			_ if command.stdin.is_some() => sandbox::Stdio::piped(),
-			Some(tg::process::Stdio::Pipe(pipe)) => self.server.get_pipe_fd(pipe, true)?.into(),
-			Some(tg::process::Stdio::Pty(pty)) => self.server.get_pty_fd(pty, false)?.into(),
-			None => sandbox::Stdio::piped(),
-		};
-		let stdout = match state.stdout.as_ref() {
-			Some(tg::process::Stdio::Pipe(pipe)) => self.server.get_pipe_fd(pipe, true)?.into(),
-			Some(tg::process::Stdio::Pty(pty)) => self.server.get_pty_fd(pty, false)?.into(),
-			None => sandbox::Stdio::piped(),
-		};
-		let stderr = match state.stderr.as_ref() {
-			Some(tg::process::Stdio::Pipe(pipe)) => self.server.get_pipe_fd(pipe, true)?.into(),
-			Some(tg::process::Stdio::Pty(pty)) => self.server.get_pty_fd(pty, false)?.into(),
-			None => sandbox::Stdio::piped(),
-		};
+		match state.stdin.as_ref() {
+			_ if command.stdin.is_some() => {
+				os_command.stdin(std::process::Stdio::piped());
+			},
+			Some(tg::process::Stdio::Pipe(pipe)) => {
+				let fd = self.server.get_pipe_fd(pipe, true)?;
+				os_command.stdin(fd);
+			},
+			Some(tg::process::Stdio::Pty(pty)) => {
+				let fd = self.server.get_pty_fd(pty, false)?;
+				os_command.stdin(fd);
+			},
+			None => {
+				os_command.stdin(std::process::Stdio::null());
+			},
+		}
+		match state.stdout.as_ref() {
+			Some(tg::process::Stdio::Pipe(pipe)) => {
+				let fd = self.server.get_pipe_fd(pipe, false)?;
+				os_command.stdout(fd);
+			},
+			Some(tg::process::Stdio::Pty(pty)) => {
+				let fd = self.server.get_pty_fd(pty, false)?;
+				os_command.stdout(fd);
+			},
+			None => {
+				os_command.stdout(std::process::Stdio::piped());
+			},
+		}
+		match state.stdout.as_ref() {
+			Some(tg::process::Stdio::Pipe(pipe)) => {
+				let fd = self.server.get_pipe_fd(pipe, false)?;
+				os_command.stderr(fd);
+			},
+			Some(tg::process::Stdio::Pty(pty)) => {
+				let fd = self.server.get_pty_fd(pty, false)?;
+				os_command.stderr(fd);
+			},
+			None => {
+				os_command.stderr(std::process::Stdio::piped());
+			},
+		}
+
+		if state.network {
+			os_command.arg("--network");
+		}
 
 		// Spawn the process.
-		let mut child = sandbox::Command::new(executable)
+		let mut child = os_command
+			.arg(executable)
+			.arg("--")
 			.args(args)
-			.cwd(cwd)
-			.envs(env)
-			.mounts(mounts)
-			.network(state.network)
-			.stderr(stderr)
-			.stdin(stdin)
-			.stdout(stdout)
+			.current_dir("/")
+			.env_clear()
 			.spawn()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn the sandbox process"))?;
+
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn({
 			let server = self.server.clone();
@@ -210,7 +259,7 @@ impl Runtime {
 		let signal_task = tokio::spawn({
 			let server = self.server.clone();
 			let process = process.clone();
-			let pid = child.pid();
+			let pid = child.id().unwrap().to_i32().unwrap();
 			async move {
 				signal_task(&server, pid, &process)
 					.await
@@ -223,10 +272,7 @@ impl Runtime {
 		let exit = child.wait().await.map_err(
 			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
 		)?;
-		let exit = match exit {
-			sandbox::ExitStatus::Code(code) => code,
-			sandbox::ExitStatus::Signal(signal) => 128 + signal,
-		};
+		let exit = exit.code().or(exit.signal()).unwrap().to_u8().unwrap();
 
 		// Stop and await the proxy task.
 		if let Some(task) = proxy.as_ref().map(|(proxy, _)| proxy) {
