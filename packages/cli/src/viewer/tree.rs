@@ -813,14 +813,21 @@ where
 	) -> tg::Result<()> {
 		let object = directory.object(handle).await?;
 		let children: Vec<_> = match object.as_ref() {
-			tg::directory::Object::Graph { graph, node } => [
-				("graph".to_owned(), tg::Value::Object(graph.clone().into())),
-				("node".to_owned(), tg::Value::Number(node.to_f64().unwrap())),
+			tg::directory::Object::Graph(graph) => [
+				(
+					"graph".to_owned(),
+					tg::Value::Object(graph.graph.clone().into()),
+				),
+				(
+					"node".to_owned(),
+					tg::Value::Number(graph.node.to_f64().unwrap()),
+				),
 			]
 			.into_iter()
 			.collect(),
-			tg::directory::Object::Normal { entries } => {
-				let entries = entries
+			tg::directory::Object::Normal(normal) => {
+				let entries = normal
+					.entries
 					.clone()
 					.into_iter()
 					.map(|(name, artifact)| (name, artifact.into()))
@@ -853,26 +860,29 @@ where
 		let object = file.object(handle).await?;
 
 		let children = match object.as_ref() {
-			tg::file::Object::Graph { graph, node } => [
-				("graph".to_owned(), tg::Value::Object(graph.clone().into())),
-				("node".to_owned(), tg::Value::Number(node.to_f64().unwrap())),
+			tg::file::Object::Graph(graph) => [
+				(
+					"graph".to_owned(),
+					tg::Value::Object(graph.graph.clone().into()),
+				),
+				(
+					"node".to_owned(),
+					tg::Value::Number(graph.node.to_f64().unwrap()),
+				),
 			]
 			.into_iter()
 			.collect(),
-			tg::file::Object::Normal {
-				contents,
-				dependencies,
-				executable,
-			} => {
+			tg::file::Object::Normal(normal) => {
 				let mut children = Vec::with_capacity(3);
 				children.push((
 					"contents".to_owned(),
-					tg::Value::Object(contents.clone().into()),
+					tg::Value::Object(normal.contents.clone().into()),
 				));
-				if *executable {
-					children.push(("executable".to_owned(), tg::Value::Bool(*executable)));
+				if normal.executable {
+					children.push(("executable".to_owned(), tg::Value::Bool(normal.executable)));
 				}
-				let dependencies = dependencies
+				let dependencies = normal
+					.dependencies
 					.clone()
 					.into_iter()
 					.map(|(reference, referent)| {
@@ -1141,19 +1151,25 @@ where
 	) -> tg::Result<()> {
 		let object = symlink.object(handle).await?;
 		let children = match object.as_ref() {
-			tg::symlink::Object::Graph { graph, node } => [
-				("graph".to_owned(), tg::Value::Object(graph.clone().into())),
-				("node".to_owned(), tg::Value::Number(node.to_f64().unwrap())),
+			tg::symlink::Object::Graph(graph) => [
+				(
+					"graph".to_owned(),
+					tg::Value::Object(graph.graph.clone().into()),
+				),
+				(
+					"node".to_owned(),
+					tg::Value::Number(graph.node.to_f64().unwrap()),
+				),
 			]
 			.into_iter()
 			.collect(),
-			tg::symlink::Object::Normal { artifact, path } => {
+			tg::symlink::Object::Normal(normal) => {
 				let mut children = Vec::new();
-				if let Some(artifact) = artifact {
+				if let Some(artifact) = &normal.artifact {
 					let artifact = tg::Value::Object(artifact.clone().into());
 					children.push(("artifact".to_owned(), artifact));
 				}
-				if let Some(path) = path {
+				if let Some(path) = &normal.path {
 					let path = path.to_string_lossy().to_string();
 					children.push(("path".to_owned(), tg::Value::String(path)));
 				}

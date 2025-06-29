@@ -127,7 +127,7 @@ impl File {
 
 	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph { graph, node })
+		Self::with_object(Object::Graph(tg::file::object::Graph { graph, node }))
 	}
 
 	pub async fn contents<H>(&self, handle: &H) -> tg::Result<tg::Blob>
@@ -136,11 +136,13 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let file = node
 					.try_unwrap_file_ref()
@@ -149,7 +151,7 @@ impl File {
 				let contents = file.contents.clone();
 				Ok(contents)
 			},
-			Object::Normal { contents, .. } => Ok(contents.clone()),
+			Object::Normal(object) => Ok(object.contents.clone()),
 		}
 	}
 
@@ -162,11 +164,13 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let entries = match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let file = node
 					.try_unwrap_file_ref()
@@ -206,7 +210,7 @@ impl File {
 					})
 					.try_collect()?
 			},
-			Object::Normal { dependencies, .. } => dependencies.clone(),
+			Object::Normal(normal) => normal.dependencies.clone(),
 		};
 		Ok(entries)
 	}
@@ -234,11 +238,13 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let referent = match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let file = node
 					.try_unwrap_file_ref()
@@ -268,7 +274,7 @@ impl File {
 					tag: referent.tag.clone(),
 				})
 			},
-			Object::Normal { dependencies, .. } => dependencies.get(reference).cloned(),
+			Object::Normal(normal) => normal.dependencies.get(reference).cloned(),
 		};
 		Ok(referent)
 	}
@@ -279,11 +285,13 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let file = node
 					.try_unwrap_file_ref()
@@ -291,7 +299,7 @@ impl File {
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				Ok(file.executable)
 			},
-			Object::Normal { executable, .. } => Ok(*executable),
+			Object::Normal(normal) => Ok(normal.executable),
 		}
 	}
 

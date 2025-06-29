@@ -244,12 +244,12 @@ where
 		write!(self.writer, "tg.directory(")?;
 		self.start_map()?;
 		match object {
-			tg::directory::Object::Graph { graph, node } => {
-				self.map_entry("graph", |s| s.graph(graph))?;
-				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
+			tg::directory::Object::Graph(graph) => {
+				self.map_entry("graph", |s| s.graph(&graph.graph))?;
+				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
 			},
-			tg::directory::Object::Normal { entries } => {
-				for (name, artifact) in entries {
+			tg::directory::Object::Normal(normal) => {
+				for (name, artifact) in &normal.entries {
 					self.map_entry(name, |s| s.artifact(artifact))?;
 				}
 			},
@@ -279,20 +279,16 @@ where
 		write!(self.writer, "tg.file(")?;
 		self.start_map()?;
 		match object {
-			tg::file::Object::Graph { graph, node } => {
-				self.map_entry("graph", |s| s.graph(graph))?;
-				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
+			tg::file::Object::Graph(graph) => {
+				self.map_entry("graph", |s| s.graph(&graph.graph))?;
+				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
 			},
-			tg::file::Object::Normal {
-				contents,
-				dependencies,
-				executable,
-			} => {
-				self.map_entry("contents", |s| s.blob(contents))?;
-				if !dependencies.is_empty() {
+			tg::file::Object::Normal(normal) => {
+				self.map_entry("contents", |s| s.blob(&normal.contents))?;
+				if !normal.dependencies.is_empty() {
 					self.map_entry("dependencies", |s| {
 						s.start_map()?;
-						for (reference, referent) in dependencies {
+						for (reference, referent) in &normal.dependencies {
 							s.map_entry(reference.as_str(), |s| {
 								s.start_map()?;
 								s.map_entry("item", |s| s.object(&referent.item))?;
@@ -312,7 +308,7 @@ where
 						Ok(())
 					})?;
 				}
-				if *executable {
+				if normal.executable {
 					self.map_entry("executable", |s| s.bool(true))?;
 				}
 			},
@@ -342,15 +338,15 @@ where
 		write!(self.writer, "tg.symlink(")?;
 		self.start_map()?;
 		match object {
-			tg::symlink::Object::Graph { graph, node } => {
-				self.map_entry("graph", |s| s.graph(graph))?;
-				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
+			tg::symlink::Object::Graph(graph) => {
+				self.map_entry("graph", |s| s.graph(&graph.graph))?;
+				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
 			},
-			tg::symlink::Object::Normal { artifact, path } => {
-				if let Some(artifact) = &artifact {
+			tg::symlink::Object::Normal(normal) => {
+				if let Some(artifact) = &normal.artifact {
 					self.map_entry("artifact", |s| s.artifact(artifact))?;
 				}
-				if let Some(path) = &path {
+				if let Some(path) = &normal.path {
 					self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 				}
 			},

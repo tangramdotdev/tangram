@@ -5,29 +5,32 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub enum File {
-	Graph {
-		graph: tg::Graph,
-		node: usize,
-	},
-	Normal {
-		contents: tg::Blob,
-		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
-		executable: bool,
-	},
+	Graph(Graph),
+	Normal(Normal),
+}
+
+#[derive(Clone, Debug)]
+pub struct Graph {
+	pub graph: tg::Graph,
+	pub node: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct Normal {
+	pub contents: tg::Blob,
+	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
+	pub executable: bool,
 }
 
 impl File {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
-			Self::Normal {
-				contents,
-				dependencies,
-				..
-			} => {
-				let contents = contents.clone().into();
-				let dependencies = dependencies
+			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
+			Self::Normal(normal) => {
+				let contents = normal.contents.clone().into();
+				let dependencies = normal
+					.dependencies
 					.values()
 					.map(|dependency| dependency.item.clone());
 				std::iter::once(contents).chain(dependencies).collect()
@@ -38,18 +41,18 @@ impl File {
 	#[must_use]
 	pub fn to_data(&self) -> Data {
 		match self {
-			Self::Graph { graph, node } => {
-				let graph = graph.id();
-				let node = *node;
-				Data::Graph(tg::file::data::Graph { graph, node })
+			Self::Graph(graph) => {
+				let graph_id = graph.graph.id();
+				let node = graph.node;
+				Data::Graph(tg::file::data::Graph {
+					graph: graph_id,
+					node,
+				})
 			},
-			Self::Normal {
-				contents,
-				dependencies,
-				executable,
-			} => {
-				let contents = contents.id();
-				let dependencies = dependencies
+			Self::Normal(normal) => {
+				let contents = normal.contents.id();
+				let dependencies = normal
+					.dependencies
 					.iter()
 					.map(|(reference, referent)| {
 						let object = referent.item.id();
@@ -61,7 +64,7 @@ impl File {
 						(reference.clone(), dependency)
 					})
 					.collect();
-				let executable = *executable;
+				let executable = normal.executable;
 				Data::Normal(tg::file::data::Normal {
 					contents,
 					dependencies,
@@ -80,7 +83,7 @@ impl TryFrom<Data> for File {
 			Data::Graph(data) => {
 				let graph = tg::Graph::with_id(data.graph);
 				let node = data.node;
-				Ok(Self::Graph { graph, node })
+				Ok(Self::Graph(Graph { graph, node }))
 			},
 			Data::Normal(data) => {
 				let contents = tg::Blob::with_id(data.contents);
@@ -92,11 +95,11 @@ impl TryFrom<Data> for File {
 						(reference, referent)
 					})
 					.collect();
-				Ok(Self::Normal {
+				Ok(Self::Normal(Normal {
 					contents,
 					dependencies,
 					executable: data.executable,
-				})
+				}))
 			},
 		}
 	}

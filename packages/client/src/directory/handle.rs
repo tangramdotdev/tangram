@@ -118,12 +118,12 @@ impl Directory {
 impl Directory {
 	#[must_use]
 	pub fn with_entries(entries: BTreeMap<String, tg::Artifact>) -> Self {
-		Self::with_object(Object::Normal { entries })
+		Self::with_object(Object::Normal(tg::directory::object::Normal { entries }))
 	}
 
 	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph { graph, node })
+		Self::with_object(Object::Graph(tg::directory::object::Graph { graph, node }))
 	}
 
 	pub async fn builder<H>(&self, handle: &H) -> tg::Result<Builder>
@@ -141,11 +141,13 @@ impl Directory {
 	{
 		let object = self.object(handle).await?;
 		let entries = match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let directory = node
 					.try_unwrap_directory_ref()
@@ -182,7 +184,7 @@ impl Directory {
 					})
 					.collect::<tg::Result<_>>()?
 			},
-			Object::Normal { entries } => entries.clone(),
+			Object::Normal(normal) => normal.entries.clone(),
 		};
 		Ok(entries)
 	}
@@ -193,11 +195,13 @@ impl Directory {
 	{
 		let object = self.object(handle).await?;
 		let artifact = match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let directory = node
 					.try_unwrap_directory_ref()
@@ -227,7 +231,7 @@ impl Directory {
 					Some(Either::Right(artifact)) => Some(artifact.clone()),
 				}
 			},
-			Object::Normal { entries } => entries.get(name).cloned(),
+			Object::Normal(normal) => normal.entries.get(name).cloned(),
 		};
 		Ok(artifact)
 	}

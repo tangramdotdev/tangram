@@ -5,34 +5,44 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub enum Directory {
-	Graph {
-		graph: tg::Graph,
-		node: usize,
-	},
-	Normal {
-		entries: BTreeMap<String, tg::Artifact>,
-	},
+	Graph(Graph),
+	Normal(Normal),
+}
+
+#[derive(Clone, Debug)]
+pub struct Graph {
+	pub graph: tg::Graph,
+	pub node: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct Normal {
+	pub entries: BTreeMap<String, tg::Artifact>,
 }
 
 impl Directory {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().collect(),
-			Self::Normal { entries } => entries.values().cloned().map(Into::into).collect(),
+			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
+			Self::Normal(normal) => normal.entries.values().cloned().map(Into::into).collect(),
 		}
 	}
 
 	#[must_use]
 	pub fn to_data(&self) -> Data {
 		match self {
-			Self::Graph { graph, node } => {
-				let graph = graph.id();
-				let node = *node;
-				Data::Graph(tg::directory::data::Graph { graph, node })
+			Self::Graph(graph) => {
+				let graph_id = graph.graph.id();
+				let node = graph.node;
+				Data::Graph(tg::directory::data::Graph {
+					graph: graph_id,
+					node,
+				})
 			},
-			Self::Normal { entries } => {
-				let entries = entries
+			Self::Normal(normal) => {
+				let entries = normal
+					.entries
 					.iter()
 					.map(|(name, artifact)| (name.clone(), artifact.id()))
 					.collect();
@@ -50,7 +60,7 @@ impl TryFrom<Data> for Directory {
 			Data::Graph(data) => {
 				let graph = tg::Graph::with_id(data.graph);
 				let node = data.node;
-				Ok(Self::Graph { graph, node })
+				Ok(Self::Graph(Graph { graph, node }))
 			},
 			Data::Normal(data) => {
 				let entries = data
@@ -58,7 +68,7 @@ impl TryFrom<Data> for Directory {
 					.into_iter()
 					.map(|(name, id)| (name, tg::Artifact::with_id(id)))
 					.collect();
-				Ok(Self::Normal { entries })
+				Ok(Self::Normal(Normal { entries }))
 			},
 		}
 	}

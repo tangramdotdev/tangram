@@ -1040,7 +1040,11 @@ impl Server {
 					None => None,
 				};
 				let path = symlink.path.clone();
-				tg::Symlink::with_object(tg::symlink::Object::Normal { artifact, path }).into()
+				tg::Symlink::with_object(tg::symlink::Object::Normal(tg::symlink::object::Normal {
+					artifact,
+					path,
+				}))
+				.into()
 			},
 		};
 		visited[node].replace(object);

@@ -115,31 +115,31 @@ impl Symlink {
 impl Symlink {
 	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph { graph, node })
+		Self::with_object(Object::Graph(tg::symlink::object::Graph { graph, node }))
 	}
 
 	#[must_use]
 	pub fn with_artifact_and_path(artifact: tg::Artifact, path: PathBuf) -> Self {
-		Self::with_object(Object::Normal {
+		Self::with_object(Object::Normal(tg::symlink::object::Normal {
 			artifact: Some(artifact),
 			path: Some(path),
-		})
+		}))
 	}
 
 	#[must_use]
 	pub fn with_artifact(artifact: tg::Artifact) -> Self {
-		Self::with_object(Object::Normal {
+		Self::with_object(Object::Normal(tg::symlink::object::Normal {
 			artifact: Some(artifact),
 			path: None,
-		})
+		}))
 	}
 
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
-		Self::with_object(Object::Normal {
+		Self::with_object(Object::Normal(tg::symlink::object::Normal {
 			artifact: None,
 			path: Some(path),
-		})
+		}))
 	}
 
 	pub async fn artifact<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
@@ -148,11 +148,13 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(graph_obj) => {
+				let graph = &graph_obj.graph;
+				let node = graph_obj.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let symlink = node
 					.try_unwrap_symlink_ref()
@@ -184,7 +186,7 @@ impl Symlink {
 				};
 				Ok(Some(artifact))
 			},
-			Object::Normal { artifact, .. } => Ok(artifact.clone()),
+			Object::Normal(normal) => Ok(normal.artifact.clone()),
 		}
 	}
 
@@ -194,11 +196,13 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph { graph, node } => {
+			Object::Graph(graph_obj) => {
+				let graph = &graph_obj.graph;
+				let node = graph_obj.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(*node)
+					.get(node)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let symlink = node
 					.try_unwrap_symlink_ref()
@@ -206,7 +210,7 @@ impl Symlink {
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
 				Ok(symlink.path.clone())
 			},
-			Object::Normal { path, .. } => Ok(path.clone()),
+			Object::Normal(normal) => Ok(normal.path.clone()),
 		}
 	}
 
