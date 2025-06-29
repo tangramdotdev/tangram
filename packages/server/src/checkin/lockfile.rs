@@ -2,6 +2,7 @@ use crate::Server;
 use itertools::Itertools;
 use tangram_client as tg;
 use tangram_either::Either;
+use tangram_itertools::IteratorExt as _;
 
 impl Server {
 	pub(super) fn create_lockfile(state: &super::State) -> tg::Result<tg::Lockfile> {
@@ -462,6 +463,7 @@ struct LockfileGraphImpl<'a>(&'a [tg::lockfile::Node]);
 
 impl petgraph::visit::GraphBase for LockfileGraphImpl<'_> {
 	type EdgeId = (usize, usize);
+
 	type NodeId = usize;
 }
 
@@ -481,32 +483,31 @@ impl petgraph::visit::NodeIndexable for &LockfileGraphImpl<'_> {
 
 impl<'a> petgraph::visit::IntoNeighbors for &LockfileGraphImpl<'a> {
 	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
+
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
 		match &self.0[a] {
-			tg::lockfile::Node::Directory(directory) => {
-				let it = directory
-					.entries
-					.values()
-					.filter_map(|entry| entry.as_ref().left().copied());
-				Box::new(it)
-			},
-			tg::lockfile::Node::File(file) => {
-				let it = file
-					.dependencies
-					.values()
-					.filter_map(|referent| referent.item.as_ref().left().copied());
-				Box::new(it)
-			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, .. }) => {
-				let it = artifact.clone().into_iter().filter_map(Either::left);
-				Box::new(it)
-			},
+			tg::lockfile::Node::Directory(directory) => directory
+				.entries
+				.values()
+				.filter_map(|entry| entry.as_ref().left().copied())
+				.boxed(),
+			tg::lockfile::Node::File(file) => file
+				.dependencies
+				.values()
+				.filter_map(|referent| referent.item.as_ref().left().copied())
+				.boxed(),
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, .. }) => artifact
+				.clone()
+				.into_iter()
+				.filter_map(Either::left)
+				.boxed(),
 		}
 	}
 }
 
 impl petgraph::visit::IntoNodeIdentifiers for &LockfileGraphImpl<'_> {
 	type NodeIdentifiers = std::ops::Range<usize>;
+
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
 		0..self.0.len()
 	}

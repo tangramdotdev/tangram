@@ -6259,6 +6259,7 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_ignore",
+ "tangram_itertools",
  "tangram_messenger",
  "tangram_sandbox",
  "tangram_temp",

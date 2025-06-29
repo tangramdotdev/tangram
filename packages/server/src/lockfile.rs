@@ -710,13 +710,13 @@ impl Server {
 		for node in &lockfile.nodes {
 			match node {
 				tg::lockfile::Node::Directory(tg::lockfile::Directory { entries, .. }) => {
-					let it = entries
+					let ids = entries
 						.values()
 						.filter_map(|value| value.as_ref().right().cloned());
-					object_ids.extend(it);
+					object_ids.extend(ids);
 				},
 				tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
-					let it =
+					let ids =
 						dependencies
 							.values()
 							.filter_map(|referent| match referent.item.clone() {
@@ -725,7 +725,7 @@ impl Server {
 								Either::Right(tg::object::Id::Symlink(id)) => Some(id.into()),
 								_ => None,
 							});
-					object_ids.extend(it);
+					object_ids.extend(ids);
 				},
 				tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
 					artifact: Some(Either::Right(artifact)),

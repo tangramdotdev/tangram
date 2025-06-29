@@ -102,6 +102,7 @@ tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
+tangram_itertools = { workspace = true }
 tangram_messenger = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_temp = { workspace = true }
