@@ -88,28 +88,29 @@ impl Server {
 				let (kind, data) = match &state.graph.nodes[global].variant {
 					Variant::Directory(_) => {
 						let kind = tg::object::Kind::Directory;
-						let data = tg::directory::data::Directory::Graph {
-							graph: object.id.clone(),
-							node: local,
-						};
+						let data =
+							tg::directory::data::Directory::Graph(tg::directory::data::Graph {
+								graph: object.id.clone(),
+								node: local,
+							});
 						let data = tg::object::Data::from(data);
 						(kind, data)
 					},
 					Variant::File(_) => {
 						let kind = tg::object::Kind::File;
-						let data = tg::file::data::File::Graph {
+						let data = tg::file::data::File::Graph(tg::file::data::Graph {
 							graph: object.id.clone(),
 							node: local,
-						};
+						});
 						let data = tg::object::Data::from(data);
 						(kind, data)
 					},
 					Variant::Symlink(_) => {
 						let kind = tg::object::Kind::Symlink;
-						let data = tg::symlink::data::Symlink::Graph {
+						let data = tg::symlink::data::Symlink::Graph(tg::symlink::data::Graph {
 							graph: object.id.clone(),
 							node: local,
-						};
+						});
 						let data = tg::object::Data::from(data);
 						(kind, data)
 					},
@@ -253,7 +254,7 @@ impl Server {
 						(name, id)
 					})
 					.collect();
-				let data = tg::directory::Data::Normal { entries };
+				let data = tg::directory::Data::Normal(tg::directory::data::Normal { entries });
 				let data = tg::object::Data::from(data);
 				(kind, data)
 			},
@@ -288,11 +289,11 @@ impl Server {
 					})
 					.try_collect()?;
 				let executable = file.executable;
-				let data = tg::file::Data::Normal {
+				let data = tg::file::Data::Normal(tg::file::data::Normal {
 					contents,
 					dependencies,
 					executable,
-				};
+				});
 				let data = tg::object::Data::from(data);
 				(kind, data)
 			},
@@ -312,8 +313,9 @@ impl Server {
 					None => None,
 				};
 				let path = symlink.path.clone();
-				let data =
-					tg::object::Data::from(tg::symlink::data::Symlink::Normal { artifact, path });
+				let data = tg::object::Data::from(tg::symlink::data::Symlink::Normal(
+					tg::symlink::data::Normal { artifact, path },
+				));
 				(kind, data)
 			},
 			Variant::Object => return Ok(()),

@@ -103,22 +103,24 @@ impl Server {
 		'a: {
 			let (graph, node) = match &artifact {
 				tg::artifact::Data::Directory(directory) => {
-					let tg::directory::Data::Graph { graph, node } = directory else {
+					let tg::directory::Data::Graph(tg::directory::data::Graph { graph, node }) =
+						directory
+					else {
 						break 'a;
 					};
-					(graph, node)
+					(graph, *node)
 				},
 				tg::artifact::Data::File(file) => {
-					let tg::file::Data::Graph { graph, node } = file else {
+					let tg::file::Data::Graph(data) = file else {
 						break 'a;
 					};
-					(graph, node)
+					(&data.graph, data.node)
 				},
 				tg::artifact::Data::Symlink(symlink) => {
-					let tg::symlink::Data::Graph { graph, node } = symlink else {
+					let tg::symlink::Data::Graph(data) = symlink else {
 						break 'a;
 					};
-					(graph, node)
+					(&data.graph, data.node)
 				},
 			};
 			let nodes = self.create_lockfile_node_with_graph(
@@ -130,7 +132,7 @@ impl Server {
 				visited,
 				graphs,
 			)?;
-			return Ok(nodes[*node]);
+			return Ok(nodes[node]);
 		}
 
 		// Only create a distinct node for non-graph artifacts.
@@ -141,7 +143,9 @@ impl Server {
 		// Create a new lockfile node for the artifact, recursing over dependencies.
 		let node = match &artifact {
 			tg::artifact::Data::Directory(directory) => {
-				let tg::directory::data::Directory::Normal { entries } = directory else {
+				let tg::directory::data::Directory::Normal(tg::directory::data::Normal { entries }) =
+					directory
+				else {
 					unreachable!()
 				};
 				let mut entries_ = BTreeMap::new();
@@ -161,14 +165,12 @@ impl Server {
 			},
 
 			tg::artifact::Data::File(file) => {
-				let tg::file::data::File::Normal {
-					contents,
-					dependencies,
-					executable,
-				} = file
-				else {
+				let tg::file::data::File::Normal(data) = file else {
 					unreachable!()
 				};
+				let contents = &data.contents;
+				let dependencies = &data.dependencies;
+				let executable = data.executable;
 				let mut dependencies_ = BTreeMap::new();
 				for (reference, referent) in dependencies {
 					let is_path_dependency = is_path_dependency && reference.path().is_some();
@@ -222,16 +224,18 @@ impl Server {
 				tg::lockfile::Node::File(tg::lockfile::File {
 					contents,
 					dependencies: dependencies_,
-					executable: *executable,
+					executable,
 				})
 			},
 
 			tg::artifact::Data::Symlink(symlink) => match symlink {
-				tg::symlink::data::Symlink::Graph { .. } => unreachable!(),
-				tg::symlink::data::Symlink::Normal { artifact, path } => {
-					let artifact = if let Some(artifact) = artifact.clone() {
+				tg::symlink::data::Symlink::Graph(..) => unreachable!(),
+				tg::symlink::data::Symlink::Normal(data) => {
+					let artifact = &data.artifact;
+					let path = &data.path;
+					let artifact = if let Some(artifact) = artifact {
 						let index = self.get_or_create_lockfile_node_for_artifact(
-							artifact,
+							artifact.clone(),
 							false,
 							checkout_dependencies,
 							nodes,
@@ -244,7 +248,10 @@ impl Server {
 						None
 					};
 					let path = path.as_ref().map(PathBuf::from);
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, path })
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+						artifact,
+						path: path.clone(),
+					})
 				},
 			},
 		};
@@ -288,20 +295,22 @@ impl Server {
 		for node in 0..graph.nodes.len() {
 			let kind = graph.nodes[node].kind();
 			let data: tg::artifact::Data = match kind {
-				tg::artifact::Kind::Directory => tg::directory::Data::Graph {
+				tg::artifact::Kind::Directory => {
+					tg::directory::Data::Graph(tg::directory::data::Graph {
+						graph: id.clone(),
+						node,
+					})
+					.into()
+				},
+				tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
 					graph: id.clone(),
 					node,
-				}
+				})
 				.into(),
-				tg::artifact::Kind::File => tg::file::Data::Graph {
+				tg::artifact::Kind::Symlink => tg::symlink::Data::Graph(tg::symlink::data::Graph {
 					graph: id.clone(),
 					node,
-				}
-				.into(),
-				tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
-					graph: id.clone(),
-					node,
-				}
+				})
 				.into(),
 			};
 			let bytes = data.serialize()?;

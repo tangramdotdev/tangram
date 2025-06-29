@@ -53,11 +53,11 @@ impl Server {
 
 		// Rename the temp file to the cache directory if necessary.
 		let cache_reference = if let Destination::Temp(temp) = destination {
-			let data = tg::file::Data::Normal {
+			let data = tg::file::Data::Normal(tg::file::data::Normal {
 				contents: blob.id.clone(),
 				dependencies: BTreeMap::new(),
 				executable: false,
-			};
+			});
 			let id = tg::file::Id::new(&data.serialize()?);
 			let path = self.cache_path().join(id.to_string());
 			tokio::fs::rename(temp.path(), path)

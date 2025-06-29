@@ -420,21 +420,25 @@ impl Server {
 						.kind();
 					let graph = graph.clone();
 					let data: tg::artifact::Data = match kind {
-						tg::artifact::Kind::Directory => tg::directory::Data::Graph {
+						tg::artifact::Kind::Directory => {
+							tg::directory::Data::Graph(tg::directory::data::Graph {
+								graph: graph.clone(),
+								node,
+							})
+							.into()
+						},
+						tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
 							graph: graph.clone(),
 							node,
-						}
+						})
 						.into(),
-						tg::artifact::Kind::File => tg::file::Data::Graph {
-							graph: graph.clone(),
-							node,
-						}
-						.into(),
-						tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
-							graph: graph.clone(),
-							node,
-						}
-						.into(),
+						tg::artifact::Kind::Symlink => {
+							tg::symlink::Data::Graph(tg::symlink::data::Graph {
+								graph: graph.clone(),
+								node,
+							})
+							.into()
+						},
 					};
 					let bytes = data.serialize()?;
 					tg::artifact::Id::new(kind, &bytes)
@@ -476,21 +480,25 @@ impl Server {
 						.kind();
 					let graph = graph.clone();
 					let data: tg::artifact::Data = match kind {
-						tg::artifact::Kind::Directory => tg::directory::Data::Graph {
+						tg::artifact::Kind::Directory => {
+							tg::directory::Data::Graph(tg::directory::data::Graph {
+								graph: graph.clone(),
+								node,
+							})
+							.into()
+						},
+						tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
 							graph: graph.clone(),
 							node,
-						}
+						})
 						.into(),
-						tg::artifact::Kind::File => tg::file::Data::Graph {
-							graph: graph.clone(),
-							node,
-						}
-						.into(),
-						tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
-							graph: graph.clone(),
-							node,
-						}
-						.into(),
+						tg::artifact::Kind::Symlink => {
+							tg::symlink::Data::Graph(tg::symlink::data::Graph {
+								graph: graph.clone(),
+								node,
+							})
+							.into()
+						},
 					};
 					let bytes = data.serialize()?;
 					tg::artifact::Id::new(kind, &bytes)
@@ -615,21 +623,25 @@ impl Server {
 						.kind();
 					let graph = graph.clone();
 					let data: tg::artifact::Data = match kind {
-						tg::artifact::Kind::Directory => tg::directory::Data::Graph {
+						tg::artifact::Kind::Directory => {
+							tg::directory::Data::Graph(tg::directory::data::Graph {
+								graph: graph.clone(),
+								node,
+							})
+							.into()
+						},
+						tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
 							graph: graph.clone(),
 							node,
-						}
+						})
 						.into(),
-						tg::artifact::Kind::File => tg::file::Data::Graph {
-							graph: graph.clone(),
-							node,
-						}
-						.into(),
-						tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
-							graph: graph.clone(),
-							node,
-						}
-						.into(),
+						tg::artifact::Kind::Symlink => {
+							tg::symlink::Data::Graph(tg::symlink::data::Graph {
+								graph: graph.clone(),
+								node,
+							})
+							.into()
+						},
 					};
 					let bytes = data.serialize()?;
 					tg::artifact::Id::new(kind, &bytes)
@@ -706,11 +718,11 @@ impl Server {
 		let weight = directory.serialize().unwrap().len().to_u64().unwrap();
 		let progress = state.progress.clone();
 		match directory {
-			tg::directory::Data::Graph { graph, node } => {
+			tg::directory::Data::Graph(tg::directory::data::Graph { graph, node }) => {
 				let artifact = Either::Left((graph, node));
 				self.checkout_inner(state, path, id, artifact)?;
 			},
-			tg::directory::Data::Normal { entries } => {
+			tg::directory::Data::Normal(tg::directory::data::Normal { entries }) => {
 				std::fs::create_dir_all(&path).unwrap();
 				for (name, id) in entries {
 					let artifact = Either::Right(id.clone());
@@ -733,17 +745,13 @@ impl Server {
 		let weight = file.serialize().unwrap().len().to_u64().unwrap();
 		let progress = state.progress.clone();
 		match file {
-			tg::file::Data::Graph { graph, node } => {
-				let artifact = Either::Left((graph, node));
+			tg::file::Data::Graph(data) => {
+				let artifact = Either::Left((data.graph, data.node));
 				self.checkout_inner(state, path, id, artifact)?;
 			},
-			tg::file::Data::Normal {
-				contents,
-				dependencies,
-				executable,
-			} => {
+			tg::file::Data::Normal(data) => {
 				// Check out the dependencies.
-				for referent in dependencies.values() {
+				for referent in data.dependencies.values() {
 					let Ok(id) = tg::artifact::Id::try_from(referent.item.clone()) else {
 						continue;
 					};
@@ -782,7 +790,7 @@ impl Server {
 					let path = path.clone();
 					let progress = state.progress.clone();
 					let future = async move {
-						let reader = tg::Blob::with_id(contents)
+						let reader = tg::Blob::with_id(data.contents)
 							.read(&server, tg::blob::read::Arg::default())
 							.await
 							.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
@@ -816,7 +824,7 @@ impl Server {
 				}
 
 				// Get the dependencies' references.
-				let dependencies = dependencies.keys().cloned().collect::<Vec<_>>();
+				let dependencies = data.dependencies.keys().cloned().collect::<Vec<_>>();
 				if !dependencies.is_empty() {
 					let dependencies = serde_json::to_vec(&dependencies).map_err(|source| {
 						tg::error!(!source, "failed to serialize dependencies")
@@ -827,7 +835,7 @@ impl Server {
 				}
 
 				// Set the file's permissions.
-				if executable {
+				if data.executable {
 					let permissions = std::fs::Permissions::from_mode(0o755);
 					std::fs::set_permissions(path, permissions)
 						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
@@ -848,28 +856,21 @@ impl Server {
 		let weight = symlink.serialize().unwrap().len().to_u64().unwrap();
 		let progress = state.progress.clone();
 		match symlink {
-			tg::symlink::Data::Graph { graph, node } => {
-				let artifact = Either::Left((graph, node));
+			tg::symlink::Data::Graph(data) => {
+				let artifact = Either::Left((data.graph, data.node));
 				self.checkout_inner(state, path, id, artifact)?;
 			},
-			tg::symlink::Data::Normal {
-				artifact,
-				path: path_,
-			} => {
+			tg::symlink::Data::Normal(data) => {
 				// Render the target.
-				let target = if let Some(artifact) = artifact {
+				let target = if let Some(artifact) = &data.artifact {
 					let mut target = PathBuf::new();
 
-					if artifact == state.artifact {
+					if *artifact == state.artifact {
 						// If the symlink's artifact is the root artifact, then use the root path.
 						target.push(&state.path);
 					} else {
 						// If the symlink's artifact is another artifact, then check it out and use the artifact's path.
-						self.checkout_dependency(
-							state,
-							&artifact,
-							Either::Right(artifact.clone()),
-						)?;
+						self.checkout_dependency(state, artifact, Either::Right(artifact.clone()))?;
 						let artifacts_path = state
 							.artifacts_path
 							.as_ref()
@@ -878,7 +879,7 @@ impl Server {
 					}
 
 					// Add the path if it is set.
-					if let Some(path_) = path_ {
+					if let Some(path_) = &data.path {
 						target.push(path_);
 					}
 
@@ -888,8 +889,8 @@ impl Server {
 						.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 					let dst = &target;
 					crate::util::path::diff(src, dst)?
-				} else if let Some(path_) = path_ {
-					path_
+				} else if let Some(path_) = &data.path {
+					path_.clone()
 				} else {
 					return Err(tg::error!("invalid symlink"));
 				};

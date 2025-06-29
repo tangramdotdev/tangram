@@ -36,12 +36,12 @@ impl Symlink {
 			Self::Graph { graph, node } => {
 				let graph = graph.id();
 				let node = *node;
-				Data::Graph { graph, node }
+				Data::Graph(tg::symlink::data::Graph { graph, node })
 			},
 			Self::Normal { artifact, path } => {
 				let artifact = artifact.as_ref().map(tg::Artifact::id);
 				let path = path.clone();
-				Data::Normal { artifact, path }
+				Data::Normal(tg::symlink::data::Normal { artifact, path })
 			},
 		}
 	}
@@ -52,12 +52,14 @@ impl TryFrom<Data> for Symlink {
 
 	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		match data {
-			Data::Graph { graph, node } => {
-				let graph = tg::Graph::with_id(graph);
+			Data::Graph(data) => {
+				let graph = tg::Graph::with_id(data.graph);
+				let node = data.node;
 				Ok(Self::Graph { graph, node })
 			},
-			Data::Normal { artifact, path } => {
-				let artifact = artifact.map(tg::Artifact::with_id);
+			Data::Normal(data) => {
+				let artifact = data.artifact.map(tg::Artifact::with_id);
+				let path = data.path;
 				Ok(Self::Normal { artifact, path })
 			},
 		}

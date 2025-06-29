@@ -122,26 +122,19 @@ impl Server {
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
 		let (contents, executable) = match data {
-			tg::file::Data::Graph {
-				graph: graph_id,
-				node,
-			} => {
+			tg::file::Data::Graph(data) => {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == graph_id.clone())
+					.find(|object| object.id == data.graph.clone())
 					.unwrap()
 					.data;
-				let file = graph.nodes[*node].clone().try_unwrap_file().unwrap();
+				let file = graph.nodes[data.node].clone().try_unwrap_file().unwrap();
 				let contents = file.contents;
 				let executable = file.executable;
 				(contents, executable)
 			},
-			tg::file::Data::Normal {
-				contents,
-				executable,
-				..
-			} => (contents.clone(), *executable),
+			tg::file::Data::Normal(data) => (data.contents.clone(), data.executable),
 		};
 		let dependencies = state.graph.nodes[index]
 			.variant
@@ -207,20 +200,17 @@ impl Server {
 
 		// Get the subpath, if it exists.
 		let subpath = match data {
-			tg::symlink::Data::Graph {
-				graph: graph_id,
-				node,
-			} => {
+			tg::symlink::Data::Graph(data) => {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == graph_id.clone())
+					.find(|object| object.id == data.graph.clone())
 					.unwrap()
 					.data;
-				let symlink = graph.nodes[*node].clone().try_unwrap_symlink().unwrap();
+				let symlink = graph.nodes[data.node].clone().try_unwrap_symlink().unwrap();
 				symlink.path
 			},
-			tg::symlink::Data::Normal { path, .. } => path.clone(),
+			tg::symlink::Data::Normal(data) => data.path.clone(),
 		};
 
 		// Create the lockfile node.

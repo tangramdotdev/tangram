@@ -7,20 +7,25 @@ use tangram_itertools::IteratorExt as _;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum File {
-	Graph {
-		graph: tg::graph::Id,
-		node: usize,
-	},
+	Graph(Graph),
+	Normal(Normal),
+}
 
-	Normal {
-		contents: tg::blob::Id,
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Graph {
+	pub graph: tg::graph::Id,
+	pub node: usize,
+}
 
-		#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-		dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Normal {
+	pub contents: tg::blob::Id,
 
-		#[serde(default, skip_serializing_if = "is_false")]
-		executable: bool,
-	},
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub executable: bool,
 }
 
 impl File {
@@ -37,14 +42,13 @@ impl File {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().left_iterator(),
-			Self::Normal {
-				contents,
-				dependencies,
-				..
-			} => {
-				let contents = contents.clone().into();
-				let dependencies = dependencies
+			Self::Graph(graph) => std::iter::once(graph.graph.clone())
+				.map_into()
+				.left_iterator(),
+			Self::Normal(normal) => {
+				let contents = normal.contents.clone().into();
+				let dependencies = normal
+					.dependencies
 					.values()
 					.map(|dependency| dependency.item.clone());
 				std::iter::once(contents)

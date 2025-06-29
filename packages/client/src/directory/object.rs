@@ -29,14 +29,14 @@ impl Directory {
 			Self::Graph { graph, node } => {
 				let graph = graph.id();
 				let node = *node;
-				Data::Graph { graph, node }
+				Data::Graph(tg::directory::data::Graph { graph, node })
 			},
 			Self::Normal { entries } => {
 				let entries = entries
 					.iter()
 					.map(|(name, artifact)| (name.clone(), artifact.id()))
 					.collect();
-				Data::Normal { entries }
+				Data::Normal(tg::directory::data::Normal { entries })
 			},
 		}
 	}
@@ -47,12 +47,14 @@ impl TryFrom<Data> for Directory {
 
 	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		match data {
-			Data::Graph { graph, node } => {
-				let graph = tg::Graph::with_id(graph);
+			Data::Graph(data) => {
+				let graph = tg::Graph::with_id(data.graph);
+				let node = data.node;
 				Ok(Self::Graph { graph, node })
 			},
-			Data::Normal { entries } => {
-				let entries = entries
+			Data::Normal(data) => {
+				let entries = data
+					.entries
 					.into_iter()
 					.map(|(name, id)| (name, tg::Artifact::with_id(id)))
 					.collect();

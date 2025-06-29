@@ -7,13 +7,19 @@ use tangram_itertools::IteratorExt as _;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Directory {
-	Graph {
-		graph: tg::graph::Id,
-		node: usize,
-	},
-	Normal {
-		entries: BTreeMap<String, tg::artifact::Id>,
-	},
+	Graph(Graph),
+	Normal(Normal),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Graph {
+	pub graph: tg::graph::Id,
+	pub node: usize,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Normal {
+	pub entries: BTreeMap<String, tg::artifact::Id>,
 }
 
 impl Directory {
@@ -30,8 +36,15 @@ impl Directory {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph { graph, .. } => std::iter::once(graph.clone()).map_into().left_iterator(),
-			Self::Normal { entries } => entries.values().cloned().map(Into::into).right_iterator(),
+			Self::Graph(graph) => std::iter::once(graph.graph.clone())
+				.map_into()
+				.left_iterator(),
+			Self::Normal(normal) => normal
+				.entries
+				.values()
+				.cloned()
+				.map(Into::into)
+				.right_iterator(),
 		}
 	}
 }

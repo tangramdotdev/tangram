@@ -41,7 +41,7 @@ impl File {
 			Self::Graph { graph, node } => {
 				let graph = graph.id();
 				let node = *node;
-				Data::Graph { graph, node }
+				Data::Graph(tg::file::data::Graph { graph, node })
 			},
 			Self::Normal {
 				contents,
@@ -62,11 +62,11 @@ impl File {
 					})
 					.collect();
 				let executable = *executable;
-				Data::Normal {
+				Data::Normal(tg::file::data::Normal {
 					contents,
 					dependencies,
 					executable,
-				}
+				})
 			},
 		}
 	}
@@ -77,17 +77,15 @@ impl TryFrom<Data> for File {
 
 	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		match data {
-			Data::Graph { graph, node } => {
-				let graph = tg::Graph::with_id(graph);
+			Data::Graph(data) => {
+				let graph = tg::Graph::with_id(data.graph);
+				let node = data.node;
 				Ok(Self::Graph { graph, node })
 			},
-			Data::Normal {
-				contents,
-				dependencies,
-				executable,
-			} => {
-				let contents = tg::Blob::with_id(contents);
-				let dependencies = dependencies
+			Data::Normal(data) => {
+				let contents = tg::Blob::with_id(data.contents);
+				let dependencies = data
+					.dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
 						let referent = referent.map(tg::Object::with_id);
@@ -97,7 +95,7 @@ impl TryFrom<Data> for File {
 				Ok(Self::Normal {
 					contents,
 					dependencies,
-					executable,
+					executable: data.executable,
 				})
 			},
 		}

@@ -6,18 +6,23 @@ use tangram_itertools::IteratorExt as _;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Symlink {
-	Graph {
-		graph: tg::graph::Id,
-		node: usize,
-	},
+	Graph(Graph),
+	Normal(Normal),
+}
 
-	Normal {
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		artifact: Option<tg::artifact::Id>,
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Graph {
+	pub graph: tg::graph::Id,
+	pub node: usize,
+}
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		path: Option<PathBuf>,
-	},
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Normal {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub artifact: Option<tg::artifact::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
 }
 
 impl Symlink {
@@ -34,9 +39,9 @@ impl Symlink {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph { graph, .. } => std::iter::once(graph.clone().into()).boxed(),
-			Self::Normal { artifact, .. } => {
-				if let Some(artifact) = artifact {
+			Self::Graph(graph) => std::iter::once(graph.graph.clone().into()).boxed(),
+			Self::Normal(normal) => {
+				if let Some(artifact) = &normal.artifact {
 					std::iter::once(artifact.clone().into()).boxed()
 				} else {
 					std::iter::empty().boxed()
