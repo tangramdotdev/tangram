@@ -26,7 +26,7 @@ pub enum Executable {
 #[derive(Clone, Debug)]
 pub struct ArtifactExecutable {
 	pub artifact: tg::Artifact,
-	pub subpath: Option<PathBuf>,
+	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -74,7 +74,7 @@ impl Command {
 			tg::command::Executable::Artifact(executable) => {
 				let artifact = tg::command::data::ArtifactExecutable {
 					artifact: executable.artifact.id(),
-					subpath: executable.subpath.clone(),
+					path: executable.path.clone(),
 				};
 				tg::command::data::Executable::Artifact(artifact)
 			},
@@ -182,8 +182,8 @@ impl From<tg::command::data::Executable> for Executable {
 impl From<tg::command::data::ArtifactExecutable> for ArtifactExecutable {
 	fn from(data: tg::command::data::ArtifactExecutable) -> Self {
 		let artifact = tg::Artifact::with_id(data.artifact);
-		let subpath = data.subpath;
-		Self { artifact, subpath }
+		let path = data.path;
+		Self { artifact, path }
 	}
 }
 
@@ -207,7 +207,7 @@ impl From<tg::File> for Executable {
 	fn from(value: tg::File) -> Self {
 		Self::Artifact(ArtifactExecutable {
 			artifact: value.into(),
-			subpath: None,
+			path: None,
 		})
 	}
 }

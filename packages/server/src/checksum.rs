@@ -88,13 +88,13 @@ impl Server {
 			},
 			tg::Artifact::Symlink(symlink) => {
 				if symlink.artifact(self).await?.is_some() {
-					return Err(tg::error!("cannot checksum an artifact symlink"));
+					return Err(tg::error!("cannot checksum a symlink with an artifact"));
 				}
-				let target = symlink
-					.target(self)
+				let path = symlink
+					.path(self)
 					.await?
-					.ok_or_else(|| tg::error!("cannot checksum a symlink without a target"))?;
-				let target = target.to_string_lossy();
+					.ok_or_else(|| tg::error!("cannot checksum a symlink without a path"))?;
+				let target = path.to_string_lossy();
 				writer
 					.write_uvarint(2)
 					.await

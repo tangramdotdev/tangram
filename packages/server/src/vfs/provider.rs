@@ -7,7 +7,7 @@ use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::{
 	os::unix::ffi::OsStrExt as _,
-	path::PathBuf,
+	path::{Path, PathBuf},
 	pin::pin,
 	sync::{
 		Arc,
@@ -288,22 +288,16 @@ impl vfs::Provider for Provider {
 		};
 
 		// Render the target.
-		let Ok(target) = symlink.target(&self.server).await else {
-			tracing::error!(?symlink, "failed to get the symlink's target");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		};
 		let Ok(artifact) = symlink.artifact(&self.server).await else {
 			tracing::error!("failed to get the symlink's artifact");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
-		let Ok(path) = symlink.subpath(&self.server).await else {
+		let Ok(path) = symlink.path(&self.server).await else {
 			tracing::error!("failed to get the symlink's path");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
-		let target = if let Some(target) = target.as_ref() {
-			target.clone()
-		} else if let Some(artifact) = artifact.as_ref() {
-			let mut target = PathBuf::new();
+		let mut target = PathBuf::new();
+		if let Some(artifact) = artifact.as_ref() {
 			for _ in 0..depth - 1 {
 				target.push("..");
 			}
@@ -311,11 +305,14 @@ impl vfs::Provider for Provider {
 			if let Some(path) = path.as_ref() {
 				target.push(path);
 			}
-			target
-		} else {
+		}
+		if let Some(path) = path {
+			target.push(path);
+		}
+		if target == Path::new("") {
 			tracing::error!("invalid symlink");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		};
+		}
 		let target = target.as_os_str().as_bytes().to_vec().into();
 
 		Ok(target)

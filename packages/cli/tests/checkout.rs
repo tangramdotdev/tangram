@@ -165,7 +165,7 @@ async fn symlink() {
 		    },
 		    "link": {
 		      "kind": "symlink",
-		      "target": "hello.txt"
+		      "path": "hello.txt"
 		    }
 		  }
 		}
@@ -200,11 +200,11 @@ async fn symlink_shared_target() {
 		    },
 		    "link1": {
 		      "kind": "symlink",
-		      "target": "hello.txt"
+		      "path": "hello.txt"
 		    },
 		    "link2": {
 		      "kind": "symlink",
-		      "target": "hello.txt"
+		      "path": "hello.txt"
 		    }
 		  }
 		}
@@ -478,7 +478,7 @@ async fn directory_with_symlink_with_dependency() {
 		    },
 		    "foo": {
 		      "kind": "symlink",
-		      "target": ".tangram/artifacts/fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
+		      "path": ".tangram/artifacts/fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
 		    }
 		  }
 		}
@@ -560,7 +560,7 @@ async fn graph_symlink() {
 				let graph = tg.graph({
 					nodes: [{
 						kind: "symlink", 
-						target:"/bin/sh",
+						path: "/bin/sh",
 					}],
 				});
 				return tg.symlink({ graph: graph, node: 0 });  
@@ -572,7 +572,7 @@ async fn graph_symlink() {
 		assert_json_snapshot!(artifact, @r#"
 		{
 		  "kind": "symlink",
-		  "target": "/bin/sh"
+		  "path": "/bin/sh"
 		}
 		"#);
 	};
@@ -593,7 +593,7 @@ async fn directory_with_symlink_cycle() {
 						{
 							kind: "symlink", 
 							artifact: 0, 
-							subpath: "link"
+							path: "link"
 						},
 					],
 				});
@@ -609,7 +609,7 @@ async fn directory_with_symlink_cycle() {
 		  "entries": {
 		    "link": {
 		      "kind": "symlink",
-		      "target": "link"
+		      "path": "link"
 		    }
 		  }
 		}
@@ -647,7 +647,7 @@ async fn shared_dependency_on_symlink() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0": {
+		            "dir_01xsy9adcmt0gjakvwt33stxa48tjgcjyrd6c3hdz0gjw9j3h2d680": {
 		              "kind": "directory",
 		              "entries": {
 		                "file.txt": {
@@ -656,7 +656,7 @@ async fn shared_dependency_on_symlink() {
 		                },
 		                "link": {
 		                  "kind": "symlink",
-		                  "target": "file.txt"
+		                  "path": "file.txt"
 		                }
 		              }
 		            }
@@ -668,14 +668,14 @@ async fn shared_dependency_on_symlink() {
 		      "kind": "file",
 		      "contents": "bar",
 		      "xattrs": {
-		        "user.tangram.dependencies": "[\"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\"]"
+		        "user.tangram.dependencies": "[\"dir_01xsy9adcmt0gjakvwt33stxa48tjgcjyrd6c3hdz0gjw9j3h2d680\"]"
 		      }
 		    },
 		    "foo.txt": {
 		      "kind": "file",
 		      "contents": "foo",
 		      "xattrs": {
-		        "user.tangram.dependencies": "[\"dir_01f1adysfqc6c037t8a563qp0aq9d0eyadqvwbp4sbh4q93h1yvqe0\"]"
+		        "user.tangram.dependencies": "[\"dir_01xsy9adcmt0gjakvwt33stxa48tjgcjyrd6c3hdz0gjw9j3h2d680\"]"
 		      }
 		    }
 		  }

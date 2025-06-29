@@ -73,13 +73,13 @@ export class Command<
 		let env = arg.env ?? {};
 		let executable: tg.Command.Executable | undefined;
 		if (tg.Artifact.is(arg.executable)) {
-			executable = { artifact: arg.executable, subpath: undefined };
+			executable = { artifact: arg.executable, path: undefined };
 		} else if (typeof arg.executable === "string") {
 			executable = { path: arg.executable };
 		} else if (arg.executable !== undefined && "artifact" in arg.executable) {
 			executable = {
 				artifact: arg.executable.artifact,
-				subpath: arg.executable.subpath,
+				path: arg.executable.path,
 			};
 		} else if (arg.executable !== undefined && "module" in arg.executable) {
 			executable = {
@@ -268,8 +268,8 @@ export namespace Command {
 				let output: ExecutableData = {
 					artifact: value.artifact.id,
 				};
-				if (value.subpath !== undefined) {
-					output.subpath = value.subpath;
+				if (value.path !== undefined) {
+					output.path = value.path;
 				}
 				return output;
 			} else if ("module" in value) {
@@ -293,7 +293,7 @@ export namespace Command {
 			if ("artifact" in data) {
 				return {
 					artifact: tg.Artifact.withId(data.artifact),
-					subpath: data.subpath,
+					path: data.path,
 				};
 			} else if ("module" in data) {
 				return {
@@ -335,17 +335,17 @@ export namespace Command {
 	export namespace Executable {
 		export type ArtifactArg = {
 			artifact: tg.Artifact;
-			subpath?: string | undefined;
+			path?: string | undefined;
 		};
 
 		export type Artifact = {
 			artifact: tg.Artifact;
-			subpath: string | undefined;
+			path: string | undefined;
 		};
 
 		export type ArtifactData = {
 			artifact: tg.Artifact.Id;
-			subpath?: string;
+			path?: string;
 		};
 
 		export type ModuleArg = {

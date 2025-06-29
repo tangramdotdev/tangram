@@ -79,9 +79,9 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 		output = stringifyState("commmand", value.state, visited);
 	} else if (value instanceof Uint8Array) {
 		let bytes = tg.encoding.hex.encode(value);
-		output = `(bytes ${bytes})`;
+		output = `tg.bytes(${bytes})`;
 	} else if (value instanceof tg.Mutation) {
-		output = `(mutation ${stringifyObject(value.inner, visited)})`;
+		output = `tg.mutation(${stringifyObject(value.inner, visited)})`;
 	} else if (value instanceof tg.Template) {
 		output = `\`${value.components
 			.map((component) => {
@@ -131,7 +131,7 @@ let stringifyState = (
 	if (id !== undefined) {
 		return id;
 	} else if (object !== undefined) {
-		return `(${kind} ${stringifyObject(object, visited)})`;
+		return `tg.${kind}(${stringifyObject(object, visited)})`;
 	} else {
 		return tg.unreachable();
 	}

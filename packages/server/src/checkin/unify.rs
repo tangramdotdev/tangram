@@ -418,8 +418,8 @@ impl Server {
 					.artifact(self)
 					.await?
 					.map(|artifact| Either::Left(artifact.id()));
-				let target = symlink.subpath(self).await?.unwrap_or_default();
-				super::Variant::Symlink(super::Symlink { artifact, target })
+				let path = symlink.path(self).await?;
+				super::Variant::Symlink(super::Symlink { artifact, path })
 			},
 			_ => super::Variant::Object,
 		};
@@ -635,7 +635,11 @@ impl Server {
 				else {
 					return true;
 				};
-				let tg::lockfile::Symlink::Artifact { artifact, .. } = symlink else {
+				let tg::lockfile::Symlink {
+					artifact: Some(artifact),
+					..
+				} = symlink
+				else {
 					return true;
 				};
 				artifact.is_left()
@@ -644,8 +648,8 @@ impl Server {
 				let symlink = state.lockfile.unwrap().nodes[node]
 					.try_unwrap_symlink_ref()
 					.ok()?;
-				let tg::lockfile::Symlink::Artifact {
-					artifact: Either::Left(node),
+				let tg::lockfile::Symlink {
+					artifact: Some(Either::Left(node)),
 					..
 				} = symlink
 				else {
@@ -653,13 +657,11 @@ impl Server {
 				};
 				Some(*node)
 			});
-			let path = Some(
-				state.graph.nodes[index]
-					.variant
-					.unwrap_symlink_ref()
-					.target
-					.clone(),
-			);
+			let path = state.graph.nodes[index]
+				.variant
+				.unwrap_symlink_ref()
+				.path
+				.clone();
 			let node = Box::pin(self.unify_visit_object_inner(
 				state,
 				&tg::Object::with_id(artifact.clone().into()),

@@ -212,20 +212,19 @@ export class Directory {
 			parents.push(artifact);
 			artifact = entry;
 			if (entry instanceof tg.Symlink) {
-				let target = await entry.target();
 				let artifact_ = await entry.artifact();
-				let subpath = await entry.subpath();
-				if (target !== undefined) {
+				let path_ = await entry.path();
+				if (artifact_ === undefined && path_ !== undefined) {
 					let parent = parents.pop();
 					if (!parent) {
 						throw new Error("path is external");
 					}
 					artifact = parent;
-					components.unshift(...tg.path.components(target));
-				} else if (artifact_ !== undefined && subpath === undefined) {
+					components.unshift(...tg.path.components(path_));
+				} else if (artifact_ !== undefined && path_ === undefined) {
 					return artifact_;
-				} else if (artifact_ instanceof tg.Directory && subpath !== undefined) {
-					return await artifact_.tryGet(subpath);
+				} else if (artifact_ instanceof tg.Directory && path_ !== undefined) {
+					return await artifact_.tryGet(path_);
 				} else {
 					throw new Error("invalid symlink");
 				}
@@ -319,10 +318,10 @@ export namespace Directory {
 	export type Id = string;
 
 	export type Object =
+		| { graph: tg.Graph; node: number }
 		| {
 				entries: { [key: string]: tg.Artifact };
-		  }
-		| { graph: tg.Graph; node: number };
+		  };
 
 	export namespace Object {
 		export let toData = (object: Object): Data => {
@@ -372,10 +371,10 @@ export namespace Directory {
 	}
 
 	export type Data =
+		| { graph: tg.Graph.Id; node: number }
 		| {
 				entries: { [key: string]: tg.Artifact.Id };
-		  }
-		| { graph: tg.Graph.Id; node: number };
+		  };
 
 	export type State = tg.Object.State<Directory.Id, Directory.Object>;
 }

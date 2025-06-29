@@ -665,73 +665,76 @@ impl Server {
 		graph: &tg::graph::Id,
 		symlink: tg::graph::data::Symlink,
 	) -> tg::Result<()> {
-		match symlink {
-			tg::graph::data::Symlink::Target { target } => {
-				std::os::unix::fs::symlink(target, path)
-					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
-			},
-			tg::graph::data::Symlink::Artifact { artifact, subpath } => {
-				// Cache the artifact.
-				let id = match artifact.clone() {
-					Either::Left(node) => {
-						let kind = state
-							.graphs
-							.get(graph)
-							.unwrap()
-							.nodes
-							.get(node)
-							.ok_or_else(|| tg::error!("expected the node to exist"))?
-							.kind();
-						let graph = graph.clone();
-						let data: tg::artifact::Data = match kind {
-							tg::artifact::Kind::Directory => tg::directory::Data::Graph {
-								graph: graph.clone(),
-								node,
-							}
-							.into(),
-							tg::artifact::Kind::File => tg::file::Data::Graph {
-								graph: graph.clone(),
-								node,
-							}
-							.into(),
-							tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
-								graph: graph.clone(),
-								node,
-							}
-							.into(),
-						};
-						let bytes = data.serialize()?;
-						tg::artifact::Id::new(kind, &bytes)
-					},
-					Either::Right(id) => id.clone(),
-				};
-				if id != state.artifact {
-					let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
-					self.cache_dependency(&id, artifact, &state.visited, &state.progress)?;
-				}
+		// Render the target.
+		let target = if let Some(artifact) = symlink.artifact {
+			let mut target = PathBuf::new();
 
-				// Render the target.
-				let mut target = if id == state.artifact {
-					// If the symlink's artifact is the root artifact, then use the root path.
-					state.path.clone()
-				} else {
-					// Otherwise, use the artifact's path.
-					state.path.parent().unwrap().join(artifact.to_string())
-				};
-				if let Some(subpath) = subpath {
-					target = target.join(subpath);
-				}
-				let src = path
-					.parent()
-					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
-				let dst = &target;
-				let target = crate::util::path::diff(src, dst)?;
+			// Get the id.
+			let id = match artifact.clone() {
+				Either::Left(node) => {
+					let kind = state
+						.graphs
+						.get(graph)
+						.unwrap()
+						.nodes
+						.get(node)
+						.ok_or_else(|| tg::error!("expected the node to exist"))?
+						.kind();
+					let graph = graph.clone();
+					let data: tg::artifact::Data = match kind {
+						tg::artifact::Kind::Directory => tg::directory::Data::Graph {
+							graph: graph.clone(),
+							node,
+						}
+						.into(),
+						tg::artifact::Kind::File => tg::file::Data::Graph {
+							graph: graph.clone(),
+							node,
+						}
+						.into(),
+						tg::artifact::Kind::Symlink => tg::symlink::Data::Graph {
+							graph: graph.clone(),
+							node,
+						}
+						.into(),
+					};
+					let bytes = data.serialize()?;
+					tg::artifact::Id::new(kind, &bytes)
+				},
+				Either::Right(id) => id,
+			};
 
-				// Create the symlink.
-				std::os::unix::fs::symlink(target, path)
-					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
-			},
-		}
+			if id == state.artifact {
+				// If the symlink's artifact is the root artifact, then use the root path.
+				target.push(&state.path);
+			} else {
+				// If the symlink's artifact is another artifact, then cache it and use the artifact's path.
+				let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
+				self.cache_dependency(&id, artifact, &state.visited, &state.progress)?;
+				target.push(state.path.parent().unwrap().join(id.to_string()));
+			}
+
+			// Add the path if it is set.
+			if let Some(path_) = symlink.path {
+				target.push(path_);
+			}
+
+			// Diff the path.
+			let src = path
+				.parent()
+				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
+			let dst = &target;
+			crate::util::path::diff(src, dst)?
+		} else if let Some(path_) = symlink.path {
+			path_
+		} else {
+			return Err(tg::error!("invalid symlink"));
+		};
+
+		// Create the symlink.
+		std::os::unix::fs::symlink(target, path)
+			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+
 		Ok(())
 	}
 
@@ -914,37 +917,44 @@ impl Server {
 				let artifact = Either::Left((graph, node));
 				self.cache_inner(state, path, id, artifact)?;
 			},
-			tg::symlink::Data::Target { target } => {
-				std::os::unix::fs::symlink(target, path)
-					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
-			},
-			tg::symlink::Data::Artifact { artifact, subpath } => {
-				// Cache the artifact.
-				if artifact != state.artifact {
-					self.cache_dependency(
-						&artifact,
-						Either::Right(artifact.clone()),
-						&state.visited,
-						&state.progress,
-					)?;
-				}
-
+			tg::symlink::Data::Normal {
+				artifact,
+				path: path_,
+			} => {
 				// Render the target.
-				let mut target = if artifact == state.artifact {
-					// If the symlink's artifact is the root artifact, then use the root path.
-					state.path.clone()
+				let target = if let Some(artifact) = artifact {
+					let mut target = PathBuf::new();
+
+					if artifact == state.artifact {
+						// If the symlink's artifact is the root artifact, then use the root path.
+						target.push(&state.path);
+					} else {
+						// If the symlink's artifact is another artifact, then cache it and use the artifact's path.
+						self.cache_dependency(
+							&artifact,
+							Either::Right(artifact.clone()),
+							&state.visited,
+							&state.progress,
+						)?;
+						target.push(state.path.parent().unwrap().join(artifact.to_string()));
+					}
+
+					// Add the path if it is set.
+					if let Some(path_) = path_ {
+						target.push(path_);
+					}
+
+					// Diff the path.
+					let src = path
+						.parent()
+						.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
+					let dst = &target;
+					crate::util::path::diff(src, dst)?
+				} else if let Some(path_) = path_ {
+					path_
 				} else {
-					// Otherwise, use the artifact's path.
-					state.path.parent().unwrap().join(artifact.to_string())
+					return Err(tg::error!("invalid symlink"));
 				};
-				if let Some(subpath) = subpath {
-					target = target.join(subpath);
-				}
-				let src = path
-					.parent()
-					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
-				let dst = &target;
-				let target = crate::util::path::diff(src, dst)?;
 
 				// Create the symlink.
 				std::os::unix::fs::symlink(target, path)

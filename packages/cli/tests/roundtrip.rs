@@ -257,13 +257,13 @@ async fn test_roundtrip<'a, F, Fut>(
 			command.arg("--deterministic");
 		}
 		let output = command.output().await.unwrap();
-
 		assert_success!(output);
 		let id = std::str::from_utf8(&output.stdout)
 			.unwrap()
 			.trim()
 			.to_owned();
 		let b = tg::Artifact::with_id(id.parse().unwrap());
+
 		assertions(server, a, b).await;
 	})
 	.await;

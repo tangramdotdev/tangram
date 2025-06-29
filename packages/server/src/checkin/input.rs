@@ -65,11 +65,11 @@ impl Server {
 				executable: metadata.permissions().mode() & 0o111 != 0,
 			})
 		} else if metadata.is_symlink() {
-			let target = std::fs::read_link(&path)
+			let path = std::fs::read_link(&path)
 				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
 			Variant::Symlink(Symlink {
 				artifact: None,
-				target,
+				path: Some(path),
 			})
 		} else {
 			return Err(tg::error!(?metadata, "invalid file type"));
@@ -303,7 +303,7 @@ impl Server {
 			return Ok(());
 		};
 
-		// If this is within the .tangram/artifacts directory, treat it like an artifact symlink.
+		// If this is within the .tangram/artifacts directory, treat it as an artifact symlink.
 		let Ok(diff) = target.strip_prefix(&state.artifacts_path) else {
 			return Ok(());
 		};
@@ -323,9 +323,14 @@ impl Server {
 			.checkin_visit(state, state.artifacts_path.join(artifact.to_string()))?
 			.ok_or_else(|| tg::error!("failed to visit dependency"))?;
 
-		// Get the subpath.
-		let mut subpath = PathBuf::new();
-		subpath.extend(components);
+		// Get the path.
+		let mut path = PathBuf::new();
+		path.extend(components);
+		let path = if path == Path::new("") {
+			None
+		} else {
+			Some(path)
+		};
 
 		// Update the symlink.
 		state.graph.nodes[index]
@@ -333,7 +338,7 @@ impl Server {
 			.unwrap_symlink_mut()
 			.artifact
 			.replace(Either::Right(artifact));
-		state.graph.nodes[index].variant.unwrap_symlink_mut().target = subpath;
+		state.graph.nodes[index].variant.unwrap_symlink_mut().path = path;
 
 		Ok(())
 	}

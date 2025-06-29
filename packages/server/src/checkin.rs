@@ -93,7 +93,7 @@ enum Blob {
 #[derive(Clone, Debug)]
 struct Symlink {
 	artifact: Option<Either<tg::artifact::Id, usize>>,
-	target: PathBuf,
+	path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]

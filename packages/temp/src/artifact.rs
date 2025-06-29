@@ -48,7 +48,7 @@ pub struct File {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
 pub struct Symlink {
-	pub target: Cow<'static, str>,
+	pub path: Cow<'static, str>,
 }
 
 impl Artifact {
@@ -318,18 +318,18 @@ impl File {
 
 impl Symlink {
 	pub async fn with_path(path: &Path, _metadata: Option<std::fs::Metadata>) -> tg::Result<Self> {
-		let target = tokio::fs::read_link(path)
+		let path = tokio::fs::read_link(path)
 			.await
 			.unwrap()
 			.to_str()
 			.unwrap()
 			.to_owned()
 			.into();
-		Ok(Self { target })
+		Ok(Self { path })
 	}
 
 	pub async fn to_path(&self, path: &Path) -> tg::Result<()> {
-		tokio::fs::symlink(self.target.as_ref(), path)
+		tokio::fs::symlink(self.path.as_ref(), path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 		Ok(())
@@ -350,10 +350,10 @@ impl Symlink {
 		if !metadata.is_symlink() {
 			return Ok(false);
 		}
-		let target_ = tokio::fs::read_link(&path)
+		let path_ = tokio::fs::read_link(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
-		if self.target.as_ref().as_bytes() != target_.as_os_str().as_bytes() {
+		if self.path.as_ref().as_bytes() != path_.as_os_str().as_bytes() {
 			return Ok(false);
 		}
 		Ok(true)
@@ -415,9 +415,5 @@ macro_rules! file {
 
 #[macro_export]
 macro_rules! symlink {
-	($target:expr) => {{
-		$crate::artifact::Symlink {
-			target: $target.into(),
-		}
-	}};
+	($path:expr) => {{ $crate::artifact::Symlink { path: $path.into() } }};
 }

@@ -228,15 +228,10 @@ impl Server {
 
 			tg::artifact::Data::Symlink(symlink) => match symlink {
 				tg::symlink::data::Symlink::Graph { .. } => unreachable!(),
-				tg::symlink::data::Symlink::Target { target } => {
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-						target: target.clone(),
-					})
-				},
-				tg::symlink::data::Symlink::Artifact { artifact, subpath } => {
-					let artifact = {
+				tg::symlink::data::Symlink::Normal { artifact, path } => {
+					let artifact = if let Some(artifact) = artifact.clone() {
 						let index = self.get_or_create_lockfile_node_for_artifact(
-							artifact.clone(),
+							artifact,
 							false,
 							checkout_dependencies,
 							nodes,
@@ -244,13 +239,12 @@ impl Server {
 							visited,
 							graphs,
 						)?;
-						Either::Left(index)
+						Some(Either::Left(index))
+					} else {
+						None
 					};
-					let subpath = subpath.as_ref().map(PathBuf::from);
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-						artifact,
-						subpath,
-					})
+					let path = path.as_ref().map(PathBuf::from);
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, path })
 				},
 			},
 		};
@@ -407,14 +401,9 @@ impl Server {
 					})
 				},
 
-				tg::graph::data::Node::Symlink(symlink) => match symlink {
-					tg::graph::data::Symlink::Target { target } => {
-						tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-							target: target.clone(),
-						})
-					},
-					tg::graph::data::Symlink::Artifact { artifact, subpath } => {
-						let artifact = match artifact {
+				tg::graph::data::Node::Symlink(symlink) => {
+					let artifact = if let Some(artifact) = &symlink.artifact {
+						let artifact = match &artifact {
 							Either::Left(index) => indices[*index],
 							Either::Right(artifact) => self
 								.get_or_create_lockfile_node_for_artifact(
@@ -428,11 +417,12 @@ impl Server {
 								)?,
 						};
 						let artifact = Either::Left(artifact);
-						tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-							artifact,
-							subpath: subpath.clone(),
-						})
-					},
+						Some(artifact)
+					} else {
+						None
+					};
+					let path = symlink.path.clone();
+					tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, path })
 				},
 			};
 
@@ -594,17 +584,12 @@ impl Server {
 				}
 			},
 
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { .. }) => {
-				return Ok(None);
-			},
-
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
 				artifact,
-				subpath,
-				..
+				path: path_,
 			}) => {
 				// Get the referent artifact.
-				let Either::Left(artifact) = artifact else {
+				let Some(Either::Left(artifact)) = artifact else {
 					return Ok(None);
 				};
 
@@ -623,7 +608,7 @@ impl Server {
 				)?;
 
 				// Strip the subpath.
-				let subpath = subpath.as_deref().unwrap_or("".as_ref());
+				let subpath = path_.as_deref().unwrap_or("".as_ref());
 				let current_package_path = strip_subpath(&path, subpath)?;
 				let current_package_node = *artifact;
 
@@ -742,11 +727,11 @@ impl Server {
 							});
 					object_ids.extend(it);
 				},
-				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-					artifact, ..
+				tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+					artifact: Some(Either::Right(artifact)),
+					..
 				}) => {
-					let it = artifact.as_ref().right().cloned();
-					object_ids.extend(it);
+					object_ids.push(artifact.clone());
 				},
 				tg::lockfile::Node::Symlink(_) => (),
 			}
@@ -939,33 +924,30 @@ impl Server {
 				};
 				tg::graph::Node::File(file)
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, path }) => {
 				let artifact = match artifact {
-					Either::Left(lockfile_index) if graph_indices.contains_key(lockfile_index) => {
-						Either::Left(graph_indices.get(lockfile_index).copied().unwrap())
+					Some(Either::Left(lockfile_index))
+						if graph_indices.contains_key(lockfile_index) =>
+					{
+						Some(Either::Left(
+							graph_indices.get(lockfile_index).copied().unwrap(),
+						))
 					},
-					Either::Left(lockfile_index) => {
+					Some(Either::Left(lockfile_index)) => {
 						let object = visited[*lockfile_index]
 							.as_ref()
 							.ok_or_else(|| tg::error!("expected an object"))?
 							.clone()
 							.try_into()?;
-						Either::Right(object)
+						Some(Either::Right(object))
 					},
-					Either::Right(id) => {
-						Either::Right(tg::Artifact::with_id(id.clone().try_into()?))
+					Some(Either::Right(id)) => {
+						Some(Either::Right(tg::Artifact::with_id(id.clone().try_into()?)))
 					},
+					None => None,
 				};
-				let symlink = tg::graph::object::Symlink::Artifact {
-					artifact,
-					subpath: subpath.clone(),
-				};
-				tg::graph::Node::Symlink(symlink)
-			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target }) => {
-				let symlink = tg::graph::object::Symlink::Target {
-					target: target.clone(),
-				};
+				let path = path.clone();
+				let symlink = tg::graph::object::Symlink { artifact, path };
 				tg::graph::Node::Symlink(symlink)
 			},
 		};
@@ -1032,22 +1014,24 @@ impl Server {
 					.build()
 					.into()
 			},
-			tg::lockfile::Node::Symlink(symlink) => match symlink {
-				tg::lockfile::Symlink::Artifact { artifact, subpath } => {
-					let artifact = match artifact {
-						Either::Left(node) => {
-							let object = visited[*node]
-								.clone()
-								.ok_or_else(|| tg::error!("expected an object"))?;
-							object.try_into()?
-						},
-						Either::Right(id) => tg::Artifact::with_id(id.clone().try_into()?),
-					};
-					tg::Symlink::with_artifact_and_subpath(artifact, subpath.clone()).into()
-				},
-				tg::lockfile::Symlink::Target { target } => {
-					tg::Symlink::with_target(target.clone()).into()
-				},
+			tg::lockfile::Node::Symlink(symlink) => {
+				let artifact = match &symlink.artifact {
+					Some(Either::Left(node)) => {
+						let object = visited[*node]
+							.clone()
+							.ok_or_else(|| tg::error!("expected an object"))?;
+						let artifact = object.try_into()?;
+						Some(artifact)
+					},
+					Some(Either::Right(id)) => {
+						let id = id.clone().try_into()?;
+						let artifact = tg::Artifact::with_id(id);
+						Some(artifact)
+					},
+					None => None,
+				};
+				let path = symlink.path.clone();
+				tg::Symlink::with_object(tg::symlink::Object::Normal { artifact, path }).into()
 			},
 		};
 		visited[node].replace(object);
@@ -1159,8 +1143,8 @@ impl petgraph::visit::IntoNeighbors for LockfileGraph<'_> {
 				.values()
 				.filter_map(|referent| referent.item.as_ref().left().copied())
 				.collect::<Vec<_>>(),
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-				artifact: Either::Left(node),
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+				artifact: Some(Either::Left(node)),
 				..
 			}) => vec![*node],
 			tg::lockfile::Node::Symlink(_) => Vec::new(),

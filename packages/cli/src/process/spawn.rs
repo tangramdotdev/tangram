@@ -265,7 +265,7 @@ impl Cli {
 					let executable =
 						tg::command::Executable::Artifact(tg::command::ArtifactExecutable {
 							artifact: file.clone().into(),
-							subpath: None,
+							path: None,
 						});
 					tg::Command::builder(host, executable)
 				}

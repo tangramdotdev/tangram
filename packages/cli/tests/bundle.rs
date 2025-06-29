@@ -55,7 +55,7 @@ async fn directory_no_dependencies() {
 		    "contents": tg.blob("hello"),
 		  }),
 		  "link": tg.symlink({
-		    "target": "link",
+		    "path": "link",
 		  }),
 		})
 		"#);
@@ -155,7 +155,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "dir_0148e3kzpv2jhhp2s6ky2vz49ev0656aertbwg6epjbnsffznjtg80": {
+		            "dir_01em9s61ngmg0sbxebh8z0ajbe45rmcbbd3p2ss6yc8cpamsy5a3bg": {
 		              "kind": "directory",
 		              "entries": {
 		                "dep": {
@@ -164,7 +164,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 		                },
 		                "link": {
 		                  "kind": "symlink",
-		                  "target": "dep"
+		                  "path": "dep"
 		                }
 		              }
 		            }
@@ -179,7 +179,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 		    },
 		    "link": {
 		      "kind": "symlink",
-		      "target": "file"
+		      "path": "file"
 		    }
 		  }
 		}
@@ -201,7 +201,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 					"dep": tg.file("dependency"),
 					"link": tg.symlink({
 						artifact: inner_dir,
-						subpath: "a"
+						path: "a"
 					}),
 				});
 				let file = await tg.file({
@@ -232,7 +232,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "dir_01gmvdykmz5pqgjaq2fwrpx4pmdxtw2vm7f1jaxy0dcbbfmcy18740": {
+		            "dir_01m96hv5dzrzyjr66ktvxxr3shkj2vhn5h612zqz5vbabq83fpa6mg": {
 		              "kind": "directory",
 		              "entries": {
 		                "dep": {
@@ -241,7 +241,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 		                },
 		                "link": {
 		                  "kind": "symlink",
-		                  "target": "../../../.tangram/artifacts/dir_01myaw4t7h2nw6mmr7jgm0acznf0bg070h4amd79x6n7n7m3xp7eh0/a"
+		                  "path": "../../../.tangram/artifacts/dir_01myaw4t7h2nw6mmr7jgm0acznf0bg070h4amd79x6n7n7m3xp7eh0/a"
 		                }
 		              }
 		            },
@@ -265,7 +265,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 		    },
 		    "link": {
 		      "kind": "symlink",
-		      "target": "file"
+		      "path": "file"
 		    }
 		  }
 		}

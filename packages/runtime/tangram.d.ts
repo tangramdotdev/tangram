@@ -371,14 +371,11 @@ declare namespace tg {
 		/** Get this symlink's artifact. */
 		artifact(): Promise<tg.Artifact | undefined>;
 
-		/** Get this symlink's subpath. */
-		subpath(): Promise<string | undefined>;
+		/** Get this symlink's path. */
+		path(): Promise<string | undefined>;
 
 		/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Artifact | undefined>;
-
-		/** Get this symlink's target. */
-		target(): Promise<string | undefined>;
 	}
 
 	export namespace Symlink {
@@ -388,10 +385,9 @@ declare namespace tg {
 
 		type ArgObject =
 			| { graph: tg.Graph; node: number }
-			| { target: string }
 			| {
-					artifact: tg.Artifact;
-					subpath?: string | undefined;
+					artifact?: tg.Artifact | undefined;
+					path?: string | undefined;
 			  };
 	}
 
@@ -447,16 +443,11 @@ declare namespace tg {
 			executable?: boolean | undefined;
 		};
 
-		type SymlinkNodeArg =
-			| {
-					kind: "symlink";
-					command: string;
-			  }
-			| {
-					kind: "symlink";
-					artifact: number | tg.Artifact;
-					subpath?: string | undefined;
-			  };
+		type SymlinkNodeArg = {
+			kind: "symlink";
+			artifact?: number | tg.Artifact | undefined;
+			path?: string | undefined;
+		};
 
 		type Node = DirectoryNode | FileNode | SymlinkNode;
 
@@ -481,8 +472,8 @@ declare namespace tg {
 			  }
 			| {
 					kind: "symlink";
-					artifact: number | tg.Artifact;
-					subpath: string | undefined;
+					artifact: number | tg.Artifact | undefined;
+					path: string | undefined;
 			  };
 	}
 
@@ -624,12 +615,12 @@ declare namespace tg {
 		export namespace Executable {
 			export type Artifact = {
 				artifact: tg.Artifact;
-				subpath: string | undefined;
+				path: string | undefined;
 			};
 
 			export type ArtifactArg = {
 				artifact: tg.Artifact;
-				subpath?: string | undefined;
+				path?: string | undefined;
 			};
 
 			export type Module = {

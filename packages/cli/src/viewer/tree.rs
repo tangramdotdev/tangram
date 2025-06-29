@@ -979,22 +979,18 @@ where
 							map.insert("dependencies".into(), tg::Value::Map(dependencies));
 						}
 					},
-					tg::graph::Node::Symlink(symlink) => match symlink {
-						tg::graph::object::Symlink::Artifact { artifact, subpath } => {
+					tg::graph::Node::Symlink(symlink) => {
+						if let Some(artifact) = symlink.artifact {
 							let artifact = match artifact {
 								Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
 								Either::Right(artifact) => tg::Value::Object(artifact.into()),
 							};
 							map.insert("artifact".to_owned(), artifact);
-							if let Some(subpath) = subpath {
-								let subpath = subpath.to_string_lossy().to_string();
-								map.insert("subpath".into(), tg::Value::String(subpath));
-							}
-						},
-						tg::graph::object::Symlink::Target { target } => {
-							let target = target.to_string_lossy().to_string();
-							map.insert("target".into(), tg::Value::String(target));
-						},
+						}
+						if let Some(path) = symlink.path {
+							let path = path.to_string_lossy().to_string();
+							map.insert("path".into(), tg::Value::String(path));
+						}
 					},
 				}
 				tg::Value::Map(map)
@@ -1151,21 +1147,17 @@ where
 			]
 			.into_iter()
 			.collect(),
-			tg::symlink::Object::Artifact { artifact, subpath } => {
+			tg::symlink::Object::Normal { artifact, path } => {
 				let mut children = Vec::new();
-				children.push((
-					"artifact".to_owned(),
-					tg::Value::Object(artifact.clone().into()),
-				));
-				if let Some(subpath) = subpath {
-					let subpath = subpath.to_string_lossy().to_string();
-					children.push(("subpath".to_owned(), tg::Value::String(subpath)));
+				if let Some(artifact) = artifact {
+					let artifact = tg::Value::Object(artifact.clone().into());
+					children.push(("artifact".to_owned(), artifact));
+				}
+				if let Some(path) = path {
+					let path = path.to_string_lossy().to_string();
+					children.push(("path".to_owned(), tg::Value::String(path)));
 				}
 				children
-			},
-			tg::symlink::Object::Target { target } => {
-				let target = target.to_string_lossy().to_string();
-				vec![("target".to_owned(), tg::Value::String(target))]
 			},
 		};
 		symlink.unload();
@@ -1200,9 +1192,9 @@ where
 					"artifact".to_owned(),
 					tg::Value::Object(executable.artifact.clone().into()),
 				);
-				if let Some(subpath) = &executable.subpath {
-					let subpath = subpath.to_string_lossy().to_string();
-					map.insert("subpath".to_owned(), tg::Value::String(subpath));
+				if let Some(path) = &executable.path {
+					let subpath = path.to_string_lossy().to_string();
+					map.insert("path".to_owned(), tg::Value::String(subpath));
 				}
 				tg::Value::Map(map)
 			},

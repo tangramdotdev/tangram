@@ -1,6 +1,5 @@
 use crate::Server;
 use itertools::Itertools;
-use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_either::Either;
 
@@ -218,36 +217,16 @@ impl Server {
 					.unwrap()
 					.data;
 				let symlink = graph.nodes[*node].clone().try_unwrap_symlink().unwrap();
-				match symlink {
-					tg::graph::data::Symlink::Artifact {
-						artifact: _,
-						subpath,
-					} => subpath,
-					tg::graph::data::Symlink::Target { target } => Some(target),
-				}
+				symlink.path
 			},
-			tg::symlink::Data::Target { target } => Some(PathBuf::from(target)),
-			tg::symlink::Data::Artifact {
-				artifact: _,
-				subpath,
-			} => subpath.clone(),
+			tg::symlink::Data::Normal { path, .. } => path.clone(),
 		};
 
 		// Create the lockfile node.
-		if let Some(artifact) = artifact {
-			Ok(tg::lockfile::Node::Symlink(
-				tg::lockfile::Symlink::Artifact { artifact, subpath },
-			))
-		} else if let Some(subpath) = subpath {
-			Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target {
-				target: subpath,
-			}))
-		} else {
-			Err(tg::error!(
-				?data,
-				"unable to determine subpath for lockfile"
-			))
-		}
+		Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+			artifact,
+			path: subpath,
+		}))
 	}
 
 	pub fn strip_lockfile_nodes(
@@ -332,8 +311,8 @@ fn mark_nodes_to_preserve(nodes: &[tg::lockfile::Node]) -> Vec<bool> {
 						}
 					}
 				},
-				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-					artifact: Either::Left(child),
+				tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+					artifact: Some(Either::Left(child)),
 					..
 				}) => {
 					union(&mut set, parent, *child);
@@ -363,8 +342,8 @@ fn mark_nodes_to_preserve(nodes: &[tg::lockfile::Node]) -> Vec<bool> {
 							})
 					})
 				},
-				tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact {
-					artifact: Either::Left(node),
+				tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+					artifact: Some(Either::Left(node)),
 					..
 				}) => preserve[*node] || find(&mut set, *node) == tagged,
 				tg::lockfile::Node::Symlink(_) => false,
@@ -458,36 +437,21 @@ fn strip_nodes_inner(
 			new_nodes[new_node].replace(tg::lockfile::Node::File(file));
 		},
 
-		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { target, .. }) => {
-			new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
-				tg::lockfile::Symlink::Target {
-					target: target.clone(),
-				},
-			));
-		},
-		tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, subpath }) => {
+		tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, path }) => {
 			// Remap the artifact if necessary.
 			let artifact = match artifact {
-				Either::Left(node) => {
+				Some(Either::Left(node)) => {
 					strip_nodes_inner(old_nodes, node, visited, new_nodes, object_ids, preserve)
 				},
-				Either::Right(id) => Some(Either::Right(id)),
+				Some(Either::Right(id)) => Some(Either::Right(id)),
+				None => None,
 			};
 
 			// Create the node.
-			if let Some(artifact) = artifact {
-				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
-					tg::lockfile::Symlink::Artifact { artifact, subpath },
-				));
-			} else {
-				new_nodes[new_node].replace(tg::lockfile::Node::Symlink(
-					if let Some(subpath) = subpath {
-						tg::lockfile::Symlink::Target { target: subpath }
-					} else {
-						return None;
-					},
-				));
-			}
+			new_nodes[new_node].replace(tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+				artifact,
+				path,
+			}));
 		},
 	}
 
@@ -533,12 +497,8 @@ impl<'a> petgraph::visit::IntoNeighbors for &LockfileGraphImpl<'a> {
 					.filter_map(|referent| referent.item.as_ref().left().copied());
 				Box::new(it)
 			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Artifact { artifact, .. }) => {
-				let it = artifact.as_ref().left().copied().into_iter();
-				Box::new(it)
-			},
-			tg::lockfile::Node::Symlink(tg::lockfile::Symlink::Target { .. }) => {
-				let it = None.into_iter();
+			tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, .. }) => {
+				let it = artifact.clone().into_iter().filter_map(Either::left);
 				Box::new(it)
 			},
 		}

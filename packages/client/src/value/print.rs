@@ -346,13 +346,12 @@ where
 				self.map_entry("graph", |s| s.graph(graph))?;
 				self.map_entry("node", |s| s.number(node.to_f64().unwrap()))?;
 			},
-			tg::symlink::Object::Target { target } => {
-				self.map_entry("target", |s| s.string(target.to_string_lossy().as_ref()))?;
-			},
-			tg::symlink::Object::Artifact { artifact, subpath } => {
-				self.map_entry("artifact", |s| s.artifact(artifact))?;
-				if let Some(subpath) = &subpath {
-					self.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
+			tg::symlink::Object::Normal { artifact, path } => {
+				if let Some(artifact) = &artifact {
+					self.map_entry("artifact", |s| s.artifact(artifact))?;
+				}
+				if let Some(path) = &path {
+					self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 				}
 			},
 		}
@@ -453,30 +452,21 @@ where
 						tg::graph::Node::Symlink(symlink) => {
 							s.start_map()?;
 							s.map_entry("kind", |s| s.string("symlink"))?;
-							match symlink {
-								tg::graph::object::Symlink::Target { target } => {
-									s.map_entry("target", |s| {
-										s.string(target.to_string_lossy().as_ref())
-									})?;
-								},
-								tg::graph::object::Symlink::Artifact { artifact, subpath } => {
-									s.map_entry("artifact", |s| {
-										match &artifact {
-											Either::Left(index) => {
-												s.number(index.to_f64().unwrap())?;
-											},
-											Either::Right(artifact) => {
-												s.artifact(artifact)?;
-											},
-										}
-										Ok(())
-									})?;
-									if let Some(subpath) = subpath {
-										s.map_entry("subpath", |s| {
-											s.string(subpath.to_string_lossy().as_ref())
-										})?;
+							if let Some(artifact) = &symlink.artifact {
+								s.map_entry("artifact", |s| {
+									match artifact {
+										Either::Left(index) => {
+											s.number(index.to_f64().unwrap())?;
+										},
+										Either::Right(artifact) => {
+											s.artifact(artifact)?;
+										},
 									}
-								},
+									Ok(())
+								})?;
+							}
+							if let Some(path) = &symlink.path {
+								s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 							}
 							s.finish_map()
 						},
@@ -552,8 +542,8 @@ where
 	) -> Result {
 		self.start_map()?;
 		self.map_entry("artifact", |s| s.artifact(&value.artifact))?;
-		if let Some(subpath) = &value.subpath {
-			self.map_entry("subpath", |s| s.string(subpath.to_string_lossy().as_ref()))?;
+		if let Some(path) = &value.path {
+			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 		}
 		self.finish_map()?;
 		Ok(())

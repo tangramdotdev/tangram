@@ -37,14 +37,9 @@ pub struct File {
 }
 
 #[derive(Clone, Debug)]
-pub enum Symlink {
-	Target {
-		target: PathBuf,
-	},
-	Artifact {
-		artifact: Either<usize, tg::Artifact>,
-		subpath: Option<PathBuf>,
-	},
+pub struct Symlink {
+	pub artifact: Option<Either<usize, tg::Artifact>>,
+	pub path: Option<PathBuf>,
 }
 
 impl Graph {
@@ -73,12 +68,8 @@ impl Graph {
 					}
 				},
 				Node::Symlink(symlink) => {
-					if let tg::graph::object::Symlink::Artifact {
-						artifact: Either::Right(id),
-						..
-					} = symlink
-					{
-						children.push(id.clone().into());
+					if let Some(Either::Right(artifact)) = &symlink.artifact {
+						children.push(artifact.clone().into());
 					}
 				},
 			}
@@ -140,23 +131,13 @@ impl Node {
 				})
 			},
 
-			Self::Symlink(symlink) => match symlink {
-				tg::graph::object::Symlink::Target { target } => {
-					tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target {
-						target: target.clone(),
-					})
-				},
-				tg::graph::object::Symlink::Artifact { artifact, subpath } => {
-					let artifact = match artifact {
-						Either::Left(index) => Either::Left(*index),
-						Either::Right(artifact) => Either::Right(artifact.id()),
-					};
-					let subpath = subpath.clone();
-					tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Artifact {
-						artifact,
-						subpath,
-					})
-				},
+			Self::Symlink(symlink) => {
+				let artifact = symlink.artifact.as_ref().map(|artifact| match artifact {
+					Either::Left(index) => Either::Left(*index),
+					Either::Right(artifact) => Either::Right(artifact.id()),
+				});
+				let path = symlink.path.clone();
+				tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path })
 			},
 		}
 	}
@@ -219,15 +200,9 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				let node = Node::File(file);
 				Ok(node)
 			},
-			tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Target { target }) => {
-				Ok(Node::Symlink(tg::graph::object::Symlink::Target { target }))
-			},
-			tg::graph::data::Node::Symlink(tg::graph::data::Symlink::Artifact {
-				artifact,
-				subpath,
-			}) => {
-				let artifact = artifact.map_right(tg::Artifact::with_id);
-				let symlink = tg::graph::object::Symlink::Artifact { artifact, subpath };
+			tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path }) => {
+				let artifact = artifact.map(|artifact| artifact.map_right(tg::Artifact::with_id));
+				let symlink = tg::graph::object::Symlink { artifact, path };
 				let node = Node::Symlink(symlink);
 				Ok(node)
 			},

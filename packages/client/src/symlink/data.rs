@@ -11,15 +11,12 @@ pub enum Symlink {
 		node: usize,
 	},
 
-	Target {
-		target: PathBuf,
-	},
-
-	Artifact {
-		artifact: tg::artifact::Id,
+	Normal {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		artifact: Option<tg::artifact::Id>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
-		subpath: Option<PathBuf>,
+		path: Option<PathBuf>,
 	},
 }
 
@@ -38,8 +35,13 @@ impl Symlink {
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
 			Self::Graph { graph, .. } => std::iter::once(graph.clone().into()).boxed(),
-			Self::Target { .. } => std::iter::empty().boxed(),
-			Self::Artifact { artifact, .. } => std::iter::once(artifact.clone().into()).boxed(),
+			Self::Normal { artifact, .. } => {
+				if let Some(artifact) = artifact {
+					std::iter::once(artifact.clone().into()).boxed()
+				} else {
+					std::iter::empty().boxed()
+				}
+			},
 		}
 	}
 }

@@ -308,12 +308,12 @@ export namespace File {
 	export type Id = string;
 
 	export type Object =
+		| { graph: tg.Graph; node: number }
 		| {
 				contents: tg.Blob;
 				dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> };
 				executable: boolean;
-		  }
-		| { graph: tg.Graph; node: number };
+		  };
 
 	export namespace Object {
 		export let toData = (object: Object): Data => {
@@ -375,14 +375,14 @@ export namespace File {
 	}
 
 	export type Data =
+		| { graph: tg.Graph.Id; node: number }
 		| {
 				contents: tg.Blob.Id;
 				dependencies?: {
 					[reference: tg.Reference]: tg.Referent.Data<tg.Object.Id>;
 				};
 				executable?: boolean;
-		  }
-		| { graph: tg.Graph.Id; node: number };
+		  };
 
 	export type State = tg.Object.State<File.Id, File.Object>;
 

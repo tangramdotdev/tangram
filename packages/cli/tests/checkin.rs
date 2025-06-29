@@ -31,11 +31,11 @@ async fn directory() {
 		    "contents": tg.blob("Hello, world!"),
 		  }),
 		  "link": tg.symlink({
-		    "target": "hello.txt",
+		    "path": "hello.txt",
 		  }),
 		  "subdirectory": tg.directory({
 		    "sublink": tg.symlink({
-		      "target": "../link",
+		      "path": "../link",
 		    }),
 		  }),
 		})
@@ -44,7 +44,7 @@ async fn directory() {
 		{
 		  "count": 6,
 		  "depth": 3,
-		  "weight": 443
+		  "weight": 439
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -96,7 +96,7 @@ async fn symlink() {
 		assert_snapshot!(object, @r#"
 		tg.directory({
 		  "link": tg.symlink({
-		    "target": ".",
+		    "path": ".",
 		  }),
 		})
 		"#);
@@ -104,7 +104,7 @@ async fn symlink() {
 		{
 		  "count": 2,
 		  "depth": 2,
-		  "weight": 95
+		  "weight": 93
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -211,7 +211,7 @@ async fn file_with_symlink_no_kind() {
 		    "contents": tg.blob("export default bar = \"bar\";\n"),
 		  }),
 		  "foo.tg.ts": tg.symlink({
-		    "target": "bar.tg.ts",
+		    "path": "bar.tg.ts",
 		  }),
 		  "tangram.ts": tg.file({
 		    "contents": tg.blob("import foo from \"./foo.tg.ts\";\n"),
@@ -230,7 +230,7 @@ async fn file_with_symlink_no_kind() {
 		{
 		  "count": 8,
 		  "depth": 4,
-		  "weight": 671
+		  "weight": 669
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -259,14 +259,14 @@ async fn file_with_symlink() {
 		    "contents": tg.blob("export default bar = \"bar\";\n"),
 		  }),
 		  "foo.tg.ts": tg.symlink({
-		    "target": "bar.tg.ts",
+		    "path": "bar.tg.ts",
 		  }),
 		  "tangram.ts": tg.file({
 		    "contents": tg.blob("import foo from \"./foo.tg.ts\" with { kind: \"symlink\" };\n"),
 		    "dependencies": {
 		      "./foo.tg.ts": {
 		        "item": tg.symlink({
-		          "target": "bar.tg.ts",
+		          "path": "bar.tg.ts",
 		        }),
 		        "path": "foo.tg.ts",
 		      },
@@ -278,7 +278,7 @@ async fn file_with_symlink() {
 		{
 		  "count": 7,
 		  "depth": 3,
-		  "weight": 616
+		  "weight": 612
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -939,12 +939,12 @@ async fn directory_destructive() {
 		  "a": tg.directory({
 		    "b": tg.directory({
 		      "c": tg.symlink({
-		        "target": "../../a/d/e",
+		        "path": "../../a/d/e",
 		      }),
 		    }),
 		    "d": tg.directory({
 		      "e": tg.symlink({
-		        "target": "../../a/f/g",
+		        "path": "../../a/f/g",
 		      }),
 		    }),
 		    "f": tg.directory({

@@ -47,18 +47,12 @@ pub struct File {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum Symlink {
-	Target {
-		target: PathBuf,
-	},
+pub struct Symlink {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub artifact: Option<Entry>,
 
-	Artifact {
-		artifact: Entry,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		subpath: Option<PathBuf>,
-	},
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
 }
 
 pub type Entry = Either<usize, tg::object::Id>;

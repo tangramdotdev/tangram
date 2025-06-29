@@ -41,7 +41,7 @@ pub struct ArtifactExecutable {
 	pub artifact: tg::artifact::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub subpath: Option<PathBuf>,
+	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

@@ -33,7 +33,7 @@ async fn directory() {
 	.await;
 }
 
-/// Test checking out a single file.
+/// Test caching a file.
 #[tokio::test]
 async fn file() {
 	let artifact = tg::file!("Hello, World!");
@@ -53,7 +53,7 @@ async fn file() {
 	.await;
 }
 
-/// Test checking out an executable file.
+/// Test caching an executable file.
 #[tokio::test]
 async fn executable_file() {
 	let artifact = tg::file!("Hello, World!", executable = true);
@@ -106,7 +106,7 @@ async fn directory_with_two_identical_files() {
 	.await;
 }
 
-/// Test checking out a a file with a dependency.
+/// Test caching a file with a dependency.
 #[tokio::test]
 async fn file_with_dependency() {
 	let artifact = tg::file!(
@@ -136,7 +136,7 @@ async fn file_with_dependency() {
 	.await;
 }
 
-/// Test checking out a symlink.
+/// Test caching a symlink.
 #[tokio::test]
 async fn symlink() {
 	let artifact = tg::symlink!("/bin/sh");
@@ -145,9 +145,9 @@ async fn symlink() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "sym_01xpnr55xrsjcwcc9ppryzqry6r2m15k17kzjxjakyfs4g5fvksqqg": {
+		    "sym_01sjeq01fm5g3jqq57bams2kxsprz7e8mhtpkbagxhvb1xg8f12z2g": {
 		      "kind": "symlink",
-		      "target": "/bin/sh"
+		      "path": "/bin/sh"
 		    }
 		  }
 		}
@@ -156,7 +156,7 @@ async fn symlink() {
 	.await;
 }
 
-/// Test checking out a directory with a symlink.
+/// Test caching a directory with a symlink.
 #[tokio::test]
 async fn directory_with_symlink() {
 	let artifact = tg::directory! {
@@ -170,7 +170,7 @@ async fn directory_with_symlink() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_01e6pdddg9rf16ja4sx9g5vg544cccvkvd4xafsqbdq79cm4tf5340": {
+		    "dir_01xk6kmg1pke81bp3e73gza5xapstvn573g1vx700ndpm46ev5nn90": {
 		      "kind": "directory",
 		      "entries": {
 		        "directory": {
@@ -182,7 +182,7 @@ async fn directory_with_symlink() {
 		            },
 		            "link": {
 		              "kind": "symlink",
-		              "target": "hello.txt"
+		              "path": "hello.txt"
 		            }
 		          }
 		        }
@@ -195,7 +195,7 @@ async fn directory_with_symlink() {
 	.await;
 }
 
-/// Test checking out a directory with a file with a dependency.
+/// Test caching a directory with a file with a dependency.
 #[tokio::test]
 async fn directory_with_file_with_dependency() {
 	let artifact = tg::directory! {
@@ -228,7 +228,7 @@ async fn directory_with_file_with_dependency() {
 	.await;
 }
 
-/// Test checking out a directory with a symlink with a dependency.
+/// Test caching a directory with a symlink with a dependency.
 #[tokio::test]
 async fn directory_with_symlink_with_dependency() {
 	let artifact = tg::directory! {
@@ -244,7 +244,7 @@ async fn directory_with_symlink_with_dependency() {
 		      "entries": {
 		        "foo": {
 		          "kind": "symlink",
-		          "target": "../fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
+		          "path": "../fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
 		        }
 		      }
 		    },
@@ -259,7 +259,7 @@ async fn directory_with_symlink_with_dependency() {
 	.await;
 }
 
-/// Test checking out a symlink that is a member of a graph.
+/// Test caching a symlink that is a member of a graph.
 #[tokio::test]
 async fn graph_directory() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
@@ -295,7 +295,7 @@ async fn graph_directory() {
 	.await;
 }
 
-/// Test checking out a file that is a member of a graph.
+/// Test caching a file that is a member of a graph.
 #[tokio::test]
 async fn graph_file() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
@@ -322,13 +322,14 @@ async fn graph_file() {
 	.await;
 }
 
-/// Test checking out a symlink that is a member of a graph.
+/// Test caching a symlink that is a member of a graph.
 #[tokio::test]
 async fn graph_symlink() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![tg::graph::object::Node::Symlink(
-			tg::graph::object::Symlink::Target {
-				target: "/bin/sh".into(),
+			tg::graph::object::Symlink {
+				artifact: None,
+				path: Some("/bin/sh".into()),
 			},
 		)],
 	});
@@ -338,9 +339,9 @@ async fn graph_symlink() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "sym_018t9cagpp8nzqv9vf0v3yrkpnm9betvtv82vjrh3n6qjhf7rk3df0": {
+		    "sym_01xcz8v0pcvedwb43gx6dcrdy7w87rnmv3wfyc6s2zsmchme6628cg": {
 		      "kind": "symlink",
-		      "target": "/bin/sh"
+		      "path": "/bin/sh"
 		    }
 		  }
 		}
@@ -349,7 +350,7 @@ async fn graph_symlink() {
 	.await;
 }
 
-/// Test checking out a directory with an artifact symlink that points to itself.
+/// Test caching a directory with an artifact symlink that points to itself.
 #[tokio::test]
 async fn directory_with_symlink_cycle() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
@@ -357,9 +358,9 @@ async fn directory_with_symlink_cycle() {
 			tg::graph::object::Node::Directory(tg::graph::object::Directory {
 				entries: [("link".to_owned(), Either::Left(1))].into(),
 			}),
-			tg::graph::object::Node::Symlink(tg::graph::object::Symlink::Artifact {
-				artifact: Either::Left(0),
-				subpath: Some("link".into()),
+			tg::graph::object::Node::Symlink(tg::graph::object::Symlink {
+				artifact: Some(Either::Left(0)),
+				path: Some("link".into()),
 			}),
 		],
 	});
@@ -369,12 +370,12 @@ async fn directory_with_symlink_cycle() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_014yyvsnfgj1dsd3s7dctta79hmjm3rq6sya1t7hymygjm97ynqhng": {
+		    "dir_01ra86dj63y1evzwrnbf1779h09dhea2nps68sdk49gy1z8fwx56h0": {
 		      "kind": "directory",
 		      "entries": {
 		        "link": {
 		          "kind": "symlink",
-		          "target": "link"
+		          "path": "link"
 		        }
 		      }
 		    }
