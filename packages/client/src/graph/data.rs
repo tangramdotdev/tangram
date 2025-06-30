@@ -46,11 +46,11 @@ pub struct Symlink {
 	pub path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
-pub enum Edge<T> {
-	Graph(GraphEdge),
-	Object(T),
-}
+// #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+// pub enum Edge<T> {
+// 	Graph(GraphEdge),
+// 	Object(T),
+// }
 
 pub struct GraphEdge {
 	pub graph: Option<tg::graph::Id>,

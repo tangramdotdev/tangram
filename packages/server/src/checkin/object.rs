@@ -290,7 +290,7 @@ impl Server {
 					.try_collect()?;
 				let executable = file.executable;
 				let data = tg::file::Data::Node(tg::file::data::Node {
-					contents,
+					contents: Some(contents),
 					dependencies,
 					executable,
 				});

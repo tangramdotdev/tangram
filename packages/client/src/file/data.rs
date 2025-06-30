@@ -19,7 +19,7 @@ pub struct Graph {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Node {
-	pub contents: tg::blob::Id,
+	pub contents: Option<tg::blob::Id>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
@@ -46,14 +46,12 @@ impl File {
 				.map_into()
 				.left_iterator(),
 			Self::Node(node) => {
-				let contents = node.contents.clone().into();
+				let contents = node.contents.clone().map(tg::object::Id::from);
 				let dependencies = node
 					.dependencies
 					.values()
 					.map(|dependency| dependency.item.clone());
-				std::iter::once(contents)
-					.chain(dependencies)
-					.right_iterator()
+				contents.into_iter().chain(dependencies).right_iterator()
 			},
 		}
 	}

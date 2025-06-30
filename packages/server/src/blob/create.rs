@@ -54,7 +54,7 @@ impl Server {
 		// Rename the temp file to the cache directory if necessary.
 		let cache_reference = if let Destination::Temp(temp) = destination {
 			let data = tg::file::Data::Node(tg::file::data::Node {
-				contents: blob.id.clone(),
+				contents: Some(blob.id.clone()),
 				dependencies: BTreeMap::new(),
 				executable: false,
 			});

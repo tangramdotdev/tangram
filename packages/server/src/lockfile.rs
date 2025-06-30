@@ -220,7 +220,7 @@ impl Server {
 					};
 					dependencies_.insert(reference.clone(), dependency);
 				}
-				let contents = Some(contents.clone());
+				let contents = contents.clone();
 				tg::lockfile::Node::File(tg::lockfile::File {
 					contents,
 					dependencies: dependencies_,

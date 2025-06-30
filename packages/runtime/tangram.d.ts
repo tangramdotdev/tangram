@@ -290,7 +290,7 @@ declare namespace tg {
 		store(): Promise<tg.File.Id>;
 
 		/** Get this file's contents. */
-		contents(): Promise<tg.Blob>;
+		contents(): Promise<tg.Blob | undefined>;
 
 		/** Get the length of this file's contents. */
 		length(): Promise<number>;
