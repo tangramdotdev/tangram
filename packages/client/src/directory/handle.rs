@@ -118,7 +118,7 @@ impl Directory {
 impl Directory {
 	#[must_use]
 	pub fn with_entries(entries: BTreeMap<String, tg::Artifact>) -> Self {
-		Self::with_object(Object::Normal(tg::directory::object::Normal { entries }))
+		Self::with_object(Object::Node(tg::directory::object::Node { entries }))
 	}
 
 	#[must_use]
@@ -184,7 +184,7 @@ impl Directory {
 					})
 					.collect::<tg::Result<_>>()?
 			},
-			Object::Normal(normal) => normal.entries.clone(),
+			Object::Node(node) => node.entries.clone(),
 		};
 		Ok(entries)
 	}
@@ -231,7 +231,7 @@ impl Directory {
 					Some(Either::Right(artifact)) => Some(artifact.clone()),
 				}
 			},
-			Object::Normal(normal) => normal.entries.get(name).cloned(),
+			Object::Node(node) => node.entries.get(name).cloned(),
 		};
 		Ok(artifact)
 	}

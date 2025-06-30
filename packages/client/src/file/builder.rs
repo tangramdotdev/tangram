@@ -40,7 +40,7 @@ impl Builder {
 
 	#[must_use]
 	pub fn build(self) -> tg::File {
-		tg::File::with_object(tg::file::Object::Normal(tg::file::object::Normal {
+		tg::File::with_object(tg::file::Object::Node(tg::file::object::Node {
 			contents: self.contents,
 			dependencies: self.dependencies,
 			executable: self.executable,

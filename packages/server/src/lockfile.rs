@@ -143,7 +143,7 @@ impl Server {
 		// Create a new lockfile node for the artifact, recursing over dependencies.
 		let node = match &artifact {
 			tg::artifact::Data::Directory(directory) => {
-				let tg::directory::data::Directory::Normal(tg::directory::data::Normal { entries }) =
+				let tg::directory::data::Directory::Node(tg::directory::data::Node { entries }) =
 					directory
 				else {
 					unreachable!()
@@ -165,7 +165,7 @@ impl Server {
 			},
 
 			tg::artifact::Data::File(file) => {
-				let tg::file::data::File::Normal(data) = file else {
+				let tg::file::data::File::Node(data) = file else {
 					unreachable!()
 				};
 				let contents = &data.contents;
@@ -230,7 +230,7 @@ impl Server {
 
 			tg::artifact::Data::Symlink(symlink) => match symlink {
 				tg::symlink::data::Symlink::Graph(..) => unreachable!(),
-				tg::symlink::data::Symlink::Normal(data) => {
+				tg::symlink::data::Symlink::Node(data) => {
 					let artifact = &data.artifact;
 					let path = &data.path;
 					let artifact = if let Some(artifact) = artifact {
@@ -1040,7 +1040,7 @@ impl Server {
 					None => None,
 				};
 				let path = symlink.path.clone();
-				tg::Symlink::with_object(tg::symlink::Object::Normal(tg::symlink::object::Normal {
+				tg::Symlink::with_object(tg::symlink::Object::Node(tg::symlink::object::Node {
 					artifact,
 					path,
 				}))

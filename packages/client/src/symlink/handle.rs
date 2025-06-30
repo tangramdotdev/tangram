@@ -120,7 +120,7 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_artifact_and_path(artifact: tg::Artifact, path: PathBuf) -> Self {
-		Self::with_object(Object::Normal(tg::symlink::object::Normal {
+		Self::with_object(Object::Node(tg::symlink::object::Node {
 			artifact: Some(artifact),
 			path: Some(path),
 		}))
@@ -128,7 +128,7 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_artifact(artifact: tg::Artifact) -> Self {
-		Self::with_object(Object::Normal(tg::symlink::object::Normal {
+		Self::with_object(Object::Node(tg::symlink::object::Node {
 			artifact: Some(artifact),
 			path: None,
 		}))
@@ -136,7 +136,7 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
-		Self::with_object(Object::Normal(tg::symlink::object::Normal {
+		Self::with_object(Object::Node(tg::symlink::object::Node {
 			artifact: None,
 			path: Some(path),
 		}))
@@ -148,9 +148,9 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph(graph_obj) => {
-				let graph = &graph_obj.graph;
-				let node = graph_obj.node;
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
@@ -186,7 +186,7 @@ impl Symlink {
 				};
 				Ok(Some(artifact))
 			},
-			Object::Normal(normal) => Ok(normal.artifact.clone()),
+			Object::Node(node) => Ok(node.artifact.clone()),
 		}
 	}
 
@@ -196,9 +196,9 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph(graph_obj) => {
-				let graph = &graph_obj.graph;
-				let node = graph_obj.node;
+			Object::Graph(object) => {
+				let graph = &object.graph;
+				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
@@ -210,7 +210,7 @@ impl Symlink {
 					.ok_or_else(|| tg::error!("expected a symlink"))?;
 				Ok(symlink.path.clone())
 			},
-			Object::Normal(normal) => Ok(normal.path.clone()),
+			Object::Node(node) => Ok(node.path.clone()),
 		}
 	}
 

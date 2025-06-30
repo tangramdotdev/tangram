@@ -722,7 +722,7 @@ impl Server {
 				let artifact = Either::Left((graph, node));
 				self.checkout_inner(state, path, id, artifact)?;
 			},
-			tg::directory::Data::Normal(tg::directory::data::Normal { entries }) => {
+			tg::directory::Data::Node(tg::directory::data::Node { entries }) => {
 				std::fs::create_dir_all(&path).unwrap();
 				for (name, id) in entries {
 					let artifact = Either::Right(id.clone());
@@ -749,7 +749,7 @@ impl Server {
 				let artifact = Either::Left((data.graph, data.node));
 				self.checkout_inner(state, path, id, artifact)?;
 			},
-			tg::file::Data::Normal(data) => {
+			tg::file::Data::Node(data) => {
 				// Check out the dependencies.
 				for referent in data.dependencies.values() {
 					let Ok(id) = tg::artifact::Id::try_from(referent.item.clone()) else {
@@ -860,7 +860,7 @@ impl Server {
 				let artifact = Either::Left((data.graph, data.node));
 				self.checkout_inner(state, path, id, artifact)?;
 			},
-			tg::symlink::Data::Normal(data) => {
+			tg::symlink::Data::Node(data) => {
 				// Render the target.
 				let target = if let Some(artifact) = &data.artifact {
 					let mut target = PathBuf::new();

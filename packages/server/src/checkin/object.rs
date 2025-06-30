@@ -254,7 +254,7 @@ impl Server {
 						(name, id)
 					})
 					.collect();
-				let data = tg::directory::Data::Normal(tg::directory::data::Normal { entries });
+				let data = tg::directory::Data::Node(tg::directory::data::Node { entries });
 				let data = tg::object::Data::from(data);
 				(kind, data)
 			},
@@ -289,7 +289,7 @@ impl Server {
 					})
 					.try_collect()?;
 				let executable = file.executable;
-				let data = tg::file::Data::Normal(tg::file::data::Normal {
+				let data = tg::file::Data::Node(tg::file::data::Node {
 					contents,
 					dependencies,
 					executable,
@@ -313,8 +313,8 @@ impl Server {
 					None => None,
 				};
 				let path = symlink.path.clone();
-				let data = tg::object::Data::from(tg::symlink::data::Symlink::Normal(
-					tg::symlink::data::Normal { artifact, path },
+				let data = tg::object::Data::from(tg::symlink::data::Symlink::Node(
+					tg::symlink::data::Node { artifact, path },
 				));
 				(kind, data)
 			},

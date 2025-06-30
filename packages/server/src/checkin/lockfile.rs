@@ -134,7 +134,7 @@ impl Server {
 				let executable = file.executable;
 				(contents, executable)
 			},
-			tg::file::Data::Normal(data) => (data.contents.clone(), data.executable),
+			tg::file::Data::Node(data) => (data.contents.clone(), data.executable),
 		};
 		let dependencies = state.graph.nodes[index]
 			.variant
@@ -210,7 +210,7 @@ impl Server {
 				let symlink = graph.nodes[data.node].clone().try_unwrap_symlink().unwrap();
 				symlink.path
 			},
-			tg::symlink::Data::Normal(data) => data.path.clone(),
+			tg::symlink::Data::Node(data) => data.path.clone(),
 		};
 
 		// Create the lockfile node.

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug)]
 pub enum File {
 	Graph(Graph),
-	Normal(Normal),
+	Node(Node),
 }
 
 #[derive(Clone, Debug)]
@@ -16,7 +16,7 @@ pub struct Graph {
 }
 
 #[derive(Clone, Debug)]
-pub struct Normal {
+pub struct Node {
 	pub contents: tg::Blob,
 	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
 	pub executable: bool,
@@ -27,9 +27,9 @@ impl File {
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
 			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
-			Self::Normal(normal) => {
-				let contents = normal.contents.clone().into();
-				let dependencies = normal
+			Self::Node(node) => {
+				let contents = node.contents.clone().into();
+				let dependencies = node
 					.dependencies
 					.values()
 					.map(|dependency| dependency.item.clone());
@@ -42,16 +42,13 @@ impl File {
 	pub fn to_data(&self) -> Data {
 		match self {
 			Self::Graph(graph) => {
-				let graph_id = graph.graph.id();
+				let id = graph.graph.id();
 				let node = graph.node;
-				Data::Graph(tg::file::data::Graph {
-					graph: graph_id,
-					node,
-				})
+				Data::Graph(tg::file::data::Graph { graph: id, node })
 			},
-			Self::Normal(normal) => {
-				let contents = normal.contents.id();
-				let dependencies = normal
+			Self::Node(node) => {
+				let contents = node.contents.id();
+				let dependencies = node
 					.dependencies
 					.iter()
 					.map(|(reference, referent)| {
@@ -64,8 +61,8 @@ impl File {
 						(reference.clone(), dependency)
 					})
 					.collect();
-				let executable = normal.executable;
-				Data::Normal(tg::file::data::Normal {
+				let executable = node.executable;
+				Data::Node(tg::file::data::Node {
 					contents,
 					dependencies,
 					executable,
@@ -85,7 +82,7 @@ impl TryFrom<Data> for File {
 				let node = data.node;
 				Ok(Self::Graph(Graph { graph, node }))
 			},
-			Data::Normal(data) => {
+			Data::Node(data) => {
 				let contents = tg::Blob::with_id(data.contents);
 				let dependencies = data
 					.dependencies
@@ -95,7 +92,7 @@ impl TryFrom<Data> for File {
 						(reference, referent)
 					})
 					.collect();
-				Ok(Self::Normal(Normal {
+				Ok(Self::Node(Node {
 					contents,
 					dependencies,
 					executable: data.executable,

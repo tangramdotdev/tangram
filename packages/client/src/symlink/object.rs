@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[derive(Clone, Debug)]
 pub enum Symlink {
 	Graph(Graph),
-	Normal(Normal),
+	Node(Node),
 }
 
 #[derive(Clone, Debug)]
@@ -16,7 +16,7 @@ pub struct Graph {
 }
 
 #[derive(Clone, Debug)]
-pub struct Normal {
+pub struct Node {
 	pub artifact: Option<tg::Artifact>,
 	pub path: Option<PathBuf>,
 }
@@ -26,8 +26,8 @@ impl Symlink {
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
 			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
-			Self::Normal(normal) => {
-				if let Some(artifact) = &normal.artifact {
+			Self::Node(node) => {
+				if let Some(artifact) = &node.artifact {
 					std::iter::once(artifact.clone()).map_into().collect()
 				} else {
 					vec![]
@@ -40,17 +40,14 @@ impl Symlink {
 	pub fn to_data(&self) -> Data {
 		match self {
 			Self::Graph(graph) => {
-				let graph_id = graph.graph.id();
+				let id = graph.graph.id();
 				let node = graph.node;
-				Data::Graph(tg::symlink::data::Graph {
-					graph: graph_id,
-					node,
-				})
+				Data::Graph(tg::symlink::data::Graph { graph: id, node })
 			},
-			Self::Normal(normal) => {
-				let artifact = normal.artifact.as_ref().map(tg::Artifact::id);
-				let path = normal.path.clone();
-				Data::Normal(tg::symlink::data::Normal { artifact, path })
+			Self::Node(node) => {
+				let artifact = node.artifact.as_ref().map(tg::Artifact::id);
+				let path = node.path.clone();
+				Data::Node(tg::symlink::data::Node { artifact, path })
 			},
 		}
 	}
@@ -66,10 +63,10 @@ impl TryFrom<Data> for Symlink {
 				let node = data.node;
 				Ok(Self::Graph(Graph { graph, node }))
 			},
-			Data::Normal(data) => {
+			Data::Node(data) => {
 				let artifact = data.artifact.map(tg::Artifact::with_id);
 				let path = data.path;
-				Ok(Self::Normal(Normal { artifact, path }))
+				Ok(Self::Node(Node { artifact, path }))
 			},
 		}
 	}

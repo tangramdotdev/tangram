@@ -151,7 +151,7 @@ impl File {
 				let contents = file.contents.clone();
 				Ok(contents)
 			},
-			Object::Normal(object) => Ok(object.contents.clone()),
+			Object::Node(object) => Ok(object.contents.clone()),
 		}
 	}
 
@@ -210,7 +210,7 @@ impl File {
 					})
 					.try_collect()?
 			},
-			Object::Normal(normal) => normal.dependencies.clone(),
+			Object::Node(node) => node.dependencies.clone(),
 		};
 		Ok(entries)
 	}
@@ -274,7 +274,7 @@ impl File {
 					tag: referent.tag.clone(),
 				})
 			},
-			Object::Normal(normal) => normal.dependencies.get(reference).cloned(),
+			Object::Node(node) => node.dependencies.get(reference).cloned(),
 		};
 		Ok(referent)
 	}
@@ -299,7 +299,7 @@ impl File {
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				Ok(file.executable)
 			},
-			Object::Normal(normal) => Ok(normal.executable),
+			Object::Node(node) => Ok(node.executable),
 		}
 	}
 

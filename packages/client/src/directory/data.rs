@@ -8,7 +8,7 @@ use tangram_itertools::IteratorExt as _;
 #[serde(untagged)]
 pub enum Directory {
 	Graph(Graph),
-	Normal(Normal),
+	Node(Node),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -18,7 +18,7 @@ pub struct Graph {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Normal {
+pub struct Node {
 	pub entries: BTreeMap<String, tg::artifact::Id>,
 }
 
@@ -39,7 +39,7 @@ impl Directory {
 			Self::Graph(graph) => std::iter::once(graph.graph.clone())
 				.map_into()
 				.left_iterator(),
-			Self::Normal(normal) => normal
+			Self::Node(node) => node
 				.entries
 				.values()
 				.cloned()

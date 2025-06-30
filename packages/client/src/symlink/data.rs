@@ -7,7 +7,7 @@ use tangram_itertools::IteratorExt as _;
 #[serde(untagged)]
 pub enum Symlink {
 	Graph(Graph),
-	Normal(Normal),
+	Node(Node),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -17,7 +17,7 @@ pub struct Graph {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Normal {
+pub struct Node {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub artifact: Option<tg::artifact::Id>,
 
@@ -40,8 +40,8 @@ impl Symlink {
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
 			Self::Graph(graph) => std::iter::once(graph.graph.clone().into()).boxed(),
-			Self::Normal(normal) => {
-				if let Some(artifact) = &normal.artifact {
+			Self::Node(node) => {
+				if let Some(artifact) = &node.artifact {
 					std::iter::once(artifact.clone().into()).boxed()
 				} else {
 					std::iter::empty().boxed()

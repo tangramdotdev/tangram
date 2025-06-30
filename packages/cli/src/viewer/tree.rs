@@ -825,8 +825,8 @@ where
 			]
 			.into_iter()
 			.collect(),
-			tg::directory::Object::Normal(normal) => {
-				let entries = normal
+			tg::directory::Object::Node(node) => {
+				let entries = node
 					.entries
 					.clone()
 					.into_iter()
@@ -872,16 +872,16 @@ where
 			]
 			.into_iter()
 			.collect(),
-			tg::file::Object::Normal(normal) => {
+			tg::file::Object::Node(node) => {
 				let mut children = Vec::with_capacity(3);
 				children.push((
 					"contents".to_owned(),
-					tg::Value::Object(normal.contents.clone().into()),
+					tg::Value::Object(node.contents.clone().into()),
 				));
-				if normal.executable {
-					children.push(("executable".to_owned(), tg::Value::Bool(normal.executable)));
+				if node.executable {
+					children.push(("executable".to_owned(), tg::Value::Bool(node.executable)));
 				}
-				let dependencies = normal
+				let dependencies = node
 					.dependencies
 					.clone()
 					.into_iter()
@@ -1163,13 +1163,13 @@ where
 			]
 			.into_iter()
 			.collect(),
-			tg::symlink::Object::Normal(normal) => {
+			tg::symlink::Object::Node(node) => {
 				let mut children = Vec::new();
-				if let Some(artifact) = &normal.artifact {
+				if let Some(artifact) = &node.artifact {
 					let artifact = tg::Value::Object(artifact.clone().into());
 					children.push(("artifact".to_owned(), artifact));
 				}
-				if let Some(path) = &normal.path {
+				if let Some(path) = &node.path {
 					let path = path.to_string_lossy().to_string();
 					children.push(("path".to_owned(), tg::Value::String(path)));
 				}
