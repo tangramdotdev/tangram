@@ -220,6 +220,7 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::run::Args),
 
+	#[command(hide = true)]
 	Sandbox(self::sandbox::Args),
 
 	Serve(self::server::run::Args),
@@ -255,7 +256,7 @@ impl Cli {
 		let args = Args::parse();
 		let matches = Args::command().get_matches();
 
-		// Handle tg sandbox invocations.
+		// Handle the sandbox command.
 		if let Command::Sandbox(args) = args.command {
 			tangram_sandbox::main(args.command);
 		}
