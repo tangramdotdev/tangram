@@ -19,7 +19,7 @@ pub struct Graph {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Node {
-	pub entries: BTreeMap<String, tg::artifact::Id>,
+	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
 impl Directory {
