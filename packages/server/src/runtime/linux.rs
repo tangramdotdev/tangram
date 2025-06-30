@@ -264,7 +264,7 @@ impl Runtime {
 		} else {
 			"/".into()
 		};
-		os_command.arg("--cwd").arg(cwd);
+		os_command.arg("-C").arg(cwd);
 
 		// Render the env.
 		let env = render_env(&artifacts_path, &command.env)?;

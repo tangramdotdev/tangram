@@ -82,7 +82,9 @@ impl Runtime {
 		tokio::fs::create_dir_all(&cwd)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
-
+		os_command
+			.arg("-C")
+			.arg(&cwd);
 		// Create the proxy.
 		let proxy = if root_mount {
 			None
