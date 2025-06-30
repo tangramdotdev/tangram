@@ -1,7 +1,6 @@
 use super::{Data, Id, Object};
 use crate as tg;
 use std::{path::PathBuf, sync::Arc};
-use tangram_either::Either;
 
 #[derive(Clone, Debug)]
 pub struct Symlink {
@@ -120,16 +119,18 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_artifact_and_path(artifact: tg::Artifact, path: PathBuf) -> Self {
+		// TODO: flatten graph artifacts.
 		Self::with_object(Object::Node(tg::symlink::object::Node {
-			artifact: Some(artifact),
+			artifact: Some(tg::graph::object::Edge::Object(artifact)),
 			path: Some(path),
 		}))
 	}
 
 	#[must_use]
 	pub fn with_artifact(artifact: tg::Artifact) -> Self {
+		// TODO: flatten graph artifacts.
 		Self::with_object(Object::Node(tg::symlink::object::Node {
-			artifact: Some(artifact),
+			artifact: Some(tg::graph::object::Edge::Object(artifact)),
 			path: None,
 		}))
 	}
@@ -164,29 +165,66 @@ impl Symlink {
 					return Ok(None);
 				};
 				let artifact = match artifact {
-					Either::Left(node) => {
+					tg::graph::object::Edge::Graph(edge) => {
+						let (graph, object) = if let Some(graph) = &edge.graph {
+							let graph = graph.clone();
+							let object = graph.object(handle).await?;
+							(graph, object)
+						} else {
+							(graph.clone(), object.clone())
+						};
 						let kind = object
 							.nodes
-							.get(*node)
+							.get(edge.node)
 							.ok_or_else(|| tg::error!("invalid index"))?
 							.kind();
 						match kind {
 							tg::artifact::Kind::Directory => {
-								tg::Directory::with_graph_and_node(graph.clone(), *node).into()
+								tg::Directory::with_graph_and_node(graph.clone(), edge.node).into()
 							},
 							tg::artifact::Kind::File => {
-								tg::File::with_graph_and_node(graph.clone(), *node).into()
+								tg::File::with_graph_and_node(graph.clone(), edge.node).into()
 							},
 							tg::artifact::Kind::Symlink => {
-								tg::Symlink::with_graph_and_node(graph.clone(), *node).into()
+								tg::Symlink::with_graph_and_node(graph.clone(), edge.node).into()
 							},
 						}
 					},
-					Either::Right(artifact) => artifact.clone(),
+					tg::graph::object::Edge::Object(edge) => {
+						edge.clone()
+					},
 				};
 				Ok(Some(artifact))
 			},
-			Object::Node(node) => Ok(node.artifact.clone()),
+			Object::Node(node) => {
+				let Some(artifact) = &node.artifact else {
+					return Ok(None);
+				};
+				let artifact = match artifact.clone() {
+					tg::graph::object::Edge::Graph(edge) => {
+						let graph = edge.graph.ok_or_else(|| tg::error!("missing graph"))?;
+						let object = graph.object(handle).await?;
+						let kind = object
+							.nodes
+							.get(edge.node)
+							.ok_or_else(|| tg::error!("invalid index"))?
+							.kind();
+						match kind {
+							tg::artifact::Kind::Directory => {
+								tg::Directory::with_graph_and_node(graph.clone(), edge.node).into()
+							},
+							tg::artifact::Kind::File => {
+								tg::File::with_graph_and_node(graph.clone(), edge.node).into()
+							},
+							tg::artifact::Kind::Symlink => {
+								tg::Symlink::with_graph_and_node(graph.clone(), edge.node).into()
+							},
+						}
+					},
+					tg::graph::object::Edge::Object(edge) => edge.clone()
+				};
+				Ok(Some(artifact))
+			}
 		}
 	}
 

@@ -1,6 +1,5 @@
 use crate as tg;
 use bytes::Bytes;
-use std::path::PathBuf;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -16,14 +15,7 @@ pub struct Graph {
 	pub node: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Node {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<tg::artifact::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
-}
+pub type Node = tg::graph::data::Symlink;
 
 impl Symlink {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
@@ -41,11 +33,12 @@ impl Symlink {
 		match self {
 			Self::Graph(graph) => std::iter::once(graph.graph.clone().into()).boxed(),
 			Self::Node(node) => {
-				if let Some(artifact) = &node.artifact {
-					std::iter::once(artifact.clone().into()).boxed()
-				} else {
-					std::iter::empty().boxed()
-				}
+				node.artifact.clone().and_then(|edge| match edge {
+					tg::graph::data::Edge::Graph(edge) => edge.graph.map(tg::object::Id::from),
+					tg::graph::data::Edge::Object(edge) => Some(edge.into())
+				})
+				.into_iter()
+				.boxed()
 			},
 		}
 	}

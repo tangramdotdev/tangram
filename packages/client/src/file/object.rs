@@ -1,7 +1,6 @@
 use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
-use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub enum File {
@@ -15,12 +14,7 @@ pub struct Graph {
 	pub node: usize,
 }
 
-#[derive(Clone, Debug)]
-pub struct Node {
-	pub contents: tg::Blob,
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
-	pub executable: bool,
-}
+pub type Node = tg::graph::object::File;
 
 impl File {
 	#[must_use]
@@ -28,12 +22,21 @@ impl File {
 		match self {
 			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
 			Self::Node(node) => {
-				let contents = node.contents.clone().into();
-				let dependencies = node
-					.dependencies
-					.values()
-					.map(|dependency| dependency.item.clone());
-				std::iter::once(contents).chain(dependencies).collect()
+				let dependencies =
+					node.dependencies
+						.values()
+						.filter_map(|dependency| match &dependency.item {
+							tg::graph::object::Edge::Graph(edge) => {
+								edge.graph.clone().map(tg::Object::from)
+							},
+							tg::graph::object::Edge::Object(edge) => Some(edge.clone()),
+						});
+				node.contents
+					.clone()
+					.map(tg::Object::from)
+					.into_iter()
+					.chain(dependencies)
+					.collect()
 			},
 		}
 	}
@@ -47,14 +50,13 @@ impl File {
 				Data::Graph(tg::file::data::Graph { graph: id, node })
 			},
 			Self::Node(node) => {
-				let contents = node.contents.id();
+				let contents = node.contents.as_ref().map(tg::Blob::id);
 				let dependencies = node
 					.dependencies
 					.iter()
 					.map(|(reference, referent)| {
-						let object = referent.item.id();
 						let dependency = tg::Referent {
-							item: object,
+							item: referent.item.clone().into(),
 							path: referent.path.clone(),
 							tag: referent.tag.clone(),
 						};
@@ -63,7 +65,7 @@ impl File {
 					.collect();
 				let executable = node.executable;
 				Data::Node(tg::file::data::Node {
-					contents: Some(contents),
+					contents,
 					dependencies,
 					executable,
 				})
@@ -83,15 +85,12 @@ impl TryFrom<Data> for File {
 				Ok(Self::Graph(Graph { graph, node }))
 			},
 			Data::Node(data) => {
-				let contents = tg::Blob::with_id(
-					data.contents
-						.ok_or_else(|| tg::error!("missing contents"))?,
-				);
+				let contents = data.contents.map(tg::Blob::with_id);
 				let dependencies = data
 					.dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						let referent = referent.map(tg::Object::with_id);
+						let referent = referent.map(tg::graph::object::Edge::from);
 						(reference, referent)
 					})
 					.collect();

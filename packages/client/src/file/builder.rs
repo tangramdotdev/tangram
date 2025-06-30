@@ -41,8 +41,14 @@ impl Builder {
 	#[must_use]
 	pub fn build(self) -> tg::File {
 		tg::File::with_object(tg::file::Object::Node(tg::file::object::Node {
-			contents: self.contents,
-			dependencies: self.dependencies,
+			contents: Some(self.contents),
+			dependencies: self
+				.dependencies
+				.into_iter()
+				.map(|(reference, referent)| {
+					(reference, referent.map(tg::graph::object::Edge::Object))
+				})
+				.collect(),
 			executable: self.executable,
 		}))
 	}
