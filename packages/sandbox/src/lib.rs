@@ -56,40 +56,25 @@ pub struct Mount {
 	pub data: Option<Bytes>,
 }
 
-pub fn main(command: Command) -> ! {
+#[must_use]
+pub fn main(command: Command) -> std::process::ExitCode {
 	#[cfg(target_os = "linux")]
-	{
-		match linux::spawn(command) {
-			Ok(status) => unsafe { libc::exit(status) },
-			Err(error) => {
-				eprintln!("failed to run sandbox command: {error}");
-				eprintln!("original invocation:");
-				let mut args = std::env::args();
-				eprint!("{}", args.next().unwrap());
-				for arg in args {
-					eprint!(" {arg}");
-				}
-				eprintln!();
-				std::process::exit(1);
-			},
-		}
-	}
+	let result = linux::spawn(command);
 	#[cfg(target_os = "macos")]
-	{
-		match darwin::spawn(command) {
-			Ok(status) => unsafe { libc::exit(status) },
-			Err(error) => {
-				eprintln!("failed to run sandbox command: {error}");
-				eprintln!("original invocation:");
-				let mut args = std::env::args();
-				eprint!("{}", args.next().unwrap());
-				for arg in args {
-					eprint!(" {arg}");
-				}
-				eprintln!();
-				std::process::exit(1);
-			},
-		}
+	let result = darwin::spawn(command);
+	match result {
+		Ok(status) => status,
+		Err(error) => {
+			eprintln!("failed to run sandbox command: {error}");
+			eprintln!("original invocation:");
+			let mut args = std::env::args();
+			eprint!("{}", args.next().unwrap());
+			for arg in args {
+				eprint!(" {arg}");
+			}
+			eprintln!();
+			std::process::ExitCode::FAILURE
+		},
 	}
 }
 

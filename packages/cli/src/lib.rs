@@ -258,7 +258,7 @@ impl Cli {
 
 		// Handle the sandbox command.
 		if let Command::Sandbox(args) = args.command {
-			tangram_sandbox::main(args.command);
+			return tangram_sandbox::main(args.command);
 		}
 
 		// Read the config.

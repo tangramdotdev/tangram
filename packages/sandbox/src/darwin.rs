@@ -20,7 +20,7 @@ struct Context {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn spawn(command: Command) -> std::io::Result<libc::c_int> {
+pub(crate) fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
@@ -103,17 +103,15 @@ pub(crate) fn spawn(command: Command) -> std::io::Result<libc::c_int> {
 	// Reap its children.
 	kill_process_tree(pid);
 
-	if libc::WIFEXITED(status) {
-		let status = libc::WEXITSTATUS(status);
-		return Ok(status);
-	}
-	if libc::WIFSIGNALED(status) {
-		let signal = libc::WTERMSIG(status);
-		return Ok(signal + 128);
-	}
+	let status = if libc::WIFEXITED(status) {
+		libc::WEXITSTATUS(status).to_u8().unwrap().into()
+	} else if libc::WIFSIGNALED(status) {
+		(128 + libc::WTERMSIG(status).to_u8().unwrap()).into()
+	} else {
+		return Err(std::io::Error::other("unknown process termination"));
+	};
 
-	eprintln!("unknown process termination");
-	Ok(1)
+	Ok(status)
 }
 
 fn create_sandbox_profile(command: &Command) -> CString {

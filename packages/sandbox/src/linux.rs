@@ -33,7 +33,7 @@ struct Context {
 	socket: std::os::unix::net::UnixStream,
 }
 
-pub fn spawn(mut command: Command) -> std::io::Result<libc::c_int> {
+pub fn spawn(mut command: Command) -> std::io::Result<std::process::ExitCode> {
 	if !command.mounts.is_empty() && command.chroot.is_none() {
 		return Err(std::io::Error::other(
 			"cannot create mounts without a chroot directory",
@@ -165,18 +165,15 @@ pub fn spawn(mut command: Command) -> std::io::Result<libc::c_int> {
 		return Err(std::io::Error::last_os_error());
 	}
 
-	if libc::WIFEXITED(status) {
-		let status = libc::WEXITSTATUS(status);
-		return Ok(status);
-	}
+	let status = if libc::WIFEXITED(status) {
+		libc::WEXITSTATUS(status).to_u8().unwrap().into()
+	} else if libc::WIFSIGNALED(status) {
+		(128 + libc::WTERMSIG(status).to_u8().unwrap()).into()
+	} else {
+		return Err(std::io::Error::other("unknown process termination"));
+	};
 
-	if libc::WIFSIGNALED(status) {
-		let signal = libc::WTERMSIG(status);
-		return Ok(signal + 128);
-	}
-
-	eprintln!("unknown process termination");
-	Ok(1)
+	Ok(status)
 }
 
 fn try_start(
