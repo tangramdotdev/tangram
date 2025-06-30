@@ -41,7 +41,7 @@ impl Builder {
 	#[must_use]
 	pub fn build(self) -> tg::File {
 		tg::File::with_object(tg::file::Object::Node(tg::file::object::Node {
-			contents: Some(self.contents),
+			contents: self.contents,
 			dependencies: self
 				.dependencies
 				.into_iter()
