@@ -1,7 +1,6 @@
-use crate::{self as tg, util::serde::is_false};
+use crate::tg;
 use bytes::Bytes;
 use itertools::Itertools as _;
-use std::collections::BTreeMap;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -17,16 +16,7 @@ pub struct Graph {
 	pub node: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Node {
-	pub contents: Option<tg::blob::Id>,
-
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub executable: bool,
-}
+pub type Node = tg::graph::data::File;
 
 impl File {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
@@ -50,7 +40,10 @@ impl File {
 				let dependencies = node
 					.dependencies
 					.values()
-					.map(|dependency| dependency.item.clone());
+					.filter_map(|dependency| match &dependency.item {
+						tg::graph::data::Edge::Graph(edge) => edge.graph.clone().map(tg::object::Id::from),
+						tg::graph::data::Edge::Object(edge) => Some(edge.clone()),
+					});
 				contents.into_iter().chain(dependencies).right_iterator()
 			},
 		}

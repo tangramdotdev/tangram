@@ -1,7 +1,5 @@
 use super::Data;
 use crate as tg;
-use itertools::Itertools as _;
-use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub enum Directory {
@@ -15,17 +13,22 @@ pub struct Graph {
 	pub node: usize,
 }
 
-#[derive(Clone, Debug)]
-pub struct Node {
-	pub entries: BTreeMap<String, tg::Artifact>,
-}
+pub type Node = tg::graph::object::Directory;
 
 impl Directory {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
-			Self::Node(node) => node.entries.values().cloned().map(Into::into).collect(),
+			Self::Graph(graph) => vec![graph.graph.clone().into()],
+			Self::Node(node) => node
+				.entries
+				.values()
+				.cloned()
+				.filter_map(|edge| match edge {
+					tg::graph::object::Edge::Graph(edge) => edge.graph.map(tg::Object::from),
+					tg::graph::object::Edge::Object(edge) => Some(edge.into()),
+				})
+				.collect(),
 		}
 	}
 
@@ -40,8 +43,9 @@ impl Directory {
 			Self::Node(node) => {
 				let entries = node
 					.entries
-					.iter()
-					.map(|(name, artifact)| (name.clone(), artifact.id()))
+					.clone()
+					.into_iter()
+					.map(|(name, edge)| (name, edge.into()))
 					.collect();
 				Data::Node(tg::directory::data::Node { entries })
 			},
@@ -63,7 +67,7 @@ impl TryFrom<Data> for Directory {
 				let entries = data
 					.entries
 					.into_iter()
-					.map(|(name, id)| (name, tg::Artifact::with_id(id)))
+					.map(|(name, edge)| (name, edge.into()))
 					.collect();
 				Ok(Self::Node(Node { entries }))
 			},

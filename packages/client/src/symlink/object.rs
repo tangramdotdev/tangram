@@ -1,7 +1,6 @@
 use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
-use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub enum Symlink {
@@ -15,11 +14,7 @@ pub struct Graph {
 	pub node: usize,
 }
 
-#[derive(Clone, Debug)]
-pub struct Node {
-	pub artifact: Option<tg::Artifact>,
-	pub path: Option<PathBuf>,
-}
+pub type Node = tg::graph::object::Symlink;
 
 impl Symlink {
 	#[must_use]
@@ -27,11 +22,14 @@ impl Symlink {
 		match self {
 			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
 			Self::Node(node) => {
-				if let Some(artifact) = &node.artifact {
-					std::iter::once(artifact.clone()).map_into().collect()
-				} else {
-					vec![]
-				}
+				node.artifact
+					.clone()
+					.and_then(|edge| match edge {
+						tg::graph::object::Edge::Graph(edge) => edge.graph.map(tg::Object::from),
+						tg::graph::object::Edge::Object(edge) => Some(edge.into()),
+					})
+					.into_iter()
+					.collect()
 			},
 		}
 	}
@@ -45,7 +43,7 @@ impl Symlink {
 				Data::Graph(tg::symlink::data::Graph { graph: id, node })
 			},
 			Self::Node(node) => {
-				let artifact = node.artifact.as_ref().map(tg::Artifact::id);
+				let artifact = node.artifact.as_ref().map(|edge| edge.clone().into());
 				let path = node.path.clone();
 				Data::Node(tg::symlink::data::Node { artifact, path })
 			},
@@ -64,7 +62,7 @@ impl TryFrom<Data> for Symlink {
 				Ok(Self::Graph(Graph { graph, node }))
 			},
 			Data::Node(data) => {
-				let artifact = data.artifact.map(tg::Artifact::with_id);
+				let artifact = data.artifact.map(tg::graph::object::Edge::from);
 				let path = data.path;
 				Ok(Self::Node(Node { artifact, path }))
 			},

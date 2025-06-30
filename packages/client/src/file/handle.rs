@@ -1,8 +1,7 @@
 use super::{Builder, Data, Id, Object};
 use crate as tg;
-use itertools::Itertools as _;
+use futures::{stream::FuturesUnordered, TryStreamExt};
 use std::{collections::BTreeMap, sync::Arc};
-use tangram_either::Either;
 use tokio::io::AsyncBufRead;
 
 #[derive(Clone, Debug)]
@@ -148,10 +147,10 @@ impl File {
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let contents = file.contents.clone();
+				let contents = file.contents.clone().ok_or_else(|| tg::error!("missing contents"))?;
 				Ok(contents)
 			},
-			Object::Node(object) => Ok(object.contents.clone()),
+			Object::Node(object) => object.contents.clone().ok_or_else(|| tg::error!("missing contents")),
 		}
 	}
 
@@ -163,7 +162,7 @@ impl File {
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let entries = match object.as_ref() {
+		let dependencies = match object.as_ref() {
 			Object::Graph(object) => {
 				let graph = &object.graph;
 				let node = object.node;
@@ -177,42 +176,73 @@ impl File {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				file.dependencies
-					.iter()
-					.map(|(reference, referent)| {
-						let item = match &referent.item {
-							Either::Left(index) => {
-								let node = object
-									.nodes
-									.get(*index)
-									.ok_or_else(|| tg::error!("invalid index"))?;
+					.clone()
+					.into_iter()
+					.map(async |(reference, referent)| {
+						let object = match referent.item.clone() {
+							tg::graph::object::Edge::Graph(edge) => {
+								let (graph, object) = if let Some(graph) = edge.graph {
+									let object = graph.object(handle).await?;
+									(graph, object)
+								} else {
+									(graph.clone(), object.clone())
+								};
+								let node = object.nodes.get(edge.node).ok_or_else(|| tg::error!("invalid index"))?;
 								match node {
 									tg::graph::Node::Directory(_) => {
-										tg::Directory::with_graph_and_node(graph.clone(), *index)
+										tg::Directory::with_graph_and_node(graph.clone(), edge.node)
 											.into()
 									},
 									tg::graph::Node::File(_) => {
-										tg::File::with_graph_and_node(graph.clone(), *index).into()
+										tg::File::with_graph_and_node(graph.clone(), edge.node).into()
 									},
 									tg::graph::Node::Symlink(_) => {
-										tg::Symlink::with_graph_and_node(graph.clone(), *index)
+										tg::Symlink::with_graph_and_node(graph.clone(), edge.node)
 											.into()
 									},
 								}
 							},
-							Either::Right(object) => object.clone(),
+							tg::graph::object::Edge::Object(object) => object,
 						};
-						let referent = tg::Referent {
-							item,
-							path: referent.path.clone(),
-							tag: referent.tag.clone(),
-						};
-						Ok::<_, tg::Error>((reference.clone(), referent))
+						Ok::<_, tg::Error>((reference, referent.map(|_| object)))
 					})
-					.try_collect()?
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?
 			},
-			Object::Node(node) => node.dependencies.clone(),
+			Object::Node(node) => node
+				.dependencies
+				.clone()
+				.into_iter()
+				.map(async |(reference, referent)| {
+					let object: tg::Object = match referent.item.clone() {
+						tg::graph::object::Edge::Graph(edge) => {
+							let graph = edge.graph.ok_or_else(|| tg::error!("expected a graph"))?;
+							let nodes = graph.nodes(handle).await?;
+							let node = nodes.get(edge.node).ok_or_else(|| tg::error!("invalid node index"))?;
+							match node {
+								tg::graph::Node::Directory(_) => {
+								tg::Directory::with_graph_and_node(graph.clone(), edge.node)
+										.into()
+								},
+								tg::graph::Node::File(_) => {
+									tg::File::with_graph_and_node(graph.clone(), edge.node).into()
+								},
+								tg::graph::Node::Symlink(_) => {
+									tg::Symlink::with_graph_and_node(graph.clone(), edge.node)
+										.into()
+								},
+							}
+						},
+						tg::graph::object::Edge::Object(edge) => edge,
+					};
+					Ok::<_, tg::Error>((reference, referent.map(|_| object)))
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect()
+				.await?,
 		};
-		Ok(entries)
+		Ok(dependencies)
 	}
 
 	pub async fn get_dependency<H>(
@@ -254,29 +284,63 @@ impl File {
 					return Ok(None);
 				};
 				let item = match referent.item.clone() {
-					Either::Left(index) => match object.nodes.get(index) {
-						Some(tg::graph::Node::Directory(_)) => {
-							tg::Directory::with_graph_and_node(graph.clone(), index).into()
-						},
-						Some(tg::graph::Node::File(_)) => {
-							tg::File::with_graph_and_node(graph.clone(), index).into()
-						},
-						Some(tg::graph::Node::Symlink(_)) => {
-							tg::Symlink::with_graph_and_node(graph.clone(), index).into()
-						},
-						None => return Err(tg::error!("invalid index")),
+					tg::graph::object::Edge::Graph(edge) => {
+						let (graph, object) = if let Some(graph) = edge.graph {
+							let object = graph.object(handle).await?;
+							(graph, object)
+						} else {
+							(graph.clone(), object.clone())
+						};
+						match object.nodes.get(edge.node) {
+							Some(tg::graph::Node::Directory(_)) => {
+								tg::Directory::with_graph_and_node(graph, edge.node).into()
+							},
+							Some(tg::graph::Node::File(_)) => {
+								tg::File::with_graph_and_node(graph, edge.node).into()
+							},
+							Some(tg::graph::Node::Symlink(_)) => {
+								tg::Symlink::with_graph_and_node(graph, edge.node).into()
+							},
+							None => return Err(tg::error!("invalid index")),
+						}
 					},
-					Either::Right(object) => object,
+					tg::graph::object::Edge::Object(object) => {
+						object
+					},
 				};
-				Some(tg::Referent {
+				tg::Referent {
 					item,
 					path: referent.path.clone(),
 					tag: referent.tag.clone(),
-				})
+				}
 			},
-			Object::Node(node) => node.dependencies.get(reference).cloned(),
+			Object::Node(node) => {
+				let Some(referent) = node.dependencies.get(reference).cloned() else {
+					return Ok(None);
+				};
+				match referent.item.clone() {
+					tg::graph::object::Edge::Graph(edge) => {
+						let graph = edge.graph.ok_or_else(|| tg::error!("missing graph"))?;
+						let object = graph.object(handle).await?;
+						let object = match object.nodes.get(edge.node) {
+							Some(tg::graph::Node::Directory(_)) => {
+								tg::Directory::with_graph_and_node(graph.clone(), edge.node).into()
+							},
+							Some(tg::graph::Node::File(_)) => {
+								tg::File::with_graph_and_node(graph.clone(), edge.node).into()
+							},
+							Some(tg::graph::Node::Symlink(_)) => {
+								tg::Symlink::with_graph_and_node(graph.clone(), edge.node).into()
+							},
+							None => return Err(tg::error!("invalid index")),
+						};
+						referent.map(|_| object)
+					},
+					tg::graph::object::Edge::Object(object) => referent.map(|_| object)
+				}
+			}
 		};
-		Ok(referent)
+		Ok(Some(referent))
 	}
 
 	pub async fn executable<H>(&self, handle: &H) -> tg::Result<bool>
