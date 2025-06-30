@@ -297,7 +297,7 @@ impl Runtime {
 		let executable = match command.executable {
 			tg::command::data::Executable::Artifact(executable) => {
 				let mut path = artifacts_path.join(executable.artifact.to_string());
-				if let Some(subpath) = executable.subpath {
+				if let Some(subpath) = executable.path {
 					path = path.join(subpath);
 				}
 				path
