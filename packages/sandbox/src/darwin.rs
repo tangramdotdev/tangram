@@ -282,11 +282,6 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 
 	for mount in &command.mounts {
 		if !root_mount {
-			if mount.source != mount.target {
-				return Err(std::io::Error::other(
-					"the source and target paths must be the same",
-				));
-			}
 			let path = mount.source.as_ref().unwrap();
 			if (mount.flags & libc::MNT_RDONLY.to_u64().unwrap()) != 0 {
 				writedoc!(
