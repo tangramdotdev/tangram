@@ -302,9 +302,6 @@ impl vfs::Provider for Provider {
 				target.push("..");
 			}
 			target.push(artifact.id().to_string());
-			if let Some(path) = path.as_ref() {
-				target.push(path);
-			}
 		}
 		if let Some(path) = path {
 			target.push(path);
