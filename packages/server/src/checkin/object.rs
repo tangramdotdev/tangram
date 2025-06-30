@@ -49,6 +49,7 @@ impl Server {
 	}
 
 	pub(super) fn checkin_create_objects(state: &mut State) -> tg::Result<()> {
+		// TODO: remove special case for normal artifacts.
 		// Separate into sccs.
 		let sccs = petgraph::algo::tarjan_scc(&state.graph);
 		for mut scc in sccs {
@@ -152,10 +153,17 @@ impl Server {
 						let item = graph_indices
 							.get(index)
 							.copied()
-							.map(Either::Left)
+							.map(|node| {
+								tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+									graph: None,
+									node,
+								})
+							})
 							.or_else(|| {
 								state.graph.nodes[*index].object.as_ref().map(|object| {
-									Either::Right(object.id.clone().try_into().unwrap())
+									tg::graph::data::Edge::Object(
+										object.id.clone().try_into().unwrap(),
+									)
 								})
 							})
 							.unwrap();
@@ -177,20 +185,27 @@ impl Server {
 						let referent = referent
 							.as_ref()
 							.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
-						let item = match &referent.item {
-							Either::Left(id) => Either::Right(id.clone()),
-							Either::Right(index) => graph_indices
-								.get(index)
-								.copied()
-								.map(Either::Left)
-								.or_else(|| {
-									state.graph.nodes[*index]
-										.object
-										.as_ref()
-										.map(|object| Either::Right(object.id.clone()))
-								})
-								.unwrap(),
-						};
+						let item: tangram_client::graph::data::Edge<tangram_client::object::Id> =
+							match &referent.item {
+								Either::Left(id) => tg::graph::data::Edge::Object(id.clone()),
+								Either::Right(index) => graph_indices
+									.get(index)
+									.copied()
+									.map(|node| {
+										tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+											graph: None,
+											node,
+										})
+									})
+									.or_else(|| {
+										state.graph.nodes[*index].object.as_ref().map(|object| {
+											tg::graph::data::Edge::Object(
+												object.id.clone().try_into().unwrap(),
+											)
+										})
+									})
+									.unwrap(),
+							};
 						let referent = tg::Referent {
 							item,
 							path: referent.path.clone(),
@@ -201,7 +216,7 @@ impl Server {
 					.try_collect()?;
 				let executable = file.executable;
 				let data = tg::graph::data::File {
-					contents,
+					contents: Some(contents),
 					dependencies,
 					executable,
 				};
@@ -209,15 +224,24 @@ impl Server {
 			},
 			Variant::Symlink(symlink) => {
 				let artifact = match &symlink.artifact {
-					Some(Either::Left(artifact)) => Some(Either::Right(artifact.clone())),
+					Some(Either::Left(artifact)) => {
+						Some(tg::graph::data::Edge::Object(artifact.clone()))
+					},
 					Some(Either::Right(index)) => Some(
 						graph_indices
 							.get(index)
 							.copied()
-							.map(Either::Left)
+							.map(|node| {
+								tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+									graph: None,
+									node,
+								})
+							})
 							.or_else(|| {
 								state.graph.nodes[*index].object.as_ref().map(|object| {
-									Either::Right(object.id.clone().try_into().unwrap())
+									tg::graph::data::Edge::Object(
+										object.id.clone().try_into().unwrap(),
+									)
 								})
 							})
 							.unwrap(),
@@ -251,7 +275,8 @@ impl Server {
 							.clone()
 							.try_into()
 							.unwrap();
-						(name, id)
+						let edge = tg::graph::data::Edge::Object(id);
+						(name, edge)
 					})
 					.collect();
 				let data = tg::directory::Data::Node(tg::directory::data::Node { entries });
@@ -280,6 +305,7 @@ impl Server {
 								.id
 								.clone(),
 						};
+						let item = tg::graph::data::Edge::Object(item);
 						let referent = tg::Referent {
 							item,
 							path: referent.path.clone(),
@@ -312,6 +338,7 @@ impl Server {
 					),
 					None => None,
 				};
+				let artifact = artifact.map(tg::graph::data::Edge::Object);
 				let path = symlink.path.clone();
 				let data = tg::object::Data::from(tg::symlink::data::Symlink::Node(
 					tg::symlink::data::Node { artifact, path },
