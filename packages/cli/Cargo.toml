@@ -55,6 +55,7 @@ tangram_client = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
+tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }
 tangram_temp = { workspace = true }
 tokio = { workspace = true }

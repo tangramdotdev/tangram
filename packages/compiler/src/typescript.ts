@@ -7,6 +7,7 @@ import type { Module } from "./module.ts";
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
 	allowJs: true,
+	checkJs: true,
 	exactOptionalPropertyTypes: true,
 	isolatedModules: true,
 	module: ts.ModuleKind.ESNext,

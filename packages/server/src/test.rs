@@ -1,6 +1,6 @@
 use crate::{Config, Server};
 use futures::FutureExt as _;
-use std::panic::AssertUnwindSafe;
+use std::{collections::HashMap, panic::AssertUnwindSafe};
 use tangram_temp::Temp;
 
 pub async fn test<F>(f: F)
@@ -56,6 +56,7 @@ impl Context {
 		let messenger = crate::config::Messenger::default();
 		let remotes = Some(Vec::new());
 		let runner = Some(crate::config::Runner::default());
+		let runtimes = HashMap::new();
 		let store = crate::config::Store::Lmdb(crate::config::LmdbStore {
 			path: directory.join("store"),
 		});
@@ -75,6 +76,7 @@ impl Context {
 			messenger,
 			remotes,
 			runner,
+			runtimes,
 			store,
 			version,
 			vfs,

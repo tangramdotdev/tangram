@@ -1,13 +1,13 @@
 use crate::{
-	Child, Command, ExitStatus,
-	common::{CStringVec, abort_errno, cstring, envstring, redirect_stdio},
+	Command,
+	common::{CStringVec, abort_errno, cstring, envstring},
 };
 use indoc::writedoc;
 use num::ToPrimitive as _;
 use std::{
 	ffi::{CStr, CString},
 	fmt::Write,
-	os::{fd::RawFd, unix::ffi::OsStrExt as _},
+	os::unix::ffi::OsStrExt as _,
 	path::Path,
 };
 
@@ -17,19 +17,22 @@ struct Context {
 	envp: CStringVec,
 	executable: CString,
 	profile: CString,
-	stdin: RawFd,
-	stdout: RawFd,
-	stderr: RawFd,
 }
 
-pub(crate) async fn spawn(command: &mut Command) -> std::io::Result<Child> {
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn spawn(command: Command) -> std::io::Result<libc::c_int> {
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
-		.chain(command.args.iter().map(cstring))
+		.chain(command.trailing.iter().map(cstring))
 		.collect::<CStringVec>();
-	let cwd = cstring(&command.cwd);
+	let cwd = command
+		.cwd
+		.clone()
+		.map_or_else(std::env::current_dir, Ok::<_, std::io::Error>)
+		.inspect_err(|_| eprintln!("failed to get cwd"))
+		.map(cstring)?;
 	let envp = command
-		.envs
+		.env
 		.iter()
 		.map(|(k, v)| envstring(k, v))
 		.collect::<CStringVec>();
@@ -39,17 +42,12 @@ pub(crate) async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 		return Err(std::io::Error::other("chroot is not allowed on darwin"));
 	}
 
-	if command.uid.is_some() || command.gid.is_some() {
+	if command.user.is_some() {
 		return Err(std::io::Error::other("uid/gid is not allowed on darwin"));
 	}
 
-	// Create stdio.
-	let (parent_stdin, child_stdin) = command.stdin.take().unwrap().split_stdin()?;
-	let (parent_stdout, child_stdout) = command.stdout.take().unwrap().split_stdout()?;
-	let (parent_stderr, child_stderr) = command.stderr.take().unwrap().split_stderr()?;
-
 	// Create the sandbox profile.
-	let profile = create_sandbox_profile(command)?;
+	let profile = create_sandbox_profile(&command);
 
 	// Create the context.
 	let context = Context {
@@ -58,9 +56,6 @@ pub(crate) async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 		envp,
 		executable,
 		profile,
-		stdin: child_stdin,
-		stdout: child_stdout,
-		stderr: child_stderr,
 	};
 
 	// Fork.
@@ -69,112 +64,59 @@ pub(crate) async fn spawn(command: &mut Command) -> std::io::Result<Child> {
 		return Err(std::io::Error::last_os_error());
 	}
 	if pid == 0 {
-		guest_process(&context);
-	}
-
-	// Close unused fds.
-	for fd in [child_stdin, child_stdout, child_stderr] {
+		// Initialize the sandbox.
 		unsafe {
-			libc::close(fd);
-		}
-	}
+			let error = std::ptr::null_mut::<*const libc::c_char>();
+			let ret = sandbox_init(context.profile.as_ptr(), 0, error);
 
-	// Create the child.
-	let child = Child {
-		pid,
-		stdin: parent_stdin,
-		stdout: parent_stdout,
-		stderr: parent_stderr,
-	};
-
-	Ok(child)
-}
-
-pub(crate) async fn wait(child: &mut Child) -> std::io::Result<ExitStatus> {
-	let pid = child.pid;
-
-	// Defer closing the process.
-	scopeguard::defer! {
-		// Kill the root process.
-		let ret = unsafe { libc::kill(pid, libc::SIGKILL) };
-		if ret != 0 {
-			return;
-		}
-
-		// Wait for the root process to exit.
-		tokio::task::spawn_blocking(move || {
-			// Wait for exit.
-			let mut status = 0;
-			unsafe {
-				libc::waitpid(
-					pid,
-					std::ptr::addr_of_mut!(status),
-					libc::WEXITED,
-				);
+			// Handle an error from `sandbox_init`.
+			if ret != 0 {
+				let error = *error;
+				let message = CStr::from_ptr(error);
+				sandbox_free_error(error);
+				abort_errno!("failed to setup the sandbox: {}", message.to_string_lossy());
 			}
-
-			// Reap all its children.
-			kill_process_tree(pid);
-		});
-	};
-
-	// Spawn a blocking task to wait for the output.
-	tokio::task::spawn_blocking(move || unsafe {
-		let mut status = 0;
-		if libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0) == -1 {
-			return Err(std::io::Error::last_os_error());
 		}
-		if libc::WIFEXITED(status) {
-			let code = libc::WEXITSTATUS(status);
-			let code = code.to_u8().unwrap();
-			Ok(ExitStatus::Code(code))
-		} else if libc::WIFSIGNALED(status) {
-			let signal = libc::WTERMSIG(status);
-			let signal = signal.to_u8().unwrap();
-			Ok(ExitStatus::Signal(signal))
-		} else {
-			unreachable!();
+
+		// Change directories if necessary.
+		if unsafe { libc::chdir(context.cwd.as_ptr()) } != 0 {
+			abort_errno!("failed to change working directory");
 		}
-	})
-	.await
-	.unwrap()
+
+		// Exec.
+		unsafe {
+			libc::execve(
+				context.executable.as_ptr(),
+				context.argv.as_ptr(),
+				context.envp.as_ptr(),
+			);
+			abort_errno!("failed to exec");
+		}
+	}
+
+	// Wait for the child process to exit.
+	let mut status = 0;
+	unsafe {
+		libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0);
+	}
+
+	// Reap its children.
+	kill_process_tree(pid);
+
+	if libc::WIFEXITED(status) {
+		let status = libc::WEXITSTATUS(status);
+		return Ok(status);
+	}
+	if libc::WIFSIGNALED(status) {
+		let signal = libc::WTERMSIG(status);
+		return Ok(signal + 128);
+	}
+
+	eprintln!("unknown process termination");
+	Ok(1)
 }
 
-fn guest_process(context: &Context) -> ! {
-	// Redirect io.
-	redirect_stdio(context.stdin, context.stdout, context.stderr);
-
-	// Initialize the sandbox.
-	unsafe {
-		let error = std::ptr::null_mut::<*const libc::c_char>();
-		let ret = sandbox_init(context.profile.as_ptr(), 0, error);
-
-		// Handle an error from `sandbox_init`.
-		if ret != 0 {
-			let error = *error;
-			let message = CStr::from_ptr(error);
-			sandbox_free_error(error);
-			abort_errno!("failed to setup the sandbox: {}", message.to_string_lossy());
-		}
-	}
-
-	// Change directories if necessary.
-	if unsafe { libc::chdir(context.cwd.as_ptr()) } != 0 {
-		abort_errno!("failed to change working directory");
-	}
-
-	// Exec.
-	unsafe {
-		libc::execve(
-			context.executable.as_ptr(),
-			context.argv.as_ptr(),
-			context.envp.as_ptr(),
-		);
-		abort_errno!("failed to exec");
-	}
-}
-
-fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
+fn create_sandbox_profile(command: &Command) -> CString {
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -184,10 +126,13 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 	)
 	.unwrap();
 
-	let root_mount = command
-		.mounts
-		.iter()
-		.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
+	let root_mount = command.mounts.iter().any(|mount| {
+		mount.source == mount.target
+			&& mount
+				.target
+				.as_ref()
+				.is_some_and(|path| path == Path::new("/"))
+	});
 
 	if root_mount {
 		writedoc!(
@@ -337,13 +282,8 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 
 	for mount in &command.mounts {
 		if !root_mount {
-			if mount.source != mount.target {
-				return Err(std::io::Error::other(
-					"the source and target paths must be the same",
-				));
-			}
-			let path = &mount.source;
-			if mount.readonly {
+			let path = mount.source.as_ref().unwrap();
+			if (mount.flags & libc::MNT_RDONLY.to_u64().unwrap()) != 0 {
 				writedoc!(
 					profile,
 					r"
@@ -388,7 +328,7 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 		}
 	}
 
-	Ok(CString::new(profile).unwrap())
+	CString::new(profile).unwrap()
 }
 
 fn kill_process_tree(pid: i32) {

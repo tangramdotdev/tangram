@@ -52,6 +52,7 @@ mod push;
 mod put;
 mod remote;
 mod run;
+mod sandbox;
 mod server;
 mod tag;
 mod tangram;
@@ -219,6 +220,9 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::run::Args),
 
+	#[command(hide = true)]
+	Sandbox(self::sandbox::Args),
+
 	Serve(self::server::run::Args),
 
 	Server(self::server::Args),
@@ -251,6 +255,11 @@ impl Cli {
 		// Parse the args.
 		let args = Args::parse();
 		let matches = Args::command().get_matches();
+
+		// Handle the sandbox command.
+		if let Command::Sandbox(args) = args.command {
+			tangram_sandbox::main(args.command);
+		}
 
 		// Read the config.
 		let config = match Cli::read_config(args.config.clone()) {
@@ -579,6 +588,42 @@ impl Cli {
 			heartbeat_interval: Duration::from_secs(1),
 			remotes: Vec::new(),
 		});
+
+		// Create the runtimes.
+		let runtimes = if cfg!(target_os = "linux") {
+			let name = "linux".to_owned();
+			let executable = std::env::current_exe()
+				.map_err(|source| tg::error!(!source, "failed to get the executable path"))?;
+			let args = vec!["sandbox".to_owned()];
+			[(
+				name,
+				tangram_server::config::Runtime {
+					kind: tangram_server::config::RuntimeKind::Tangram,
+					executable,
+					args,
+				},
+			)]
+			.into_iter()
+			.collect()
+		} else if cfg!(target_os = "macos") {
+			let name = "darwin".to_owned();
+			let executable = std::env::current_exe()
+				.map_err(|source| tg::error!(!source, "failed to get the executable path"))?;
+			let args = vec!["sandbox".to_owned()];
+			[(
+				name,
+				tangram_server::config::Runtime {
+					kind: tangram_server::config::RuntimeKind::Tangram,
+					executable,
+					args,
+				},
+			)]
+			.into_iter()
+			.collect()
+		} else {
+			[].into_iter().collect()
+		};
+
 		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
 			path: directory.join("store"),
 		});
@@ -601,6 +646,7 @@ impl Cli {
 			directory,
 			remotes,
 			runner,
+			runtimes,
 			store,
 			version,
 			vfs,
@@ -1113,6 +1159,7 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
+			Command::Sandbox(_) => return Err(tg::error!("unreachable")),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Signal(args) => self.command_process_signal(args).boxed(),

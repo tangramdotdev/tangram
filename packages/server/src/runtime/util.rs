@@ -7,7 +7,6 @@ use std::{
 	pin::pin,
 };
 use tangram_client as tg;
-use tangram_sandbox as sandbox;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
 /// Render a value.
@@ -68,9 +67,9 @@ pub fn render_env(
 pub async fn stdio_task(
 	server: &Server,
 	process: &tg::Process,
-	stdin: Option<sandbox::ChildStdin>,
-	stdout: Option<sandbox::ChildStdout>,
-	stderr: Option<sandbox::ChildStderr>,
+	stdin: Option<tokio::process::ChildStdin>,
+	stdout: Option<tokio::process::ChildStdout>,
+	stderr: Option<tokio::process::ChildStderr>,
 ) -> tg::Result<()> {
 	let state = process.load(server).await?;
 
