@@ -149,16 +149,24 @@ impl Server {
 					unreachable!()
 				};
 				let mut entries_ = BTreeMap::new();
-				for (name, artifact) in entries {
-					let index = self.get_or_create_lockfile_node_for_artifact(
-						artifact.clone(),
-						is_path_dependency,
-						checkout_dependencies,
-						nodes,
-						objects,
-						visited,
-						graphs,
-					)?;
+				for (name, edge) in entries {
+					let index = match edge {
+						tg::graph::data::Edge::Graph(edge) => {
+							let Some(graph) = &edge.graph else {
+								todo!()
+							};
+							graphs.get(graph).unwrap()[edge.node]
+						},
+						tg::graph::data::Edge::Object(edge) => self.get_or_create_lockfile_node_for_artifact(
+							edge.clone(),
+							is_path_dependency,
+							checkout_dependencies,
+							nodes,
+							objects,
+							visited,
+							graphs,
+						)?,
+					};
 					entries_.insert(name.clone(), Either::Left(index));
 				}
 				tg::lockfile::Node::Directory(tg::lockfile::Directory { entries: entries_ })
@@ -174,7 +182,13 @@ impl Server {
 				let mut dependencies_ = BTreeMap::new();
 				for (reference, referent) in dependencies {
 					let is_path_dependency = is_path_dependency && reference.path().is_some();
-					let item = match &referent.item {
+					let id = match &referent.item {
+						tg::graph::data::Edge::Graph(_edge) => {
+							todo!()
+						},
+						tg::graph::data::Edge::Object(edge) => edge.clone(),
+					};
+					let item = match id {
 						tg::object::Id::Directory(id) if checkout_dependencies => {
 							let index = self.get_or_create_lockfile_node_for_artifact(
 								id.clone().into(),
@@ -233,9 +247,15 @@ impl Server {
 				tg::symlink::data::Symlink::Node(data) => {
 					let artifact = &data.artifact;
 					let path = &data.path;
-					let artifact = if let Some(artifact) = artifact {
+					let artifact = if let Some(edge) = artifact {
+						let artifact = match edge {
+							tg::graph::data::Edge::Graph(_edge) => {
+								todo!()
+							},
+							tg::graph::data::Edge::Object(edge) => edge.clone(),
+						};
 						let index = self.get_or_create_lockfile_node_for_artifact(
-							artifact.clone(),
+							artifact,
 							false,
 							checkout_dependencies,
 							nodes,
@@ -332,12 +352,18 @@ impl Server {
 			let node = match node {
 				tg::graph::data::Node::Directory(directory) => {
 					let mut entries = BTreeMap::new();
-					for (name, entry) in &directory.entries {
-						let index = match entry {
-							Either::Left(index) => indices[*index],
-							Either::Right(artifact) => self
+					for (name, edge) in &directory.entries {
+						let index = match edge {
+							tg::graph::data::Edge::Graph(edge) => {
+								if let Some(_graph) = &edge.graph {
+									todo!()
+								} else {
+									indices[edge.node]
+								}
+							},
+							tg::graph::data::Edge::Object(edge) => self
 								.get_or_create_lockfile_node_for_artifact(
-									artifact.clone(),
+									edge.clone(),
 									is_path_dependency,
 									checkout_dependencies,
 									nodes,
@@ -355,8 +381,14 @@ impl Server {
 					let mut dependencies = BTreeMap::new();
 					for (reference, referent) in &file.dependencies {
 						let item = match &referent.item {
-							Either::Left(index) => Either::Left(indices[*index]),
-							Either::Right(object) => match object {
+							tg::graph::data::Edge::Graph(edge) => {
+								if let Some(_graph) = &edge.graph {
+									todo!()
+								} else {
+									Either::Left(indices[edge.node])
+								}
+							},
+							tg::graph::data::Edge::Object(object) => match object {
 								tg::object::Id::Directory(id) => {
 									let index = self.get_or_create_lockfile_node_for_artifact(
 										id.clone().into(),
@@ -404,17 +436,23 @@ impl Server {
 					let contents = file.contents.clone();
 					let executable = file.executable;
 					tg::lockfile::Node::File(tg::lockfile::File {
-						contents: Some(contents),
+						contents,
 						dependencies,
 						executable,
 					})
 				},
 
 				tg::graph::data::Node::Symlink(symlink) => {
-					let artifact = if let Some(artifact) = &symlink.artifact {
-						let artifact = match &artifact {
-							Either::Left(index) => indices[*index],
-							Either::Right(artifact) => self
+					let artifact = if let Some(edge) = &symlink.artifact {
+						let artifact = match &edge {
+							tg::graph::data::Edge::Graph(edge) => {
+								if let Some(_graph) = &edge.graph {
+									todo!()
+								} else {
+									indices[edge.node]
+								}
+							},
+							tg::graph::data::Edge::Object(artifact) => self
 								.get_or_create_lockfile_node_for_artifact(
 									artifact.clone(),
 									is_path_dependency,
@@ -872,7 +910,10 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								Either::Left(graph_indices.get(&lockfile_index).copied().unwrap())
+								tg::graph::object::Edge::Graph(tg::graph::object::GraphEdge {
+									graph: None,
+									node: graph_indices.get(&lockfile_index).copied().unwrap(),
+								})
 							},
 							Either::Left(lockfile_index) => {
 								let object = visited[lockfile_index]
@@ -880,10 +921,11 @@ impl Server {
 									.ok_or_else(|| tg::error!("expected an object"))?
 									.clone()
 									.try_into()?;
-								Either::Right(object)
+								tg::graph::object::Edge::Object(object)
 							},
 							Either::Right(id) => {
-								Either::Right(tg::Artifact::with_id(id.clone().try_into()?))
+								let artifact = tg::Artifact::with_id(id.clone().try_into()?);
+								tg::graph::object::Edge::Object(artifact)
 							},
 						};
 						Ok::<_, tg::Error>((name, entry))
@@ -909,16 +951,21 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								Either::Left(graph_indices.get(&lockfile_index).copied().unwrap())
+								tg::graph::object::Edge::Graph(tg::graph::object::GraphEdge {
+									graph: None,
+									node: graph_indices.get(&lockfile_index).copied().unwrap(),
+								})
 							},
 							Either::Left(lockfile_index) => {
 								let object = visited[lockfile_index]
 									.as_ref()
 									.ok_or_else(|| tg::error!("expected an object"))?
 									.clone();
-								Either::Right(object)
+								tg::graph::object::Edge::Object(object)
 							},
-							Either::Right(id) => Either::Right(tg::Object::with_id(id)),
+							Either::Right(id) => {
+								tg::graph::object::Edge::Object(tg::Object::with_id(id))
+							},
 						};
 						Ok::<_, tg::Error>((reference, tg::Referent { item, path, tag }))
 					})
@@ -938,9 +985,12 @@ impl Server {
 					Some(Either::Left(lockfile_index))
 						if graph_indices.contains_key(lockfile_index) =>
 					{
-						Some(Either::Left(
-							graph_indices.get(lockfile_index).copied().unwrap(),
-						))
+						let artifact =
+							tg::graph::object::Edge::Graph(tg::graph::object::GraphEdge {
+								graph: None,
+								node: graph_indices.get(lockfile_index).copied().unwrap(),
+							});
+						Some(artifact)
 					},
 					Some(Either::Left(lockfile_index)) => {
 						let object = visited[*lockfile_index]
@@ -948,10 +998,11 @@ impl Server {
 							.ok_or_else(|| tg::error!("expected an object"))?
 							.clone()
 							.try_into()?;
-						Some(Either::Right(object))
+						Some(tg::graph::object::Edge::Object(object))
 					},
 					Some(Either::Right(id)) => {
-						Some(Either::Right(tg::Artifact::with_id(id.clone().try_into()?)))
+						let artifact = tg::Artifact::with_id(id.clone().try_into()?);
+						Some(tg::graph::object::Edge::Object(artifact))
 					},
 					None => None,
 				};
@@ -1030,12 +1081,12 @@ impl Server {
 							.clone()
 							.ok_or_else(|| tg::error!("expected an object"))?;
 						let artifact = object.try_into()?;
-						Some(artifact)
+						Some(tg::graph::object::Edge::Object(artifact))
 					},
 					Some(Either::Right(id)) => {
 						let id = id.clone().try_into()?;
 						let artifact = tg::Artifact::with_id(id);
-						Some(artifact)
+						Some(tg::graph::object::Edge::Object(artifact))
 					},
 					None => None,
 				};
