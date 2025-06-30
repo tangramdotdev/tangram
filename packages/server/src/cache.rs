@@ -868,7 +868,10 @@ impl Server {
 				if !done {
 					let server = self.clone();
 					let future = async move {
-						let reader = tg::Blob::with_id(data.contents)
+						let contents = data
+							.contents
+							.ok_or_else(|| tg::error!("missing contents"))?;
+						let reader = tg::Blob::with_id(contents)
 							.read(&server, tg::blob::read::Arg::default())
 							.await
 							.map_err(|source| tg::error!(!source, "failed to create the reader"))?;

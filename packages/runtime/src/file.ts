@@ -181,6 +181,7 @@ export class File {
 	async contents(): Promise<tg.Blob> {
 		const object = await this.object();
 		if (!("graph" in object)) {
+			tg.assert(object.contents, "missing contents");
 			return object.contents;
 		} else {
 			const graph = object.graph;
@@ -310,7 +311,7 @@ export namespace File {
 	export type Object =
 		| { graph: tg.Graph; node: number }
 		| {
-				contents: tg.Blob;
+				contents?: tg.Blob | undefined;
 				dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> };
 				executable: boolean;
 		  };
@@ -324,7 +325,7 @@ export namespace File {
 				};
 			} else {
 				return {
-					contents: object.contents.id,
+					contents: object.contents?.id,
 					executable: object.executable,
 					dependencies: globalThis.Object.fromEntries(
 						globalThis.Object.entries(object.dependencies).map(
@@ -346,7 +347,7 @@ export namespace File {
 				};
 			} else {
 				return {
-					contents: tg.Blob.withId(data.contents),
+					contents: data.contents ? tg.Blob.withId(data.contents) : undefined,
 					executable: data.executable ?? false,
 					dependencies: globalThis.Object.fromEntries(
 						globalThis.Object.entries(data.dependencies ?? {}).map(
@@ -365,7 +366,7 @@ export namespace File {
 				return [object.graph];
 			} else {
 				return [
-					object.contents,
+					...(object.contents ? [object.contents] : []),
 					...globalThis.Object.entries(object.dependencies).map(
 						([_, referent]) => referent.item,
 					),
@@ -377,7 +378,7 @@ export namespace File {
 	export type Data =
 		| { graph: tg.Graph.Id; node: number }
 		| {
-				contents: tg.Blob.Id;
+				contents?: tg.Blob.Id | undefined;
 				dependencies?: {
 					[reference: tg.Reference]: tg.Referent.Data<tg.Object.Id>;
 				};

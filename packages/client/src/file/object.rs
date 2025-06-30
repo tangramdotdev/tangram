@@ -63,7 +63,7 @@ impl File {
 					.collect();
 				let executable = node.executable;
 				Data::Node(tg::file::data::Node {
-					contents,
+					contents: Some(contents),
 					dependencies,
 					executable,
 				})
@@ -83,7 +83,10 @@ impl TryFrom<Data> for File {
 				Ok(Self::Graph(Graph { graph, node }))
 			},
 			Data::Node(data) => {
-				let contents = tg::Blob::with_id(data.contents);
+				let contents = tg::Blob::with_id(
+					data.contents
+						.ok_or_else(|| tg::error!("missing contents"))?,
+				);
 				let dependencies = data
 					.dependencies
 					.into_iter()

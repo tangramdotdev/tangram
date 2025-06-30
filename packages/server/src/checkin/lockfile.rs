@@ -134,7 +134,12 @@ impl Server {
 				let executable = file.executable;
 				(contents, executable)
 			},
-			tg::file::Data::Node(data) => (data.contents.clone(), data.executable),
+			tg::file::Data::Node(data) => (
+				data.contents
+					.clone()
+					.ok_or_else(|| tg::error!("missing contents"))?,
+				data.executable,
+			),
 		};
 		let dependencies = state.graph.nodes[index]
 			.variant
