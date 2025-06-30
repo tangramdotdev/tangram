@@ -31,10 +31,7 @@ impl File {
 							},
 							tg::graph::object::Edge::Object(edge) => Some(edge.clone()),
 						});
-				node.contents
-					.clone()
-					.map(tg::Object::from)
-					.into_iter()
+				std::iter::once(node.contents.clone().into())
 					.chain(dependencies)
 					.collect()
 			},
@@ -50,7 +47,7 @@ impl File {
 				Data::Graph(tg::file::data::Graph { graph: id, node })
 			},
 			Self::Node(node) => {
-				let contents = node.contents.as_ref().map(tg::Blob::id);
+				let contents = Some(node.contents.id());
 				let dependencies = node
 					.dependencies
 					.iter()
@@ -85,7 +82,10 @@ impl TryFrom<Data> for File {
 				Ok(Self::Graph(Graph { graph, node }))
 			},
 			Data::Node(data) => {
-				let contents = data.contents.map(tg::Blob::with_id);
+				let contents = data
+					.contents
+					.map(tg::Blob::with_id)
+					.ok_or_else(|| tg::error!("missing contents"))?;
 				let dependencies = data
 					.dependencies
 					.into_iter()

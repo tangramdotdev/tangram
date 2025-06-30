@@ -147,10 +147,9 @@ impl File {
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let contents = file.contents.clone().ok_or_else(|| tg::error!("missing contents"))?;
-				Ok(contents)
+				Ok(file.contents.clone())
 			},
-			Object::Node(object) => object.contents.clone().ok_or_else(|| tg::error!("missing contents")),
+			Object::Node(object) => Ok(object.contents.clone())
 		}
 	}
 

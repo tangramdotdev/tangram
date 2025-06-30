@@ -30,7 +30,7 @@ pub struct Directory {
 
 #[derive(Clone, Debug)]
 pub struct File {
-	pub contents: Option<tg::Blob>,
+	pub contents: tg::Blob,
 	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Edge<tg::Object>>>,
 	pub executable: bool,
 }
@@ -78,9 +78,7 @@ impl Graph {
 					dependencies,
 					..
 				}) => {
-					if let Some(contents) = contents {
-						children.push(contents.clone().into());
-					}
+					children.push(contents.clone().into());
 					for referent in dependencies.values() {
 						match &referent.item {
 							Edge::Graph(edge) => {
@@ -145,7 +143,7 @@ impl Node {
 				dependencies,
 				executable,
 			}) => {
-				let contents = contents.as_ref().map(tg::Blob::id);
+				let contents = contents.id();
 				let dependencies = dependencies
 					.iter()
 					.map(|(reference, referent)| {
@@ -168,7 +166,7 @@ impl Node {
 					.collect();
 				let executable = *executable;
 				tg::graph::data::Node::File(tg::graph::data::File {
-					contents,
+					contents: Some(contents),
 					dependencies,
 					executable,
 				})
@@ -233,7 +231,7 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				dependencies,
 				executable,
 			}) => {
-				let contents = contents.map(tg::Blob::with_id);
+				let contents = tg::Blob::with_id(contents.ok_or_else(|| tg::error!("missing contents"))?);
 				let dependencies = dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
