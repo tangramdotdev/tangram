@@ -12,17 +12,21 @@ mod linux;
 #[derive(Debug, Clone, clap::Args)]
 #[allow(dead_code)]
 pub struct Command {
-	/// Provide a path for chroot.
+	/// Provide a path for the chroot.
 	#[arg(long)]
 	pub chroot: Option<PathBuf>,
 
 	/// Change the working directory prior to spawn.
-	#[arg(short = 'C', long = "cwd")]
+	#[arg(short = 'C', long)]
 	pub cwd: Option<PathBuf>,
 
 	/// Define environment variables.
-	#[arg(short = 'E', long = "env", num_args = 1, value_parser = parse_env_var, action = clap::ArgAction::Append)]
+	#[arg(short = 'e', num_args = 1, value_parser = parse_env, action = clap::ArgAction::Append)]
 	pub env: Vec<(String, String)>,
+
+	/// The executable path.
+	#[arg(index = 1)]
+	pub executable: PathBuf,
 
 	/// The desired hostname.
 	#[arg(long)]
@@ -36,15 +40,11 @@ pub struct Command {
 	#[arg(long)]
 	pub network: bool,
 
-	#[arg(long)]
-	pub user: Option<String>,
-
-	/// The executable path.
-	#[arg(index = 1)]
-	pub executable: PathBuf,
-
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
+
+	#[arg(long)]
+	pub user: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,7 +93,7 @@ pub fn main(command: Command) -> ! {
 	}
 }
 
-fn parse_env_var(arg: &str) -> Result<(String, String), String> {
+fn parse_env(arg: &str) -> Result<(String, String), String> {
 	let (name, value) = arg
 		.split_once('=')
 		.ok_or_else(|| "expected NAME=value".to_owned())?;
@@ -166,6 +166,5 @@ fn parse_mount(arg: &str) -> Result<Mount, String> {
 		flags,
 		data: (!data.is_empty()).then_some(data.into()),
 	};
-
 	Ok(mount)
 }

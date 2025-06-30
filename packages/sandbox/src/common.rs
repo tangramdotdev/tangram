@@ -1,6 +1,6 @@
 use std::{
 	ffi::{CString, OsStr},
-	os::{fd::RawFd, unix::ffi::OsStrExt as _},
+	os::unix::ffi::OsStrExt as _,
 };
 
 pub struct CStringVec {
@@ -27,39 +27,6 @@ pub fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
 		v.as_ref().to_string_lossy()
 	);
 	CString::new(string).unwrap()
-}
-
-#[allow(dead_code)]
-pub fn set_controlling_terminal(tty: RawFd) -> std::io::Result<()> {
-	unsafe {
-		// Disconnect from the old controlling terminal.
-		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-		#[allow(clippy::useless_conversion)]
-		if fd > 0 {
-			libc::ioctl(fd, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
-			libc::close(fd);
-		}
-
-		// Set the current process as session leader.
-		if libc::setsid() == -1 {
-			return Err(std::io::Error::last_os_error());
-		}
-
-		// Verify that we disconnected from the controlling terminal.
-		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-		if fd >= 0 {
-			libc::close(fd);
-			return Err(std::io::Error::other("failed to remove controlling tty"));
-		}
-
-		// Set the slave as the controlling tty.
-		#[allow(clippy::useless_conversion)]
-		if libc::ioctl(tty, libc::TIOCSCTTY.into(), 0) < 0 {
-			return Err(std::io::Error::last_os_error());
-		}
-
-		Ok(())
-	}
 }
 
 impl FromIterator<CString> for CStringVec {

@@ -47,7 +47,7 @@ pub(crate) fn spawn(command: Command) -> std::io::Result<libc::c_int> {
 	}
 
 	// Create the sandbox profile.
-	let profile = create_sandbox_profile(&command)?;
+	let profile = create_sandbox_profile(&command);
 
 	// Create the context.
 	let context = Context {
@@ -116,7 +116,7 @@ pub(crate) fn spawn(command: Command) -> std::io::Result<libc::c_int> {
 	Ok(1)
 }
 
-fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
+fn create_sandbox_profile(command: &Command) -> CString {
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -328,7 +328,7 @@ fn create_sandbox_profile(command: &Command) -> std::io::Result<CString> {
 		}
 	}
 
-	Ok(CString::new(profile).unwrap())
+	CString::new(profile).unwrap()
 }
 
 fn kill_process_tree(pid: i32) {

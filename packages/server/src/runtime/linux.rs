@@ -71,8 +71,8 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
 
 		// Create the command.
-		let mut os_command = tokio::process::Command::new(sandbox.executable);
-		os_command.args(sandbox.args);
+		let mut cmd = tokio::process::Command::new(sandbox.executable);
+		cmd.args(sandbox.args);
 
 		// Create mounts.
 		let iter = std::iter::empty()
@@ -82,8 +82,8 @@ impl Runtime {
 		for mount in iter {
 			match mount {
 				Either::Left(mount) => {
-					os_command.arg("--mount");
-					os_command.arg(bind(&mount.source, &mount.target, mount.readonly));
+					cmd.arg("--mount");
+					cmd.arg(bind(&mount.source, &mount.target, mount.readonly));
 				},
 				Either::Right(mount) => {
 					// Create the overlay state if it does not exist. Since we use async here, we can't use the .entry() api.
@@ -161,7 +161,7 @@ impl Runtime {
 				.map_err(|source| {
 					tg::error!(!source, "failed to copy /etc/resolv.conf to sandbox")
 				})?;
-				os_command.arg("--network");
+				cmd.arg("--network");
 			}
 
 			// Get or create the root overlay.
@@ -178,8 +178,7 @@ impl Runtime {
 			lowerdirs.push(temp.path().join("lower"));
 
 			// Add mounts for /dev, /proc, /tmp, /.tangram, /.tangram/artifacts, and /output.
-			os_command
-				.arg("--mount")
+			cmd.arg("--mount")
 				.arg(bind("/dev", "/dev", false))
 				.arg("--mount")
 				.arg(bind("/proc", "/proc", false))
@@ -199,8 +198,7 @@ impl Runtime {
 
 		// Add the overlay mounts.
 		for (merged, (lowerdirs, upperdir, workdir)) in &overlays {
-			os_command
-				.arg("--mount")
+			cmd.arg("--mount")
 				.arg(overlay(lowerdirs, upperdir, workdir, merged));
 		}
 
@@ -264,14 +262,14 @@ impl Runtime {
 		} else {
 			"/".into()
 		};
-		os_command.arg("-C").arg(cwd);
+		cmd.arg("-C").arg(cwd);
 
 		// Render the env.
 		let env = render_env(&artifacts_path, &command.env)?;
 
 		// Add env vars to the command.
 		for (name, value) in &env {
-			os_command.arg("-E").arg(format!("{name}={value}"));
+			cmd.arg("-e").arg(format!("{name}={value}"));
 		}
 
 		// Render the executable.
@@ -293,16 +291,14 @@ impl Runtime {
 
 		// Set `$OUTPUT`.
 		if is_bind_mount_at_root {
-			os_command
-				.arg("-E")
+			cmd.arg("-e")
 				.arg(format!("OUTPUT={}/output", output_path.display()));
 		} else {
-			os_command.arg("-E").arg("OUTPUT=/output/output");
+			cmd.arg("-e").arg("OUTPUT=/output/output");
 		}
 
 		// Set `$TANGRAM_PROCESS`.
-		os_command
-			.arg("-E")
+		cmd.arg("-e")
 			.arg(format!("TANGRAM_PROCESS={}", process.id()));
 
 		// Set `$TANGRAM_URL`.
@@ -314,64 +310,64 @@ impl Runtime {
 			},
 			|(_, url)| url.to_string(),
 		);
-		os_command.arg("-E").arg(format!("TANGRAM_URL={url}"));
+		cmd.arg("-e").arg(format!("TANGRAM_URL={url}"));
 
 		// Create the stdio.
 		match state.stdin.as_ref() {
 			_ if command.stdin.is_some() => {
-				os_command.stdin(std::process::Stdio::piped());
+				cmd.stdin(std::process::Stdio::piped());
 			},
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, true)?;
-				os_command.stdin(fd);
+				cmd.stdin(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				os_command.stdin(fd);
+				cmd.stdin(fd);
 			},
 			None => {
-				os_command.stdin(std::process::Stdio::null());
+				cmd.stdin(std::process::Stdio::null());
 			},
 		}
 		match state.stdout.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, false)?;
-				os_command.stdout(fd);
+				cmd.stdout(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				os_command.stdout(fd);
+				cmd.stdout(fd);
 			},
 			None => {
-				os_command.stdout(std::process::Stdio::piped());
+				cmd.stdout(std::process::Stdio::piped());
 			},
 		}
 		match state.stdout.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, false)?;
-				os_command.stderr(fd);
+				cmd.stderr(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				os_command.stderr(fd);
+				cmd.stderr(fd);
 			},
 			None => {
-				os_command.stderr(std::process::Stdio::piped());
+				cmd.stderr(std::process::Stdio::piped());
 			},
 		}
 
 		// Set the user.
 		let user = command.user.unwrap_or_else(|| "root".into());
-		os_command.arg("--user").arg(user);
+		cmd.arg("--user").arg(user);
 
 		// Set the hostname
-		os_command.arg("--hostname").arg(process.id().to_string());
+		cmd.arg("--hostname").arg(process.id().to_string());
 
 		// Set the chroot.
-		os_command.arg("--chroot").arg(root_path);
+		cmd.arg("--chroot").arg(root_path);
 
 		// Spawn the process.
-		let mut child = os_command
+		let mut child = cmd
 			.arg(executable)
 			.arg("--")
 			.args(args)

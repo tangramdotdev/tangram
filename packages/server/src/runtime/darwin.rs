@@ -71,8 +71,8 @@ impl Runtime {
 		let output_path = root.path().join("output");
 
 		// Create the command.
-		let mut os_command = tokio::process::Command::new(sandbox.executable);
-		os_command.args(sandbox.args);
+		let mut cmd = tokio::process::Command::new(sandbox.executable);
+		cmd.args(sandbox.args);
 
 		// Create the working directory.
 		let cwd = command
@@ -82,9 +82,7 @@ impl Runtime {
 		tokio::fs::create_dir_all(&cwd)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
-		os_command
-			.arg("-C")
-			.arg(&cwd);
+		cmd.arg("-C").arg(&cwd);
 		// Create the proxy.
 		let proxy = if root_mount {
 			None
@@ -123,7 +121,7 @@ impl Runtime {
 		// Render the env.
 		let env = render_env(&artifacts_path, &command.env)?;
 		for (name, value) in &env {
-			os_command.arg("-E").arg(format!("{name}={value}"));
+			cmd.arg("-e").arg(format!("{name}={value}"));
 		}
 
 		// Render the executable.
@@ -144,13 +142,11 @@ impl Runtime {
 		};
 
 		// Set `$OUTPUT`.
-		os_command
-			.arg("-E")
+		cmd.arg("-e")
 			.arg(format!("OUTPUT={}", output_path.display()));
 
 		// Set `$TANGRAM_PROCESS`.
-		os_command
-			.arg("-E")
+		cmd.arg("-e")
 			.arg(format!("TANGRAM_PROCESS={}", process.id()));
 
 		// Set `$TANGRAM_URL`.
@@ -162,12 +158,11 @@ impl Runtime {
 			},
 			|(_, url)| url.to_string(),
 		);
-		os_command.arg("-E").arg(format!("TANGRAM_URL={url}"));
+		cmd.arg("-e").arg(format!("TANGRAM_URL={url}"));
 
 		// Create the mounts.
 		if !root_mount {
-			os_command
-				.arg("--mount")
+			cmd.arg("--mount")
 				.arg(format!("source={}", root.path().display()))
 				.arg("--mount")
 				.arg(format!("source={},ro", artifacts_path.display()))
@@ -180,59 +175,59 @@ impl Runtime {
 			} else {
 				format!("source={}", mount.source.display())
 			};
-			os_command.arg("--mount").arg(mount);
+			cmd.arg("--mount").arg(mount);
 		}
 
 		// Create the stdio.
 		match state.stdin.as_ref() {
 			_ if command.stdin.is_some() => {
-				os_command.stdin(std::process::Stdio::piped());
+				cmd.stdin(std::process::Stdio::piped());
 			},
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, true)?;
-				os_command.stdin(fd);
+				cmd.stdin(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				os_command.stdin(fd);
+				cmd.stdin(fd);
 			},
 			None => {
-				os_command.stdin(std::process::Stdio::null());
+				cmd.stdin(std::process::Stdio::null());
 			},
 		}
 		match state.stdout.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, false)?;
-				os_command.stdout(fd);
+				cmd.stdout(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				os_command.stdout(fd);
+				cmd.stdout(fd);
 			},
 			None => {
-				os_command.stdout(std::process::Stdio::piped());
+				cmd.stdout(std::process::Stdio::piped());
 			},
 		}
 		match state.stdout.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, false)?;
-				os_command.stderr(fd);
+				cmd.stderr(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				os_command.stderr(fd);
+				cmd.stderr(fd);
 			},
 			None => {
-				os_command.stderr(std::process::Stdio::piped());
+				cmd.stderr(std::process::Stdio::piped());
 			},
 		}
 
 		if state.network {
-			os_command.arg("--network");
+			cmd.arg("--network");
 		}
 
 		// Spawn the process.
-		let mut child = os_command
+		let mut child = cmd
 			.arg(executable)
 			.arg("--")
 			.args(args)
