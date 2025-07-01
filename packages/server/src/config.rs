@@ -262,8 +262,8 @@ impl Default for PostgresDatabase {
 impl Default for Indexer {
 	fn default() -> Self {
 		Self {
-			insert_batch_size: 128,
-			message_batch_size: 128,
+			insert_batch_size: 4096,
+			message_batch_size: 4096,
 			message_batch_timeout: Duration::from_millis(100),
 		}
 	}
