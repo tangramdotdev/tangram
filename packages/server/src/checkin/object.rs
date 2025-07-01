@@ -89,18 +89,17 @@ impl Server {
 				let (kind, data) = match &state.graph.nodes[global].variant {
 					Variant::Directory(_) => {
 						let kind = tg::object::Kind::Directory;
-						let data =
-							tg::directory::data::Directory::Graph(tg::directory::data::Graph {
-								graph: object.id.clone(),
-								node: local,
-							});
+						let data = tg::directory::data::Directory::Graph(tg::graph::data::Ref {
+							graph: Some(object.id.clone()),
+							node: local,
+						});
 						let data = tg::object::Data::from(data);
 						(kind, data)
 					},
 					Variant::File(_) => {
 						let kind = tg::object::Kind::File;
-						let data = tg::file::data::File::Graph(tg::file::data::Graph {
-							graph: object.id.clone(),
+						let data = tg::file::data::File::Graph(tg::graph::data::Ref {
+							graph: Some(object.id.clone()),
 							node: local,
 						});
 						let data = tg::object::Data::from(data);
@@ -108,8 +107,8 @@ impl Server {
 					},
 					Variant::Symlink(_) => {
 						let kind = tg::object::Kind::Symlink;
-						let data = tg::symlink::data::Symlink::Graph(tg::symlink::data::Graph {
-							graph: object.id.clone(),
+						let data = tg::symlink::data::Symlink::Graph(tg::graph::data::Ref {
+							graph: Some(object.id.clone()),
 							node: local,
 						});
 						let data = tg::object::Data::from(data);
@@ -154,7 +153,7 @@ impl Server {
 							.get(index)
 							.copied()
 							.map(|node| {
-								tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
 									graph: None,
 									node,
 								})
@@ -192,7 +191,7 @@ impl Server {
 									.get(index)
 									.copied()
 									.map(|node| {
-										tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+										tg::graph::data::Edge::Graph(tg::graph::data::Ref {
 											graph: None,
 											node,
 										})
@@ -232,7 +231,7 @@ impl Server {
 							.get(index)
 							.copied()
 							.map(|node| {
-								tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
 									graph: None,
 									node,
 								})

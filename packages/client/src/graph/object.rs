@@ -41,14 +41,21 @@ pub struct Symlink {
 	pub path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(
+	Clone,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
 pub enum Edge<T> {
-	Graph(GraphEdge),
+	Graph(Ref),
 	Object(T),
 }
 
 #[derive(Clone, Debug)]
-pub struct GraphEdge {
+pub struct Ref {
 	pub graph: Option<tg::Graph>,
 	pub node: usize,
 }
@@ -125,7 +132,7 @@ impl Node {
 					.map(|(name, edge)| {
 						let edge = match edge {
 							Edge::Graph(edge) => {
-								tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
 									graph: edge.graph.as_ref().map(tg::Graph::id),
 									node: edge.node,
 								})
@@ -149,7 +156,7 @@ impl Node {
 					.map(|(reference, referent)| {
 						let item = match &referent.item {
 							Edge::Graph(edge) => {
-								tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
 									graph: edge.graph.as_ref().map(tg::Graph::id),
 									node: edge.node,
 								})
@@ -174,7 +181,7 @@ impl Node {
 
 			Self::Symlink(symlink) => {
 				let artifact = symlink.artifact.as_ref().map(|artifact| match artifact {
-					Edge::Graph(edge) => tg::graph::data::Edge::Graph(tg::graph::data::GraphEdge {
+					Edge::Graph(edge) => tg::graph::data::Edge::Graph(tg::graph::data::Ref {
 						graph: edge.graph.as_ref().map(tg::Graph::id),
 						node: edge.node,
 					}),
@@ -231,7 +238,8 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				dependencies,
 				executable,
 			}) => {
-				let contents = tg::Blob::with_id(contents.ok_or_else(|| tg::error!("missing contents"))?);
+				let contents =
+					tg::Blob::with_id(contents.ok_or_else(|| tg::error!("missing contents"))?);
 				let dependencies = dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
@@ -283,11 +291,11 @@ impl std::str::FromStr for Kind {
 impl From<tg::graph::data::Edge<tg::object::Id>> for Edge<tg::Object> {
 	fn from(value: tg::graph::data::Edge<tg::object::Id>) -> Self {
 		match value {
-			tg::graph::data::Edge::Graph(data) => Self::Graph(GraphEdge {
+			tg::graph::data::Edge::Graph(data) => Self::Graph(Ref {
 				graph: data.graph.map(tg::Graph::with_id),
 				node: data.node,
 			}),
-			tg::graph::data::Edge::Object(data) => Self::Object(tg::Object::with_id(data))
+			tg::graph::data::Edge::Object(data) => Self::Object(tg::Object::with_id(data)),
 		}
 	}
 }
@@ -295,11 +303,24 @@ impl From<tg::graph::data::Edge<tg::object::Id>> for Edge<tg::Object> {
 impl From<tg::graph::data::Edge<tg::artifact::Id>> for Edge<tg::Artifact> {
 	fn from(value: tg::graph::data::Edge<tg::artifact::Id>) -> Self {
 		match value {
-			tg::graph::data::Edge::Graph(data) => Self::Graph(GraphEdge {
+			tg::graph::data::Edge::Graph(data) => Self::Graph(Ref {
 				graph: data.graph.map(tg::Graph::with_id),
 				node: data.node,
 			}),
-			tg::graph::data::Edge::Object(data) => Self::Object(tg::Artifact::with_id(data))
+			tg::graph::data::Edge::Object(data) => Self::Object(tg::Artifact::with_id(data)),
 		}
+	}
+}
+
+impl Ref {
+	pub async fn resolve<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
+	where
+		H: tg::Handle,
+	{
+		self.graph
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing graph"))?
+			.get(handle, self.node)
+			.await
 	}
 }

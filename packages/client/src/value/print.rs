@@ -244,7 +244,7 @@ where
 		self.start_map()?;
 		match object {
 			tg::directory::Object::Graph(graph) => {
-				self.map_entry("graph", |s| s.graph(&graph.graph))?;
+				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
 				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
 			},
 			tg::directory::Object::Node(node) => {
@@ -264,9 +264,7 @@ where
 		self.map_entry("entries", |s| {
 			s.start_map()?;
 			for (name, edge) in &directory.entries {
-				s.map_entry(name, |s| {
-					s.graph_edge_artifact(edge)
-				})?;
+				s.map_entry(name, |s| s.graph_edge_artifact(edge))?;
 			}
 			s.finish_map()?;
 			Ok(())
@@ -295,7 +293,7 @@ where
 		self.start_map()?;
 		match object {
 			tg::file::Object::Graph(graph) => {
-				self.map_entry("graph", |s| s.graph(&graph.graph))?;
+				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
 				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
 			},
 			tg::file::Object::Node(node) => {
@@ -317,13 +315,9 @@ where
 				for (reference, referent) in &file.dependencies {
 					s.map_entry(reference.as_str(), |s| {
 						s.start_map()?;
-						s.map_entry("item", |s| {
-							s.graph_edge_object(&referent.item)
-						})?;
+						s.map_entry("item", |s| s.graph_edge_object(&referent.item))?;
 						if let Some(path) = &referent.path {
-							s.map_entry("path", |s| {
-								s.string(path.to_string_lossy().as_ref())
-							})?;
+							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 						}
 						if let Some(tag) = &referent.tag {
 							s.map_entry("tag", |s| s.string(tag.as_str()))?;
@@ -363,7 +357,7 @@ where
 		self.start_map()?;
 		match object {
 			tg::symlink::Object::Graph(graph) => {
-				self.map_entry("graph", |s| s.graph(&graph.graph))?;
+				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
 				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
 			},
 			tg::symlink::Object::Node(node) => {
@@ -384,9 +378,7 @@ where
 		self.start_map()?;
 		self.map_entry("kind", |s| s.string("symlink"))?;
 		if let Some(artifact) = &symlink.artifact {
-			self.map_entry("artifact", |s| {
-				s.graph_edge_artifact(artifact)
-			})?;
+			self.map_entry("artifact", |s| s.graph_edge_artifact(artifact))?;
 		}
 		if let Some(path) = &symlink.path {
 			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;

@@ -103,7 +103,7 @@ impl Server {
 		'a: {
 			let (graph, node) = match &artifact {
 				tg::artifact::Data::Directory(directory) => {
-					let tg::directory::Data::Graph(tg::directory::data::Graph { graph, node }) =
+					let tg::directory::Data::Graph(tg::graph::data::Ref { graph, node }) =
 						directory
 					else {
 						break 'a;
@@ -123,6 +123,7 @@ impl Server {
 					(&data.graph, data.node)
 				},
 			};
+			let graph = graph.as_ref().unwrap();
 			let nodes = self.create_lockfile_node_with_graph(
 				graph,
 				checkout_dependencies,
@@ -152,20 +153,19 @@ impl Server {
 				for (name, edge) in entries {
 					let index = match edge {
 						tg::graph::data::Edge::Graph(edge) => {
-							let Some(graph) = &edge.graph else {
-								todo!()
-							};
+							let Some(graph) = &edge.graph else { todo!() };
 							graphs.get(graph).unwrap()[edge.node]
 						},
-						tg::graph::data::Edge::Object(edge) => self.get_or_create_lockfile_node_for_artifact(
-							edge.clone(),
-							is_path_dependency,
-							checkout_dependencies,
-							nodes,
-							objects,
-							visited,
-							graphs,
-						)?,
+						tg::graph::data::Edge::Object(edge) => self
+							.get_or_create_lockfile_node_for_artifact(
+								edge.clone(),
+								is_path_dependency,
+								checkout_dependencies,
+								nodes,
+								objects,
+								visited,
+								graphs,
+							)?,
 					};
 					entries_.insert(name.clone(), Either::Left(index));
 				}
@@ -315,20 +315,18 @@ impl Server {
 		for node in 0..graph.nodes.len() {
 			let kind = graph.nodes[node].kind();
 			let data: tg::artifact::Data = match kind {
-				tg::artifact::Kind::Directory => {
-					tg::directory::Data::Graph(tg::directory::data::Graph {
-						graph: id.clone(),
-						node,
-					})
-					.into()
-				},
-				tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
-					graph: id.clone(),
+				tg::artifact::Kind::Directory => tg::directory::Data::Graph(tg::graph::data::Ref {
+					graph: Some(id.clone()),
 					node,
 				})
 				.into(),
-				tg::artifact::Kind::Symlink => tg::symlink::Data::Graph(tg::symlink::data::Graph {
-					graph: id.clone(),
+				tg::artifact::Kind::File => tg::file::Data::Graph(tg::graph::data::Ref {
+					graph: Some(id.clone()),
+					node,
+				})
+				.into(),
+				tg::artifact::Kind::Symlink => tg::symlink::Data::Graph(tg::graph::data::Ref {
+					graph: Some(id.clone()),
 					node,
 				})
 				.into(),
@@ -910,7 +908,7 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								tg::graph::object::Edge::Graph(tg::graph::object::GraphEdge {
+								tg::graph::object::Edge::Graph(tg::graph::object::Ref {
 									graph: None,
 									node: graph_indices.get(&lockfile_index).copied().unwrap(),
 								})
@@ -951,7 +949,7 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								tg::graph::object::Edge::Graph(tg::graph::object::GraphEdge {
+								tg::graph::object::Edge::Graph(tg::graph::object::Ref {
 									graph: None,
 									node: graph_indices.get(&lockfile_index).copied().unwrap(),
 								})
@@ -985,11 +983,10 @@ impl Server {
 					Some(Either::Left(lockfile_index))
 						if graph_indices.contains_key(lockfile_index) =>
 					{
-						let artifact =
-							tg::graph::object::Edge::Graph(tg::graph::object::GraphEdge {
-								graph: None,
-								node: graph_indices.get(lockfile_index).copied().unwrap(),
-							});
+						let artifact = tg::graph::object::Edge::Graph(tg::graph::object::Ref {
+							graph: None,
+							node: graph_indices.get(lockfile_index).copied().unwrap(),
+						});
 						Some(artifact)
 					},
 					Some(Either::Left(lockfile_index)) => {

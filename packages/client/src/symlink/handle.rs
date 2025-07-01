@@ -114,7 +114,10 @@ impl Symlink {
 impl Symlink {
 	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph(tg::symlink::object::Graph { graph, node }))
+		Self::with_object(Object::Graph(tg::graph::object::Ref {
+			graph: Some(graph),
+			node,
+		}))
 	}
 
 	#[must_use]
@@ -150,7 +153,7 @@ impl Symlink {
 		let object = self.object(handle).await?;
 		match object.as_ref() {
 			Object::Graph(object) => {
-				let graph = &object.graph;
+				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
@@ -190,9 +193,7 @@ impl Symlink {
 							},
 						}
 					},
-					tg::graph::object::Edge::Object(edge) => {
-						edge.clone()
-					},
+					tg::graph::object::Edge::Object(edge) => edge.clone(),
 				};
 				Ok(Some(artifact))
 			},
@@ -221,10 +222,10 @@ impl Symlink {
 							},
 						}
 					},
-					tg::graph::object::Edge::Object(edge) => edge.clone()
+					tg::graph::object::Edge::Object(edge) => edge.clone(),
 				};
 				Ok(Some(artifact))
-			}
+			},
 		}
 	}
 
@@ -235,7 +236,7 @@ impl Symlink {
 		let object = self.object(handle).await?;
 		match object.as_ref() {
 			Object::Graph(object) => {
-				let graph = &object.graph;
+				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
