@@ -126,7 +126,7 @@ impl Server {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == data.graph.clone())
+					.find(|object| object.id == data.graph.clone().unwrap())
 					.unwrap()
 					.data;
 				let file = graph.nodes[data.node].clone().try_unwrap_file().unwrap();
@@ -211,7 +211,7 @@ impl Server {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == data.graph.clone())
+					.find(|object| object.id == data.graph.clone().unwrap())
 					.unwrap()
 					.data;
 				let symlink = graph.nodes[data.node].clone().try_unwrap_symlink().unwrap();

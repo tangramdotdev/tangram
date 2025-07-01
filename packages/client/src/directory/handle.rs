@@ -127,7 +127,10 @@ impl Directory {
 
 	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph(tg::directory::object::Graph { graph, node }))
+		Self::with_object(Object::Graph(tg::graph::object::Ref {
+			graph: Some(graph),
+			node,
+		}))
 	}
 
 	pub async fn builder<H>(&self, handle: &H) -> tg::Result<Builder>
@@ -146,7 +149,7 @@ impl Directory {
 		let object = self.object(handle).await?;
 		let entries = match object.as_ref() {
 			Object::Graph(object) => {
-				let graph = &object.graph;
+				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
@@ -247,7 +250,7 @@ impl Directory {
 		let object = self.object(handle).await?;
 		let artifact = match object.as_ref() {
 			Object::Graph(object) => {
-				let graph = &object.graph;
+				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
@@ -312,8 +315,8 @@ impl Directory {
 					};
 					Some(artifact)
 				},
-				Some(tg::graph::object::Edge::Object(edge)) => Some(edge)
-			}
+				Some(tg::graph::object::Edge::Object(edge)) => Some(edge),
+			},
 		};
 		Ok(artifact)
 	}

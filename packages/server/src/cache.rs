@@ -226,13 +226,13 @@ impl Server {
 	) -> tg::Result<()> {
 		let server = self.clone();
 		let id = artifact.clone();
-		let artifact = Either::Right(artifact.clone());
+		let edge = tg::graph::data::Edge::Object(artifact.clone());
 		let visited = im::HashSet::default();
 		let progress = progress.clone();
 		let task = self
 			.cache_task_map
 			.get_or_spawn_blocking(id.clone(), move |_| {
-				server.cache_dependency_inner(&id, artifact, visited, &progress)
+				server.cache_dependency_inner(&id, edge, visited, &progress)
 			});
 		let future = task.wait().map(|result| match result {
 			Ok(result) => Ok(result),
@@ -246,7 +246,7 @@ impl Server {
 	fn cache_dependency(
 		&self,
 		id: &tg::artifact::Id,
-		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
+		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		visited: &im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
@@ -260,7 +260,7 @@ impl Server {
 		let task = self
 			.cache_task_map
 			.get_or_spawn_blocking(id.clone(), move |_| {
-				server.cache_dependency_inner(&id, artifact, visited, &progress)
+				server.cache_dependency_inner(&id, edge, visited, &progress)
 			});
 		let future = task.wait().map(|result| match result {
 			Ok(result) => Ok(result),
@@ -276,7 +276,7 @@ impl Server {
 	fn cache_dependency_inner(
 		&self,
 		id: &tg::artifact::Id,
-		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
+		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		visited: im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
@@ -304,7 +304,7 @@ impl Server {
 		};
 
 		// Cache the artifact.
-		self.cache_inner(&mut state, temp.path(), id, artifact)?;
+		self.cache_inner(&mut state, temp.path(), edge)?;
 
 		// Rename the temp to the path.
 		let src = temp.path();
@@ -360,34 +360,83 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		id: &tg::artifact::Id,
-		artifact: Either<(tg::graph::Id, usize), tg::artifact::Id>,
+		edge: tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::Result<()> {
-		// Get the graph or artifact's data.
-		let data = match artifact {
-			// If the artifact refers to a graph, then add it to the state.
-			Either::Left((graph, node)) => {
-				if !state.graphs.contains_key(&graph) {
-					#[allow(clippy::match_wildcard_for_single_variants)]
-					let data = match &self.store {
-						crate::Store::Lmdb(store) => {
-							store.try_get_object_data_sync(&graph.clone().into())?
-						},
-						crate::Store::Memory(store) => {
-							store.try_get_object_data(&graph.clone().into())?
-						},
-						_ => return Err(tg::error!("not yet implemented")),
-					}
-					.ok_or_else(|| tg::error!("expected the object to be stored"))?
-					.try_into()
-					.map_err(|_| tg::error!("expected a graph"))?;
-					state.graphs.insert(graph.clone(), data);
-				}
-				Either::Left((graph, node))
-			},
+		// Get the artifact ID and graph node data.
+		let (id, node) = self.cache_get_node(state, &edge)?;
 
-			// Otherwise, get the artifact's data.
-			Either::Right(id) => {
+		// Get the graph if it exists.
+		let graph = if let tg::graph::data::Edge::Graph(ref_) = &edge {
+			ref_.graph.as_ref()
+		} else {
+			None
+		};
+
+		// Cache the artifact.
+		match node {
+			tg::graph::data::Node::Directory(node) => {
+				self.cache_inner_directory_node(state, path, &id, graph, &node)?;
+			},
+			tg::graph::data::Node::File(node) => {
+				self.cache_inner_file_node(state, path, &id, graph, &node)?;
+			},
+			tg::graph::data::Node::Symlink(node) => {
+				self.cache_inner_symlink_node(state, path, &id, graph, &node)?;
+			},
+		}
+
+		// Set the file times to the epoch.
+		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+		)?;
+
+		state.progress.increment("objects", 1);
+		Ok(())
+	}
+
+	// Lookup the underlying graph node of  the artifact.
+	fn cache_get_node(
+		&self,
+		state: &mut State,
+		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+	) -> tg::Result<(tg::artifact::Id, tg::graph::data::Node)> {
+		match edge {
+			// If this is a ref in a graph, load the graph and find it.
+			tg::graph::data::Edge::Graph(edge) => {
+				// Get the graph ID.
+				let graph = edge
+					.graph
+					.as_ref()
+					.ok_or_else(|| tg::error!("missing graph"))?;
+
+				// Ensure the graph is cached.
+				self.cache_ensure_graph_exists(state, graph)?;
+
+				// Get the node.
+				let node = state
+					.graphs
+					.get(graph)
+					.unwrap()
+					.nodes
+					.get(edge.node)
+					.ok_or_else(|| tg::error!("invalid graph node"))?
+					.clone();
+
+				// Compute the id.
+				let data: tg::artifact::data::Artifact = match node.kind() {
+					tg::artifact::Kind::Directory => {
+						tg::directory::Data::Graph(edge.clone()).into()
+					},
+					tg::artifact::Kind::File => tg::file::Data::Graph(edge.clone()).into(),
+					tg::artifact::Kind::Symlink => tg::symlink::Data::Graph(edge.clone()).into(),
+				};
+				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
+
+				Ok((id, node))
+			},
+			tg::graph::data::Edge::Object(id) => {
+				// Otherwise, lookup the artifact data by ID.
 				#[allow(clippy::match_wildcard_for_single_variants)]
 				let data = match &self.store {
 					crate::Store::Lmdb(store) => {
@@ -400,182 +449,119 @@ impl Server {
 					|| tg::error!(%root = state.artifact, %id = id.clone(), "expected the object to be stored"),
 				)?;
 				let data = tg::artifact::Data::try_from(data)?;
-				Either::Right(data)
-			},
-		};
-
-		// Cache the artifact.
-		match data {
-			Either::Left((graph, node)) => {
-				self.cache_inner_graph(state, path, id, &graph, node)?;
-			},
-			Either::Right(data) => {
-				self.cache_inner_data(state, path, id, data)?;
+				match data {
+					// Handle the case where this points into a graph.
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Graph(ref_))
+					| tg::artifact::data::Artifact::File(tg::file::Data::Graph(ref_))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Graph(ref_)) => {
+						// Ignore the computed ID here so the optimizer elides the computation internally.
+						let (_, node) =
+							self.cache_get_node(state, &tg::graph::data::Edge::Graph(ref_))?;
+						Ok((id.clone(), node))
+					},
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
+						Ok((id.clone(), tg::graph::data::Node::Directory(node)))
+					},
+					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
+						Ok((id.clone(), tg::graph::data::Node::File(node)))
+					},
+					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
+						Ok((id.clone(), tg::graph::data::Node::Symlink(node)))
+					},
+				}
 			},
 		}
-
-		// Set the file times to the epoch.
-		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
-		)?;
-
-		Ok(())
 	}
 
-	fn cache_inner_graph(
+	fn cache_ensure_graph_exists(
 		&self,
 		state: &mut State,
-		path: &Path,
-		id: &tg::artifact::Id,
 		graph: &tg::graph::Id,
-		node: usize,
 	) -> tg::Result<()> {
-		let data = state
-			.graphs
-			.get(graph)
-			.ok_or_else(|| tg::error!("expected the graph to exist"))?;
-		let node = data
-			.nodes
-			.get(node)
-			.ok_or_else(|| tg::error!("expected the node to exist"))?
-			.clone();
-		match node {
-			tg::graph::data::Node::Directory(directory) => {
-				self.cache_inner_graph_directory(state, path, id, graph, &directory)?;
-			},
-			tg::graph::data::Node::File(file) => {
-				self.cache_inner_graph_file(state, path, id, graph, file)?;
-			},
-			tg::graph::data::Node::Symlink(symlink) => {
-				self.cache_inner_graph_symlink(state, path, id, graph, symlink)?;
-			},
+		if state.graphs.contains_key(graph) {
+			return Ok(());
 		}
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		let data = match &self.store {
+			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
+			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
+			_ => return Err(tg::error!("not yet implemented")),
+		}
+		.ok_or_else(|| tg::error!("expected the object to be stored"))?
+		.try_into()
+		.map_err(|_| tg::error!("expected a graph"))?;
+		state.graphs.insert(graph.clone(), data);
 		Ok(())
 	}
 
 	#[allow(clippy::needless_pass_by_value)]
-	fn cache_inner_graph_directory(
+	fn cache_inner_directory_node(
 		&self,
 		state: &mut State,
 		path: &Path,
 		_id: &tg::artifact::Id,
-		graph: &tg::graph::Id,
-		directory: &tg::graph::data::Directory,
+		graph: Option<&tg::graph::Id>,
+		node: &tg::graph::data::Directory,
 	) -> tg::Result<()> {
 		std::fs::create_dir_all(path).unwrap();
-		for (name, artifact) in &directory.entries {
-			let id = match artifact.clone() {
-				Either::Left(node) => {
-					let kind = state
-						.graphs
-						.get(graph)
-						.unwrap()
-						.nodes
-						.get(node)
-						.ok_or_else(|| tg::error!("expected the node to exist"))?
-						.kind();
-					let graph = graph.clone();
-					let data: tg::artifact::Data = match kind {
-						tg::artifact::Kind::Directory => {
-							tg::directory::Data::Graph(tg::directory::data::Graph {
-								graph: graph.clone(),
-								node,
-							})
-							.into()
-						},
-						tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
-							graph: graph.clone(),
-							node,
-						})
-						.into(),
-						tg::artifact::Kind::Symlink => {
-							tg::symlink::Data::Graph(tg::symlink::data::Graph {
-								graph: graph.clone(),
-								node,
-							})
-							.into()
-						},
-					};
-					let bytes = data.serialize()?;
-					tg::artifact::Id::new(kind, &bytes)
-				},
-				Either::Right(id) => id.clone(),
-			};
-			let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
+		for (name, edge) in &node.entries {
+			let mut edge = edge.clone();
+
+			// Update the edge if necessary.
+			if let tg::graph::data::Edge::Graph(edge) = &mut edge {
+				if edge.graph.is_none() {
+					edge.graph = graph.cloned();
+				}
+			}
+
+			// Recurse.
 			let path = path.join(name);
 			state.depth += 1;
-			self.cache_inner(state, &path, &id, artifact)?;
+			self.cache_inner(state, &path, edge)?;
 			state.depth -= 1;
 		}
+
 		Ok(())
 	}
 
-	fn cache_inner_graph_file(
+	fn cache_inner_file_node(
 		&self,
 		state: &mut State,
 		path: &Path,
 		id: &tg::artifact::Id,
-		graph: &tg::graph::Id,
-		file: tg::graph::data::File,
+		graph: Option<&tg::graph::Id>,
+		node: &tg::graph::data::File,
 	) -> tg::Result<()> {
 		let tg::graph::data::File {
 			contents,
 			dependencies,
 			executable,
-		} = file;
+		} = node;
 
 		// Cache the dependencies.
 		for referent in dependencies.values() {
-			let id = match referent.item.clone() {
-				Either::Left(node) => {
-					let kind = state
-						.graphs
-						.get(graph)
-						.unwrap()
-						.nodes
-						.get(node)
-						.ok_or_else(|| tg::error!("expected the node to exist"))?
-						.kind();
-					let graph = graph.clone();
-					let data: tg::artifact::Data = match kind {
-						tg::artifact::Kind::Directory => {
-							tg::directory::Data::Graph(tg::directory::data::Graph {
-								graph: graph.clone(),
-								node,
-							})
-							.into()
-						},
-						tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
-							graph: graph.clone(),
-							node,
-						})
-						.into(),
-						tg::artifact::Kind::Symlink => {
-							tg::symlink::Data::Graph(tg::symlink::data::Graph {
-								graph: graph.clone(),
-								node,
-							})
-							.into()
-						},
-					};
-					let bytes = data.serialize()?;
-					tg::artifact::Id::new(kind, &bytes)
-				},
-				Either::Right(id) => match tg::artifact::Id::try_from(id.clone()) {
-					Ok(id) => id,
+			// Skip object edges.
+			let mut edge = match referent.item.clone() {
+				tg::graph::data::Edge::Graph(graph) => tg::graph::data::Edge::Graph(graph),
+				tg::graph::data::Edge::Object(id) => match id.try_into() {
+					Ok(id) => tg::graph::data::Edge::Object(id),
 					Err(_) => continue,
 				},
 			};
+
+			// Update the graph if necessarsy.
+			if let tg::graph::data::Edge::Graph(edge) = &mut edge {
+				if edge.graph.is_none() {
+					edge.graph = graph.cloned();
+				}
+			}
+
+			// Get the underlying node ID.
+			let (id, _) = self.cache_get_node(state, &edge)?;
+
+			// Recurse.
 			if id != state.artifact {
-				let artifact = match &referent.item {
-					Either::Left(node) => Either::Left((graph.clone(), *node)),
-					Either::Right(id) => match tg::artifact::Id::try_from(id.clone()) {
-						Ok(id) => Either::Right(id),
-						Err(_) => continue,
-					},
-				};
-				self.cache_dependency(&id, artifact, &state.visited, &state.progress)?;
+				self.cache_dependency(&id, edge, &state.visited, &state.progress)?;
 			}
 		}
 
@@ -622,7 +608,10 @@ impl Server {
 		if !done {
 			let server = self.clone();
 			let future = async move {
-				let reader = tg::Blob::with_id(contents)
+				let contents = contents
+					.as_ref()
+					.ok_or_else(|| tg::error!("missing contents"))?;
+				let reader = tg::Blob::with_id(contents.clone())
 					.read(&server, tg::blob::read::Arg::default())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
@@ -655,7 +644,7 @@ impl Server {
 		}
 
 		// Set the file's permissions.
-		if executable {
+		if *executable {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(path, permissions)
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
@@ -664,69 +653,46 @@ impl Server {
 		Ok(())
 	}
 
-	fn cache_inner_graph_symlink(
+	fn cache_inner_symlink_node(
 		&self,
 		state: &mut State,
 		path: &Path,
 		_id: &tg::artifact::Id,
-		graph: &tg::graph::Id,
-		symlink: tg::graph::data::Symlink,
+		graph: Option<&tg::graph::Id>,
+		node: &tg::graph::data::Symlink,
 	) -> tg::Result<()> {
+		let tg::graph::data::Symlink {
+			artifact,
+			path: path_,
+		} = node;
+
 		// Render the target.
-		let target = if let Some(artifact) = symlink.artifact {
+		let target = if let Some(mut edge) = artifact.clone() {
 			let mut target = PathBuf::new();
 
+			// Update the graph ID if necessary.
+			if let tg::graph::data::Edge::Graph(edge) = &mut edge {
+				if edge.graph.is_none() {
+					edge.graph = graph.cloned();
+				}
+			}
+
 			// Get the id.
-			let id = match artifact.clone() {
-				Either::Left(node) => {
-					let kind = state
-						.graphs
-						.get(graph)
-						.unwrap()
-						.nodes
-						.get(node)
-						.ok_or_else(|| tg::error!("expected the node to exist"))?
-						.kind();
-					let graph = graph.clone();
-					let data: tg::artifact::Data = match kind {
-						tg::artifact::Kind::Directory => {
-							tg::directory::Data::Graph(tg::directory::data::Graph {
-								graph: graph.clone(),
-								node,
-							})
-							.into()
-						},
-						tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
-							graph: graph.clone(),
-							node,
-						})
-						.into(),
-						tg::artifact::Kind::Symlink => {
-							tg::symlink::Data::Graph(tg::symlink::data::Graph {
-								graph: graph.clone(),
-								node,
-							})
-							.into()
-						},
-					};
-					let bytes = data.serialize()?;
-					tg::artifact::Id::new(kind, &bytes)
-				},
-				Either::Right(id) => id,
-			};
+			let (id, _) = self.cache_get_node(state, &edge)?;
 
 			if id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
 				target.push(&state.path);
 			} else {
-				// If the symlink's artifact is another artifact, then cache it and use the artifact's path.
-				let artifact = artifact.clone().map_left(|node| (graph.clone(), node));
-				self.cache_dependency(&id, artifact, &state.visited, &state.progress)?;
+				// Cache the dependency.
+				self.cache_dependency(&id, edge, &state.visited, &state.progress)?;
+
+				// Update the target.
 				target.push(state.path.parent().unwrap().join(id.to_string()));
 			}
 
 			// Add the path if it is set.
-			if let Some(path_) = symlink.path {
+			if let Some(path_) = path_ {
 				target.push(path_);
 			}
 
@@ -736,8 +702,8 @@ impl Server {
 				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 			let dst = &target;
 			crate::util::path::diff(src, dst)?
-		} else if let Some(path_) = symlink.path {
-			path_
+		} else if let Some(path_) = path_ {
+			path_.clone()
 		} else {
 			return Err(tg::error!("invalid symlink"));
 		};
@@ -746,228 +712,6 @@ impl Server {
 		std::os::unix::fs::symlink(target, path)
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
-		Ok(())
-	}
-
-	fn cache_inner_data(
-		&self,
-		state: &mut State,
-		path: &Path,
-		id: &tg::artifact::Id,
-		data: tg::artifact::Data,
-	) -> tg::Result<()> {
-		match data {
-			tg::artifact::Data::Directory(directory) => {
-				self.cache_inner_data_directory(state, path, id, directory)?;
-			},
-			tg::artifact::Data::File(file) => {
-				self.cache_inner_data_file(state, path, id, file)?;
-			},
-			tg::artifact::Data::Symlink(symlink) => {
-				self.cache_inner_data_symlink(state, path, id, symlink)?;
-			},
-		}
-		Ok(())
-	}
-
-	fn cache_inner_data_directory(
-		&self,
-		state: &mut State,
-		path: &Path,
-		id: &tg::artifact::Id,
-		directory: tg::directory::Data,
-	) -> tg::Result<()> {
-		let weight = directory.serialize().unwrap().len().to_u64().unwrap();
-		let progress = state.progress.clone();
-		match directory {
-			tg::directory::Data::Graph(data) => {
-				let artifact = Either::Left((data.graph, data.node));
-				self.cache_inner(state, path, id, artifact)?;
-			},
-			tg::directory::Data::Node(data) => {
-				std::fs::create_dir_all(path).unwrap();
-				for (name, id) in data.entries {
-					let artifact = Either::Right(id.clone());
-					let path = path.join(name);
-					state.depth += 1;
-					self.cache_inner(state, &path, &id, artifact)?;
-					state.depth -= 1;
-				}
-			},
-		}
-		progress.increment("bytes", weight);
-		Ok(())
-	}
-
-	fn cache_inner_data_file(
-		&self,
-		state: &mut State,
-		path: &Path,
-		id: &tg::artifact::Id,
-		file: tg::file::Data,
-	) -> tg::Result<()> {
-		let weight = file.serialize().unwrap().len().to_u64().unwrap();
-		let progress = state.progress.clone();
-		match file {
-			tg::file::Data::Graph(data) => {
-				let artifact = Either::Left((data.graph, data.node));
-				self.cache_inner(state, path, id, artifact)?;
-			},
-			tg::file::Data::Node(data) => {
-				// Cache the dependencies.
-				for referent in data.dependencies.values() {
-					let Ok(id) = tg::artifact::Id::try_from(referent.item.clone()) else {
-						continue;
-					};
-					if id != state.artifact {
-						let artifact = Either::Right(id.clone());
-						self.cache_dependency(&id, artifact, &state.visited, &state.progress)?;
-					}
-				}
-
-				// Copy the file.
-				let src = &self.cache_path().join(id.to_string());
-				let dst = &path;
-				let mut done = false;
-				let mut error = None;
-				let hard_link_prohibited = if cfg!(target_os = "macos") {
-					dst.to_str()
-						.ok_or_else(|| tg::error!("invalid path"))?
-						.contains(".app/Contents")
-				} else {
-					false
-				};
-				if !done && !hard_link_prohibited {
-					let result = std::fs::hard_link(src, dst);
-					match result {
-						Ok(()) => {
-							done = true;
-						},
-						Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-							done = true;
-						},
-						Err(error_) => {
-							error = Some(error_);
-						},
-					}
-				}
-				if !done {
-					let result = reflink(src, dst);
-					match result {
-						Ok(()) => {
-							done = true;
-						},
-						Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-							done = true;
-						},
-						Err(error_) => {
-							error = Some(error_);
-						},
-					}
-				}
-				if !done {
-					let server = self.clone();
-					let future = async move {
-						let contents = data
-							.contents
-							.ok_or_else(|| tg::error!("missing contents"))?;
-						let reader = tg::Blob::with_id(contents)
-							.read(&server, tg::blob::read::Arg::default())
-							.await
-							.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-						let mut reader = InspectReader::new(reader, {
-							let progress = state.progress.clone();
-							move |buf| {
-								progress.increment("bytes", buf.len().to_u64().unwrap());
-							}
-						});
-						let mut file = tokio::fs::File::create(&path).await.map_err(|source| {
-							tg::error!(!source, ?path, "failed to create the file")
-						})?;
-						tokio::io::copy(&mut reader, &mut file).await.map_err(
-							|source| tg::error!(!source, ?path = path, "failed to write to the file"),
-						)?;
-						Ok::<_, tg::Error>(())
-					};
-					let result = tokio::runtime::Handle::current().block_on(future);
-					match result {
-						Ok(()) => {
-							done = true;
-						},
-						Err(error_) => {
-							error = Some(std::io::Error::other(error_));
-						},
-					}
-				}
-				if !done {
-					return Err(tg::error!(?error, "failed to copy the file"));
-				}
-
-				// Set the file's permissions.
-				if data.executable {
-					let permissions = std::fs::Permissions::from_mode(0o755);
-					std::fs::set_permissions(path, permissions)
-						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-				}
-			},
-		}
-		progress.increment("bytes", weight);
-		Ok(())
-	}
-
-	fn cache_inner_data_symlink(
-		&self,
-		state: &mut State,
-		path: &Path,
-		id: &tg::artifact::Id,
-		symlink: tg::symlink::Data,
-	) -> tg::Result<()> {
-		match symlink {
-			tg::symlink::Data::Graph(data) => {
-				let artifact = Either::Left((data.graph, data.node));
-				self.cache_inner(state, path, id, artifact)?;
-			},
-			tg::symlink::Data::Node(data) => {
-				// Render the target.
-				let target = if let Some(artifact) = &data.artifact {
-					let mut target = PathBuf::new();
-
-					if *artifact == state.artifact {
-						// If the symlink's artifact is the root artifact, then use the root path.
-						target.push(&state.path);
-					} else {
-						// If the symlink's artifact is another artifact, then cache it and use the artifact's path.
-						self.cache_dependency(
-							artifact,
-							Either::Right(artifact.clone()),
-							&state.visited,
-							&state.progress,
-						)?;
-						target.push(state.path.parent().unwrap().join(artifact.to_string()));
-					}
-
-					// Add the path if it is set.
-					if let Some(path_) = &data.path {
-						target.push(path_);
-					}
-
-					// Diff the path.
-					let src = path
-						.parent()
-						.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
-					let dst = &target;
-					crate::util::path::diff(src, dst)?
-				} else if let Some(path_) = &data.path {
-					path_.clone()
-				} else {
-					return Err(tg::error!("invalid symlink"));
-				};
-
-				// Create the symlink.
-				std::os::unix::fs::symlink(target, path)
-					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
-			},
-		}
 		Ok(())
 	}
 

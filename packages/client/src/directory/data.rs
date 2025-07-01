@@ -6,14 +6,8 @@ use tangram_itertools::IteratorExt as _;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Directory {
-	Graph(Graph),
+	Graph(tg::graph::data::Ref),
 	Node(Node),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Graph {
-	pub graph: tg::graph::Id,
-	pub node: usize,
 }
 
 pub type Node = tg::graph::data::Directory;
@@ -32,7 +26,7 @@ impl Directory {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone())
+			Self::Graph(graph) => std::iter::once(graph.graph.clone().unwrap())
 				.map_into()
 				.left_iterator(),
 			Self::Node(node) => node

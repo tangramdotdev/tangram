@@ -243,18 +243,17 @@ impl Server {
 			for (node, data) in graph.data.nodes.iter().enumerate() {
 				let (id, bytes) = match data.kind() {
 					tg::artifact::Kind::Directory => {
-						let data =
-							tg::directory::data::Directory::Graph(tg::directory::data::Graph {
-								graph: graph.id.clone(),
-								node,
-							});
+						let data = tg::directory::data::Directory::Graph(tg::graph::data::Ref {
+							graph: Some(graph.id.clone()),
+							node,
+						});
 						let bytes = data.serialize()?;
 						let id = tg::directory::Id::new(&bytes);
 						(id.into(), bytes)
 					},
 					tg::artifact::Kind::File => {
-						let data = tg::file::data::File::Graph(tg::file::data::Graph {
-							graph: graph.id.clone(),
+						let data = tg::file::data::File::Graph(tg::graph::data::Ref {
+							graph: Some(graph.id.clone()),
 							node,
 						});
 						let bytes = data.serialize()?;
@@ -262,8 +261,8 @@ impl Server {
 						(id.into(), bytes)
 					},
 					tg::artifact::Kind::Symlink => {
-						let data = tg::symlink::data::Symlink::Graph(tg::symlink::data::Graph {
-							graph: graph.id.clone(),
+						let data = tg::symlink::data::Symlink::Graph(tg::graph::data::Ref {
+							graph: Some(graph.id.clone()),
 							node,
 						});
 						let bytes = data.serialize()?;

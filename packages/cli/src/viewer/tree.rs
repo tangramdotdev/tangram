@@ -2,7 +2,7 @@ use crate::util;
 
 use super::{Item, Options, data, log::Log};
 use crossterm as ct;
-use futures::{TryStreamExt as _, future};
+use futures::{TryStreamExt as _, future, stream::FuturesUnordered};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
@@ -13,7 +13,6 @@ use std::{
 	rc::{Rc, Weak},
 };
 use tangram_client::{self as tg, prelude::*};
-use tangram_either::Either;
 use tangram_futures::task::Task;
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -816,7 +815,7 @@ where
 			tg::directory::Object::Graph(graph) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().into()),
+					tg::Value::Object(graph.graph.clone().unwrap().into()),
 				),
 				(
 					"node".to_owned(),
@@ -830,8 +829,16 @@ where
 					.entries
 					.clone()
 					.into_iter()
-					.map(|(name, artifact)| (name, artifact.into()))
-					.collect();
+					.map(async |(name, artifact)| {
+						let artifact = match artifact {
+							tg::graph::object::Edge::Graph(ref_) => ref_.resolve(handle).await?,
+							tg::graph::object::Edge::Object(artifact) => artifact,
+						};
+						Ok::<_, tg::Error>((name, artifact.into()))
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
 				[("entries".to_owned(), tg::Value::Map(entries))]
 					.into_iter()
 					.collect()
@@ -863,7 +870,7 @@ where
 			tg::file::Object::Graph(graph) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().into()),
+					tg::Value::Object(graph.graph.clone().unwrap().into()),
 				),
 				(
 					"node".to_owned(),
@@ -881,14 +888,19 @@ where
 				if node.executable {
 					children.push(("executable".to_owned(), tg::Value::Bool(node.executable)));
 				}
-				let dependencies = node
+				let dependencies: BTreeMap<String, tangram_client::Value> = node
 					.dependencies
 					.clone()
 					.into_iter()
-					.map(|(reference, referent)| {
+					.map(async |(reference, referent)| {
 						let mut map = BTreeMap::new();
-						let item = tg::Value::Object(referent.item);
-						map.insert("item".into(), item);
+						let item = match &referent.item {
+							tg::graph::object::Edge::Graph(ref_) => {
+								ref_.resolve(handle).await?.into()
+							},
+							tg::graph::object::Edge::Object(object) => object.clone(),
+						};
+						map.insert("item".into(), tg::Value::Object(item));
 						if let Some(path) = referent.path {
 							let path = path.to_string_lossy().to_string();
 							map.insert("path".to_owned(), tg::Value::String(path));
@@ -896,9 +908,11 @@ where
 						if let Some(tag) = referent.tag {
 							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
 						}
-						(reference.to_string(), tg::Value::Map(map))
+						Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
 					})
-					.collect::<BTreeMap<_, _>>();
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
 				if !dependencies.is_empty() {
 					children.push(("dependencies".to_owned(), tg::Value::Map(dependencies)));
 				}
@@ -932,7 +946,7 @@ where
 		// Convert nodes to tg::Value::Maps
 		let nodes = nodes
 			.into_iter()
-			.map(|node| {
+			.map(async |node| {
 				let mut map = BTreeMap::new();
 				map.insert(
 					"kind".to_owned(),
@@ -943,16 +957,21 @@ where
 						let entries = directory
 							.entries
 							.into_iter()
-							.map(|(name, entry)| {
-								let value = match entry {
-									Either::Left(index) => {
-										tg::Value::Number(index.to_f64().unwrap())
+							.map(async |(name, edge)| {
+								let value = match edge {
+									tg::graph::object::Edge::Graph(mut edge) => {
+										if edge.graph.is_none() {
+											edge.graph.replace(graph.clone());
+										}
+										edge.resolve(handle).await?.into()
 									},
-									Either::Right(artifact) => tg::Value::Object(artifact.into()),
+									tg::graph::object::Edge::Object(artifact) => artifact.into(),
 								};
-								(name, value)
+								Ok::<_, tg::Error>((name, tg::Value::Object(value)))
 							})
-							.collect::<BTreeMap<_, _>>();
+							.collect::<FuturesUnordered<_>>()
+							.try_collect()
+							.await?;
 						map.insert("entries".into(), tg::Value::Map(entries));
 					},
 					tg::graph::Node::File(file) => {
@@ -960,18 +979,21 @@ where
 						if file.executable {
 							map.insert("executable".into(), file.executable.into());
 						}
-						let dependencies = file
+						let dependencies: BTreeMap<String, tg::Value> = file
 							.dependencies
 							.into_iter()
-							.map(|(reference, referent)| {
+							.map(async |(reference, referent)| {
 								let mut map = BTreeMap::new();
 								let item = match referent.item {
-									Either::Left(index) => {
-										tg::Value::Number(index.to_f64().unwrap())
+									tg::graph::object::Edge::Graph(mut ref_) => {
+										if ref_.graph.is_none() {
+											ref_.graph.replace(graph.clone());
+										}
+										ref_.resolve(handle).await?.into()
 									},
-									Either::Right(object) => tg::Value::Object(object),
+									tg::graph::object::Edge::Object(object) => object,
 								};
-								map.insert("item".into(), item);
+								map.insert("item".into(), tg::Value::Object(item));
 								if let Some(path) = referent.path {
 									let path = path.to_string_lossy().to_string();
 									map.insert("path".to_owned(), tg::Value::String(path));
@@ -982,9 +1004,11 @@ where
 										tg::Value::String(tag.to_string()),
 									);
 								}
-								(reference.to_string(), tg::Value::Map(map))
+								Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
 							})
-							.collect::<BTreeMap<_, _>>();
+							.collect::<FuturesUnordered<_>>()
+							.try_collect()
+							.await?;
 						if !dependencies.is_empty() {
 							map.insert("dependencies".into(), tg::Value::Map(dependencies));
 						}
@@ -992,10 +1016,15 @@ where
 					tg::graph::Node::Symlink(symlink) => {
 						if let Some(artifact) = symlink.artifact {
 							let artifact = match artifact {
-								Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
-								Either::Right(artifact) => tg::Value::Object(artifact.into()),
+								tg::graph::object::Edge::Graph(mut ref_) => {
+									if ref_.graph.is_none() {
+										ref_.graph.replace(graph.clone());
+									}
+									ref_.resolve(handle).await?.into()
+								},
+								tg::graph::object::Edge::Object(object) => object.into(),
 							};
-							map.insert("artifact".to_owned(), artifact);
+							map.insert("artifact".to_owned(), tg::Value::Object(artifact));
 						}
 						if let Some(path) = symlink.path {
 							let path = path.to_string_lossy().to_string();
@@ -1003,9 +1032,11 @@ where
 						}
 					},
 				}
-				tg::Value::Map(map)
+				Ok::<_, tg::Error>(tg::Value::Map(map))
 			})
-			.collect();
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await?;
 
 		// Convert to a value and send the update.
 		let handle = handle.clone();
@@ -1154,7 +1185,7 @@ where
 			tg::symlink::Object::Graph(graph) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().into()),
+					tg::Value::Object(graph.graph.clone().unwrap().into()),
 				),
 				(
 					"node".to_owned(),
@@ -1166,8 +1197,11 @@ where
 			tg::symlink::Object::Node(node) => {
 				let mut children = Vec::new();
 				if let Some(artifact) = &node.artifact {
-					let artifact = tg::Value::Object(artifact.clone().into());
-					children.push(("artifact".to_owned(), artifact));
+					let artifact = match artifact {
+						tg::graph::object::Edge::Graph(ref_) => ref_.resolve(handle).await?.into(),
+						tg::graph::object::Edge::Object(artifact) => artifact.clone().into(),
+					};
+					children.push(("artifact".to_owned(), tg::Value::Object(artifact)));
 				}
 				if let Some(path) = &node.path {
 					let path = path.to_string_lossy().to_string();

@@ -45,14 +45,21 @@ pub struct Symlink {
 	pub path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
 pub enum Edge<T: std::str::FromStr + std::fmt::Display> {
-	Graph(GraphEdge),
+	Graph(Ref),
 	Object(T),
 }
 
-#[derive(Clone, Debug)]
-pub struct GraphEdge {
+#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+pub struct Ref {
 	pub graph: Option<tg::graph::Id>,
 	pub node: usize,
 }
@@ -145,7 +152,7 @@ where
 	}
 }
 
-impl std::fmt::Display for GraphEdge {
+impl std::fmt::Display for Ref {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "?")?;
 		if let Some(graph) = &self.graph {
@@ -156,7 +163,7 @@ impl std::fmt::Display for GraphEdge {
 	}
 }
 
-impl std::str::FromStr for GraphEdge {
+impl std::str::FromStr for Ref {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)
@@ -171,15 +178,14 @@ impl std::str::FromStr for GraphEdge {
 	}
 }
 
-
 impl From<tg::graph::object::Edge<tg::Object>> for Edge<tg::object::Id> {
 	fn from(value: tg::graph::object::Edge<tg::Object>) -> Self {
 		match value {
-			tg::graph::object::Edge::Graph(data) => Self::Graph(GraphEdge {
+			tg::graph::object::Edge::Graph(data) => Self::Graph(Ref {
 				graph: data.graph.map(|data| data.id()),
 				node: data.node,
 			}),
-			tg::graph::object::Edge::Object(data) => Self::Object(data.id())
+			tg::graph::object::Edge::Object(data) => Self::Object(data.id()),
 		}
 	}
 }
@@ -187,11 +193,11 @@ impl From<tg::graph::object::Edge<tg::Object>> for Edge<tg::object::Id> {
 impl From<tg::graph::object::Edge<tg::Artifact>> for Edge<tg::artifact::Id> {
 	fn from(value: tg::graph::object::Edge<tg::Artifact>) -> Self {
 		match value {
-			tg::graph::object::Edge::Graph(data) => Self::Graph(GraphEdge {
+			tg::graph::object::Edge::Graph(data) => Self::Graph(Ref {
 				graph: data.graph.map(|data| data.id()),
 				node: data.node,
 			}),
-			tg::graph::object::Edge::Object(data) => Self::Object(data.id())
+			tg::graph::object::Edge::Object(data) => Self::Object(data.id()),
 		}
 	}
 }
