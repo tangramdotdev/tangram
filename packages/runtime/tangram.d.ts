@@ -423,6 +423,13 @@ declare namespace tg {
 
 		export type Arg = tg.Graph | ArgObject;
 
+		export type Ref = {
+			graph?: tg.Graph | undefined;
+			node: number;
+		};
+
+		export type Edge<T> = Ref | T;
+
 		type ArgObject = {
 			nodes?: Array<NodeArg> | undefined;
 		};
@@ -431,21 +438,21 @@ declare namespace tg {
 
 		type DirectoryNodeArg = {
 			kind: "directory";
-			entries?: { [name: string]: number | tg.Artifact } | undefined;
+			entries?: { [name: string]: Edge<tg.Artifact> } | undefined;
 		};
 
 		type FileNodeArg = {
 			kind: "file";
 			contents: tg.Blob.Arg;
 			dependencies?:
-				| { [reference: string]: tg.MaybeReferent<number | tg.Object> }
+				| { [reference: string]: tg.MaybeReferent<Edge<tg.Object>> }
 				| undefined;
 			executable?: boolean | undefined;
 		};
 
 		type SymlinkNodeArg = {
 			kind: "symlink";
-			artifact?: number | tg.Artifact | undefined;
+			artifact?: Edge<tg.Artifact> | undefined;
 			path?: string | undefined;
 		};
 
@@ -453,7 +460,7 @@ declare namespace tg {
 
 		type DirectoryNode = {
 			kind: "directory";
-			entries: { [name: string]: number | tg.Artifact };
+			entries: { [name: string]: Edge<tg.Artifact> };
 		};
 
 		type FileNode = {

@@ -80,9 +80,10 @@ export class File {
 		}
 		let arg = await File.arg(...args);
 		let contents = await tg.blob(arg.contents);
+
 		let dependencies = Object.fromEntries(
 			Object.entries(arg.dependencies ?? {}).map(([key, value]) => {
-				if (tg.Object.is(value)) {
+				if (tg.Object.is(value) || "node" in value) {
 					value = { item: value };
 				}
 				return [key, value];
@@ -198,7 +199,25 @@ export class File {
 	}> {
 		const object = await this.object();
 		if (!("graph" in object)) {
-			return object.dependencies;
+			const dependencies = object.dependencies;
+			return Object.fromEntries(
+				await Promise.all(
+					Object.entries(dependencies).map(async ([reference, referent]) => {
+						let object: tg.Object | undefined;
+						if ("node" in referent.item) {
+							tg.assert(referent.item.graph !== undefined, "missing graph");
+							object = await referent.item.graph.get(referent.item.node);
+						} else {
+							object = referent.item;
+						}
+						const value = {
+							...referent,
+							item: object,
+						};
+						return [reference, value];
+					}),
+				),
+			);
 		} else {
 			const graph = object.graph;
 			const nodes = await graph.nodes();
@@ -207,37 +226,23 @@ export class File {
 			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
 			const dependencies = node.dependencies;
 			return Object.fromEntries(
-				Object.entries(dependencies).map(([reference, referent]) => {
-					let object: tg.Object | undefined;
-					if (typeof referent.item === "number") {
-						const node = nodes[referent.item];
-						tg.assert(node !== undefined, `invalid index ${referent.item}`);
-						switch (node.kind) {
-							case "directory": {
-								object = tg.Directory.withObject({
-									graph,
-									node: referent.item,
-								});
-								break;
-							}
-							case "file": {
-								object = tg.File.withObject({ graph, node: referent.item });
-								break;
-							}
-							case "symlink": {
-								object = tg.Symlink.withObject({ graph, node: referent.item });
-								break;
-							}
+				await Promise.all(
+					Object.entries(dependencies).map(async ([reference, referent]) => {
+						let object: tg.Object | undefined;
+						if ("node" in referent.item) {
+							object = await (referent.item.graph ?? graph).get(
+								referent.item.node,
+							);
+						} else {
+							object = referent.item;
 						}
-					} else {
-						object = referent.item;
-					}
-					const value = {
-						...referent,
-						item: object,
-					};
-					return [reference, value];
-				}),
+						const value = {
+							...referent,
+							item: object,
+						};
+						return [reference, value];
+					}),
+				),
 			);
 		}
 	}
@@ -296,7 +301,9 @@ export namespace File {
 				contents?: tg.Blob.Arg | undefined;
 				dependencies?:
 					| {
-							[reference: tg.Reference]: tg.MaybeReferent<tg.Object>;
+							[reference: tg.Reference]: tg.MaybeReferent<
+								tg.Graph.Object.Edge<tg.Object>
+							>;
 					  }
 					| undefined;
 				executable?: boolean | undefined;
@@ -312,7 +319,11 @@ export namespace File {
 		| { graph: tg.Graph; node: number }
 		| {
 				contents?: tg.Blob | undefined;
-				dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> };
+				dependencies: {
+					[reference: tg.Reference]: tg.Referent<
+						tg.Graph.Object.Edge<tg.Object>
+					>;
+				};
 				executable: boolean;
 		  };
 
@@ -331,7 +342,11 @@ export namespace File {
 						globalThis.Object.entries(object.dependencies).map(
 							([reference, referent]) => [
 								reference,
-								tg.Referent.toData(referent, (item) => item.id),
+								tg.Referent.toData(referent, (edge) =>
+									"node" in edge
+										? { graph: edge.graph?.id, node: edge.node }
+										: edge.id,
+								),
 							],
 						),
 					),
@@ -353,7 +368,17 @@ export namespace File {
 						globalThis.Object.entries(data.dependencies ?? {}).map(
 							([reference, referent]) => [
 								reference,
-								tg.Referent.fromData(referent, tg.Object.withId),
+								tg.Referent.fromData(referent, (edge) =>
+									typeof edge === "object" && "node" in edge
+										? {
+												graph:
+													edge.graph !== undefined
+														? tg.Graph.withId(edge.graph)
+														: undefined,
+												node: edge.node,
+											}
+										: tg.Object.withId(edge),
+								),
 							],
 						),
 					),
@@ -365,10 +390,18 @@ export namespace File {
 			if ("graph" in object) {
 				return [object.graph];
 			} else {
+				const contents = object.contents ? [object.contents] : [];
 				return [
-					...(object.contents ? [object.contents] : []),
+					...contents,
 					...globalThis.Object.entries(object.dependencies).map(
-						([_, referent]) => referent.item,
+						([_, referent]) => {
+							if ("node" in referent.item) {
+								tg.assert(referent.item.graph !== undefined, "missing graph");
+								return referent.item.graph;
+							} else {
+								return referent.item;
+							}
+						},
 					),
 				];
 			}
@@ -380,7 +413,9 @@ export namespace File {
 		| {
 				contents?: tg.Blob.Id | undefined;
 				dependencies?: {
-					[reference: tg.Reference]: tg.Referent.Data<tg.Object.Id>;
+					[reference: tg.Reference]: tg.Referent.Data<
+						tg.Graph.Data.Edge<tg.Object.Id>
+					>;
 				};
 				executable?: boolean;
 		  };
