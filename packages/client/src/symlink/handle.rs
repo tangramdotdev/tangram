@@ -122,7 +122,6 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_artifact_and_path(artifact: tg::Artifact, path: PathBuf) -> Self {
-		// TODO: flatten graph artifacts.
 		Self::with_object(Object::Node(tg::symlink::object::Node {
 			artifact: Some(tg::graph::object::Edge::Object(artifact)),
 			path: Some(path),
@@ -131,7 +130,6 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_artifact(artifact: tg::Artifact) -> Self {
-		// TODO: flatten graph artifacts.
 		Self::with_object(Object::Node(tg::symlink::object::Node {
 			artifact: Some(tg::graph::object::Edge::Object(artifact)),
 			path: None,

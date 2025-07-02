@@ -49,7 +49,6 @@ impl Server {
 	}
 
 	pub(super) fn checkin_create_objects(state: &mut State) -> tg::Result<()> {
-		// TODO: remove special case for normal artifacts.
 		// Separate into sccs.
 		let sccs = petgraph::algo::tarjan_scc(&state.graph);
 		for mut scc in sccs {
