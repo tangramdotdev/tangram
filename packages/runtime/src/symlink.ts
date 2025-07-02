@@ -131,42 +131,21 @@ export class Symlink {
 	async artifact(): Promise<tg.Artifact | undefined> {
 		const object = await this.object();
 		if (!("graph" in object)) {
+			if (typeof object.artifact === "object" && "node" in object.artifact) {
+				tg.assert(object.artifact.graph !== undefined, "missing graph");
+				return await object.artifact.graph.get(object.artifact.node);
+			}
 			return object.artifact;
 		} else {
-			const nodes = await object.graph.nodes();
-			const node = nodes[object.node];
-			tg.assert(node !== undefined, `invalid index ${object.node}`);
-			tg.assert(
-				node.kind === "symlink",
-				`expected a symlink node, got ${node}`,
-			);
-			if (!("artifact" in node)) {
-				return undefined;
+			const node = (await object.graph.nodes())[object.node];
+			tg.assert(node !== undefined, "invalid graph index");
+			tg.assert(node.kind === "symlink", "expected a symlink");
+			if (typeof node.artifact === "object" && "node" in node.artifact) {
+				return await (node.artifact.graph ?? object.graph).get(
+					node.artifact.node,
+				);
 			}
-			const artifact = node.artifact;
-			if (artifact === undefined || tg.Artifact.is(artifact)) {
-				return artifact;
-			} else {
-				const node = nodes[artifact];
-				tg.assert(node !== undefined, `invalid index ${artifact}`);
-				switch (node.kind) {
-					case "directory": {
-						return tg.Directory.withObject({
-							graph: object.graph,
-							node: artifact,
-						});
-					}
-					case "file": {
-						return tg.File.withObject({ graph: object.graph, node: artifact });
-					}
-					case "symlink": {
-						return tg.Symlink.withObject({
-							graph: object.graph,
-							node: artifact,
-						});
-					}
-				}
-			}
+			return node.artifact;
 		}
 	}
 
@@ -219,7 +198,7 @@ export namespace Symlink {
 	export type Object =
 		| { graph: tg.Graph; node: number }
 		| {
-				artifact: tg.Artifact | undefined;
+				artifact: tg.Graph.Object.Edge<tg.Artifact> | undefined;
 				path: string | undefined;
 		  };
 
@@ -233,7 +212,10 @@ export namespace Symlink {
 			} else {
 				let output: Data = {};
 				if (object.artifact !== undefined) {
-					output.artifact = object.artifact.id;
+					output.artifact =
+						"node" in object.artifact
+							? { graph: object.artifact.graph?.id, node: object.artifact.node }
+							: object.artifact.id;
 				}
 				if (object.path !== undefined) {
 					output.path = object.path;
@@ -251,9 +233,16 @@ export namespace Symlink {
 			} else {
 				return {
 					artifact:
-						data.artifact !== undefined
-							? tg.Artifact.withId(data.artifact)
-							: undefined,
+						typeof data.artifact === "object" && "node" in data.artifact
+							? {
+									graph: data.artifact.graph
+										? tg.Graph.withId(data.artifact.graph)
+										: undefined,
+									node: data.artifact.node,
+								}
+							: typeof data.artifact === "string"
+								? tg.Artifact.withId(data.artifact)
+								: undefined,
 					path: data.path,
 				};
 			}
@@ -263,17 +252,22 @@ export namespace Symlink {
 			if ("graph" in object) {
 				return [object.graph];
 			} else if ("artifact" in object && object.artifact !== undefined) {
-				return [object.artifact];
-			} else {
-				return [];
+				if ("node" in object.artifact) {
+					if (object.artifact.graph !== undefined) {
+						return [object.artifact.graph];
+					}
+				} else {
+					return [object.artifact];
+				}
 			}
+			return [];
 		};
 	}
 
 	export type Data =
 		| { graph: tg.Graph.Id; node: number }
 		| {
-				artifact?: tg.Artifact.Id;
+				artifact?: tg.Graph.Data.Edge<tg.Artifact.Id>;
 				path?: string;
 		  };
 
