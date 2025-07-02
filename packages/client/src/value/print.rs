@@ -249,9 +249,11 @@ where
 				self.finish_map()?;
 			},
 			tg::directory::Object::Node(node) => {
+				self.start_map()?;
 				for (name, edge) in &node.entries {
 					self.map_entry(name, |s| s.graph_edge_artifact(edge))?;
 				}
+				self.finish_map()?;
 			},
 		}
 		write!(self.writer, ")")?;
@@ -366,12 +368,14 @@ where
 				self.finish_map()?;
 			},
 			tg::symlink::Object::Node(node) => {
+				self.start_map()?;
 				if let Some(artifact) = &node.artifact {
 					self.map_entry("artifact", |s| s.graph_edge_artifact(artifact))?;
 				}
 				if let Some(path) = &node.path {
 					self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 				}
+				self.finish_map()?;
 			},
 		}
 		write!(self.writer, ")")?;
