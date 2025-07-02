@@ -175,7 +175,7 @@ where
 			if symlink.artifact(server).await?.is_some() {
 				return Err(tg::error!("cannot archive a symlink with an artifact"));
 			}
-			let path = symlink
+			let target = symlink
 				.path(server)
 				.await?
 				.ok_or_else(|| tg::error!("cannot archive a symlink without a path"))?;
@@ -184,7 +184,7 @@ where
 			header.set_entry_type(tokio_tar::EntryType::Symlink);
 			header.set_mode(0o777);
 			header
-				.set_link_name(path.to_string_lossy().as_ref())
+				.set_link_name(target.to_string_lossy().as_ref())
 				.map_err(|source| tg::error!(!source, "failed to set symlink target"))?;
 			builder
 				.append_data(&mut header, path, &[][..])
@@ -296,7 +296,7 @@ where
 			if symlink.artifact(server).await?.is_some() {
 				return Err(tg::error!("cannot archive a symlink with an artifact"));
 			}
-			let path = symlink
+			let target = symlink
 				.path(server)
 				.await?
 				.ok_or_else(|| tg::error!("cannot archive a symlink without a path"))?;
@@ -306,7 +306,7 @@ where
 			)
 			.unix_permissions(0o120_777);
 			builder
-				.write_entry_whole(entry.build(), path.to_string_lossy().as_bytes())
+				.write_entry_whole(entry.build(), target.to_string_lossy().as_bytes())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the symlink entry"))
 		},

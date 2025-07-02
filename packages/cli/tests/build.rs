@@ -871,9 +871,8 @@ async fn command_set_checksum() {
 	test_build(artifact, reference, args, assertions).await;
 }
 
-#[ignore = "zip is not working"]
 #[tokio::test]
-async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
+async fn builtin_artifact_archive_extract_simple_dir_roundtrip_tar() {
 	let module = indoc!(
 		r#"
 			export default async () => {
@@ -883,7 +882,7 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
 				});
 				let archive = await tg.archive(artifact, "format");
 				let extracted = await tg.extract(archive);
-				tg.assert(extracted.id() === artifact.id());
+				tg.assert(extracted.id === artifact.id);
 			};
 		"#
 	);
@@ -894,6 +893,24 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip() {
 		assert_success!(output);
 	};
 	test_archive(module, format, assertions).await;
+}
+
+#[ignore = "zip is not working"]
+#[tokio::test]
+async fn builtin_artifact_archive_extract_simple_dir_roundtrip_zip() {
+	let module = indoc!(
+		r#"
+			export default async () => {
+				let artifact = await tg.directory({
+					"hello.txt": "contents",
+					"link": tg.symlink("./hello.txt"),
+				});
+				let archive = await tg.archive(artifact, "format");
+				let extracted = await tg.extract(archive);
+				tg.assert(extracted.id === artifact.id);
+			};
+		"#
+	);
 
 	let format = "zip";
 	let assertions = |output: std::process::Output| async move {
