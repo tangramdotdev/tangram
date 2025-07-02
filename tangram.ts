@@ -28,21 +28,20 @@ export const build = async (arg?: Arg) => {
 		postgres = false,
 	} = arg ?? {};
 	const host = host_ ?? (await std.triple.host());
+	if (useFoundationdb) {
+		tg.assert(
+			std.triple.os(host) === "linux",
+			"the foundationdb feature is only available for Linux hosts",
+		);
+	}
 	const build = build_ ?? host;
 	const cargoLock = await source.get("Cargo.lock").then(tg.File.expect);
 
 	// Collect environment.
 	const envs: Array<tg.Unresolved<std.env.Arg>> = [
 		bunEnvArg(build),
-		librustyv8(cargoLock, host),
+		librustyv8({ lockfile: cargoLock, host }),
 	];
-
-	if (build !== host) {
-		envs.push({
-			[`CC_${host}`]: `${host}-cc`,
-			[`CXX_${host}`]: `${host}-c++`,
-		});
-	}
 
 	// Set up node_modules.
 	let pre = tg`
@@ -61,11 +60,6 @@ export const build = async (arg?: Arg) => {
 		features.push("postgres");
 	}
 	if (useFoundationdb) {
-		if (std.triple.os(host) !== "linux") {
-			throw new Error(
-				"the foundationdb feature is only available for Linux hosts",
-			);
-		}
 		features.push("foundationdb");
 		const fdbArtifact = foundationdb({ build, host });
 		envs.push(fdbArtifact, {
@@ -126,16 +120,11 @@ export type CloudArg = {
 };
 
 export const cloud = async (arg?: CloudArg) => {
-	const host_ = arg?.host ?? (await std.triple.host());
-	const build_ = arg?.build ?? host_;
-	if (std.triple.os(host_) !== "linux") {
-		throw new Error(
-			"the cloud configuration is only available for Linux hosts",
-		);
-	}
+	const host = arg?.host ?? (await std.triple.host());
+	const build_ = arg?.build ?? host;
 	return await build({
 		build: build_,
-		host: host_,
+		host,
 		foundationdb: true,
 		nats: true,
 		postgres: true,
@@ -198,7 +187,14 @@ const bunEnvArg = async (hostArg?: string) => {
 	}
 };
 
-export const librustyv8 = async (lockfile: tg.File, hostArg?: string) => {
+export type LibRustyV8Arg = {
+	host?: string;
+	lockfile: tg.File;
+	bindings?: boolean;
+};
+
+export const librustyv8 = async (arg: LibRustyV8Arg) => {
+	const { host: hostArg, lockfile, bindings = false } = arg;
 	const host = hostArg ?? (await std.triple.host());
 	let os;
 	if (std.triple.os(host) === "darwin") {
@@ -218,9 +214,23 @@ export const librustyv8 = async (lockfile: tg.File, hostArg?: string) => {
 			url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
 		})
 		.then(tg.File.expect);
-	return {
+
+	const result: Record<string, tg.File> = {
 		RUSTY_V8_ARCHIVE: lib,
 	};
+
+	if (bindings) {
+		const bindingFile = `src_binding_release_${std.triple.arch(host)}-${os}.rs`;
+		const binding = await std
+			.download({
+				checksum,
+				url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${bindingFile}`,
+			})
+			.then(tg.File.expect);
+		result.RUSTY_V8_SRC_BINDING_PATH = binding;
+	}
+
+	return result;
 };
 
 const getRustyV8Version = async (lockfile: tg.File) => {
@@ -255,3 +265,9 @@ export const testCloud = async () => {
 		.then((f) => f.text());
 	tg.assert(output.includes("Usage:"));
 };
+
+export const cross = async () =>
+	build({
+		build: "aarch64-unknown-linux-gnu",
+		host: "x86_64-unknown-linux-gnu",
+	});
