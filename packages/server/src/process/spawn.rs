@@ -1,4 +1,4 @@
-use crate::{ProcessPermit, Server};
+use crate::{ProcessPermit, Server, database};
 use bytes::Bytes;
 use futures::{FutureExt as _, future};
 use indoc::formatdoc;
@@ -210,8 +210,13 @@ impl Server {
 			status: tg::process::Status,
 		}
 		let params = match &transaction {
-			Either::Left(_) => "with params as (select ?1 as command, ?2 as checksum)",
-			Either::Right(_) => "with params as (select $1::text as command, $2::text as checksum)",
+			database::Transaction::Sqlite(_) => {
+				"with params as (select ?1 as command, ?2 as checksum)"
+			},
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => {
+				"with params as (select $1::text as command, $2::text as checksum)"
+			},
 		};
 		let statement = formatdoc!(
 			"
@@ -324,8 +329,13 @@ impl Server {
 		}
 		let p = connection.p();
 		let params = match &connection {
-			Either::Left(_) => "with params as (select ?1 as command, ?2 as checksum)",
-			Either::Right(_) => "with params as (select $1::text as command, $2::text as checksum)",
+			database::Connection::Sqlite(_) => {
+				"with params as (select ?1 as command, ?2 as checksum)"
+			},
+			#[cfg(feature = "postgres")]
+			database::Connection::Postgres(_) => {
+				"with params as (select $1::text as command, $2::text as checksum)"
+			},
 		};
 		let statement = formatdoc!(
 			"

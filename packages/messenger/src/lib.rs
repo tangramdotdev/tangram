@@ -6,6 +6,7 @@ pub use self::acker::Acker;
 pub mod acker;
 pub mod either;
 pub mod memory;
+#[cfg(feature = "nats")]
 pub mod nats;
 
 pub mod prelude {

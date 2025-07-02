@@ -6,6 +6,7 @@ pub use self::{pool::Priority, row::Row, value::Value};
 
 pub mod either;
 pub mod pool;
+#[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod row;
 pub mod sqlite;

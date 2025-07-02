@@ -1,6 +1,7 @@
 use self::{
 	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
 };
+#[cfg(feature = "nats")]
 use async_nats as nats;
 use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
@@ -246,17 +247,27 @@ impl Server {
 				let database = db::sqlite::Database::new(options)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
-				Either::Left(database)
+				Database::Sqlite(database)
 			},
 			self::config::Database::Postgres(options) => {
-				let options = db::postgres::DatabaseOptions {
-					url: options.url.clone(),
-					connections: options.connections,
-				};
-				let database = db::postgres::Database::new(options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
-				Either::Right(database)
+				#[cfg(not(feature = "postgres"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with postgres support"
+					));
+				}
+				#[cfg(feature = "postgres")]
+				{
+					let options = db::postgres::DatabaseOptions {
+						url: options.url.clone(),
+						connections: options.connections,
+					};
+					let database = db::postgres::Database::new(options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+					Database::Postgres(database)
+				}
 			},
 		};
 
@@ -286,17 +297,27 @@ impl Server {
 				let database = db::sqlite::Database::new(options)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-				Either::Left(database)
+				Database::Sqlite(database)
 			},
 			self::config::Index::Postgres(options) => {
-				let options = db::postgres::DatabaseOptions {
-					url: options.url.clone(),
-					connections: options.connections,
-				};
-				let database = db::postgres::Database::new(options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-				Either::Right(database)
+				#[cfg(not(feature = "postgres"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with postgres support"
+					));
+				}
+				#[cfg(feature = "postgres")]
+				{
+					let options = db::postgres::DatabaseOptions {
+						url: options.url.clone(),
+						connections: options.connections,
+					};
+					let database = db::postgres::Database::new(options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
+					Database::Postgres(database)
+				}
 			},
 		};
 
@@ -309,13 +330,25 @@ impl Server {
 		// Create the messenger.
 		let messenger = match &config.messenger {
 			self::config::Messenger::Memory => {
-				Messenger::Left(tangram_messenger::memory::Messenger::new())
+				Messenger::Memory(tangram_messenger::memory::Messenger::new())
 			},
 			self::config::Messenger::Nats(nats) => {
-				let client = nats::connect(nats.url.to_string())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the NATS client"))?;
-				Messenger::Right(tangram_messenger::nats::Messenger::new(client))
+				#[cfg(not(feature = "nats"))]
+				{
+					let _ = nats;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with nats support"
+					));
+				}
+				#[cfg(feature = "nats")]
+				{
+					let client = nats::connect(nats.url.to_string())
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to create the NATS client")
+						})?;
+					Messenger::Nats(tangram_messenger::nats::Messenger::new(client))
+				}
 			},
 		};
 

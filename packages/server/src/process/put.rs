@@ -1,11 +1,11 @@
-use crate::Server;
+use crate::{Server, database::Database};
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use indoc::indoc;
+#[cfg(feature = "postgres")]
 use num::ToPrimitive as _;
 use std::sync::Arc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
 
@@ -19,10 +19,11 @@ impl Server {
 
 		// Insert the process into the database.
 		match &self.database {
-			Either::Left(database) => {
+			Database::Sqlite(database) => {
 				Self::put_process_sqlite(id, &arg, database, now).await?;
 			},
-			Either::Right(database) => {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
 				Self::put_process_postgres(id, &arg, database, now).await?;
 			},
 		}
@@ -237,6 +238,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	pub(crate) async fn put_process_postgres(
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,

@@ -1,8 +1,7 @@
-use crate::Server;
+use crate::{Server, database};
 use indoc::indoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
 impl Server {
@@ -33,7 +32,7 @@ impl Server {
 
 		// Update the heartbeat.
 		let statement = match &connection {
-			Either::Left(_) => indoc!(
+			database::Connection::Sqlite(_) => indoc!(
 				"
 					update processes
 					set heartbeat_at = case
@@ -44,7 +43,8 @@ impl Server {
 					returning status;
 				"
 			),
-			Either::Right(_) => indoc!(
+			#[cfg(feature = "postgres")]
+			database::Connection::Postgres(_) => indoc!(
 				"
 					with params as (select $1::int8 as now, $2::text as process)
 					update processes

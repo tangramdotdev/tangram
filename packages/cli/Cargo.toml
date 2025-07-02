@@ -18,6 +18,8 @@ path = "src/main.rs"
 default = ["format"]
 format = ["tangram_server/format"]
 foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
+nats = ["tangram_server/nats"]
+postgres = ["tangram_server/postgres"]
 
 [lints]
 workspace = true

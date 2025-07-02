@@ -20,6 +20,9 @@ format = [
   "dep:biome_js_parser",
   "dep:biome_js_syntax",
 ]
+foundationdb = ["dep:foundationdb"]
+nats = ["dep:async-nats", "tangram_messenger/nats"]
+postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 
 [build-dependencies]
 data-encoding = { workspace = true }
@@ -39,7 +42,7 @@ insta = { workspace = true }
 astral-tokio-tar = { workspace = true }
 async-channel = { workspace = true }
 async-compression = { workspace = true }
-async-nats = { workspace = true }
+async-nats = { workspace = true, optional = true }
 async_zip = { workspace = true }
 aws-credential-types = { workspace = true }
 aws-sigv4 = { workspace = true }
@@ -112,7 +115,7 @@ tangram_vfs = { workspace = true }
 tar = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
-tokio-postgres = { workspace = true }
+tokio-postgres = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }

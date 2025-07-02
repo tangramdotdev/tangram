@@ -3,11 +3,9 @@ use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future}
 use indoc::indoc;
 use num::ToPrimitive as _;
 use rusqlite as sqlite;
-use std::{
-	collections::{BTreeSet, HashMap},
-	pin::pin,
-	time::Duration,
-};
+#[cfg(feature = "postgres")]
+use std::collections::HashMap;
+use std::{collections::BTreeSet, pin::pin, time::Duration};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -252,7 +250,7 @@ impl Server {
 
 			// Handle the messages.
 			match &self.index {
-				Either::Left(index) => {
+				Database::Sqlite(index) => {
 					self.indexer_task_handle_messages_sqlite(
 						index,
 						put_cache_entry_messages,
@@ -265,7 +263,8 @@ impl Server {
 					)
 					.await?;
 				},
-				Either::Right(index) => {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(index) => {
 					self.indexer_task_handle_messages_postgres(
 						index,
 						put_cache_entry_messages,
@@ -588,6 +587,7 @@ impl Server {
 	}
 
 	#[allow(clippy::too_many_arguments)]
+	#[cfg(feature = "postgres")]
 	async fn indexer_task_handle_messages_postgres(
 		&self,
 		database: &db::postgres::Database,
@@ -639,6 +639,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn indexer_put_cache_entries_postgres(
 		&self,
 		messages: Vec<PutCacheEntryMessage>,
@@ -661,6 +662,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn indexer_put_objects_postgres(
 		&self,
 		messages: Vec<PutObjectMessage>,
@@ -733,6 +735,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn indexer_touch_objects_postgres(
 		&self,
 		messages: Vec<TouchObjectMessage>,
@@ -756,6 +759,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn indexer_put_processes_postgres(
 		&self,
 		messages: Vec<PutProcessMessage>,
@@ -850,6 +854,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn indexer_touch_processes_postgres(
 		&self,
 		messages: Vec<TouchProcessMessage>,
@@ -873,6 +878,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn indexer_put_tags_postgres(
 		&self,
 		messages: Vec<PutTagMessage>,
@@ -897,6 +903,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn indexer_delete_tags_postgres(
 		&self,
 		messages: Vec<DeleteTagMessage>,
@@ -971,32 +978,28 @@ impl Server {
 }
 
 pub async fn migrate(database: &Database) -> tg::Result<()> {
-	if database.is_right() {
+	#[allow(irrefutable_let_patterns)]
+	let Database::Sqlite(database) = database else {
 		return Ok(());
-	}
+	};
 
 	let migrations = vec![migration_0000(database).boxed()];
 
-	let version = match database {
-		Either::Left(database) => {
-			let connection = database
-				.connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-			connection
-				.with(|connection| {
-					connection
-						.pragma_query_value(None, "user_version", |row| {
-							Ok(row.get_unwrap::<_, usize>(0))
-						})
-						.map_err(|source| tg::error!(!source, "failed to get the version"))
-				})
-				.await?
-		},
-		Either::Right(_) => {
-			unreachable!()
-		},
-	};
+	let connection = database
+		.connection()
+		.await
+		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+	let version =
+		connection
+			.with(|connection| {
+				connection
+					.pragma_query_value(None, "user_version", |row| {
+						Ok(row.get_unwrap::<_, usize>(0))
+					})
+					.map_err(|source| tg::error!(!source, "failed to get the version"))
+			})
+			.await?;
+	drop(connection);
 
 	// If this path is from a newer version of Tangram, then return an error.
 	if version > migrations.len() {
@@ -1005,39 +1008,31 @@ pub async fn migrate(database: &Database) -> tg::Result<()> {
 		));
 	}
 
-	// Run all migrations and update the version file.
+	// Run all migrations and update the version.
 	let migrations = migrations.into_iter().enumerate().skip(version);
 	for (version, migration) in migrations {
 		// Run the migration.
 		migration.await?;
 
 		// Update the version.
-		match database {
-			Either::Left(database) => {
-				let connection = database
-					.write_connection()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let connection = database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		connection
+			.with(move |connection| {
 				connection
-					.with(move |connection| {
-						connection
-							.pragma_update(None, "user_version", version + 1)
-							.map_err(|source| tg::error!(!source, "failed to get the version"))
-					})
-					.await?;
-			},
-			Either::Right(_) => {
-				unreachable!()
-			},
-		}
+					.pragma_update(None, "user_version", version + 1)
+					.map_err(|source| tg::error!(!source, "failed to get the version"))
+			})
+			.await?;
 	}
 
 	Ok(())
 }
 
-async fn migration_0000(database: &Database) -> tg::Result<()> {
+async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
 	let sql = include_str!("index/schema.sql");
-	let database = database.as_ref().unwrap_left();
 	let connection = database
 		.write_connection()
 		.await

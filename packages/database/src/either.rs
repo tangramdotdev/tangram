@@ -41,12 +41,12 @@ where
 		options: ConnectionOptions,
 	) -> impl Future<Output = Result<Self::Connection, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.connection_with_options(options)
 				.map_ok(Either::Left)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.connection_with_options(options)
 				.map_ok(Either::Right)
 				.map_err(|error| Error::Either(Either::Right(error)))
@@ -69,12 +69,12 @@ where
 
 	fn transaction(&mut self) -> impl Future<Output = Result<Self::Transaction<'_>, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.transaction()
 				.map_ok(Either::Left)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.transaction()
 				.map_ok(Either::Right)
 				.map_err(|error| Error::Either(Either::Right(error)))
@@ -92,11 +92,11 @@ where
 
 	fn rollback(self) -> impl Future<Output = Result<(), Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.rollback()
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.rollback()
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -105,11 +105,11 @@ where
 
 	fn commit(self) -> impl Future<Output = Result<(), Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.commit()
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.commit()
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -126,8 +126,8 @@ where
 
 	fn p(&self) -> &'static str {
 		match self {
-			Either::Left(left) => left.p(),
-			Either::Right(right) => right.p(),
+			Either::Left(s) => s.p(),
+			Either::Right(s) => s.p(),
 		}
 	}
 
@@ -137,11 +137,11 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<u64, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.execute(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.execute(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -154,7 +154,7 @@ where
 		params: Vec<crate::Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>>, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -163,7 +163,7 @@ where
 				})
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -182,7 +182,7 @@ where
 	) -> impl Future<Output = Result<impl Stream<Item = Result<Value, Self::Error>> + Send, Self::Error>>
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_value(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -191,7 +191,7 @@ where
 				})
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_value(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -212,7 +212,7 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_into(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -221,7 +221,7 @@ where
 				})
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_into(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -242,7 +242,7 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_value_into(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -251,7 +251,7 @@ where
 				})
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_value_into(statement, params)
 				.map_ok(|stream| {
 					stream
@@ -269,11 +269,11 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<Row>, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_optional(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_optional(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -286,11 +286,11 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<Value>, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_optional_value(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_optional_value(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -306,11 +306,11 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_optional_into(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_optional_into(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -326,11 +326,11 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_optional_value_into(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_optional_value_into(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -343,11 +343,11 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Row, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_one(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_one(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -360,11 +360,11 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Value, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_one_value(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_one_value(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -380,11 +380,11 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_one_into(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_one_into(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -400,11 +400,11 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_one_value_into(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_one_value_into(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -417,11 +417,11 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<Row>, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_all(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_all(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -434,11 +434,11 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<Value>, Self::Error>> {
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_all_value(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_all_value(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -454,11 +454,11 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_all_into(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_all_into(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),
@@ -474,11 +474,11 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		match self {
-			Either::Left(left) => left
+			Either::Left(s) => s
 				.query_all_value_into(statement, params)
 				.map_err(|error| Error::Either(Either::Left(error)))
 				.left_future(),
-			Either::Right(right) => right
+			Either::Right(s) => s
 				.query_all_value_into(statement, params)
 				.map_err(|error| Error::Either(Either::Right(error)))
 				.right_future(),

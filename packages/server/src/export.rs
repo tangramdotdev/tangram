@@ -130,8 +130,8 @@ impl Server {
 		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
 		// If the database, index, and store are synchronous, and all items are complete, then export synchronously.
-		if self.database.is_left()
-			&& self.index.is_left()
+		if self.database.is_sqlite()
+			&& self.index.is_sqlite()
 			&& matches!(self.store, crate::Store::Lmdb(_) | crate::Store::Memory(_))
 		{
 			let complete = self.export_items_complete(&arg).await?;
@@ -345,8 +345,8 @@ impl Server {
 		// Create a database connection.
 		let database = self
 			.database
-			.as_ref()
-			.left()
+			.try_unwrap_sqlite_ref()
+			.ok()
 			.ok_or_else(|| tg::error!("expected the database to be sqlite"))?
 			.create_connection(true)
 			.map_err(|source| tg::error!(!source, "failed to create a connection"))?;
@@ -354,8 +354,8 @@ impl Server {
 		// Create an index connection.
 		let index = self
 			.index
-			.as_ref()
-			.left()
+			.try_unwrap_sqlite_ref()
+			.ok()
 			.ok_or_else(|| tg::error!("expected the index to be sqlite"))?
 			.create_connection(true)
 			.map_err(|source| tg::error!(!source, "failed to create a connection"))?;

@@ -1,9 +1,8 @@
-use crate::Server;
+use crate::{Server, database::Database};
 use num::ToPrimitive as _;
 use std::time::Duration;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 use tangram_http::{Body, response::builder::Ext as _};
 
 impl Server {
@@ -58,11 +57,12 @@ impl Server {
 		drop(connection);
 
 		let available_connections = match &self.database {
-			Either::Left(database) => {
+			Database::Sqlite(database) => {
 				database.read_pool().available().to_u64().unwrap()
 					+ database.write_pool().available().to_u64().unwrap()
 			},
-			Either::Right(database) => database.pool().available().to_u64().unwrap(),
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 		};
 		let database = tg::health::Database {
 			available_connections,
