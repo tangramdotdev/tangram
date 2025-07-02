@@ -11,17 +11,21 @@ import { $ } from "std" with { path: "../packages/packages/std" };
 
 import source from "." with { type: "directory" };
 
-type Arg = {
+export type Arg = {
 	build?: string;
 	foundationdb?: boolean;
 	host?: string;
+	nats?: boolean;
+	postgres?: boolean;
 };
 
 export const build = async (arg?: Arg) => {
 	const {
 		build: build_,
-		foundationdb: useFoundationdb,
+		foundationdb: useFoundationdb = false,
 		host: host_,
+		nats = false,
+		postgres = false,
 	} = arg ?? {};
 	const host = host_ ?? (await std.triple.host());
 	const build = build_ ?? host;
@@ -50,9 +54,17 @@ export const build = async (arg?: Arg) => {
 
 	// Configure features.
 	const features = [];
+	if (nats) {
+		features.push("nats");
+	}
+	if (postgres) {
+		features.push("postgres");
+	}
 	if (useFoundationdb) {
 		if (std.triple.os(host) !== "linux") {
-			throw new Error("the foundationdb feature is only available on Linux");
+			throw new Error(
+				"the foundationdb feature is only available for Linux hosts",
+			);
 		}
 		features.push("foundationdb");
 		const fdbArtifact = foundationdb({ build, host });
@@ -69,7 +81,7 @@ export const build = async (arg?: Arg) => {
 
 	// Build tangram.
 	const env = std.env.arg(...envs);
-	let output = await cargo.build({
+	let output = cargo.build({
 		...(await std.triple.rotate({ build, host })),
 		buildInTree: true,
 		disableDefaultFeatures: true,
@@ -96,7 +108,9 @@ export const build = async (arg?: Arg) => {
 	}
 
 	// Wrap and return.
-	const unwrapped = output.get("bin/tangram").then(tg.File.expect);
+	const unwrapped = output
+		.then((dir) => dir.get("bin/tangram"))
+		.then(tg.File.expect);
 	const wrapped = std.wrap(unwrapped, { libraryPaths });
 	return await tg.directory(output, {
 		["bin/tangram"]: wrapped,
@@ -105,6 +119,28 @@ export const build = async (arg?: Arg) => {
 };
 
 export default build;
+
+export type CloudArg = {
+	build?: string;
+	host?: string;
+};
+
+export const cloud = async (arg?: CloudArg) => {
+	const host_ = arg?.host ?? (await std.triple.host());
+	const build_ = arg?.build ?? host_;
+	if (std.triple.os(host_) !== "linux") {
+		throw new Error(
+			"the cloud configuration is only available for Linux hosts",
+		);
+	}
+	return await build({
+		build: build_,
+		host: host_,
+		foundationdb: true,
+		nats: true,
+		postgres: true,
+	});
+};
 
 export const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? (await std.triple.host());
@@ -207,6 +243,14 @@ type CargoLock = {
 export const test = async () => {
 	const output = await $`tg --help > $OUTPUT`
 		.env(build())
+		.then(tg.File.expect)
+		.then((f) => f.text());
+	tg.assert(output.includes("Usage:"));
+};
+
+export const testCloud = async () => {
+	const output = await $`tg --help > $OUTPUT`
+		.env(cloud())
 		.then(tg.File.expect)
 		.then((f) => f.text());
 	tg.assert(output.includes("Usage:"));
