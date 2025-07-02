@@ -3,7 +3,7 @@ use futures::{
 	FutureExt as _, Stream, StreamExt, TryFutureExt as _, TryStreamExt as _, future,
 	stream::{self, FuturesUnordered},
 };
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 use num::ToPrimitive as _;
 use std::{
 	pin::{Pin, pin},
@@ -11,6 +11,7 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
+use tangram_database::Connection;
 use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
@@ -19,6 +20,7 @@ use tangram_messenger::prelude::*;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::task::AbortOnDropHandle;
 
+const BATCH_SIZE: usize = 64;
 const COMPLETE_CONCURRENCY: usize = 8;
 
 #[derive(Debug)]
@@ -64,6 +66,7 @@ impl Server {
 					.import_complete_task(complete_receiver, &event_sender)
 					.await;
 				if let Err(error) = result {
+					tracing::error!(?error, "failed to run the import complete task");
 					event_sender.send(Err(error)).await.ok();
 				}
 			}
@@ -199,77 +202,109 @@ impl Server {
 		let stream = ReceiverStream::new(complete_receiver);
 		let stream = pin!(stream);
 		stream
+			.ready_chunks(BATCH_SIZE)
 			.for_each_concurrent(COMPLETE_CONCURRENCY, {
 				let server = self.clone();
 				let event_sender = event_sender.clone();
-				move |item| {
+				move |batch| {
 					let server = server.clone();
 					let event_sender = event_sender.clone();
-					async move { server.import_complete_task_item(item, &event_sender).await }
+					async move {
+						server
+							.import_complete_task_items(batch, &event_sender)
+							.await
+					}
 				}
 			})
 			.await;
 		Ok(())
 	}
 
-	async fn import_complete_task_item(
+	async fn import_complete_task_items(
 		&self,
-		item: Either<tg::process::Id, tg::object::Id>,
+		items: Vec<Either<tg::process::Id, tg::object::Id>>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) {
-		match item {
-			Either::Left(id) => {
-				let result = self.try_get_import_process_complete(&id).await;
-				let process_complete = match result {
-					Ok(process_complete) => process_complete,
-					Err(error) => {
-						tracing::error!(?error, "failed to get process complete");
-						return;
-					},
-				};
-				let Some(process_complete) = process_complete else {
-					return;
-				};
-				if !(process_complete.complete
-					|| process_complete.commands_complete
-					|| process_complete.outputs_complete)
-				{
-					return;
-				}
-				let event =
-					tg::import::Event::Complete(tg::import::Complete::Process(process_complete));
-				event_sender.send(Ok(event)).await.ok();
+		let process_ids = items
+			.iter()
+			.filter_map(|item| match item {
+				Either::Left(id) => Some(id.clone()),
+				Either::Right(_) => None,
+			})
+			.collect::<Vec<_>>();
+		let object_ids = items
+			.into_iter()
+			.filter_map(|item| match item {
+				Either::Left(_) => None,
+				Either::Right(id) => Some(id),
+			})
+			.collect::<Vec<_>>();
+
+		// Get the processes complete.
+		let result = self.try_get_import_processes_complete(&process_ids).await;
+		let result = match result {
+			Ok(result) => result,
+			Err(error) => {
+				tracing::error!(?error, "failed to get process complete");
+				return;
 			},
-			Either::Right(id) => {
-				let result = self.try_get_import_object_complete(&id).await;
-				let object_complete = match result {
-					Ok(object_complete) => object_complete,
-					Err(error) => {
-						tracing::error!(?error, "failed to get object complete");
-						return;
-					},
-				};
-				let Some(object_complete) = object_complete else {
-					return;
-				};
-				if !object_complete {
-					return;
-				}
-				let event = tg::import::Event::Complete(tg::import::Complete::Object(
-					tg::import::ObjectComplete { id },
-				));
-				event_sender.send(Ok(event)).await.ok();
+		};
+		for process_complete in result {
+			if !(process_complete.complete
+				|| process_complete.commands_complete
+				|| process_complete.outputs_complete)
+			{
+				return;
+			}
+			let event =
+				tg::import::Event::Complete(tg::import::Complete::Process(process_complete));
+			event_sender.send(Ok(event)).await.ok();
+		}
+
+		// Get the objects complete.
+		let result = self.try_get_import_objects_complete(&object_ids).await;
+		let result = match result {
+			Ok(objects_complete) => objects_complete,
+			Err(error) => {
+				tracing::error!(?error, "failed to get objects complete");
+				return;
+			},
+		};
+		for (id, object_complete) in result {
+			if !object_complete {
+				return;
+			}
+			let event = tg::import::Event::Complete(tg::import::Complete::Object(
+				tg::import::ObjectComplete { id },
+			));
+			event_sender.send(Ok(event)).await.ok();
+		}
+	}
+
+	async fn try_get_import_processes_complete(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<tg::import::ProcessComplete>> {
+		// Handle the messages.
+		match &self.index {
+			Either::Left(index) => {
+				self.try_get_import_processes_complete_sqlite(index, ids)
+					.await
+			},
+			Either::Right(index) => {
+				self.try_get_import_processes_complete_postgres(index, ids)
+					.await
 			},
 		}
 	}
 
-	async fn try_get_import_process_complete(
+	async fn try_get_import_processes_complete_sqlite(
 		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::import::ProcessComplete>> {
+		database: &db::sqlite::Database,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<tg::import::ProcessComplete>> {
 		// Get a database connection.
-		let connection = self
-			.index
+		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -281,70 +316,202 @@ impl Server {
 			commands_complete: bool,
 			outputs_complete: bool,
 		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
+		let mut rows = Vec::new();
+		for id in ids {
+			let statement = formatdoc!(
+				"
 				select
 					complete,
 					commands_complete,
 					outputs_complete
 				from processes
-				where id = {p}1;
+				where id = ?1;
 			",
-		);
-		let params = db::params![id];
-		let Some(row) = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-		else {
-			return Ok(None);
-		};
+			);
+			let params = db::params![id];
+			let Some(row) = connection
+				.query_optional_into::<Row>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			else {
+				continue;
+			};
 
-		// Drop the database connection.
-		drop(connection);
+			// Create the output.
+			let output = tg::import::ProcessComplete {
+				commands_complete: row.commands_complete,
+				complete: row.complete,
+				id: id.clone(),
+				outputs_complete: row.outputs_complete,
+			};
+			rows.push(output);
+		}
 
-		// Create the output.
-		let output = tg::import::ProcessComplete {
-			commands_complete: row.commands_complete,
-			complete: row.complete,
-			id: id.clone(),
-			outputs_complete: row.outputs_complete,
-		};
-
-		Ok(Some(output))
+		Ok(rows)
 	}
 
-	async fn try_get_import_object_complete(
+	async fn try_get_import_processes_complete_postgres(
 		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<bool>> {
+		database: &db::postgres::Database,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<tg::import::ProcessComplete>> {
+		// Get a database connection.
+		let mut connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		// Get the process complete fields.
+		let statement = indoc!(
+			"
+				select
+					id,
+					complete,
+					commands_complete,
+					outputs_complete
+				from processes
+				where id = ANY($1);
+			",
+		);
+		let rows = transaction
+			.inner()
+			.query(
+				statement,
+				&[&ids.iter().map(ToString::to_string).collect::<Vec<_>>()],
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.into_iter()
+			.map(|row| {
+				let id = row.get::<_, String>(0);
+				let id = id.parse().unwrap();
+				let complete = row.get::<_, i64>(1) == 1;
+				let commands_complete = row.get::<_, i64>(2) == 1;
+				let outputs_complete = row.get::<_, i64>(3) == 1;
+				tg::import::ProcessComplete {
+					id,
+					complete,
+					commands_complete,
+					outputs_complete,
+				}
+			})
+			.collect();
+
+		Ok(rows)
+	}
+
+	async fn try_get_import_objects_complete(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, bool)>> {
+		// Handle the messages.
+		match &self.index {
+			Either::Left(index) => {
+				self.try_get_import_objects_complete_sqlite(index, ids)
+					.await
+			},
+			Either::Right(index) => {
+				self.try_get_import_objects_complete_postgres(index, ids)
+					.await
+			},
+		}
+	}
+
+	async fn try_get_import_objects_complete_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, bool)>> {
 		// Get an index connection.
-		let connection = self
-			.index
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		#[derive(serde::Deserialize)]
+		struct Row {
+			id: tg::object::Id,
+			complete: bool,
+		}
+		// Get the object complete field.
+		let mut rows = Vec::new();
+		for id in ids {
+			let statement = formatdoc!(
+				"
+					select 
+						id, 
+						complete
+					from objects
+					where id = ?1;
+				",
+			);
+			let params = db::params![id];
+			let row = connection
+				.query_optional_value_into::<Row>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.map(|row| (row.id, row.complete));
+			if let Some(row) = row {
+				rows.push(row);
+			}
+		}
+
+		// Drop the index connection.
+		drop(connection);
+
+		Ok(rows)
+	}
+
+	async fn try_get_import_objects_complete_postgres(
+		&self,
+		database: &db::postgres::Database,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, bool)>> {
+		// Get an index connection.
+		let mut connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object complete field.
-		let p = connection.p();
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
-				select complete
+				select 
+					id, 
+					complete
 				from objects
-				where id = {p}1;
+				where id = ANY($1);
 			",
 		);
-		let params = db::params![id];
-		let output = connection
-			.query_optional_value_into(statement.into(), params)
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		// Drop the index connection.
-		drop(connection);
+		let rows = transaction
+			.inner()
+			.query(
+				statement,
+				&[&ids.iter().map(ToString::to_string).collect::<Vec<_>>()],
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.into_iter()
+			.map(|row| {
+				let id = row.get::<_, String>(0).parse().unwrap();
+				let complete = row.get::<_, i64>(1) == 1;
+				(id, complete)
+			})
+			.collect();
 
-		Ok(output)
+		Ok(rows)
 	}
 
 	async fn import_processes_task(

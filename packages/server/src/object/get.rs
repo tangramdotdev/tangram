@@ -25,6 +25,30 @@ impl Server {
 		}
 	}
 
+	pub async fn try_get_object_batch(
+		&self,
+		ids: &[&tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
+		let mut local_results = self.try_get_object_local_batch(ids).await?;
+
+		let found_ids: std::collections::HashSet<_> =
+			local_results.iter().map(|(id, _)| id).collect();
+		let missing_ids: Vec<_> = ids
+			.iter()
+			.filter(|id| !found_ids.contains(*id))
+			.cloned()
+			.collect();
+
+		let mut remote_results = if !missing_ids.is_empty() {
+			self.try_get_object_remote_batch(&missing_ids).await?
+		} else {
+			vec![]
+		};
+
+		local_results.append(&mut remote_results);
+		Ok(local_results)
+	}
+
 	pub async fn try_get_object_local(
 		&self,
 		id: &tg::object::Id,
@@ -79,6 +103,27 @@ impl Server {
 		Ok(Some(output))
 	}
 
+	pub async fn try_get_object_local_batch(
+		&self,
+		ids: &[&tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
+		todo!()
+	}
+
+	pub async fn try_get_object_local_batch_sqlite(
+		&self,
+		ids: &[&tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
+		todo!()
+	}
+
+	pub async fn try_get_object_local_batch_postgres(
+		&self,
+		ids: &[&tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
+		todo!()
+	}
+
 	async fn try_get_object_remote(
 		&self,
 		id: &tg::object::Id,
@@ -112,6 +157,13 @@ impl Server {
 		});
 
 		Ok(Some(output))
+	}
+
+	pub async fn try_get_object_remote_batch(
+		&self,
+		ids: &[&tg::object::Id],
+	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
+		todo!()
 	}
 
 	async fn try_read_blob_from_cache(&self, id: &tg::blob::Id) -> tg::Result<Option<Bytes>> {

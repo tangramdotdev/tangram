@@ -23,6 +23,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 mod graph;
 
+const BATCH_SIZE: usize = 16;
 const CONCURRENCY: usize = 8;
 
 struct State {
@@ -218,29 +219,56 @@ impl Server {
 		}
 
 		// Export the items.
-		queue_receiver
-			.map(Ok)
-			.try_for_each_concurrent(CONCURRENCY, |item| {
-				let state = state.clone();
-				async move {
-					match item {
-						QueueItem::Process(ProcessQueueItem { parent, process }) => {
-							self.export_inner_process(&state, parent.as_ref(), &process)
-								.await?;
-						},
-						QueueItem::Object(ObjectQueueItem { parent, object }) => {
-							self.export_inner_object(
-								&state,
-								parent.as_ref().map(|either| either.as_ref()),
-								&object,
-							)
-							.await?;
-						},
+		if cfg!(feature = "foundationdb") {
+			queue_receiver
+				.ready_chunks(BATCH_SIZE)
+				.map(Ok)
+				.try_for_each_concurrent(CONCURRENCY, |batch| {
+					let mut processes = vec![];
+					let mut objects = vec![];
+					for item in batch {
+						match item {
+							QueueItem::Process(ProcessQueueItem { parent, process }) => {
+								processes.push((parent, process));
+							},
+							QueueItem::Object(ObjectQueueItem { parent, object }) => {
+								objects.push((parent, object));
+							},
+						}
 					}
-					Ok::<_, tg::Error>(())
-				}
-			})
-			.await?;
+					let state = state.clone();
+					async move {
+						self.export_inner_process_batch(&state, processes).await?;
+						self.export_inner_object_batch(&state, objects).await?;
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.await?;
+		} else {
+			queue_receiver
+				.map(Ok)
+				.try_for_each_concurrent(CONCURRENCY, |item| {
+					let state = state.clone();
+					async move {
+						match item {
+							QueueItem::Process(ProcessQueueItem { parent, process }) => {
+								self.export_inner_process(&state, parent.as_ref(), &process)
+									.await?;
+							},
+							QueueItem::Object(ObjectQueueItem { parent, object }) => {
+								self.export_inner_object(
+									&state,
+									parent.as_ref().map(|either| either.as_ref()),
+									&object,
+								)
+								.await?;
+							},
+						}
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.await?;
+		}
 
 		Ok(())
 	}
@@ -602,6 +630,115 @@ impl Server {
 		Ok(())
 	}
 
+	async fn export_inner_process_batch(
+		&self,
+		state: &State,
+		processes: Vec<(Option<tg::process::Id>, tg::process::Id)>,
+	) -> tg::Result<()> {
+		let mut processes_to_send = Vec::new();
+		// If the process has already been sent or is complete, then update the progress and return.
+		for (parent, process) in processes.into_iter() {
+			let (inserted, complete) = state.graph.lock().unwrap().update(
+				parent.map(Either::Left),
+				Either::Left(process.clone()),
+				false,
+			);
+			if complete {
+				let process_complete = self
+					.export_get_process_complete(&process)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the process complete"))?;
+				state
+					.event_sender
+					.send(Ok(tg::export::Event::Complete(
+						tg::export::Complete::Process(process_complete.clone()),
+					)))
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to send the process complete event")
+					})?;
+			}
+			if !inserted || complete {
+				continue;
+			}
+			processes_to_send.push(process);
+		}
+
+		// Get the processes.
+		let tg::process::get::Output { data, .. } = self
+			.get_process(process)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+
+		// Send the process.
+		let item = tg::export::Item::Process(tg::export::ProcessItem {
+			id: process.clone(),
+			data: data.clone(),
+		});
+		state
+			.event_sender
+			.send(Ok(tg::export::Event::Item(item)))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the process"))?;
+
+		// Get the children.
+		let children_arg = tg::process::children::get::Arg::default();
+		let children = self
+			.get_process_children(process, children_arg)
+			.await?
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.flat_map(|chunk| chunk.data)
+			.collect_vec();
+
+		// Enqueue the children.
+		if state.arg.recursive {
+			state
+				.queue_counter
+				.fetch_add(children.len(), std::sync::atomic::Ordering::SeqCst);
+			for child in children {
+				let item = QueueItem::Process(ProcessQueueItem {
+					parent: Some(process.clone()),
+					process: child.item,
+				});
+				state.queue_sender.force_send(item).unwrap();
+			}
+		}
+
+		// Enqueue the objects.
+		let mut objects: Vec<tg::object::Id> = Vec::new();
+		if state.arg.commands {
+			objects.push(data.command.clone().into());
+		}
+		if state.arg.outputs {
+			if let Some(output) = &data.output {
+				objects.extend(output.children());
+			}
+		}
+		state
+			.queue_counter
+			.fetch_add(objects.len(), std::sync::atomic::Ordering::SeqCst);
+		for child in objects {
+			let item = QueueItem::Object(ObjectQueueItem {
+				parent: Some(Either::Left(process.clone())),
+				object: child,
+			});
+			state.queue_sender.force_send(item).unwrap();
+		}
+
+		// Decrement the queue counter and close the queue if the counter hits zero.
+		if state
+			.queue_counter
+			.fetch_sub(processes.len(), std::sync::atomic::Ordering::SeqCst)
+			== processes.len()
+		{
+			state.queue_sender.close();
+		}
+
+		Ok(())
+	}
+
 	async fn export_inner_object(
 		&self,
 		state: &State,
@@ -683,6 +820,99 @@ impl Server {
 			.queue_counter
 			.fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
 			== 1
+		{
+			state.queue_sender.close();
+		}
+
+		Ok(())
+	}
+
+	async fn export_inner_object_batch(
+		&self,
+		state: &State,
+		objects: Vec<(
+			std::option::Option<
+				tangram_either::Either<tangram_client::process::Id, tangram_client::object::Id>,
+			>,
+			tangram_client::object::Id,
+		)>,
+	) -> tg::Result<()> {
+		let mut objects_to_send = Vec::new();
+		for (parent, object) in objects.iter() {
+			// If the object has already been sent or is complete, then update the progress and return.
+			let (inserted, complete) = state.graph.lock().unwrap().update(
+				parent.clone(),
+				Either::Right(object.clone()),
+				false,
+			);
+			if complete {
+				let object_complete =
+					self.export_get_object_complete(&object)
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								?object,
+								"failed to locate the object to check count and weight"
+							)
+						})?;
+				state
+					.event_sender
+					.send(Ok(tg::export::Event::Complete(
+						tg::export::Complete::Object(object_complete.clone()),
+					)))
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to send export object complete event")
+					})?;
+			}
+			if !inserted || complete {
+				// Skip this object.
+				continue;
+			}
+			objects_to_send.push((parent, object));
+		}
+
+		let object_ids = objects_to_send
+			.into_iter()
+			.map(|(_, object)| object)
+			.collect::<Vec<_>>();
+		// Get the objects.
+		let bytes = self.store.try_get_batch(object_ids.as_slice()).await?;
+		for (object, bytes) in object_ids.into_iter().zip(bytes) {
+			let bytes = bytes.expect("failed to get the object");
+			let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
+
+			// Send the object.
+			let item = tg::export::Item::Object(tg::export::ObjectItem {
+				id: object.clone(),
+				bytes: bytes.clone(),
+			});
+			state
+				.event_sender
+				.send(Ok(tg::export::Event::Item(item)))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to send"))?;
+
+			// Enqueue the children.
+			let children = data.children().collect::<Vec<_>>();
+			state
+				.queue_counter
+				.fetch_add(children.len(), std::sync::atomic::Ordering::SeqCst);
+			for child in children {
+				let item = QueueItem::Object(ObjectQueueItem {
+					parent: Some(Either::Right(object.clone())),
+					object: child,
+				});
+				state.queue_sender.force_send(item).unwrap();
+			}
+		}
+
+		// Decrement the queue counter and close the queue if the counter hits zero.
+		if state
+			.queue_counter
+			.fetch_sub(objects.len(), std::sync::atomic::Ordering::SeqCst)
+			== objects.len()
 		{
 			state.queue_sender.close();
 		}

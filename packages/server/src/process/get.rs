@@ -22,6 +22,30 @@ impl Server {
 		}
 	}
 
+	pub async fn try_get_process_batch(
+		&self,
+		ids: &[&tg::process::Id],
+	) -> tg::Result<Vec<(tg::process::Id, tg::process::get::Output)>> {
+		let mut local_results = self.try_get_process_local_batch(ids).await?;
+
+		let found_ids: std::collections::HashSet<_> =
+			local_results.iter().map(|(id, _)| id).collect();
+		let missing_ids: Vec<_> = ids
+			.iter()
+			.filter(|id| !found_ids.contains(*id))
+			.cloned()
+			.collect();
+
+		let mut remote_results = if !missing_ids.is_empty() {
+			self.try_get_process_remote_batch(&missing_ids).await?
+		} else {
+			vec![]
+		};
+
+		local_results.append(&mut remote_results);
+		Ok(local_results)
+	}
+
 	pub(crate) async fn try_get_process_local(
 		&self,
 		id: &tg::process::Id,
@@ -124,6 +148,27 @@ impl Server {
 		drop(connection);
 
 		Ok(output)
+	}
+
+	pub async fn try_get_process_local_batch(
+		&self,
+		ids: &[&tg::process::Id],
+	) -> tg::Result<Vec<(tg::process::Id, tg::process::get::Output)>> {
+		todo!()
+	}
+
+	pub(crate) async fn try_get_process_local_batch_sqlite(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		todo!()
+	}
+
+	pub(crate) async fn try_get_process_local_batch_postgres(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		todo!()
 	}
 
 	pub(crate) fn try_get_process_local_sync(
@@ -371,6 +416,13 @@ impl Server {
 		}
 
 		Ok(Some(output))
+	}
+
+	async fn try_get_process_remote_batch(
+		&self,
+		id: &[&tg::process::Id],
+	) -> tg::Result<Vec<(tg::process::Id, tg::process::get::Output)>> {
+		todo!()
 	}
 
 	pub(crate) async fn handle_get_process_request<H>(
