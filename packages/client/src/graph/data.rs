@@ -59,8 +59,9 @@ pub enum Edge<T: std::str::FromStr + std::fmt::Display> {
 	Object(T),
 }
 
-#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Ref {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub graph: Option<tg::graph::Id>,
 	pub node: usize,
 }
