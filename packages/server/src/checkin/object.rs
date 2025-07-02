@@ -197,9 +197,7 @@ impl Server {
 									})
 									.or_else(|| {
 										state.graph.nodes[*index].object.as_ref().map(|object| {
-											tg::graph::data::Edge::Object(
-												object.id.clone().try_into().unwrap(),
-											)
+											tg::graph::data::Edge::Object(object.id.clone())
 										})
 									})
 									.unwrap(),

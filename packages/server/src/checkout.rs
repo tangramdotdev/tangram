@@ -302,7 +302,7 @@ impl Server {
 			state.artifacts_path_created = true;
 		}
 		let path = artifacts_path.join(id.to_string());
-		self.checkout_inner(state, path, &edge)?;
+		self.checkout_inner(state, path, edge)?;
 		Ok(())
 	}
 
@@ -455,7 +455,7 @@ impl Server {
 				if edge.graph.is_none() {
 					edge.graph = graph.cloned();
 				}
-			};
+			}
 			let path = path.join(name);
 			self.checkout_inner(state, path, &edge)?;
 		}

@@ -232,7 +232,7 @@ impl Server {
 		let task = self
 			.cache_task_map
 			.get_or_spawn_blocking(id.clone(), move |_| {
-				server.cache_dependency_inner(&id, edge, visited, &progress)
+				server.cache_dependency_inner(&id, &edge, visited, &progress)
 			});
 		let future = task.wait().map(|result| match result {
 			Ok(result) => Ok(result),
@@ -260,7 +260,7 @@ impl Server {
 		let task = self
 			.cache_task_map
 			.get_or_spawn_blocking(id.clone(), move |_| {
-				server.cache_dependency_inner(&id, edge, visited, &progress)
+				server.cache_dependency_inner(&id, &edge, visited, &progress)
 			});
 		let future = task.wait().map(|result| match result {
 			Ok(result) => Ok(result),
@@ -276,7 +276,7 @@ impl Server {
 	fn cache_dependency_inner(
 		&self,
 		id: &tg::artifact::Id,
-		edge: tg::graph::data::Edge<tg::artifact::Id>,
+		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 		visited: im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
@@ -360,10 +360,10 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		edge: tg::graph::data::Edge<tg::artifact::Id>,
+		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::Result<()> {
 		// Get the artifact ID and graph node data.
-		let (id, node) = self.cache_get_node(state, &edge)?;
+		let (id, node) = self.cache_get_node(state, edge)?;
 
 		// Get the graph if it exists.
 		let graph = if let tg::graph::data::Edge::Graph(ref_) = &edge {
@@ -517,7 +517,7 @@ impl Server {
 			// Recurse.
 			let path = path.join(name);
 			state.depth += 1;
-			self.cache_inner(state, &path, edge)?;
+			self.cache_inner(state, &path, &edge)?;
 			state.depth -= 1;
 		}
 
