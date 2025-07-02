@@ -241,11 +241,12 @@ where
 
 	fn directory_object(&mut self, object: &tg::directory::Object) -> Result {
 		write!(self.writer, "tg.directory(")?;
-		self.start_map()?;
 		match object {
 			tg::directory::Object::Graph(graph) => {
+				self.start_map()?;
 				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
 				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+				self.finish_map()?;
 			},
 			tg::directory::Object::Node(node) => {
 				for (name, edge) in &node.entries {
@@ -253,14 +254,15 @@ where
 				}
 			},
 		}
-		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
 	}
 
-	fn directory_node(&mut self, directory: &tg::directory::object::Node) -> Result {
+	fn directory_node(&mut self, directory: &tg::directory::object::Node, tag: bool) -> Result {
 		self.start_map()?;
-		self.map_entry("kind", |s| s.string("directory"))?;
+		if tag {
+			self.map_entry("kind", |s| s.string("directory"))?;
+		}
 		self.map_entry("entries", |s| {
 			s.start_map()?;
 			for (name, edge) in &directory.entries {
@@ -290,24 +292,26 @@ where
 
 	fn file_object(&mut self, object: &tg::file::Object) -> Result {
 		write!(self.writer, "tg.file(")?;
-		self.start_map()?;
 		match object {
 			tg::file::Object::Graph(graph) => {
+				self.start_map()?;
 				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
 				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+				self.finish_map()?;
 			},
 			tg::file::Object::Node(node) => {
-				self.file_node(node)?;
+				self.file_node(node, false)?;
 			},
 		}
-		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
 	}
 
-	fn file_node(&mut self, file: &tg::file::object::Node) -> Result {
+	fn file_node(&mut self, file: &tg::file::object::Node, tag: bool) -> Result {
 		self.start_map()?;
-		self.map_entry("kind", |s| s.string("file"))?;
+		if tag {
+			self.map_entry("kind", |s| s.string("file"))?;
+		}
 		self.map_entry("contents", |s| s.blob(&file.contents))?;
 		if !file.dependencies.is_empty() {
 			self.map_entry("dependencies", |s| {
@@ -354,11 +358,12 @@ where
 
 	fn symlink_object(&mut self, object: &tg::symlink::Object) -> Result {
 		write!(self.writer, "tg.symlink(")?;
-		self.start_map()?;
 		match object {
 			tg::symlink::Object::Graph(graph) => {
+				self.start_map()?;
 				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
 				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+				self.finish_map()?;
 			},
 			tg::symlink::Object::Node(node) => {
 				if let Some(artifact) = &node.artifact {
@@ -369,14 +374,15 @@ where
 				}
 			},
 		}
-		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
 	}
 
-	fn symlink_node(&mut self, symlink: &tg::symlink::object::Node) -> Result {
+	fn symlink_node(&mut self, symlink: &tg::symlink::object::Node, tag: bool) -> Result {
 		self.start_map()?;
-		self.map_entry("kind", |s| s.string("symlink"))?;
+		if tag {
+			self.map_entry("kind", |s| s.string("symlink"))?;
+		}
 		if let Some(artifact) = &symlink.artifact {
 			self.map_entry("artifact", |s| s.graph_edge_artifact(artifact))?;
 		}
@@ -410,9 +416,9 @@ where
 				s.start_array()?;
 				for node in &object.nodes {
 					s.array_value(|s| match node {
-						tg::graph::Node::Directory(directory) => s.directory_node(directory),
-						tg::graph::Node::File(file) => s.file_node(file),
-						tg::graph::Node::Symlink(symlink) => s.symlink_node(symlink),
+						tg::graph::Node::Directory(directory) => s.directory_node(directory, true),
+						tg::graph::Node::File(file) => s.file_node(file, true),
+						tg::graph::Node::Symlink(symlink) => s.symlink_node(symlink, true),
 					})?;
 				}
 				s.finish_array()?;
