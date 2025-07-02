@@ -27,6 +27,7 @@ pub struct Directory {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct File {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
