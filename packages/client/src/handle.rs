@@ -146,11 +146,6 @@ pub trait Object {
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> + Send;
 
-	fn try_get_object_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> impl Future<Output = tg::Result<tg::object::get::BatchOutput>> + Send;
-
 	fn put_object(
 		&self,
 		id: &tg::object::Id,
@@ -174,11 +169,6 @@ pub trait Process {
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> + Send;
-
-	fn try_get_process_batch(
-		&self,
-		ids: &[tg::process::Id],
-	) -> impl Future<Output = tg::Result<tg::process::get::BatchOutput>> + Send;
 
 	fn put_process(
 		&self,

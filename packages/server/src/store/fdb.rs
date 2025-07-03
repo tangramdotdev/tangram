@@ -78,7 +78,7 @@ impl Fdb {
 							if empty {
 								return Ok::<_, fdb::FdbBindingError>(None);
 							}
-							return Ok(Some(bytes.into()));
+							Ok(Some(bytes.into()))
 						}
 					})
 					.collect::<FuturesOrdered<_>>()

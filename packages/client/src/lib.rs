@@ -822,13 +822,6 @@ impl tg::handle::Object for Client {
 		self.try_get_object(id)
 	}
 
-	fn try_get_object_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> impl Future<Output = tg::Result<tg::object::get::BatchOutput>> {
-		self.try_get_object_batch(ids)
-	}
-
 	fn put_object(
 		&self,
 		id: &tg::object::Id,
@@ -879,13 +872,6 @@ impl tg::handle::Process for Client {
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
 		self.try_get_process(id)
-	}
-
-	fn try_get_process_batch(
-		&self,
-		ids: &[tg::process::Id],
-	) -> impl Future<Output = tg::Result<tg::process::get::BatchOutput>> {
-		self.try_get_process_batch(ids)
 	}
 
 	fn put_process(

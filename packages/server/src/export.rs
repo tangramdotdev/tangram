@@ -637,7 +637,7 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut processes_to_send = Vec::new();
 		// If the process has already been sent or is complete, then update the progress and return.
-		for (parent, process) in processes.iter() {
+		for (parent, process) in &processes {
 			let (inserted, complete) = state.graph.lock().unwrap().update(
 				parent.clone().map(Either::Left),
 				Either::Left(process.clone()),
@@ -645,7 +645,7 @@ impl Server {
 			);
 			if complete {
 				let process_complete = self
-					.export_get_process_complete(&process)
+					.export_get_process_complete(process)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the process complete"))?;
 				state
@@ -843,7 +843,7 @@ impl Server {
 			let mut to_send = Vec::new();
 			let mut complete_objects = Vec::new();
 
-			for (parent, object) in objects.iter() {
+			for (parent, object) in &objects {
 				let (inserted, complete) =
 					graph.update(parent.clone(), Either::Right(object.clone()), false);
 
@@ -888,7 +888,7 @@ impl Server {
 
 		let object_batch_task = async {
 			let batched_objects = self
-				.get_object_batch(&objects_to_send)
+				.try_get_object_batch(&objects_to_send)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 

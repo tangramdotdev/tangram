@@ -42,7 +42,7 @@ impl Server {
 		let mut remote_results = missing_ids
 			.iter()
 			.map(|id| async move {
-				let object = self.try_get_object_remote(&id).await?.map(|object| {
+				let object = self.try_get_object_remote(id).await?.map(|object| {
 					tg::object::get::BatchOutputItem {
 						id: id.clone(),
 						bytes: object.bytes,
@@ -123,17 +123,14 @@ impl Server {
 		let batch = self.store.try_get_batch(ids).await?;
 
 		let result = ids
-			.into_iter()
+			.iter()
 			.zip(batch)
-			.map(|(id, bytes)| {
-				bytes.and_then(|bytes| {
-					Some(tg::object::get::BatchOutputItem {
-						id: id.clone(),
-						bytes,
-					})
+			.filter_map(|(id, bytes)| {
+				bytes.map(|bytes| tg::object::get::BatchOutputItem {
+					id: id.clone(),
+					bytes,
 				})
 			})
-			.flatten()
 			.collect();
 
 		Ok(result)

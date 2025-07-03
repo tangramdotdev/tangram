@@ -309,16 +309,6 @@ where
 		}
 	}
 
-	fn try_get_object_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> impl Future<Output = tg::Result<tg::object::get::BatchOutput>> {
-		match self {
-			Either::Left(s) => s.try_get_object_batch(ids).left_future(),
-			Either::Right(s) => s.try_get_object_batch(ids).right_future(),
-		}
-	}
-
 	fn put_object(
 		&self,
 		id: &tg::object::Id,
@@ -364,16 +354,6 @@ where
 		match self {
 			Either::Left(s) => s.try_get_process(id).left_future(),
 			Either::Right(s) => s.try_get_process(id).right_future(),
-		}
-	}
-
-	fn try_get_process_batch(
-		&self,
-		ids: &[tg::process::Id],
-	) -> impl Future<Output = tg::Result<tg::process::get::BatchOutput>> {
-		match self {
-			Either::Left(s) => s.try_get_process_batch(ids).left_future(),
-			Either::Right(s) => s.try_get_process_batch(ids).right_future(),
 		}
 	}
 

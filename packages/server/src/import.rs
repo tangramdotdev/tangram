@@ -245,7 +245,7 @@ impl Server {
 				return false;
 			},
 		}
-		return true;
+		true
 	}
 
 	async fn import_complete_task(
@@ -266,7 +266,7 @@ impl Server {
 					async move {
 						server
 							.import_complete_task_items(batch, &event_sender)
-							.await
+							.await;
 					}
 				}
 			})
@@ -560,7 +560,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
-			.map(|row| {
+			.filter_map(|row| {
 				let id = row.get::<_, String>(0).parse().unwrap();
 				let complete = row.get::<_, i64>(1) == 1;
 				if complete {
@@ -569,7 +569,6 @@ impl Server {
 					None
 				}
 			})
-			.flatten()
 			.collect();
 
 		Ok(rows)

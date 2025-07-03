@@ -5,6 +5,7 @@ use futures::{
 };
 use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
+use num::ToPrimitive;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
@@ -43,7 +44,7 @@ impl Server {
 		let remote_results = missing_ids
 			.iter()
 			.map(|id| async move {
-				let process = self.try_get_process_remote(&id).await?.map(|process| {
+				let process = self.try_get_process_remote(id).await?.map(|process| {
 					tg::process::get::BatchOutputItem {
 						id: id.clone(),
 						data: process.data,
@@ -185,12 +186,12 @@ impl Server {
 		ids: &[tg::process::Id],
 	) -> tg::Result<tg::process::get::BatchOutput> {
 		let rows = ids
-			.into_iter()
+			.iter()
 			.map(|id| async move {
 				let output = self
 					.try_get_process_local(id)
 					.await?
-					.map(|output| ((id.clone(), output)));
+					.map(|output| (id.clone(), output));
 				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -266,8 +267,10 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				let id = row.get::<_, String>(0).parse()?;
-				let actual_checksum = row.get::<_, Option<String>>(1);
-				let actual_checksum = actual_checksum.map(|s| s.parse()).transpose()?;
+				let actual_checksum = row
+					.get::<_, Option<String>>(1)
+					.map(|s| s.parse())
+					.transpose()?;
 				let cacheable = row.get::<_, i64>(2) != 0;
 				let command = row.get::<_, String>(3).parse()?;
 				let created_at = row.get::<_, i64>(4);
@@ -278,7 +281,7 @@ impl Server {
 					.map(|s| serde_json::from_str(&s))
 					.transpose()
 					.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
-				let exit = row.get::<_, Option<u32>>(8).map(|v| v as u8);
+				let exit = row.get::<_, Option<i64>>(8).map(|v| v.to_u8().unwrap());
 				let expected_checksum = row
 					.get::<_, Option<String>>(9)
 					.map(|s| s.parse())
