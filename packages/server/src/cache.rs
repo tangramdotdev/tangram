@@ -363,25 +363,18 @@ impl Server {
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::Result<()> {
 		// Get the artifact ID and graph node data.
-		let (id, node) = self.cache_get_node(state, edge)?;
-
-		// Get the graph if it exists.
-		let graph = if let tg::graph::data::Edge::Graph(ref_) = &edge {
-			ref_.graph.as_ref()
-		} else {
-			None
-		};
+		let (id, node, graph) = self.cache_get_node(state, edge)?;
 
 		// Cache the artifact.
 		match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.cache_inner_directory_node(state, path, &id, graph, &node)?;
+				self.cache_inner_directory_node(state, path, &id, graph.as_ref(), &node)?;
 			},
 			tg::graph::data::Node::File(node) => {
-				self.cache_inner_file_node(state, path, &id, graph, &node)?;
+				self.cache_inner_file_node(state, path, &id, graph.as_ref(), &node)?;
 			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.cache_inner_symlink_node(state, path, &id, graph, &node)?;
+				self.cache_inner_symlink_node(state, path, &id, graph.as_ref(), &node)?;
 			},
 		}
 
@@ -400,7 +393,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-	) -> tg::Result<(tg::artifact::Id, tg::graph::data::Node)> {
+	) -> tg::Result<(tg::artifact::Id, tg::graph::data::Node, Option<tg::graph::Id>)> {
 		match edge {
 			// If this is a ref in a graph, load the graph and find it.
 			tg::graph::data::Edge::Graph(edge) => {
@@ -433,7 +426,7 @@ impl Server {
 				};
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
-				Ok((id, node))
+				Ok((id, node, Some(graph.clone())))
 			},
 			tg::graph::data::Edge::Object(id) => {
 				// Otherwise, lookup the artifact data by ID.
@@ -455,18 +448,18 @@ impl Server {
 					| tg::artifact::data::Artifact::File(tg::file::Data::Graph(ref_))
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Graph(ref_)) => {
 						// Ignore the computed ID here so the optimizer elides the computation internally.
-						let (_, node) =
+						let (_, node, graph) =
 							self.cache_get_node(state, &tg::graph::data::Edge::Graph(ref_))?;
-						Ok((id.clone(), node))
+						Ok((id.clone(), node, graph))
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
-						Ok((id.clone(), tg::graph::data::Node::Directory(node)))
+						Ok((id.clone(), tg::graph::data::Node::Directory(node), None))
 					},
 					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
-						Ok((id.clone(), tg::graph::data::Node::File(node)))
+						Ok((id.clone(), tg::graph::data::Node::File(node), None))
 					},
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
-						Ok((id.clone(), tg::graph::data::Node::Symlink(node)))
+						Ok((id.clone(), tg::graph::data::Node::Symlink(node), None))
 					},
 				}
 			},
@@ -557,7 +550,7 @@ impl Server {
 			}
 
 			// Get the underlying node ID.
-			let (id, _) = self.cache_get_node(state, &edge)?;
+			let (id, _, _) = self.cache_get_node(state, &edge)?;
 
 			// Recurse.
 			if id != state.artifact {
@@ -678,7 +671,7 @@ impl Server {
 			}
 
 			// Get the id.
-			let (id, _) = self.cache_get_node(state, &edge)?;
+			let (id, _, _) = self.cache_get_node(state, &edge)?;
 
 			if id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
