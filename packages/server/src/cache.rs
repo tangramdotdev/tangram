@@ -393,7 +393,11 @@ impl Server {
 		&self,
 		state: &mut State,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-	) -> tg::Result<(tg::artifact::Id, tg::graph::data::Node, Option<tg::graph::Id>)> {
+	) -> tg::Result<(
+		tg::artifact::Id,
+		tg::graph::data::Node,
+		Option<tg::graph::Id>,
+	)> {
 		match edge {
 			// If this is a ref in a graph, load the graph and find it.
 			tg::graph::data::Edge::Graph(edge) => {
