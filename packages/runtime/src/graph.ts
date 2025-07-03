@@ -468,13 +468,15 @@ export namespace Graph {
 			switch (node.kind) {
 				case "directory": {
 					return globalThis.Object.entries(node.entries)
-						.filter(
-							([_, edge]) =>
-								(typeof edge === "object" &&
-									"node" in edge &&
-									edge.graph !== undefined) ||
-								true,
-						)
+						.filter(([_, edge]) => {
+							if (typeof edge !== "object") {
+								return false;
+							}
+							if ("node" in edge) {
+								return edge.graph !== undefined;
+							}
+							return true;
+						})
 						.map(([_, edge]) => {
 							tg.assert(typeof edge === "object", "expected an object");
 							if ("node" in edge) {
@@ -489,13 +491,15 @@ export namespace Graph {
 					return [
 						node.contents,
 						...globalThis.Object.entries(node.dependencies)
-							.filter(
-								([_, referent]) =>
-									(typeof referent.item === "object" &&
-										"node" in referent.item &&
-										referent.item.graph !== undefined) ||
-									true,
-							)
+							.filter(([_, referent]) => {
+								if (typeof referent.item !== "object") {
+									return false;
+								}
+								if ("node" in referent.item) {
+									return referent.item.graph !== undefined;
+								}
+								return true;
+							})
 							.map(([_, referent]) => {
 								tg.assert(
 									typeof referent.item === "object",
@@ -512,13 +516,14 @@ export namespace Graph {
 				}
 				case "symlink": {
 					if ("artifact" in node && node.artifact !== undefined) {
-						tg.assert(typeof node.artifact === "object", "expected an object");
-						if ("node" in node.artifact) {
-							if (node.artifact.graph) {
-								return [node.artifact.graph];
+						if (typeof node.artifact === "object") {
+							if ("node" in node.artifact) {
+								if (node.artifact.graph !== undefined) {
+									return [node.artifact.graph];
+								}
+							} else {
+								return [node.artifact];
 							}
-						} else {
-							return [node.artifact];
 						}
 					}
 					return [];

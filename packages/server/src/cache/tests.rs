@@ -359,7 +359,7 @@ async fn directory_with_symlink_cycle() {
 					"link".to_owned(),
 					tg::graph::object::Edge::Graph(tg::graph::object::Ref {
 						graph: None,
-						node: 0,
+						node: 1,
 					}),
 				)]
 				.into(),

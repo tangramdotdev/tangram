@@ -84,7 +84,7 @@ impl Server {
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 		is_path_dependency: bool,
 	) -> tg::Result<usize> {
-		let (id, node) = match edge {
+		let (id, node, graph) = match edge {
 			tg::graph::data::Edge::Graph(ref_) => {
 				// Compute the ID.
 				let graph = ref_
@@ -117,7 +117,7 @@ impl Server {
 					return Ok(index);
 				}
 
-				(id, node.clone())
+				(id, node.clone(), Some(graph.clone()))
 			},
 			tg::graph::data::Edge::Object(id) => {
 				// Check if visited.
@@ -149,32 +149,33 @@ impl Server {
 						);
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
-						(id.clone(), tg::graph::data::Node::Directory(node))
+						(id.clone(), tg::graph::data::Node::Directory(node), None)
 					},
 					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
-						(id.clone(), tg::graph::data::Node::File(node))
+						(id.clone(), tg::graph::data::Node::File(node), None)
 					},
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
-						(id.clone(), tg::graph::data::Node::Symlink(node))
+						(id.clone(), tg::graph::data::Node::Symlink(node), None)
 					},
 				}
 			},
 		};
 
 		let index = state.nodes.len();
+		state.visited.insert(id.clone(), index);
 		state.nodes.push(None);
 		state
 			.objects
 			.push((!is_path_dependency).then(|| id.clone().into()));
 		let lockfile_node = match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.create_lockfile_node_for_directory_node(state, &node, is_path_dependency)?
+				self.create_lockfile_node_for_directory_node(state, &node, graph.as_ref(), is_path_dependency)?
 			},
 			tg::graph::data::Node::File(node) => {
-				self.create_lockfile_node_for_file_node(state, &node, is_path_dependency)?
+				self.create_lockfile_node_for_file_node(state, &node,graph.as_ref(),  is_path_dependency)?
 			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.create_lockfile_node_for_symlink_node(state, &node, is_path_dependency)?
+				self.create_lockfile_node_for_symlink_node(state, &node,graph.as_ref(),  is_path_dependency)?
 			},
 		};
 		state.nodes[index].replace(lockfile_node);
@@ -206,14 +207,21 @@ impl Server {
 		&self,
 		state: &mut State,
 		node: &tg::graph::data::Directory,
+		graph: Option<&tg::graph::Id>,
 		is_path_dependency: bool,
 	) -> tg::Result<tg::lockfile::Node> {
 		let entries = node
 			.entries
 			.iter()
 			.map(|(name, edge)| {
+				let mut edge = edge.clone();
+				if let tg::graph::data::Edge::Graph(ref_) = &mut edge {
+					if ref_.graph.is_none() {
+						ref_.graph = graph.cloned();
+					}
+				}
 				let node =
-					self.create_lockfile_for_artifact_inner(state, edge, is_path_dependency)?;
+					self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)?;
 				Ok::<_, tg::Error>((name.clone(), Either::Left(node)))
 			})
 			.try_collect()?;
@@ -226,6 +234,7 @@ impl Server {
 		&self,
 		state: &mut State,
 		node: &tg::graph::data::File,
+		graph: Option<&tg::graph::Id>,
 		is_path_dependency: bool,
 	) -> tg::Result<tg::lockfile::Node> {
 		let dependencies = node
@@ -233,28 +242,31 @@ impl Server {
 			.iter()
 			.map(|(reference, referent)| {
 				// Remap the edge.
-				let edge = match &referent.item {
-					tg::graph::data::Edge::Graph(ref_) => {
-						tg::graph::data::Edge::Graph(ref_.clone())
+				let edge = match referent.item.clone() {
+					tg::graph::data::Edge::Graph(mut ref_) => {
+						if ref_.graph.is_none() {
+							ref_.graph = graph.cloned();
+						}
+						tg::graph::data::Edge::Graph(ref_)
 					},
 					tg::graph::data::Edge::Object(tg::object::Id::Directory(id))
 						if state.checkout_dependencies =>
 					{
-						tg::graph::data::Edge::Object(id.clone().into())
+						tg::graph::data::Edge::Object(id.into())
 					},
 					tg::graph::data::Edge::Object(tg::object::Id::File(id))
 						if state.checkout_dependencies =>
 					{
-						tg::graph::data::Edge::Object(id.clone().into())
+						tg::graph::data::Edge::Object(id.into())
 					},
 					tg::graph::data::Edge::Object(tg::object::Id::Symlink(id))
 						if state.checkout_dependencies =>
 					{
-						tg::graph::data::Edge::Object(id.clone().into())
+						tg::graph::data::Edge::Object(id.into())
 					},
 					tg::graph::data::Edge::Object(id) => {
 						// Short circuit.
-						let referent = referent.clone().map(|_| Either::Right(id.clone()));
+						let referent = referent.clone().map(|_| Either::Right(id));
 						return Ok((reference.clone(), referent));
 					},
 				};
@@ -278,12 +290,21 @@ impl Server {
 		&self,
 		state: &mut State,
 		node: &tg::graph::data::Symlink,
+		graph: Option<&tg::graph::Id>,
 		is_path_dependency: bool,
 	) -> tg::Result<tg::lockfile::Node> {
 		let artifact = node
 			.artifact
 			.as_ref()
-			.map(|edge| self.create_lockfile_for_artifact_inner(state, edge, is_path_dependency))
+			.map(|edge| {
+				let mut edge = edge.clone();
+				if let tg::graph::data::Edge::Graph(ref_) = &mut edge {
+					if ref_.graph.is_none() {
+						ref_.graph = graph.cloned();
+					}
+				}
+				self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)
+			})
 			.transpose()?
 			.map(Either::Left);
 		Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
