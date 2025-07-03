@@ -126,15 +126,22 @@ impl Server {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == data.graph.clone())
+					.find(|object| object.id == data.graph.clone().unwrap())
 					.unwrap()
 					.data;
 				let file = graph.nodes[data.node].clone().try_unwrap_file().unwrap();
-				let contents = file.contents;
+				let contents = file
+					.contents
+					.ok_or_else(|| tg::error!("missing contents"))?;
 				let executable = file.executable;
 				(contents, executable)
 			},
-			tg::file::Data::Node(data) => (data.contents.clone(), data.executable),
+			tg::file::Data::Node(data) => (
+				data.contents
+					.clone()
+					.ok_or_else(|| tg::error!("missing contents"))?,
+				data.executable,
+			),
 		};
 		let dependencies = state.graph.nodes[index]
 			.variant
@@ -204,7 +211,7 @@ impl Server {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == data.graph.clone())
+					.find(|object| object.id == data.graph.clone().unwrap())
 					.unwrap()
 					.data;
 				let symlink = graph.nodes[data.node].clone().try_unwrap_symlink().unwrap();

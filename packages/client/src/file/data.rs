@@ -1,32 +1,16 @@
-use crate::{self as tg, util::serde::is_false};
+use crate::tg;
 use bytes::Bytes;
 use itertools::Itertools as _;
-use std::collections::BTreeMap;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum File {
-	Graph(Graph),
+	Graph(tg::graph::data::Ref),
 	Node(Node),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Graph {
-	pub graph: tg::graph::Id,
-	pub node: usize,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Node {
-	pub contents: tg::blob::Id,
-
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::object::Id>>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub executable: bool,
-}
+pub type Node = tg::graph::data::File;
 
 impl File {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
@@ -42,18 +26,21 @@ impl File {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone())
+			Self::Graph(graph) => std::iter::once(graph.graph.clone().unwrap())
 				.map_into()
 				.left_iterator(),
 			Self::Node(node) => {
-				let contents = node.contents.clone().into();
-				let dependencies = node
-					.dependencies
-					.values()
-					.map(|dependency| dependency.item.clone());
-				std::iter::once(contents)
-					.chain(dependencies)
-					.right_iterator()
+				let contents = node.contents.clone().map(tg::object::Id::from);
+				let dependencies =
+					node.dependencies
+						.values()
+						.filter_map(|dependency| match &dependency.item {
+							tg::graph::data::Edge::Graph(edge) => {
+								edge.graph.clone().map(tg::object::Id::from)
+							},
+							tg::graph::data::Edge::Object(edge) => Some(edge.clone()),
+						});
+				contents.into_iter().chain(dependencies).right_iterator()
 			},
 		}
 	}

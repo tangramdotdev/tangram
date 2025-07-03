@@ -106,11 +106,15 @@ async fn cyclic_artifact_symlink() {
 		        "nodes": [
 		          {
 		            "kind": "symlink",
-		            "artifact": 1,
+		            "artifact": {
+		              "node": 1,
+		            },
 		          },
 		          {
 		            "kind": "symlink",
-		            "artifact": 0,
+		            "artifact": {
+		              "node": 0,
+		            },
 		          },
 		        ],
 		      }),

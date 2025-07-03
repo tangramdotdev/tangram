@@ -2,7 +2,6 @@ use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_either::Either;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
@@ -26,20 +25,39 @@ pub enum Kind {
 
 #[derive(Clone, Debug)]
 pub struct Directory {
-	pub entries: BTreeMap<String, Either<usize, tg::Artifact>>,
+	pub entries: BTreeMap<String, Edge<tg::Artifact>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct File {
 	pub contents: tg::Blob,
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Either<usize, tg::Object>>>,
+	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Edge<tg::Object>>>,
 	pub executable: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct Symlink {
-	pub artifact: Option<Either<usize, tg::Artifact>>,
+	pub artifact: Option<Edge<tg::Artifact>>,
 	pub path: Option<PathBuf>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+pub enum Edge<T> {
+	Graph(Ref),
+	Object(T),
+}
+
+#[derive(Clone, Debug)]
+pub struct Ref {
+	pub graph: Option<tg::Graph>,
+	pub node: usize,
 }
 
 impl Graph {
@@ -49,9 +67,16 @@ impl Graph {
 		for node in &self.nodes {
 			match node {
 				Node::Directory(tg::graph::object::Directory { entries }) => {
-					for either in entries.values() {
-						if let Either::Right(id) = either {
-							children.push(id.clone().into());
+					for edge in entries.values() {
+						match edge {
+							Edge::Graph(edge) => {
+								if let Some(graph) = &edge.graph {
+									children.push(graph.clone().into());
+								}
+							},
+							Edge::Object(object) => {
+								children.push(object.clone().into());
+							},
 						}
 					}
 				},
@@ -62,15 +87,28 @@ impl Graph {
 				}) => {
 					children.push(contents.clone().into());
 					for referent in dependencies.values() {
-						if let Either::Right(id) = &referent.item {
-							children.push(id.clone());
+						match &referent.item {
+							Edge::Graph(edge) => {
+								if let Some(graph) = &edge.graph {
+									children.push(graph.clone().into());
+								}
+							},
+							Edge::Object(object) => {
+								children.push(object.clone());
+							},
 						}
 					}
 				},
-				Node::Symlink(symlink) => {
-					if let Some(Either::Right(artifact)) = &symlink.artifact {
-						children.push(artifact.clone().into());
-					}
+				Node::Symlink(symlink) => match &symlink.artifact {
+					Some(Edge::Graph(edge)) => {
+						if let Some(graph) = &edge.graph {
+							children.push(graph.clone().into());
+						}
+					},
+					Some(Edge::Object(object)) => {
+						children.push(object.clone().into());
+					},
+					None => (),
 				},
 			}
 		}
@@ -91,12 +129,17 @@ impl Node {
 			Self::Directory(tg::graph::object::Directory { entries }) => {
 				let entries = entries
 					.iter()
-					.map(|(name, either)| {
-						let artifact = match either {
-							Either::Left(index) => Either::Left(*index),
-							Either::Right(artifact) => Either::Right(artifact.id()),
+					.map(|(name, edge)| {
+						let edge = match edge {
+							Edge::Graph(edge) => {
+								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
+									graph: edge.graph.as_ref().map(tg::Graph::id),
+									node: edge.node,
+								})
+							},
+							Edge::Object(edge) => tg::graph::data::Edge::Object(edge.id()),
 						};
-						(name.clone(), artifact)
+						(name.clone(), edge)
 					})
 					.collect();
 				tg::graph::data::Node::Directory(tg::graph::data::Directory { entries })
@@ -112,8 +155,13 @@ impl Node {
 					.iter()
 					.map(|(reference, referent)| {
 						let item = match &referent.item {
-							Either::Left(index) => Either::Left(*index),
-							Either::Right(object) => Either::Right(object.id()),
+							Edge::Graph(edge) => {
+								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
+									graph: edge.graph.as_ref().map(tg::Graph::id),
+									node: edge.node,
+								})
+							},
+							Edge::Object(edge) => tg::graph::data::Edge::Object(edge.id()),
 						};
 						let referent = tg::Referent {
 							item,
@@ -125,7 +173,7 @@ impl Node {
 					.collect();
 				let executable = *executable;
 				tg::graph::data::Node::File(tg::graph::data::File {
-					contents,
+					contents: Some(contents),
 					dependencies,
 					executable,
 				})
@@ -133,8 +181,11 @@ impl Node {
 
 			Self::Symlink(symlink) => {
 				let artifact = symlink.artifact.as_ref().map(|artifact| match artifact {
-					Either::Left(index) => Either::Left(*index),
-					Either::Right(artifact) => Either::Right(artifact.id()),
+					Edge::Graph(edge) => tg::graph::data::Edge::Graph(tg::graph::data::Ref {
+						graph: edge.graph.as_ref().map(tg::Graph::id),
+						node: edge.node,
+					}),
+					Edge::Object(edge) => tg::graph::data::Edge::Object(edge.id()),
 				});
 				let path = symlink.path.clone();
 				tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path })
@@ -173,7 +224,10 @@ impl TryFrom<tg::graph::data::Node> for Node {
 			tg::graph::data::Node::Directory(tg::graph::data::Directory { entries }) => {
 				let entries = entries
 					.into_iter()
-					.map(|(name, either)| (name, either.map_right(tg::Artifact::with_id)))
+					.map(|(name, edge)| {
+						let edge = edge.into();
+						(name, edge)
+					})
 					.collect();
 				let directory = tg::graph::object::Directory { entries };
 				let node = Node::Directory(directory);
@@ -184,11 +238,12 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				dependencies,
 				executable,
 			}) => {
-				let contents = tg::Blob::with_id(contents);
+				let contents =
+					tg::Blob::with_id(contents.ok_or_else(|| tg::error!("missing contents"))?);
 				let dependencies = dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						let referent = referent.map(|item| item.map_right(tg::Object::with_id));
+						let referent = referent.map(Edge::from);
 						(reference, referent)
 					})
 					.collect();
@@ -201,7 +256,7 @@ impl TryFrom<tg::graph::data::Node> for Node {
 				Ok(node)
 			},
 			tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path }) => {
-				let artifact = artifact.map(|artifact| artifact.map_right(tg::Artifact::with_id));
+				let artifact = artifact.map(Edge::from);
 				let symlink = tg::graph::object::Symlink { artifact, path };
 				let node = Node::Symlink(symlink);
 				Ok(node)
@@ -230,5 +285,42 @@ impl std::str::FromStr for Kind {
 			"symlink" => Ok(Self::Symlink),
 			_ => Err(tg::error!(%kind = s, "invalid kind")),
 		}
+	}
+}
+
+impl From<tg::graph::data::Edge<tg::object::Id>> for Edge<tg::Object> {
+	fn from(value: tg::graph::data::Edge<tg::object::Id>) -> Self {
+		match value {
+			tg::graph::data::Edge::Graph(data) => Self::Graph(Ref {
+				graph: data.graph.map(tg::Graph::with_id),
+				node: data.node,
+			}),
+			tg::graph::data::Edge::Object(data) => Self::Object(tg::Object::with_id(data)),
+		}
+	}
+}
+
+impl From<tg::graph::data::Edge<tg::artifact::Id>> for Edge<tg::Artifact> {
+	fn from(value: tg::graph::data::Edge<tg::artifact::Id>) -> Self {
+		match value {
+			tg::graph::data::Edge::Graph(data) => Self::Graph(Ref {
+				graph: data.graph.map(tg::Graph::with_id),
+				node: data.node,
+			}),
+			tg::graph::data::Edge::Object(data) => Self::Object(tg::Artifact::with_id(data)),
+		}
+	}
+}
+
+impl Ref {
+	pub async fn resolve<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
+	where
+		H: tg::Handle,
+	{
+		self.graph
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing graph"))?
+			.get(handle, self.node)
+			.await
 	}
 }

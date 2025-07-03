@@ -1,39 +1,35 @@
 use super::Data;
 use crate as tg;
 use itertools::Itertools as _;
-use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub enum File {
-	Graph(Graph),
+	Graph(tg::graph::object::Ref),
 	Node(Node),
 }
 
-#[derive(Clone, Debug)]
-pub struct Graph {
-	pub graph: tg::Graph,
-	pub node: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct Node {
-	pub contents: tg::Blob,
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::Object>>,
-	pub executable: bool,
-}
+pub type Node = tg::graph::object::File;
 
 impl File {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone()).map_into().collect(),
+			Self::Graph(graph) => std::iter::once(graph.graph.clone().unwrap())
+				.map_into()
+				.collect(),
 			Self::Node(node) => {
-				let contents = node.contents.clone().into();
-				let dependencies = node
-					.dependencies
-					.values()
-					.map(|dependency| dependency.item.clone());
-				std::iter::once(contents).chain(dependencies).collect()
+				let dependencies =
+					node.dependencies
+						.values()
+						.filter_map(|dependency| match &dependency.item {
+							tg::graph::object::Edge::Graph(edge) => {
+								edge.graph.clone().map(tg::Object::from)
+							},
+							tg::graph::object::Edge::Object(edge) => Some(edge.clone()),
+						});
+				std::iter::once(node.contents.clone().into())
+					.chain(dependencies)
+					.collect()
 			},
 		}
 	}
@@ -42,19 +38,21 @@ impl File {
 	pub fn to_data(&self) -> Data {
 		match self {
 			Self::Graph(graph) => {
-				let id = graph.graph.id();
+				let id = graph.graph.as_ref().unwrap().id();
 				let node = graph.node;
-				Data::Graph(tg::file::data::Graph { graph: id, node })
+				Data::Graph(tg::graph::data::Ref {
+					graph: Some(id),
+					node,
+				})
 			},
 			Self::Node(node) => {
-				let contents = node.contents.id();
+				let contents = Some(node.contents.id());
 				let dependencies = node
 					.dependencies
 					.iter()
 					.map(|(reference, referent)| {
-						let object = referent.item.id();
 						let dependency = tg::Referent {
-							item: object,
+							item: referent.item.clone().into(),
 							path: referent.path.clone(),
 							tag: referent.tag.clone(),
 						};
@@ -78,17 +76,23 @@ impl TryFrom<Data> for File {
 	fn try_from(data: Data) -> Result<Self, Self::Error> {
 		match data {
 			Data::Graph(data) => {
-				let graph = tg::Graph::with_id(data.graph);
+				let graph = tg::Graph::with_id(data.graph.clone().unwrap());
 				let node = data.node;
-				Ok(Self::Graph(Graph { graph, node }))
+				Ok(Self::Graph(tg::graph::object::Ref {
+					graph: Some(graph),
+					node,
+				}))
 			},
 			Data::Node(data) => {
-				let contents = tg::Blob::with_id(data.contents);
+				let contents = data
+					.contents
+					.map(tg::Blob::with_id)
+					.ok_or_else(|| tg::error!("missing contents"))?;
 				let dependencies = data
 					.dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						let referent = referent.map(tg::Object::with_id);
+						let referent = referent.map(tg::graph::object::Edge::from);
 						(reference, referent)
 					})
 					.collect();
