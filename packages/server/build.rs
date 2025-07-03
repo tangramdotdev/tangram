@@ -2,11 +2,24 @@ use std::path::{Path, PathBuf};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
+	eprintln!("HI");
 
-	// Initialize V8.
+	// Initialize V8 first with the original environment.
 	let platform = v8::new_default_platform(0, false).make_shared();
 	v8::V8::initialize_platform(platform);
 	v8::V8::initialize();
+
+	// Handle cross-compilation by swapping RUSTY_V8_ARCHIVE if needed.
+	let original_rusty_v8_archive = std::env::var("RUSTY_V8_ARCHIVE").ok();
+	let host_archive = std::env::var("RUSTY_V8_ARCHIVE_HOST").ok();
+	let needs_swap = if let Some(ref host_archive_value) = host_archive {
+		unsafe {
+			std::env::set_var("RUSTY_V8_ARCHIVE", host_archive_value);
+		}
+		true
+	} else {
+		false
+	};
 
 	// Get the out dir path.
 	let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
@@ -141,6 +154,16 @@ fn main() {
 	let path = out_dir_path.join("runtime.heapsnapshot");
 	let snapshot = create_snapshot(out_dir_path.join("runtime.js"));
 	std::fs::write(path, snapshot).unwrap();
+
+	// Reset RUSTY_V8_ARCHIVE to the original value if we swapped it at the beginning.
+	if needs_swap {
+		unsafe {
+			match original_rusty_v8_archive {
+				Some(original_value) => std::env::set_var("RUSTY_V8_ARCHIVE", original_value),
+				None => std::env::remove_var("RUSTY_V8_ARCHIVE"),
+			}
+		}
+	}
 }
 
 fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
