@@ -56,6 +56,7 @@ pub enum Edge<T: std::str::FromStr + std::fmt::Display> {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(from = "SRef", into = "SRef")]
 pub struct Ref {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub graph: Option<tg::graph::Id>,
@@ -196,6 +197,37 @@ impl From<tg::graph::object::Edge<tg::Artifact>> for Edge<tg::artifact::Id> {
 				node: data.node,
 			}),
 			tg::graph::object::Edge::Object(data) => Self::Object(data.id()),
+		}
+	}
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+enum SRef {
+	Ref { graph: tg::graph::Id, node: usize },
+	Node(usize),
+}
+
+impl From<SRef> for Ref {
+	fn from(value: SRef) -> Self {
+		match value {
+			SRef::Ref { graph, node } => Ref {
+				graph: Some(graph),
+				node,
+			},
+			SRef::Node(node) => Ref { graph: None, node },
+		}
+	}
+}
+impl From<Ref> for SRef {
+	fn from(value: Ref) -> Self {
+		if let Some(graph) = value.graph {
+			Self::Ref {
+				graph,
+				node: value.node,
+			}
+		} else {
+			Self::Node(value.node)
 		}
 	}
 }
