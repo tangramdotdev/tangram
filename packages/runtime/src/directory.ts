@@ -260,6 +260,7 @@ export class Directory {
 			entries = Object.fromEntries(
 				await Promise.all(
 					Object.entries(object.entries).map(async ([name, edge]) => {
+						tg.assert(typeof edge === "object", "expected an obejct");
 						if ("node" in edge) {
 							tg.assert(edge.graph !== undefined, "missing graph");
 							const artifact = await edge.graph.get(edge.node);
@@ -279,8 +280,11 @@ export class Directory {
 			entries = Object.fromEntries(
 				await Promise.all(
 					Object.entries(node.entries).map(async ([name, edge]) => {
-						if ("node" in edge) {
-							const artifact = (edge.graph ?? graph).get(edge.node);
+						if (typeof edge === "number") {
+							const artifact = await graph.get(edge);
+							return [name, artifact];
+						} else if ("node" in edge) {
+							const artifact = await (edge.graph ?? graph).get(edge.node);
 							return [name, artifact];
 						}
 						return [name, edge];
@@ -330,9 +334,7 @@ export namespace Directory {
 					entries: globalThis.Object.fromEntries(
 						globalThis.Object.entries(object.entries).map(([name, edge]) => [
 							name,
-							"node" in edge
-								? { graph: edge.graph?.id, node: edge.node }
-								: edge.id,
+							tg.Graph.Edge.toData(edge, (artifact) => artifact.id),
 						]),
 					),
 				};
@@ -350,15 +352,7 @@ export namespace Directory {
 					entries: globalThis.Object.fromEntries(
 						globalThis.Object.entries(data.entries).map(([name, edge]) => [
 							name,
-							typeof edge === "object" && "node" in edge
-								? {
-										graph:
-											edge.graph !== undefined
-												? tg.Graph.withId(edge.graph)
-												: undefined,
-										node: edge.node,
-									}
-								: tg.Artifact.withId(edge),
+							tg.Graph.Edge.fromData(edge, tg.Artifact.withId),
 						]),
 					),
 				};
@@ -370,6 +364,7 @@ export namespace Directory {
 				return [object.graph];
 			} else {
 				return globalThis.Object.entries(object.entries).map(([_, edge]) => {
+					tg.assert(typeof edge === "object", "expected an object");
 					if ("node" in edge) {
 						tg.assert(edge.graph !== undefined, "missing graph");
 						return edge.graph;
