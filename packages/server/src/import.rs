@@ -1,4 +1,4 @@
-use crate::{Server, store::Store};
+use crate::{Server, database::Database, store::Store};
 use futures::{
 	FutureExt as _, Stream, StreamExt, TryFutureExt as _, TryStreamExt as _, future,
 	stream::{self, FuturesUnordered},
@@ -11,8 +11,7 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
-use tangram_database::Connection;
-use tangram_database::{self as db, Database as _, Query as _};
+use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
@@ -336,11 +335,12 @@ impl Server {
 	) -> tg::Result<Vec<tg::import::ProcessComplete>> {
 		// Handle the messages.
 		match &self.index {
-			Either::Left(index) => {
+			Database::Sqlite(index) => {
 				self.try_get_import_processes_complete_sqlite(index, ids)
 					.await
 			},
-			Either::Right(index) => {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(index) => {
 				self.try_get_import_processes_complete_postgres(index, ids)
 					.await
 			},
@@ -401,6 +401,7 @@ impl Server {
 		Ok(rows)
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn try_get_import_processes_complete_postgres(
 		&self,
 		database: &db::postgres::Database,
@@ -463,11 +464,12 @@ impl Server {
 	) -> tg::Result<Vec<tg::import::ObjectComplete>> {
 		// Handle the messages.
 		match &self.index {
-			Either::Left(index) => {
+			Database::Sqlite(index) => {
 				self.try_get_import_objects_complete_sqlite(index, ids)
 					.await
 			},
-			Either::Right(index) => {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(index) => {
 				self.try_get_import_objects_complete_postgres(index, ids)
 					.await
 			},
@@ -524,6 +526,7 @@ impl Server {
 		Ok(rows)
 	}
 
+	#[cfg(feature = "postgres")]
 	async fn try_get_import_objects_complete_postgres(
 		&self,
 		database: &db::postgres::Database,

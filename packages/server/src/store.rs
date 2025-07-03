@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use std::path::PathBuf;
 use tangram_client as tg;
 
@@ -90,9 +91,13 @@ impl Store {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.try_get_batch(ids).await,
-			Self::Lmdb(_) => unimplemented!(),
-			Self::Memory(_) => unimplemented!(),
-			Self::S3(_) => unimplemented!(),
+			Self::Lmdb(_) | Self::Memory(_) | Self::S3(_) => {
+				ids.iter()
+					.map(|id| self.try_get(id))
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await
+			},
 		}
 	}
 

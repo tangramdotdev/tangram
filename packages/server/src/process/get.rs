@@ -1,16 +1,16 @@
-use crate::Server;
+use crate::{Server, database::Database};
 use futures::{
 	FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 	stream::{self, FuturesUnordered},
 };
 use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
-use num::ToPrimitive;
+#[cfg(feature = "postgres")]
+use num::ToPrimitive as _;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 use tangram_http::{Body, response::builder::Ext as _};
 
 impl Server {
@@ -173,8 +173,9 @@ impl Server {
 		ids: &[tg::process::Id],
 	) -> tg::Result<tg::process::get::BatchOutput> {
 		match &self.database {
-			Either::Left(_) => self.try_get_process_local_batch_sqlite(ids).await,
-			Either::Right(database) => {
+			Database::Sqlite(_) => self.try_get_process_local_batch_sqlite(ids).await,
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
 				self.try_get_process_local_batch_postgres(database, ids)
 					.await
 			},
@@ -208,6 +209,7 @@ impl Server {
 		Ok(rows)
 	}
 
+	#[cfg(feature = "postgres")]
 	pub(crate) async fn try_get_process_local_batch_postgres(
 		&self,
 		database: &db::postgres::Database,

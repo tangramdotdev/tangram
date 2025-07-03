@@ -1,7 +1,7 @@
 use crate::Server;
 use indoc::formatdoc;
 use tangram_client as tg;
-use tangram_database::{self as db, Database as _, Query as _};
+use tangram_database::{self as db, prelude::*};
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct Output {
