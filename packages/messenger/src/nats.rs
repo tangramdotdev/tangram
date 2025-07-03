@@ -18,7 +18,7 @@ pub struct Stream {
 }
 
 pub struct Consumer {
-	pub consumer: tokio::sync::Mutex<
+	consumer: tokio::sync::Mutex<
 		nats::jetstream::consumer::Consumer<nats::jetstream::consumer::pull::Config>,
 	>,
 }
