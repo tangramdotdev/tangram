@@ -168,15 +168,25 @@ impl Server {
 			.objects
 			.push((!is_path_dependency).then(|| id.clone().into()));
 		let lockfile_node = match node {
-			tg::graph::data::Node::Directory(node) => {
-				self.create_lockfile_node_for_directory_node(state, &node, graph.as_ref(), is_path_dependency)?
-			},
-			tg::graph::data::Node::File(node) => {
-				self.create_lockfile_node_for_file_node(state, &node,graph.as_ref(),  is_path_dependency)?
-			},
-			tg::graph::data::Node::Symlink(node) => {
-				self.create_lockfile_node_for_symlink_node(state, &node,graph.as_ref(),  is_path_dependency)?
-			},
+			tg::graph::data::Node::Directory(node) => self
+				.create_lockfile_node_for_directory_node(
+					state,
+					&node,
+					graph.as_ref(),
+					is_path_dependency,
+				)?,
+			tg::graph::data::Node::File(node) => self.create_lockfile_node_for_file_node(
+				state,
+				&node,
+				graph.as_ref(),
+				is_path_dependency,
+			)?,
+			tg::graph::data::Node::Symlink(node) => self.create_lockfile_node_for_symlink_node(
+				state,
+				&node,
+				graph.as_ref(),
+				is_path_dependency,
+			)?,
 		};
 		state.nodes[index].replace(lockfile_node);
 		Ok(index)
