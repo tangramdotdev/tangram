@@ -451,6 +451,13 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
+	fn get_object_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> impl Future<Output = tg::Result<tg::object::get::BatchOutput>> + Send {
+		self.try_get_object_batch(ids)
+	}
+
 	fn spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

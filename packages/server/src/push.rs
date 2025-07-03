@@ -233,6 +233,7 @@ impl Server {
 							Ok(tg::export::Event::Item(item)) => {
 								let result = export_item_sender.send(Ok(item)).await;
 								if let Err(error) = result {
+									dbg!(&error);
 									progress
 										.error(tg::error!(!error, "failed to send export item"));
 									break;

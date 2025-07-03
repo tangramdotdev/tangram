@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{FutureExt as _, future};
+use futures::{FutureExt as _, future, stream::FuturesUnordered, stream::TryStreamExt as _};
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{
@@ -27,25 +27,38 @@ impl Server {
 
 	pub async fn try_get_object_batch(
 		&self,
-		ids: &[&tg::object::Id],
-	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<tg::object::get::BatchOutputItem>> {
 		let mut local_results = self.try_get_object_local_batch(ids).await?;
 
 		let found_ids: std::collections::HashSet<_> =
-			local_results.iter().map(|(id, _)| id).collect();
+			local_results.iter().map(|item| item.id.clone()).collect();
 		let missing_ids: Vec<_> = ids
 			.iter()
 			.filter(|id| !found_ids.contains(*id))
 			.cloned()
 			.collect();
 
-		let mut remote_results = if !missing_ids.is_empty() {
-			self.try_get_object_remote_batch(&missing_ids).await?
-		} else {
-			vec![]
-		};
+		let mut remote_results = missing_ids
+			.iter()
+			.map(|id| async move {
+				let object = self.try_get_object_remote(&id).await?.map(|object| {
+					tg::object::get::BatchOutputItem {
+						id: id.clone(),
+						bytes: object.bytes,
+					}
+				});
+				Ok::<_, tg::Error>(object)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?
+			.into_iter()
+			.flatten()
+			.collect::<Vec<tg::object::get::BatchOutputItem>>();
 
 		local_results.append(&mut remote_results);
+
 		Ok(local_results)
 	}
 
@@ -105,23 +118,25 @@ impl Server {
 
 	pub async fn try_get_object_local_batch(
 		&self,
-		ids: &[&tg::object::Id],
-	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
-		todo!()
-	}
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<tg::object::get::BatchOutputItem>> {
+		let batch = self.store.try_get_batch(ids).await?;
 
-	pub async fn try_get_object_local_batch_sqlite(
-		&self,
-		ids: &[&tg::object::Id],
-	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
-		todo!()
-	}
+		let result = ids
+			.into_iter()
+			.zip(batch)
+			.map(|(id, bytes)| {
+				bytes.and_then(|bytes| {
+					Some(tg::object::get::BatchOutputItem {
+						id: id.clone(),
+						bytes,
+					})
+				})
+			})
+			.flatten()
+			.collect();
 
-	pub async fn try_get_object_local_batch_postgres(
-		&self,
-		ids: &[&tg::object::Id],
-	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
-		todo!()
+		Ok(result)
 	}
 
 	async fn try_get_object_remote(
@@ -157,13 +172,6 @@ impl Server {
 		});
 
 		Ok(Some(output))
-	}
-
-	pub async fn try_get_object_remote_batch(
-		&self,
-		ids: &[&tg::object::Id],
-	) -> tg::Result<Vec<(tg::object::Id, tg::object::get::Output)>> {
-		todo!()
 	}
 
 	async fn try_read_blob_from_cache(&self, id: &tg::blob::Id) -> tg::Result<Option<Bytes>> {
