@@ -42,7 +42,11 @@ export class Graph {
 						contents: await tg.blob(node.contents),
 						dependencies: Object.fromEntries(
 							Object.entries(node.dependencies ?? {}).map(([key, value]) => {
-								if (tg.Object.is(value) || "node" in value) {
+								if (
+									tg.Object.is(value) ||
+									typeof value === "number" ||
+									"node" in value
+								) {
 									value = { item: value };
 								}
 								return [key, value];
@@ -83,7 +87,13 @@ export class Graph {
 							node.entries = {};
 							for (let name in argNode.entries) {
 								let entry = argNode.entries[name];
-								if (entry !== undefined && "node" in entry && !entry.graph) {
+								if (typeof entry === "number") {
+									node.entries[name] = entry + offset;
+								} else if (
+									entry !== undefined &&
+									"node" in entry &&
+									!entry.graph
+								) {
 									entry.node += offset;
 									node.entries[name] = entry;
 								} else if (entry) {
@@ -106,13 +116,22 @@ export class Graph {
 							for (let reference in argNode.dependencies) {
 								let referent: tg.Referent<tg.Graph.Object.Edge<tg.Object>>;
 								let value = argNode.dependencies[reference]!;
-								if (tg.Object.is(value) || "node" in value) {
+								if (
+									tg.Object.is(value) ||
+									typeof value === "number" ||
+									"node" in value
+								) {
 									referent = { item: value };
 								} else {
 									referent = value;
 								}
 								argNode.dependencies[reference];
-								if ("node" in referent.item) {
+								if (typeof referent.item === "number") {
+									node.dependencies[reference] = {
+										...referent,
+										item: referent.item + offset,
+									};
+								} else if ("node" in referent.item) {
 									node.dependencies[reference] = {
 										...referent,
 										item: {
@@ -134,7 +153,12 @@ export class Graph {
 					nodes.push(node);
 				} else if (argNode.kind === "symlink") {
 					let edge: tg.Graph.Object.Edge<tg.Artifact> | undefined;
-					if (argNode.artifact !== undefined && "node" in argNode.artifact) {
+					if (typeof argNode.artifact === "number") {
+						edge = argNode.artifact + offset;
+					} else if (
+						argNode.artifact !== undefined &&
+						"node" in argNode.artifact
+					) {
 						edge = {
 							...argNode.artifact,
 							node: argNode.artifact.node + offset,
@@ -285,7 +309,7 @@ export namespace Graph {
 	};
 
 	export namespace Object {
-		export type Edge<T> = Ref | T;
+		export type Edge<T> = Ref | T | number;
 		export type Ref = {
 			graph?: tg.Graph | undefined;
 			node: number;
@@ -308,10 +332,41 @@ export namespace Graph {
 	}
 
 	export namespace Data {
-		export type Edge<T> = Ref | T;
+		export type Edge<T> = Ref | T | number;
 		export type Ref = {
 			graph?: tg.Graph.Id | undefined;
 			node: number;
+		};
+	}
+
+	export namespace Edge {
+		export const toData = <T, U>(
+			edge: Object.Edge<T>,
+			f: (item: T) => U,
+		): Data.Edge<U> => {
+			tg.assert(edge !== null);
+			if (typeof edge === "number") {
+				return edge;
+			}
+			if (typeof edge === "object" && "node" in edge) {
+				return { graph: edge.graph?.id, node: edge.node };
+			}
+			return f(edge);
+		};
+
+		export const fromData = <T, U>(
+			edge: Data.Edge<T>,
+			f: (item: T) => U,
+		): Object.Edge<U> => {
+			tg.assert(edge !== null);
+			if (typeof edge === "number") {
+				return edge;
+			}
+			if (typeof edge === "object" && "node" in edge) {
+				const graph = edge.graph ? tg.Graph.withId(edge.graph) : undefined;
+				return { graph, node: edge.node };
+			}
+			return f(edge);
 		};
 	}
 
@@ -324,9 +379,7 @@ export namespace Graph {
 						globalThis.Object.entries(object.entries).map(
 							([name, artifact]) => [
 								name,
-								"node" in artifact
-									? { graph: artifact.graph?.id, node: artifact.node }
-									: artifact.id,
+								Edge.toData(artifact, (artifact) => artifact.id),
 							],
 						),
 					),
@@ -341,9 +394,7 @@ export namespace Graph {
 								return [
 									reference,
 									tg.Referent.toData(referent, (item) =>
-										"node" in item
-											? { graph: item.graph?.id, node: item.node }
-											: item.id,
+										Edge.toData(item, (item) => item.id),
 									),
 								];
 							},
@@ -356,10 +407,10 @@ export namespace Graph {
 					kind: "symlink",
 				};
 				if (object.artifact !== undefined) {
-					output.artifact =
-						"node" in object.artifact
-							? { graph: object.artifact.graph?.id, node: object.artifact.node }
-							: object.artifact.id;
+					output.artifact = Edge.toData(
+						object.artifact,
+						(artifact) => artifact.id,
+					);
 				}
 				if (object.path !== undefined) {
 					output.path = object.path;
@@ -375,17 +426,9 @@ export namespace Graph {
 				return {
 					kind: "directory",
 					entries: globalThis.Object.fromEntries(
-						globalThis.Object.entries(data.entries).map(([name, artifact]) => [
+						globalThis.Object.entries(data.entries).map(([name, edge]) => [
 							name,
-							typeof artifact === "object" && "node" in artifact
-								? {
-										graph:
-											artifact.graph !== undefined
-												? tg.Graph.withId(artifact.graph)
-												: undefined,
-										node: artifact.node,
-									}
-								: tg.Artifact.withId(artifact),
+							Edge.fromData(edge, tg.Artifact.withId),
 						]),
 					),
 				};
@@ -399,15 +442,7 @@ export namespace Graph {
 								return [
 									reference,
 									tg.Referent.fromData(referent, (item) =>
-										typeof item === "object" && "node" in item
-											? {
-													graph:
-														item.graph !== undefined
-															? tg.Graph.withId(item.graph)
-															: undefined,
-													node: item.node,
-												}
-											: tg.Object.withId(item),
+										Edge.fromData(item, tg.Object.withId),
 									),
 								];
 							},
@@ -419,17 +454,9 @@ export namespace Graph {
 				return {
 					kind: "symlink",
 					artifact:
-						typeof data.artifact === "object" && "node" in data.artifact
-							? {
-									graph:
-										data.artifact.graph !== undefined
-											? tg.Graph.withId(data.artifact.graph)
-											: undefined,
-									node: data.artifact.node,
-								}
-							: typeof data.artifact === "string"
-								? tg.Artifact.withId(data.artifact)
-								: undefined,
+						data.artifact !== undefined
+							? Edge.fromData(data.artifact, tg.Artifact.withId)
+							: undefined,
 					path: data.path,
 				};
 			} else {
@@ -441,8 +468,15 @@ export namespace Graph {
 			switch (node.kind) {
 				case "directory": {
 					return globalThis.Object.entries(node.entries)
-						.filter(([_, edge]) => ("node" in edge && edge.graph) || true)
+						.filter(
+							([_, edge]) =>
+								(typeof edge === "object" &&
+									"node" in edge &&
+									edge.graph !== undefined) ||
+								true,
+						)
 						.map(([_, edge]) => {
+							tg.assert(typeof edge === "object", "expected an object");
 							if ("node" in edge) {
 								tg.assert(edge.graph !== undefined, "missing graph");
 								return edge.graph;
@@ -457,9 +491,16 @@ export namespace Graph {
 						...globalThis.Object.entries(node.dependencies)
 							.filter(
 								([_, referent]) =>
-									("node" in referent.item && referent.item.graph) || true,
+									(typeof referent.item === "object" &&
+										"node" in referent.item &&
+										referent.item.graph !== undefined) ||
+									true,
 							)
 							.map(([_, referent]) => {
+								tg.assert(
+									typeof referent.item === "object",
+									"expected an object",
+								);
 								if ("node" in referent.item) {
 									tg.assert(referent.item.graph !== undefined, "missing graph");
 									return referent.item.graph;
@@ -471,6 +512,7 @@ export namespace Graph {
 				}
 				case "symlink": {
 					if ("artifact" in node && node.artifact !== undefined) {
+						tg.assert(typeof node.artifact === "object", "expected an object");
 						if ("node" in node.artifact) {
 							if (node.artifact.graph) {
 								return [node.artifact.graph];

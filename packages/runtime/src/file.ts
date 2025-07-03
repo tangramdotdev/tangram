@@ -83,7 +83,11 @@ export class File {
 
 		let dependencies = Object.fromEntries(
 			Object.entries(arg.dependencies ?? {}).map(([key, value]) => {
-				if (tg.Object.is(value) || "node" in value) {
+				if (
+					tg.Object.is(value) ||
+					typeof value === "number" ||
+					"node" in value
+				) {
 					value = { item: value };
 				}
 				return [key, value];
@@ -204,6 +208,7 @@ export class File {
 				await Promise.all(
 					Object.entries(dependencies).map(async ([reference, referent]) => {
 						let object: tg.Object | undefined;
+						tg.assert(typeof referent.item === "object", "expected an object");
 						if ("node" in referent.item) {
 							tg.assert(referent.item.graph !== undefined, "missing graph");
 							object = await referent.item.graph.get(referent.item.node);
@@ -229,7 +234,9 @@ export class File {
 				await Promise.all(
 					Object.entries(dependencies).map(async ([reference, referent]) => {
 						let object: tg.Object | undefined;
-						if ("node" in referent.item) {
+						if (typeof referent.item === "number") {
+							object = await graph.get(referent.item);
+						} else if ("node" in referent.item) {
 							object = await (referent.item.graph ?? graph).get(
 								referent.item.node,
 							);
@@ -343,9 +350,7 @@ export namespace File {
 							([reference, referent]) => [
 								reference,
 								tg.Referent.toData(referent, (edge) =>
-									"node" in edge
-										? { graph: edge.graph?.id, node: edge.node }
-										: edge.id,
+									tg.Graph.Edge.toData(edge, (object) => object.id),
 								),
 							],
 						),
@@ -369,15 +374,7 @@ export namespace File {
 							([reference, referent]) => [
 								reference,
 								tg.Referent.fromData(referent, (edge) =>
-									typeof edge === "object" && "node" in edge
-										? {
-												graph:
-													edge.graph !== undefined
-														? tg.Graph.withId(edge.graph)
-														: undefined,
-												node: edge.node,
-											}
-										: tg.Object.withId(edge),
+									tg.Graph.Edge.fromData(edge, tg.Object.withId),
 								),
 							],
 						),
@@ -395,6 +392,10 @@ export namespace File {
 					...contents,
 					...globalThis.Object.entries(object.dependencies).map(
 						([_, referent]) => {
+							tg.assert(
+								typeof referent.item === "object",
+								"expected an object",
+							);
 							if ("node" in referent.item) {
 								tg.assert(referent.item.graph !== undefined, "missing graph");
 								return referent.item.graph;

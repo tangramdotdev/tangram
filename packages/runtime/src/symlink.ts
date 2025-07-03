@@ -131,6 +131,7 @@ export class Symlink {
 	async artifact(): Promise<tg.Artifact | undefined> {
 		const object = await this.object();
 		if (!("graph" in object)) {
+			tg.assert(typeof object.artifact !== "number", "expected an object");
 			if (typeof object.artifact === "object" && "node" in object.artifact) {
 				tg.assert(object.artifact.graph !== undefined, "missing graph");
 				return await object.artifact.graph.get(object.artifact.node);
@@ -140,7 +141,9 @@ export class Symlink {
 			const node = (await object.graph.nodes())[object.node];
 			tg.assert(node !== undefined, "invalid graph index");
 			tg.assert(node.kind === "symlink", "expected a symlink");
-			if (typeof node.artifact === "object" && "node" in node.artifact) {
+			if (typeof node.artifact === "number") {
+				return await object.graph.get(node.artifact);
+			} else if (typeof node.artifact === "object" && "node" in node.artifact) {
 				return await (node.artifact.graph ?? object.graph).get(
 					node.artifact.node,
 				);
@@ -212,10 +215,10 @@ export namespace Symlink {
 			} else {
 				let output: Data = {};
 				if (object.artifact !== undefined) {
-					output.artifact =
-						"node" in object.artifact
-							? { graph: object.artifact.graph?.id, node: object.artifact.node }
-							: object.artifact.id;
+					output.artifact = tg.Graph.Edge.toData(
+						object.artifact,
+						(artifact) => artifact.id,
+					);
 				}
 				if (object.path !== undefined) {
 					output.path = object.path;
@@ -233,16 +236,9 @@ export namespace Symlink {
 			} else {
 				return {
 					artifact:
-						typeof data.artifact === "object" && "node" in data.artifact
-							? {
-									graph: data.artifact.graph
-										? tg.Graph.withId(data.artifact.graph)
-										: undefined,
-									node: data.artifact.node,
-								}
-							: typeof data.artifact === "string"
-								? tg.Artifact.withId(data.artifact)
-								: undefined,
+						data.artifact !== undefined
+							? tg.Graph.Edge.fromData(data.artifact, tg.Artifact.withId)
+							: undefined,
 					path: data.path,
 				};
 			}
@@ -252,6 +248,7 @@ export namespace Symlink {
 			if ("graph" in object) {
 				return [object.graph];
 			} else if ("artifact" in object && object.artifact !== undefined) {
+				tg.assert(typeof object.artifact === "object", "expected an object");
 				if ("node" in object.artifact) {
 					if (object.artifact.graph !== undefined) {
 						return [object.artifact.graph];
