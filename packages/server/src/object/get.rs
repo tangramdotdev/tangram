@@ -97,6 +97,11 @@ impl Server {
 			return Ok(None);
 		};
 
+		// Validate the server didn't give us back garbage.
+		if &tg::object::Id::new(id.kind(), &output.bytes) != id {
+			return Err(tg::error!(?bytes = output.bytes, "server returned an invalid object"));
+		}
+
 		// Spawn a task to put the object.
 		tokio::spawn({
 			let server = self.clone();
