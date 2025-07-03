@@ -147,7 +147,7 @@ impl Server {
 			let artifact = artifact.clone();
 			async move {
 				server
-					.try_get_object_complete_local(&artifact.into())
+					.try_get_object_complete(&artifact.into())
 					.await
 					.map(Option::unwrap_or_default)
 			}
@@ -196,7 +196,7 @@ impl Server {
 					let artifact = artifact.clone();
 					async move {
 						server
-							.try_get_object_complete_local(&artifact.into())
+							.try_get_object_complete(&artifact.into())
 							.await
 							.map(Option::unwrap_or_default)
 					}

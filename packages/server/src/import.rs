@@ -3,7 +3,6 @@ use futures::{
 	FutureExt as _, Stream, StreamExt, TryFutureExt as _, TryStreamExt as _, future,
 	stream::{self, FuturesUnordered},
 };
-use indoc::formatdoc;
 use num::ToPrimitive as _;
 use std::{
 	pin::{Pin, pin},
@@ -11,7 +10,6 @@ use std::{
 	time::Duration,
 };
 use tangram_client as tg;
-use tangram_database::{self as db, Database as _, Query as _};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
@@ -19,7 +17,10 @@ use tangram_messenger::prelude::*;
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::task::AbortOnDropHandle;
 
-const COMPLETE_CONCURRENCY: usize = 8;
+const PROCESS_COMPLETE_BATCH_SIZE: usize = 8;
+const PROCESS_COMPLETE_CONCURRENCY: usize = 8;
+const OBJECT_COMPLETE_BATCH_SIZE: usize = 64;
+const OBJECT_COMPLETE_CONCURRENCY: usize = 8;
 
 #[derive(Debug)]
 struct Progress {
@@ -38,7 +39,15 @@ impl Server {
 		if let Some(remote) = arg.remote.take() {
 			let client = self.get_remote_client(remote.clone()).await?;
 			let stream = client.import(arg, stream).await?;
-			return Ok(stream.left_stream());
+			return Ok(stream.boxed());
+		}
+
+		// Check if the items are already complete.
+		let complete = self.import_items_complete(&arg).await.unwrap_or_default();
+		if complete {
+			let event = tg::import::Event::End;
+			let stream = stream::once(future::ok(event)).boxed();
+			return Ok(stream);
 		}
 
 		// Create the progress.
@@ -48,8 +57,10 @@ impl Server {
 		// Create the channels.
 		let (event_sender, event_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::import::Event>>(256);
-		let (complete_sender, complete_receiver) =
-			tokio::sync::mpsc::channel::<Either<tg::process::Id, tg::object::Id>>(256);
+		let (process_complete_sender, process_complete_receiver) =
+			tokio::sync::mpsc::channel::<tg::process::Id>(256);
+		let (object_complete_sender, object_complete_receiver) =
+			tokio::sync::mpsc::channel::<tg::object::Id>(256);
 		let (process_sender, process_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::ProcessItem>(256);
 		let (object_sender, object_receiver) =
@@ -60,12 +71,13 @@ impl Server {
 			let server = self.clone();
 			let event_sender = event_sender.clone();
 			async move {
-				let result = server
-					.import_complete_task(complete_receiver, &event_sender)
-					.await;
-				if let Err(error) = result {
-					event_sender.send(Err(error)).await.ok();
-				}
+				server
+					.import_complete_task(
+						process_complete_receiver,
+						object_complete_receiver,
+						&event_sender,
+					)
+					.await
 			}
 		});
 		let complete_task_abort_handle = complete_task.abort_handle();
@@ -77,15 +89,11 @@ impl Server {
 		// Spawn the processes task.
 		let processes_task = tokio::spawn({
 			let server = self.clone();
-			let event_sender = event_sender.clone();
 			let progress = progress.clone();
 			async move {
-				let result = server
+				server
 					.import_processes_task(process_receiver, &progress)
-					.await;
-				if let Err(error) = result {
-					event_sender.send(Err(error)).await.ok();
-				}
+					.await
 			}
 		});
 		let processes_task_abort_handle = processes_task.abort_handle();
@@ -97,16 +105,8 @@ impl Server {
 		// Spawn the objects task.
 		let objects_task = tokio::spawn({
 			let server = self.clone();
-			let event_sender = event_sender.clone();
 			let progress = progress.clone();
-			async move {
-				let result = server
-					.import_objects_task(object_receiver, &event_sender, &progress)
-					.await;
-				if let Err(error) = result {
-					event_sender.send(Err(error)).await.ok();
-				}
-			}
+			async move { server.import_objects_task(object_receiver, &progress).await }
 		});
 		let objects_task_abort_handle = objects_task.abort_handle();
 		let objects_task_abort_handle =
@@ -128,11 +128,16 @@ impl Server {
 							return;
 						},
 					};
-					let id = match &item {
-						tg::export::Item::Process(item) => Either::Left(item.id.clone()),
-						tg::export::Item::Object(item) => Either::Right(item.id.clone()),
+					let complete_sender_future = match &item {
+						tg::export::Item::Process(item) => process_complete_sender
+							.send(item.id.clone())
+							.map_err(|_| ())
+							.left_future(),
+						tg::export::Item::Object(item) => object_complete_sender
+							.send(item.id.clone())
+							.map_err(|_| ())
+							.right_future(),
 					};
-					let complete_sender_future = complete_sender.send(id).map_err(|_| ());
 					let (process_future, object_future) = match item {
 						tg::export::Item::Process(item) => (
 							process_sender.send(item).map_err(|_| ()).left_future(),
@@ -155,7 +160,8 @@ impl Server {
 				}
 
 				// Close the channels
-				drop(complete_sender);
+				drop(process_complete_sender);
+				drop(object_complete_sender);
 				drop(process_sender);
 				drop(object_sender);
 
@@ -163,9 +169,12 @@ impl Server {
 				let result = futures::try_join!(processes_task, objects_task);
 
 				match result {
-					Ok(_) => {
+					Ok((Ok(()), Ok(()))) => {
 						let event = tg::import::Event::End;
 						event_sender.send(Ok(event)).await.ok();
+					},
+					Ok((_, Err(error)) | (Err(error), _)) => {
+						event_sender.send(Err(error)).await.ok();
 					},
 					Err(error) => {
 						let error = tg::error!(!error, "the task panicked");
@@ -188,171 +197,136 @@ impl Server {
 			.attach(processes_task_abort_handle)
 			.attach(objects_task_abort_handle);
 
-		Ok(stream.right_stream())
+		Ok(stream.boxed())
+	}
+
+	async fn import_items_complete(&self, arg: &tg::import::Arg) -> tg::Result<bool> {
+		let processes = arg
+			.items
+			.iter()
+			.filter_map(|item| item.clone().left())
+			.collect::<Vec<_>>();
+		let objects = arg
+			.items
+			.iter()
+			.filter_map(|item| item.clone().right())
+			.collect::<Vec<_>>();
+		let (process_completes, object_completes) = futures::try_join!(
+			self.try_get_process_complete_batch(&processes),
+			self.try_get_object_complete_batch(&objects),
+		)?;
+		for process_complete in process_completes {
+			let Some(process_complete) = process_complete else {
+				return Ok(false);
+			};
+			let complete = process_complete.complete
+				&& process_complete.commands_complete
+				&& process_complete.outputs_complete;
+			if !complete {
+				return Ok(false);
+			}
+		}
+		for object_complete in object_completes {
+			let Some(object_complete) = object_complete else {
+				return Ok(false);
+			};
+			if !object_complete {
+				return Ok(false);
+			}
+		}
+		Ok(true)
 	}
 
 	async fn import_complete_task(
 		&self,
-		complete_receiver: tokio::sync::mpsc::Receiver<Either<tg::process::Id, tg::object::Id>>,
+		process_complete_receiver: tokio::sync::mpsc::Receiver<tg::process::Id>,
+		object_complete_receiver: tokio::sync::mpsc::Receiver<tg::object::Id>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(complete_receiver);
-		let stream = pin!(stream);
-		stream
-			.for_each_concurrent(COMPLETE_CONCURRENCY, {
+		let process_stream = ReceiverStream::new(process_complete_receiver);
+		let object_stream = ReceiverStream::new(object_complete_receiver);
+		let process_stream = pin!(process_stream);
+		let process_future = process_stream
+			.ready_chunks(PROCESS_COMPLETE_BATCH_SIZE)
+			.for_each_concurrent(PROCESS_COMPLETE_CONCURRENCY, {
 				let server = self.clone();
 				let event_sender = event_sender.clone();
-				move |item| {
+				move |ids| {
 					let server = server.clone();
 					let event_sender = event_sender.clone();
-					async move { server.import_complete_task_item(item, &event_sender).await }
+					async move {
+						let result = server.try_get_process_complete_batch(&ids).await;
+						let outputs = match result {
+							Ok(outputs) => outputs,
+							Err(error) => {
+								tracing::error!(?error, "failed to get the process complete batch");
+								return;
+							},
+						};
+						for (id, output) in std::iter::zip(ids, outputs) {
+							let Some(output) = output else {
+								continue;
+							};
+							if output.complete
+								|| output.commands_complete
+								|| output.outputs_complete
+							{
+								let complete =
+									tg::import::Complete::Process(tg::import::ProcessComplete {
+										commands_complete: output.commands_complete,
+										complete: output.complete,
+										id,
+										outputs_complete: output.outputs_complete,
+									});
+								let event = tg::import::Event::Complete(complete);
+								event_sender.send(Ok(event)).await.ok();
+							}
+						}
+					}
 				}
-			})
-			.await;
+			});
+		let object_stream = pin!(object_stream);
+		let object_future = object_stream
+			.ready_chunks(OBJECT_COMPLETE_BATCH_SIZE)
+			.for_each_concurrent(OBJECT_COMPLETE_CONCURRENCY, {
+				let server = self.clone();
+				let event_sender = event_sender.clone();
+				move |ids| {
+					let server = server.clone();
+					let event_sender = event_sender.clone();
+					async move {
+						let result = server.try_get_object_complete_batch(&ids).await;
+						let outputs = match result {
+							Ok(outputs) => outputs,
+							Err(error) => {
+								tracing::error!(?error, "failed to get the object complete batch");
+								return;
+							},
+						};
+						for (id, output) in std::iter::zip(ids, outputs) {
+							let Some(output) = output else {
+								continue;
+							};
+							if output {
+								let complete =
+									tg::import::Complete::Object(tg::import::ObjectComplete { id });
+								let event = tg::import::Event::Complete(complete);
+								event_sender.send(Ok(event)).await.ok();
+							}
+						}
+					}
+				}
+			});
+		futures::join!(process_future, object_future);
 		Ok(())
-	}
-
-	async fn import_complete_task_item(
-		&self,
-		item: Either<tg::process::Id, tg::object::Id>,
-		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
-	) {
-		match item {
-			Either::Left(id) => {
-				let result = self.try_get_import_process_complete(&id).await;
-				let process_complete = match result {
-					Ok(process_complete) => process_complete,
-					Err(error) => {
-						tracing::error!(?error, "failed to get process complete");
-						return;
-					},
-				};
-				let Some(process_complete) = process_complete else {
-					return;
-				};
-				if !(process_complete.complete
-					|| process_complete.commands_complete
-					|| process_complete.outputs_complete)
-				{
-					return;
-				}
-				let event =
-					tg::import::Event::Complete(tg::import::Complete::Process(process_complete));
-				event_sender.send(Ok(event)).await.ok();
-			},
-			Either::Right(id) => {
-				let result = self.try_get_import_object_complete(&id).await;
-				let object_complete = match result {
-					Ok(object_complete) => object_complete,
-					Err(error) => {
-						tracing::error!(?error, "failed to get object complete");
-						return;
-					},
-				};
-				let Some(object_complete) = object_complete else {
-					return;
-				};
-				if !object_complete {
-					return;
-				}
-				let event = tg::import::Event::Complete(tg::import::Complete::Object(
-					tg::import::ObjectComplete { id },
-				));
-				event_sender.send(Ok(event)).await.ok();
-			},
-		}
-	}
-
-	async fn try_get_import_process_complete(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::import::ProcessComplete>> {
-		// Get a database connection.
-		let connection = self
-			.index
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the process complete fields.
-		#[derive(serde::Deserialize)]
-		struct Row {
-			complete: bool,
-			commands_complete: bool,
-			outputs_complete: bool,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select
-					complete,
-					commands_complete,
-					outputs_complete
-				from processes
-				where id = {p}1;
-			",
-		);
-		let params = db::params![id];
-		let Some(row) = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-		else {
-			return Ok(None);
-		};
-
-		// Drop the database connection.
-		drop(connection);
-
-		// Create the output.
-		let output = tg::import::ProcessComplete {
-			commands_complete: row.commands_complete,
-			complete: row.complete,
-			id: id.clone(),
-			outputs_complete: row.outputs_complete,
-		};
-
-		Ok(Some(output))
-	}
-
-	async fn try_get_import_object_complete(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<bool>> {
-		// Get an index connection.
-		let connection = self
-			.index
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the object complete field.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select complete
-				from objects
-				where id = {p}1;
-			",
-		);
-		let params = db::params![id];
-		let output = connection
-			.query_optional_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the index connection.
-		drop(connection);
-
-		Ok(output)
 	}
 
 	async fn import_processes_task(
 		&self,
-		database_process_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
+		process_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
 		progress: &Progress,
 	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(database_process_receiver);
+		let stream = ReceiverStream::new(process_receiver);
 		let mut stream = pin!(stream);
 		while let Some(item) = stream.next().await {
 			let arg = tg::process::put::Arg { data: item.data };
@@ -367,7 +341,6 @@ impl Server {
 	async fn import_objects_task(
 		&self,
 		object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
-		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
@@ -415,20 +388,20 @@ impl Server {
 
 		// Write the batches.
 		stream
-			.for_each_concurrent(concurrency, |batch| {
-				self.import_objects_task_batch(batch, event_sender, progress)
+			.map(Ok)
+			.try_for_each_concurrent(concurrency, |batch| {
+				self.import_objects_task_inner(batch, progress)
 			})
-			.await;
+			.await?;
 
 		Ok(())
 	}
 
-	async fn import_objects_task_batch(
+	async fn import_objects_task_inner(
 		&self,
 		batch: Vec<tg::export::ObjectItem>,
-		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 		progress: &Arc<Progress>,
-	) {
+	) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Create the store future.
@@ -484,11 +457,7 @@ impl Server {
 		};
 
 		// Join the store and messenger futures.
-		let result = futures::try_join!(store_future, messenger_future);
-		if let Err(error) = result {
-			let error = tg::error!(!error, "failed to join the futures");
-			event_sender.send(Err(error)).await.ok();
-		}
+		futures::try_join!(store_future, messenger_future)?;
 
 		// Update the progress.
 		let objects = batch.len().to_u64().unwrap();
@@ -498,6 +467,8 @@ impl Server {
 			.sum();
 		progress.increment_objects(objects);
 		progress.increment_bytes(bytes);
+
+		Ok(())
 	}
 
 	pub(crate) async fn handle_import_request<H>(
