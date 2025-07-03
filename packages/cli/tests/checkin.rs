@@ -44,7 +44,7 @@ async fn directory() {
 		{
 		  "count": 6,
 		  "depth": 3,
-		  "weight": 483
+		  "weight": 439
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -74,7 +74,7 @@ async fn file() {
 		{
 		  "count": 3,
 		  "depth": 3,
-		  "weight": 184
+		  "weight": 173
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -104,7 +104,7 @@ async fn symlink() {
 		{
 		  "count": 2,
 		  "depth": 2,
-		  "weight": 104
+		  "weight": 93
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -138,7 +138,7 @@ async fn directory_with_duplicate_entries() {
 		{
 		  "count": 3,
 		  "depth": 3,
-		  "weight": 260
+		  "weight": 238
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -182,7 +182,7 @@ async fn file_through_symlink() {
 		{
 		  "count": 5,
 		  "depth": 4,
-		  "weight": 404
+		  "weight": 375
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -230,7 +230,7 @@ async fn file_with_symlink_no_kind() {
 		{
 		  "count": 8,
 		  "depth": 4,
-		  "weight": 726
+		  "weight": 669
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -278,7 +278,7 @@ async fn file_with_symlink() {
 		{
 		  "count": 7,
 		  "depth": 3,
-		  "weight": 669
+		  "weight": 612
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -324,7 +324,7 @@ async fn artifact_symlink() {
 		{
 		  "count": 6,
 		  "depth": 5,
-		  "weight": 487
+		  "weight": 445
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -387,7 +387,7 @@ async fn lockfile_out_of_date() {
 		{
 		  "count": 7,
 		  "depth": 4,
-		  "weight": 548
+		  "weight": 502
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -2077,7 +2077,7 @@ async fn update_tagged_package() {
 		    {
 		      "kind": "file",
 		      "dependencies": {
-		        "a/^1": "dir_010bt8m5vfythsxsryn83y8e0t063w85srhd0qp19sqrdz744p18v0?tag=a%2F1.0.0"
+		        "a/^1": "dir_013a21q59fsmhghm22hyzfnbh9c9j0h4h1v6ep59t8f7tyvs8vdpeg?tag=a%2F1.0.0"
 		      }
 		    }
 		  ]

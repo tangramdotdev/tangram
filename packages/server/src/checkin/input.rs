@@ -172,9 +172,9 @@ impl Server {
 							|source| tg::error!(!source, %path = reference.display(), "failed to canonicalize path"),
 						)?
 					} else {
-						reference.canonicalize().map_err(|source| {
-							tg::error!(!source, %path = reference.display(), "failed to canonicalize the path")
-						})?
+						reference.canonicalize().map_err(
+							|source| tg::error!(!source, %path = reference.display(), "failed to canonicalize the path"),
+						)?
 					};
 					if let Some(index) = self.checkin_visit(state, reference.clone())? {
 						let path = crate::util::path::diff(path.parent().unwrap(), &reference)?;
