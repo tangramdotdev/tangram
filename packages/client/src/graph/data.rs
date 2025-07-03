@@ -49,6 +49,7 @@ pub struct Symlink {
 #[derive(
 	Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap, derive_more::Unwrap,
 )]
+#[serde(untagged)]
 pub enum Edge<T: std::str::FromStr + std::fmt::Display> {
 	Graph(Ref),
 	Object(T),

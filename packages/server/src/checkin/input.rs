@@ -173,7 +173,7 @@ impl Server {
 						)?
 					} else {
 						reference.canonicalize().map_err(|source| {
-							tg::error!(!source, "failed to canonicalize the path")
+							tg::error!(!source, %path = reference.display(), "failed to canonicalize the path")
 						})?
 					};
 					if let Some(index) = self.checkin_visit(state, reference.clone())? {
