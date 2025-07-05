@@ -1,6 +1,5 @@
 use crate as tg;
 use futures::{TryStreamExt as _, stream::FuturesOrdered};
-use itertools::Itertools as _;
 use std::borrow::Cow;
 
 pub use self::data::Template as Data;
@@ -203,7 +202,7 @@ impl TryFrom<Data> for Template {
 			.components
 			.into_iter()
 			.map(TryInto::try_into)
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 		Ok(Self { components })
 	}
 }
@@ -240,13 +239,15 @@ impl From<&str> for Template {
 	}
 }
 
-impl TryFrom<data::Component> for Component {
+impl TryFrom<tg::template::data::Component> for Component {
 	type Error = tg::Error;
 
-	fn try_from(data: data::Component) -> tg::Result<Self, Self::Error> {
+	fn try_from(data: tg::template::data::Component) -> tg::Result<Self, Self::Error> {
 		Ok(match data {
-			data::Component::String(string) => Self::String(string),
-			data::Component::Artifact(id) => Self::Artifact(tg::Artifact::with_id(id)),
+			tg::template::data::Component::String(string) => Self::String(string),
+			tg::template::data::Component::Artifact(id) => {
+				Self::Artifact(tg::Artifact::with_id(id))
+			},
 		})
 	}
 }

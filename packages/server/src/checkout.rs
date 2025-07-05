@@ -330,10 +330,11 @@ impl Server {
 
 		// TODO: increment weight
 		state.progress.increment("objects", 1);
+
 		Ok(())
 	}
 
-	// Lookup the underlying graph node of  the artifact.
+	// Look up the underlying graph node of the artifact.
 	fn checkout_get_node(
 		&self,
 		state: &mut State,
@@ -344,10 +345,10 @@ impl Server {
 		Option<tg::graph::Id>,
 	)> {
 		match edge {
-			// If this is a ref in a graph, load the graph and find it.
-			tg::graph::data::Edge::Graph(edge) => {
+			// If this is a reference, load the graph and find it.
+			tg::graph::data::Edge::Reference(reference) => {
 				// Get the graph ID.
-				let graph = edge
+				let graph = reference
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
@@ -361,17 +362,19 @@ impl Server {
 					.get(graph)
 					.unwrap()
 					.nodes
-					.get(edge.node)
+					.get(reference.node)
 					.ok_or_else(|| tg::error!("invalid graph node"))?
 					.clone();
 
 				// Compute the id.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Graph(edge.clone()).into()
+						tg::directory::Data::Reference(reference.clone()).into()
 					},
-					tg::artifact::Kind::File => tg::file::Data::Graph(edge.clone()).into(),
-					tg::artifact::Kind::Symlink => tg::symlink::Data::Graph(edge.clone()).into(),
+					tg::artifact::Kind::File => tg::file::Data::Reference(reference.clone()).into(),
+					tg::artifact::Kind::Symlink => {
+						tg::symlink::Data::Reference(reference.clone()).into()
+					},
 				};
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
@@ -393,12 +396,14 @@ impl Server {
 				let data = tg::artifact::Data::try_from(data)?;
 				match data {
 					// Handle the case where this points into a graph.
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Graph(ref_))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Graph(ref_))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Graph(ref_)) => {
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
+						ref_,
+					))
+					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(ref_))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(ref_)) => {
 						// Ignore the computed ID here so the optimizer elides the computation internally.
 						let (_, node, graph) =
-							self.checkout_get_node(state, &tg::graph::data::Edge::Graph(ref_))?;
+							self.checkout_get_node(state, &tg::graph::data::Edge::Reference(ref_))?;
 						Ok((id.clone(), node, graph))
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
@@ -448,7 +453,7 @@ impl Server {
 		std::fs::create_dir_all(&path).unwrap();
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
-			if let tg::graph::data::Edge::Graph(edge) = &mut edge {
+			if let tg::graph::data::Edge::Reference(edge) = &mut edge {
 				if edge.graph.is_none() {
 					edge.graph = graph.cloned();
 				}
@@ -477,7 +482,7 @@ impl Server {
 		for referent in dependencies.values() {
 			// Skip object edges.
 			let mut edge = match referent.item.clone() {
-				tg::graph::data::Edge::Graph(graph) => tg::graph::data::Edge::Graph(graph),
+				tg::graph::data::Edge::Reference(graph) => tg::graph::data::Edge::Reference(graph),
 				tg::graph::data::Edge::Object(id) => match id.try_into() {
 					Ok(id) => tg::graph::data::Edge::Object(id),
 					Err(_) => continue,
@@ -485,7 +490,7 @@ impl Server {
 			};
 
 			// Update the graph if necessarsy.
-			if let tg::graph::data::Edge::Graph(edge) = &mut edge {
+			if let tg::graph::data::Edge::Reference(edge) = &mut edge {
 				if edge.graph.is_none() {
 					edge.graph = graph.cloned();
 				}
@@ -598,7 +603,7 @@ impl Server {
 			let mut target = PathBuf::new();
 
 			// Update the graph ID if necessary.
-			if let tg::graph::data::Edge::Graph(edge) = &mut edge {
+			if let tg::graph::data::Edge::Reference(edge) = &mut edge {
 				if edge.graph.is_none() {
 					edge.graph = graph.cloned();
 				}

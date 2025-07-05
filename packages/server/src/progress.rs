@@ -1,6 +1,5 @@
 use futures::{Stream, StreamExt as _, future, stream};
 use indexmap::IndexMap;
-use itertools::Itertools;
 use std::{
 	sync::{
 		Arc, Mutex, RwLock,
@@ -204,7 +203,7 @@ impl<T> Handle<T> {
 			.unwrap()
 			.keys()
 			.cloned()
-			.collect_vec();
+			.collect::<Vec<_>>();
 		for name in names {
 			self.finish(&name);
 		}

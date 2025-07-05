@@ -1,12 +1,11 @@
 use crate::tg;
 use bytes::Bytes;
-use itertools::Itertools as _;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum File {
-	Graph(tg::graph::data::Ref),
+	Reference(tg::graph::data::Reference),
 	Node(Node),
 }
 
@@ -26,22 +25,8 @@ impl File {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone().unwrap())
-				.map_into()
-				.left_iterator(),
-			Self::Node(node) => {
-				let contents = node.contents.clone().map(tg::object::Id::from);
-				let dependencies =
-					node.dependencies
-						.values()
-						.filter_map(|dependency| match &dependency.item {
-							tg::graph::data::Edge::Graph(edge) => {
-								edge.graph.clone().map(tg::object::Id::from)
-							},
-							tg::graph::data::Edge::Object(edge) => Some(edge.clone()),
-						});
-				contents.into_iter().chain(dependencies).right_iterator()
-			},
+			Self::Reference(reference) => reference.children().left_iterator(),
+			Self::Node(node) => node.children().right_iterator(),
 		}
 	}
 }

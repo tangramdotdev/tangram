@@ -77,7 +77,7 @@ impl Symlink {
 		};
 		let data = Data::deserialize(output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-		let object = Object::try_from(data)?;
+		let object = Object::try_from_data(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
@@ -114,7 +114,7 @@ impl Symlink {
 impl Symlink {
 	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph(tg::graph::object::Ref {
+		Self::with_object(Object::Reference(tg::graph::object::Reference {
 			graph: Some(graph),
 			node,
 		}))
@@ -150,7 +150,7 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph(object) => {
+			Object::Reference(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;
@@ -166,8 +166,8 @@ impl Symlink {
 					return Ok(None);
 				};
 				let artifact = match artifact {
-					tg::graph::object::Edge::Graph(edge) => {
-						let (graph, object) = if let Some(graph) = &edge.graph {
+					tg::graph::object::Edge::Reference(reference) => {
+						let (graph, object) = if let Some(graph) = &reference.graph {
 							let graph = graph.clone();
 							let object = graph.object(handle).await?;
 							(graph, object)
@@ -176,22 +176,22 @@ impl Symlink {
 						};
 						let kind = object
 							.nodes
-							.get(edge.node)
+							.get(reference.node)
 							.ok_or_else(|| tg::error!("invalid index"))?
 							.kind();
 						match kind {
 							tg::artifact::Kind::Directory => {
-								tg::Directory::with_graph_and_node(graph.clone(), edge.node).into()
+								tg::Directory::with_graph_and_node(graph, reference.node).into()
 							},
 							tg::artifact::Kind::File => {
-								tg::File::with_graph_and_node(graph.clone(), edge.node).into()
+								tg::File::with_graph_and_node(graph, reference.node).into()
 							},
 							tg::artifact::Kind::Symlink => {
-								tg::Symlink::with_graph_and_node(graph.clone(), edge.node).into()
+								tg::Symlink::with_graph_and_node(graph, reference.node).into()
 							},
 						}
 					},
-					tg::graph::object::Edge::Object(edge) => edge.clone(),
+					tg::graph::object::Edge::Object(object) => object.clone(),
 				};
 				Ok(Some(artifact))
 			},
@@ -200,27 +200,27 @@ impl Symlink {
 					return Ok(None);
 				};
 				let artifact = match artifact.clone() {
-					tg::graph::object::Edge::Graph(edge) => {
-						let graph = edge.graph.ok_or_else(|| tg::error!("missing graph"))?;
+					tg::graph::object::Edge::Reference(reference) => {
+						let graph = reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
 						let object = graph.object(handle).await?;
 						let kind = object
 							.nodes
-							.get(edge.node)
+							.get(reference.node)
 							.ok_or_else(|| tg::error!("invalid index"))?
 							.kind();
 						match kind {
 							tg::artifact::Kind::Directory => {
-								tg::Directory::with_graph_and_node(graph.clone(), edge.node).into()
+								tg::Directory::with_graph_and_node(graph, reference.node).into()
 							},
 							tg::artifact::Kind::File => {
-								tg::File::with_graph_and_node(graph.clone(), edge.node).into()
+								tg::File::with_graph_and_node(graph, reference.node).into()
 							},
 							tg::artifact::Kind::Symlink => {
-								tg::Symlink::with_graph_and_node(graph.clone(), edge.node).into()
+								tg::Symlink::with_graph_and_node(graph, reference.node).into()
 							},
 						}
 					},
-					tg::graph::object::Edge::Object(edge) => edge.clone(),
+					tg::graph::object::Edge::Object(object) => object.clone(),
 				};
 				Ok(Some(artifact))
 			},
@@ -233,7 +233,7 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph(object) => {
+			Object::Reference(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;

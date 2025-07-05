@@ -623,7 +623,7 @@ fn handle_query_message(connection: &sqlite::Connection, message: QueryMessage) 
 		.column_names()
 		.into_iter()
 		.map(ToOwned::to_owned)
-		.collect_vec();
+		.collect::<Vec<_>>();
 
 	// Execute the statement.
 	let mut rows = match statement.query(sqlite::params_from_iter(params)) {
@@ -691,7 +691,7 @@ fn handle_query_all_message(connection: &sqlite::Connection, message: QueryAllMe
 		.column_names()
 		.into_iter()
 		.map(ToOwned::to_owned)
-		.collect_vec();
+		.collect::<Vec<_>>();
 
 	// Execute the statement.
 	let rows = match statement.query(sqlite::params_from_iter(params)) {

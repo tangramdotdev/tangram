@@ -582,7 +582,7 @@ async fn poll_read_inner(
 		} else {
 			let bytes = server.get_object(&id.unwrap().into()).await?.bytes;
 			let data = tg::blob::Data::deserialize(bytes)?;
-			let object = tg::blob::Object::try_from(data)?;
+			let object = tg::blob::Object::try_from_data(data)?;
 			let object = Arc::new(object);
 			if object.is_branch() {
 				current_blob.state().write().unwrap().object = Some(object.clone());

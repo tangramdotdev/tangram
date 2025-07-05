@@ -1,7 +1,6 @@
 use super::{Blob, GraphObject, Object, State, Variant};
 use crate::Server;
 use futures::{StreamExt, TryStreamExt as _, stream};
-use itertools::Itertools as _;
 use std::collections::BTreeMap;
 use tangram_client as tg;
 use tangram_either::Either;
@@ -88,16 +87,17 @@ impl Server {
 				let (kind, data) = match &state.graph.nodes[global].variant {
 					Variant::Directory(_) => {
 						let kind = tg::object::Kind::Directory;
-						let data = tg::directory::data::Directory::Graph(tg::graph::data::Ref {
-							graph: Some(object.id.clone()),
-							node: local,
-						});
+						let data =
+							tg::directory::data::Directory::Reference(tg::graph::data::Reference {
+								graph: Some(object.id.clone()),
+								node: local,
+							});
 						let data = tg::object::Data::from(data);
 						(kind, data)
 					},
 					Variant::File(_) => {
 						let kind = tg::object::Kind::File;
-						let data = tg::file::data::File::Graph(tg::graph::data::Ref {
+						let data = tg::file::data::File::Reference(tg::graph::data::Reference {
 							graph: Some(object.id.clone()),
 							node: local,
 						});
@@ -106,10 +106,11 @@ impl Server {
 					},
 					Variant::Symlink(_) => {
 						let kind = tg::object::Kind::Symlink;
-						let data = tg::symlink::data::Symlink::Graph(tg::graph::data::Ref {
-							graph: Some(object.id.clone()),
-							node: local,
-						});
+						let data =
+							tg::symlink::data::Symlink::Reference(tg::graph::data::Reference {
+								graph: Some(object.id.clone()),
+								node: local,
+							});
 						let data = tg::object::Data::from(data);
 						(kind, data)
 					},
@@ -152,7 +153,7 @@ impl Server {
 							.get(index)
 							.copied()
 							.map(|node| {
-								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
+								tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 									graph: None,
 									node,
 								})
@@ -190,10 +191,9 @@ impl Server {
 									.get(index)
 									.copied()
 									.map(|node| {
-										tg::graph::data::Edge::Graph(tg::graph::data::Ref {
-											graph: None,
-											node,
-										})
+										tg::graph::data::Edge::Reference(
+											tg::graph::data::Reference { graph: None, node },
+										)
 									})
 									.or_else(|| {
 										state.graph.nodes[*index].object.as_ref().map(|object| {
@@ -209,7 +209,7 @@ impl Server {
 						};
 						Ok::<_, tg::Error>((reference.clone(), referent))
 					})
-					.try_collect()?;
+					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
 				let data = tg::graph::data::File {
 					contents: Some(contents),
@@ -228,7 +228,7 @@ impl Server {
 							.get(index)
 							.copied()
 							.map(|node| {
-								tg::graph::data::Edge::Graph(tg::graph::data::Ref {
+								tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 									graph: None,
 									node,
 								})
@@ -309,7 +309,7 @@ impl Server {
 						};
 						Ok::<_, tg::Error>((reference.clone(), referent))
 					})
-					.try_collect()?;
+					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
 				let data = tg::file::Data::Node(tg::file::data::Node {
 					contents: Some(contents),

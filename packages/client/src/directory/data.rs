@@ -1,12 +1,11 @@
 use crate as tg;
 use bytes::Bytes;
-use itertools::Itertools as _;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Directory {
-	Graph(tg::graph::data::Ref),
+	Reference(tg::graph::data::Reference),
 	Node(Node),
 }
 
@@ -26,18 +25,8 @@ impl Directory {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone().unwrap())
-				.map_into()
-				.left_iterator(),
-			Self::Node(node) => node
-				.entries
-				.values()
-				.cloned()
-				.filter_map(|edge| match edge {
-					tg::graph::data::Edge::Graph(edge) => edge.graph.map(tg::object::Id::from),
-					tg::graph::data::Edge::Object(edge) => Some(edge.into()),
-				})
-				.right_iterator(),
+			Self::Reference(reference) => reference.children().left_iterator(),
+			Self::Node(node) => node.children().right_iterator(),
 		}
 	}
 }

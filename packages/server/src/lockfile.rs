@@ -85,7 +85,7 @@ impl Server {
 		is_path_dependency: bool,
 	) -> tg::Result<usize> {
 		let (id, node, graph) = match edge {
-			tg::graph::data::Edge::Graph(ref_) => {
+			tg::graph::data::Edge::Reference(ref_) => {
 				// Compute the ID.
 				let graph = ref_
 					.graph
@@ -105,10 +105,12 @@ impl Server {
 				// Compute the id.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Graph(ref_.clone()).into()
+						tg::directory::Data::Reference(ref_.clone()).into()
 					},
-					tg::artifact::Kind::File => tg::file::Data::Graph(ref_.clone()).into(),
-					tg::artifact::Kind::Symlink => tg::symlink::Data::Graph(ref_.clone()).into(),
+					tg::artifact::Kind::File => tg::file::Data::Reference(ref_.clone()).into(),
+					tg::artifact::Kind::Symlink => {
+						tg::symlink::Data::Reference(ref_.clone()).into()
+					},
 				};
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
@@ -138,10 +140,12 @@ impl Server {
 				let data = tg::artifact::Data::try_from(data)?;
 				match data {
 					// Handle the case where this points into a graph.
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Graph(ref_))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Graph(ref_))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Graph(ref_)) => {
-						let edge = tg::graph::data::Edge::Graph(ref_);
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
+						ref_,
+					))
+					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(ref_))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(ref_)) => {
+						let edge = tg::graph::data::Edge::Reference(ref_);
 						return self.create_lockfile_for_artifact_inner(
 							state,
 							&edge,
@@ -225,7 +229,7 @@ impl Server {
 			.iter()
 			.map(|(name, edge)| {
 				let mut edge = edge.clone();
-				if let tg::graph::data::Edge::Graph(ref_) = &mut edge {
+				if let tg::graph::data::Edge::Reference(ref_) = &mut edge {
 					if ref_.graph.is_none() {
 						ref_.graph = graph.cloned();
 					}
@@ -234,7 +238,7 @@ impl Server {
 					self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)?;
 				Ok::<_, tg::Error>((name.clone(), Either::Left(node)))
 			})
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 		Ok(tg::lockfile::Node::Directory(tg::lockfile::Directory {
 			entries,
 		}))
@@ -253,11 +257,11 @@ impl Server {
 			.map(|(reference, referent)| {
 				// Remap the edge.
 				let edge = match referent.item.clone() {
-					tg::graph::data::Edge::Graph(mut ref_) => {
+					tg::graph::data::Edge::Reference(mut ref_) => {
 						if ref_.graph.is_none() {
 							ref_.graph = graph.cloned();
 						}
-						tg::graph::data::Edge::Graph(ref_)
+						tg::graph::data::Edge::Reference(ref_)
 					},
 					tg::graph::data::Edge::Object(tg::object::Id::Directory(id))
 						if state.checkout_dependencies =>
@@ -286,7 +290,7 @@ impl Server {
 				let referent = referent.clone().map(|_| Either::Left(index));
 				Ok::<_, tg::Error>((reference.clone(), referent))
 			})
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 		let contents = node.contents.clone();
 		let executable = node.executable;
 		Ok(tg::lockfile::Node::File(tg::lockfile::File {
@@ -308,7 +312,7 @@ impl Server {
 			.as_ref()
 			.map(|edge| {
 				let mut edge = edge.clone();
-				if let tg::graph::data::Edge::Graph(ref_) = &mut edge {
+				if let tg::graph::data::Edge::Reference(ref_) = &mut edge {
 					if ref_.graph.is_none() {
 						ref_.graph = graph.cloned();
 					}
@@ -629,7 +633,7 @@ impl Server {
 		let artifact_ids: Vec<tg::artifact::Id> = object_ids
 			.into_iter()
 			.map(tg::artifact::Id::try_from)
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 
 		// Get the artifacts path.
 		let mut artifacts_path = None;
@@ -753,7 +757,7 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								tg::graph::object::Edge::Graph(tg::graph::object::Ref {
+								tg::graph::object::Edge::Reference(tg::graph::object::Reference {
 									graph: None,
 									node: graph_indices.get(&lockfile_index).copied().unwrap(),
 								})
@@ -794,7 +798,7 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								tg::graph::object::Edge::Graph(tg::graph::object::Ref {
+								tg::graph::object::Edge::Reference(tg::graph::object::Reference {
 									graph: None,
 									node: graph_indices.get(&lockfile_index).copied().unwrap(),
 								})
@@ -828,10 +832,11 @@ impl Server {
 					Some(Either::Left(lockfile_index))
 						if graph_indices.contains_key(lockfile_index) =>
 					{
-						let artifact = tg::graph::object::Edge::Graph(tg::graph::object::Ref {
-							graph: None,
-							node: graph_indices.get(lockfile_index).copied().unwrap(),
-						});
+						let artifact =
+							tg::graph::object::Edge::Reference(tg::graph::object::Reference {
+								graph: None,
+								node: graph_indices.get(lockfile_index).copied().unwrap(),
+							});
 						Some(artifact)
 					},
 					Some(Either::Left(lockfile_index)) => {

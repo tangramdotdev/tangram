@@ -785,7 +785,7 @@ where
 			(Some(path), Some(tag)) => format!("{tag}:{}", path.display()),
 			(None, Some(tag)) => tag.to_string(),
 			_ => {
-				if let Some(object) = executable.object().first() {
+				if let Some(object) = executable.objects().first() {
 					object.id().to_string()
 				} else {
 					String::new()
@@ -812,14 +812,14 @@ where
 	) -> tg::Result<()> {
 		let object = directory.object(handle).await?;
 		let children: Vec<_> = match object.as_ref() {
-			tg::directory::Object::Graph(graph) => [
+			tg::directory::Object::Reference(reference) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().unwrap().into()),
+					tg::Value::Object(reference.graph.clone().unwrap().into()),
 				),
 				(
 					"node".to_owned(),
-					tg::Value::Number(graph.node.to_f64().unwrap()),
+					tg::Value::Number(reference.node.to_f64().unwrap()),
 				),
 			]
 			.into_iter()
@@ -831,7 +831,7 @@ where
 					.into_iter()
 					.map(async |(name, artifact)| {
 						let artifact = match artifact {
-							tg::graph::object::Edge::Graph(ref_) => ref_.resolve(handle).await?,
+							tg::graph::object::Edge::Reference(ref_) => ref_.get(handle).await?,
 							tg::graph::object::Edge::Object(artifact) => artifact,
 						};
 						Ok::<_, tg::Error>((name, artifact.into()))
@@ -867,14 +867,14 @@ where
 		let object = file.object(handle).await?;
 
 		let children = match object.as_ref() {
-			tg::file::Object::Graph(graph) => [
+			tg::file::Object::Reference(reference) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().unwrap().into()),
+					tg::Value::Object(reference.graph.clone().unwrap().into()),
 				),
 				(
 					"node".to_owned(),
-					tg::Value::Number(graph.node.to_f64().unwrap()),
+					tg::Value::Number(reference.node.to_f64().unwrap()),
 				),
 			]
 			.into_iter()
@@ -895,8 +895,8 @@ where
 					.map(async |(reference, referent)| {
 						let mut map = BTreeMap::new();
 						let item = match &referent.item {
-							tg::graph::object::Edge::Graph(ref_) => {
-								ref_.resolve(handle).await?.into()
+							tg::graph::object::Edge::Reference(ref_) => {
+								ref_.get(handle).await?.into()
 							},
 							tg::graph::object::Edge::Object(object) => object.clone(),
 						};
@@ -959,11 +959,11 @@ where
 							.into_iter()
 							.map(async |(name, edge)| {
 								let value = match edge {
-									tg::graph::object::Edge::Graph(mut edge) => {
+									tg::graph::object::Edge::Reference(mut edge) => {
 										if edge.graph.is_none() {
 											edge.graph.replace(graph.clone());
 										}
-										edge.resolve(handle).await?.into()
+										edge.get(handle).await?.into()
 									},
 									tg::graph::object::Edge::Object(artifact) => artifact.into(),
 								};
@@ -985,11 +985,11 @@ where
 							.map(async |(reference, referent)| {
 								let mut map = BTreeMap::new();
 								let item = match referent.item {
-									tg::graph::object::Edge::Graph(mut ref_) => {
+									tg::graph::object::Edge::Reference(mut ref_) => {
 										if ref_.graph.is_none() {
 											ref_.graph.replace(graph.clone());
 										}
-										ref_.resolve(handle).await?.into()
+										ref_.get(handle).await?.into()
 									},
 									tg::graph::object::Edge::Object(object) => object,
 								};
@@ -1016,11 +1016,11 @@ where
 					tg::graph::Node::Symlink(symlink) => {
 						if let Some(artifact) = symlink.artifact {
 							let artifact = match artifact {
-								tg::graph::object::Edge::Graph(mut ref_) => {
+								tg::graph::object::Edge::Reference(mut ref_) => {
 									if ref_.graph.is_none() {
 										ref_.graph.replace(graph.clone());
 									}
-									ref_.resolve(handle).await?.into()
+									ref_.get(handle).await?.into()
 								},
 								tg::graph::object::Edge::Object(object) => object.into(),
 							};
@@ -1182,14 +1182,14 @@ where
 	) -> tg::Result<()> {
 		let object = symlink.object(handle).await?;
 		let children = match object.as_ref() {
-			tg::symlink::Object::Graph(graph) => [
+			tg::symlink::Object::Reference(reference) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().unwrap().into()),
+					tg::Value::Object(reference.graph.clone().unwrap().into()),
 				),
 				(
 					"node".to_owned(),
-					tg::Value::Number(graph.node.to_f64().unwrap()),
+					tg::Value::Number(reference.node.to_f64().unwrap()),
 				),
 			]
 			.into_iter()
@@ -1198,7 +1198,7 @@ where
 				let mut children = Vec::new();
 				if let Some(artifact) = &node.artifact {
 					let artifact = match artifact {
-						tg::graph::object::Edge::Graph(ref_) => ref_.resolve(handle).await?.into(),
+						tg::graph::object::Edge::Reference(ref_) => ref_.get(handle).await?.into(),
 						tg::graph::object::Edge::Object(artifact) => artifact.clone().into(),
 					};
 					children.push(("artifact".to_owned(), tg::Value::Object(artifact)));
@@ -1719,7 +1719,7 @@ where
 			.await?
 			.executable(handle)
 			.await?
-			.object()
+			.objects()
 			.first()
 			.map(tg::Object::id);
 		let parent_executable = parent
@@ -1728,7 +1728,7 @@ where
 			.await?
 			.executable(handle)
 			.await?
-			.object()
+			.objects()
 			.first()
 			.map(tg::Object::id);
 		if child_executable == parent_executable {

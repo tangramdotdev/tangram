@@ -1,7 +1,6 @@
 use crate::Server;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::formatdoc;
-use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{path::PathBuf, time::Duration};
 use tangram_client::{self as tg, prelude::*};
@@ -285,7 +284,7 @@ impl Server {
 				}
 				.boxed()
 			})
-			.collect_vec();
+			.collect::<Vec<_>>();
 		if futures.is_empty() {
 			return Ok(None);
 		}

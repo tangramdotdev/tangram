@@ -1,6 +1,5 @@
 use super::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
-use itertools::Itertools;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
@@ -194,7 +193,7 @@ impl Server {
 				}
 				Ok::<_, tg::Error>((import.reference, referent))
 			})
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 
 		// Update the graph.
 		state.graph.nodes[index]

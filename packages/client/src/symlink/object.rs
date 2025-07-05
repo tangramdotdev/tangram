@@ -1,10 +1,9 @@
 use super::Data;
 use crate as tg;
-use itertools::Itertools as _;
 
 #[derive(Clone, Debug)]
 pub enum Symlink {
-	Graph(tg::graph::object::Ref),
+	Reference(tg::graph::object::Reference),
 	Node(Node),
 }
 
@@ -12,61 +11,31 @@ pub type Node = tg::graph::object::Symlink;
 
 impl Symlink {
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::Object> {
+	pub fn to_data(&self) -> Data {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone().unwrap())
-				.map_into()
-				.collect(),
-			Self::Node(node) => node
-				.artifact
-				.clone()
-				.and_then(|edge| match edge {
-					tg::graph::object::Edge::Graph(edge) => edge.graph.map(tg::Object::from),
-					tg::graph::object::Edge::Object(edge) => Some(edge.into()),
-				})
-				.into_iter()
-				.collect(),
+			Self::Reference(reference) => Data::Reference(reference.to_data()),
+			Self::Node(node) => Data::Node(node.to_data()),
+		}
+	}
+
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		match data {
+			Data::Reference(data) => {
+				let reference = tg::graph::object::Reference::try_from_data(data)?;
+				Ok(Self::Reference(reference))
+			},
+			Data::Node(data) => {
+				let node = tg::graph::object::Symlink::try_from_data(data)?;
+				Ok(Self::Node(node))
+			},
 		}
 	}
 
 	#[must_use]
-	pub fn to_data(&self) -> Data {
+	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Graph(graph) => {
-				let id = graph.graph.as_ref().unwrap().id();
-				let node = graph.node;
-				Data::Graph(tg::graph::data::Ref {
-					graph: Some(id),
-					node,
-				})
-			},
-			Self::Node(node) => {
-				let artifact = node.artifact.as_ref().map(|edge| edge.clone().into());
-				let path = node.path.clone();
-				Data::Node(tg::symlink::data::Node { artifact, path })
-			},
-		}
-	}
-}
-
-impl TryFrom<Data> for Symlink {
-	type Error = tg::Error;
-
-	fn try_from(data: Data) -> Result<Self, Self::Error> {
-		match data {
-			Data::Graph(data) => {
-				let graph = tg::Graph::with_id(data.graph.clone().unwrap());
-				let node = data.node;
-				Ok(Self::Graph(tg::graph::object::Ref {
-					graph: Some(graph),
-					node,
-				}))
-			},
-			Data::Node(data) => {
-				let artifact = data.artifact.map(tg::graph::object::Edge::from);
-				let path = data.path;
-				Ok(Self::Node(Node { artifact, path }))
-			},
+			Self::Reference(reference) => reference.children(),
+			Self::Node(node) => node.children(),
 		}
 	}
 }

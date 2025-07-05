@@ -83,7 +83,7 @@ impl Graph {
 		};
 		let data = Data::deserialize(output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-		let object = Object::try_from(data)?;
+		let object = Object::try_from_data(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))

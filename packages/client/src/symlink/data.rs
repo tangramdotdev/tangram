@@ -5,7 +5,7 @@ use tangram_itertools::IteratorExt as _;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Symlink {
-	Graph(tg::graph::data::Ref),
+	Reference(tg::graph::data::Reference),
 	Node(Node),
 }
 
@@ -25,16 +25,8 @@ impl Symlink {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone().unwrap().into()).boxed(),
-			Self::Node(node) => node
-				.artifact
-				.clone()
-				.and_then(|edge| match edge {
-					tg::graph::data::Edge::Graph(edge) => edge.graph.map(tg::object::Id::from),
-					tg::graph::data::Edge::Object(edge) => Some(edge.into()),
-				})
-				.into_iter()
-				.boxed(),
+			Self::Reference(reference) => reference.children().left_iterator(),
+			Self::Node(node) => node.children().right_iterator(),
 		}
 	}
 }

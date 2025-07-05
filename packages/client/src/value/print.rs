@@ -242,10 +242,10 @@ where
 	fn directory_object(&mut self, object: &tg::directory::Object) -> Result {
 		write!(self.writer, "tg.directory(")?;
 		match object {
-			tg::directory::Object::Graph(graph) => {
+			tg::directory::Object::Reference(reference) => {
 				self.start_map()?;
-				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
-				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+				self.map_entry("graph", |s| s.graph(reference.graph.as_ref().unwrap()))?;
+				self.map_entry("node", |s| s.number(reference.node.to_f64().unwrap()))?;
 				self.finish_map()?;
 			},
 			tg::directory::Object::Node(node) => {
@@ -295,10 +295,10 @@ where
 	fn file_object(&mut self, object: &tg::file::Object) -> Result {
 		write!(self.writer, "tg.file(")?;
 		match object {
-			tg::file::Object::Graph(graph) => {
+			tg::file::Object::Reference(reference) => {
 				self.start_map()?;
-				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
-				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+				self.map_entry("graph", |s| s.graph(reference.graph.as_ref().unwrap()))?;
+				self.map_entry("node", |s| s.number(reference.node.to_f64().unwrap()))?;
 				self.finish_map()?;
 			},
 			tg::file::Object::Node(node) => {
@@ -361,10 +361,10 @@ where
 	fn symlink_object(&mut self, object: &tg::symlink::Object) -> Result {
 		write!(self.writer, "tg.symlink(")?;
 		match object {
-			tg::symlink::Object::Graph(graph) => {
+			tg::symlink::Object::Reference(reference) => {
 				self.start_map()?;
-				self.map_entry("graph", |s| s.graph(graph.graph.as_ref().unwrap()))?;
-				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+				self.map_entry("graph", |s| s.graph(reference.graph.as_ref().unwrap()))?;
+				self.map_entry("node", |s| s.number(reference.node.to_f64().unwrap()))?;
 				self.finish_map()?;
 			},
 			tg::symlink::Object::Node(node) => {
@@ -436,31 +436,31 @@ where
 
 	fn graph_edge_object(&mut self, edge: &tg::graph::object::Edge<tg::Object>) -> Result {
 		match edge {
-			tg::graph::object::Edge::Graph(edge) => {
+			tg::graph::object::Edge::Reference(reference) => {
 				self.start_map()?;
-				if let Some(graph) = &edge.graph {
+				if let Some(graph) = &reference.graph {
 					self.map_entry("graph", |p| p.graph(graph))?;
 				}
-				self.map_entry("node", |p| p.number(edge.node.to_f64().unwrap()))?;
+				self.map_entry("node", |p| p.number(reference.node.to_f64().unwrap()))?;
 				self.finish_map()?;
 				Ok(())
 			},
-			tg::graph::object::Edge::Object(edge) => self.object(edge),
+			tg::graph::object::Edge::Object(object) => self.object(object),
 		}
 	}
 
 	fn graph_edge_artifact(&mut self, edge: &tg::graph::object::Edge<tg::Artifact>) -> Result {
 		match edge {
-			tg::graph::object::Edge::Graph(edge) => {
+			tg::graph::object::Edge::Reference(reference) => {
 				self.start_map()?;
-				if let Some(graph) = &edge.graph {
+				if let Some(graph) = &reference.graph {
 					self.map_entry("graph", |p| p.graph(graph))?;
 				}
-				self.map_entry("node", |p| p.number(edge.node.to_f64().unwrap()))?;
+				self.map_entry("node", |p| p.number(reference.node.to_f64().unwrap()))?;
 				self.finish_map()?;
 				Ok(())
 			},
-			tg::graph::object::Edge::Object(edge) => self.artifact(edge),
+			tg::graph::object::Edge::Object(object) => self.artifact(object),
 		}
 	}
 

@@ -2,7 +2,6 @@
 
 use super::{Promise, State};
 use futures::FutureExt as _;
-use itertools::Itertools as _;
 use std::rc::Rc;
 use tangram_client as tg;
 use tangram_v8::convert::{FromV8, ToV8};
@@ -89,7 +88,7 @@ where
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Collect the args.
-	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();
+	let args = (1..args.length()).map(|i| args.get(i)).collect::<Vec<_>>();
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
@@ -125,7 +124,7 @@ where
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Collect the args.
-	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();
+	let args = (1..args.length()).map(|i| args.get(i)).collect::<Vec<_>>();
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.

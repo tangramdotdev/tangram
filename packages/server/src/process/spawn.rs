@@ -2,7 +2,6 @@ use crate::{ProcessPermit, Server, database};
 use bytes::Bytes;
 use futures::{FutureExt as _, future};
 use indoc::formatdoc;
-use itertools::Itertools as _;
 use std::{path::PathBuf, pin::pin};
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
@@ -742,7 +741,7 @@ impl Server {
 					Ok::<_, tg::Error>(Some((output, client)))
 				})
 			})
-			.collect_vec();
+			.collect::<Vec<_>>();
 
 		// Wait for the first response.
 		if futures.is_empty() {

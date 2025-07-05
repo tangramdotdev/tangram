@@ -357,7 +357,7 @@ async fn directory_with_symlink_cycle() {
 			tg::graph::object::Node::Directory(tg::graph::object::Directory {
 				entries: [(
 					"link".to_owned(),
-					tg::graph::object::Edge::Graph(tg::graph::object::Ref {
+					tg::graph::object::Edge::Reference(tg::graph::object::Reference {
 						graph: None,
 						node: 1,
 					}),
@@ -365,10 +365,12 @@ async fn directory_with_symlink_cycle() {
 				.into(),
 			}),
 			tg::graph::object::Node::Symlink(tg::graph::object::Symlink {
-				artifact: Some(tg::graph::object::Edge::Graph(tg::graph::object::Ref {
-					graph: None,
-					node: 0,
-				})),
+				artifact: Some(tg::graph::object::Edge::Reference(
+					tg::graph::object::Reference {
+						graph: None,
+						node: 0,
+					},
+				)),
 				path: Some("link".into()),
 			}),
 		],

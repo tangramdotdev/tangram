@@ -51,13 +51,13 @@ pub struct Symlink {
 )]
 #[serde(untagged)]
 pub enum Edge<T> {
-	Graph(Ref),
+	Reference(Reference),
 	Object(T),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(from = "ReferenceSerde", into = "ReferenceSerde")]
-pub struct Ref {
+pub struct Reference {
 	pub graph: Option<tg::graph::Id>,
 	pub node: usize,
 }
@@ -76,37 +76,9 @@ impl Graph {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		self.nodes.iter().flat_map(|node| match node {
-			tg::graph::data::Node::Directory(tg::graph::data::Directory { entries }) => entries
-				.values()
-				.filter_map(|edge| match edge {
-					Edge::Graph(graph) => graph.graph.clone().map(tg::object::Id::from),
-					Edge::Object(object) => Some(object.clone().into()),
-				})
-				.boxed(),
-			tg::graph::data::Node::File(tg::graph::data::File {
-				contents,
-				dependencies,
-				..
-			}) => contents
-				.clone()
-				.map(tg::object::Id::from)
-				.into_iter()
-				.chain(
-					dependencies
-						.values()
-						.filter_map(|referent| match &referent.item {
-							Edge::Graph(graph) => graph.graph.clone().map(tg::object::Id::from),
-							Edge::Object(object) => Some(object.clone()),
-						}),
-				)
-				.boxed(),
-			tg::graph::data::Node::Symlink(symlink) => {
-				let artifact = symlink.artifact.as_ref().and_then(|edge| match edge {
-					Edge::Graph(graph) => graph.graph.clone().map(tg::object::Id::from),
-					Edge::Object(object) => Some(object.clone().into()),
-				});
-				artifact.into_iter().boxed()
-			},
+			tg::graph::data::Node::Directory(node) => node.children().boxed(),
+			tg::graph::data::Node::File(file) => file.children().boxed(),
+			tg::graph::data::Node::Symlink(symlink) => symlink.children().boxed(),
 		})
 	}
 }
@@ -122,23 +94,64 @@ impl Node {
 	}
 }
 
+impl Directory {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		self.entries.values().flat_map(Edge::children)
+	}
+}
+
+impl File {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		let contents = self.contents.clone().map(Into::into);
+		let dependencies = self
+			.dependencies
+			.values()
+			.flat_map(|referent| referent.item.children());
+		std::iter::empty().chain(contents).chain(dependencies)
+	}
+}
+
+impl Symlink {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		self.artifact.iter().flat_map(Edge::children)
+	}
+}
+
+impl<T> Edge<T>
+where
+	T: Into<tg::object::Id> + Clone,
+{
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		match self {
+			Self::Reference(reference) => reference.children().left_iterator(),
+			Self::Object(object) => std::iter::once(object.clone().into()).right_iterator(),
+		}
+	}
+}
+
+impl Reference {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		self.graph.clone().into_iter().map(Into::into)
+	}
+}
+
 impl<T> std::str::FromStr for Edge<T>
 where
 	T: std::str::FromStr + std::fmt::Display,
 {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if let Ok(edge) = s.parse() {
-			return Ok(Self::Graph(edge));
+		if let Ok(reference) = s.parse() {
+			return Ok(Self::Reference(reference));
 		}
-		if let Ok(edge) = s.parse() {
-			return Ok(Self::Object(edge));
+		if let Ok(object) = s.parse() {
+			return Ok(Self::Object(object));
 		}
-		Err(tg::error!("expected a graph or object edge"))
+		Err(tg::error!("expected an edge"))
 	}
 }
 
-impl std::fmt::Display for Ref {
+impl std::fmt::Display for Reference {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "?")?;
 		if let Some(graph) = &self.graph {
@@ -149,7 +162,7 @@ impl std::fmt::Display for Ref {
 	}
 }
 
-impl std::str::FromStr for Ref {
+impl std::str::FromStr for Reference {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)
@@ -167,7 +180,7 @@ impl std::str::FromStr for Ref {
 impl From<tg::graph::object::Edge<tg::Object>> for Edge<tg::object::Id> {
 	fn from(value: tg::graph::object::Edge<tg::Object>) -> Self {
 		match value {
-			tg::graph::object::Edge::Graph(data) => Self::Graph(Ref {
+			tg::graph::object::Edge::Reference(data) => Self::Reference(Reference {
 				graph: data.graph.map(|data| data.id()),
 				node: data.node,
 			}),
@@ -179,7 +192,7 @@ impl From<tg::graph::object::Edge<tg::Object>> for Edge<tg::object::Id> {
 impl From<tg::graph::object::Edge<tg::Artifact>> for Edge<tg::artifact::Id> {
 	fn from(value: tg::graph::object::Edge<tg::Artifact>) -> Self {
 		match value {
-			tg::graph::object::Edge::Graph(data) => Self::Graph(Ref {
+			tg::graph::object::Edge::Reference(data) => Self::Reference(Reference {
 				graph: data.graph.map(|data| data.id()),
 				node: data.node,
 			}),
@@ -198,17 +211,17 @@ enum ReferenceSerde {
 	},
 }
 
-impl From<ReferenceSerde> for Ref {
+impl From<ReferenceSerde> for Reference {
 	fn from(value: ReferenceSerde) -> Self {
 		match value {
-			ReferenceSerde::Object { graph, node } => Ref { graph, node },
-			ReferenceSerde::Number(node) => Ref { graph: None, node },
+			ReferenceSerde::Object { graph, node } => Reference { graph, node },
+			ReferenceSerde::Number(node) => Reference { graph: None, node },
 		}
 	}
 }
 
-impl From<Ref> for ReferenceSerde {
-	fn from(value: Ref) -> Self {
+impl From<Reference> for ReferenceSerde {
+	fn from(value: Reference) -> Self {
 		match value.graph {
 			None => Self::Number(value.node),
 			Some(graph) => Self::Object {
