@@ -85,9 +85,9 @@ impl Server {
 		is_path_dependency: bool,
 	) -> tg::Result<usize> {
 		let (id, node, graph) = match edge {
-			tg::graph::data::Edge::Reference(ref_) => {
+			tg::graph::data::Edge::Reference(reference) => {
 				// Compute the ID.
-				let graph = ref_
+				let graph = reference
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
@@ -99,17 +99,17 @@ impl Server {
 					.get(graph)
 					.unwrap()
 					.nodes
-					.get(ref_.node)
+					.get(reference.node)
 					.ok_or_else(|| tg::error!("invalid node index"))?;
 
 				// Compute the id.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Reference(ref_.clone()).into()
+						tg::directory::Data::Reference(reference.clone()).into()
 					},
-					tg::artifact::Kind::File => tg::file::Data::Reference(ref_.clone()).into(),
+					tg::artifact::Kind::File => tg::file::Data::Reference(reference.clone()).into(),
 					tg::artifact::Kind::Symlink => {
-						tg::symlink::Data::Reference(ref_.clone()).into()
+						tg::symlink::Data::Reference(reference.clone()).into()
 					},
 				};
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
@@ -134,18 +134,20 @@ impl Server {
 						store.try_get_object_data_sync(&id.clone().into())?
 					},
 					crate::Store::Memory(store) => store.try_get_object_data(&id.clone().into())?,
-					_ => return Err(tg::error!("not yet implemented")),
+					_ => return Err(tg::error!("unimplemented")),
 				}
 				.ok_or_else(|| tg::error!(%id = id.clone(), "expected the object to be stored"))?;
 				let data = tg::artifact::Data::try_from(data)?;
 				match data {
 					// Handle the case where this points into a graph.
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
-						ref_,
+						reference,
 					))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(ref_))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(ref_)) => {
-						let edge = tg::graph::data::Edge::Reference(ref_);
+					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(reference))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
+						reference,
+					)) => {
+						let edge = tg::graph::data::Edge::Reference(reference);
 						return self.create_lockfile_for_artifact_inner(
 							state,
 							&edge,
@@ -208,7 +210,7 @@ impl Server {
 		let data = match &self.store {
 			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
 			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
-			_ => return Err(tg::error!("not yet implemented")),
+			_ => return Err(tg::error!("unimplemented")),
 		}
 		.ok_or_else(|| tg::error!("expected the object to be stored"))?
 		.try_into()
@@ -229,9 +231,9 @@ impl Server {
 			.iter()
 			.map(|(name, edge)| {
 				let mut edge = edge.clone();
-				if let tg::graph::data::Edge::Reference(ref_) = &mut edge {
-					if ref_.graph.is_none() {
-						ref_.graph = graph.cloned();
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+					if reference.graph.is_none() {
+						reference.graph = graph.cloned();
 					}
 				}
 				let node =
@@ -257,11 +259,11 @@ impl Server {
 			.map(|(reference, referent)| {
 				// Remap the edge.
 				let edge = match referent.item.clone() {
-					tg::graph::data::Edge::Reference(mut ref_) => {
-						if ref_.graph.is_none() {
-							ref_.graph = graph.cloned();
+					tg::graph::data::Edge::Reference(mut reference) => {
+						if reference.graph.is_none() {
+							reference.graph = graph.cloned();
 						}
-						tg::graph::data::Edge::Reference(ref_)
+						tg::graph::data::Edge::Reference(reference)
 					},
 					tg::graph::data::Edge::Object(tg::object::Id::Directory(id))
 						if state.checkout_dependencies =>
@@ -312,9 +314,9 @@ impl Server {
 			.as_ref()
 			.map(|edge| {
 				let mut edge = edge.clone();
-				if let tg::graph::data::Edge::Reference(ref_) = &mut edge {
-					if ref_.graph.is_none() {
-						ref_.graph = graph.cloned();
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+					if reference.graph.is_none() {
+						reference.graph = graph.cloned();
 					}
 				}
 				self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)

@@ -831,7 +831,9 @@ where
 					.into_iter()
 					.map(async |(name, artifact)| {
 						let artifact = match artifact {
-							tg::graph::object::Edge::Reference(ref_) => ref_.get(handle).await?,
+							tg::graph::object::Edge::Reference(reference) => {
+								reference.get(handle).await?
+							},
 							tg::graph::object::Edge::Object(artifact) => artifact,
 						};
 						Ok::<_, tg::Error>((name, artifact.into()))
@@ -895,8 +897,8 @@ where
 					.map(async |(reference, referent)| {
 						let mut map = BTreeMap::new();
 						let item = match &referent.item {
-							tg::graph::object::Edge::Reference(ref_) => {
-								ref_.get(handle).await?.into()
+							tg::graph::object::Edge::Reference(reference) => {
+								reference.get(handle).await?.into()
 							},
 							tg::graph::object::Edge::Object(object) => object.clone(),
 						};
@@ -959,11 +961,11 @@ where
 							.into_iter()
 							.map(async |(name, edge)| {
 								let value = match edge {
-									tg::graph::object::Edge::Reference(mut edge) => {
-										if edge.graph.is_none() {
-											edge.graph.replace(graph.clone());
+									tg::graph::object::Edge::Reference(mut reference) => {
+										if reference.graph.is_none() {
+											reference.graph.replace(graph.clone());
 										}
-										edge.get(handle).await?.into()
+										reference.get(handle).await?.into()
 									},
 									tg::graph::object::Edge::Object(artifact) => artifact.into(),
 								};
@@ -985,11 +987,11 @@ where
 							.map(async |(reference, referent)| {
 								let mut map = BTreeMap::new();
 								let item = match referent.item {
-									tg::graph::object::Edge::Reference(mut ref_) => {
-										if ref_.graph.is_none() {
-											ref_.graph.replace(graph.clone());
+									tg::graph::object::Edge::Reference(mut reference) => {
+										if reference.graph.is_none() {
+											reference.graph.replace(graph.clone());
 										}
-										ref_.get(handle).await?.into()
+										reference.get(handle).await?.into()
 									},
 									tg::graph::object::Edge::Object(object) => object,
 								};
@@ -1016,11 +1018,11 @@ where
 					tg::graph::Node::Symlink(symlink) => {
 						if let Some(artifact) = symlink.artifact {
 							let artifact = match artifact {
-								tg::graph::object::Edge::Reference(mut ref_) => {
-									if ref_.graph.is_none() {
-										ref_.graph.replace(graph.clone());
+								tg::graph::object::Edge::Reference(mut reference) => {
+									if reference.graph.is_none() {
+										reference.graph.replace(graph.clone());
 									}
-									ref_.get(handle).await?.into()
+									reference.get(handle).await?.into()
 								},
 								tg::graph::object::Edge::Object(object) => object.into(),
 							};
@@ -1198,7 +1200,9 @@ where
 				let mut children = Vec::new();
 				if let Some(artifact) = &node.artifact {
 					let artifact = match artifact {
-						tg::graph::object::Edge::Reference(ref_) => ref_.get(handle).await?.into(),
+						tg::graph::object::Edge::Reference(reference) => {
+							reference.get(handle).await?.into()
+						},
 						tg::graph::object::Edge::Object(artifact) => artifact.clone().into(),
 					};
 					children.push(("artifact".to_owned(), tg::Value::Object(artifact)));

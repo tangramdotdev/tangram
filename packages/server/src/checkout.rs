@@ -347,7 +347,7 @@ impl Server {
 		match edge {
 			// If this is a reference, load the graph and find it.
 			tg::graph::data::Edge::Reference(reference) => {
-				// Get the graph ID.
+				// Get the graph.
 				let graph = reference
 					.graph
 					.as_ref()
@@ -388,7 +388,7 @@ impl Server {
 						store.try_get_object_data_sync(&id.clone().into())?
 					},
 					crate::Store::Memory(store) => store.try_get_object_data(&id.clone().into())?,
-					_ => return Err(tg::error!("not yet implemented")),
+					_ => return Err(tg::error!("unimplemented")),
 				}
 				.ok_or_else(
 					|| tg::error!(%root = state.artifact, %id = id.clone(), "expected the object to be stored"),
@@ -397,13 +397,16 @@ impl Server {
 				match data {
 					// Handle the case where this points into a graph.
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
-						ref_,
+						reference,
 					))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(ref_))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(ref_)) => {
-						// Ignore the computed ID here so the optimizer elides the computation internally.
-						let (_, node, graph) =
-							self.checkout_get_node(state, &tg::graph::data::Edge::Reference(ref_))?;
+					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(reference))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
+						reference,
+					)) => {
+						let (_, node, graph) = self.checkout_get_node(
+							state,
+							&tg::graph::data::Edge::Reference(reference),
+						)?;
 						Ok((id.clone(), node, graph))
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
@@ -432,7 +435,7 @@ impl Server {
 		let data = match &self.store {
 			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
 			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
-			_ => return Err(tg::error!("not yet implemented")),
+			_ => return Err(tg::error!("unimplemented")),
 		}
 		.ok_or_else(|| tg::error!("expected the object to be stored"))?
 		.try_into()
@@ -453,9 +456,9 @@ impl Server {
 		std::fs::create_dir_all(&path).unwrap();
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
-			if let tg::graph::data::Edge::Reference(edge) = &mut edge {
-				if edge.graph.is_none() {
-					edge.graph = graph.cloned();
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+				if reference.graph.is_none() {
+					reference.graph = graph.cloned();
 				}
 			}
 			let path = path.join(name);
@@ -490,9 +493,9 @@ impl Server {
 			};
 
 			// Update the graph if necessarsy.
-			if let tg::graph::data::Edge::Reference(edge) = &mut edge {
-				if edge.graph.is_none() {
-					edge.graph = graph.cloned();
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+				if reference.graph.is_none() {
+					reference.graph = graph.cloned();
 				}
 			}
 
@@ -602,10 +605,10 @@ impl Server {
 		let target = if let Some(mut edge) = artifact.clone() {
 			let mut target = PathBuf::new();
 
-			// Update the graph ID if necessary.
-			if let tg::graph::data::Edge::Reference(edge) = &mut edge {
-				if edge.graph.is_none() {
-					edge.graph = graph.cloned();
+			// Update the graph if necessary.
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+				if reference.graph.is_none() {
+					reference.graph = graph.cloned();
 				}
 			}
 
