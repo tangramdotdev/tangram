@@ -144,7 +144,7 @@ impl Server {
 					complete,
 					commands_complete,
 					outputs_complete
-				from unnest($1) as ids (id)
+				from unnest($1::text[]) as ids (id)
 				left join processes on processes.id = ids.id;
 			",
 		);
@@ -159,9 +159,9 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<String>>(0)?;
-				let complete = row.get::<_, i64>(1) == 1;
-				let commands_complete = row.get::<_, i64>(2) == 1;
-				let outputs_complete = row.get::<_, i64>(3) == 1;
+				let complete = row.get::<_, Option<i64>>(1) == Some(1);
+				let commands_complete = row.get::<_, Option<i64>>(2) == Some(1);
+				let outputs_complete = row.get::<_, Option<i64>>(3) == Some(1);
 				let output = Output {
 					complete,
 					commands_complete,

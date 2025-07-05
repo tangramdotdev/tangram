@@ -125,7 +125,7 @@ impl Server {
 				select
 					ids.id,
 					complete
-				from unnest($1) as ids (id)
+				from unnest($1::text[]) as ids (id)
 				left join objects on objects.id = ids.id;
 			",
 		);
@@ -140,7 +140,7 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<String>>(0)?;
-				let complete = row.get::<_, i64>(1) == 1;
+				let complete = row.get::<_, Option<i64>>(1) == Some(1);
 				Some(complete)
 			})
 			.collect();
