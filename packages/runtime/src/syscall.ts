@@ -72,7 +72,7 @@ declare global {
 	function syscall(
 		syscall: "magic",
 		value: Function,
-	): tg.Command.ExecutableData;
+	): tg.Command.Data.Executable;
 
 	function syscall(
 		syscall: "object_get",

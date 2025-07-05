@@ -21,11 +21,6 @@ export namespace Module {
 
 	export type Item = string | tg.Object;
 
-	export type Data = {
-		kind: Module.Kind;
-		referent: tg.Referent.Data<tg.Object.Id>;
-	};
-
 	export let toData = (value: Module): Data => {
 		return {
 			kind: value.kind,
@@ -54,5 +49,10 @@ export namespace Module {
 		} else {
 			return [];
 		}
+	};
+
+	export type Data = {
+		kind: Module.Kind;
+		referent: tg.Referent.Data<tg.Object.Id>;
 	};
 }

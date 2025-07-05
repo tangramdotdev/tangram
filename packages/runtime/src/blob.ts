@@ -4,14 +4,14 @@ import { unindent } from "./template.ts";
 export async function blob(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
-): Promise<Blob>;
-export async function blob(...args: tg.Args<Blob.Arg>): Promise<Blob>;
+): Promise<tg.Blob>;
+export async function blob(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
 export async function blob(
 	firstArg:
 		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Blob.Arg>>,
-	...args: tg.Args<Blob.Arg>
-): Promise<Blob> {
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>,
+	...args: tg.Args<tg.Blob.Arg>
+): Promise<tg.Blob> {
 	return await inner(false, firstArg, ...args);
 }
 
@@ -19,8 +19,8 @@ async function inner(
 	raw: boolean,
 	firstArg:
 		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Blob.Arg>>,
-	...args: tg.Args<Blob.Arg>
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>,
+	...args: tg.Args<tg.Blob.Arg>
 ): Promise<tg.Blob> {
 	if (Array.isArray(firstArg) && "raw" in firstArg) {
 		let strings = firstArg;
@@ -37,51 +37,51 @@ async function inner(
 		if (!raw) {
 			string = unindent([string]).join("");
 		}
-		return await Blob.new(string);
+		return await tg.Blob.new(string);
 	} else {
-		return await Blob.new(firstArg as tg.Blob.Arg, ...args);
+		return await tg.Blob.new(firstArg as tg.Blob.Arg, ...args);
 	}
 }
 
 export class Blob {
-	#state: Blob.State;
+	#state: tg.Blob.State;
 
-	constructor(state: Blob.State) {
+	constructor(state: tg.Blob.State) {
 		this.#state = state;
 	}
 
-	get state(): Blob.State {
+	get state(): tg.Blob.State {
 		return this.#state;
 	}
 
-	static withId(id: Blob.Id): Blob {
-		return new Blob({ id, stored: true });
+	static withId(id: tg.Blob.Id): tg.Blob {
+		return new tg.Blob({ id, stored: true });
 	}
 
-	static withObject(object: Blob.Object): Blob {
-		return new Blob({ object, stored: false });
+	static withObject(object: tg.Blob.Object): tg.Blob {
+		return new tg.Blob({ object, stored: false });
 	}
 
-	static fromData(data: Blob.Data): Blob {
-		return Blob.withObject(Blob.Object.fromData(data));
+	static fromData(data: tg.Blob.Data): tg.Blob {
+		return tg.Blob.withObject(Blob.Object.fromData(data));
 	}
 
-	static async new(...args: tg.Args<Blob.Arg>): Promise<Blob> {
-		let arg = await Blob.arg(...args);
-		let blob: Blob;
+	static async new(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
+		let arg = await tg.Blob.arg(...args);
+		let blob: tg.Blob;
 		if (!arg.children || arg.children.length === 0) {
-			blob = Blob.withObject({ bytes: new Uint8Array() });
+			blob = tg.Blob.withObject({ bytes: new Uint8Array() });
 		} else if (arg.children.length === 1) {
 			blob = arg.children[0]!.blob;
 		} else {
-			blob = Blob.withObject({ children: arg.children });
+			blob = tg.Blob.withObject({ children: arg.children });
 		}
 		return blob;
 	}
 
 	static async leaf(
 		...args: tg.Args<undefined | string | Uint8Array | tg.Blob>
-	): Promise<Blob> {
+	): Promise<tg.Blob> {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let objects = await Promise.all(
 			resolved.map(async (arg) => {
@@ -107,15 +107,15 @@ export class Blob {
 			offset += entry.byteLength;
 		}
 		let object = { bytes };
-		return Blob.withObject(object);
+		return tg.Blob.withObject(object);
 	}
 
-	static async branch(...args: tg.Args<Blob.Arg>): Promise<Blob> {
-		let arg = await Blob.arg(...args);
-		return Blob.withObject({ children: arg.children ?? [] });
+	static async branch(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
+		let arg = await tg.Blob.arg(...args);
+		return tg.Blob.withObject({ children: arg.children ?? [] });
 	}
 
-	static async arg(...args: tg.Args<Blob.Arg>): Promise<Blob.ArgObject> {
+	static async arg(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob.Arg.Object> {
 		return await tg.Args.apply({
 			args,
 			map: async (arg) => {
@@ -123,15 +123,15 @@ export class Blob {
 					return { children: [] };
 				} else if (typeof arg === "string") {
 					let bytes = tg.encoding.utf8.encode(arg);
-					let blob = Blob.withObject({ bytes });
+					let blob = tg.Blob.withObject({ bytes });
 					let length = bytes.length;
 					return { children: [{ blob, length }] };
 				} else if (arg instanceof Uint8Array) {
 					let bytes = arg;
-					let blob = Blob.withObject({ bytes });
+					let blob = tg.Blob.withObject({ bytes });
 					let length = bytes.length;
 					return { children: [{ blob, length }] };
-				} else if (arg instanceof Blob) {
+				} else if (arg instanceof tg.Blob) {
 					let length = await arg.length();
 					let child = { blob: arg, length };
 					return {
@@ -147,27 +147,27 @@ export class Blob {
 		});
 	}
 
-	static expect(value: unknown): Blob {
-		tg.assert(value instanceof Blob);
+	static expect(value: unknown): tg.Blob {
+		tg.assert(value instanceof tg.Blob);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is Blob {
-		tg.assert(value instanceof Blob);
+	static assert(value: unknown): asserts value is tg.Blob {
+		tg.assert(value instanceof tg.Blob);
 	}
 
-	get id(): Blob.Id {
+	get id(): tg.Blob.Id {
 		if (this.#state.id! !== undefined) {
 			return this.#state.id;
 		}
 		let object = this.#state.object!;
-		let data = Blob.Object.toData(object);
+		let data = tg.Blob.Object.toData(object);
 		let id = syscall("object_id", { kind: "blob", value: data });
 		this.#state.id = id;
 		return id;
 	}
 
-	async object(): Promise<Blob.Object> {
+	async object(): Promise<tg.Blob.Object> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -176,7 +176,7 @@ export class Blob {
 		if (this.#state.object === undefined) {
 			let data = await syscall("object_get", this.#state.id!);
 			tg.assert(data.kind === "blob");
-			let object = Blob.Object.fromData(data.value);
+			let object = tg.Blob.Object.fromData(data.value);
 			this.#state.object = object;
 		}
 		return this.#state.object!;
@@ -203,7 +203,7 @@ export class Blob {
 		}
 	}
 
-	async read(arg?: Blob.ReadArg): Promise<Uint8Array> {
+	async read(arg?: tg.Blob.ReadArg): Promise<Uint8Array> {
 		let id = await this.store();
 		return await syscall("blob_read", id, arg ?? {});
 	}
@@ -218,33 +218,27 @@ export class Blob {
 }
 
 export namespace Blob {
-	export type Arg = undefined | string | Uint8Array | tg.Blob | ArgObject;
-
-	export type ArgObject = {
-		children?: Array<Child> | undefined;
-	};
-
 	export type Id = string;
 
 	export type State = tg.Object.State<tg.Blob.Id, tg.Blob.Object>;
 
-	export type Object = Leaf | Branch;
+	export type Arg =
+		| undefined
+		| string
+		| Uint8Array
+		| tg.Blob
+		| tg.Blob.Arg.Object;
 
-	export type Leaf = {
-		bytes: Uint8Array;
-	};
+	export namespace Arg {
+		export type Object = {
+			children?: Array<tg.Blob.Child> | undefined;
+		};
+	}
 
-	export type Branch = {
-		children: Array<Child>;
-	};
-
-	export type Child = {
-		blob: Blob;
-		length: number;
-	};
+	export type Object = tg.Blob.Leaf | tg.Blob.Branch;
 
 	export namespace Object {
-		export let toData = (object: Object): Data => {
+		export let toData = (object: tg.Blob.Object): tg.Blob.Data => {
 			if ("bytes" in object) {
 				return {
 					bytes: tg.encoding.base64.encode(object.bytes),
@@ -259,7 +253,7 @@ export namespace Blob {
 			}
 		};
 
-		export let fromData = (data: Data): Object => {
+		export let fromData = (data: tg.Blob.Data): tg.Blob.Object => {
 			if ("bytes" in data) {
 				return {
 					bytes: tg.encoding.base64.decode(data.bytes),
@@ -274,7 +268,7 @@ export namespace Blob {
 			}
 		};
 
-		export let children = (object: Object): Array<tg.Object> => {
+		export let children = (object: tg.Blob.Object): Array<tg.Object> => {
 			if ("children" in object) {
 				return object.children.map(({ blob }) => blob);
 			} else {
@@ -283,20 +277,35 @@ export namespace Blob {
 		};
 	}
 
-	export type Data = LeafData | BranchData;
-
-	export type LeafData = {
-		bytes: string;
+	export type Leaf = {
+		bytes: Uint8Array;
 	};
 
-	export type BranchData = {
-		children: Array<ChildData>;
+	export type Branch = {
+		children: Array<tg.Blob.Child>;
 	};
 
-	export type ChildData = {
-		blob: Blob.Id;
+	export type Child = {
+		blob: tg.Blob;
 		length: number;
 	};
+
+	export type Data = tg.Blob.Data.Leaf | tg.Blob.Data.Branch;
+
+	export namespace Data {
+		export type Leaf = {
+			bytes: string;
+		};
+
+		export type Branch = {
+			children: Array<tg.Blob.Data.Child>;
+		};
+
+		export type Child = {
+			blob: tg.Blob.Id;
+			length: number;
+		};
+	}
 
 	export type ReadArg = {
 		position?: number | string | undefined;
@@ -306,7 +315,7 @@ export namespace Blob {
 	export let raw = async (
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<string>
-	): Promise<Blob> => {
+	): Promise<tg.Blob> => {
 		return await inner(true, strings, ...placeholders);
 	};
 }

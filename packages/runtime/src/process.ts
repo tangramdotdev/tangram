@@ -92,18 +92,12 @@ export class Process {
 }
 
 export namespace Process {
+	export type Id = string;
+
 	export type ConstructorArg = {
 		id: tg.Process.Id;
 		remote?: string | undefined;
 		state?: State | undefined;
-	};
-
-	export type Id = string;
-
-	export type Mount = {
-		source: string;
-		target: string;
-		readonly?: boolean;
 	};
 
 	export type BuildArg =
@@ -119,7 +113,7 @@ export namespace Process {
 		checksum?: tg.Checksum | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeMutationMap | undefined;
-		executable?: tg.Command.ExecutableArg | undefined;
+		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
 		mounts?: Array<tg.Command.Mount> | undefined;
 		network?: boolean | undefined;
@@ -140,7 +134,7 @@ export namespace Process {
 		checksum?: tg.Checksum | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeMutationMap | undefined;
-		executable?: tg.Command.ExecutableArg | undefined;
+		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
 		mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
 		network?: boolean | undefined;
@@ -216,6 +210,19 @@ export namespace Process {
 		};
 	}
 
+	export type Mount = {
+		source: string;
+		target: string;
+		readonly?: boolean;
+	};
+
+	export type Status =
+		| "created"
+		| "enqueued"
+		| "dequeued"
+		| "started"
+		| "finished";
+
 	export type Data = {
 		command: tg.Command.Id;
 		error?: tg.Error.Data;
@@ -228,13 +235,6 @@ export namespace Process {
 		stdin?: string;
 		stdout?: string;
 	};
-
-	export type Status =
-		| "created"
-		| "enqueued"
-		| "dequeued"
-		| "started"
-		| "finished";
 
 	export type WaitOutput = {
 		error: tg.Error | undefined;

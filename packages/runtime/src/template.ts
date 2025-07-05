@@ -2,17 +2,17 @@ import * as tg from "./index.ts";
 
 export async function template(
 	strings: TemplateStringsArray,
-	...placeholders: tg.Args<Template.Arg>
-): Promise<Template>;
+	...placeholders: tg.Args<tg.Template.Arg>
+): Promise<tg.Template>;
 export async function template(
-	...args: tg.Args<Template.Arg>
-): Promise<Template>;
+	...args: tg.Args<tg.Template.Arg>
+): Promise<tg.Template>;
 export async function template(
 	firstArg:
 		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Template.Arg>>,
-	...args: tg.Args<Template.Arg>
-): Promise<Template> {
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Template.Arg>>,
+	...args: tg.Args<tg.Template.Arg>
+): Promise<tg.Template> {
 	return await inner(false, firstArg, ...args);
 }
 
@@ -20,12 +20,12 @@ async function inner(
 	raw: boolean,
 	firstArg:
 		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<Template.Arg>>,
-	...args: tg.Args<Template.Arg>
-): Promise<Template> {
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Template.Arg>>,
+	...args: tg.Args<tg.Template.Arg>
+): Promise<tg.Template> {
 	if (Array.isArray(firstArg) && "raw" in firstArg) {
 		let strings = !raw ? unindent(firstArg) : firstArg;
-		let placeholders = args as tg.Args<Template>;
+		let placeholders = args as tg.Args<tg.Template>;
 		let components = [];
 		for (let i = 0; i < strings.length - 1; i++) {
 			let string = strings[i]!;
@@ -34,20 +34,23 @@ async function inner(
 			components.push(placeholder);
 		}
 		components.push(strings[strings.length - 1]!);
-		return await Template.new(...components);
+		return await tg.Template.new(...components);
 	} else {
-		return await Template.new(firstArg as tg.Unresolved<Template.Arg>, ...args);
+		return await tg.Template.new(
+			firstArg as tg.Unresolved<tg.Template.Arg>,
+			...args,
+		);
 	}
 }
 
 export class Template {
-	#components: Array<Template.Component>;
+	#components: Array<tg.Template.Component>;
 
-	constructor(components: Array<Template.Component>) {
+	constructor(components: Array<tg.Template.Component>) {
 		this.#components = components;
 	}
 
-	static async new(...args: tg.Args<Template.Arg>): Promise<Template> {
+	static async new(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template> {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let components = (
 			await Promise.all(
@@ -62,7 +65,7 @@ export class Template {
 				}),
 			)
 		).flat(1);
-		let components_ = components.reduce<Array<Template.Component>>(
+		let components_ = components.reduce<Array<tg.Template.Component>>(
 			(components, component) => {
 				let lastComponent = components.at(-1);
 				if (component === "") {
@@ -80,19 +83,19 @@ export class Template {
 			},
 			[],
 		);
-		return new Template(components_);
+		return new tg.Template(components_);
 	}
 
-	static expect(value: unknown): Template {
-		tg.assert(value instanceof Template);
+	static expect(value: unknown): tg.Template {
+		tg.assert(value instanceof tg.Template);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is Template {
-		tg.assert(value instanceof Template);
+	static assert(value: unknown): asserts value is tg.Template {
+		tg.assert(value instanceof tg.Template);
 	}
 
-	static toData(value: Template): Template.Data {
+	static toData(value: tg.Template): tg.Template.Data {
 		return {
 			components: value.components.map((component) => {
 				if (typeof component === "string") {
@@ -104,8 +107,8 @@ export class Template {
 		};
 	}
 
-	static fromData(data: Template.Data): Template {
-		return new Template(
+	static fromData(data: tg.Template.Data): tg.Template {
+		return new tg.Template(
 			data.components.map((component) => {
 				if (component.kind === "string") {
 					return component.value;
@@ -127,9 +130,9 @@ export class Template {
 	}
 
 	static async join(
-		separator: tg.Unresolved<Template.Arg>,
-		...args: tg.Args<Template.Arg>
-	): Promise<Template> {
+		separator: tg.Unresolved<tg.Template.Arg>,
+		...args: tg.Args<tg.Template.Arg>
+	): Promise<tg.Template> {
 		let separatorTemplate = await template(separator);
 		let argTemplates = await Promise.all(args.map((arg) => template(arg)));
 		argTemplates = argTemplates.filter((arg) => arg.components.length > 0);
@@ -145,28 +148,30 @@ export class Template {
 		return template(...templates);
 	}
 
-	get components(): Array<Template.Component> {
+	get components(): Array<tg.Template.Component> {
 		return [...this.#components];
 	}
 }
 
 export namespace Template {
-	export type Arg = undefined | Component | Template;
-
-	export type Data = {
-		components: Array<ComponentData>;
-	};
+	export type Arg = undefined | tg.Template.Component | tg.Template;
 
 	export type Component = string | tg.Artifact;
 
-	export type ComponentData =
-		| { kind: "string"; value: string }
-		| { kind: "artifact"; value: tg.Artifact.Id };
+	export type Data = {
+		components: Array<tg.Template.Data.Component>;
+	};
+
+	export namespace Data {
+		export type Component =
+			| { kind: "string"; value: string }
+			| { kind: "artifact"; value: tg.Artifact.Id };
+	}
 
 	export let raw = async (
 		strings: TemplateStringsArray,
-		...placeholders: tg.Args<Template.Arg>
-	): Promise<Template> => {
+		...placeholders: tg.Args<tg.Template.Arg>
+	): Promise<tg.Template> => {
 		return await inner(true, strings, ...placeholders);
 	};
 }

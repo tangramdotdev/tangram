@@ -22,7 +22,7 @@ pub enum Node {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Directory {
-	pub entries: BTreeMap<String, Edge<tg::artifact::Id>>,
+	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -31,7 +31,7 @@ pub struct File {
 	pub contents: Option<tg::blob::Id>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Edge<tg::object::Id>>>,
+	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub executable: bool,
@@ -40,23 +40,23 @@ pub struct File {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Symlink {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<Edge<tg::artifact::Id>>,
+	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
 #[derive(
-	Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap, derive_more::Unwrap,
+	Clone, Debug, derive_more::TryUnwrap, derive_more::Unwrap, serde::Deserialize, serde::Serialize,
 )]
 #[serde(untagged)]
-pub enum Edge<T: std::str::FromStr + std::fmt::Display> {
+pub enum Edge<T> {
 	Graph(Ref),
 	Object(T),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(from = "RefRepr", into = "RefRepr")]
+#[serde(from = "ReferenceSerde", into = "ReferenceSerde")]
 pub struct Ref {
 	pub graph: Option<tg::graph::Id>,
 	pub node: usize,
@@ -118,18 +118,6 @@ impl Node {
 			Self::Directory(_) => tg::artifact::Kind::Directory,
 			Self::File(_) => tg::artifact::Kind::File,
 			Self::Symlink(_) => tg::artifact::Kind::Symlink,
-		}
-	}
-}
-
-impl<T> std::fmt::Display for Edge<T>
-where
-	T: std::str::FromStr + std::fmt::Display,
-{
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Graph(edge) => edge.fmt(f),
-			Self::Object(edge) => edge.fmt(f),
 		}
 	}
 }
@@ -202,31 +190,31 @@ impl From<tg::graph::object::Edge<tg::Artifact>> for Edge<tg::artifact::Id> {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
-enum RefRepr {
-	Ref { graph: tg::graph::Id, node: usize },
-	Node(usize),
+enum ReferenceSerde {
+	Number(usize),
+	Object {
+		graph: Option<tg::graph::Id>,
+		node: usize,
+	},
 }
 
-impl From<RefRepr> for Ref {
-	fn from(value: RefRepr) -> Self {
+impl From<ReferenceSerde> for Ref {
+	fn from(value: ReferenceSerde) -> Self {
 		match value {
-			RefRepr::Ref { graph, node } => Ref {
-				graph: Some(graph),
-				node,
-			},
-			RefRepr::Node(node) => Ref { graph: None, node },
+			ReferenceSerde::Object { graph, node } => Ref { graph, node },
+			ReferenceSerde::Number(node) => Ref { graph: None, node },
 		}
 	}
 }
-impl From<Ref> for RefRepr {
+
+impl From<Ref> for ReferenceSerde {
 	fn from(value: Ref) -> Self {
-		if let Some(graph) = value.graph {
-			Self::Ref {
-				graph,
+		match value.graph {
+			None => Self::Number(value.node),
+			Some(graph) => Self::Object {
+				graph: Some(graph),
 				node: value.node,
-			}
-		} else {
-			Self::Node(value.node)
+			},
 		}
 	}
 }
