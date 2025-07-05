@@ -1,34 +1,36 @@
 import * as tg from "./index.ts";
 
-export let graph = async (...args: tg.Args<Graph.Arg>): Promise<Graph> => {
-	return await Graph.new(...args);
+export let graph = async (
+	...args: tg.Args<tg.Graph.Arg>
+): Promise<tg.Graph> => {
+	return await tg.Graph.new(...args);
 };
 
 export class Graph {
-	#state: Graph.State;
+	#state: tg.Graph.State;
 
-	constructor(state: Graph.State) {
+	constructor(state: tg.Graph.State) {
 		this.#state = state;
 	}
 
-	get state(): Graph.State {
+	get state(): tg.Graph.State {
 		return this.#state;
 	}
 
-	static withId(id: Graph.Id): Graph {
-		return new Graph({ id, stored: true });
+	static withId(id: tg.Graph.Id): tg.Graph {
+		return new tg.Graph({ id, stored: true });
 	}
 
-	static withObject(object: Graph.Object): Graph {
-		return new Graph({ object, stored: false });
+	static withObject(object: tg.Graph.Object): tg.Graph {
+		return new tg.Graph({ object, stored: false });
 	}
 
-	static fromData(data: Graph.Data): Graph {
-		return Graph.withObject(Graph.Object.fromData(data));
+	static fromData(data: tg.Graph.Data): tg.Graph {
+		return tg.Graph.withObject(tg.Graph.Object.fromData(data));
 	}
 
-	static async new(...args: tg.Args<Graph.Arg>): Promise<Graph> {
-		let arg = await Graph.arg(...args);
+	static async new(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph> {
+		let arg = await tg.Graph.arg(...args);
 		let nodes = await Promise.all(
 			(arg.nodes ?? []).map(async (node) => {
 				if (node.kind === "directory") {
@@ -43,9 +45,9 @@ export class Graph {
 						dependencies: Object.fromEntries(
 							Object.entries(node.dependencies ?? {}).map(([key, value]) => {
 								if (
-									tg.Object.is(value) ||
 									typeof value === "number" ||
-									"node" in value
+									"node" in value ||
+									tg.Object.is(value)
 								) {
 									value = { item: value };
 								}
@@ -65,23 +67,25 @@ export class Graph {
 				}
 			}),
 		);
-		return Graph.withObject({ nodes });
+		return tg.Graph.withObject({ nodes });
 	}
 
-	static async arg(...args: tg.Args<Graph.Arg>): Promise<Graph.ArgObject> {
+	static async arg(
+		...args: tg.Args<tg.Graph.Arg>
+	): Promise<tg.Graph.Arg.Object> {
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let nodes = [];
 		let offset = 0;
 		for (let arg of resolved) {
 			let argNodes =
-				arg instanceof Graph
+				arg instanceof tg.Graph
 					? await arg.nodes()
 					: Array.isArray(arg.nodes)
 						? arg.nodes
 						: [];
 			for (let argNode of argNodes) {
 				if (argNode.kind === "directory") {
-					let node: tg.Graph.DirectoryNodeArg = { kind: "directory" as const };
+					let node: tg.Graph.Arg.DirectoryNode = { kind: "directory" };
 					if ("entries" in argNode) {
 						if (argNode.entries !== undefined) {
 							node.entries = {};
@@ -90,9 +94,9 @@ export class Graph {
 								if (typeof entry === "number") {
 									node.entries[name] = entry + offset;
 								} else if (
-									entry !== undefined &&
+									typeof entry === "object" &&
 									"node" in entry &&
-									!entry.graph
+									entry.graph === undefined
 								) {
 									entry.node += offset;
 									node.entries[name] = entry;
@@ -106,26 +110,27 @@ export class Graph {
 					}
 					nodes.push(node);
 				} else if (argNode.kind === "file") {
-					let node: tg.Graph.FileNodeArg = {
+					let node: tg.Graph.Arg.FileNode = {
 						kind: "file" as const,
-						contents: argNode.contents,
 					};
+					if ("contents" in argNode) {
+						node.contents = argNode.contents;
+					}
 					if ("dependencies" in argNode) {
 						if (argNode.dependencies !== undefined) {
 							node.dependencies = {};
 							for (let reference in argNode.dependencies) {
-								let referent: tg.Referent<tg.Graph.Object.Edge<tg.Object>>;
 								let value = argNode.dependencies[reference]!;
+								let referent: tg.Referent<tg.Graph.Arg.Edge<tg.Object>>;
 								if (
-									tg.Object.is(value) ||
 									typeof value === "number" ||
-									"node" in value
+									"node" in value ||
+									tg.Object.is(value)
 								) {
 									referent = { item: value };
 								} else {
 									referent = value;
 								}
-								argNode.dependencies[reference];
 								if (typeof referent.item === "number") {
 									node.dependencies[reference] = {
 										...referent,
@@ -152,23 +157,23 @@ export class Graph {
 					}
 					nodes.push(node);
 				} else if (argNode.kind === "symlink") {
-					let edge: tg.Graph.Object.Edge<tg.Artifact> | undefined;
+					let artifact: tg.Graph.Edge<tg.Artifact> | undefined;
 					if (typeof argNode.artifact === "number") {
-						edge = argNode.artifact + offset;
+						artifact = argNode.artifact + offset;
 					} else if (
 						argNode.artifact !== undefined &&
 						"node" in argNode.artifact
 					) {
-						edge = {
-							...argNode.artifact,
+						artifact = {
+							graph: argNode.artifact.graph,
 							node: argNode.artifact.node + offset,
 						};
 					} else {
-						edge = argNode.artifact;
+						artifact = argNode.artifact;
 					}
 					nodes.push({
 						kind: "symlink" as const,
-						artifact: edge,
+						artifact: artifact,
 						path: argNode.path,
 					});
 				} else {
@@ -180,43 +185,27 @@ export class Graph {
 		return { nodes };
 	}
 
-	static expect(value: unknown): Graph {
-		tg.assert(value instanceof Graph);
+	static expect(value: unknown): tg.Graph {
+		tg.assert(value instanceof tg.Graph);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is Graph {
-		tg.assert(value instanceof Graph);
+	static assert(value: unknown): asserts value is tg.Graph {
+		tg.assert(value instanceof tg.Graph);
 	}
 
-	get id(): Graph.Id {
+	get id(): tg.Graph.Id {
 		if (this.#state.id! !== undefined) {
 			return this.#state.id;
 		}
 		let object = this.#state.object!;
-		let data = Graph.Object.toData(object);
+		let data = tg.Graph.Object.toData(object);
 		let id = syscall("object_id", { kind: "graph", value: data });
 		this.#state.id = id;
 		return id;
 	}
 
-	async get(index: number): Promise<tg.Artifact> {
-		const node = (await this.nodes())[index];
-		tg.assert(node !== undefined, "invalid graph index");
-		switch (node.kind) {
-			case "directory": {
-				return tg.Directory.withObject({ graph: this, node: index });
-			}
-			case "file": {
-				return tg.File.withObject({ graph: this, node: index });
-			}
-			case "symlink": {
-				return tg.Symlink.withObject({ graph: this, node: index });
-			}
-		}
-	}
-
-	async object(): Promise<Graph.Object> {
+	async object(): Promise<tg.Graph.Object> {
 		await this.load();
 		return this.#state.object!;
 	}
@@ -225,7 +214,7 @@ export class Graph {
 		if (this.#state.object === undefined) {
 			let data = await syscall("object_get", this.#state.id!);
 			tg.assert(data.kind === "graph");
-			let object = Graph.Object.fromData(data.value);
+			let object = tg.Graph.Object.fromData(data.value);
 			this.#state.object = object;
 		}
 		return this.#state.object!;
@@ -241,322 +230,423 @@ export class Graph {
 		return tg.Graph.Object.children(object);
 	}
 
-	async nodes(): Promise<Array<Graph.Node>> {
+	async nodes(): Promise<Array<tg.Graph.Node>> {
 		return (await this.object()).nodes;
+	}
+
+	async get(index: number): Promise<tg.Artifact> {
+		let nodes = await this.nodes();
+		let node = nodes[index];
+		tg.assert(node !== undefined, "invalid graph index");
+		switch (node.kind) {
+			case "directory": {
+				return tg.Directory.withObject({ graph: this, node: index });
+			}
+			case "file": {
+				return tg.File.withObject({ graph: this, node: index });
+			}
+			case "symlink": {
+				return tg.Symlink.withObject({ graph: this, node: index });
+			}
+		}
 	}
 }
 
 export namespace Graph {
 	export type Id = string;
 
-	export type Arg = Graph | ArgObject;
+	export type State = tg.Object.State<tg.Graph.Id, tg.Graph.Object>;
 
-	export type ArgObject = {
-		nodes?: Array<NodeArg> | undefined;
-	};
+	export type Arg = tg.Graph | tg.Graph.Arg.Object;
 
-	export type NodeArg = DirectoryNodeArg | FileNodeArg | SymlinkNodeArg;
+	export namespace Arg {
+		export type Object = {
+			nodes?: Array<tg.Graph.Arg.Node> | undefined;
+		};
 
-	export type Ref = {
-		graph?: Graph | undefined;
-		node: number;
-	};
+		export type Node =
+			| tg.Graph.Arg.DirectoryNode
+			| tg.Graph.Arg.FileNode
+			| tg.Graph.Arg.SymlinkNode;
+		export type DirectoryNode = { kind: "directory" } & tg.Graph.Arg.Directory;
+		export type FileNode = { kind: "file" } & tg.Graph.Arg.File;
+		export type SymlinkNode = { kind: "symlink" } & tg.Graph.Arg.Symlink;
 
-	export type DirectoryNodeArg = {
-		kind: "directory";
-		entries?: { [name: string]: Object.Edge<tg.Artifact> } | undefined;
-	};
+		export type Directory = {
+			entries?: { [name: string]: tg.Graph.Arg.Edge<tg.Artifact> } | undefined;
+		};
 
-	export type FileNodeArg = {
-		kind: "file";
-		contents: tg.Blob.Arg;
-		dependencies?:
-			| { [reference: tg.Reference]: tg.MaybeReferent<Object.Edge<tg.Object>> }
-			| undefined;
-		executable?: boolean | undefined;
-	};
+		export type File = {
+			contents?: tg.Blob.Arg | undefined;
+			dependencies?:
+				| {
+						[reference: tg.Reference]: tg.MaybeReferent<
+							tg.Graph.Arg.Edge<tg.Object>
+						>;
+				  }
+				| undefined;
+			executable?: boolean | undefined;
+		};
 
-	export type SymlinkNodeArg = {
-		kind: "symlink";
-		artifact?: Object.Edge<tg.Artifact> | undefined;
-		path?: string | undefined;
-	};
+		export type Symlink = {
+			artifact?: tg.Graph.Arg.Edge<tg.Artifact> | undefined;
+			path?: string | undefined;
+		};
+
+		export type Edge<T> = number | tg.Graph.Arg.Reference | T;
+
+		export type Reference = {
+			graph?: tg.Graph | undefined;
+			node: number;
+		};
+	}
 
 	export type Object = {
 		nodes: Array<Node>;
 	};
 
-	export type Node = DirectoryNode | FileNode | SymlinkNode;
-
-	export type DirectoryNode = {
-		kind: "directory";
-		entries: { [name: string]: Object.Edge<tg.Artifact> };
-	};
-
-	export type FileNode = {
-		kind: "file";
-		contents: tg.Blob;
-		dependencies: {
-			[reference: tg.Reference]: tg.Referent<Object.Edge<tg.Object>>;
-		};
-		executable: boolean;
-	};
-
-	export type SymlinkNode = {
-		kind: "symlink";
-		artifact: Object.Edge<tg.Artifact> | undefined;
-		path: string | undefined;
-	};
-
 	export namespace Object {
-		export type Edge<T> = Ref | T | number;
-		export type Ref = {
-			graph?: tg.Graph | undefined;
-			node: number;
-		};
-		export let toData = (object: Object): Data => {
+		export let toData = (object: tg.Graph.Object): tg.Graph.Data => {
 			return {
-				nodes: object.nodes.map(Node.toData),
+				nodes: object.nodes.map(tg.Graph.Node.toData),
 			};
 		};
 
-		export let fromData = (data: Data): Object => {
+		export let fromData = (data: tg.Graph.Data): tg.Graph.Object => {
 			return {
-				nodes: data.nodes.map(Node.fromData),
+				nodes: data.nodes.map(tg.Graph.Node.fromData),
 			};
 		};
 
-		export let children = (object: Object): Array<tg.Object> => {
+		export let children = (object: tg.Graph.Object): Array<tg.Object> => {
 			return object.nodes.flatMap(tg.Graph.Node.children);
 		};
 	}
 
-	export namespace Data {
-		export type Edge<T> = Ref | T | number;
-		export type Ref = {
-			graph?: tg.Graph.Id | undefined;
-			node: number;
-		};
-	}
-
-	export namespace Edge {
-		export const toData = <T, U>(
-			edge: Object.Edge<T>,
-			f: (item: T) => U,
-		): Data.Edge<U> => {
-			tg.assert(edge !== null);
-			if (typeof edge === "number") {
-				return edge;
-			}
-			if (typeof edge === "object" && "node" in edge) {
-				return { graph: edge.graph?.id, node: edge.node };
-			}
-			return f(edge);
-		};
-
-		export const fromData = <T, U>(
-			edge: Data.Edge<T>,
-			f: (item: T) => U,
-		): Object.Edge<U> => {
-			tg.assert(edge !== null);
-			if (typeof edge === "number") {
-				return edge;
-			}
-			if (typeof edge === "object" && "node" in edge) {
-				const graph = edge.graph ? tg.Graph.withId(edge.graph) : undefined;
-				return { graph, node: edge.node };
-			}
-			return f(edge);
-		};
-	}
+	export type Node =
+		| tg.Graph.DirectoryNode
+		| tg.Graph.FileNode
+		| tg.Graph.SymlinkNode;
+	export type DirectoryNode = { kind: "directory" } & tg.Graph.Directory;
+	export type FileNode = { kind: "file" } & tg.Graph.File;
+	export type SymlinkNode = { kind: "symlink" } & tg.Graph.Symlink;
 
 	export namespace Node {
-		export let toData = (object: Node): NodeData => {
+		export let toData = (object: tg.Graph.Node): tg.Graph.Data.Node => {
 			if (object.kind === "directory") {
 				return {
 					kind: "directory",
-					entries: globalThis.Object.fromEntries(
-						globalThis.Object.entries(object.entries).map(
-							([name, artifact]) => [
-								name,
-								Edge.toData(artifact, (artifact) => artifact.id),
-							],
-						),
-					),
+					...tg.Graph.Directory.toData(object),
 				};
 			} else if (object.kind === "file") {
 				return {
 					kind: "file",
-					contents: object.contents.id,
-					dependencies: globalThis.Object.fromEntries(
-						globalThis.Object.entries(object.dependencies).map(
-							([reference, referent]) => {
-								return [
-									reference,
-									tg.Referent.toData(referent, (item) =>
-										Edge.toData(item, (item) => item.id),
-									),
-								];
-							},
-						),
-					),
-					executable: object.executable,
+					...tg.Graph.File.toData(object),
 				};
 			} else if (object.kind === "symlink") {
-				let output: SymlinkNodeData = {
+				return {
 					kind: "symlink",
+					...tg.Graph.Symlink.toData(object),
 				};
-				if (object.artifact !== undefined) {
-					output.artifact = Edge.toData(
-						object.artifact,
-						(artifact) => artifact.id,
-					);
-				}
-				if (object.path !== undefined) {
-					output.path = object.path;
-				}
-				return output;
 			} else {
-				throw new Error("invalid node node");
+				return tg.unreachable();
 			}
 		};
 
-		export let fromData = (data: NodeData): Node => {
+		export let fromData = (data: tg.Graph.Data.Node): tg.Graph.Node => {
 			if (data.kind === "directory") {
 				return {
 					kind: "directory",
-					entries: globalThis.Object.fromEntries(
-						globalThis.Object.entries(data.entries).map(([name, edge]) => [
-							name,
-							Edge.fromData(edge, tg.Artifact.withId),
-						]),
-					),
+					...tg.Graph.Directory.fromData(data),
 				};
 			} else if (data.kind === "file") {
 				return {
 					kind: "file",
-					contents: tg.Blob.withId(data.contents),
-					dependencies: globalThis.Object.fromEntries(
-						globalThis.Object.entries(data.dependencies ?? {}).map(
-							([reference, referent]) => {
-								return [
-									reference,
-									tg.Referent.fromData(referent, (item) =>
-										Edge.fromData(item, tg.Object.withId),
-									),
-								];
-							},
-						),
-					),
-					executable: data.executable ?? false,
+					...tg.Graph.File.fromData(data),
 				};
 			} else if (data.kind === "symlink") {
 				return {
 					kind: "symlink",
-					artifact:
-						data.artifact !== undefined
-							? Edge.fromData(data.artifact, tg.Artifact.withId)
-							: undefined,
-					path: data.path,
+					...tg.Graph.Symlink.fromData(data),
 				};
 			} else {
-				throw new Error("invalid node kind");
+				return tg.unreachable();
 			}
 		};
 
 		export let children = (node: Node): Array<tg.Object> => {
 			switch (node.kind) {
 				case "directory": {
-					return globalThis.Object.entries(node.entries)
-						.filter(([_, edge]) => {
-							if (typeof edge !== "object") {
-								return false;
-							}
-							if ("node" in edge) {
-								return edge.graph !== undefined;
-							}
-							return true;
-						})
-						.map(([_, edge]) => {
-							tg.assert(typeof edge === "object", "expected an object");
-							if ("node" in edge) {
-								tg.assert(edge.graph !== undefined, "missing graph");
-								return edge.graph;
-							} else {
-								return edge;
-							}
-						});
+					return tg.Graph.Directory.children(node);
 				}
 				case "file": {
-					return [
-						node.contents,
-						...globalThis.Object.entries(node.dependencies)
-							.filter(([_, referent]) => {
-								if (typeof referent.item !== "object") {
-									return false;
-								}
-								if ("node" in referent.item) {
-									return referent.item.graph !== undefined;
-								}
-								return true;
-							})
-							.map(([_, referent]) => {
-								tg.assert(
-									typeof referent.item === "object",
-									"expected an object",
-								);
-								if ("node" in referent.item) {
-									tg.assert(referent.item.graph !== undefined, "missing graph");
-									return referent.item.graph;
-								} else {
-									return referent.item;
-								}
-							}),
-					];
+					return tg.Graph.File.children(node);
 				}
 				case "symlink": {
-					if ("artifact" in node && node.artifact !== undefined) {
-						if (typeof node.artifact === "object") {
-							if ("node" in node.artifact) {
-								if (node.artifact.graph !== undefined) {
-									return [node.artifact.graph];
-								}
-							} else {
-								return [node.artifact];
-							}
-						}
-					}
-					return [];
+					return tg.Graph.Symlink.children(node);
 				}
 			}
 		};
 	}
 
-	export type Data = {
-		nodes: Array<NodeData>;
+	export type Directory = {
+		entries: { [name: string]: tg.Graph.Edge<tg.Artifact> };
 	};
 
-	export type NodeData = DirectoryNodeData | FileNodeData | SymlinkNodeData;
-
-	export type DirectoryNodeData = {
-		kind: "directory";
-		entries: { [name: string]: Data.Edge<tg.Artifact.Id> };
-	};
-
-	export type FileNodeData = {
-		kind: "file";
-		contents: tg.Blob.Id;
-		dependencies?: {
-			[reference: tg.Reference]: tg.Referent.Data<Data.Edge<tg.Object.Id>>;
+	export namespace Directory {
+		export let toData = (
+			object: tg.Graph.Directory,
+		): tg.Graph.Data.Directory => {
+			let data: tg.Graph.Data.Directory = {};
+			if (globalThis.Object.entries(object.entries).length > 0) {
+				data.entries = globalThis.Object.fromEntries(
+					globalThis.Object.entries(object.entries).map(([name, artifact]) => [
+						name,
+						tg.Graph.Edge.toData(artifact, (artifact) => artifact.id),
+					]),
+				);
+			}
+			return data;
 		};
-		executable?: boolean;
+
+		export let fromData = (
+			data: tg.Graph.Data.Directory,
+		): tg.Graph.Directory => {
+			return {
+				entries: globalThis.Object.fromEntries(
+					globalThis.Object.entries(data.entries ?? {}).map(([name, edge]) => [
+						name,
+						tg.Graph.Edge.fromData(edge, tg.Artifact.withId),
+					]),
+				),
+			};
+		};
+
+		export let children = (object: tg.Graph.Directory): Array<tg.Object> => {
+			return globalThis.Object.entries(object.entries).flatMap(([_, edge]) =>
+				tg.Graph.Edge.children(edge),
+			);
+		};
+	}
+
+	export type File = {
+		contents: tg.Blob;
+		dependencies: {
+			[reference: tg.Reference]: tg.Referent<tg.Graph.Edge<tg.Object>>;
+		};
+		executable: boolean;
 	};
 
-	export type SymlinkNodeData = {
-		kind: "symlink";
-		artifact?: Data.Edge<tg.Artifact.Id>;
-		path?: string;
+	export namespace File {
+		export let toData = (object: tg.Graph.File): tg.Graph.Data.File => {
+			let data: tg.Graph.Data.File = {};
+			data.contents = object.contents.id;
+			if (globalThis.Object.entries(object.dependencies).length > 0) {
+				data.dependencies = globalThis.Object.fromEntries(
+					globalThis.Object.entries(object.dependencies).map(
+						([reference, referent]) => {
+							return [
+								reference,
+								tg.Referent.toData(referent, (item) =>
+									tg.Graph.Edge.toData(item, (item) => item.id),
+								),
+							];
+						},
+					),
+				);
+			}
+			if (object.executable !== false) {
+				data.executable = object.executable;
+			}
+			return data;
+		};
+
+		export let fromData = (data: tg.Graph.Data.File): tg.Graph.File => {
+			tg.assert(data.contents !== undefined);
+			return {
+				contents: tg.Blob.withId(data.contents),
+				dependencies: globalThis.Object.fromEntries(
+					globalThis.Object.entries(data.dependencies ?? {}).map(
+						([reference, referent]) => {
+							return [
+								reference,
+								tg.Referent.fromData(referent, (item) =>
+									tg.Graph.Edge.fromData(item, tg.Object.withId),
+								),
+							];
+						},
+					),
+				),
+				executable: data.executable ?? false,
+			};
+		};
+
+		export let children = (object: tg.Graph.File): Array<tg.Object> => {
+			const dependencies = globalThis.Object.entries(
+				object.dependencies,
+			).flatMap(([_, referent]) => tg.Graph.Edge.children(referent.item));
+			return [object.contents, ...dependencies];
+		};
+	}
+
+	export type Symlink = {
+		artifact: tg.Graph.Edge<tg.Artifact> | undefined;
+		path: string | undefined;
 	};
 
-	export type State = tg.Object.State<Graph.Id, Graph.Object>;
+	export namespace Symlink {
+		export let toData = (object: tg.Graph.Symlink): tg.Graph.Data.Symlink => {
+			let data: tg.Graph.Data.Symlink = {};
+			if (object.artifact !== undefined) {
+				data.artifact = tg.Graph.Edge.toData(
+					object.artifact,
+					(artifact) => artifact.id,
+				);
+			}
+			if (object.path !== undefined) {
+				data.path = object.path;
+			}
+			return data;
+		};
+
+		export let fromData = (data: tg.Graph.Data.Symlink): tg.Graph.Symlink => {
+			return {
+				artifact:
+					data.artifact !== undefined
+						? tg.Graph.Edge.fromData(data.artifact, tg.Artifact.withId)
+						: undefined,
+				path: data.path,
+			};
+		};
+
+		export let children = (object: tg.Graph.Symlink): Array<tg.Object> => {
+			if (object.artifact !== undefined) {
+				return tg.Graph.Edge.children(object.artifact);
+			} else {
+				return [];
+			}
+		};
+	}
+
+	export type Edge<T> = number | tg.Graph.Reference | T;
+
+	export namespace Edge {
+		export let toData = <T, U>(
+			object: tg.Graph.Edge<T>,
+			f: (item: T) => U,
+		): tg.Graph.Data.Edge<U> => {
+			if (typeof object === "number") {
+				return object;
+			} else if (
+				typeof object === "object" &&
+				object !== null &&
+				"node" in object
+			) {
+				return tg.Graph.Reference.toData(object);
+			} else {
+				return f(object);
+			}
+		};
+
+		export let fromData = <T, U>(
+			data: tg.Graph.Data.Edge<T>,
+			f: (item: T) => U,
+		): tg.Graph.Edge<U> => {
+			if (typeof data === "number") {
+				return data;
+			} else if (typeof data === "object" && data !== null && "node" in data) {
+				return tg.Graph.Reference.fromData(data);
+			} else {
+				return f(data);
+			}
+		};
+
+		export let children = <T>(object: tg.Graph.Edge<T>): Array<tg.Object> => {
+			if (typeof object === "number") {
+				return [];
+			} else if (
+				typeof object === "object" &&
+				object !== null &&
+				"node" in object
+			) {
+				return tg.Graph.Reference.children(object);
+			} else if (tg.Object.is(object)) {
+				return [object];
+			} else {
+				return [];
+			}
+		};
+	}
+
+	export type Reference = {
+		graph?: tg.Graph | undefined;
+		node: number;
+	};
+
+	export namespace Reference {
+		export let toData = (
+			object: tg.Graph.Reference,
+		): tg.Graph.Data.Reference => {
+			let data: tg.Graph.Data.Reference = { node: object.node };
+			if (object.graph !== undefined) {
+				data.graph = object.graph.id;
+			}
+			return data;
+		};
+
+		export let fromData = (
+			data: tg.Graph.Data.Reference,
+		): tg.Graph.Reference => {
+			let graph = data.graph ? tg.Graph.withId(data.graph) : undefined;
+			return { graph, node: data.node };
+		};
+
+		export let children = (object: tg.Graph.Reference): Array<tg.Object> => {
+			if (object.graph !== undefined) {
+				return [object.graph];
+			} else {
+				return [];
+			}
+		};
+	}
+
+	export type Data = {
+		nodes: Array<tg.Graph.Data.Node>;
+	};
+
+	export namespace Data {
+		export type Node =
+			| tg.Graph.Data.DirectoryNode
+			| tg.Graph.Data.FileNode
+			| tg.Graph.Data.SymlinkNode;
+		export type DirectoryNode = { kind: "directory" } & tg.Graph.Data.Directory;
+		export type FileNode = { kind: "file" } & tg.Graph.Data.File;
+		export type SymlinkNode = { kind: "symlink" } & tg.Graph.Data.Symlink;
+
+		export type Directory = {
+			entries?: { [name: string]: tg.Graph.Data.Edge<tg.Artifact.Id> };
+		};
+
+		export type File = {
+			contents?: tg.Blob.Id;
+			dependencies?: {
+				[reference: tg.Reference]: tg.Referent.Data<
+					tg.Graph.Data.Edge<tg.Object.Id>
+				>;
+			};
+			executable?: boolean;
+		};
+
+		export type Symlink = {
+			artifact?: tg.Graph.Data.Edge<tg.Artifact.Id>;
+			path?: string;
+		};
+
+		export type Edge<T> = number | tg.Graph.Data.Reference | T;
+
+		export type Reference = {
+			graph?: tg.Graph.Id;
+			node: number;
+		};
+	}
 }

@@ -32,13 +32,12 @@ export class Directory {
 	): Promise<Directory> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
-			if (typeof arg === "object" && "graph" in arg) {
-				return Directory.withObject(
-					arg as {
-						graph: tg.Graph;
-						node: number;
-					},
-				);
+			if (
+				typeof arg === "object" &&
+				"node" in arg &&
+				typeof arg.node === "number"
+			) {
+				return Directory.withObject(arg as tg.Graph.Reference);
 			}
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));
@@ -66,7 +65,7 @@ export class Directory {
 					entries[name] = entry;
 				}
 			} else if (typeof arg === "object") {
-				if ("graph" in arg) {
+				if ("node" in arg && typeof arg.node === "number") {
 					throw new Error("nested graph args are not allowed");
 				}
 
@@ -253,9 +252,8 @@ export class Directory {
 	}
 
 	async *[Symbol.asyncIterator](): AsyncIterator<[string, tg.Artifact]> {
-		const object = await this.object();
+		let object = await this.object();
 		let entries: { [key: string]: tg.Artifact } | undefined;
-
 		if ("entries" in object) {
 			entries = Object.fromEntries(
 				await Promise.all(
@@ -263,7 +261,7 @@ export class Directory {
 						tg.assert(typeof edge === "object", "expected an obejct");
 						if ("node" in edge) {
 							tg.assert(edge.graph !== undefined, "missing graph");
-							const artifact = await edge.graph.get(edge.node);
+							let artifact = await edge.graph.get(edge.node);
 							return [name, artifact];
 						}
 						return [name, edge];
@@ -271,8 +269,10 @@ export class Directory {
 				),
 			);
 		} else {
-			const graph = object.graph;
-			const node = (await object.graph.nodes())[object.node];
+			let graph = object.graph;
+			tg.assert(graph !== undefined);
+			let nodes = await graph.nodes();
+			let node = nodes[object.node];
 			tg.assert(
 				node !== undefined && node.kind === "directory",
 				"expected a directory",
@@ -281,10 +281,10 @@ export class Directory {
 				await Promise.all(
 					Object.entries(node.entries).map(async ([name, edge]) => {
 						if (typeof edge === "number") {
-							const artifact = await graph.get(edge);
+							let artifact = await graph.get(edge);
 							return [name, artifact];
 						} else if ("node" in edge) {
-							const artifact = await (edge.graph ?? graph).get(edge.node);
+							let artifact = await (edge.graph ?? graph).get(edge.node);
 							return [name, artifact];
 						}
 						return [name, edge];
@@ -300,87 +300,53 @@ export class Directory {
 }
 
 export namespace Directory {
-	export type Arg = undefined | Directory | ArgObject;
-
-	export type ArgObject =
-		| {
-				[key: string]:
-					| undefined
-					| string
-					| Uint8Array
-					| tg.Blob
-					| tg.Artifact
-					| ArgObject;
-		  }
-		| { graph: tg.Graph; node: number };
-
 	export type Id = string;
 
-	export type Object =
-		| { graph: tg.Graph; node: number }
-		| {
-				entries: { [key: string]: tg.Graph.Object.Edge<tg.Artifact> };
-		  };
+	export type State = tg.Object.State<tg.Directory.Id, tg.Directory.Object>;
+
+	export type Arg = undefined | tg.Directory | tg.Directory.Arg.Object;
+
+	export namespace Arg {
+		export type Object =
+			| tg.Graph.Arg.Reference
+			| {
+					[key: string]:
+						| undefined
+						| string
+						| Uint8Array
+						| tg.Blob
+						| tg.Artifact
+						| tg.Directory.Arg.Object;
+			  };
+	}
+
+	export type Object = tg.Graph.Reference | tg.Graph.Directory;
 
 	export namespace Object {
-		export let toData = (object: Object): Data => {
-			if ("graph" in object) {
-				return {
-					graph: object.graph.state.id!,
-					node: object.node,
-				};
+		export let toData = (object: tg.Directory.Object): tg.Directory.Data => {
+			if ("node" in object) {
+				return tg.Graph.Reference.toData(object);
 			} else {
-				return {
-					entries: globalThis.Object.fromEntries(
-						globalThis.Object.entries(object.entries).map(([name, edge]) => [
-							name,
-							tg.Graph.Edge.toData(edge, (artifact) => artifact.id),
-						]),
-					),
-				};
+				return tg.Graph.Directory.toData(object);
 			}
 		};
 
-		export let fromData = (data: Data): Object => {
-			if ("graph" in data) {
-				return {
-					graph: tg.Graph.withId(data.graph),
-					node: data.node,
-				};
+		export let fromData = (data: tg.Directory.Data): tg.Directory.Object => {
+			if ("node" in data) {
+				return tg.Graph.Reference.fromData(data);
 			} else {
-				return {
-					entries: globalThis.Object.fromEntries(
-						globalThis.Object.entries(data.entries).map(([name, edge]) => [
-							name,
-							tg.Graph.Edge.fromData(edge, tg.Artifact.withId),
-						]),
-					),
-				};
+				return tg.Graph.Directory.fromData(data);
 			}
 		};
 
-		export let children = (object: Object): Array<tg.Object> => {
-			if ("graph" in object) {
-				return [object.graph];
+		export let children = (object: tg.Directory.Object): Array<tg.Object> => {
+			if ("node" in object) {
+				return tg.Graph.Reference.children(object);
 			} else {
-				return globalThis.Object.entries(object.entries).map(([_, edge]) => {
-					tg.assert(typeof edge === "object", "expected an object");
-					if ("node" in edge) {
-						tg.assert(edge.graph !== undefined, "missing graph");
-						return edge.graph;
-					} else {
-						return edge;
-					}
-				});
+				return tg.Graph.Directory.children(object);
 			}
 		};
 	}
 
-	export type Data =
-		| { graph: tg.Graph.Id; node: number }
-		| {
-				entries: { [key: string]: tg.Graph.Data.Edge<tg.Artifact.Id> };
-		  };
-
-	export type State = tg.Object.State<Directory.Id, Directory.Object>;
+	export type Data = tg.Graph.Data.Reference | tg.Graph.Data.Directory;
 }

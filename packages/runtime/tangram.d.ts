@@ -55,7 +55,7 @@ declare namespace tg {
 	export let download: (
 		url: string,
 		checksum: tg.Checksum,
-		options?: DownloadOptions,
+		options?: tg.DownloadOptions,
 	) => Promise<tg.Blob | tg.Artifact>;
 
 	/** Extract an artifact from an archive. **/
@@ -182,23 +182,30 @@ declare namespace tg {
 	export namespace Blob {
 		export type Id = string;
 
-		export type Arg = undefined | string | Uint8Array | tg.Blob | ArgObject;
+		export type Arg =
+			| undefined
+			| string
+			| Uint8Array
+			| tg.Blob
+			| tg.Blob.Arg.Object;
 
-		type ArgObject = {
-			children?: Array<Child> | undefined;
-		};
+		export namespace Arg {
+			type Object = {
+				children?: Array<tg.Blob.Child> | undefined;
+			};
+		}
 
-		export type Child = { blob: Blob; size: number };
-
-		export let raw: (
-			strings: TemplateStringsArray,
-			...placeholders: tg.Args<string>
-		) => Promise<tg.Blob>;
+		export type Child = { blob: tg.Blob; size: number };
 
 		export type ReadArg = {
 			position?: number | string | undefined;
 			length?: number | undefined;
 		};
+
+		export let raw: (
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		) => Promise<tg.Blob>;
 	}
 
 	/** Create a directory. */
@@ -247,19 +254,21 @@ declare namespace tg {
 	export namespace Directory {
 		export type Id = string;
 
-		export type Arg = undefined | tg.Directory | ArgObject;
+		export type Arg = undefined | tg.Directory | tg.Directory.Arg.Object;
 
-		type ArgObject =
-			| { graph: tg.Graph; node: number }
-			| {
-					[key: string]:
-						| undefined
-						| string
-						| Uint8Array
-						| tg.Blob
-						| tg.Artifact
-						| ArgObject;
-			  };
+		export namespace Arg {
+			type Object =
+				| tg.Graph.Arg.Reference
+				| {
+						[key: string]:
+							| undefined
+							| string
+							| Uint8Array
+							| tg.Blob
+							| tg.Artifact
+							| tg.Directory.Arg.Object;
+				  };
+		}
 	}
 
 	/** Create a file. */
@@ -325,17 +334,11 @@ declare namespace tg {
 			| Uint8Array
 			| tg.Blob
 			| tg.File
-			| ArgObject;
+			| tg.File.Arg.Object;
 
-		type ArgObject =
-			| { graph: tg.Graph; node: number }
-			| {
-					contents?: tg.Blob.Arg | Array<tg.Blob.Arg> | undefined;
-					dependencies?:
-						| { [reference: tg.Reference]: tg.MaybeReferent<tg.Object> }
-						| undefined;
-					executable?: boolean | undefined;
-			  };
+		export namespace Arg {
+			type Object = tg.Graph.Arg.Reference | tg.Graph.Arg.File;
+		}
 
 		export let raw: (
 			strings: TemplateStringsArray,
@@ -381,14 +384,16 @@ declare namespace tg {
 	export namespace Symlink {
 		export type Id = string;
 
-		export type Arg = string | tg.Artifact | tg.Template | Symlink | ArgObject;
+		export type Arg =
+			| string
+			| tg.Artifact
+			| tg.Template
+			| Symlink
+			| tg.Symlink.Arg.Object;
 
-		type ArgObject =
-			| { graph: tg.Graph; node: number }
-			| {
-					artifact?: tg.Artifact | undefined;
-					path?: string | undefined;
-			  };
+		export namespace Arg {
+			type Object = tg.Graph.Arg.Reference | tg.Graph.Arg.Symlink;
+		}
 	}
 
 	/** Create a graph. */
@@ -421,67 +426,89 @@ declare namespace tg {
 	export namespace Graph {
 		export type Id = string;
 
-		export type Arg = tg.Graph | ArgObject;
+		export type Arg = tg.Graph | tg.Graph.Arg.Object;
 
-		export type Ref = {
-			graph?: tg.Graph | undefined;
-			node: number;
+		export namespace Arg {
+			type Object = {
+				nodes?: Array<tg.Graph.Arg.Node> | undefined;
+			};
+
+			type Node =
+				| tg.Graph.Arg.DirectoryNode
+				| tg.Graph.Arg.FileNode
+				| tg.Graph.Arg.SymlinkNode;
+
+			type DirectoryNode = { kind: "directory" } & tg.Graph.Arg.Directory;
+
+			type FileNode = { kind: "file" } & tg.Graph.Arg.File;
+
+			type SymlinkNode = { kind: "symlink" } & tg.Graph.Arg.Symlink;
+
+			type Directory = {
+				entries?:
+					| { [name: string]: tg.Graph.Arg.Edge<tg.Artifact> }
+					| undefined;
+			};
+
+			type File = {
+				contents: tg.Blob.Arg;
+				dependencies?:
+					| {
+							[reference: string]: tg.MaybeReferent<
+								tg.Graph.Arg.Edge<tg.Object>
+							>;
+					  }
+					| undefined;
+				executable?: boolean | undefined;
+			};
+
+			type Symlink = {
+				artifact?: tg.Graph.Arg.Edge<tg.Artifact> | undefined;
+				path?: string | undefined;
+			};
+
+			export type Edge<T> = tg.Graph.Arg.Reference | T;
+
+			export type Reference = {
+				graph?: tg.Graph | undefined;
+				node: number;
+			};
+		}
+
+		type Node =
+			| tg.Graph.DirectoryNode
+			| tg.Graph.FileNode
+			| tg.Graph.SymlinkNode;
+
+		type DirectoryNode = { kind: "directory" } & tg.Graph.Directory;
+
+		type FileNode = { kind: "file" } & tg.Graph.File;
+
+		type SymlinkNode = { kind: "symlink" } & tg.Graph.Symlink;
+
+		type Directory = {
+			entries: { [name: string]: tg.Graph.Edge<tg.Artifact> };
 		};
 
-		export type Edge<T> = Ref | T;
-
-		type ArgObject = {
-			nodes?: Array<NodeArg> | undefined;
-		};
-
-		type NodeArg = DirectoryNodeArg | FileNodeArg | SymlinkNodeArg;
-
-		type DirectoryNodeArg = {
-			kind: "directory";
-			entries?: { [name: string]: Edge<tg.Artifact> } | undefined;
-		};
-
-		type FileNodeArg = {
-			kind: "file";
-			contents: tg.Blob.Arg;
-			dependencies?:
-				| { [reference: string]: tg.MaybeReferent<Edge<tg.Object>> }
-				| undefined;
-			executable?: boolean | undefined;
-		};
-
-		type SymlinkNodeArg = {
-			kind: "symlink";
-			artifact?: Edge<tg.Artifact> | undefined;
-			path?: string | undefined;
-		};
-
-		type Node = DirectoryNode | FileNode | SymlinkNode;
-
-		type DirectoryNode = {
-			kind: "directory";
-			entries: { [name: string]: Edge<tg.Artifact> };
-		};
-
-		type FileNode = {
-			kind: "file";
+		type File = {
 			contents: tg.Blob;
 			dependencies: {
-				[reference: tg.Reference]: tg.MaybeReferent<number | tg.Object>;
+				[reference: tg.Reference]: tg.Referent<tg.Graph.Edge<tg.Object>>;
 			};
 			executable: boolean;
 		};
 
-		type SymlinkNode =
-			| {
-					kind: "symlink";
-					command: string;
-			  }
-			| {
-					kind: "symlink";
-					artifact: number | tg.Artifact | undefined;
-					path: string | undefined;
-			  };
+		type Symlink = {
+			artifact: number | tg.Artifact | undefined;
+			path: string | undefined;
+		};
+
+		export type Edge<T> = tg.Graph.Reference | T;
+
+		export type Reference = {
+			graph?: tg.Graph | undefined;
+			node: number;
+		};
 	}
 
 	/** Create a command. */
@@ -568,33 +595,58 @@ declare namespace tg {
 			| tg.Artifact
 			| tg.Template
 			| tg.Command
-			| ArgObject;
+			| tg.Command.Arg.Object;
 
-		type ArgObject = {
-			/** The command's arguments. */
-			args?: Array<tg.Value> | undefined;
+		export namespace Arg {
+			export type Object = {
+				/** The command's arguments. */
+				args?: Array<tg.Value> | undefined;
 
-			/** The command's working directory. **/
-			cwd?: string | undefined;
+				/** The command's working directory. **/
+				cwd?: string | undefined;
 
-			/** The command's environment. */
-			env?: tg.MaybeMutationMap | undefined;
+				/** The command's environment. */
+				env?: tg.MaybeMutationMap | undefined;
 
-			/** The command's executable. */
-			executable?: tg.Command.ExecutableArg | undefined;
+				/** The command's executable. */
+				executable?: tg.Command.Arg.Executable | undefined;
 
-			/** The command's host. */
-			host?: string | undefined;
+				/** The command's host. */
+				host?: string | undefined;
 
-			/** The command's mounts. */
-			mounts?: Array<tg.Command.Mount> | undefined;
+				/** The command's mounts. */
+				mounts?: Array<tg.Command.Mount> | undefined;
 
-			/** The command's user. */
-			user?: string | undefined;
+				/** The command's user. */
+				user?: string | undefined;
 
-			/** The command's stdin. */
-			stdin?: tg.Blob.Arg | undefined;
-		};
+				/** The command's stdin. */
+				stdin?: tg.Blob.Arg | undefined;
+			};
+
+			export type Executable =
+				| tg.Artifact
+				| string
+				| tg.Command.Arg.Executable.Artifact
+				| tg.Command.Arg.Executable.Module
+				| tg.Command.Arg.Executable.Path;
+
+			export namespace Executable {
+				export type Artifact = {
+					artifact: tg.Artifact;
+					path?: string | undefined;
+				};
+
+				export type Module = {
+					module: tg.Module;
+					export?: string | undefined;
+				};
+
+				export type Path = {
+					path: string;
+				};
+			}
+		}
 
 		export type Object = {
 			args: Array<tg.Value>;
@@ -612,22 +664,10 @@ declare namespace tg {
 			| tg.Command.Executable.Module
 			| tg.Command.Executable.Path;
 
-		export type ExecutableArg =
-			| tg.Artifact
-			| string
-			| tg.Command.Executable.ArtifactArg
-			| tg.Command.Executable.ModuleArg
-			| tg.Command.Executable.PathArg;
-
 		export namespace Executable {
 			export type Artifact = {
 				artifact: tg.Artifact;
 				path: string | undefined;
-			};
-
-			export type ArtifactArg = {
-				artifact: tg.Artifact;
-				path?: string | undefined;
 			};
 
 			export type Module = {
@@ -635,16 +675,7 @@ declare namespace tg {
 				export: string | undefined;
 			};
 
-			export type ModuleArg = {
-				module: tg.Module;
-				export?: string | undefined;
-			};
-
 			export type Path = {
-				path: string;
-			};
-
-			export type PathArg = {
 				path: string;
 			};
 		}
@@ -659,10 +690,10 @@ declare namespace tg {
 	export namespace path {
 		/** A path component. **/
 		export type Component =
-			| Component.Normal
-			| Component.Current
-			| Component.Parent
-			| Component.Root;
+			| tg.path.Component.Normal
+			| tg.path.Component.Current
+			| tg.path.Component.Parent
+			| tg.path.Component.Root;
 
 		export namespace Component {
 			export type Normal = string;
@@ -679,14 +710,16 @@ declare namespace tg {
 
 			export let Root: string;
 
-			export let isNormal: (component: Component) => component is Normal;
+			export let isNormal: (
+				component: tg.path.Component,
+			) => component is Normal;
 		}
 
 		/** Split a path into its components */
-		export let components: (path: string) => Array<Component>;
+		export let components: (path: string) => Array<tg.path.Component>;
 
 		/** Create a path from an array of path components. */
-		export let fromComponents: (components: Array<path.Component>) => string;
+		export let fromComponents: (components: Array<tg.path.Component>) => string;
 
 		/** Return true if the path is absolute.  */
 		export let isAbsolute: (path: string) => boolean;
@@ -751,9 +784,9 @@ declare namespace tg {
 
 		static assert(value: unknown): asserts value is tg.Mutation;
 
-		apply(map: { [key: string]: tg.Value }, key: string): Promise<void>;
-
 		get inner(): tg.Mutation.Inner<T>;
+
+		apply(map: { [key: string]: tg.Value }, key: string): Promise<void>;
 	}
 
 	export namespace Mutation {
@@ -852,7 +885,7 @@ declare namespace tg {
 	}
 
 	export namespace Template {
-		export type Arg = undefined | Component | tg.Template;
+		export type Arg = undefined | tg.Template.Component | tg.Template;
 
 		export type Component = string | tg.Artifact;
 
@@ -1058,7 +1091,7 @@ declare namespace tg {
 			| tg.Command
 			| BuildArgObject;
 
-		export type BuildArgObject = {
+		type BuildArgObject = {
 			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
@@ -1072,7 +1105,7 @@ declare namespace tg {
 			env?: tg.MaybeMutationMap | undefined;
 
 			/** The command's executable. */
-			executable?: tg.Command.ExecutableArg | undefined;
+			executable?: tg.Command.Arg.Executable | undefined;
 
 			/** The command's host. */
 			host?: string | undefined;
@@ -1098,7 +1131,7 @@ declare namespace tg {
 			| tg.Command
 			| RunArgObject;
 
-		export type RunArgObject = {
+		type RunArgObject = {
 			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
@@ -1112,7 +1145,7 @@ declare namespace tg {
 			env?: tg.MaybeMutationMap | undefined;
 
 			/** The command's executable. */
-			executable?: tg.Command.ExecutableArg | undefined;
+			executable?: tg.Command.Arg.Executable | undefined;
 
 			/** The command's host. */
 			host?: string | undefined;
@@ -1172,7 +1205,7 @@ declare namespace tg {
 		): this;
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
 		): this;
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
@@ -1211,7 +1244,7 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {
-		constructor(...args: tg.Args<tg.Command.ArgObject>);
+		constructor(...args: tg.Args<tg.Command.Arg.Object>);
 
 		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
 
@@ -1226,7 +1259,7 @@ declare namespace tg {
 		): this;
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
 		): this;
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
@@ -1284,7 +1317,7 @@ declare namespace tg {
 		): this;
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
 		): this;
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;

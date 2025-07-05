@@ -73,18 +73,6 @@ export namespace Value {
 		}
 	};
 
-	export type Data =
-		| undefined
-		| boolean
-		| number
-		| string
-		| Array<tg.Value.Data>
-		| { kind: "map"; value: { [key: string]: tg.Value.Data } }
-		| { kind: "object"; value: tg.Object.Id }
-		| { kind: "bytes"; value: Uint8Array }
-		| { kind: "mutation"; value: tg.Mutation.Data }
-		| { kind: "template"; value: tg.Template.Data };
-
 	export let is = (value: unknown): value is Value => {
 		return (
 			value === undefined ||
@@ -188,4 +176,16 @@ export namespace Value {
 			object.state.stored = true;
 		}
 	};
+
+	export type Data =
+		| undefined
+		| boolean
+		| number
+		| string
+		| Array<tg.Value.Data>
+		| { kind: "map"; value: { [key: string]: tg.Value.Data } }
+		| { kind: "object"; value: tg.Object.Id }
+		| { kind: "bytes"; value: Uint8Array }
+		| { kind: "mutation"; value: tg.Mutation.Data }
+		| { kind: "template"; value: tg.Template.Data };
 }
