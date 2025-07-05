@@ -144,7 +144,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Check if the artifact is complete.
 		let complete = self
-			.try_get_object_complete_local(&artifact.clone().into())
+			.try_get_object_complete(&artifact.clone().into())
 			.await?
 			.unwrap_or_default();
 		if complete {
@@ -182,7 +182,7 @@ impl Server {
 				let stream = std::pin::pin!(stream);
 				stream.try_last().await?;
 				let complete = server
-					.try_get_object_complete_local(&artifact.clone().into())
+					.try_get_object_complete(&artifact.clone().into())
 					.await?
 					.ok_or_else(|| tg::error!(%artifact, "expected an object"))?;
 				if !complete {

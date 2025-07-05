@@ -74,6 +74,14 @@ impl S3 {
 		Ok(Some(bytes))
 	}
 
+	pub async fn try_get_batch(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+		ids.iter()
+			.map(|id| self.try_get(id))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
+			.await
+	}
+
 	pub async fn try_get_cache_reference(
 		&self,
 		_: &tg::object::Id,

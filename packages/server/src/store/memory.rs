@@ -23,6 +23,10 @@ impl Memory {
 		Some(bytes.clone())
 	}
 
+	pub fn try_get_batch(&self, ids: &[tg::object::Id]) -> Vec<Option<Bytes>> {
+		ids.iter().map(|id| self.try_get(id)).collect()
+	}
+
 	pub fn try_get_object_data(&self, id: &tg::object::Id) -> tg::Result<Option<tg::object::Data>> {
 		let Some(entry) = self.0.get(id) else {
 			return Ok(None);

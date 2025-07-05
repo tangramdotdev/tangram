@@ -1614,7 +1614,7 @@ impl xdr::Encode for open_delegation4 {
 	{
 		match self {
 			Self::OPEN_DELEGATE_NONE => encoder.encode_int(0),
-			_ => unimplemented!(),
+			_ => Err(xdr::Error::Custom("unimplemented".to_owned())),
 		}
 	}
 }

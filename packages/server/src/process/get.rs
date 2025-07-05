@@ -1,7 +1,12 @@
-use crate::Server;
-use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
+use crate::{Server, database::Database};
+use futures::{
+	FutureExt as _, StreamExt as _, TryStreamExt as _, future,
+	stream::{self, FuturesUnordered},
+};
 use indoc::{formatdoc, indoc};
 use itertools::Itertools as _;
+#[cfg(feature = "postgres")]
+use num::ToPrimitive as _;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
@@ -326,6 +331,192 @@ impl Server {
 		};
 
 		Ok(Some(data))
+	}
+
+	pub async fn try_get_process_batch(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		let outputs = self.try_get_process_batch_local(ids).await?;
+		let outputs = std::iter::zip(ids, outputs)
+			.map(|(id, output)| async move {
+				if let Some(output) = output {
+					return Ok(Some(output));
+				}
+				let output = self.try_get_process_remote(id).await?;
+				Ok::<_, tg::Error>(output)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(outputs)
+	}
+
+	pub async fn try_get_process_batch_local(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		match &self.database {
+			Database::Sqlite(_) => self.try_get_process_batch_local_sqlite(ids).await,
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
+				self.try_get_process_batch_local_postgres(database, ids)
+					.await
+			},
+		}
+	}
+
+	pub(crate) async fn try_get_process_batch_local_sqlite(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		let outputs = ids
+			.iter()
+			.map(|id| async move { self.try_get_process_local(id).await })
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(outputs)
+	}
+
+	#[cfg(feature = "postgres")]
+	pub(crate) async fn try_get_process_batch_local_postgres(
+		&self,
+		database: &db::postgres::Database,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		// Get a database connection.
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the process.
+		let statement = indoc!(
+			"
+				select
+					ids.id,
+					actual_checksum,
+					cacheable,
+					command,
+					created_at,
+					dequeued_at,
+					enqueued_at,
+					error,
+					exit,
+					expected_checksum,
+					finished_at,
+					host,
+					log,
+					output,
+					retry,
+					mounts,
+					network,
+					started_at,
+					status,
+					stderr,
+					stdin,
+					stdout
+				from unnest($1) as ids (id)
+				left join processes on processes.id = ids.id;
+			"
+		);
+		let outputs = connection
+			.inner()
+			.query(
+				statement,
+				&[&ids.iter().map(ToString::to_string).collect::<Vec<_>>()],
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to query the database"))?
+			.into_iter()
+			.map(|row| {
+				if row.get::<_, Option<String>>(0).is_none() {
+					return Ok(None);
+				}
+				let actual_checksum = row
+					.get::<_, Option<String>>(1)
+					.map(|s| s.parse())
+					.transpose()?;
+				let cacheable = row.get::<_, i64>(2) != 0;
+				let command = row.get::<_, String>(3).parse()?;
+				let created_at = row.get::<_, i64>(4);
+				let dequeued_at = row.get::<_, Option<i64>>(5);
+				let enqueued_at = row.get::<_, Option<i64>>(6);
+				let error = row
+					.get::<_, Option<String>>(7)
+					.map(|s| serde_json::from_str(&s))
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+				let exit = row.get::<_, Option<i64>>(8).map(|v| v.to_u8().unwrap());
+				let expected_checksum = row
+					.get::<_, Option<String>>(9)
+					.map(|s| s.parse())
+					.transpose()?;
+				let finished_at = row.get::<_, Option<i64>>(10);
+				let host = row.get::<_, String>(11);
+				let log = row
+					.get::<_, Option<String>>(12)
+					.map(|s| s.parse())
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+				let output = row
+					.get::<_, Option<String>>(13)
+					.map(|s| serde_json::from_str(&s))
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+				let retry = row.get::<_, i64>(14) != 0;
+				let mounts = row
+					.get::<_, Option<String>>(15)
+					.map(|s| serde_json::from_str(&s))
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to deserialize"))?
+					.unwrap_or_default();
+				let network = row.get::<_, i64>(16) != 0;
+				let started_at = row.get::<_, Option<i64>>(17);
+				let status = row.get::<_, String>(18).parse()?;
+				let stderr = row
+					.get::<_, Option<String>>(19)
+					.map(|s| s.parse())
+					.transpose()?;
+				let stdin = row
+					.get::<_, Option<String>>(20)
+					.map(|s| s.parse())
+					.transpose()?;
+				let stdout = row
+					.get::<_, Option<String>>(21)
+					.map(|s| s.parse())
+					.transpose()?;
+				let data = tg::process::Data {
+					actual_checksum,
+					cacheable,
+					children: None,
+					command,
+					created_at,
+					dequeued_at,
+					enqueued_at,
+					error,
+					exit,
+					expected_checksum,
+					finished_at,
+					host,
+					log,
+					output,
+					retry,
+					mounts,
+					network,
+					started_at,
+					status,
+					stderr,
+					stdin,
+					stdout,
+				};
+				let output = tg::process::get::Output { data };
+				Ok::<_, tg::Error>(Some(output))
+			})
+			.try_collect()?;
+
+		Ok(outputs)
 	}
 
 	async fn try_get_process_remote(

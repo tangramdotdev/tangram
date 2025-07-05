@@ -5,7 +5,7 @@ use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::borrow::Cow;
 use tangram_client as tg;
-use tangram_database::{self as db, Database as _};
+use tangram_database::{self as db, prelude::*};
 
 #[derive(
 	Debug,

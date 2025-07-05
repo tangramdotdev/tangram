@@ -2,7 +2,7 @@ use super::CacheReference;
 use bytes::Bytes;
 use foundationdb::{self as fdb, FdbBindingError};
 use foundationdb_tuple::TuplePack as _;
-use futures::{TryStreamExt as _, future};
+use futures::{TryStreamExt as _, future, stream::FuturesOrdered};
 use num::ToPrimitive as _;
 use std::pin::pin;
 use tangram_client as tg;
@@ -50,6 +50,48 @@ impl Fdb {
 			.await
 			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
 		Ok(bytes)
+	}
+
+	pub async fn try_get_batch(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let batch = self
+			.database
+			.run(|transaction, _| async move {
+				let result = ids
+					.iter()
+					.map(|id| {
+						let transaction = transaction.clone();
+						async move {
+							let subspace =
+								fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
+							let mut range = fdb::RangeOption::from(subspace.range());
+							range.mode = fdb::options::StreamingMode::WantAll;
+							let stream = transaction.get_ranges(range, false);
+							let mut stream = pin!(stream);
+							let mut empty = true;
+							let mut bytes = Vec::new();
+							while let Some(entries) = stream.try_next().await? {
+								for entry in entries {
+									empty = false;
+									bytes.extend_from_slice(entry.value());
+								}
+							}
+							if empty {
+								return Ok::<_, fdb::FdbBindingError>(None);
+							}
+							Ok(Some(bytes.into()))
+						}
+					})
+					.collect::<FuturesOrdered<_>>()
+					.try_collect::<Vec<_>>()
+					.await?;
+				Ok(result)
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+		Ok(batch)
 	}
 
 	pub async fn try_get_cache_reference(
@@ -119,6 +161,9 @@ impl Fdb {
 	}
 
 	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
+		if arg.objects.is_empty() {
+			return Ok(());
+		}
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
@@ -152,6 +197,9 @@ impl Fdb {
 	}
 
 	pub async fn delete_batch(&self, arg: super::DeleteBatchArg) -> tg::Result<()> {
+		if arg.ids.is_empty() {
+			return Ok(());
+		}
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
