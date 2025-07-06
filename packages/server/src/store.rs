@@ -86,6 +86,16 @@ impl Store {
 		}
 	}
 
+	pub async fn try_get_batch(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await,
+			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
+			Self::S3(s3) => s3.try_get_batch(ids).await,
+		}
+	}
+
 	pub async fn try_get_cache_reference(
 		&self,
 		id: &tg::object::Id,

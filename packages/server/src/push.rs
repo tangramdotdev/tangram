@@ -71,7 +71,7 @@ impl Server {
 						async move {
 							loop {
 								match item {
-									tangram_either::Either::Left(process) => {
+									Either::Left(process) => {
 										let Some(metadata) = src
 											.try_get_process_metadata(process)
 											.await
@@ -96,9 +96,9 @@ impl Server {
 											break Ok::<_, tg::Error>(Either::Left(metadata));
 										}
 									},
-									tangram_either::Either::Right(id) => {
+									Either::Right(object) => {
 										let metadata =
-											src.try_get_object_metadata(id).await?.ok_or_else(
+											src.try_get_object_metadata(object).await?.ok_or_else(
 												|| tg::error!("expected the metadata to be set"),
 											)?;
 										if metadata.count.is_some() && metadata.weight.is_some() {
@@ -187,7 +187,7 @@ impl Server {
 		S: tg::Handle,
 		D: tg::Handle,
 	{
-		loop {
+		'a: loop {
 			// Set the progress to zero.
 			progress.set("processes", 0);
 			progress.set("objects", 0);
@@ -223,8 +223,8 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the import stream"))?;
 
-			// Create the export future.
-			let export_future = {
+			// Spawn the export.
+			let export_task = tokio::spawn({
 				let progress = progress.clone();
 				async move {
 					let mut export_event_stream = pin!(export_event_stream);
@@ -271,53 +271,41 @@ impl Server {
 								},
 							},
 							Ok(tg::export::Event::End) => {
-								return true;
+								return;
 							},
 							Err(error) => {
 								progress.error(error);
 							},
 						}
 					}
-					false
 				}
-			};
+			});
+			let export_task_abort_handle = export_task.abort_handle();
+			scopeguard::defer! {
+				export_task_abort_handle.abort();
+			}
 
-			// Create the import future.
-			let import_future = {
-				let progress = progress.clone();
-				async move {
-					let mut import_event_stream = pin!(import_event_stream);
-					while let Some(result) = import_event_stream.next().await {
-						match result {
-							Ok(tg::import::Event::Complete(complete)) => {
-								import_complete_sender.send(Ok(complete)).await.ok();
-							},
-							Ok(tg::import::Event::Progress(import_progress)) => {
-								if let Some(processes) = import_progress.processes {
-									progress.increment("processes", processes);
-								}
-								progress.increment("objects", import_progress.objects);
-								progress.increment("bytes", import_progress.bytes);
-							},
-							Ok(tg::import::Event::End) => {
-								return true;
-							},
-							Err(error) => {
-								progress.error(error);
-							},
+			// Import.
+			let mut import_event_stream = pin!(import_event_stream);
+			while let Some(result) = import_event_stream.next().await {
+				match result {
+					Ok(tg::import::Event::Complete(complete)) => {
+						import_complete_sender.send(Ok(complete)).await.ok();
+					},
+					Ok(tg::import::Event::Progress(import_progress)) => {
+						if let Some(processes) = import_progress.processes {
+							progress.increment("processes", processes);
 						}
-					}
-					false
+						progress.increment("objects", import_progress.objects);
+						progress.increment("bytes", import_progress.bytes);
+					},
+					Ok(tg::import::Event::End) => {
+						break 'a;
+					},
+					Err(error) => {
+						progress.error(error);
+					},
 				}
-			};
-
-			// Join the futures.
-			let (export_finished, import_finished) = futures::join!(export_future, import_future);
-
-			// If the export and import completed, then break.
-			let finished = export_finished && import_finished;
-			if finished {
-				break;
 			}
 		}
 

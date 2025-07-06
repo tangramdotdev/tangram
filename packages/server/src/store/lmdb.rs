@@ -104,6 +104,36 @@ impl Lmdb {
 		Ok(bytes)
 	}
 
+	pub async fn try_get_batch(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let bytes = tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			let ids = ids.to_owned();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				let mut output = Vec::with_capacity(ids.len());
+				for id in ids {
+					let key = (0, id.to_bytes(), 0);
+					let bytes = db
+						.get(&transaction, &key.pack_to_vec())
+						.map_err(|source| tg::error!(!source, "failed to get the value"))?
+						.map(Bytes::copy_from_slice);
+					output.push(bytes);
+				}
+				Ok::<_, tg::Error>(output)
+			}
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+		Ok(bytes)
+	}
+
 	pub fn try_get_sync(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tg::Error> {
 		let transaction = self
 			.env
@@ -119,6 +149,25 @@ impl Lmdb {
 		};
 		let bytes = Bytes::copy_from_slice(bytes);
 		Ok::<_, tg::Error>(Some(bytes))
+	}
+
+	#[allow(dead_code)]
+	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+		let transaction = self
+			.env
+			.read_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let mut output = Vec::with_capacity(ids.len());
+		for id in ids {
+			let key = (0, id.to_bytes(), 0);
+			let bytes = self
+				.db
+				.get(&transaction, &key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to get the value"))?
+				.map(Bytes::copy_from_slice);
+			output.push(bytes);
+		}
+		Ok::<_, tg::Error>(output)
 	}
 
 	pub fn try_get_object_data_sync(

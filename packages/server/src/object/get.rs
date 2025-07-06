@@ -1,6 +1,6 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{FutureExt as _, future};
+use futures::{FutureExt as _, future, stream::FuturesUnordered, stream::TryStreamExt as _};
 use itertools::Itertools as _;
 use num::ToPrimitive as _;
 use std::{
@@ -77,6 +77,39 @@ impl Server {
 		let output = tg::object::get::Output { bytes };
 
 		Ok(Some(output))
+	}
+
+	pub async fn try_get_object_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
+		let outputs = self.try_get_object_batch_local(ids).await?;
+		let outputs = std::iter::zip(ids, outputs)
+			.map(|(id, output)| async move {
+				if let Some(output) = output {
+					return Ok(Some(output));
+				}
+				let output = self.try_get_object_remote(id).await?;
+				Ok::<_, tg::Error>(output)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(outputs)
+	}
+
+	pub async fn try_get_object_batch_local(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
+		let outputs = self
+			.store
+			.try_get_batch(ids)
+			.await?
+			.into_iter()
+			.map(|option| option.map(|bytes| tg::object::get::Output { bytes }))
+			.collect();
+		Ok(outputs)
 	}
 
 	async fn try_get_object_remote(
