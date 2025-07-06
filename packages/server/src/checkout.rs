@@ -65,7 +65,7 @@ impl Server {
 			.left_stream());
 		}
 		let progress = crate::progress::Handle::new();
-		let task = tokio::spawn({
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let artifact = arg.artifact.clone();
 			let arg = arg.clone();
@@ -131,9 +131,8 @@ impl Server {
 					},
 				}
 			}
-		});
-		let abort_handle = AbortOnDropHandle::new(task);
-		let stream = progress.stream().attach(abort_handle).right_stream();
+		}));
+		let stream = progress.stream().attach(task).right_stream();
 		Ok(stream)
 	}
 

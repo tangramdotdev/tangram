@@ -111,7 +111,7 @@ impl Server {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 	> {
 		let progress = crate::progress::Handle::new();
-		let task = tokio::spawn({
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
 			async move {
@@ -134,9 +134,8 @@ impl Server {
 					},
 				}
 			}
-		});
-		let abort_handle = AbortOnDropHandle::new(task);
-		let stream = progress.stream().attach(abort_handle);
+		}));
+		let stream = progress.stream().attach(task);
 		Ok(stream)
 	}
 

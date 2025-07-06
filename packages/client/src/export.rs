@@ -158,7 +158,7 @@ impl tg::Client {
 		let mut stream = BodyStream::new(response.into_body());
 		let (data_sender, data_receiver) = tokio::sync::mpsc::channel(1);
 		let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
-		let task = tokio::spawn(async move {
+		let task = AbortOnDropHandle::new(tokio::spawn(async move {
 			while let Some(result) = stream.next().await {
 				match result {
 					Ok(frame) => {
@@ -177,7 +177,7 @@ impl tg::Client {
 					},
 				}
 			}
-		});
+		}));
 
 		let reader =
 			StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
@@ -212,8 +212,7 @@ impl tg::Client {
 			}
 		});
 
-		let stream =
-			stream::select(reader_events, trailer_events).attach(AbortOnDropHandle::new(task));
+		let stream = stream::select(reader_events, trailer_events).attach(task);
 
 		Ok(stream)
 	}

@@ -47,17 +47,16 @@ impl Server {
 		// Spawn the task.
 		let server = self.clone();
 		let id = id.clone();
-		let task = tokio::spawn(async move {
+		let task = AbortOnDropHandle::new(tokio::spawn(async move {
 			let result = server
 				.try_get_process_log_local_task(&id, arg, sender.clone())
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
 			}
-		});
-		let abort_handle = AbortOnDropHandle::new(task);
+		}));
 
-		let stream = receiver.attach(abort_handle);
+		let stream = receiver.attach(task);
 
 		Ok(Some(stream))
 	}

@@ -3,7 +3,7 @@ use futures::{Stream, StreamExt as _, TryFutureExt as _, stream::FuturesUnordere
 use std::{pin::pin, time::Duration};
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_futures::stream::Ext as _;
+use tangram_futures::{future::Ext as _, stream::Ext as _};
 use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
@@ -58,7 +58,7 @@ impl Server {
 		);
 
 		// Spawn a task to set the indicator totals as soon as they are ready.
-		let indicator_total_task = tokio::spawn({
+		let indicator_total_task = AbortOnDropHandle::new(tokio::spawn({
 			let src = src.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
@@ -153,26 +153,23 @@ impl Server {
 					}
 				}
 			}
-		});
-		let indicator_total_task_abort_handle = AbortOnDropHandle::new(indicator_total_task);
+		}));
 
 		// Spawn the task.
-		let task = tokio::spawn({
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			let progress = progress.clone();
 			let arg = arg.clone();
 			let src = src.clone();
 			let dst = dst.clone();
-			Self::push_or_pull_task(arg, progress, src, dst).inspect_err(|error| {
-				tracing::error!(?error, "the push or pull task failed");
-			})
-		});
+			Self::push_or_pull_task(arg, progress, src, dst)
+				.attach(indicator_total_task)
+				.inspect_err(|error| {
+					tracing::error!(?error, "the push or pull task failed");
+				})
+		}));
 
 		// Create the stream.
-		let abort_handle = AbortOnDropHandle::new(task);
-		let stream = progress
-			.stream()
-			.attach(abort_handle)
-			.attach(indicator_total_task_abort_handle);
+		let stream = progress.stream().attach(task);
 
 		Ok(stream)
 	}

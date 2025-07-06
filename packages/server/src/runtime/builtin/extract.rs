@@ -49,7 +49,7 @@ impl Runtime {
 		let size = blob.length(server).await?;
 		let (sender, receiver) =
 			async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
-		let progress_task = tokio::spawn({
+		let progress_task = AbortOnDropHandle::new(tokio::spawn({
 			let position = position.clone();
 			async move {
 				loop {
@@ -69,8 +69,8 @@ impl Runtime {
 					tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 				}
 			}
-		});
-		let stream = receiver.attach(AbortOnDropHandle::new(progress_task));
+		}));
+		let stream = receiver.attach(progress_task);
 		let log_task = tokio::spawn({
 			let server = server.clone();
 			let process = process.clone();

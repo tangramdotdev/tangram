@@ -30,7 +30,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to set pipe as nonblocking"))?;
 		let mut pipe = tokio::net::UnixStream::from_std(pipe)
 			.map_err(|source| tg::error!(!source, "failed to create async pipe"))?;
-		let task = tokio::spawn({
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			async move {
 				loop {
 					let mut buf = vec![0u8; 1024];
@@ -52,10 +52,8 @@ impl Server {
 					}
 				}
 			}
-		});
-		let stream = ReceiverStream::new(recv)
-			.attach(AbortOnDropHandle::new(task))
-			.right_stream();
+		}));
+		let stream = ReceiverStream::new(recv).attach(task).right_stream();
 		Ok(stream)
 	}
 

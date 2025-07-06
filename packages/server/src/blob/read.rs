@@ -57,7 +57,7 @@ impl Server {
 		let (sender, receiver) = async_channel::unbounded();
 
 		// Spawn the task.
-		let task = tokio::spawn({
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			async move {
 				let result =
@@ -90,11 +90,10 @@ impl Server {
 					},
 				}
 			}
-		});
-		let abort_handle = AbortOnDropHandle::new(task);
+		}));
 
 		// Create the stream.
-		let stream = receiver.attach(abort_handle);
+		let stream = receiver.attach(task);
 
 		Ok(Some(stream))
 	}

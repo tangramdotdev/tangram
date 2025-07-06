@@ -67,7 +67,7 @@ impl Server {
 			tokio::sync::mpsc::channel::<tg::export::ObjectItem>(256);
 
 		// Spawn the complete task.
-		let complete_task = tokio::spawn({
+		let complete_task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let event_sender = event_sender.clone();
 			async move {
@@ -79,15 +79,10 @@ impl Server {
 					)
 					.await
 			}
-		});
-		let complete_task_abort_handle = complete_task.abort_handle();
-		let complete_task_abort_handle =
-			scopeguard::guard(complete_task_abort_handle, |complete_task_abort_handle| {
-				complete_task_abort_handle.abort();
-			});
+		}));
 
 		// Spawn the processes task.
-		let processes_task = tokio::spawn({
+		let processes_task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
 			async move {
@@ -95,27 +90,17 @@ impl Server {
 					.import_processes_task(process_receiver, &progress)
 					.await
 			}
-		});
-		let processes_task_abort_handle = processes_task.abort_handle();
-		let processes_task_abort_handle =
-			scopeguard::guard(processes_task_abort_handle, |processes_task_abort_handle| {
-				processes_task_abort_handle.abort();
-			});
+		}));
 
 		// Spawn the objects task.
-		let objects_task = tokio::spawn({
+		let objects_task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
 			async move { server.import_objects_task(object_receiver, &progress).await }
-		});
-		let objects_task_abort_handle = objects_task.abort_handle();
-		let objects_task_abort_handle =
-			scopeguard::guard(objects_task_abort_handle, |objects_task_abort_handle| {
-				objects_task_abort_handle.abort();
-			});
+		}));
 
 		// Spawn a task that sends items from the stream to the other tasks.
-		let task = tokio::spawn({
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			let event_sender = event_sender.clone();
 			async move {
 				// Read the items from the stream and send them to the tasks.
@@ -168,6 +153,9 @@ impl Server {
 				// Join the processes and objects tasks.
 				let result = futures::try_join!(processes_task, objects_task);
 
+				// Abort the complete task.
+				complete_task.abort();
+
 				match result {
 					Ok((Ok(()), Ok(()))) => {
 						let event = tg::import::Event::End;
@@ -182,20 +170,16 @@ impl Server {
 					},
 				}
 			}
-		});
+		}));
 
 		// Create the stream.
 		let event_stream = ReceiverStream::new(event_receiver);
 		let progress_stream = progress.stream().map_ok(tg::import::Event::Progress);
-		let abort_handle = AbortOnDropHandle::new(task);
 		let stream = stream::select(event_stream, progress_stream)
 			.take_while_inclusive(|event| {
 				future::ready(!matches!(event, Err(_) | Ok(tg::import::Event::End)))
 			})
-			.attach(abort_handle)
-			.attach(complete_task_abort_handle)
-			.attach(processes_task_abort_handle)
-			.attach(objects_task_abort_handle);
+			.attach(task);
 
 		Ok(stream.boxed())
 	}
@@ -243,8 +227,8 @@ impl Server {
 		object_complete_receiver: tokio::sync::mpsc::Receiver<tg::object::Id>,
 		event_sender: &tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) -> tg::Result<()> {
+		// Create the process future.
 		let process_stream = ReceiverStream::new(process_complete_receiver);
-		let object_stream = ReceiverStream::new(object_complete_receiver);
 		let process_stream = pin!(process_stream);
 		let process_future = process_stream
 			.ready_chunks(PROCESS_COMPLETE_BATCH_SIZE)
@@ -285,6 +269,9 @@ impl Server {
 					}
 				}
 			});
+
+		// Create the object future.
+		let object_stream = ReceiverStream::new(object_complete_receiver);
 		let object_stream = pin!(object_stream);
 		let object_future = object_stream
 			.ready_chunks(OBJECT_COMPLETE_BATCH_SIZE)
@@ -317,7 +304,10 @@ impl Server {
 					}
 				}
 			});
+
+		// Join the futures.
 		futures::join!(process_future, object_future);
+
 		Ok(())
 	}
 

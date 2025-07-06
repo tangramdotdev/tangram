@@ -76,7 +76,7 @@ impl Server {
 			lines: None,
 			sender,
 		};
-		let task = tokio::spawn(async move {
+		let task = AbortOnDropHandle::new(tokio::spawn(async move {
 			let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
 			let mut stream = pin!(stream);
 			loop {
@@ -105,8 +105,8 @@ impl Server {
 				state.print().await?;
 			}
 			Ok::<_, tg::Error>(())
-		});
-		let stream = receiver.attach(AbortOnDropHandle::new(task));
+		}));
+		let stream = receiver.attach(task);
 		let arg = tg::pty::write::Arg {
 			remote,
 			master: false,

@@ -1,5 +1,4 @@
 use crate::attach::Attach;
-use futures::Future;
 
 pub trait Ext: Future {
 	fn attach<T>(self, value: T) -> Attach<Self, T>
@@ -9,3 +8,5 @@ pub trait Ext: Future {
 		Attach::new(self, value)
 	}
 }
+
+impl<F> Ext for F where F: Future {}

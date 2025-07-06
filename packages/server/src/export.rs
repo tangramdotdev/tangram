@@ -75,7 +75,7 @@ impl Server {
 
 		// Create the task.
 		let (event_sender, event_receiver) = tokio::sync::mpsc::channel(4096);
-		let task = tokio::spawn({
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			async move {
 				let result =
@@ -116,10 +116,10 @@ impl Server {
 					},
 				}
 			}
-		});
+		}));
 
 		// Create the stream.
-		let stream = ReceiverStream::new(event_receiver).attach(AbortOnDropHandle::new(task));
+		let stream = ReceiverStream::new(event_receiver).attach(task);
 
 		Ok(stream.right_stream())
 	}
