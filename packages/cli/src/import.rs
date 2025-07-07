@@ -33,7 +33,7 @@ impl Cli {
 
 		// Import.
 		let arg = tg::import::Arg {
-			items: vec![],
+			items: None,
 			remote,
 		};
 		let stream = handle.import(arg, stream).await?;

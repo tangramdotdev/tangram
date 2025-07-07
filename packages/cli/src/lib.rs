@@ -1473,7 +1473,7 @@ impl Cli {
 				.or(payload.downcast_ref::<String>().map(String::as_str));
 			let location = panic_info.location().map(ToString::to_string);
 			let backtrace = std::backtrace::Backtrace::force_capture();
-			tracing::error!(payload, location, %backtrace, "a panic occurred");
+			tracing::error!(payload, location, %backtrace, "panic");
 		}));
 	}
 

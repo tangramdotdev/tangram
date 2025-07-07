@@ -115,11 +115,12 @@ impl Value {
 			}
 		}
 		let arg = tg::import::Arg {
-			items: self
-				.objects()
-				.into_iter()
-				.map(|object| Either::Right(object.id()))
-				.collect(),
+			items: Some(
+				self.objects()
+					.into_iter()
+					.map(|object| Either::Right(object.id()))
+					.collect(),
+			),
 			remote: None,
 		};
 		let stream = stream::iter(items.into_iter().map(Ok)).boxed();

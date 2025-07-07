@@ -12,7 +12,8 @@ pub const CONTENT_TYPE: &str = "application/vnd.tangram.import";
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub items: Option<Vec<Either<tg::process::Id, tg::object::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
@@ -21,8 +22,9 @@ pub struct Arg {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct QueryArg {
-	#[serde_as(as = "CommaSeparatedString")]
-	items: Vec<Either<tg::process::Id, tg::object::Id>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	items: Option<Vec<Either<tg::process::Id, tg::object::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	remote: Option<String>,

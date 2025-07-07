@@ -23,6 +23,7 @@ pub enum Store {
 	S3(S3),
 }
 
+#[derive(Clone, Debug)]
 pub struct PutArg {
 	pub bytes: Option<Bytes>,
 	pub cache_reference: Option<CacheReference>,
@@ -30,17 +31,20 @@ pub struct PutArg {
 	pub touched_at: i64,
 }
 
+#[derive(Clone, Debug)]
 pub struct PutBatchArg {
 	pub objects: Vec<(tg::object::Id, Option<Bytes>, Option<CacheReference>)>,
 	pub touched_at: i64,
 }
 
+#[derive(Clone, Debug)]
 pub struct DeleteArg {
 	pub id: tg::object::Id,
 	pub now: i64,
 	pub ttl: u64,
 }
 
+#[derive(Clone, Debug)]
 pub struct DeleteBatchArg {
 	pub ids: Vec<tg::object::Id>,
 	pub now: i64,

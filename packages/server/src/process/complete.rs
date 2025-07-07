@@ -4,7 +4,7 @@ use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIte
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub complete: bool,
 	pub commands_complete: bool,
@@ -159,9 +159,9 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<String>>(0)?;
-				let complete = row.get::<_, Option<i64>>(1) == Some(1);
-				let commands_complete = row.get::<_, Option<i64>>(2) == Some(1);
-				let outputs_complete = row.get::<_, Option<i64>>(3) == Some(1);
+				let complete = row.get::<_, i64>(1) != 0;
+				let commands_complete = row.get::<_, i64>(2) != 0;
+				let outputs_complete = row.get::<_, i64>(3) != 0;
 				let output = Output {
 					complete,
 					commands_complete,

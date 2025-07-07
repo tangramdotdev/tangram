@@ -211,7 +211,7 @@ impl Server {
 
 			// Start the import.
 			let import_arg = tg::import::Arg {
-				items: arg.items.clone(),
+				items: Some(arg.items.clone()),
 				remote: None,
 			};
 			let export_item_stream = ReceiverStream::new(export_item_receiver);

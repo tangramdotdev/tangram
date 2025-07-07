@@ -12,17 +12,17 @@ pub struct Item {
 }
 
 pub async fn import(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<()> {
-	let (Serde(stream),) = args;
+	let (Serde(items),) = args;
 	let server = state.server.clone();
 	state
 		.main_runtime_handle
 		.spawn({
 			async move {
 				let arg = tg::import::Arg {
-					items: vec![],
+					items: None,
 					remote: None,
 				};
-				let stream = stream.into_iter().map(|item| {
+				let stream = items.into_iter().map(|item| {
 					let id = item.id;
 					let bytes = item.data.serialize()?;
 					let item = tg::export::Item::Object(tg::export::ObjectItem { id, bytes });

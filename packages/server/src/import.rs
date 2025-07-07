@@ -51,7 +51,7 @@ impl Server {
 		}
 
 		// Create the progress.
-		let processes = arg.items.iter().any(Either::is_left);
+		let processes = arg.items.iter().flatten().any(Either::is_left);
 		let progress = Arc::new(Progress::new(processes));
 
 		// Create the channels.
@@ -123,7 +123,7 @@ impl Server {
 							.map_err(|_| ())
 							.right_future(),
 					};
-					let (process_future, object_future) = match item {
+					let (process_send_future, object_send_future) = match item {
 						tg::export::Item::Process(item) => (
 							process_sender.send(item).map_err(|_| ()).left_future(),
 							future::ok(()).left_future(),
@@ -133,8 +133,11 @@ impl Server {
 							object_sender.send(item).map_err(|_| ()).right_future(),
 						),
 					};
-					let result =
-						futures::try_join!(complete_sender_future, process_future, object_future);
+					let result = futures::try_join!(
+						complete_sender_future,
+						process_send_future,
+						object_send_future
+					);
 					if result.is_err() {
 						event_sender
 							.send(Err(tg::error!(?result, "failed to send the item")))
@@ -185,13 +188,14 @@ impl Server {
 	}
 
 	async fn import_items_complete(&self, arg: &tg::import::Arg) -> tg::Result<bool> {
-		let processes = arg
-			.items
+		let Some(items) = &arg.items else {
+			return Ok(false);
+		};
+		let processes = items
 			.iter()
 			.filter_map(|item| item.clone().left())
 			.collect::<Vec<_>>();
-		let objects = arg
-			.items
+		let objects = items
 			.iter()
 			.filter_map(|item| item.clone().right())
 			.collect::<Vec<_>>();
@@ -199,26 +203,18 @@ impl Server {
 			self.try_get_process_complete_batch(&processes),
 			self.try_get_object_complete_batch(&objects),
 		)?;
-		for process_complete in process_completes {
-			let Some(process_complete) = process_complete else {
-				return Ok(false);
-			};
-			let complete = process_complete.complete
-				&& process_complete.commands_complete
-				&& process_complete.outputs_complete;
-			if !complete {
-				return Ok(false);
-			}
-		}
-		for object_complete in object_completes {
-			let Some(object_complete) = object_complete else {
-				return Ok(false);
-			};
-			if !object_complete {
-				return Ok(false);
-			}
-		}
-		Ok(true)
+		let processes_complete = process_completes.iter().all(|option| {
+			option.as_ref().is_some_and(|process_complete| {
+				process_complete.complete
+					&& process_complete.commands_complete
+					&& process_complete.outputs_complete
+			})
+		});
+		let objects_complete = object_completes
+			.iter()
+			.all(|option| option.is_some_and(|object_complete| object_complete));
+		let complete = processes_complete && objects_complete;
+		Ok(complete)
 	}
 
 	async fn import_complete_task(

@@ -140,7 +140,7 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<String>>(0)?;
-				let complete = row.get::<_, Option<i64>>(1) == Some(1);
+				let complete = row.get::<_, i64>(1) != 0;
 				Some(complete)
 			})
 			.collect();
