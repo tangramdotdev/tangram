@@ -235,7 +235,10 @@ impl Server {
 				let server = self.clone();
 				let state = state.clone();
 				async move {
-					server.export_inner_processes(&state, items).await?;
+					server
+						.export_inner_processes(&state, items)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to export the process"))?;
 					Ok::<_, tg::Error>(())
 				}
 			});
@@ -246,7 +249,10 @@ impl Server {
 				let server = self.clone();
 				let state = state.clone();
 				async move {
-					server.export_inner_objects(&state, items).await?;
+					server
+						.export_inner_objects(&state, items)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to export the object"))?;
 					Ok::<_, tg::Error>(())
 				}
 			});

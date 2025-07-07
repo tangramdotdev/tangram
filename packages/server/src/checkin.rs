@@ -296,6 +296,7 @@ impl Server {
 			let server = self.clone();
 			let state = state.clone();
 			async move {
+				// Await the fixup task.
 				fixup_task.await?;
 
 				// Cache the objects.
@@ -303,8 +304,8 @@ impl Server {
 				server
 					.checkin_cache_task(state.clone(), touched_at)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to copy blobs"))?;
-				tracing::trace!(elapsed = ?start.elapsed(), "copy blobs");
+					.map_err(|source| tg::error!(!source, "failed to cache"))?;
+				tracing::trace!(elapsed = ?start.elapsed(), "cache");
 
 				// Store the objects.
 				let start = Instant::now();

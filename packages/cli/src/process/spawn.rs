@@ -390,7 +390,9 @@ impl Cli {
 				..Default::default()
 			};
 			let stream = handle.push(arg).await?;
-			self.render_progress_stream(stream).await?;
+			self.render_progress_stream(stream)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to push the command"))?;
 		}
 
 		// Get the mounts.

@@ -29,6 +29,7 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
+		// Attempt to get the bytes from the store.
 		let mut bytes = self.store.try_get(id).await?;
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
@@ -102,13 +103,27 @@ impl Server {
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
-		let outputs = self
+		// Attempt to get the bytes from the store.
+		let mut outputs = self
 			.store
 			.try_get_batch(ids)
 			.await?
 			.into_iter()
 			.map(|option| option.map(|bytes| tg::object::get::Output { bytes }))
-			.collect();
+			.collect::<Vec<_>>();
+
+		// If the bytes were not in the store, then attempt to read the bytes from the cache.
+		for (id, output) in std::iter::zip(ids, outputs.iter_mut()) {
+			if output.is_none() {
+				if let Ok(id) = id.try_unwrap_blob_ref() {
+					let bytes = self.try_read_blob_from_cache(id).await?;
+					if let Some(bytes) = bytes {
+						output.replace(tg::object::get::Output { bytes });
+					}
+				}
+			}
+		}
+
 		Ok(outputs)
 	}
 

@@ -337,6 +337,8 @@ impl Server {
 				}
 			}
 		}
+
+		// Store the objects.
 		let arg = crate::store::PutBatchArg {
 			objects,
 			touched_at,
