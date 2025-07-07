@@ -444,6 +444,7 @@ impl Server {
 		state.progress.increment("bytes", weight);
 
 		state.graphs.insert(graph.clone(), data);
+
 		Ok(())
 	}
 

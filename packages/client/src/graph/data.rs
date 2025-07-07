@@ -22,6 +22,7 @@ pub enum Node {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Directory {
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 

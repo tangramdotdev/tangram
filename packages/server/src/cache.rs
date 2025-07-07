@@ -1,7 +1,6 @@
 use crate::{Server, temp::Temp};
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use itertools::Itertools as _;
-use num::ToPrimitive as _;
 use reflink_copy::reflink;
 use std::{
 	collections::HashMap,
@@ -61,7 +60,6 @@ impl Server {
 					);
 				}
 
-				progress.spinner("cache", "cache");
 				let _metadata = future::try_join_all(artifacts.iter().map(|artifact| async {
 					server
 						.try_get_object_metadata(&artifact.clone().into())
@@ -111,8 +109,6 @@ impl Server {
 				}))
 				.await
 				.map(|results| results.into_iter().try_collect::<_, (), _>());
-
-				progress.finish_all();
 
 				match result {
 					Ok(Ok(output)) => {
@@ -384,7 +380,6 @@ impl Server {
 			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
 		)?;
 
-		state.progress.increment("objects", 1);
 		Ok(())
 	}
 
@@ -620,9 +615,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
 				let mut reader = InspectReader::new(reader, {
 					let progress = state.progress.clone();
-					move |buf| {
-						progress.increment("bytes", buf.len().to_u64().unwrap());
-					}
+					move |_| {}
 				});
 				let mut file_ = tokio::fs::File::create(&path)
 					.await

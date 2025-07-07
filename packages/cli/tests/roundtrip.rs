@@ -67,10 +67,10 @@ async fn artifact_symlink() {
 	let directory = temp::directory! {
 		".tangram" => temp::directory! {
 			"artifacts" => temp::directory! {
-				"dir_01s3sv3tm5ntjq5fdst2zc28zy23wq0t20m2hyhnkaqvtdkhwqa2tg" => temp::directory!()
+				"dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg" => temp::directory!()
 			}
 		},
-		"link" => temp::symlink!(".tangram/artifacts/dir_01s3sv3tm5ntjq5fdst2zc28zy23wq0t20m2hyhnkaqvtdkhwqa2tg"),
+		"link" => temp::symlink!(".tangram/artifacts/dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg"),
 	};
 	let assertions = async move |server: Arc<test::Server>, a: tg::Artifact, b: tg::Artifact| {
 		assert_eq!(a.id(), b.id());
@@ -152,7 +152,7 @@ async fn object_dependency() {
 			contents: "".into(),
 			executable: false,
 			xattrs: [
-				("user.tangram.dependencies".into(), r#"["dir_01s3sv3tm5ntjq5fdst2zc28zy23wq0t20m2hyhnkaqvtdkhwqa2tg"]"#.into())
+				("user.tangram.dependencies".into(), r#"["dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg"]"#.into())
 			].into(),
 		}
 	};
