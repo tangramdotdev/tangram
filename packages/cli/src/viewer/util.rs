@@ -2,11 +2,11 @@ use futures::TryStreamExt as _;
 use std::{io::Write as _, pin::pin};
 use tangram_client::{self as tg, handle::Ext as _};
 
-const ONE_MIB: u64 = 1 << 20;
+const BLOB_LENGTH_LIMIT: u64 = 1 << 20;
 
-pub async fn format<H: tg::Handle>(handle: &H, blob: &tg::Blob) -> tg::Result<String> {
+pub async fn format_blob<H: tg::Handle>(handle: &H, blob: &tg::Blob) -> tg::Result<String> {
 	let length = blob.length(handle).await?;
-	if length > ONE_MIB {
+	if length > BLOB_LENGTH_LIMIT {
 		return Err(tg::error!("cannot view blobs larger than 1Mib"));
 	}
 	let mut contents = Vec::new();
@@ -14,7 +14,7 @@ pub async fn format<H: tg::Handle>(handle: &H, blob: &tg::Blob) -> tg::Result<St
 		.try_read_blob(
 			&blob.id(),
 			tg::blob::read::Arg {
-				length: Some(ONE_MIB),
+				length: Some(BLOB_LENGTH_LIMIT),
 				..tg::blob::read::Arg::default()
 			},
 		)

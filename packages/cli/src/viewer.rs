@@ -14,11 +14,11 @@ use tangram_client as tg;
 use tangram_futures::task::Stop;
 use unicode_width::UnicodeWidthChar as _;
 
-mod blob;
 mod data;
 mod help;
 mod log;
 mod tree;
+mod util;
 
 pub struct Viewer<H> {
 	data: Data,
