@@ -328,9 +328,6 @@ impl Server {
 			},
 		}
 
-		// TODO: increment weight
-		state.progress.increment("objects", 1);
-
 		Ok(())
 	}
 
@@ -432,7 +429,7 @@ impl Server {
 			return Ok(());
 		}
 		#[allow(clippy::match_wildcard_for_single_variants)]
-		let data = match &self.store {
+		let data: tg::graph::Data = match &self.store {
 			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
 			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
 			_ => return Err(tg::error!("unimplemented")),
@@ -440,6 +437,12 @@ impl Server {
 		.ok_or_else(|| tg::error!("expected the object to be stored"))?
 		.try_into()
 		.map_err(|_| tg::error!("expected a graph"))?;
+
+		// Update the progress streams.
+		let weight = data.serialize()?.len().to_u64().unwrap();
+		state.progress.increment("objects", 1);
+		state.progress.increment("bytes", weight);
+
 		state.graphs.insert(graph.clone(), data);
 		Ok(())
 	}

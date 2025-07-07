@@ -262,10 +262,11 @@ impl Server {
 						(id.into(), bytes)
 					},
 					tg::artifact::Kind::Symlink => {
-						let data = tg::symlink::data::Symlink::Reference(tg::graph::data::Reference {
-							graph: Some(graph.id.clone()),
-							node,
-						});
+						let data =
+							tg::symlink::data::Symlink::Reference(tg::graph::data::Reference {
+								graph: Some(graph.id.clone()),
+								node,
+							});
 						let bytes = data.serialize()?;
 						let id = tg::symlink::Id::new(&bytes);
 						(id.into(), bytes)

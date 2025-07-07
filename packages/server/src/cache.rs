@@ -492,6 +492,7 @@ impl Server {
 		.ok_or_else(|| tg::error!("expected the object to be stored"))?
 		.try_into()
 		.map_err(|_| tg::error!("expected a graph"))?;
+
 		state.graphs.insert(graph.clone(), data);
 		Ok(())
 	}
