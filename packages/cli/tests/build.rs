@@ -29,7 +29,6 @@ async fn hello_world_remote() {
 	}
 	.into();
 	let reference = ".";
-	let args = vec![];
 	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
 		assert_success!(local);
 		assert_success!(remote);
@@ -38,7 +37,7 @@ async fn hello_world_remote() {
 		assert_snapshot!(local, @r#""Hello, World!""#);
 		assert_snapshot!(remote, @r#""Hello, World!""#);
 	};
-	test_build_remote(artifact, reference, args, assertions).await;
+	test_build_remote(artifact, reference, assertions).await;
 }
 
 /// Test building a module without a package.
@@ -123,7 +122,6 @@ async fn host_command_hello_world_remote() {
 	}
 	.into();
 	let reference = ".";
-	let args = vec![];
 	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
 		assert_success!(local);
 		assert_success!(remote);
@@ -132,7 +130,7 @@ async fn host_command_hello_world_remote() {
 		assert_snapshot!(local, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
 		assert_snapshot!(remote, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
 	};
-	test_build_remote(artifact, reference, args, assertions).await;
+	test_build_remote(artifact, reference, assertions).await;
 }
 
 #[tokio::test]
@@ -1286,26 +1284,23 @@ async fn test_build<F, Fut>(
 	.await;
 }
 
-async fn test_build_remote<F, Fut>(
-	artifact: temp::Artifact,
-	reference: &str,
-	_args: Vec<String>,
-	assertions: F,
-) where
+async fn test_build_remote<F, Fut>(artifact: temp::Artifact, reference: &str, assertions: F)
+where
 	F: FnOnce(std::process::Output, std::process::Output) -> Fut + Send + 'static,
 	Fut: Future<Output = ()> + Send,
 {
 	test(TG, async move |context| {
-		// Create a directory with a module.
 		let temp = Temp::new();
 		artifact.to_path(temp.as_ref()).await.unwrap();
+
+		// Create a server.
+		let server = context.spawn_server().await.unwrap();
 
 		// Create a remote server.
 		let remote_server = context.spawn_server().await.unwrap();
 
-		// Create a local server.
-		let local_server1 = context.spawn_server().await.unwrap();
-		let output = local_server1
+		// Set the remote.
+		let output = server
 			.tg()
 			.current_dir(temp.path())
 			.arg("remote")
@@ -1318,7 +1313,7 @@ async fn test_build_remote<F, Fut>(
 		assert_success!(output);
 
 		// Build on the remote.
-		let output = local_server1
+		let output = server
 			.tg()
 			.current_dir(temp.path())
 			.arg("build")
@@ -1335,8 +1330,8 @@ async fn test_build_remote<F, Fut>(
 			.trim()
 			.to_owned();
 
-		// Get the output on the local server.
-		let local_output = local_server1
+		// Get the output.
+		let output = server
 			.tg()
 			.current_dir(temp.path())
 			.arg("process")
@@ -1345,9 +1340,9 @@ async fn test_build_remote<F, Fut>(
 			.output()
 			.await
 			.unwrap();
-		assert_success!(local_output);
+		assert_success!(output);
 
-		// Get the output on the remote server.
+		// Get the output from the remote.
 		let remote_output = remote_server
 			.tg()
 			.current_dir(temp.path())
@@ -1359,7 +1354,7 @@ async fn test_build_remote<F, Fut>(
 			.unwrap();
 		assert_success!(remote_output);
 
-		assertions(local_output, remote_output).await;
+		assertions(output, remote_output).await;
 	})
 	.await;
 }

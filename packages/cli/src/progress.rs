@@ -15,8 +15,8 @@ use tangram_futures::stream::TryExt as _;
 struct State<T> {
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
-	tty: std::io::Stderr,
 	output: Option<T>,
+	tty: std::io::Stderr,
 }
 
 impl Cli {

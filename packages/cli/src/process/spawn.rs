@@ -381,7 +381,7 @@ impl Cli {
 		// Determine the retry.
 		let retry = options.retry;
 
-		// If the remote is set, then push the commnad.
+		// If the remote is set, then push the command.
 		if let Some(remote) = remote.clone() {
 			let id = command.id();
 			let arg = tg::push::Arg {
