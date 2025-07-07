@@ -13,7 +13,7 @@ use tangram_either::Either;
 use tangram_futures::stream::{Ext as _, TryExt as _};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::prelude::*;
-use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
+use tokio_util::task::AbortOnDropHandle;
 
 #[cfg(test)]
 mod tests;
@@ -609,14 +609,10 @@ impl Server {
 				let contents = contents
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing contents"))?;
-				let reader = tg::Blob::with_id(contents.clone())
+				let mut reader = tg::Blob::with_id(contents.clone())
 					.read(&server, tg::blob::read::Arg::default())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-				let mut reader = InspectReader::new(reader, {
-					let progress = state.progress.clone();
-					move |_| {}
-				});
 				let mut file_ = tokio::fs::File::create(&path)
 					.await
 					.map_err(|source| tg::error!(!source, ?path, "failed to create the file"))?;

@@ -1,12 +1,17 @@
-use std::path::{Path, PathBuf};
+#[cfg(feature = "v8")]
+use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 
-	// Initialize V8.
-	let platform = v8::new_default_platform(0, false).make_shared();
-	v8::V8::initialize_platform(platform);
-	v8::V8::initialize();
+	#[cfg(feature = "v8")]
+	{
+		// Initialize V8.
+		let platform = v8::new_default_platform(0, false).make_shared();
+		v8::V8::initialize_platform(platform);
+		v8::V8::initialize();
+	}
 
 	// Get the out dir path.
 	let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
@@ -62,87 +67,91 @@ fn main() {
 	)
 	.unwrap();
 
-	// Build the compiler.
-	println!("cargo:rerun-if-changed=../../packages/compiler");
-	std::process::Command::new("bun")
-		.args(["run", "--cwd", "../../packages/compiler", "check"])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
+	#[cfg(feature = "v8")]
+	{
+		// Build the compiler.
+		println!("cargo:rerun-if-changed=../../packages/compiler");
+		std::process::Command::new("bun")
+			.args(["run", "--cwd", "../../packages/compiler", "check"])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		std::process::Command::new("bunx")
+			.args([
+				"esbuild",
+				"--bundle",
+				"--minify",
+				&format!("--outdir={}", out_dir_path.display()),
+				"--sourcemap=external",
+				"../../packages/compiler/src/main.ts",
+			])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		std::fs::rename(
+			out_dir_path.join("main.js"),
+			out_dir_path.join("compiler.js"),
+		)
 		.unwrap();
-	std::process::Command::new("bunx")
-		.args([
-			"esbuild",
-			"--bundle",
-			"--minify",
-			&format!("--outdir={}", out_dir_path.display()),
-			"--sourcemap=external",
-			"../../packages/compiler/src/main.ts",
-		])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
+		std::fs::rename(
+			out_dir_path.join("main.js.map"),
+			out_dir_path.join("compiler.js.map"),
+		)
 		.unwrap();
-	std::fs::rename(
-		out_dir_path.join("main.js"),
-		out_dir_path.join("compiler.js"),
-	)
-	.unwrap();
-	std::fs::rename(
-		out_dir_path.join("main.js.map"),
-		out_dir_path.join("compiler.js.map"),
-	)
-	.unwrap();
-	fixup_source_map(out_dir_path.join("compiler.js.map"));
+		fixup_source_map(out_dir_path.join("compiler.js.map"));
 
-	// Build the runtime.
-	println!("cargo:rerun-if-changed=../../packages/runtime");
-	std::process::Command::new("bun")
-		.args(["run", "--cwd", "../../packages/runtime", "check"])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
+		// Build the runtime.
+		println!("cargo:rerun-if-changed=../../packages/runtime");
+		std::process::Command::new("bun")
+			.args(["run", "--cwd", "../../packages/runtime", "check"])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		std::process::Command::new("bunx")
+			.args([
+				"esbuild",
+				"--bundle",
+				"--minify",
+				&format!("--outdir={}", out_dir_path.display()),
+				"--sourcemap=external",
+				"../../packages/runtime/src/main.ts",
+			])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		std::fs::rename(
+			out_dir_path.join("main.js"),
+			out_dir_path.join("runtime.js"),
+		)
 		.unwrap();
-	std::process::Command::new("bunx")
-		.args([
-			"esbuild",
-			"--bundle",
-			"--minify",
-			&format!("--outdir={}", out_dir_path.display()),
-			"--sourcemap=external",
-			"../../packages/runtime/src/main.ts",
-		])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
+		std::fs::rename(
+			out_dir_path.join("main.js.map"),
+			out_dir_path.join("runtime.js.map"),
+		)
 		.unwrap();
-	std::fs::rename(
-		out_dir_path.join("main.js"),
-		out_dir_path.join("runtime.js"),
-	)
-	.unwrap();
-	std::fs::rename(
-		out_dir_path.join("main.js.map"),
-		out_dir_path.join("runtime.js.map"),
-	)
-	.unwrap();
-	fixup_source_map(out_dir_path.join("runtime.js.map"));
+		fixup_source_map(out_dir_path.join("runtime.js.map"));
 
-	// Create the compiler snapshot.
-	let path = out_dir_path.join("compiler.heapsnapshot");
-	let snapshot = create_snapshot(out_dir_path.join("compiler.js"));
-	std::fs::write(path, snapshot).unwrap();
+		// Create the compiler snapshot.
+		let path = out_dir_path.join("compiler.heapsnapshot");
+		let snapshot = create_snapshot(out_dir_path.join("compiler.js"));
+		std::fs::write(path, snapshot).unwrap();
 
-	// Create the runtime snapshot.
-	let path = out_dir_path.join("runtime.heapsnapshot");
-	let snapshot = create_snapshot(out_dir_path.join("runtime.js"));
-	std::fs::write(path, snapshot).unwrap();
+		// Create the runtime snapshot.
+		let path = out_dir_path.join("runtime.heapsnapshot");
+		let snapshot = create_snapshot(out_dir_path.join("runtime.js"));
+		std::fs::write(path, snapshot).unwrap();
+	}
 }
 
+#[cfg(feature = "v8")]
 fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 	// Create the isolate.
 	let mut isolate = v8::Isolate::snapshot_creator(None, None);
@@ -190,6 +199,7 @@ fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 	isolate.create_blob(v8::FunctionCodeHandling::Keep).unwrap()
 }
 
+#[cfg(feature = "v8")]
 fn fixup_source_map(path: impl AsRef<Path>) {
 	let bytes = std::fs::read(&path).unwrap();
 	let mut json = serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();

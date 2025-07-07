@@ -15,11 +15,12 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["format"]
+default = ["format", "v8"]
 format = ["tangram_server/format"]
 foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
+v8 = ["dep:v8", "tangram_server/v8"]
 
 [lints]
 workspace = true
@@ -70,5 +71,5 @@ unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
-v8 = { workspace = true }
+v8 = { workspace = true, optional = true }
 webbrowser = { workspace = true }

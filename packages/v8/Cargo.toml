@@ -10,6 +10,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+default = ["v8"]
+v8 = ["dep:v8"]
+
 [lints]
 workspace = true
 
@@ -21,4 +25,4 @@ serde = { workspace = true }
 tangram_client = { workspace = true }
 tangram_either = { workspace = true }
 time = { workspace = true }
-v8 = { workspace = true }
+v8 = { workspace = true, optional = true }

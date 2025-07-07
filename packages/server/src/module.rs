@@ -9,6 +9,7 @@ pub mod resolve;
 pub mod transpile;
 
 impl Server {
+	#[allow(dead_code)]
 	pub(crate) async fn module_for_path(&self, path: &Path) -> tg::Result<tg::module::Data> {
 		// Get the file name.
 		let file_name = path

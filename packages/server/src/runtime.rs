@@ -9,6 +9,7 @@ mod util;
 pub mod builtin;
 #[cfg(target_os = "macos")]
 pub mod darwin;
+#[cfg(feature = "v8")]
 pub mod js;
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -18,6 +19,7 @@ pub enum Runtime {
 	Builtin(builtin::Runtime),
 	#[cfg(target_os = "macos")]
 	Darwin(darwin::Runtime),
+	#[cfg(feature = "v8")]
 	Js(js::Runtime),
 	#[cfg(target_os = "linux")]
 	Linux(linux::Runtime),
@@ -38,6 +40,7 @@ impl Runtime {
 			Self::Builtin(s) => &s.server,
 			#[cfg(target_os = "macos")]
 			Self::Darwin(s) => &s.server,
+			#[cfg(feature = "v8")]
 			Self::Js(s) => &s.server,
 			#[cfg(target_os = "linux")]
 			Self::Linux(s) => &s.server,
@@ -65,6 +68,7 @@ impl Runtime {
 			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.run(process).boxed().await,
+			#[cfg(feature = "v8")]
 			Runtime::Js(runtime) => runtime.run(process).boxed().await,
 			#[cfg(target_os = "linux")]
 			Runtime::Linux(runtime) => runtime.run(process).boxed().await,

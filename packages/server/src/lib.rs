@@ -1,9 +1,10 @@
+#[cfg(feature = "v8")]
+use self::compiler::Compiler;
 use self::{
 	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
 };
 #[cfg(feature = "nats")]
 use async_nats as nats;
-use compiler::Compiler;
 use dashmap::{DashMap, DashSet};
 use futures::{FutureExt as _, Stream, StreamExt as _, future, stream::FuturesUnordered};
 use http_body_util::BodyExt as _;
@@ -36,15 +37,19 @@ use url::Url;
 
 mod blob;
 mod cache;
+#[cfg(feature = "v8")]
 mod check;
 mod checkin;
 mod checkout;
 mod checksum;
 mod clean;
+#[cfg(feature = "v8")]
 mod compiler;
 mod database;
+#[cfg(feature = "v8")]
 mod document;
 mod export;
+#[cfg(feature = "v8")]
 mod format;
 mod health;
 mod import;
@@ -81,13 +86,13 @@ pub struct Server(pub Arc<Inner>);
 
 pub struct Inner {
 	cache_task_map: CacheTaskMap,
+	#[cfg(feature = "v8")]
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	http: Option<Http>,
 	index: Database,
-	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
@@ -232,6 +237,7 @@ impl Server {
 		let process_task_map = TaskMap::default();
 
 		// Create the compilers.
+		#[cfg(feature = "v8")]
 		let compilers = RwLock::new(Vec::new());
 
 		// Create the database.
@@ -320,12 +326,6 @@ impl Server {
 			},
 		};
 
-		// Create the local pool handle.
-		let local_pool_handle = config
-			.runner
-			.as_ref()
-			.map(|process| tokio_util::task::LocalPoolHandle::new(process.concurrency));
-
 		// Create the messenger.
 		let messenger = match &config.messenger {
 			self::config::Messenger::Memory => {
@@ -406,13 +406,13 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			cache_task_map,
+			#[cfg(feature = "v8")]
 			compilers,
 			config,
 			database,
 			diagnostics,
 			http,
 			index,
-			local_pool_handle,
 			lock_file,
 			messenger,
 			path: directory,
@@ -559,6 +559,7 @@ impl Server {
 				let runtime = self::runtime::Runtime::Builtin(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}
+			#[cfg(feature = "v8")]
 			{
 				let triple = "js".to_owned();
 				let runtime = self::runtime::js::Runtime::new(&server);
@@ -712,12 +713,15 @@ impl Server {
 				tracing::trace!("shutdown process tasks");
 
 				// Stop the compilers.
-				let compilers = server.compilers.read().unwrap().clone();
-				for compiler in compilers {
-					compiler.stop();
-					compiler.wait().await;
+				#[cfg(feature = "v8")]
+				{
+					let compilers = server.compilers.read().unwrap().clone();
+					for compiler in compilers {
+						compiler.stop();
+						compiler.wait().await;
+					}
+					tracing::trace!("shutdown compiler tasks");
 				}
-				tracing::trace!("shutdown compiler tasks");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
@@ -1048,6 +1052,7 @@ impl Server {
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
 			(http::Method::POST, ["cache"]) => Self::handle_cache_request(handle, request).boxed(),
+			#[cfg(feature = "v8")]
 			(http::Method::POST, ["check"]) => Self::handle_check_request(handle, request).boxed(),
 			(http::Method::POST, ["checkin"]) => {
 				Self::handle_checkin_request(handle, request).boxed()
@@ -1058,15 +1063,13 @@ impl Server {
 			(http::Method::POST, ["clean"]) => {
 				Self::handle_server_clean_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["document"]) => {
-				Self::handle_document_request(handle, request).boxed()
-			},
+			#[cfg(feature = "v8")]
+			(http::Method::POST, ["document"]) => Self::handle_document_request(handle, request).boxed(),
 			(http::Method::POST, ["export"]) => {
 				Self::handle_export_request(handle, request).boxed()
 			},
-			(http::Method::POST, ["format"]) => {
-				Self::handle_format_request(handle, request).boxed()
-			},
+			#[cfg(feature = "v8")]
+			(http::Method::POST, ["format"]) => Self::handle_format_request(handle, request).boxed(),
 			(http::Method::GET, ["health"]) => {
 				Self::handle_server_health_request(handle, request).boxed()
 			},
@@ -1074,6 +1077,7 @@ impl Server {
 				Self::handle_import_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["index"]) => Self::handle_index_request(handle, request).boxed(),
+			#[cfg(feature = "v8")]
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 			(http::Method::POST, ["pull"]) => Self::handle_pull_request(handle, request).boxed(),
 			(http::Method::POST, ["push"]) => Self::handle_push_request(handle, request).boxed(),
@@ -1262,6 +1266,14 @@ impl tg::Handle for Server {
 		self.cache(arg)
 	}
 
+	#[cfg(not(feature = "v8"))]
+	fn check(&self, _arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
+		future::ready(Err(tg::error!(
+			"this version of tangram was not compiled with v8 support"
+		)))
+	}
+
+	#[cfg(feature = "v8")]
 	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		self.check(arg)
 	}
@@ -1298,6 +1310,17 @@ impl tg::Handle for Server {
 		self.clean()
 	}
 
+	#[cfg(not(feature = "v8"))]
+	fn document(
+		&self,
+		_arg: tg::document::Arg,
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
+		future::ready(Err(tg::error!(
+			"this version of tangram was not compiled with v8 support"
+		)))
+	}
+
+	#[cfg(feature = "v8")]
 	fn document(
 		&self,
 		arg: tg::document::Arg,
@@ -1315,6 +1338,14 @@ impl tg::Handle for Server {
 		self.export(arg, stream)
 	}
 
+	#[cfg(not(feature = "v8"))]
+	fn format(&self, _arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
+		future::ready(Err(tg::error!(
+			"this version of tangram was not compiled with v8 support"
+		)))
+	}
+
+	#[cfg(feature = "v8")]
 	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
 		self.format(arg)
 	}
@@ -1343,6 +1374,18 @@ impl tg::Handle for Server {
 		self.index()
 	}
 
+	#[cfg(not(feature = "v8"))]
+	fn lsp(
+		&self,
+		_input: impl AsyncBufRead + Send + Unpin + 'static,
+		_output: impl AsyncWrite + Send + Unpin + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		future::ready(Err(tg::error!(
+			"this version of tangram was not compiled with v8 support"
+		)))
+	}
+
+	#[cfg(feature = "v8")]
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,

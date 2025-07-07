@@ -1399,6 +1399,7 @@ impl Cli {
 	}
 
 	/// Initialize V8.
+	#[cfg(feature = "v8")]
 	fn initialize_v8() {
 		// Set the ICU data.
 		v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
@@ -1409,6 +1410,12 @@ impl Cli {
 
 		// Initialize V8.
 		v8::V8::initialize();
+	}
+
+	/// Initialize V8 (no-op when V8 feature is disabled).
+	#[cfg(not(feature = "v8"))]
+	fn initialize_v8() {
+		// No-op when V8 is not enabled
 	}
 
 	/// Initialize tracing.

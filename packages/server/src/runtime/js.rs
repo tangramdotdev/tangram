@@ -25,6 +25,7 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.js.m
 
 #[derive(Clone)]
 pub struct Runtime {
+	local_pool_handle: tokio_util::task::LocalPoolHandle,
 	pub(super) server: Server,
 }
 
@@ -54,7 +55,13 @@ struct Module {
 
 impl Runtime {
 	pub fn new(server: &Server) -> Self {
+		// Create the local pool handle.
+		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
+			server.config.runner.as_ref().unwrap().concurrency,
+		);
+
 		Self {
+			local_pool_handle,
 			server: server.clone(),
 		}
 	}
@@ -67,21 +74,16 @@ impl Runtime {
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = self
-			.server
-			.local_pool_handle
-			.as_ref()
-			.unwrap()
-			.spawn_pinned({
-				let runtime = self.clone();
-				let process = process.clone();
-				move || async move {
-					runtime
-						.run_inner(&process, main_runtime_handle.clone(), isolate_handle_sender)
-						.boxed_local()
-						.await
-				}
-			});
+		let task = self.local_pool_handle.spawn_pinned({
+			let runtime = self.clone();
+			let process = process.clone();
+			move || async move {
+				runtime
+					.run_inner(&process, main_runtime_handle.clone(), isolate_handle_sender)
+					.boxed_local()
+					.await
+			}
+		});
 
 		let abort_handle = task.abort_handle();
 		scopeguard::defer! {
