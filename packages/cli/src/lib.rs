@@ -323,6 +323,7 @@ impl Cli {
 
 		// Initialize V8.
 		if matches!(mode, Mode::Server) {
+			#[cfg(feature = "v8")]
 			Cli::initialize_v8();
 		}
 
@@ -1410,12 +1411,6 @@ impl Cli {
 
 		// Initialize V8.
 		v8::V8::initialize();
-	}
-
-	/// Initialize V8 (no-op when V8 feature is disabled).
-	#[cfg(not(feature = "v8"))]
-	fn initialize_v8() {
-		// No-op when V8 is not enabled
 	}
 
 	/// Initialize tracing.
