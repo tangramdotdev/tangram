@@ -202,8 +202,8 @@ impl Connection {
 		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
 	{
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = ConnectionMessage::With(Box::new(|connection| {
-			sender.send(f(connection)).map_err(|_| ()).unwrap();
+		let message = ConnectionMessage::With(Box::new(move |connection| {
+			sender.send(f(connection)).map_err(|_| ()).ok();
 		}));
 		self.sender.send(message).unwrap();
 		receiver.await.unwrap()
@@ -263,7 +263,7 @@ impl Transaction<'_> {
 	{
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = TransactionMessage::With(Box::new(|connection| {
-			sender.send(f(connection)).map_err(|_| ()).unwrap();
+			sender.send(f(connection)).map_err(|_| ()).ok();
 		}));
 		self.sender.send(message).unwrap();
 		receiver.await.unwrap()
