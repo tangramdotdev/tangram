@@ -17,20 +17,20 @@ pub enum Artifact {
 
 impl Artifact {
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::Object> {
-		match self {
-			Self::Directory(directory) => directory.children(),
-			Self::File(file) => file.children(),
-			Self::Symlink(symlink) => symlink.children(),
-		}
-	}
-
-	#[must_use]
 	pub fn to_data(&self) -> Data {
 		match self {
 			Self::Directory(directory) => directory.to_data().into(),
 			Self::File(file) => file.to_data().into(),
 			Self::Symlink(symlink) => symlink.to_data().into(),
+		}
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Directory(directory) => directory.children(),
+			Self::File(file) => file.children(),
+			Self::Symlink(symlink) => symlink.children(),
 		}
 	}
 }

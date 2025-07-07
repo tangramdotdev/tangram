@@ -1,13 +1,13 @@
 import * as tg from "./index.ts";
 
 export async function mutation<T extends tg.Value = tg.Value>(
-	arg: tg.Unresolved<Mutation.Arg<T>>,
-): Promise<Mutation<T>> {
-	return await Mutation.new(arg);
+	arg: tg.Unresolved<tg.Mutation.Arg<T>>,
+): Promise<tg.Mutation<T>> {
+	return await tg.Mutation.new(arg);
 }
 
 export class Mutation<T extends tg.Value = tg.Value> {
-	#inner: Mutation.Inner<T>;
+	#inner: tg.Mutation.Inner<T>;
 
 	constructor(inner: tg.Mutation.Inner<T>) {
 		this.#inner = inner;
@@ -15,7 +15,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 
 	static async new<T extends tg.Value = tg.Value>(
 		arg_: tg.Unresolved<tg.Mutation.Arg<T>>,
-	): Promise<Mutation<T>> {
+	): Promise<tg.Mutation<T>> {
 		let arg = await tg.resolve(arg_);
 		if (arg.kind === "set") {
 			return new tg.Mutation({
@@ -114,25 +114,25 @@ export class Mutation<T extends tg.Value = tg.Value> {
 
 	static async merge<
 		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
-	>(value: tg.Unresolved<T>): Promise<Mutation<T>> {
+	>(value: tg.Unresolved<T>): Promise<tg.Mutation<T>> {
 		return new tg.Mutation({
 			kind: "merge",
 			value: (await tg.resolve(value)) as { [key: string]: tg.Value },
 		}) as tg.Mutation<T>;
 	}
 
-	static expect(value: unknown): Mutation {
-		tg.assert(value instanceof Mutation);
+	static expect(value: unknown): tg.Mutation {
+		tg.assert(value instanceof tg.Mutation);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is Mutation {
-		tg.assert(value instanceof Mutation);
+	static assert(value: unknown): asserts value is tg.Mutation {
+		tg.assert(value instanceof tg.Mutation);
 	}
 
 	static toData<T extends tg.Value = tg.Value>(
-		value: Mutation<T>,
-	): Mutation.Data {
+		value: tg.Mutation<T>,
+	): tg.Mutation.Data {
 		if (value.inner.kind === "unset") {
 			return { kind: "unset" };
 		} else if (value.inner.kind === "set") {
@@ -182,33 +182,33 @@ export class Mutation<T extends tg.Value = tg.Value> {
 	}
 
 	static fromData<T extends tg.Value = tg.Value>(
-		data: Mutation.Data,
-	): Mutation<T> {
+		data: tg.Mutation.Data,
+	): tg.Mutation<T> {
 		if (data.kind === "unset") {
-			return new Mutation({ kind: "unset" }) as Mutation<T>;
+			return new tg.Mutation({ kind: "unset" }) as tg.Mutation<T>;
 		} else if (data.kind === "set") {
-			return new Mutation({
+			return new tg.Mutation({
 				kind: "set",
 				value: tg.Value.fromData(data.value),
-			}) as Mutation<T>;
+			}) as tg.Mutation<T>;
 		} else if (data.kind === "set_if_unset") {
-			return new Mutation({
+			return new tg.Mutation({
 				kind: "set_if_unset",
 				value: tg.Value.fromData(data.value),
-			}) as Mutation<T>;
+			}) as tg.Mutation<T>;
 		} else if (data.kind === "prepend" || data.kind === "append") {
-			return new Mutation({
+			return new tg.Mutation({
 				kind: data.kind,
 				values: data.values.map(tg.Value.fromData),
-			}) as Mutation<T>;
+			}) as tg.Mutation<T>;
 		} else if (data.kind === "prefix" || data.kind === "suffix") {
-			return new Mutation({
+			return new tg.Mutation({
 				kind: data.kind,
 				template: tg.Template.fromData(data.template),
 				separator: data.separator,
-			}) as Mutation<T>;
+			}) as tg.Mutation<T>;
 		} else if (data.kind === "merge") {
-			return new Mutation({
+			return new tg.Mutation({
 				kind: "merge",
 				value: Object.fromEntries(
 					Object.entries(data.value).map(([key, value]) => [
@@ -216,10 +216,14 @@ export class Mutation<T extends tg.Value = tg.Value> {
 						tg.Value.fromData(value),
 					]),
 				),
-			}) as Mutation<T>;
+			}) as tg.Mutation<T>;
 		} else {
 			return tg.unreachable("invalid kind");
 		}
+	}
+
+	get inner() {
+		return this.#inner;
 	}
 
 	children(): Array<tg.Object> {
@@ -311,13 +315,19 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			}
 		}
 	}
-
-	get inner() {
-		return this.#inner;
-	}
 }
 
 export namespace Mutation {
+	export type Kind =
+		| "set"
+		| "unset"
+		| "set_if_unset"
+		| "prepend"
+		| "append"
+		| "prefix"
+		| "suffix"
+		| "merge";
+
 	export type Arg<T extends tg.Value = tg.Value> =
 		| { kind: "unset" }
 		| { kind: "set"; value: T }
@@ -398,14 +408,4 @@ export namespace Mutation {
 				kind: "merge";
 				value: { [key: string]: tg.Value.Data };
 		  };
-
-	export type Kind =
-		| "set"
-		| "unset"
-		| "set_if_unset"
-		| "prepend"
-		| "append"
-		| "prefix"
-		| "suffix"
-		| "merge";
 }

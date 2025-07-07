@@ -26,6 +26,14 @@ impl<T> Referent<T> {
 			tag: self.tag,
 		}
 	}
+
+	pub fn try_map<U, E>(self, f: impl FnOnce(T) -> Result<U, E>) -> Result<tg::Referent<U>, E> {
+		Ok(tg::Referent {
+			item: f(self.item)?,
+			path: self.path,
+			tag: self.tag,
+		})
+	}
 }
 
 impl<T> Referent<T>

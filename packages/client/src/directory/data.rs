@@ -1,26 +1,15 @@
 use crate as tg;
 use bytes::Bytes;
-use itertools::Itertools as _;
-use std::collections::BTreeMap;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Directory {
-	Graph(Graph),
+	Reference(tg::graph::data::Reference),
 	Node(Node),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Graph {
-	pub graph: tg::graph::Id,
-	pub node: usize,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Node {
-	pub entries: BTreeMap<String, tg::artifact::Id>,
-}
+pub type Node = tg::graph::data::Directory;
 
 impl Directory {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
@@ -36,15 +25,8 @@ impl Directory {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone())
-				.map_into()
-				.left_iterator(),
-			Self::Node(node) => node
-				.entries
-				.values()
-				.cloned()
-				.map(Into::into)
-				.right_iterator(),
+			Self::Reference(reference) => reference.children().left_iterator(),
+			Self::Node(node) => node.children().right_iterator(),
 		}
 	}
 }

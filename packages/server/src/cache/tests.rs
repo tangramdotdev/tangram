@@ -2,7 +2,6 @@ use crate::{Server, test::test};
 use insta::assert_json_snapshot;
 use std::{collections::BTreeMap, pin::pin};
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 use tangram_temp as temp;
 
@@ -267,7 +266,7 @@ async fn graph_directory() {
 			tg::graph::object::Directory {
 				entries: [(
 					"hello.txt".to_owned(),
-					Either::Right(tg::file!("Hello, World!").into()),
+					tg::graph::object::Edge::Object(tg::file!("Hello, World!").into()),
 				)]
 				.into(),
 			},
@@ -356,10 +355,22 @@ async fn directory_with_symlink_cycle() {
 	let graph = tg::Graph::with_object(tg::graph::Object {
 		nodes: vec![
 			tg::graph::object::Node::Directory(tg::graph::object::Directory {
-				entries: [("link".to_owned(), Either::Left(1))].into(),
+				entries: [(
+					"link".to_owned(),
+					tg::graph::object::Edge::Reference(tg::graph::object::Reference {
+						graph: None,
+						node: 1,
+					}),
+				)]
+				.into(),
 			}),
 			tg::graph::object::Node::Symlink(tg::graph::object::Symlink {
-				artifact: Some(Either::Left(0)),
+				artifact: Some(tg::graph::object::Edge::Reference(
+					tg::graph::object::Reference {
+						graph: None,
+						node: 0,
+					},
+				)),
 				path: Some("link".into()),
 			}),
 		],

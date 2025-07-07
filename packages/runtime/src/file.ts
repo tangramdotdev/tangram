@@ -69,40 +69,33 @@ export class File {
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
-			if (typeof arg === "object" && "graph" in arg) {
-				return File.withObject(
-					arg as {
-						graph: tg.Graph;
-						node: number;
-					},
-				);
+			if (typeof arg === "object" && "node" in arg) {
+				return File.withObject(arg as tg.Graph.Reference);
 			}
 		}
 		let arg = await File.arg(...args);
 		let contents = await tg.blob(arg.contents);
 		let dependencies = Object.fromEntries(
 			Object.entries(arg.dependencies ?? {}).map(([key, value]) => {
-				if (tg.Object.is(value)) {
+				if (
+					tg.Object.is(value) ||
+					typeof value === "number" ||
+					"node" in value
+				) {
 					value = { item: value };
 				}
 				return [key, value];
 			}),
 		);
 		let executable = arg.executable ?? false;
-		const object = { contents, dependencies, executable };
+		let object = { contents, dependencies, executable };
 		return File.withObject(object);
 	}
 
 	static async arg(
 		...args: tg.Args<File.Arg>
-	): Promise<Exclude<File.ArgObject, { graph: tg.Graph; node: number }>> {
-		type Arg = Exclude<
-			File.ArgObject,
-			{
-				graph: tg.Graph;
-				node: number;
-			}
-		>;
+	): Promise<Exclude<File.Arg.Object, tg.Graph.Arg.Reference>> {
+		type Arg = Exclude<File.Arg.Object, tg.Graph.Arg.Reference>;
 		return await tg.Args.apply<File.Arg, Arg>({
 			args,
 			map: async (arg) => {
@@ -120,9 +113,6 @@ export class File {
 						dependencies: await arg.dependencies(),
 					};
 				} else {
-					if ("graph" in arg) {
-						throw new Error("invalid arg");
-					}
 					return arg as Arg;
 				}
 			},
@@ -179,64 +169,74 @@ export class File {
 	}
 
 	async contents(): Promise<tg.Blob> {
-		const object = await this.object();
-		if (!("graph" in object)) {
-			return object.contents;
-		} else {
-			const graph = object.graph;
-			const nodes = await graph.nodes();
-			const node = nodes[object.node];
-			tg.assert(node !== undefined, `invalid index ${object.node}`);
-			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
+		let object = await this.object();
+		if ("node" in object) {
+			let graph = object.graph;
+			tg.assert(graph !== undefined);
+			let nodes = await graph.nodes();
+			let node = nodes[object.node];
+			tg.assert(node !== undefined);
+			tg.assert(node.kind === "file");
 			return node.contents;
+		} else {
+			tg.assert(object.contents);
+			return object.contents;
 		}
 	}
 
 	async dependencies(): Promise<{
 		[reference: tg.Reference]: tg.Referent<tg.Object>;
 	}> {
-		const object = await this.object();
-		if (!("graph" in object)) {
-			return object.dependencies;
-		} else {
-			const graph = object.graph;
-			const nodes = await graph.nodes();
-			const node = nodes[object.node];
-			tg.assert(node !== undefined, `invalid index ${object.node}`);
-			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
-			const dependencies = node.dependencies;
+		let object = await this.object();
+		if ("node" in object) {
+			let graph = object.graph;
+			tg.assert(graph !== undefined);
+			let nodes = await graph.nodes();
+			let node = nodes[object.node];
+			tg.assert(node !== undefined);
+			tg.assert(node.kind === "file");
+			let dependencies = node.dependencies;
 			return Object.fromEntries(
-				Object.entries(dependencies).map(([reference, referent]) => {
-					let object: tg.Object | undefined;
-					if (typeof referent.item === "number") {
-						const node = nodes[referent.item];
-						tg.assert(node !== undefined, `invalid index ${referent.item}`);
-						switch (node.kind) {
-							case "directory": {
-								object = tg.Directory.withObject({
-									graph,
-									node: referent.item,
-								});
-								break;
-							}
-							case "file": {
-								object = tg.File.withObject({ graph, node: referent.item });
-								break;
-							}
-							case "symlink": {
-								object = tg.Symlink.withObject({ graph, node: referent.item });
-								break;
-							}
+				await Promise.all(
+					Object.entries(dependencies).map(async ([reference, referent]) => {
+						let object: tg.Object | undefined;
+						if (typeof referent.item === "number") {
+							object = await graph.get(referent.item);
+						} else if ("node" in referent.item) {
+							object = await (referent.item.graph ?? graph).get(
+								referent.item.node,
+							);
+						} else {
+							object = referent.item;
 						}
-					} else {
-						object = referent.item;
-					}
-					const value = {
-						...referent,
-						item: object,
-					};
-					return [reference, value];
-				}),
+						let value = {
+							...referent,
+							item: object,
+						};
+						return [reference, value];
+					}),
+				),
+			);
+		} else {
+			let dependencies = object.dependencies;
+			return Object.fromEntries(
+				await Promise.all(
+					Object.entries(dependencies).map(async ([reference, referent]) => {
+						let object: tg.Object | undefined;
+						tg.assert(typeof referent.item === "object");
+						if ("node" in referent.item) {
+							tg.assert(referent.item.graph !== undefined);
+							object = await referent.item.graph.get(referent.item.node);
+						} else {
+							object = referent.item;
+						}
+						let value = {
+							...referent,
+							item: object,
+						};
+						return [reference, value];
+					}),
+				),
 			);
 		}
 	}
@@ -251,16 +251,17 @@ export class File {
 	}
 
 	async executable(): Promise<boolean> {
-		const object = await this.object();
-		if (!("graph" in object)) {
-			return object.executable;
-		} else {
-			const graph = object.graph;
-			const nodes = await graph.nodes();
-			const node = nodes[object.node];
-			tg.assert(node !== undefined, `invalid index ${object.node}`);
-			tg.assert(node.kind === "file", `expected a file node, got ${node}`);
+		let object = await this.object();
+		if ("node" in object) {
+			let graph = object.graph;
+			tg.assert(graph !== undefined);
+			let nodes = await graph.nodes();
+			let node = nodes[object.node];
+			tg.assert(node !== undefined);
+			tg.assert(node.kind === "file");
 			return node.executable;
+		} else {
+			return object.executable;
 		}
 	}
 
@@ -282,109 +283,51 @@ export class File {
 }
 
 export namespace File {
+	export type Id = string;
+
+	export type State = tg.Object.State<File.Id, File.Object>;
+
 	export type Arg =
 		| undefined
 		| string
 		| Uint8Array
 		| tg.Blob
 		| tg.File
-		| ArgObject;
+		| tg.File.Arg.Object;
 
-	export type ArgObject =
-		| {
-				contents?: tg.Blob.Arg | undefined;
-				dependencies?:
-					| {
-							[reference: tg.Reference]: tg.MaybeReferent<tg.Object>;
-					  }
-					| undefined;
-				executable?: boolean | undefined;
-		  }
-		| {
-				graph: tg.Graph;
-				node: number;
-		  };
+	export namespace Arg {
+		export type Object = tg.Graph.Arg.Reference | tg.Graph.Arg.File;
+	}
 
-	export type Id = string;
-
-	export type Object =
-		| { graph: tg.Graph; node: number }
-		| {
-				contents: tg.Blob;
-				dependencies: { [reference: tg.Reference]: tg.Referent<tg.Object> };
-				executable: boolean;
-		  };
+	export type Object = tg.Graph.Reference | tg.Graph.File;
 
 	export namespace Object {
-		export let toData = (object: Object): Data => {
-			if ("graph" in object) {
-				return {
-					graph: object.graph.id,
-					node: object.node,
-				};
+		export let toData = (object: tg.File.Object): tg.File.Data => {
+			if ("node" in object) {
+				return tg.Graph.Reference.toData(object);
 			} else {
-				return {
-					contents: object.contents.id,
-					executable: object.executable,
-					dependencies: globalThis.Object.fromEntries(
-						globalThis.Object.entries(object.dependencies).map(
-							([reference, referent]) => [
-								reference,
-								tg.Referent.toData(referent, (item) => item.id),
-							],
-						),
-					),
-				};
+				return tg.Graph.File.toData(object);
 			}
 		};
 
-		export let fromData = (data: Data): Object => {
-			if ("graph" in data) {
-				return {
-					graph: tg.Graph.withId(data.graph),
-					node: data.node,
-				};
+		export let fromData = (data: tg.File.Data): tg.File.Object => {
+			if ("node" in data) {
+				return tg.Graph.Reference.fromData(data);
 			} else {
-				return {
-					contents: tg.Blob.withId(data.contents),
-					executable: data.executable ?? false,
-					dependencies: globalThis.Object.fromEntries(
-						globalThis.Object.entries(data.dependencies ?? {}).map(
-							([reference, referent]) => [
-								reference,
-								tg.Referent.fromData(referent, tg.Object.withId),
-							],
-						),
-					),
-				};
+				return tg.Graph.File.fromData(data);
 			}
 		};
 
-		export let children = (object: Object): Array<tg.Object> => {
-			if ("graph" in object) {
-				return [object.graph];
+		export let children = (object: tg.File.Object): Array<tg.Object> => {
+			if ("node" in object) {
+				return tg.Graph.Reference.children(object);
 			} else {
-				return [
-					object.contents,
-					...globalThis.Object.entries(object.dependencies).map(
-						([_, referent]) => referent.item,
-					),
-				];
+				return tg.Graph.File.children(object);
 			}
 		};
 	}
 
-	export type Data =
-		| { graph: tg.Graph.Id; node: number }
-		| {
-				contents: tg.Blob.Id;
-				dependencies?: {
-					[reference: tg.Reference]: tg.Referent.Data<tg.Object.Id>;
-				};
-				executable?: boolean;
-		  };
-
-	export type State = tg.Object.State<File.Id, File.Object>;
+	export type Data = tg.Graph.Data.Reference | tg.Graph.Data.File;
 
 	export let raw = async (
 		strings: TemplateStringsArray,

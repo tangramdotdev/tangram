@@ -4,7 +4,6 @@ use futures::{
 	stream::{self, FuturesUnordered},
 };
 use indoc::{formatdoc, indoc};
-use itertools::Itertools as _;
 #[cfg(feature = "postgres")]
 use num::ToPrimitive as _;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
@@ -514,7 +513,7 @@ impl Server {
 				let output = tg::process::get::Output { data };
 				Ok::<_, tg::Error>(Some(output))
 			})
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 
 		Ok(outputs)
 	}
@@ -529,7 +528,7 @@ impl Server {
 			.await?
 			.into_values()
 			.map(|client| async move { client.get_process(id).await }.boxed())
-			.collect_vec();
+			.collect::<Vec<_>>();
 		if futures.is_empty() {
 			return Ok(None);
 		}

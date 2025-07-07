@@ -4,7 +4,6 @@ use futures::{
 	future::{self, BoxFuture},
 	stream::FuturesUnordered,
 };
-use itertools::Itertools as _;
 use std::{
 	hash::{BuildHasher, Hash},
 	sync::Arc,
@@ -172,7 +171,7 @@ where
 			.map
 			.iter()
 			.map(|entry| entry.value().clone())
-			.collect_vec();
+			.collect::<Vec<_>>();
 		tasks
 			.into_iter()
 			.map(|task| async move { task.wait().await })

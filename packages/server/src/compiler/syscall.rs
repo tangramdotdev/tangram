@@ -1,7 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
 use super::Compiler;
-use itertools::Itertools as _;
 use tangram_client as tg;
 use tangram_v8::{FromV8, ToV8};
 
@@ -75,7 +74,7 @@ where
 	let state = context.get_slot::<Compiler>().unwrap().clone();
 
 	// Collect the args.
-	let args = (1..args.length()).map(|i| args.get(i)).collect_vec();
+	let args = (1..args.length()).map(|i| args.get(i)).collect::<Vec<_>>();
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.

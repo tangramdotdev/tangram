@@ -25,18 +25,6 @@ pub struct Child {
 }
 
 impl Blob {
-	#[must_use]
-	pub fn children(&self) -> Vec<tg::Object> {
-		match self {
-			Self::Leaf(_) => vec![],
-			Self::Branch(branch) => branch
-				.children
-				.iter()
-				.map(|child| child.blob.clone().into())
-				.collect(),
-		}
-	}
-
 	pub fn to_data(&self) -> Data {
 		match self {
 			Blob::Leaf(object) => tg::blob::Data::Leaf(tg::blob::data::Leaf {
@@ -55,14 +43,13 @@ impl Blob {
 			},
 		}
 	}
-}
 
-impl TryFrom<Data> for Blob {
-	type Error = tg::Error;
-
-	fn try_from(data: Data) -> Result<Self, Self::Error> {
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
 		match data {
-			Data::Leaf(data) => Ok(Self::Leaf(Leaf { bytes: data.bytes })),
+			Data::Leaf(data) => {
+				let leaf = Leaf { bytes: data.bytes };
+				Ok(Self::Leaf(leaf))
+			},
 			Data::Branch(data) => {
 				let children = data
 					.children
@@ -72,8 +59,21 @@ impl TryFrom<Data> for Blob {
 						length: child.length,
 					})
 					.collect();
-				Ok(Self::Branch(Branch { children }))
+				let branch = Branch { children };
+				Ok(Self::Branch(branch))
 			},
+		}
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Leaf(_) => vec![],
+			Self::Branch(branch) => branch
+				.children
+				.iter()
+				.map(|child| child.blob.clone().into())
+				.collect(),
 		}
 	}
 }

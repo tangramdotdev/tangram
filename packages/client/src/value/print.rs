@@ -2,7 +2,6 @@ use crate as tg;
 use bytes::Bytes;
 use num::ToPrimitive as _;
 use std::fmt::Result;
-use tangram_either::Either;
 
 pub struct Printer<W> {
 	depth: u64,
@@ -242,21 +241,39 @@ where
 
 	fn directory_object(&mut self, object: &tg::directory::Object) -> Result {
 		write!(self.writer, "tg.directory(")?;
-		self.start_map()?;
 		match object {
-			tg::directory::Object::Graph(graph) => {
-				self.map_entry("graph", |s| s.graph(&graph.graph))?;
-				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+			tg::directory::Object::Reference(reference) => {
+				self.start_map()?;
+				self.map_entry("graph", |s| s.graph(reference.graph.as_ref().unwrap()))?;
+				self.map_entry("node", |s| s.number(reference.node.to_f64().unwrap()))?;
+				self.finish_map()?;
 			},
 			tg::directory::Object::Node(node) => {
-				for (name, artifact) in &node.entries {
-					self.map_entry(name, |s| s.artifact(artifact))?;
+				self.start_map()?;
+				for (name, edge) in &node.entries {
+					self.map_entry(name, |s| s.graph_edge_artifact(edge))?;
 				}
+				self.finish_map()?;
 			},
 		}
-		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
+	}
+
+	fn directory_node(&mut self, directory: &tg::directory::object::Node, tag: bool) -> Result {
+		self.start_map()?;
+		if tag {
+			self.map_entry("kind", |s| s.string("directory"))?;
+		}
+		self.map_entry("entries", |s| {
+			s.start_map()?;
+			for (name, edge) in &directory.entries {
+				s.map_entry(name, |s| s.graph_edge_artifact(edge))?;
+			}
+			s.finish_map()?;
+			Ok(())
+		})?;
+		self.finish_map()
 	}
 
 	pub fn file(&mut self, value: &tg::File) -> Result {
@@ -277,45 +294,52 @@ where
 
 	fn file_object(&mut self, object: &tg::file::Object) -> Result {
 		write!(self.writer, "tg.file(")?;
-		self.start_map()?;
 		match object {
-			tg::file::Object::Graph(graph) => {
-				self.map_entry("graph", |s| s.graph(&graph.graph))?;
-				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+			tg::file::Object::Reference(reference) => {
+				self.start_map()?;
+				self.map_entry("graph", |s| s.graph(reference.graph.as_ref().unwrap()))?;
+				self.map_entry("node", |s| s.number(reference.node.to_f64().unwrap()))?;
+				self.finish_map()?;
 			},
 			tg::file::Object::Node(node) => {
-				self.map_entry("contents", |s| s.blob(&node.contents))?;
-				if !node.dependencies.is_empty() {
-					self.map_entry("dependencies", |s| {
+				self.file_node(node, false)?;
+			},
+		}
+		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	fn file_node(&mut self, file: &tg::file::object::Node, tag: bool) -> Result {
+		self.start_map()?;
+		if tag {
+			self.map_entry("kind", |s| s.string("file"))?;
+		}
+		self.map_entry("contents", |s| s.blob(&file.contents))?;
+		if !file.dependencies.is_empty() {
+			self.map_entry("dependencies", |s| {
+				s.start_map()?;
+				for (reference, referent) in &file.dependencies {
+					s.map_entry(reference.as_str(), |s| {
 						s.start_map()?;
-						for (reference, referent) in &node.dependencies {
-							s.map_entry(reference.as_str(), |s| {
-								s.start_map()?;
-								s.map_entry("item", |s| s.object(&referent.item))?;
-								if let Some(path) = &referent.path {
-									s.map_entry("path", |s| {
-										s.string(path.to_string_lossy().as_ref())
-									})?;
-								}
-								if let Some(tag) = &referent.tag {
-									s.map_entry("tag", |s| s.string(tag.as_str()))?;
-								}
-								s.finish_map()?;
-								Ok(())
-							})?;
+						s.map_entry("item", |s| s.graph_edge_object(&referent.item))?;
+						if let Some(path) = &referent.path {
+							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
+						}
+						if let Some(tag) = &referent.tag {
+							s.map_entry("tag", |s| s.string(tag.as_str()))?;
 						}
 						s.finish_map()?;
 						Ok(())
 					})?;
 				}
-				if node.executable {
-					self.map_entry("executable", |s| s.bool(true))?;
-				}
-			},
+				s.finish_map()?;
+				Ok(())
+			})?;
 		}
-		self.finish_map()?;
-		write!(self.writer, ")")?;
-		Ok(())
+		if file.executable {
+			self.map_entry("executable", |s| s.bool(file.executable))?;
+		}
+		self.finish_map()
 	}
 
 	pub fn symlink(&mut self, value: &tg::Symlink) -> Result {
@@ -336,24 +360,40 @@ where
 
 	fn symlink_object(&mut self, object: &tg::symlink::Object) -> Result {
 		write!(self.writer, "tg.symlink(")?;
-		self.start_map()?;
 		match object {
-			tg::symlink::Object::Graph(graph) => {
-				self.map_entry("graph", |s| s.graph(&graph.graph))?;
-				self.map_entry("node", |s| s.number(graph.node.to_f64().unwrap()))?;
+			tg::symlink::Object::Reference(reference) => {
+				self.start_map()?;
+				self.map_entry("graph", |s| s.graph(reference.graph.as_ref().unwrap()))?;
+				self.map_entry("node", |s| s.number(reference.node.to_f64().unwrap()))?;
+				self.finish_map()?;
 			},
 			tg::symlink::Object::Node(node) => {
+				self.start_map()?;
 				if let Some(artifact) = &node.artifact {
-					self.map_entry("artifact", |s| s.artifact(artifact))?;
+					self.map_entry("artifact", |s| s.graph_edge_artifact(artifact))?;
 				}
 				if let Some(path) = &node.path {
 					self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 				}
+				self.finish_map()?;
 			},
 		}
-		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
+	}
+
+	fn symlink_node(&mut self, symlink: &tg::symlink::object::Node, tag: bool) -> Result {
+		self.start_map()?;
+		if tag {
+			self.map_entry("kind", |s| s.string("symlink"))?;
+		}
+		if let Some(artifact) = &symlink.artifact {
+			self.map_entry("artifact", |s| s.graph_edge_artifact(artifact))?;
+		}
+		if let Some(path) = &symlink.path {
+			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
+		}
+		self.finish_map()
 	}
 
 	pub fn graph(&mut self, value: &tg::Graph) -> Result {
@@ -380,92 +420,9 @@ where
 				s.start_array()?;
 				for node in &object.nodes {
 					s.array_value(|s| match node {
-						tg::graph::Node::Directory(directory) => {
-							s.start_map()?;
-							s.map_entry("kind", |s| s.string("directory"))?;
-							s.map_entry("entries", |s| {
-								s.start_map()?;
-								for (name, either) in &directory.entries {
-									s.map_entry(name, |s| {
-										match either {
-											Either::Left(index) => {
-												s.number(index.to_f64().unwrap())?;
-											},
-											Either::Right(artifact) => {
-												s.artifact(artifact)?;
-											},
-										}
-										Ok(())
-									})?;
-								}
-								s.finish_map()?;
-								Ok(())
-							})?;
-							s.finish_map()
-						},
-						tg::graph::Node::File(file) => {
-							s.start_map()?;
-							s.map_entry("kind", |s| s.string("file"))?;
-							s.map_entry("contents", |s| s.blob(&file.contents))?;
-							if !file.dependencies.is_empty() {
-								s.map_entry("dependencies", |s| {
-									s.start_map()?;
-									for (reference, referent) in &file.dependencies {
-										s.map_entry(reference.as_str(), |s| {
-											s.start_map()?;
-											s.map_entry("item", |s| {
-												match &referent.item {
-													Either::Left(index) => {
-														s.number(index.to_f64().unwrap())?;
-													},
-													Either::Right(object) => {
-														s.object(object)?;
-													},
-												}
-												Ok(())
-											})?;
-											if let Some(path) = &referent.path {
-												s.map_entry("path", |s| {
-													s.string(path.to_string_lossy().as_ref())
-												})?;
-											}
-											if let Some(tag) = &referent.tag {
-												s.map_entry("tag", |s| s.string(tag.as_str()))?;
-											}
-											s.finish_map()?;
-											Ok(())
-										})?;
-									}
-									s.finish_map()?;
-									Ok(())
-								})?;
-							}
-							if file.executable {
-								s.map_entry("executable", |s| s.bool(file.executable))?;
-							}
-							s.finish_map()
-						},
-						tg::graph::Node::Symlink(symlink) => {
-							s.start_map()?;
-							s.map_entry("kind", |s| s.string("symlink"))?;
-							if let Some(artifact) = &symlink.artifact {
-								s.map_entry("artifact", |s| {
-									match artifact {
-										Either::Left(index) => {
-											s.number(index.to_f64().unwrap())?;
-										},
-										Either::Right(artifact) => {
-											s.artifact(artifact)?;
-										},
-									}
-									Ok(())
-								})?;
-							}
-							if let Some(path) = &symlink.path {
-								s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
-							}
-							s.finish_map()
-						},
+						tg::graph::Node::Directory(directory) => s.directory_node(directory, true),
+						tg::graph::Node::File(file) => s.file_node(file, true),
+						tg::graph::Node::Symlink(symlink) => s.symlink_node(symlink, true),
 					})?;
 				}
 				s.finish_array()?;
@@ -475,6 +432,36 @@ where
 		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
+	}
+
+	fn graph_edge_object(&mut self, edge: &tg::graph::object::Edge<tg::Object>) -> Result {
+		match edge {
+			tg::graph::object::Edge::Reference(reference) => {
+				self.start_map()?;
+				if let Some(graph) = &reference.graph {
+					self.map_entry("graph", |p| p.graph(graph))?;
+				}
+				self.map_entry("node", |p| p.number(reference.node.to_f64().unwrap()))?;
+				self.finish_map()?;
+				Ok(())
+			},
+			tg::graph::object::Edge::Object(object) => self.object(object),
+		}
+	}
+
+	fn graph_edge_artifact(&mut self, edge: &tg::graph::object::Edge<tg::Artifact>) -> Result {
+		match edge {
+			tg::graph::object::Edge::Reference(reference) => {
+				self.start_map()?;
+				if let Some(graph) = &reference.graph {
+					self.map_entry("graph", |p| p.graph(graph))?;
+				}
+				self.map_entry("node", |p| p.number(reference.node.to_f64().unwrap()))?;
+				self.finish_map()?;
+				Ok(())
+			},
+			tg::graph::object::Edge::Object(object) => self.artifact(object),
+		}
 	}
 
 	pub fn command(&mut self, value: &tg::Command) -> Result {

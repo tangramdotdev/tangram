@@ -1,7 +1,9 @@
 use crate::Server;
 use bytes::Bytes;
-use futures::{FutureExt as _, future, stream::FuturesUnordered, stream::TryStreamExt as _};
-use itertools::Itertools as _;
+use futures::{
+	FutureExt as _, future,
+	stream::{FuturesUnordered, TryStreamExt as _},
+};
 use num::ToPrimitive as _;
 use std::{
 	io::{Read as _, Seek as _},
@@ -137,7 +139,7 @@ impl Server {
 			.await?
 			.into_values()
 			.map(|client| async move { client.get_object(id).await }.boxed())
-			.collect_vec();
+			.collect::<Vec<_>>();
 		if futures.is_empty() {
 			return Ok(None);
 		}

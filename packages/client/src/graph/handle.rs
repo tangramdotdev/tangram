@@ -83,7 +83,7 @@ impl Graph {
 		};
 		let data = Data::deserialize(output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-		let object = Object::try_from(data)?;
+		let object = Object::try_from_data(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
@@ -122,6 +122,26 @@ impl Graph {
 		H: tg::Handle,
 	{
 		Ok(self.object(handle).await?.to_data())
+	}
+
+	pub async fn get<H>(&self, handle: &H, index: usize) -> tg::Result<tg::Artifact>
+	where
+		H: tg::Handle,
+	{
+		let nodes = self.nodes(handle).await?;
+		let node = nodes
+			.get(index)
+			.ok_or_else(|| tg::error!("invalid node index"))?;
+		let artifact = match node.kind() {
+			tg::artifact::Kind::Directory => {
+				tg::Directory::with_graph_and_node(self.clone(), index).into()
+			},
+			tg::artifact::Kind::File => tg::File::with_graph_and_node(self.clone(), index).into(),
+			tg::artifact::Kind::Symlink => {
+				tg::Symlink::with_graph_and_node(self.clone(), index).into()
+			},
+		};
+		Ok(artifact)
 	}
 }
 

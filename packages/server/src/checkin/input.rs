@@ -1,6 +1,5 @@
 use super::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
-use itertools::Itertools;
 use std::{
 	os::unix::fs::PermissionsExt as _,
 	path::{Path, PathBuf},
@@ -172,9 +171,9 @@ impl Server {
 							|source| tg::error!(!source, %path = reference.display(), "failed to canonicalize path"),
 						)?
 					} else {
-						reference.canonicalize().map_err(|source| {
-							tg::error!(!source, "failed to canonicalize the path")
-						})?
+						reference.canonicalize().map_err(
+							|source| tg::error!(!source, %path = reference.display(), "failed to canonicalize the path"),
+						)?
 					};
 					if let Some(index) = self.checkin_visit(state, reference.clone())? {
 						let path = crate::util::path::diff(path.parent().unwrap(), &reference)?;
@@ -194,7 +193,7 @@ impl Server {
 				}
 				Ok::<_, tg::Error>((import.reference, referent))
 			})
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 
 		// Update the graph.
 		state.graph.nodes[index]

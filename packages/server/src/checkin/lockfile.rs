@@ -1,5 +1,4 @@
 use crate::Server;
-use itertools::Itertools;
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_itertools::IteratorExt as _;
@@ -108,7 +107,7 @@ impl Server {
 				let entry = Self::create_lockfile_node(state, *node, nodes, objects, visited)?;
 				Ok::<_, tg::Error>((name.clone(), entry))
 			})
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 		let directory = tg::lockfile::Directory { entries };
 		Ok(tg::lockfile::Node::Directory(directory))
 	}
@@ -122,19 +121,26 @@ impl Server {
 		visited: &mut [Option<Either<usize, tg::object::Id>>],
 	) -> tg::Result<tg::lockfile::Node> {
 		let (contents, executable) = match data {
-			tg::file::Data::Graph(data) => {
+			tg::file::Data::Reference(data) => {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == data.graph.clone())
+					.find(|object| object.id == data.graph.clone().unwrap())
 					.unwrap()
 					.data;
 				let file = graph.nodes[data.node].clone().try_unwrap_file().unwrap();
-				let contents = file.contents;
+				let contents = file
+					.contents
+					.ok_or_else(|| tg::error!("missing contents"))?;
 				let executable = file.executable;
 				(contents, executable)
 			},
-			tg::file::Data::Node(data) => (data.contents.clone(), data.executable),
+			tg::file::Data::Node(data) => (
+				data.contents
+					.clone()
+					.ok_or_else(|| tg::error!("missing contents"))?,
+				data.executable,
+			),
 		};
 		let dependencies = state.graph.nodes[index]
 			.variant
@@ -167,7 +173,7 @@ impl Server {
 					},
 				}
 			})
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 		let file = tg::lockfile::File {
 			contents: Some(contents),
 			dependencies,
@@ -200,11 +206,11 @@ impl Server {
 
 		// Get the subpath, if it exists.
 		let subpath = match data {
-			tg::symlink::Data::Graph(data) => {
+			tg::symlink::Data::Reference(data) => {
 				let graph = &state
 					.graph_objects
 					.iter()
-					.find(|object| object.id == data.graph.clone())
+					.find(|object| object.id == data.graph.clone().unwrap())
 					.unwrap()
 					.data;
 				let symlink = graph.nodes[data.node].clone().try_unwrap_symlink().unwrap();

@@ -1,4 +1,5 @@
 use crate::Server;
+use fnv::FnvBuildHasher;
 use itertools::Itertools;
 use std::{
 	collections::{BTreeMap, HashMap},
@@ -28,6 +29,14 @@ pub struct LockfileNode {
 	pub node: usize,
 }
 
+struct State {
+	checkout_dependencies: bool,
+	nodes: Vec<Option<tg::lockfile::Node>>,
+	objects: Vec<Option<tg::object::Id>>,
+	visited: HashMap<tg::artifact::Id, usize, FnvBuildHasher>,
+	graphs: HashMap<tg::graph::Id, tg::graph::Data, FnvBuildHasher>,
+}
+
 impl Server {
 	pub(crate) fn create_lockfile_for_artifact(
 		&self,
@@ -35,22 +44,22 @@ impl Server {
 		checkout_dependencies: bool,
 	) -> tg::Result<tg::Lockfile> {
 		// Create the state.
-		let mut nodes = Vec::new();
-		let mut objects = Vec::new();
-		let mut visited = HashMap::default();
-		let mut graphs = HashMap::default();
+		let mut state = State {
+			checkout_dependencies,
+			nodes: Vec::new(),
+			objects: Vec::new(),
+			visited: HashMap::default(),
+			graphs: HashMap::default(),
+		};
 
 		// Create nodes in the lockfile for the graph.
-		let root = self.get_or_create_lockfile_node_for_artifact(
-			artifact.clone(),
+		let root = self.create_lockfile_for_artifact_inner(
+			&mut state,
+			&tg::graph::data::Edge::Object(artifact.clone()),
 			true,
-			checkout_dependencies,
-			&mut nodes,
-			&mut objects,
-			&mut visited,
-			&mut graphs,
 		)?;
-		let nodes: Vec<_> = nodes
+		let nodes: Vec<_> = state
+			.nodes
 			.into_iter()
 			.enumerate()
 			.map(|(index, node)| {
@@ -61,7 +70,7 @@ impl Server {
 			.collect::<tg::Result<_>>()?;
 
 		// Strip nodes.
-		let nodes = Self::strip_lockfile_nodes(&nodes, &objects, root)?;
+		let nodes = Self::strip_lockfile_nodes(&nodes, &state.objects, root)?;
 
 		// Create the lockfile.
 		let lockfile = tg::Lockfile { nodes };
@@ -69,377 +78,255 @@ impl Server {
 		Ok(lockfile)
 	}
 
-	#[allow(clippy::too_many_arguments)]
-	fn get_or_create_lockfile_node_for_artifact(
+	fn create_lockfile_for_artifact_inner(
 		&self,
-		id: tg::artifact::Id,
+		state: &mut State,
+		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 		is_path_dependency: bool,
-		checkout_dependencies: bool,
-		nodes: &mut Vec<Option<tg::lockfile::Node>>,
-		objects: &mut Vec<Option<tg::object::Id>>,
-		visited: &mut HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
-		graphs: &mut HashMap<tg::graph::Id, Vec<usize>, fnv::FnvBuildHasher>,
 	) -> tg::Result<usize> {
-		if let Some(visited) = visited.get(&id) {
-			return Ok(*visited);
-		}
-		let index = nodes.len();
+		let (id, node, graph) = match edge {
+			tg::graph::data::Edge::Reference(reference) => {
+				// Compute the ID.
+				let graph = reference
+					.graph
+					.as_ref()
+					.ok_or_else(|| tg::error!("missing graph"))?;
+				self.lockfile_ensure_graph_exists(state, graph)?;
 
-		#[allow(clippy::match_wildcard_for_single_variants)]
-		let artifact = match &self.store {
-			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&id.clone().into())?,
-			crate::store::Store::Memory(memory) => {
-				memory.try_get_object_data(&id.clone().into())?
-			},
-			_ => {
-				return Err(tg::error!("invalid store"));
-			},
-		}
-		.ok_or_else(|| tg::error!("expected the object to exist"))?
-		.try_into()
-		.map_err(|_| tg::error!("expected an artifact"))?;
+				// Get the node data.
+				let node = state
+					.graphs
+					.get(graph)
+					.unwrap()
+					.nodes
+					.get(reference.node)
+					.ok_or_else(|| tg::error!("invalid node index"))?;
 
-		// Flatten graphs into the lockfile.
-		'a: {
-			let (graph, node) = match &artifact {
-				tg::artifact::Data::Directory(directory) => {
-					let tg::directory::Data::Graph(tg::directory::data::Graph { graph, node }) =
-						directory
-					else {
-						break 'a;
-					};
-					(graph, *node)
-				},
-				tg::artifact::Data::File(file) => {
-					let tg::file::Data::Graph(data) = file else {
-						break 'a;
-					};
-					(&data.graph, data.node)
-				},
-				tg::artifact::Data::Symlink(symlink) => {
-					let tg::symlink::Data::Graph(data) = symlink else {
-						break 'a;
-					};
-					(&data.graph, data.node)
-				},
-			};
-			let nodes = self.create_lockfile_node_with_graph(
-				graph,
-				checkout_dependencies,
-				is_path_dependency,
-				nodes,
-				objects,
-				visited,
-				graphs,
-			)?;
-			return Ok(nodes[node]);
-		}
-
-		// Only create a distinct node for non-graph artifacts.
-		nodes.push(None);
-		objects.push((!is_path_dependency).then(|| id.clone().into()));
-		visited.insert(id, index);
-
-		// Create a new lockfile node for the artifact, recursing over dependencies.
-		let node = match &artifact {
-			tg::artifact::Data::Directory(directory) => {
-				let tg::directory::data::Directory::Node(tg::directory::data::Node { entries }) =
-					directory
-				else {
-					unreachable!()
+				// Compute the id.
+				let data: tg::artifact::data::Artifact = match node.kind() {
+					tg::artifact::Kind::Directory => {
+						tg::directory::Data::Reference(reference.clone()).into()
+					},
+					tg::artifact::Kind::File => tg::file::Data::Reference(reference.clone()).into(),
+					tg::artifact::Kind::Symlink => {
+						tg::symlink::Data::Reference(reference.clone()).into()
+					},
 				};
-				let mut entries_ = BTreeMap::new();
-				for (name, artifact) in entries {
-					let index = self.get_or_create_lockfile_node_for_artifact(
-						artifact.clone(),
-						is_path_dependency,
-						checkout_dependencies,
-						nodes,
-						objects,
-						visited,
-						graphs,
-					)?;
-					entries_.insert(name.clone(), Either::Left(index));
-				}
-				tg::lockfile::Node::Directory(tg::lockfile::Directory { entries: entries_ })
-			},
+				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
-			tg::artifact::Data::File(file) => {
-				let tg::file::data::File::Node(data) = file else {
-					unreachable!()
-				};
-				let contents = &data.contents;
-				let dependencies = &data.dependencies;
-				let executable = data.executable;
-				let mut dependencies_ = BTreeMap::new();
-				for (reference, referent) in dependencies {
-					let is_path_dependency = is_path_dependency && reference.path().is_some();
-					let item = match &referent.item {
-						tg::object::Id::Directory(id) if checkout_dependencies => {
-							let index = self.get_or_create_lockfile_node_for_artifact(
-								id.clone().into(),
-								is_path_dependency,
-								checkout_dependencies,
-								nodes,
-								objects,
-								visited,
-								graphs,
-							)?;
-							Either::Left(index)
-						},
-						tg::object::Id::File(id) if checkout_dependencies => {
-							let index = self.get_or_create_lockfile_node_for_artifact(
-								id.clone().into(),
-								is_path_dependency,
-								checkout_dependencies,
-								nodes,
-								objects,
-								visited,
-								graphs,
-							)?;
-							Either::Left(index)
-						},
-						tg::object::Id::Symlink(id) if checkout_dependencies => {
-							let index = self.get_or_create_lockfile_node_for_artifact(
-								id.clone().into(),
-								is_path_dependency,
-								checkout_dependencies,
-								nodes,
-								objects,
-								visited,
-								graphs,
-							)?;
-							Either::Left(index)
-						},
-						object => Either::Right(object.clone()),
-					};
-					let dependency = tg::Referent {
-						item,
-						path: referent.path.clone(),
-						tag: referent.tag.clone(),
-					};
-					dependencies_.insert(reference.clone(), dependency);
+				// Check if visited.
+				if let Some(index) = state.visited.get(&id).copied() {
+					return Ok(index);
 				}
-				let contents = Some(contents.clone());
-				tg::lockfile::Node::File(tg::lockfile::File {
-					contents,
-					dependencies: dependencies_,
-					executable,
-				})
-			},
 
-			tg::artifact::Data::Symlink(symlink) => match symlink {
-				tg::symlink::data::Symlink::Graph(..) => unreachable!(),
-				tg::symlink::data::Symlink::Node(data) => {
-					let artifact = &data.artifact;
-					let path = &data.path;
-					let artifact = if let Some(artifact) = artifact {
-						let index = self.get_or_create_lockfile_node_for_artifact(
-							artifact.clone(),
-							false,
-							checkout_dependencies,
-							nodes,
-							objects,
-							visited,
-							graphs,
-						)?;
-						Some(Either::Left(index))
-					} else {
-						None
-					};
-					let path = path.as_ref().map(PathBuf::from);
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
-						artifact,
-						path: path.clone(),
-					})
-				},
+				(id, node.clone(), Some(graph.clone()))
+			},
+			tg::graph::data::Edge::Object(id) => {
+				// Check if visited.
+				if let Some(index) = state.visited.get(id).copied() {
+					return Ok(index);
+				}
+
+				// Otherwise, lookup the artifact data by ID.
+				#[allow(clippy::match_wildcard_for_single_variants)]
+				let data = match &self.store {
+					crate::Store::Lmdb(store) => {
+						store.try_get_object_data_sync(&id.clone().into())?
+					},
+					crate::Store::Memory(store) => store.try_get_object_data(&id.clone().into())?,
+					_ => return Err(tg::error!("unimplemented")),
+				}
+				.ok_or_else(|| tg::error!(%id = id.clone(), "expected the object to be stored"))?;
+				let data = tg::artifact::Data::try_from(data)?;
+				match data {
+					// Handle the case where this points into a graph.
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
+						reference,
+					))
+					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(reference))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
+						reference,
+					)) => {
+						let edge = tg::graph::data::Edge::Reference(reference);
+						return self.create_lockfile_for_artifact_inner(
+							state,
+							&edge,
+							is_path_dependency,
+						);
+					},
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
+						(id.clone(), tg::graph::data::Node::Directory(node), None)
+					},
+					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
+						(id.clone(), tg::graph::data::Node::File(node), None)
+					},
+					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
+						(id.clone(), tg::graph::data::Node::Symlink(node), None)
+					},
+				}
 			},
 		};
 
-		// Update the visited set.
-		nodes[index].replace(node);
-
+		let index = state.nodes.len();
+		state.visited.insert(id.clone(), index);
+		state.nodes.push(None);
+		state
+			.objects
+			.push((!is_path_dependency).then(|| id.clone().into()));
+		let lockfile_node = match node {
+			tg::graph::data::Node::Directory(node) => self
+				.create_lockfile_node_for_directory_node(
+					state,
+					&node,
+					graph.as_ref(),
+					is_path_dependency,
+				)?,
+			tg::graph::data::Node::File(node) => self.create_lockfile_node_for_file_node(
+				state,
+				&node,
+				graph.as_ref(),
+				is_path_dependency,
+			)?,
+			tg::graph::data::Node::Symlink(node) => self.create_lockfile_node_for_symlink_node(
+				state,
+				&node,
+				graph.as_ref(),
+				is_path_dependency,
+			)?,
+		};
+		state.nodes[index].replace(lockfile_node);
 		Ok(index)
 	}
 
-	#[allow(clippy::too_many_arguments)]
-	fn create_lockfile_node_with_graph(
+	fn lockfile_ensure_graph_exists(
 		&self,
-		id: &tg::graph::Id,
-		is_path_dependency: bool,
-		checkout_dependencies: bool,
-		nodes: &mut Vec<Option<tg::lockfile::Node>>,
-		objects: &mut Vec<Option<tg::object::Id>>,
-		visited: &mut HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
-		graphs: &mut HashMap<tg::graph::Id, Vec<usize>, fnv::FnvBuildHasher>,
-	) -> tg::Result<Vec<usize>> {
-		if let Some(existing) = graphs.get(id) {
-			return Ok(existing.clone());
+		state: &mut State,
+		graph: &tg::graph::Id,
+	) -> tg::Result<()> {
+		if state.graphs.contains_key(graph) {
+			return Ok(());
 		}
 		#[allow(clippy::match_wildcard_for_single_variants)]
-		let graph: tg::graph::Data = match &self.store {
-			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_object_data_sync(&id.clone().into())?,
-			crate::store::Store::Memory(memory) => {
-				memory.try_get_object_data(&id.clone().into())?
-			},
-			_ => {
-				return Err(tg::error!("invalid store"));
-			},
+		let data = match &self.store {
+			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
+			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
+			_ => return Err(tg::error!("unimplemented")),
 		}
-		.ok_or_else(|| tg::error!("expected the graph to exist"))?
+		.ok_or_else(|| tg::error!("expected the object to be stored"))?
 		.try_into()
 		.map_err(|_| tg::error!("expected a graph"))?;
+		state.graphs.insert(graph.clone(), data);
+		Ok(())
+	}
 
-		// Assign indices.
-		let mut indices = Vec::with_capacity(graph.nodes.len());
-		for node in 0..graph.nodes.len() {
-			let kind = graph.nodes[node].kind();
-			let data: tg::artifact::Data = match kind {
-				tg::artifact::Kind::Directory => {
-					tg::directory::Data::Graph(tg::directory::data::Graph {
-						graph: id.clone(),
-						node,
-					})
-					.into()
-				},
-				tg::artifact::Kind::File => tg::file::Data::Graph(tg::file::data::Graph {
-					graph: id.clone(),
-					node,
-				})
-				.into(),
-				tg::artifact::Kind::Symlink => tg::symlink::Data::Graph(tg::symlink::data::Graph {
-					graph: id.clone(),
-					node,
-				})
-				.into(),
-			};
-			let bytes = data.serialize()?;
-			let id = tg::artifact::Id::new(kind, &bytes);
-
-			let index = visited.get(&id).copied().unwrap_or_else(|| {
-				let index = nodes.len();
-				visited.insert(id.clone(), index);
-				nodes.push(None);
-				objects.push((!is_path_dependency).then(|| id.clone().into()));
-				index
-			});
-			indices.push(index);
-		}
-		graphs.insert(id.clone(), indices.clone());
-
-		// Create nodes
-		for (old_index, node) in graph.nodes.iter().enumerate() {
-			let node = match node {
-				tg::graph::data::Node::Directory(directory) => {
-					let mut entries = BTreeMap::new();
-					for (name, entry) in &directory.entries {
-						let index = match entry {
-							Either::Left(index) => indices[*index],
-							Either::Right(artifact) => self
-								.get_or_create_lockfile_node_for_artifact(
-									artifact.clone(),
-									is_path_dependency,
-									checkout_dependencies,
-									nodes,
-									objects,
-									visited,
-									graphs,
-								)?,
-						};
-						entries.insert(name.clone(), Either::Left(index));
+	fn create_lockfile_node_for_directory_node(
+		&self,
+		state: &mut State,
+		node: &tg::graph::data::Directory,
+		graph: Option<&tg::graph::Id>,
+		is_path_dependency: bool,
+	) -> tg::Result<tg::lockfile::Node> {
+		let entries = node
+			.entries
+			.iter()
+			.map(|(name, edge)| {
+				let mut edge = edge.clone();
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+					if reference.graph.is_none() {
+						reference.graph = graph.cloned();
 					}
-					tg::lockfile::Node::Directory(tg::lockfile::Directory { entries })
-				},
+				}
+				let node =
+					self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)?;
+				Ok::<_, tg::Error>((name.clone(), Either::Left(node)))
+			})
+			.collect::<tg::Result<_>>()?;
+		Ok(tg::lockfile::Node::Directory(tg::lockfile::Directory {
+			entries,
+		}))
+	}
 
-				tg::graph::data::Node::File(file) => {
-					let mut dependencies = BTreeMap::new();
-					for (reference, referent) in &file.dependencies {
-						let item = match &referent.item {
-							Either::Left(index) => Either::Left(indices[*index]),
-							Either::Right(object) => match object {
-								tg::object::Id::Directory(id) => {
-									let index = self.get_or_create_lockfile_node_for_artifact(
-										id.clone().into(),
-										is_path_dependency,
-										checkout_dependencies,
-										nodes,
-										objects,
-										visited,
-										graphs,
-									)?;
-									Either::Left(index)
-								},
-								tg::object::Id::File(id) => {
-									let index = self.get_or_create_lockfile_node_for_artifact(
-										id.clone().into(),
-										is_path_dependency,
-										checkout_dependencies,
-										nodes,
-										objects,
-										visited,
-										graphs,
-									)?;
-									Either::Left(index)
-								},
-								tg::object::Id::Symlink(id) => {
-									let index = self.get_or_create_lockfile_node_for_artifact(
-										id.clone().into(),
-										is_path_dependency,
-										checkout_dependencies,
-										nodes,
-										objects,
-										visited,
-										graphs,
-									)?;
-									Either::Left(index)
-								},
-								object => Either::Right(object.clone()),
-							},
-						};
-						let path = referent.path.clone();
-						let tag = referent.tag.clone();
-						let dependency = tg::Referent { item, path, tag };
-						dependencies.insert(reference.clone(), dependency);
+	fn create_lockfile_node_for_file_node(
+		&self,
+		state: &mut State,
+		node: &tg::graph::data::File,
+		graph: Option<&tg::graph::Id>,
+		is_path_dependency: bool,
+	) -> tg::Result<tg::lockfile::Node> {
+		let dependencies = node
+			.dependencies
+			.iter()
+			.map(|(reference, referent)| {
+				// Remap the edge.
+				let edge = match referent.item.clone() {
+					tg::graph::data::Edge::Reference(mut reference) => {
+						if reference.graph.is_none() {
+							reference.graph = graph.cloned();
+						}
+						tg::graph::data::Edge::Reference(reference)
+					},
+					tg::graph::data::Edge::Object(tg::object::Id::Directory(id))
+						if state.checkout_dependencies =>
+					{
+						tg::graph::data::Edge::Object(id.into())
+					},
+					tg::graph::data::Edge::Object(tg::object::Id::File(id))
+						if state.checkout_dependencies =>
+					{
+						tg::graph::data::Edge::Object(id.into())
+					},
+					tg::graph::data::Edge::Object(tg::object::Id::Symlink(id))
+						if state.checkout_dependencies =>
+					{
+						tg::graph::data::Edge::Object(id.into())
+					},
+					tg::graph::data::Edge::Object(id) => {
+						// Short circuit.
+						let referent = referent.clone().map(|_| Either::Right(id));
+						return Ok((reference.clone(), referent));
+					},
+				};
+				let is_path_dependency = is_path_dependency && reference.path().is_some();
+				let index =
+					self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)?;
+				let referent = referent.clone().map(|_| Either::Left(index));
+				Ok::<_, tg::Error>((reference.clone(), referent))
+			})
+			.collect::<tg::Result<_>>()?;
+		let contents = node.contents.clone();
+		let executable = node.executable;
+		Ok(tg::lockfile::Node::File(tg::lockfile::File {
+			contents,
+			dependencies,
+			executable,
+		}))
+	}
+
+	fn create_lockfile_node_for_symlink_node(
+		&self,
+		state: &mut State,
+		node: &tg::graph::data::Symlink,
+		graph: Option<&tg::graph::Id>,
+		is_path_dependency: bool,
+	) -> tg::Result<tg::lockfile::Node> {
+		let artifact = node
+			.artifact
+			.as_ref()
+			.map(|edge| {
+				let mut edge = edge.clone();
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+					if reference.graph.is_none() {
+						reference.graph = graph.cloned();
 					}
-					let contents = file.contents.clone();
-					let executable = file.executable;
-					tg::lockfile::Node::File(tg::lockfile::File {
-						contents: Some(contents),
-						dependencies,
-						executable,
-					})
-				},
-
-				tg::graph::data::Node::Symlink(symlink) => {
-					let artifact = if let Some(artifact) = &symlink.artifact {
-						let artifact = match &artifact {
-							Either::Left(index) => indices[*index],
-							Either::Right(artifact) => self
-								.get_or_create_lockfile_node_for_artifact(
-									artifact.clone(),
-									is_path_dependency,
-									checkout_dependencies,
-									nodes,
-									objects,
-									visited,
-									graphs,
-								)?,
-						};
-						let artifact = Either::Left(artifact);
-						Some(artifact)
-					} else {
-						None
-					};
-					let path = symlink.path.clone();
-					tg::lockfile::Node::Symlink(tg::lockfile::Symlink { artifact, path })
-				},
-			};
-
-			let index = indices[old_index];
-			nodes[index].replace(node);
-		}
-
-		Ok(indices)
+				}
+				self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)
+			})
+			.transpose()?
+			.map(Either::Left);
+		Ok(tg::lockfile::Node::Symlink(tg::lockfile::Symlink {
+			artifact,
+			path: node.path.clone(),
+		}))
 	}
 
 	pub(crate) async fn find_node_in_lockfile(
@@ -748,7 +635,7 @@ impl Server {
 		let artifact_ids: Vec<tg::artifact::Id> = object_ids
 			.into_iter()
 			.map(tg::artifact::Id::try_from)
-			.try_collect()?;
+			.collect::<tg::Result<_>>()?;
 
 		// Get the artifacts path.
 		let mut artifacts_path = None;
@@ -872,7 +759,10 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								Either::Left(graph_indices.get(&lockfile_index).copied().unwrap())
+								tg::graph::object::Edge::Reference(tg::graph::object::Reference {
+									graph: None,
+									node: graph_indices.get(&lockfile_index).copied().unwrap(),
+								})
 							},
 							Either::Left(lockfile_index) => {
 								let object = visited[lockfile_index]
@@ -880,10 +770,11 @@ impl Server {
 									.ok_or_else(|| tg::error!("expected an object"))?
 									.clone()
 									.try_into()?;
-								Either::Right(object)
+								tg::graph::object::Edge::Object(object)
 							},
 							Either::Right(id) => {
-								Either::Right(tg::Artifact::with_id(id.clone().try_into()?))
+								let artifact = tg::Artifact::with_id(id.clone().try_into()?);
+								tg::graph::object::Edge::Object(artifact)
 							},
 						};
 						Ok::<_, tg::Error>((name, entry))
@@ -909,16 +800,21 @@ impl Server {
 							Either::Left(lockfile_index)
 								if graph_indices.contains_key(&lockfile_index) =>
 							{
-								Either::Left(graph_indices.get(&lockfile_index).copied().unwrap())
+								tg::graph::object::Edge::Reference(tg::graph::object::Reference {
+									graph: None,
+									node: graph_indices.get(&lockfile_index).copied().unwrap(),
+								})
 							},
 							Either::Left(lockfile_index) => {
 								let object = visited[lockfile_index]
 									.as_ref()
 									.ok_or_else(|| tg::error!("expected an object"))?
 									.clone();
-								Either::Right(object)
+								tg::graph::object::Edge::Object(object)
 							},
-							Either::Right(id) => Either::Right(tg::Object::with_id(id)),
+							Either::Right(id) => {
+								tg::graph::object::Edge::Object(tg::Object::with_id(id))
+							},
 						};
 						Ok::<_, tg::Error>((reference, tg::Referent { item, path, tag }))
 					})
@@ -938,9 +834,12 @@ impl Server {
 					Some(Either::Left(lockfile_index))
 						if graph_indices.contains_key(lockfile_index) =>
 					{
-						Some(Either::Left(
-							graph_indices.get(lockfile_index).copied().unwrap(),
-						))
+						let artifact =
+							tg::graph::object::Edge::Reference(tg::graph::object::Reference {
+								graph: None,
+								node: graph_indices.get(lockfile_index).copied().unwrap(),
+							});
+						Some(artifact)
 					},
 					Some(Either::Left(lockfile_index)) => {
 						let object = visited[*lockfile_index]
@@ -948,10 +847,11 @@ impl Server {
 							.ok_or_else(|| tg::error!("expected an object"))?
 							.clone()
 							.try_into()?;
-						Some(Either::Right(object))
+						Some(tg::graph::object::Edge::Object(object))
 					},
 					Some(Either::Right(id)) => {
-						Some(Either::Right(tg::Artifact::with_id(id.clone().try_into()?)))
+						let artifact = tg::Artifact::with_id(id.clone().try_into()?);
+						Some(tg::graph::object::Edge::Object(artifact))
 					},
 					None => None,
 				};
@@ -1030,12 +930,12 @@ impl Server {
 							.clone()
 							.ok_or_else(|| tg::error!("expected an object"))?;
 						let artifact = object.try_into()?;
-						Some(artifact)
+						Some(tg::graph::object::Edge::Object(artifact))
 					},
 					Some(Either::Right(id)) => {
 						let id = id.clone().try_into()?;
 						let artifact = tg::Artifact::with_id(id);
-						Some(artifact)
+						Some(tg::graph::object::Edge::Object(artifact))
 					},
 					None => None,
 				};

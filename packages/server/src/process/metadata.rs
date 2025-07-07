@@ -1,7 +1,6 @@
 use crate::Server;
 use futures::{FutureExt as _, future};
 use indoc::{formatdoc, indoc};
-use itertools::Itertools as _;
 use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
@@ -133,7 +132,7 @@ impl Server {
 			.await?
 			.into_values()
 			.map(|client| async move { client.get_process_metadata(id).await }.boxed())
-			.collect_vec();
+			.collect::<Vec<_>>();
 		if futures.is_empty() {
 			return Ok(None);
 		}

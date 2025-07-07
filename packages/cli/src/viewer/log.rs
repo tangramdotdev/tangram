@@ -59,6 +59,89 @@ impl<H> Log<H>
 where
 	H: tg::Handle,
 {
+	pub fn _stop(&self) {
+		if let Some(task) = self.task.lock().unwrap().take() {
+			task.abort();
+		}
+		if let Some(task) = self.event_task.lock().unwrap().take() {
+			task.abort();
+		}
+	}
+
+	/// Send a scroll down event.
+	pub fn down(&self) {
+		self.event_sender.send(LogEvent::ScrollDown).ok();
+	}
+
+	// Handle a scroll down event.
+	async fn down_impl(self: &Arc<Self>) -> tg::Result<()> {
+		loop {
+			let mut scroll = self.scroll.lock().await;
+			let Some(scroll_) = scroll.as_mut() else {
+				return Ok(());
+			};
+			let chunks = self.chunks.lock().await;
+			match scroll_.scroll_down(1, &chunks) {
+				// If the scroll succeeded but we didn't scroll any lines and the process is not yet complete, we need to start tailing.
+				Ok(count) if count != 1 && !self.is_complete() => {
+					drop(chunks);
+					scroll.take();
+					self.update_log_stream(true).await?;
+				},
+				Ok(_) => return Ok(()),
+				Err(error) => {
+					drop(chunks);
+					self.update_log_stream(matches!(error, scroll::Error::Append))
+						.await?;
+				},
+			}
+		}
+	}
+
+	pub fn hit_test(&self, x: u16, y: u16) -> bool {
+		let Some(rect) = *self.rect.lock().unwrap() else {
+			return false;
+		};
+		let position = Position { x, y };
+		rect.contains(position)
+	}
+
+	async fn init(self: &Arc<Self>) -> tg::Result<()> {
+		let client = &self.handle;
+
+		// Get at least one chunk.
+		let position = Some(std::io::SeekFrom::End(0));
+		let length = Some(-1);
+		let timeout = Duration::from_millis(16);
+		let timeout = tokio::time::sleep(timeout);
+		let arg = tg::process::log::get::Arg {
+			length,
+			position,
+			..Default::default()
+		};
+		let chunk = self
+			.process
+			.log(client, arg)
+			.await?
+			.take_until(timeout)
+			.boxed()
+			.try_next()
+			.await?;
+		let max_position = chunk.map_or(0, |chunk| {
+			chunk.position + chunk.bytes.len().to_u64().unwrap()
+		});
+		self.max_position.store(max_position, Ordering::Relaxed);
+
+		// Start tailing if necessary.
+		self.update_log_stream(true).await?;
+
+		Ok(())
+	}
+
+	fn is_complete(&self) -> bool {
+		self.eof.load(Ordering::SeqCst)
+	}
+
 	pub fn new(handle: &H, process: &tg::Process) -> Arc<Self> {
 		let handle = handle.clone();
 		let process = process.clone();
@@ -115,49 +198,18 @@ where
 		log
 	}
 
-	async fn init(self: &Arc<Self>) -> tg::Result<()> {
-		let client = &self.handle;
-
-		// Get at least one chunk.
-		let position = Some(std::io::SeekFrom::End(0));
-		let length = Some(-1);
-		let timeout = Duration::from_millis(16);
-		let timeout = tokio::time::sleep(timeout);
-		let arg = tg::process::log::get::Arg {
-			length,
-			position,
-			..Default::default()
-		};
-		let chunk = self
-			.process
-			.log(client, arg)
-			.await?
-			.take_until(timeout)
-			.boxed()
-			.try_next()
-			.await?;
-		let max_position = chunk.map_or(0, |chunk| {
-			chunk.position + chunk.bytes.len().to_u64().unwrap()
-		});
-		self.max_position.store(max_position, Ordering::Relaxed);
-
-		// Start tailing if necessary.
-		self.update_log_stream(true).await?;
-
-		Ok(())
-	}
-
-	pub fn _stop(&self) {
-		if let Some(task) = self.task.lock().unwrap().take() {
-			task.abort();
-		}
-		if let Some(task) = self.event_task.lock().unwrap().take() {
-			task.abort();
+	/// Render the log.
+	pub fn render(&self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
+		self.rect.lock().unwrap().replace(area);
+		let lines = self.lines.lock().unwrap();
+		for (y, line) in (0..area.height).zip(lines.iter()) {
+			buf.set_line(area.x, area.y + y, &tui::text::Line::raw(line), area.width);
 		}
 	}
 
-	fn is_complete(&self) -> bool {
-		self.eof.load(Ordering::SeqCst)
+	/// Send a scroll up event.
+	pub fn up(&self) {
+		self.event_sender.send(LogEvent::ScrollUp).ok();
 	}
 
 	// Handle a scroll up event.
@@ -195,31 +247,6 @@ where
 			match scroll.scroll_up(1, &chunks) {
 				Ok(_) => return Ok(()),
 				// If we need to append or prepend, update the log stream and try again.
-				Err(error) => {
-					drop(chunks);
-					self.update_log_stream(matches!(error, scroll::Error::Append))
-						.await?;
-				},
-			}
-		}
-	}
-
-	// Handle a scroll down event.
-	async fn down_impl(self: &Arc<Self>) -> tg::Result<()> {
-		loop {
-			let mut scroll = self.scroll.lock().await;
-			let Some(scroll_) = scroll.as_mut() else {
-				return Ok(());
-			};
-			let chunks = self.chunks.lock().await;
-			match scroll_.scroll_down(1, &chunks) {
-				// If the scroll succeeded but we didn't scroll any lines and the process is not yet complete, we need to start tailing.
-				Ok(count) if count != 1 && !self.is_complete() => {
-					drop(chunks);
-					scroll.take();
-					self.update_log_stream(true).await?;
-				},
-				Ok(_) => return Ok(()),
 				Err(error) => {
 					drop(chunks);
 					self.update_log_stream(matches!(error, scroll::Error::Append))
@@ -359,33 +386,6 @@ where
 		}
 
 		Ok(())
-	}
-
-	/// Send a scroll up event.
-	pub fn up(&self) {
-		self.event_sender.send(LogEvent::ScrollUp).ok();
-	}
-
-	/// Send a scroll down event.
-	pub fn down(&self) {
-		self.event_sender.send(LogEvent::ScrollDown).ok();
-	}
-
-	pub fn hit_test(&self, x: u16, y: u16) -> bool {
-		let Some(rect) = *self.rect.lock().unwrap() else {
-			return false;
-		};
-		let position = Position { x, y };
-		rect.contains(position)
-	}
-
-	/// Render the log.
-	pub fn render(&self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-		self.rect.lock().unwrap().replace(area);
-		let lines = self.lines.lock().unwrap();
-		for (y, line) in (0..area.height).zip(lines.iter()) {
-			buf.set_line(area.x, area.y + y, &tui::text::Line::raw(line), area.width);
-		}
 	}
 }
 

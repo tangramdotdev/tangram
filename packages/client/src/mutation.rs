@@ -230,10 +230,10 @@ impl TryFrom<Data> for Mutation {
 				value: Box::new((*value).try_into()?),
 			},
 			Data::Prepend { values } => Self::Prepend {
-				values: values.into_iter().map(TryInto::try_into).try_collect()?,
+				values: values.into_iter().map(TryInto::try_into).collect::<tg::Result<_>>()?,
 			},
 			Data::Append { values } => Self::Append {
-				values: values.into_iter().map(TryInto::try_into).try_collect()?,
+				values: values.into_iter().map(TryInto::try_into).collect::<tg::Result<_>>()?,
 			},
 			Data::Prefix {
 				template,
@@ -253,7 +253,7 @@ impl TryFrom<Data> for Mutation {
 				value: value
 					.into_iter()
 					.map(|(k, v)| Ok::<_, tg::Error>((k, v.try_into()?)))
-					.try_collect()?,
+					.collect::<tg::Result<_>>()?,
 			},
 		})
 	}

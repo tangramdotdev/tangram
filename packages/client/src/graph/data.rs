@@ -1,7 +1,6 @@
 use crate::{self as tg, util::serde::is_false};
 use bytes::Bytes;
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_either::Either;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -23,15 +22,16 @@ pub enum Node {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Directory {
-	pub entries: BTreeMap<String, Either<usize, tg::artifact::Id>>,
+	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct File {
-	pub contents: tg::blob::Id,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub contents: Option<tg::blob::Id>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Either<usize, tg::object::Id>>>,
+	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub executable: bool,
@@ -40,10 +40,26 @@ pub struct File {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Symlink {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<Either<usize, tg::artifact::Id>>,
+	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
+}
+
+#[derive(
+	Clone, Debug, derive_more::TryUnwrap, derive_more::Unwrap, serde::Deserialize, serde::Serialize,
+)]
+#[serde(untagged)]
+pub enum Edge<T> {
+	Reference(Reference),
+	Object(T),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(from = "ReferenceSerde", into = "ReferenceSerde")]
+pub struct Reference {
+	pub graph: Option<tg::graph::Id>,
+	pub node: usize,
 }
 
 impl Graph {
@@ -60,41 +76,9 @@ impl Graph {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		self.nodes.iter().flat_map(|node| match node {
-			tg::graph::data::Node::Directory(tg::graph::data::Directory { entries }) => entries
-				.values()
-				.filter_map(|either| {
-					if let Either::Right(id) = either {
-						Some(id.clone().into())
-					} else {
-						None
-					}
-				})
-				.boxed(),
-			tg::graph::data::Node::File(tg::graph::data::File {
-				contents,
-				dependencies,
-				..
-			}) => std::iter::empty()
-				.chain(std::iter::once(contents.clone().into()))
-				.chain(dependencies.values().filter_map(|referent| {
-					if let Either::Right(id) = &referent.item {
-						Some(id.clone())
-					} else {
-						None
-					}
-				}))
-				.boxed(),
-			tg::graph::data::Node::Symlink(symlink) => {
-				if let tg::graph::data::Symlink {
-					artifact: Some(Either::Right(artifact)),
-					..
-				} = symlink
-				{
-					std::iter::once(artifact.clone().into()).boxed()
-				} else {
-					std::iter::empty().boxed()
-				}
-			},
+			tg::graph::data::Node::Directory(node) => node.children().boxed(),
+			tg::graph::data::Node::File(file) => file.children().boxed(),
+			tg::graph::data::Node::Symlink(symlink) => symlink.children().boxed(),
 		})
 	}
 }
@@ -106,6 +90,144 @@ impl Node {
 			Self::Directory(_) => tg::artifact::Kind::Directory,
 			Self::File(_) => tg::artifact::Kind::File,
 			Self::Symlink(_) => tg::artifact::Kind::Symlink,
+		}
+	}
+}
+
+impl Directory {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		self.entries.values().flat_map(Edge::children)
+	}
+}
+
+impl File {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		let contents = self.contents.clone().map(Into::into);
+		let dependencies = self
+			.dependencies
+			.values()
+			.flat_map(|referent| referent.item.children());
+		std::iter::empty().chain(contents).chain(dependencies)
+	}
+}
+
+impl Symlink {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		self.artifact.iter().flat_map(Edge::children)
+	}
+}
+
+impl<T> Edge<T>
+where
+	T: Into<tg::object::Id> + Clone,
+{
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		match self {
+			Self::Reference(reference) => reference.children().left_iterator(),
+			Self::Object(object) => std::iter::once(object.clone().into()).right_iterator(),
+		}
+	}
+}
+
+impl Reference {
+	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+		self.graph.clone().into_iter().map(Into::into)
+	}
+}
+
+impl<T> std::str::FromStr for Edge<T>
+where
+	T: std::str::FromStr + std::fmt::Display,
+{
+	type Err = tg::Error;
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if let Ok(reference) = s.parse() {
+			return Ok(Self::Reference(reference));
+		}
+		if let Ok(object) = s.parse() {
+			return Ok(Self::Object(object));
+		}
+		Err(tg::error!("expected an edge"))
+	}
+}
+
+impl std::fmt::Display for Reference {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "?")?;
+		if let Some(graph) = &self.graph {
+			write!(f, "graph={graph},")?;
+		}
+		write!(f, "node={}", self.node)?;
+		Ok(())
+	}
+}
+
+impl std::str::FromStr for Reference {
+	type Err = tg::Error;
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)
+			.map_err(|_| tg::error!("failed to deserialize edge"))?;
+		let graph = value.get("graph").map(|s| s.parse()).transpose()?;
+		let node = value
+			.get("node")
+			.ok_or_else(|| tg::error!("missing node"))?
+			.parse()
+			.map_err(|_| tg::error!("expected a number"))?;
+		Ok(Self { graph, node })
+	}
+}
+
+impl From<tg::graph::object::Edge<tg::Object>> for Edge<tg::object::Id> {
+	fn from(value: tg::graph::object::Edge<tg::Object>) -> Self {
+		match value {
+			tg::graph::object::Edge::Reference(data) => Self::Reference(Reference {
+				graph: data.graph.map(|data| data.id()),
+				node: data.node,
+			}),
+			tg::graph::object::Edge::Object(data) => Self::Object(data.id()),
+		}
+	}
+}
+
+impl From<tg::graph::object::Edge<tg::Artifact>> for Edge<tg::artifact::Id> {
+	fn from(value: tg::graph::object::Edge<tg::Artifact>) -> Self {
+		match value {
+			tg::graph::object::Edge::Reference(data) => Self::Reference(Reference {
+				graph: data.graph.map(|data| data.id()),
+				node: data.node,
+			}),
+			tg::graph::object::Edge::Object(data) => Self::Object(data.id()),
+		}
+	}
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+enum ReferenceSerde {
+	Number(usize),
+	Object {
+		graph: Option<tg::graph::Id>,
+		node: usize,
+	},
+}
+
+impl From<ReferenceSerde> for Reference {
+	fn from(value: ReferenceSerde) -> Self {
+		match value {
+			ReferenceSerde::Object { graph, node } => Reference { graph, node },
+			ReferenceSerde::Number(node) => Reference { graph: None, node },
+		}
+	}
+}
+
+impl From<Reference> for ReferenceSerde {
+	fn from(value: Reference) -> Self {
+		match value.graph {
+			None => Self::Number(value.node),
+			Some(graph) => Self::Object {
+				graph: Some(graph),
+				node: value.node,
+			},
 		}
 	}
 }

@@ -1,8 +1,6 @@
 use super::Data;
 use crate as tg;
-use itertools::Itertools as _;
 use std::{collections::BTreeMap, path::PathBuf};
-use tangram_either::Either;
 
 #[derive(Clone, Debug)]
 pub struct Graph {
@@ -18,69 +16,68 @@ pub enum Node {
 }
 
 #[derive(Clone, Debug)]
-pub enum Kind {
-	Directory,
-	File,
-	Symlink,
-}
-
-#[derive(Clone, Debug)]
 pub struct Directory {
-	pub entries: BTreeMap<String, Either<usize, tg::Artifact>>,
+	pub entries: BTreeMap<String, Edge<tg::Artifact>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct File {
 	pub contents: tg::Blob,
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Either<usize, tg::Object>>>,
+	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Edge<tg::Object>>>,
 	pub executable: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct Symlink {
-	pub artifact: Option<Either<usize, tg::Artifact>>,
+	pub artifact: Option<Edge<tg::Artifact>>,
 	pub path: Option<PathBuf>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+pub enum Edge<T> {
+	Reference(Reference),
+	Object(T),
+}
+
+#[derive(Clone, Debug)]
+pub struct Reference {
+	pub graph: Option<tg::Graph>,
+	pub node: usize,
 }
 
 impl Graph {
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::Object> {
-		let mut children = Vec::new();
-		for node in &self.nodes {
-			match node {
-				Node::Directory(tg::graph::object::Directory { entries }) => {
-					for either in entries.values() {
-						if let Either::Right(id) = either {
-							children.push(id.clone().into());
-						}
-					}
-				},
-				Node::File(tg::graph::object::File {
-					contents,
-					dependencies,
-					..
-				}) => {
-					children.push(contents.clone().into());
-					for referent in dependencies.values() {
-						if let Either::Right(id) = &referent.item {
-							children.push(id.clone());
-						}
-					}
-				},
-				Node::Symlink(symlink) => {
-					if let Some(Either::Right(artifact)) = &symlink.artifact {
-						children.push(artifact.clone().into());
-					}
-				},
-			}
-		}
-		children
-	}
-
-	#[must_use]
 	pub fn to_data(&self) -> Data {
 		let nodes = self.nodes.iter().map(Node::to_data).collect();
 		Data { nodes }
+	}
+
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		let nodes = data
+			.nodes
+			.into_iter()
+			.map(Node::try_from_data)
+			.collect::<tg::Result<_>>()?;
+		Ok(Self { nodes })
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.nodes
+			.iter()
+			.flat_map(|node| match node {
+				Node::Directory(directory) => directory.children(),
+				Node::File(file) => file.children(),
+				Node::Symlink(symlink) => symlink.children(),
+			})
+			.collect()
 	}
 }
 
@@ -88,56 +85,28 @@ impl Node {
 	#[must_use]
 	pub fn to_data(&self) -> tg::graph::data::Node {
 		match self {
-			Self::Directory(tg::graph::object::Directory { entries }) => {
-				let entries = entries
-					.iter()
-					.map(|(name, either)| {
-						let artifact = match either {
-							Either::Left(index) => Either::Left(*index),
-							Either::Right(artifact) => Either::Right(artifact.id()),
-						};
-						(name.clone(), artifact)
-					})
-					.collect();
-				tg::graph::data::Node::Directory(tg::graph::data::Directory { entries })
-			},
+			Self::Directory(directory) => tg::graph::data::Node::Directory(directory.to_data()),
+			Self::File(file) => tg::graph::data::Node::File(file.to_data()),
+			Self::Symlink(symlink) => tg::graph::data::Node::Symlink(symlink.to_data()),
+		}
+	}
 
-			Self::File(tg::graph::object::File {
-				contents,
-				dependencies,
-				executable,
-			}) => {
-				let contents = contents.id();
-				let dependencies = dependencies
-					.iter()
-					.map(|(reference, referent)| {
-						let item = match &referent.item {
-							Either::Left(index) => Either::Left(*index),
-							Either::Right(object) => Either::Right(object.id()),
-						};
-						let referent = tg::Referent {
-							item,
-							path: referent.path.clone(),
-							tag: referent.tag.clone(),
-						};
-						(reference.clone(), referent)
-					})
-					.collect();
-				let executable = *executable;
-				tg::graph::data::Node::File(tg::graph::data::File {
-					contents,
-					dependencies,
-					executable,
-				})
+	pub fn try_from_data(data: tg::graph::data::Node) -> tg::Result<Self> {
+		match data {
+			tg::graph::data::Node::Directory(directory) => {
+				let directory = Directory::try_from_data(directory)?;
+				let node = Node::Directory(directory);
+				Ok(node)
 			},
-
-			Self::Symlink(symlink) => {
-				let artifact = symlink.artifact.as_ref().map(|artifact| match artifact {
-					Either::Left(index) => Either::Left(*index),
-					Either::Right(artifact) => Either::Right(artifact.id()),
-				});
-				let path = symlink.path.clone();
-				tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path })
+			tg::graph::data::Node::File(file) => {
+				let file = File::try_from_data(file)?;
+				let node = Node::File(file);
+				Ok(node)
+			},
+			tg::graph::data::Node::Symlink(symlink) => {
+				let symlink = Symlink::try_from_data(symlink)?;
+				let node = Node::Symlink(symlink);
+				Ok(node)
 			},
 		}
 	}
@@ -152,83 +121,175 @@ impl Node {
 	}
 }
 
-impl TryFrom<Data> for Graph {
-	type Error = tg::Error;
-
-	fn try_from(value: Data) -> Result<Self, Self::Error> {
-		let nodes = value
-			.nodes
+impl Directory {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::Directory {
+		let entries = self
+			.entries
+			.clone()
 			.into_iter()
-			.map(TryInto::try_into)
-			.try_collect()?;
-		Ok(Self { nodes })
+			.map(|(name, edge)| (name, edge.into()))
+			.collect();
+		tg::graph::data::Directory { entries }
+	}
+
+	pub fn try_from_data(data: tg::graph::data::Directory) -> tg::Result<Self> {
+		let entries = data
+			.entries
+			.into_iter()
+			.map(|(name, edge)| Ok((name, Edge::try_from_data(edge)?)))
+			.collect::<tg::Result<_>>()?;
+		let directory = tg::graph::object::Directory { entries };
+		Ok(directory)
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.entries.values().flat_map(Edge::children).collect()
 	}
 }
 
-impl TryFrom<tg::graph::data::Node> for Node {
-	type Error = tg::Error;
+impl File {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::File {
+		let contents = Some(self.contents.id());
+		let dependencies = self
+			.dependencies
+			.iter()
+			.map(|(reference, referent)| (reference.clone(), referent.clone().map(Into::into)))
+			.collect();
+		let executable = self.executable;
+		tg::graph::data::File {
+			contents,
+			dependencies,
+			executable,
+		}
+	}
 
-	fn try_from(value: tg::graph::data::Node) -> Result<Self, Self::Error> {
-		match value {
-			tg::graph::data::Node::Directory(tg::graph::data::Directory { entries }) => {
-				let entries = entries
-					.into_iter()
-					.map(|(name, either)| (name, either.map_right(tg::Artifact::with_id)))
-					.collect();
-				let directory = tg::graph::object::Directory { entries };
-				let node = Node::Directory(directory);
-				Ok(node)
+	pub fn try_from_data(data: tg::graph::data::File) -> tg::Result<Self> {
+		let contents = tg::Blob::with_id(
+			data.contents
+				.ok_or_else(|| tg::error!("missing contents"))?,
+		);
+		let dependencies = data
+			.dependencies
+			.into_iter()
+			.map(|(reference, referent)| {
+				let referent = referent.try_map(Edge::try_from_data)?;
+				Ok((reference, referent))
+			})
+			.collect::<tg::Result<_>>()?;
+		let executable = data.executable;
+		let file = tg::graph::object::File {
+			contents,
+			dependencies,
+			executable,
+		};
+		Ok(file)
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		let contents = self.contents.clone().into();
+		let dependencies = self
+			.dependencies
+			.values()
+			.flat_map(|referent| referent.item.children());
+		std::iter::once(contents).chain(dependencies).collect()
+	}
+}
+
+impl Symlink {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::Symlink {
+		let artifact = self.artifact.as_ref().map(|edge| edge.clone().into());
+		let path = self.path.clone();
+		tg::graph::data::Symlink { artifact, path }
+	}
+
+	pub fn try_from_data(data: tg::graph::data::Symlink) -> tg::Result<Self> {
+		let artifact = data.artifact.map(Edge::try_from_data).transpose()?;
+		let path = data.path;
+		let symlink = tg::graph::object::Symlink { artifact, path };
+		Ok(symlink)
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.artifact.iter().flat_map(Edge::children).collect()
+	}
+}
+
+impl<T> Edge<T> {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::Edge<T> {
+		todo!()
+	}
+}
+
+impl<T, E> Edge<T>
+where
+	T: TryFrom<tg::Object, Error = E>,
+	E: std::error::Error + Send + Sync + 'static,
+{
+	pub fn try_from_data<U>(data: tg::graph::data::Edge<U>) -> tg::Result<Self>
+	where
+		U: Into<tg::object::Id>,
+	{
+		match data {
+			tg::graph::data::Edge::Reference(data) => {
+				Ok(Self::Reference(Reference::try_from_data(data)?))
 			},
-			tg::graph::data::Node::File(tg::graph::data::File {
-				contents,
-				dependencies,
-				executable,
-			}) => {
-				let contents = tg::Blob::with_id(contents);
-				let dependencies = dependencies
-					.into_iter()
-					.map(|(reference, referent)| {
-						let referent = referent.map(|item| item.map_right(tg::Object::with_id));
-						(reference, referent)
-					})
-					.collect();
-				let file = tg::graph::object::File {
-					contents,
-					dependencies,
-					executable,
-				};
-				let node = Node::File(file);
-				Ok(node)
-			},
-			tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path }) => {
-				let artifact = artifact.map(|artifact| artifact.map_right(tg::Artifact::with_id));
-				let symlink = tg::graph::object::Symlink { artifact, path };
-				let node = Node::Symlink(symlink);
-				Ok(node)
-			},
+			tg::graph::data::Edge::Object(data) => Ok(Self::Object(
+				tg::Object::with_id(data.into())
+					.try_into()
+					.map_err(|source| tg::error!(!source, "failed to conver the object"))?,
+			)),
 		}
 	}
 }
 
-impl std::fmt::Display for Kind {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T> Edge<T>
+where
+	T: Into<tg::Object> + Clone,
+{
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Directory => write!(f, "directory"),
-			Self::File => write!(f, "file"),
-			Self::Symlink => write!(f, "symlink"),
+			Self::Reference(reference) => reference.children(),
+			Self::Object(object) => vec![object.clone().into()],
 		}
 	}
 }
 
-impl std::str::FromStr for Kind {
-	type Err = tg::Error;
+impl Reference {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::Reference {
+		let graph = self.graph.as_ref().map(tg::Graph::id);
+		let node = self.node;
+		tg::graph::data::Reference { graph, node }
+	}
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"directory" => Ok(Self::Directory),
-			"file" => Ok(Self::File),
-			"symlink" => Ok(Self::Symlink),
-			_ => Err(tg::error!(%kind = s, "invalid kind")),
-		}
+	pub fn try_from_data(data: tg::graph::data::Reference) -> tg::Result<Self> {
+		let graph = data.graph.map(tg::Graph::with_id);
+		let node = data.node;
+		let reference = tg::graph::object::Reference { graph, node };
+		Ok(reference)
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.graph.clone().into_iter().map(Into::into).collect()
+	}
+
+	pub async fn get<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
+	where
+		H: tg::Handle,
+	{
+		self.graph
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing graph"))?
+			.get(handle, self.node)
+			.await
 	}
 }

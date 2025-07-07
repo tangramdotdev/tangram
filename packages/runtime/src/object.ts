@@ -9,6 +9,14 @@ export type Object =
 	| tg.Command;
 
 export namespace Object {
+	export type Kind =
+		| "blob"
+		| "directory"
+		| "file"
+		| "symlink"
+		| "graph"
+		| "command";
+
 	export type Id =
 		| tg.Blob.Id
 		| tg.Directory.Id
@@ -16,6 +24,12 @@ export namespace Object {
 		| tg.Symlink.Id
 		| tg.Graph.Id
 		| tg.Command.Id;
+
+	export type State<I, O> = {
+		id?: I | undefined;
+		object?: O | undefined;
+		stored: boolean;
+	};
 
 	export type Object_ =
 		| { kind: "blob"; value: tg.Blob.Object }
@@ -26,7 +40,7 @@ export namespace Object {
 		| { kind: "command"; value: tg.Command.Object };
 
 	export namespace Object_ {
-		export let toData = (object: Object_): Data => {
+		export let toData = (object: tg.Object.Object_): tg.Object.Data => {
 			switch (object.kind) {
 				case "blob": {
 					let value = tg.Blob.Object.toData(object.value);
@@ -55,7 +69,7 @@ export namespace Object {
 			}
 		};
 
-		export let fromData = (data: Data): Object_ => {
+		export let fromData = (data: tg.Object.Data): tg.Object.Object_ => {
 			switch (data.kind) {
 				case "blob": {
 					let value = tg.Blob.Object.fromData(data.value);
@@ -84,7 +98,7 @@ export namespace Object {
 			}
 		};
 
-		export let children = (object: Object_): Array<tg.Object> => {
+		export let children = (object: tg.Object.Object_): Array<tg.Object> => {
 			switch (object.kind) {
 				case "blob": {
 					return tg.Blob.Object.children(object.value);
@@ -108,19 +122,13 @@ export namespace Object {
 		};
 	}
 
-	export type Kind =
-		| "blob"
-		| "directory"
-		| "file"
-		| "symlink"
-		| "graph"
-		| "command";
-
-	export type State<I, O> = {
-		id?: I | undefined;
-		object?: O | undefined;
-		stored: boolean;
-	};
+	export type Data =
+		| { kind: "blob"; value: tg.Blob.Data }
+		| { kind: "directory"; value: tg.Directory.Data }
+		| { kind: "file"; value: tg.File.Data }
+		| { kind: "symlink"; value: tg.Symlink.Data }
+		| { kind: "graph"; value: tg.Graph.Data }
+		| { kind: "command"; value: tg.Command.Data };
 
 	export let withId = (id: tg.Object.Id): tg.Object => {
 		let prefix = id.substring(0, 3);
@@ -141,7 +149,7 @@ export namespace Object {
 		}
 	};
 
-	export let is = (value: unknown): value is Object => {
+	export let is = (value: unknown): value is tg.Object => {
 		return (
 			value instanceof tg.Blob ||
 			value instanceof tg.Directory ||
@@ -152,13 +160,13 @@ export namespace Object {
 		);
 	};
 
-	export let expect = (value: unknown): Object => {
-		tg.assert(is(value));
+	export let expect = (value: unknown): tg.Object => {
+		tg.assert(tg.Object.is(value));
 		return value;
 	};
 
-	export let assert = (value: unknown): asserts value is Object => {
-		tg.assert(is(value));
+	export let assert = (value: unknown): asserts value is tg.Object => {
+		tg.assert(tg.Object.is(value));
 	};
 
 	export let kind = (object: tg.Object): tg.Object.Kind => {
@@ -178,12 +186,4 @@ export namespace Object {
 			return tg.unreachable();
 		}
 	};
-
-	export type Data =
-		| { kind: "blob"; value: tg.Blob.Data }
-		| { kind: "directory"; value: tg.Directory.Data }
-		| { kind: "file"; value: tg.File.Data }
-		| { kind: "symlink"; value: tg.Symlink.Data }
-		| { kind: "graph"; value: tg.Graph.Data }
-		| { kind: "command"; value: tg.Command.Data };
 }

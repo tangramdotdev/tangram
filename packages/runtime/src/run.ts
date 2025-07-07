@@ -258,7 +258,7 @@ export class RunBuilder<
 	}
 
 	executable(
-		executable: tg.Unresolved<tg.MaybeMutation<tg.Command.ExecutableArg>>,
+		executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
 	): this {
 		this.#args.push({ executable });
 		return this;
@@ -293,7 +293,7 @@ export class RunBuilder<
 	}
 
 	// @ts-ignore
-	// biome-ignore lint/suspicious/noThenProperty: promiseLike class
+	// biome-ignore lint/suspicious/noThenProperty: <reason>
 	then<TResult1 = R, TResult2 = never>(
 		onfulfilled?:
 			| ((value: R) => TResult1 | PromiseLike<TResult1>)

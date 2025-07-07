@@ -1,29 +1,15 @@
 use crate as tg;
 use bytes::Bytes;
-use std::path::PathBuf;
 use tangram_itertools::IteratorExt as _;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Symlink {
-	Graph(Graph),
+	Reference(tg::graph::data::Reference),
 	Node(Node),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Graph {
-	pub graph: tg::graph::Id,
-	pub node: usize,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Node {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub artifact: Option<tg::artifact::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
-}
+pub type Node = tg::graph::data::Symlink;
 
 impl Symlink {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
@@ -39,14 +25,8 @@ impl Symlink {
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
 		match self {
-			Self::Graph(graph) => std::iter::once(graph.graph.clone().into()).boxed(),
-			Self::Node(node) => {
-				if let Some(artifact) = &node.artifact {
-					std::iter::once(artifact.clone().into()).boxed()
-				} else {
-					std::iter::empty().boxed()
-				}
-			},
+			Self::Reference(reference) => reference.children().left_iterator(),
+			Self::Node(node) => node.children().right_iterator(),
 		}
 	}
 }

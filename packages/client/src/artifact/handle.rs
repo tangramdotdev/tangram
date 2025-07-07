@@ -4,7 +4,6 @@ use futures::{
 	TryStreamExt as _,
 	stream::{FuturesOrdered, FuturesUnordered},
 };
-use itertools::Itertools as _;
 use std::{
 	collections::HashSet,
 	sync::{Arc, Mutex},
@@ -34,6 +33,21 @@ pub enum Artifact {
 }
 
 impl Artifact {
+	#[must_use]
+	pub fn with_graph_ref(kind: tg::artifact::Kind, ref_: tg::graph::object::Reference) -> Self {
+		match kind {
+			tg::artifact::Kind::Directory => {
+				tg::Directory::with_graph_and_node(ref_.graph.unwrap(), ref_.node).into()
+			},
+			tg::artifact::Kind::File => {
+				tg::File::with_graph_and_node(ref_.graph.unwrap(), ref_.node).into()
+			},
+			tg::artifact::Kind::Symlink => {
+				tg::Symlink::with_graph_and_node(ref_.graph.unwrap(), ref_.node).into()
+			},
+		}
+	}
+
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
 		match id {
@@ -175,7 +189,7 @@ impl Artifact {
 		let dependencies = dependencies
 			.into_iter()
 			.map(|artifact| artifact.id())
-			.collect_vec();
+			.collect::<Vec<_>>();
 		output.lock().unwrap().extend(dependencies);
 		Ok(())
 	}

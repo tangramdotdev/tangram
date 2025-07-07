@@ -2,7 +2,6 @@ use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
 use futures::{StreamExt as _, stream};
-use itertools::Itertools as _;
 use std::{collections::BTreeMap, pin::pin};
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
@@ -222,13 +221,16 @@ impl TryFrom<Data> for Value {
 			Data::Bool(bool) => Self::Bool(bool),
 			Data::Number(number) => Self::Number(number),
 			Data::String(string) => Self::String(string),
-			Data::Array(array) => {
-				Self::Array(array.into_iter().map(TryInto::try_into).try_collect()?)
-			},
+			Data::Array(array) => Self::Array(
+				array
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<_>>()?,
+			),
 			Data::Map(map) => Self::Map(
 				map.into_iter()
 					.map(|(key, value)| Ok::<_, tg::Error>((key, value.try_into()?)))
-					.try_collect()?,
+					.collect::<tg::Result<_>>()?,
 			),
 			Data::Object(id) => Self::Object(tg::object::Handle::with_id(id)),
 			Data::Bytes(bytes) => Self::Bytes(bytes),

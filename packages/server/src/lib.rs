@@ -9,7 +9,6 @@ use futures::{FutureExt as _, Stream, StreamExt as _, future, stream::FuturesUno
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use indoc::{formatdoc, indoc};
-use itertools::Itertools as _;
 use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
@@ -1046,7 +1045,7 @@ impl Server {
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
-		let path_components = path.split('/').skip(1).collect_vec();
+		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
 			(http::Method::POST, ["cache"]) => Self::handle_cache_request(handle, request).boxed(),
 			(http::Method::POST, ["check"]) => Self::handle_check_request(handle, request).boxed(),

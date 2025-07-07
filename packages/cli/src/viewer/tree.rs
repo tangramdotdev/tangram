@@ -2,7 +2,7 @@ use crate::util;
 
 use super::{Item, Options, data, log::Log};
 use crossterm as ct;
-use futures::{TryStreamExt as _, future};
+use futures::{TryStreamExt as _, future, stream::FuturesUnordered};
 use num::ToPrimitive as _;
 use ratatui::{self as tui, prelude::*};
 use std::{
@@ -13,7 +13,6 @@ use std::{
 	rc::{Rc, Weak},
 };
 use tangram_client::{self as tg, prelude::*};
-use tangram_either::Either;
 use tangram_futures::task::Task;
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -71,36 +70,6 @@ impl<H> Tree<H>
 where
 	H: tg::Handle,
 {
-	fn yank(&self) {
-		let Some(referent) = self.selected.borrow().referent.clone() else {
-			return;
-		};
-		let contents = match &referent.item {
-			Item::Process(process) => process.id().to_string(),
-			Item::Value(value) => {
-				if let tg::Value::Object(object) = value {
-					Self::object_id(object)
-				} else {
-					let options = tg::value::print::Options {
-						depth: Some(0),
-						style: tg::value::print::Style::Compact,
-					};
-					value.print(options)
-				}
-			},
-		};
-		let Ok(mut tty) = std::fs::OpenOptions::new()
-			.read(true)
-			.write(true)
-			.open("/dev/tty")
-		else {
-			return;
-		};
-		let encoded = data_encoding::BASE64.encode(contents.as_bytes());
-		write!(tty, "\x1B]52;c;{encoded}\x07").ok();
-		tty.flush().ok();
-	}
-
 	fn ancestors(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
 		let mut ancestors = vec![node.clone()];
 		let mut node = node.clone();
@@ -150,98 +119,6 @@ where
 				self.scroll = self.scroll.min(index);
 				self.select(parent);
 			}
-		}
-	}
-
-	fn select(&mut self, node: Rc<RefCell<Node>>) {
-		self.selected = node.clone();
-		let Some(referent) = node.borrow().referent.clone() else {
-			return;
-		};
-		let handle = self.handle.clone();
-		let data = self.data.clone();
-		let viewer = self.viewer.clone();
-		let task = Task::spawn_local(|_| async move {
-			// Update the log view if the selected item is a process.
-			let process =
-				node.borrow()
-					.referent
-					.as_ref()
-					.and_then(|referent| match &referent.item {
-						Item::Process(process) => Some(process.clone()),
-						Item::Value(_) => None,
-					});
-			{
-				let handle = handle.clone();
-				let update = move |viewer: &mut super::Viewer<H>| {
-					if let Some(process) = process {
-						let log = Log::new(&handle, &process);
-						viewer.log.replace(log);
-					} else {
-						viewer.log.take();
-					}
-				};
-				viewer.send(Box::new(update)).unwrap();
-			}
-
-			// Update the data view.
-			let content_future = {
-				let handle = handle.clone();
-				async move {
-					match referent.item {
-						Item::Process(process) => handle
-							.get_process(process.id())
-							.await
-							.and_then(|output| {
-								serde_json::to_string_pretty(&output.data).map_err(|source| {
-									tg::error!(!source, "failed to serialize the process data")
-								})
-							})
-							.unwrap_or_else(|error| error.to_string()),
-						Item::Value(tg::Value::Object(tg::Object::Blob(blob))) => {
-							super::blob::format(&handle, &blob)
-								.await
-								.unwrap_or_else(|error| error.to_string())
-						},
-						Item::Value(value) => {
-							let value = match value {
-								tg::Value::Object(object) => {
-									object.load(&handle).await.ok();
-									tg::Value::Object(object)
-								},
-								value => value,
-							};
-							let options = tg::value::print::Options {
-								depth: Some(1),
-								style: tg::value::print::Style::Pretty { indentation: "  " },
-							};
-							value.print(options)
-						},
-					}
-				}
-			};
-			let timeout = tokio::time::sleep(std::time::Duration::from_millis(20));
-			match future::select(pin!(content_future), pin!(timeout)).await {
-				future::Either::Left((content, _)) => {
-					data.send(Box::new(move |this| this.set_contents(content)))
-						.unwrap();
-				},
-				future::Either::Right(((), future)) => {
-					data.send(Box::new(move |this| {
-						this.set_contents("...loading...".to_owned());
-					}))
-					.unwrap();
-					let contents = future.await;
-					data.send(Box::new(move |this| {
-						this.set_contents(contents);
-					}))
-					.unwrap();
-				},
-			}
-		});
-
-		if let Some(task) = self.selected_task.replace(task) {
-			task.abort();
 		}
 	}
 
@@ -382,53 +259,6 @@ where
 		node.expanded.replace(true);
 	}
 
-	pub fn handle(&mut self, event: &ct::event::Event) {
-		if let ct::event::Event::Key(event) = event {
-			match (event.code, event.modifiers) {
-				(ct::event::KeyCode::Char('G'), ct::event::KeyModifiers::SHIFT) => {
-					self.bottom();
-				},
-				(ct::event::KeyCode::Char('g'), ct::event::KeyModifiers::NONE) => {
-					self.top();
-				},
-				(
-					ct::event::KeyCode::Char('h') | ct::event::KeyCode::Left,
-					ct::event::KeyModifiers::NONE,
-				) => {
-					self.collapse();
-				},
-				(
-					ct::event::KeyCode::Char('j') | ct::event::KeyCode::Down,
-					ct::event::KeyModifiers::NONE,
-				) => {
-					self.down();
-				},
-				(
-					ct::event::KeyCode::Char('k') | ct::event::KeyCode::Up,
-					ct::event::KeyModifiers::NONE,
-				) => {
-					self.up();
-				},
-				(
-					ct::event::KeyCode::Char('l') | ct::event::KeyCode::Right,
-					ct::event::KeyModifiers::NONE,
-				) => {
-					self.expand();
-				},
-				(ct::event::KeyCode::Char('y'), ct::event::KeyModifiers::NONE) => {
-					self.yank();
-				},
-				(ct::event::KeyCode::Enter, ct::event::KeyModifiers::NONE) => {
-					self.push();
-				},
-				(ct::event::KeyCode::Backspace, ct::event::KeyModifiers::NONE) => {
-					self.pop();
-				},
-				_ => (),
-			}
-		}
-	}
-
 	async fn expand_array(
 		handle: &H,
 		array: tg::value::Array,
@@ -473,135 +303,458 @@ where
 		Ok(())
 	}
 
-	async fn process_update_task(
+	async fn expand_command(
 		handle: &H,
-		process: &tg::Referent<tg::Process>,
-		options: &Options,
+		command: tg::Command,
 		update_sender: NodeUpdateSender,
-	) -> tg::Result<()>
-	where
-		H: tg::Handle,
-	{
-		if let Some(title) = Self::process_title(handle, process, options).await {
-			update_sender
-				.send(Box::new(|node| {
-					node.borrow_mut().title = title;
-				}))
-				.unwrap();
+	) -> tg::Result<()> {
+		let object = command.object(handle).await?;
+		let mut children = Vec::new();
+		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
+		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
+		let value = match &object.executable {
+			tg::command::Executable::Artifact(executable) => {
+				let mut map = BTreeMap::new();
+				map.insert(
+					"artifact".to_owned(),
+					tg::Value::Object(executable.artifact.clone().into()),
+				);
+				if let Some(path) = &executable.path {
+					let subpath = path.to_string_lossy().to_string();
+					map.insert("path".to_owned(), tg::Value::String(subpath));
+				}
+				tg::Value::Map(map)
+			},
+			tg::command::Executable::Module(executable) => {
+				let mut map = BTreeMap::new();
+				map.insert(
+					"kind".to_owned(),
+					tg::Value::String(executable.module.kind.to_string()),
+				);
+				let mut referent = BTreeMap::new();
+				referent.insert(
+					"item".to_owned(),
+					match executable.module.referent.item.clone() {
+						tg::module::Item::Path(path) => {
+							tg::Value::String(path.to_string_lossy().into_owned())
+						},
+						tg::module::Item::Object(object) => tg::Value::Object(object),
+					},
+				);
+				if let Some(path) = &executable.module.referent.path {
+					let path = path.to_string_lossy().to_string();
+					referent.insert("path".to_owned(), tg::Value::String(path));
+				}
+				if let Some(tag) = &executable.module.referent.tag {
+					referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
+				}
+				map.insert("referent".to_owned(), tg::Value::Map(referent));
+				tg::Value::Map(map)
+			},
+			tg::command::Executable::Path(executable) => {
+				tg::Value::String(executable.path.to_string_lossy().to_string())
+			},
+		};
+		children.push(("executable".to_owned(), value));
+		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
+		let mut mounts = Vec::new();
+		for mount in &object.mounts {
+			let mut map = BTreeMap::new();
+			map.insert(
+				"source".to_owned(),
+				tg::Value::Object(mount.source.clone().into()),
+			);
+			map.insert(
+				"target".to_owned(),
+				tg::Value::String(mount.target.to_string_lossy().to_string()),
+			);
+			mounts.push(tg::Value::Map(map));
 		}
+		children.push(("mounts".to_owned(), tg::Value::Array(mounts)));
+		command.unload();
 
-		// Create the status stream.
-		let mut status = process.item.status(handle).await?;
-		while let Some(status) = status.try_next().await? {
-			let indicator = match status {
-				tg::process::Status::Created => Indicator::Created,
-				tg::process::Status::Enqueued => Indicator::Enqueued,
-				tg::process::Status::Dequeued => Indicator::Dequeued,
-				tg::process::Status::Started => Indicator::Started,
-				tg::process::Status::Finished => {
-					// Remove the child if necessary.
-					if options.auto_expand_and_collapse_processes {
-						let update = move |node: Rc<RefCell<Node>>| {
-							// Get the parent if it exists.
-							let Some(parent) =
-								node.borrow().parent.as_ref().and_then(Weak::upgrade)
-							else {
-								return;
-							};
-
-							// Find this process as a child of the parent.
-							let Some(index) = parent
-								.borrow()
-								.children
-								.iter()
-								.position(|child| Rc::ptr_eq(child, &node))
-							else {
-								return;
-							};
-
-							// Remove this node from its parent.
-							parent.borrow_mut().children.remove(index);
-						};
-						update_sender.send(Box::new(update)).unwrap();
-						return Ok(());
-					}
-
-					let state = process.item.load(handle).await?;
-					let failed =
-						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
-					if failed {
-						Indicator::Failed
-					} else {
-						Indicator::Succeeded
-					}
-				},
-			};
-			let update = move |node: Rc<RefCell<Node>>| {
-				node.borrow_mut().indicator.replace(indicator);
-			};
-			update_sender.send(Box::new(update)).ok();
-		}
-
-		// Check if the process was canceled.
-		if handle
-			.try_get_process(process.item.id())
-			.await?
-			.and_then(|output| output.data.error)
-			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancellation)))
-		{
-			let update = move |node: Rc<RefCell<Node>>| {
-				node.borrow_mut().indicator.replace(Indicator::Canceled);
-			};
-			update_sender.send(Box::new(update)).ok();
-		}
-
+		// Send the update.
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
 	}
 
-	async fn process_log_task(
+	async fn expand_directory(
 		handle: &H,
-		process: tg::Process,
+		directory: tg::Directory,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let mut log = process
-			.log(handle, tg::process::log::get::Arg::default())
+		let object = directory.object(handle).await?;
+		let children: Vec<_> = match object.as_ref() {
+			tg::directory::Object::Reference(reference) => [
+				(
+					"graph".to_owned(),
+					tg::Value::Object(reference.graph.clone().unwrap().into()),
+				),
+				(
+					"node".to_owned(),
+					tg::Value::Number(reference.node.to_f64().unwrap()),
+				),
+			]
+			.into_iter()
+			.collect(),
+			tg::directory::Object::Node(node) => {
+				let entries = node
+					.entries
+					.clone()
+					.into_iter()
+					.map(async |(name, artifact)| {
+						let artifact = match artifact {
+							tg::graph::object::Edge::Reference(reference) => {
+								reference.get(handle).await?
+							},
+							tg::graph::object::Edge::Object(artifact) => artifact,
+						};
+						Ok::<_, tg::Error>((name, artifact.into()))
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
+				[("entries".to_owned(), tg::Value::Map(entries))]
+					.into_iter()
+					.collect()
+			},
+		};
+		directory.unload();
+
+		// Send the update.
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
+		Ok(())
+	}
+
+	async fn expand_file(
+		handle: &H,
+		file: tg::File,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		let object = file.object(handle).await?;
+
+		let children = match object.as_ref() {
+			tg::file::Object::Reference(reference) => [
+				(
+					"graph".to_owned(),
+					tg::Value::Object(reference.graph.clone().unwrap().into()),
+				),
+				(
+					"node".to_owned(),
+					tg::Value::Number(reference.node.to_f64().unwrap()),
+				),
+			]
+			.into_iter()
+			.collect(),
+			tg::file::Object::Node(node) => {
+				let mut children = Vec::with_capacity(3);
+				children.push((
+					"contents".to_owned(),
+					tg::Value::Object(node.contents.clone().into()),
+				));
+				if node.executable {
+					children.push(("executable".to_owned(), tg::Value::Bool(node.executable)));
+				}
+				let dependencies: BTreeMap<String, tangram_client::Value> = node
+					.dependencies
+					.clone()
+					.into_iter()
+					.map(async |(reference, referent)| {
+						let mut map = BTreeMap::new();
+						let item = match &referent.item {
+							tg::graph::object::Edge::Reference(reference) => {
+								reference.get(handle).await?.into()
+							},
+							tg::graph::object::Edge::Object(object) => object.clone(),
+						};
+						map.insert("item".into(), tg::Value::Object(item));
+						if let Some(path) = referent.path {
+							let path = path.to_string_lossy().to_string();
+							map.insert("path".to_owned(), tg::Value::String(path));
+						}
+						if let Some(tag) = referent.tag {
+							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
+						}
+						Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
+					})
+					.collect::<FuturesUnordered<_>>()
+					.try_collect()
+					.await?;
+				if !dependencies.is_empty() {
+					children.push(("dependencies".to_owned(), tg::Value::Map(dependencies)));
+				}
+				children
+			},
+		};
+		file.unload();
+
+		// Send the update.
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
+		Ok(())
+	}
+
+	async fn expand_graph(
+		handle: &H,
+		graph: tg::Graph,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		// Get the graph nodes and unload the object immediately.
+		let nodes = graph.nodes(handle).await?;
+		graph.unload();
+
+		// Convert nodes to tg::Value::Maps
+		let nodes = nodes
+			.into_iter()
+			.map(async |node| {
+				let mut map = BTreeMap::new();
+				map.insert(
+					"kind".to_owned(),
+					tg::Value::String(node.kind().to_string()),
+				);
+				match node {
+					tg::graph::Node::Directory(directory) => {
+						let entries = directory
+							.entries
+							.into_iter()
+							.map(async |(name, edge)| {
+								let value = match edge {
+									tg::graph::object::Edge::Reference(mut reference) => {
+										if reference.graph.is_none() {
+											reference.graph.replace(graph.clone());
+										}
+										reference.get(handle).await?.into()
+									},
+									tg::graph::object::Edge::Object(artifact) => artifact.into(),
+								};
+								Ok::<_, tg::Error>((name, tg::Value::Object(value)))
+							})
+							.collect::<FuturesUnordered<_>>()
+							.try_collect()
+							.await?;
+						map.insert("entries".into(), tg::Value::Map(entries));
+					},
+					tg::graph::Node::File(file) => {
+						map.insert("contents".into(), tg::Value::Object(file.contents.into()));
+						if file.executable {
+							map.insert("executable".into(), file.executable.into());
+						}
+						let dependencies: BTreeMap<String, tg::Value> = file
+							.dependencies
+							.into_iter()
+							.map(async |(reference, referent)| {
+								let mut map = BTreeMap::new();
+								let item = match referent.item {
+									tg::graph::object::Edge::Reference(mut reference) => {
+										if reference.graph.is_none() {
+											reference.graph.replace(graph.clone());
+										}
+										reference.get(handle).await?.into()
+									},
+									tg::graph::object::Edge::Object(object) => object,
+								};
+								map.insert("item".into(), tg::Value::Object(item));
+								if let Some(path) = referent.path {
+									let path = path.to_string_lossy().to_string();
+									map.insert("path".to_owned(), tg::Value::String(path));
+								}
+								if let Some(tag) = referent.tag {
+									map.insert(
+										"tag".to_owned(),
+										tg::Value::String(tag.to_string()),
+									);
+								}
+								Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
+							})
+							.collect::<FuturesUnordered<_>>()
+							.try_collect()
+							.await?;
+						if !dependencies.is_empty() {
+							map.insert("dependencies".into(), tg::Value::Map(dependencies));
+						}
+					},
+					tg::graph::Node::Symlink(symlink) => {
+						if let Some(artifact) = symlink.artifact {
+							let artifact = match artifact {
+								tg::graph::object::Edge::Reference(mut reference) => {
+									if reference.graph.is_none() {
+										reference.graph.replace(graph.clone());
+									}
+									reference.get(handle).await?.into()
+								},
+								tg::graph::object::Edge::Object(object) => object.into(),
+							};
+							map.insert("artifact".to_owned(), tg::Value::Object(artifact));
+						}
+						if let Some(path) = symlink.path {
+							let path = path.to_string_lossy().to_string();
+							map.insert("path".into(), tg::Value::String(path));
+						}
+					},
+				}
+				Ok::<_, tg::Error>(tg::Value::Map(map))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect()
 			.await?;
 
-		while let Some(chunk) = log.try_next().await? {
-			let chunk = String::from_utf8_lossy(&chunk.bytes);
-			for line in chunk.lines() {
-				let line = line.to_owned();
-				let handle = handle.clone();
-				let update = move |node: Rc<RefCell<Node>>| {
-					// Create the log node if necessary.
-					let log_node = node
-						.borrow()
-						.children
-						.iter()
-						.position(|node| node.borrow().label.as_deref() == Some("log"));
-					let log_node = log_node.unwrap_or_else(|| {
-						// Create the log node.
-						let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
+		// Convert to a value and send the update.
+		let handle = handle.clone();
+		let value = tg::Value::Array(nodes);
+		let update = move |node: Rc<RefCell<Node>>| {
+			let item = tg::Referent::with_item(Item::Value(value));
+			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(item));
+			node.borrow_mut().children.push(child);
+		};
+		update_sender.send(Box::new(update)).unwrap();
+		Ok(())
+	}
 
-						// Find where to insert it.
-						let has_children_node =
-							node.borrow().children.first().is_some_and(|node| {
-								node.borrow().label.as_deref() == Some("children")
-							});
-						let index = if has_children_node { 1 } else { 0 };
-
-						// Insert the new node and return the index.
-						node.borrow_mut().children.insert(index, child);
-						index
-					});
-
-					let log_node = &node.borrow().children[log_node];
-					log_node.borrow_mut().title = line;
-				};
-				update_sender.send(Box::new(update)).unwrap();
+	async fn expand_map(
+		handle: &H,
+		map: tg::value::Map,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
+			for (name, value) in map {
+				let item = tg::Referent::with_item(Item::Value(value));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				node.borrow_mut().children.push(child);
 			}
-		}
+		};
+		update_sender.send(Box::new(update)).unwrap();
+		Ok(())
+	}
 
+	async fn expand_mutation(
+		handle: &H,
+		value: tg::Mutation,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		let children: Vec<_> = match value {
+			tg::Mutation::Append { values } => [
+				("kind".to_owned(), tg::Value::String("append".to_owned())),
+				("values".to_owned(), tg::Value::Array(values)),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::Prefix {
+				separator,
+				template,
+			} => {
+				let mut children = Vec::new();
+				children.push(("kind".to_owned(), tg::Value::String("prefix".to_owned())));
+				if let Some(separator) = separator {
+					children.push(("separator".to_owned(), tg::Value::String(separator)));
+				}
+				children.push(("template".to_owned(), tg::Value::Template(template)));
+				children
+			},
+			tg::Mutation::Prepend { values } => [
+				("kind".to_owned(), tg::Value::String("prepend".to_owned())),
+				("values".to_owned(), tg::Value::Array(values)),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::Set { value } => [
+				("kind".to_owned(), tg::Value::String("set".to_owned())),
+				("value".to_owned(), *value),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::SetIfUnset { value } => [
+				(
+					"kind".to_owned(),
+					tg::Value::String("set_if_unset".to_owned()),
+				),
+				("value".to_owned(), *value),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::Suffix {
+				separator,
+				template,
+			} => {
+				let mut children = Vec::new();
+				children.push(("kind".to_owned(), tg::Value::String("suffix".to_owned())));
+				if let Some(separator) = separator {
+					children.push(("separator".to_owned(), tg::Value::String(separator)));
+				}
+				children.push(("template".to_owned(), tg::Value::Template(template)));
+				children
+			},
+			tg::Mutation::Merge { value } => [
+				("kind".to_owned(), tg::Value::String("merge".to_owned())),
+				("value".to_owned(), tg::Value::Map(value)),
+			]
+			.into_iter()
+			.collect(),
+			tg::Mutation::Unset => [("kind".to_owned(), tg::Value::String("unset".to_owned()))]
+				.into_iter()
+				.collect(),
+		};
+
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				node.borrow_mut().children.push(child);
+			}
+		};
+		update_sender.send(Box::new(update)).unwrap();
+		Ok(())
+	}
+
+	async fn expand_object(
+		handle: &H,
+		object: tg::Object,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		match object {
+			tg::Object::Blob(blob) => {
+				Self::expand_blob(handle, blob, update_sender).await?;
+			},
+			tg::Object::Directory(directory) => {
+				Self::expand_directory(handle, directory, update_sender).await?;
+			},
+			tg::Object::File(file) => {
+				Self::expand_file(handle, file, update_sender).await?;
+			},
+			tg::Object::Symlink(symlink) => {
+				Self::expand_symlink(handle, symlink, update_sender).await?;
+			},
+			tg::Object::Graph(graph) => {
+				Self::expand_graph(handle, graph, update_sender).await?;
+			},
+			tg::Object::Command(command) => {
+				Self::expand_command(handle, command, update_sender).await?;
+			},
+		}
 		Ok(())
 	}
 
@@ -754,396 +907,6 @@ where
 		Ok(())
 	}
 
-	async fn process_title(
-		handle: &H,
-		process: &tg::Referent<tg::Process>,
-		options: &Options,
-	) -> Option<String> {
-		// Get the original commands' executable.
-		let command = process.item.command(handle).await.ok()?.clone();
-		let executable = command.executable(handle).await.ok()?.clone();
-
-		// Handle paths.
-		if let Ok(path) = executable.try_unwrap_path_ref() {
-			return Some(path.path.display().to_string());
-		}
-
-		// Use the referent if its fields are set.
-		let title = match (&process.path, &process.tag) {
-			(Some(path), None) => {
-				if options.display_paths_relative_to_cwd {
-					std::env::current_dir()
-						.ok()
-						.and_then(|cwd| crate::util::path_diff(&cwd, path).ok())
-						.map_or_else(
-							|| path.display().to_string(),
-							|path| path.display().to_string(),
-						)
-				} else {
-					path.display().to_string()
-				}
-			},
-			(Some(path), Some(tag)) => format!("{tag}:{}", path.display()),
-			(None, Some(tag)) => tag.to_string(),
-			_ => {
-				if let Some(object) = executable.object().first() {
-					object.id().to_string()
-				} else {
-					String::new()
-				}
-			},
-		};
-
-		// Handle exports.
-		let export = executable
-			.try_unwrap_module_ref()
-			.ok()
-			.and_then(|exe| exe.export.as_ref());
-		if let Some(export) = export {
-			return Some(format!("{title}#{export}"));
-		}
-
-		Some(title)
-	}
-
-	async fn expand_directory(
-		handle: &H,
-		directory: tg::Directory,
-		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		let object = directory.object(handle).await?;
-		let children: Vec<_> = match object.as_ref() {
-			tg::directory::Object::Graph(graph) => [
-				(
-					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().into()),
-				),
-				(
-					"node".to_owned(),
-					tg::Value::Number(graph.node.to_f64().unwrap()),
-				),
-			]
-			.into_iter()
-			.collect(),
-			tg::directory::Object::Node(node) => {
-				let entries = node
-					.entries
-					.clone()
-					.into_iter()
-					.map(|(name, artifact)| (name, artifact.into()))
-					.collect();
-				[("entries".to_owned(), tg::Value::Map(entries))]
-					.into_iter()
-					.collect()
-			},
-		};
-		directory.unload();
-
-		// Send the update.
-		let handle = handle.clone();
-		let update = move |node: Rc<RefCell<Node>>| {
-			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
-				node.borrow_mut().children.push(child);
-			}
-		};
-		update_sender.send(Box::new(update)).unwrap();
-		Ok(())
-	}
-
-	async fn expand_file(
-		handle: &H,
-		file: tg::File,
-		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		let object = file.object(handle).await?;
-
-		let children = match object.as_ref() {
-			tg::file::Object::Graph(graph) => [
-				(
-					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().into()),
-				),
-				(
-					"node".to_owned(),
-					tg::Value::Number(graph.node.to_f64().unwrap()),
-				),
-			]
-			.into_iter()
-			.collect(),
-			tg::file::Object::Node(node) => {
-				let mut children = Vec::with_capacity(3);
-				children.push((
-					"contents".to_owned(),
-					tg::Value::Object(node.contents.clone().into()),
-				));
-				if node.executable {
-					children.push(("executable".to_owned(), tg::Value::Bool(node.executable)));
-				}
-				let dependencies = node
-					.dependencies
-					.clone()
-					.into_iter()
-					.map(|(reference, referent)| {
-						let mut map = BTreeMap::new();
-						let item = tg::Value::Object(referent.item);
-						map.insert("item".into(), item);
-						if let Some(path) = referent.path {
-							let path = path.to_string_lossy().to_string();
-							map.insert("path".to_owned(), tg::Value::String(path));
-						}
-						if let Some(tag) = referent.tag {
-							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
-						}
-						(reference.to_string(), tg::Value::Map(map))
-					})
-					.collect::<BTreeMap<_, _>>();
-				if !dependencies.is_empty() {
-					children.push(("dependencies".to_owned(), tg::Value::Map(dependencies)));
-				}
-				children
-			},
-		};
-		file.unload();
-
-		// Send the update.
-		let handle = handle.clone();
-		let update = move |node: Rc<RefCell<Node>>| {
-			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
-				node.borrow_mut().children.push(child);
-			}
-		};
-		update_sender.send(Box::new(update)).unwrap();
-		Ok(())
-	}
-
-	async fn expand_graph(
-		handle: &H,
-		graph: tg::Graph,
-		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		// Get the graph nodes and unload the object immediately.
-		let nodes = graph.nodes(handle).await?;
-		graph.unload();
-
-		// Convert nodes to tg::Value::Maps
-		let nodes = nodes
-			.into_iter()
-			.map(|node| {
-				let mut map = BTreeMap::new();
-				map.insert(
-					"kind".to_owned(),
-					tg::Value::String(node.kind().to_string()),
-				);
-				match node {
-					tg::graph::Node::Directory(directory) => {
-						let entries = directory
-							.entries
-							.into_iter()
-							.map(|(name, entry)| {
-								let value = match entry {
-									Either::Left(index) => {
-										tg::Value::Number(index.to_f64().unwrap())
-									},
-									Either::Right(artifact) => tg::Value::Object(artifact.into()),
-								};
-								(name, value)
-							})
-							.collect::<BTreeMap<_, _>>();
-						map.insert("entries".into(), tg::Value::Map(entries));
-					},
-					tg::graph::Node::File(file) => {
-						map.insert("contents".into(), tg::Value::Object(file.contents.into()));
-						if file.executable {
-							map.insert("executable".into(), file.executable.into());
-						}
-						let dependencies = file
-							.dependencies
-							.into_iter()
-							.map(|(reference, referent)| {
-								let mut map = BTreeMap::new();
-								let item = match referent.item {
-									Either::Left(index) => {
-										tg::Value::Number(index.to_f64().unwrap())
-									},
-									Either::Right(object) => tg::Value::Object(object),
-								};
-								map.insert("item".into(), item);
-								if let Some(path) = referent.path {
-									let path = path.to_string_lossy().to_string();
-									map.insert("path".to_owned(), tg::Value::String(path));
-								}
-								if let Some(tag) = referent.tag {
-									map.insert(
-										"tag".to_owned(),
-										tg::Value::String(tag.to_string()),
-									);
-								}
-								(reference.to_string(), tg::Value::Map(map))
-							})
-							.collect::<BTreeMap<_, _>>();
-						if !dependencies.is_empty() {
-							map.insert("dependencies".into(), tg::Value::Map(dependencies));
-						}
-					},
-					tg::graph::Node::Symlink(symlink) => {
-						if let Some(artifact) = symlink.artifact {
-							let artifact = match artifact {
-								Either::Left(index) => tg::Value::Number(index.to_f64().unwrap()),
-								Either::Right(artifact) => tg::Value::Object(artifact.into()),
-							};
-							map.insert("artifact".to_owned(), artifact);
-						}
-						if let Some(path) = symlink.path {
-							let path = path.to_string_lossy().to_string();
-							map.insert("path".into(), tg::Value::String(path));
-						}
-					},
-				}
-				tg::Value::Map(map)
-			})
-			.collect();
-
-		// Convert to a value and send the update.
-		let handle = handle.clone();
-		let value = tg::Value::Array(nodes);
-		let update = move |node: Rc<RefCell<Node>>| {
-			let item = tg::Referent::with_item(Item::Value(value));
-			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(item));
-			node.borrow_mut().children.push(child);
-		};
-		update_sender.send(Box::new(update)).unwrap();
-		Ok(())
-	}
-
-	async fn expand_map(
-		handle: &H,
-		map: tg::value::Map,
-		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		let handle = handle.clone();
-		let update = move |node: Rc<RefCell<Node>>| {
-			for (name, value) in map {
-				let item = tg::Referent::with_item(Item::Value(value));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
-				node.borrow_mut().children.push(child);
-			}
-		};
-		update_sender.send(Box::new(update)).unwrap();
-		Ok(())
-	}
-
-	async fn expand_mutation(
-		handle: &H,
-		value: tg::Mutation,
-		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		let children: Vec<_> = match value {
-			tg::Mutation::Append { values } => [
-				("kind".to_owned(), tg::Value::String("append".to_owned())),
-				("values".to_owned(), tg::Value::Array(values)),
-			]
-			.into_iter()
-			.collect(),
-			tg::Mutation::Prefix {
-				separator,
-				template,
-			} => {
-				let mut children = Vec::new();
-				children.push(("kind".to_owned(), tg::Value::String("prefix".to_owned())));
-				if let Some(separator) = separator {
-					children.push(("separator".to_owned(), tg::Value::String(separator)));
-				}
-				children.push(("template".to_owned(), tg::Value::Template(template)));
-				children
-			},
-			tg::Mutation::Prepend { values } => [
-				("kind".to_owned(), tg::Value::String("prepend".to_owned())),
-				("values".to_owned(), tg::Value::Array(values)),
-			]
-			.into_iter()
-			.collect(),
-			tg::Mutation::Set { value } => [
-				("kind".to_owned(), tg::Value::String("set".to_owned())),
-				("value".to_owned(), *value),
-			]
-			.into_iter()
-			.collect(),
-			tg::Mutation::SetIfUnset { value } => [
-				(
-					"kind".to_owned(),
-					tg::Value::String("set_if_unset".to_owned()),
-				),
-				("value".to_owned(), *value),
-			]
-			.into_iter()
-			.collect(),
-			tg::Mutation::Suffix {
-				separator,
-				template,
-			} => {
-				let mut children = Vec::new();
-				children.push(("kind".to_owned(), tg::Value::String("suffix".to_owned())));
-				if let Some(separator) = separator {
-					children.push(("separator".to_owned(), tg::Value::String(separator)));
-				}
-				children.push(("template".to_owned(), tg::Value::Template(template)));
-				children
-			},
-			tg::Mutation::Merge { value } => [
-				("kind".to_owned(), tg::Value::String("merge".to_owned())),
-				("value".to_owned(), tg::Value::Map(value)),
-			]
-			.into_iter()
-			.collect(),
-			tg::Mutation::Unset => [("kind".to_owned(), tg::Value::String("unset".to_owned()))]
-				.into_iter()
-				.collect(),
-		};
-
-		let handle = handle.clone();
-		let update = move |node: Rc<RefCell<Node>>| {
-			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
-				node.borrow_mut().children.push(child);
-			}
-		};
-		update_sender.send(Box::new(update)).unwrap();
-		Ok(())
-	}
-
-	async fn expand_object(
-		handle: &H,
-		object: tg::Object,
-		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		match object {
-			tg::Object::Blob(blob) => {
-				Self::expand_blob(handle, blob, update_sender).await?;
-			},
-			tg::Object::Directory(directory) => {
-				Self::expand_directory(handle, directory, update_sender).await?;
-			},
-			tg::Object::File(file) => {
-				Self::expand_file(handle, file, update_sender).await?;
-			},
-			tg::Object::Symlink(symlink) => {
-				Self::expand_symlink(handle, symlink, update_sender).await?;
-			},
-			tg::Object::Graph(graph) => {
-				Self::expand_graph(handle, graph, update_sender).await?;
-			},
-			tg::Object::Command(command) => {
-				Self::expand_command(handle, command, update_sender).await?;
-			},
-		}
-		Ok(())
-	}
-
 	async fn expand_symlink(
 		handle: &H,
 		symlink: tg::Symlink,
@@ -1151,14 +914,14 @@ where
 	) -> tg::Result<()> {
 		let object = symlink.object(handle).await?;
 		let children = match object.as_ref() {
-			tg::symlink::Object::Graph(graph) => [
+			tg::symlink::Object::Reference(reference) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(graph.graph.clone().into()),
+					tg::Value::Object(reference.graph.clone().unwrap().into()),
 				),
 				(
 					"node".to_owned(),
-					tg::Value::Number(graph.node.to_f64().unwrap()),
+					tg::Value::Number(reference.node.to_f64().unwrap()),
 				),
 			]
 			.into_iter()
@@ -1166,8 +929,13 @@ where
 			tg::symlink::Object::Node(node) => {
 				let mut children = Vec::new();
 				if let Some(artifact) = &node.artifact {
-					let artifact = tg::Value::Object(artifact.clone().into());
-					children.push(("artifact".to_owned(), artifact));
+					let artifact = match artifact {
+						tg::graph::object::Edge::Reference(reference) => {
+							reference.get(handle).await?.into()
+						},
+						tg::graph::object::Edge::Object(artifact) => artifact.clone().into(),
+					};
+					children.push(("artifact".to_owned(), tg::Value::Object(artifact)));
 				}
 				if let Some(path) = &node.path {
 					let path = path.to_string_lossy().to_string();
@@ -1192,87 +960,30 @@ where
 		Ok(())
 	}
 
-	async fn expand_command(
+	async fn expand_task(
 		handle: &H,
-		command: tg::Command,
+		referent: tg::Referent<Item>,
 		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		let object = command.object(handle).await?;
-		let mut children = Vec::new();
-		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
-		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
-		let value = match &object.executable {
-			tg::command::Executable::Artifact(executable) => {
-				let mut map = BTreeMap::new();
-				map.insert(
-					"artifact".to_owned(),
-					tg::Value::Object(executable.artifact.clone().into()),
-				);
-				if let Some(path) = &executable.path {
-					let subpath = path.to_string_lossy().to_string();
-					map.insert("path".to_owned(), tg::Value::String(subpath));
-				}
-				tg::Value::Map(map)
+	) {
+		let tg::Referent { item, path, tag } = referent;
+		let result = match item {
+			Item::Process(process) => {
+				let referent = tg::Referent {
+					item: process,
+					path,
+					tag,
+				};
+				Self::expand_process(handle, referent, update_sender.clone()).await
 			},
-			tg::command::Executable::Module(executable) => {
-				let mut map = BTreeMap::new();
-				map.insert(
-					"kind".to_owned(),
-					tg::Value::String(executable.module.kind.to_string()),
-				);
-				let mut referent = BTreeMap::new();
-				referent.insert(
-					"item".to_owned(),
-					match executable.module.referent.item.clone() {
-						tg::module::Item::Path(path) => {
-							tg::Value::String(path.to_string_lossy().into_owned())
-						},
-						tg::module::Item::Object(object) => tg::Value::Object(object),
-					},
-				);
-				if let Some(path) = &executable.module.referent.path {
-					let path = path.to_string_lossy().to_string();
-					referent.insert("path".to_owned(), tg::Value::String(path));
-				}
-				if let Some(tag) = &executable.module.referent.tag {
-					referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
-				}
-				map.insert("referent".to_owned(), tg::Value::Map(referent));
-				tg::Value::Map(map)
-			},
-			tg::command::Executable::Path(executable) => {
-				tg::Value::String(executable.path.to_string_lossy().to_string())
-			},
+			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,
 		};
-		children.push(("executable".to_owned(), value));
-		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		let mut mounts = Vec::new();
-		for mount in &object.mounts {
-			let mut map = BTreeMap::new();
-			map.insert(
-				"source".to_owned(),
-				tg::Value::Object(mount.source.clone().into()),
-			);
-			map.insert(
-				"target".to_owned(),
-				tg::Value::String(mount.target.to_string_lossy().to_string()),
-			);
-			mounts.push(tg::Value::Map(map));
+		if let Err(error) = result {
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().indicator.replace(Indicator::Error);
+				node.borrow_mut().title = error.to_string();
+			};
+			update_sender.send(Box::new(update)).ok();
 		}
-		children.push(("mounts".to_owned(), tg::Value::Array(mounts)));
-		command.unload();
-
-		// Send the update.
-		let handle = handle.clone();
-		let update = move |node: Rc<RefCell<Node>>| {
-			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
-				node.borrow_mut().children.push(child);
-			}
-		};
-		update_sender.send(Box::new(update)).unwrap();
-		Ok(())
 	}
 
 	async fn expand_template(
@@ -1336,6 +1047,53 @@ where
 		Ok(())
 	}
 
+	pub fn handle(&mut self, event: &ct::event::Event) {
+		if let ct::event::Event::Key(event) = event {
+			match (event.code, event.modifiers) {
+				(ct::event::KeyCode::Char('G'), ct::event::KeyModifiers::SHIFT) => {
+					self.bottom();
+				},
+				(ct::event::KeyCode::Char('g'), ct::event::KeyModifiers::NONE) => {
+					self.top();
+				},
+				(
+					ct::event::KeyCode::Char('h') | ct::event::KeyCode::Left,
+					ct::event::KeyModifiers::NONE,
+				) => {
+					self.collapse();
+				},
+				(
+					ct::event::KeyCode::Char('j') | ct::event::KeyCode::Down,
+					ct::event::KeyModifiers::NONE,
+				) => {
+					self.down();
+				},
+				(
+					ct::event::KeyCode::Char('k') | ct::event::KeyCode::Up,
+					ct::event::KeyModifiers::NONE,
+				) => {
+					self.up();
+				},
+				(
+					ct::event::KeyCode::Char('l') | ct::event::KeyCode::Right,
+					ct::event::KeyModifiers::NONE,
+				) => {
+					self.expand();
+				},
+				(ct::event::KeyCode::Char('y'), ct::event::KeyModifiers::NONE) => {
+					self.yank();
+				},
+				(ct::event::KeyCode::Enter, ct::event::KeyModifiers::NONE) => {
+					self.push();
+				},
+				(ct::event::KeyCode::Backspace, ct::event::KeyModifiers::NONE) => {
+					self.pop();
+				},
+				_ => (),
+			}
+		}
+	}
+
 	fn is_last_child(node: &Rc<RefCell<Node>>) -> bool {
 		let Some(parent) = node
 			.borrow()
@@ -1372,53 +1130,6 @@ where
 				tg::Value::Mutation(_) => "mutation".to_owned(),
 				tg::Value::Template(_) => "template".to_owned(),
 			},
-		}
-	}
-
-	fn object_id(object: &tg::Object) -> String {
-		match object {
-			tg::Object::Blob(blob) => blob
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Directory(directory) => directory
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::File(file) => file
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Symlink(symlink) => symlink
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Graph(graph) => graph
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Command(command) => command
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
 		}
 	}
 
@@ -1506,10 +1217,241 @@ where
 		nodes
 	}
 
+	fn object_id(object: &tg::Object) -> String {
+		match object {
+			tg::Object::Blob(blob) => blob
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Directory(directory) => directory
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::File(file) => file
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Symlink(symlink) => symlink
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Graph(graph) => graph
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+			tg::Object::Command(command) => command
+				.state()
+				.read()
+				.unwrap()
+				.id
+				.as_ref()
+				.map_or_else(|| "object".to_owned(), ToString::to_string),
+		}
+	}
+
 	fn pop(&mut self) {
 		if self.roots.len() > 1 {
 			self.roots.pop();
 		}
+	}
+
+	async fn process_log_task(
+		handle: &H,
+		process: tg::Process,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		let mut log = process
+			.log(handle, tg::process::log::get::Arg::default())
+			.await?;
+
+		while let Some(chunk) = log.try_next().await? {
+			let chunk = String::from_utf8_lossy(&chunk.bytes);
+			for line in chunk.lines() {
+				let line = line.to_owned();
+				let handle = handle.clone();
+				let update = move |node: Rc<RefCell<Node>>| {
+					// Create the log node if necessary.
+					let log_node = node
+						.borrow()
+						.children
+						.iter()
+						.position(|node| node.borrow().label.as_deref() == Some("log"));
+					let log_node = log_node.unwrap_or_else(|| {
+						// Create the log node.
+						let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
+
+						// Find where to insert it.
+						let has_children_node =
+							node.borrow().children.first().is_some_and(|node| {
+								node.borrow().label.as_deref() == Some("children")
+							});
+						let index = if has_children_node { 1 } else { 0 };
+
+						// Insert the new node and return the index.
+						node.borrow_mut().children.insert(index, child);
+						index
+					});
+
+					let log_node = &node.borrow().children[log_node];
+					log_node.borrow_mut().title = line;
+				};
+				update_sender.send(Box::new(update)).unwrap();
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn process_title(
+		handle: &H,
+		process: &tg::Referent<tg::Process>,
+		options: &Options,
+	) -> Option<String> {
+		// Get the original commands' executable.
+		let command = process.item.command(handle).await.ok()?.clone();
+		let executable = command.executable(handle).await.ok()?.clone();
+
+		// Handle paths.
+		if let Ok(path) = executable.try_unwrap_path_ref() {
+			return Some(path.path.display().to_string());
+		}
+
+		// Use the referent if its fields are set.
+		let title = match (&process.path, &process.tag) {
+			(Some(path), None) => {
+				if options.display_paths_relative_to_cwd {
+					std::env::current_dir()
+						.ok()
+						.and_then(|cwd| crate::util::path_diff(&cwd, path).ok())
+						.map_or_else(
+							|| path.display().to_string(),
+							|path| path.display().to_string(),
+						)
+				} else {
+					path.display().to_string()
+				}
+			},
+			(Some(path), Some(tag)) => format!("{tag}:{}", path.display()),
+			(None, Some(tag)) => tag.to_string(),
+			_ => {
+				if let Some(object) = executable.objects().first() {
+					object.id().to_string()
+				} else {
+					String::new()
+				}
+			},
+		};
+
+		// Handle exports.
+		let export = executable
+			.try_unwrap_module_ref()
+			.ok()
+			.and_then(|exe| exe.export.as_ref());
+		if let Some(export) = export {
+			return Some(format!("{title}#{export}"));
+		}
+
+		Some(title)
+	}
+
+	async fn process_update_task(
+		handle: &H,
+		process: &tg::Referent<tg::Process>,
+		options: &Options,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		if let Some(title) = Self::process_title(handle, process, options).await {
+			update_sender
+				.send(Box::new(|node| {
+					node.borrow_mut().title = title;
+				}))
+				.unwrap();
+		}
+
+		// Create the status stream.
+		let mut status = process.item.status(handle).await?;
+		while let Some(status) = status.try_next().await? {
+			let indicator = match status {
+				tg::process::Status::Created => Indicator::Created,
+				tg::process::Status::Enqueued => Indicator::Enqueued,
+				tg::process::Status::Dequeued => Indicator::Dequeued,
+				tg::process::Status::Started => Indicator::Started,
+				tg::process::Status::Finished => {
+					// Remove the child if necessary.
+					if options.auto_expand_and_collapse_processes {
+						let update = move |node: Rc<RefCell<Node>>| {
+							// Get the parent if it exists.
+							let Some(parent) =
+								node.borrow().parent.as_ref().and_then(Weak::upgrade)
+							else {
+								return;
+							};
+
+							// Find this process as a child of the parent.
+							let Some(index) = parent
+								.borrow()
+								.children
+								.iter()
+								.position(|child| Rc::ptr_eq(child, &node))
+							else {
+								return;
+							};
+
+							// Remove this node from its parent.
+							parent.borrow_mut().children.remove(index);
+						};
+						update_sender.send(Box::new(update)).unwrap();
+						return Ok(());
+					}
+
+					let state = process.item.load(handle).await?;
+					let failed =
+						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
+					if failed {
+						Indicator::Failed
+					} else {
+						Indicator::Succeeded
+					}
+				},
+			};
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().indicator.replace(indicator);
+			};
+			update_sender.send(Box::new(update)).ok();
+		}
+
+		// Check if the process was canceled.
+		if handle
+			.try_get_process(process.item.id())
+			.await?
+			.and_then(|output| output.data.error)
+			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancellation)))
+		{
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().indicator.replace(Indicator::Canceled);
+			};
+			update_sender.send(Box::new(update)).ok();
+		}
+
+		Ok(())
 	}
 
 	fn push(&mut self) {
@@ -1605,29 +1547,95 @@ where
 		self.rect.replace(rect);
 	}
 
-	async fn expand_task(
-		handle: &H,
-		referent: tg::Referent<Item>,
-		update_sender: NodeUpdateSender,
-	) {
-		let tg::Referent { item, path, tag } = referent;
-		let result = match item {
-			Item::Process(process) => {
-				let referent = tg::Referent {
-					item: process,
-					path,
-					tag,
-				};
-				Self::expand_process(handle, referent, update_sender.clone()).await
-			},
-			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,
+	fn select(&mut self, node: Rc<RefCell<Node>>) {
+		self.selected = node.clone();
+		let Some(referent) = node.borrow().referent.clone() else {
+			return;
 		};
-		if let Err(error) = result {
-			let update = move |node: Rc<RefCell<Node>>| {
-				node.borrow_mut().indicator.replace(Indicator::Error);
-				node.borrow_mut().title = error.to_string();
+		let handle = self.handle.clone();
+		let data = self.data.clone();
+		let viewer = self.viewer.clone();
+		let task = Task::spawn_local(|_| async move {
+			// Update the log view if the selected item is a process.
+			let process =
+				node.borrow()
+					.referent
+					.as_ref()
+					.and_then(|referent| match &referent.item {
+						Item::Process(process) => Some(process.clone()),
+						Item::Value(_) => None,
+					});
+			{
+				let handle = handle.clone();
+				let update = move |viewer: &mut super::Viewer<H>| {
+					if let Some(process) = process {
+						let log = Log::new(&handle, &process);
+						viewer.log.replace(log);
+					} else {
+						viewer.log.take();
+					}
+				};
+				viewer.send(Box::new(update)).unwrap();
+			}
+
+			// Update the data view.
+			let content_future = {
+				let handle = handle.clone();
+				async move {
+					match referent.item {
+						Item::Process(process) => handle
+							.get_process(process.id())
+							.await
+							.and_then(|output| {
+								serde_json::to_string_pretty(&output.data).map_err(|source| {
+									tg::error!(!source, "failed to serialize the process data")
+								})
+							})
+							.unwrap_or_else(|error| error.to_string()),
+						Item::Value(tg::Value::Object(tg::Object::Blob(blob))) => {
+							super::util::format_blob(&handle, &blob)
+								.await
+								.unwrap_or_else(|error| error.to_string())
+						},
+						Item::Value(value) => {
+							let value = match value {
+								tg::Value::Object(object) => {
+									object.load(&handle).await.ok();
+									tg::Value::Object(object)
+								},
+								value => value,
+							};
+							let options = tg::value::print::Options {
+								depth: Some(1),
+								style: tg::value::print::Style::Pretty { indentation: "  " },
+							};
+							value.print(options)
+						},
+					}
+				}
 			};
-			update_sender.send(Box::new(update)).ok();
+			let timeout = tokio::time::sleep(std::time::Duration::from_millis(20));
+			match future::select(pin!(content_future), pin!(timeout)).await {
+				future::Either::Left((content, _)) => {
+					data.send(Box::new(move |this| this.set_contents(content)))
+						.unwrap();
+				},
+				future::Either::Right(((), future)) => {
+					data.send(Box::new(move |this| {
+						this.set_contents("...loading...".to_owned());
+					}))
+					.unwrap();
+					let contents = future.await;
+					data.send(Box::new(move |this| {
+						this.set_contents(contents);
+					}))
+					.unwrap();
+				},
+			}
+		});
+
+		if let Some(task) = self.selected_task.replace(task) {
+			task.abort();
 		}
 	}
 
@@ -1660,6 +1668,36 @@ where
 			}
 		}
 	}
+
+	fn yank(&self) {
+		let Some(referent) = self.selected.borrow().referent.clone() else {
+			return;
+		};
+		let contents = match &referent.item {
+			Item::Process(process) => process.id().to_string(),
+			Item::Value(value) => {
+				if let tg::Value::Object(object) = value {
+					Self::object_id(object)
+				} else {
+					let options = tg::value::print::Options {
+						depth: Some(0),
+						style: tg::value::print::Style::Compact,
+					};
+					value.print(options)
+				}
+			},
+		};
+		let Ok(mut tty) = std::fs::OpenOptions::new()
+			.read(true)
+			.write(true)
+			.open("/dev/tty")
+		else {
+			return;
+		};
+		let encoded = data_encoding::BASE64.encode(contents.as_bytes());
+		write!(tty, "\x1B]52;c;{encoded}\x07").ok();
+		tty.flush().ok();
+	}
 }
 
 async fn get_child_process_with_path_and_tag<H>(
@@ -1685,7 +1723,7 @@ where
 			.await?
 			.executable(handle)
 			.await?
-			.object()
+			.objects()
 			.first()
 			.map(tg::Object::id);
 		let parent_executable = parent
@@ -1694,7 +1732,7 @@ where
 			.await?
 			.executable(handle)
 			.await?
-			.object()
+			.objects()
 			.first()
 			.map(tg::Object::id);
 		if child_executable == parent_executable {

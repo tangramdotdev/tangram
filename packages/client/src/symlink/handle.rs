@@ -1,7 +1,6 @@
 use super::{Data, Id, Object};
 use crate as tg;
 use std::{path::PathBuf, sync::Arc};
-use tangram_either::Either;
 
 #[derive(Clone, Debug)]
 pub struct Symlink {
@@ -78,7 +77,7 @@ impl Symlink {
 		};
 		let data = Data::deserialize(output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-		let object = Object::try_from(data)?;
+		let object = Object::try_from_data(data)?;
 		let object = Arc::new(object);
 		self.state.write().unwrap().object.replace(object.clone());
 		Ok(Some(object))
@@ -115,13 +114,16 @@ impl Symlink {
 impl Symlink {
 	#[must_use]
 	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Graph(tg::symlink::object::Graph { graph, node }))
+		Self::with_object(Object::Reference(tg::graph::object::Reference {
+			graph: Some(graph),
+			node,
+		}))
 	}
 
 	#[must_use]
 	pub fn with_artifact_and_path(artifact: tg::Artifact, path: PathBuf) -> Self {
 		Self::with_object(Object::Node(tg::symlink::object::Node {
-			artifact: Some(artifact),
+			artifact: Some(tg::graph::object::Edge::Object(artifact)),
 			path: Some(path),
 		}))
 	}
@@ -129,7 +131,7 @@ impl Symlink {
 	#[must_use]
 	pub fn with_artifact(artifact: tg::Artifact) -> Self {
 		Self::with_object(Object::Node(tg::symlink::object::Node {
-			artifact: Some(artifact),
+			artifact: Some(tg::graph::object::Edge::Object(artifact)),
 			path: None,
 		}))
 	}
@@ -148,8 +150,8 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph(object) => {
-				let graph = &object.graph;
+			Object::Reference(object) => {
+				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object
@@ -164,29 +166,64 @@ impl Symlink {
 					return Ok(None);
 				};
 				let artifact = match artifact {
-					Either::Left(node) => {
+					tg::graph::object::Edge::Reference(reference) => {
+						let (graph, object) = if let Some(graph) = &reference.graph {
+							let graph = graph.clone();
+							let object = graph.object(handle).await?;
+							(graph, object)
+						} else {
+							(graph.clone(), object.clone())
+						};
 						let kind = object
 							.nodes
-							.get(*node)
+							.get(reference.node)
 							.ok_or_else(|| tg::error!("invalid index"))?
 							.kind();
 						match kind {
 							tg::artifact::Kind::Directory => {
-								tg::Directory::with_graph_and_node(graph.clone(), *node).into()
+								tg::Directory::with_graph_and_node(graph, reference.node).into()
 							},
 							tg::artifact::Kind::File => {
-								tg::File::with_graph_and_node(graph.clone(), *node).into()
+								tg::File::with_graph_and_node(graph, reference.node).into()
 							},
 							tg::artifact::Kind::Symlink => {
-								tg::Symlink::with_graph_and_node(graph.clone(), *node).into()
+								tg::Symlink::with_graph_and_node(graph, reference.node).into()
 							},
 						}
 					},
-					Either::Right(artifact) => artifact.clone(),
+					tg::graph::object::Edge::Object(object) => object.clone(),
 				};
 				Ok(Some(artifact))
 			},
-			Object::Node(node) => Ok(node.artifact.clone()),
+			Object::Node(node) => {
+				let Some(artifact) = &node.artifact else {
+					return Ok(None);
+				};
+				let artifact = match artifact.clone() {
+					tg::graph::object::Edge::Reference(reference) => {
+						let graph = reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
+						let object = graph.object(handle).await?;
+						let kind = object
+							.nodes
+							.get(reference.node)
+							.ok_or_else(|| tg::error!("invalid index"))?
+							.kind();
+						match kind {
+							tg::artifact::Kind::Directory => {
+								tg::Directory::with_graph_and_node(graph, reference.node).into()
+							},
+							tg::artifact::Kind::File => {
+								tg::File::with_graph_and_node(graph, reference.node).into()
+							},
+							tg::artifact::Kind::Symlink => {
+								tg::Symlink::with_graph_and_node(graph, reference.node).into()
+							},
+						}
+					},
+					tg::graph::object::Edge::Object(object) => object.clone(),
+				};
+				Ok(Some(artifact))
+			},
 		}
 	}
 
@@ -196,8 +233,8 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Graph(object) => {
-				let graph = &object.graph;
+			Object::Reference(object) => {
+				let graph = object.graph.as_ref().unwrap();
 				let node = object.node;
 				let object = graph.object(handle).await?;
 				let node = object

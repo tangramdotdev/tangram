@@ -4,7 +4,6 @@ use crate::{
 };
 use futures::{Stream, TryStreamExt as _, future};
 use indexmap::IndexMap;
-use itertools::Itertools as _;
 use std::{borrow::Cow, collections::HashMap};
 use tokio_postgres as postgres;
 use url::Url;
@@ -297,7 +296,7 @@ async fn execute(
 	let params = &params
 		.iter()
 		.map(|value| value as &(dyn postgres::types::ToSql + Sync))
-		.collect_vec();
+		.collect::<Vec<_>>();
 	let n = client.execute(&statement, params).await?;
 	Ok(n)
 }
