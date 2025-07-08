@@ -416,7 +416,7 @@ impl Server {
 					stderr,
 					stdin,
 					stdout
-				from unnest($1) as ids (id)
+				from unnest($1::text[]) as ids (id)
 				left join processes on processes.id = ids.id;
 			"
 		);
