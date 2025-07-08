@@ -199,7 +199,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 					(literal "/dev/dtracehelper"))
 
 				;; Allow reading and writing temporary files.
-				(allow file-write* file-read*
+				(allow file-write* file-read* process-exec*
 					(subpath "/tmp")
 					(subpath "/private/tmp")
 					(subpath "/private/var")
