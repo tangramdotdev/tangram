@@ -140,7 +140,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				select
-					ids.id,
+					processes.id,
 					complete,
 					commands_complete,
 					outputs_complete

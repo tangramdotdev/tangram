@@ -123,7 +123,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				select
-					ids.id,
+					objects.id,
 					complete
 				from unnest($1::text[]) as ids (id)
 				left join objects on objects.id = ids.id;
