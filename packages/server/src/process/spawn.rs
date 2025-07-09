@@ -324,6 +324,7 @@ impl Server {
 		struct Row {
 			id: tg::process::Id,
 			actual_checksum: tg::Checksum,
+			exit: Option<i32>,
 			output: Option<db::value::Json<tg::value::Data>>,
 		}
 		let p = connection.p();
@@ -339,7 +340,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				{params}
-				select id, actual_checksum, output
+				select id, actual_checksum, exit, output
 				from processes, params
 				where
 					processes.cacheable = 1 and
@@ -358,6 +359,7 @@ impl Server {
 		let Some(Row {
 			id: existing_id,
 			actual_checksum,
+			exit,
 			output,
 		}) = connection
 			.query_optional_into::<Row>(statement.into(), params)
@@ -372,7 +374,7 @@ impl Server {
 
 		// Set the exit, output, and error.
 		let (exit, error) = if expected_checksum == actual_checksum {
-			(Some(0), None)
+			(exit, None)
 		} else {
 			let expected = &expected_checksum;
 			let actual = &actual_checksum;
