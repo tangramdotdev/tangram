@@ -103,7 +103,7 @@ impl Server {
 				let actual = arg
 					.checksum
 					.as_ref()
-					.ok_or_else(|| tg::error!("the actual checksum was not set"))?;
+					.ok_or_else(|| tg::error!(%id, "the actual checksum was not set"))?;
 				if expected != actual {
 					error = Some(
 						tg::error!("checksum does not match, expected {expected}, actual {actual}")
