@@ -3,16 +3,21 @@
 		"allowImportingTsExtensions": true,
 		"exactOptionalPropertyTypes": true,
 		"isolatedModules": true,
-		"lib": ["esnext"],
+		"lib": [
+			"esnext"
+		],
 		"module": "esnext",
+		"moduleDetection": "force",
 		"moduleResolution": "bundler",
 		"noEmit": true,
 		"noUncheckedIndexedAccess": true,
-		"noUnusedLocals": true,
-		"noUnusedParameters": true,
+		"noUncheckedSideEffectImports": true,
 		"strict": true,
 		"target": "esnext",
-		"types": []
+		"types": [],
+		"verbatimModuleSyntax": true
 	},
-	"exclude": ["tangram.d.ts"]
+	"exclude": [
+		"tangram.d.ts"
+	]
 }

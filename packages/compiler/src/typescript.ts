@@ -11,11 +11,14 @@ export let compilerOptions: ts.CompilerOptions = {
 	exactOptionalPropertyTypes: true,
 	isolatedModules: true,
 	module: ts.ModuleKind.ESNext,
+	moduleDetection: ts.ModuleDetectionKind.Force,
 	noEmit: true,
 	noUncheckedIndexedAccess: true,
+	noUncheckedSideEffectImports: true,
 	skipLibCheck: true,
 	strict: true,
 	target: ts.ScriptTarget.ESNext,
+	verbatimModuleSyntax: true,
 };
 
 // Create the host implementation for the TypeScript language service and compiler.

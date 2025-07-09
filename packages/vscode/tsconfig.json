@@ -1,13 +1,22 @@
 {
 	"compilerOptions": {
+		"allowImportingTsExtensions": true,
 		"exactOptionalPropertyTypes": true,
-		"lib": ["esnext"],
+		"isolatedModules": true,
+		"lib": [
+			"esnext"
+		],
 		"module": "commonjs",
 		"noEmit": true,
+		"noUncheckedIndexedAccess": true,
+		"noUncheckedSideEffectImports": true,
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
 		"target": "esnext",
-		"types": ["node", "vscode"]
+		"types": [
+			"node",
+			"vscode"
+		]
 	}
 }
