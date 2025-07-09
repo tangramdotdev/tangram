@@ -98,8 +98,10 @@ impl Runtime {
 		match task.await.unwrap() {
 			Ok(output) => output,
 			Err(error) => super::Output {
+				checksum: None,
 				error: Some(error),
-				..Default::default()
+				exit: 1,
+				output: None,
 			},
 		}
 	}
@@ -433,20 +435,23 @@ impl Runtime {
 		let error_or_signal = future::select(rejection, signal);
 		let output = match future::select(pin!(future), pin!(error_or_signal)).await {
 			future::Either::Left((Ok(output), _)) => super::Output {
+				checksum: None,
+				error: None,
 				exit: 0,
 				output: Some(tg::Value::try_from(output)?),
-				..Default::default()
 			},
 			future::Either::Left((Err(error), _))
 			| future::Either::Right((future::Either::Left((error, _)), _)) => super::Output {
+				checksum: None,
 				error: Some(error),
 				exit: 1,
-				..Default::default()
+				output: None,
 			},
 			future::Either::Right((future::Either::Right((signal, _)), _)) => super::Output {
+				checksum: None,
 				error: Some(tg::error!(?signal, "process terminated with signal")),
 				exit: signal.map_or(1, |signal| 128u8 + signal as u8),
-				..Default::default()
+				output: None,
 			},
 		};
 

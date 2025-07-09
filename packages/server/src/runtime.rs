@@ -25,7 +25,7 @@ pub enum Runtime {
 	Linux(linux::Runtime),
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Output {
 	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,

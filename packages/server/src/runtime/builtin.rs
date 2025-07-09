@@ -27,9 +27,10 @@ impl Runtime {
 		self.run_inner(process)
 			.await
 			.unwrap_or_else(|error| super::Output {
+				checksum: None,
 				error: Some(error),
 				exit: 1,
-				..Default::default()
+				output: None,
 			})
 	}
 
