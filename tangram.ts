@@ -160,9 +160,8 @@ export const nodeModules = async (hostArg?: string) => {
 		cp -R ${compiler} packages/compiler
 		cp -R ${runtime} packages/runtime
 		cp -R ${vscode} packages/vscode
-		mkdir -p $OUTPUT
 		bun install --frozen-lockfile
-		cp -R node_modules/. $OUTPUT
+		mv node_modules $OUTPUT
 		`
 		.checksum("sha256:any")
 		.network(true)
@@ -186,41 +185,57 @@ export const nodeModules = async (hostArg?: string) => {
 
 const bunEnvArg = async (hostArg?: string) => {
 	const host = hostArg ?? (await std.triple.host());
-	const hostOs = std.triple.os(host);
 	const bunArtifact = await bun({ host });
-	if (hostOs === "linux") {
-		return std.env.arg(
-			bunArtifact,
-			tg.directory({ ["bin/node"]: tg.symlink(tg`${bunArtifact}/bin/bun`) }),
-		);
-	} else {
-		return bunArtifact;
-	}
+	return std.env.arg(
+		bunArtifact,
+		tg.directory({ ["bin/node"]: tg.symlink(tg`${bunArtifact}/bin/bun`) }),
+	);
 };
 
-export const librustyv8 = async (lockfile: tg.File, hostArg?: string) => {
-	const host = hostArg ?? (await std.triple.host());
-	let os;
-	if (std.triple.os(host) === "darwin") {
-		os = "apple-darwin";
-	} else if (std.triple.os(host) === "linux") {
-		os = "unknown-linux-gnu";
-	} else {
-		throw new Error(`unsupported host ${host}`);
-	}
-	const checksum = "sha256:any";
-	const file = `librusty_v8_release_${std.triple.arch(host)}-${os}.a.gz`;
+export const librustyv8 = async (
+	lockfile: tg.File,
+	...hosts: Array<string>
+) => {
+	const hostList = hosts.length > 0 ? hosts : [await std.triple.host()];
 	const version = await getRustyV8Version(lockfile);
-	const lib = await std
-		.download({
-			checksum,
-			mode: "decompress",
-			url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
-		})
-		.then(tg.File.expect);
-	return {
-		RUSTY_V8_ARCHIVE: lib,
-	};
+
+	const downloads = await Promise.all(
+		hostList.map(async (host) => {
+			let os;
+			if (std.triple.os(host) === "darwin") {
+				os = "apple-darwin";
+			} else if (std.triple.os(host) === "linux") {
+				os = "unknown-linux-gnu";
+			} else {
+				throw new Error(`unsupported host ${host}`);
+			}
+			const checksum = "sha256:any";
+			const triple = `${std.triple.arch(host)}-${os}`;
+			const file = `librusty_v8_release_${triple}.a.gz`;
+			const lib = await std
+				.download({
+					checksum,
+					url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
+				})
+				.then((b) => {
+					tg.assert(b instanceof tg.Blob);
+					return tg.file(b);
+				});
+			const envVarSuffix = triple.replace(/-/g, "_");
+			const key =
+				hostList.length === 1
+					? "RUSTY_V8_ARCHIVE"
+					: `RUSTY_V8_ARCHIVE_${envVarSuffix}`;
+			return { key, value: lib };
+		}),
+	);
+
+	const result: Record<string, tg.File> = {};
+	for (const { key, value } of downloads) {
+		result[key] = value;
+	}
+
+	return result;
 };
 
 const getRustyV8Version = async (lockfile: tg.File) => {
