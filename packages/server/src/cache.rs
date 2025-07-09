@@ -635,6 +635,15 @@ impl Server {
 			return Err(tg::error!(?error, "failed to copy the file"));
 		}
 
+		// Get the dependencies' references.
+		let dependencies = dependencies.keys().cloned().collect::<Vec<_>>();
+		if !dependencies.is_empty() {
+			let dependencies = serde_json::to_vec(&dependencies)
+				.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
+			xattr::set(dst, tg::file::XATTR_DEPENDENCIES_NAME, &dependencies)
+				.map_err(|source| tg::error!(!source, "failed to write dependencies' xattr"))?;
+		}
+
 		// Set the file's permissions.
 		if *executable {
 			let permissions = std::fs::Permissions::from_mode(0o755);
