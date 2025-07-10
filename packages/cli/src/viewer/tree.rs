@@ -1,6 +1,5 @@
-use crate::util;
-
 use super::{Item, Options, data, log::Log};
+use crate::util;
 use crossterm as ct;
 use futures::{TryStreamExt as _, future, stream::FuturesUnordered};
 use num::ToPrimitive as _;

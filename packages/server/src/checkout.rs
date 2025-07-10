@@ -6,7 +6,7 @@ use std::{
 	collections::{HashMap, HashSet},
 	os::unix::fs::PermissionsExt as _,
 	panic::AssertUnwindSafe,
-	path::PathBuf,
+	path::{Path, PathBuf},
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -169,8 +169,8 @@ impl Server {
 				}
 				Ok::<_, tg::Error>(())
 			}
-		}
-		.boxed();
+			.boxed()
+		};
 
 		// Create a future to index then check if the artifact is complete.
 		let index_future = {
@@ -189,8 +189,8 @@ impl Server {
 				}
 				Ok::<_, tg::Error>(())
 			}
-		}
-		.boxed();
+			.boxed()
+		};
 
 		// Select the pull and index futures.
 		future::select_ok([pull_future, index_future]).await?;
@@ -255,7 +255,7 @@ impl Server {
 				let id = state.artifact.clone();
 				let edge = tg::graph::data::Edge::Object(id.clone());
 				let path = state.path.clone();
-				server.checkout_inner(&mut state, path, &edge)?;
+				server.checkout_inner(&mut state, &path, &edge)?;
 
 				// Write the lockfile if necessary.
 				server.checkout_write_lockfile(id, &mut state)?;
@@ -302,14 +302,14 @@ impl Server {
 			state.artifacts_path_created = true;
 		}
 		let path = artifacts_path.join(id.to_string());
-		self.checkout_inner(state, path, edge)?;
+		self.checkout_inner(state, &path, edge)?;
 		Ok(())
 	}
 
 	fn checkout_inner(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::Result<()> {
 		// Get the artifact ID and graph node data.
@@ -318,13 +318,13 @@ impl Server {
 		// Checkout the artifact.
 		match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.checkout_inner_directory_node(state, path, &id, graph.as_ref(), &node)?;
+				self.checkout_inner_directory(state, path, &id, graph.as_ref(), &node)?;
 			},
 			tg::graph::data::Node::File(node) => {
-				self.checkout_inner_file_node(state, path, &id, graph.as_ref(), &node)?;
+				self.checkout_inner_file(state, path, &id, graph.as_ref(), &node)?;
 			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.checkout_inner_symlink_node(state, path, &id, graph.as_ref(), &node)?;
+				self.checkout_inner_symlink(state, path, &id, graph.as_ref(), &node)?;
 			},
 		}
 
@@ -438,26 +438,26 @@ impl Server {
 		.try_into()
 		.map_err(|_| tg::error!("expected a graph"))?;
 
-		// Update the progress streams.
-		let weight = data.serialize()?.len().to_u64().unwrap();
-		state.progress.increment("objects", 1);
-		state.progress.increment("bytes", weight);
-
 		state.graphs.insert(graph.clone(), data);
 
 		Ok(())
 	}
 
 	#[allow(clippy::needless_pass_by_value)]
-	fn checkout_inner_directory_node(
+	fn checkout_inner_directory(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		_id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::Directory,
 	) -> tg::Result<()> {
-		std::fs::create_dir_all(&path).unwrap();
+		// Create the directory.
+		std::fs::create_dir_all(path).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to create the directory"),
+		)?;
+
+		// Recurse into the entries.
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
@@ -466,27 +466,22 @@ impl Server {
 				}
 			}
 			let path = path.join(name);
-			self.checkout_inner(state, path, &edge)?;
+			self.checkout_inner(state, &path, &edge)?;
 		}
+
 		Ok(())
 	}
 
-	fn checkout_inner_file_node(
+	fn checkout_inner_file(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::File,
 	) -> tg::Result<()> {
-		let tg::graph::data::File {
-			contents,
-			dependencies,
-			executable,
-		} = node;
-
 		// Check out the dependencies.
-		for referent in dependencies.values() {
+		for referent in node.dependencies.values() {
 			// Skip object edges.
 			let mut edge = match referent.item.clone() {
 				tg::graph::data::Edge::Reference(graph) => tg::graph::data::Edge::Reference(graph),
@@ -511,91 +506,75 @@ impl Server {
 			}
 		}
 
-		// Copy the file.
 		let src = &self.cache_path().join(id.to_string());
 		let dst = &path;
 		let mut done = false;
-		let mut error = None;
-		if !done {
-			let size = std::fs::metadata(src)
-				.ok()
-				.map_or(0, |metadata| metadata.len());
-			let result = reflink(src, dst);
-			match result {
-				Ok(()) => {
-					done = true;
-					state.progress.increment("bytes", size);
-				},
-				Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-					done = true;
-					state.progress.increment("bytes", size);
-				},
-				Err(error_) => {
-					error = Some(error_);
-				},
-			}
-		}
-		if !done {
-			let server = self.clone();
-			let path = path.clone();
-			let future = async move {
-				let contents = contents
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing contents"))?;
-				let reader = tg::Blob::with_id(contents.clone())
-					.read(&server, tg::blob::read::Arg::default())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-				let mut reader = InspectReader::new(reader, {
-					let progress = state.progress.clone();
-					move |buf| {
-						progress.increment("bytes", buf.len().to_u64().unwrap());
-					}
-				});
-				let mut file_ = tokio::fs::File::create(&path)
-					.await
-					.map_err(|source| tg::error!(!source, ?path, "failed to create the file"))?;
-				tokio::io::copy(&mut reader, &mut file_).await.map_err(
-					|source| tg::error!(!source, ?path = path, "failed to write to the file"),
-				)?;
-				Ok::<_, tg::Error>(())
-			};
-			let result = tokio::runtime::Handle::current().block_on(future);
-			match result {
-				Ok(()) => {
-					done = true;
-				},
-				Err(error_) => {
-					error = Some(std::io::Error::other(error_));
-				},
-			}
-		}
-		if !done {
-			return Err(tg::error!(?error, "failed to copy the file"));
+
+		// Attempt to reflink the file.
+		let result = reflink(src, dst);
+		if result.is_ok()
+			|| result.is_err_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists)
+		{
+			done = true;
 		}
 
-		// Get the dependencies' references.
-		let dependencies = dependencies.keys().cloned().collect::<Vec<_>>();
+		// Attempt to write the file.
+		if !done {
+			let result = tokio::runtime::Handle::current().block_on({
+				let server = self.clone();
+				async move {
+					let dst = &dst;
+					let contents = node
+						.contents
+						.as_ref()
+						.ok_or_else(|| tg::error!("missing contents"))?;
+					let mut reader = tg::Blob::with_id(contents.clone())
+						.read(&server, tg::blob::read::Arg::default())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+					let mut reader = InspectReader::new(&mut reader, {
+						let progress = state.progress.clone();
+						move |buf| {
+							progress.increment("bytes", buf.len().to_u64().unwrap());
+						}
+					});
+					let mut file = tokio::fs::File::create(dst).await.map_err(
+						|source| tg::error!(!source, ?path = dst, "failed to create the file"),
+					)?;
+					tokio::io::copy(&mut reader, &mut file).await.map_err(
+						|source| tg::error!(!source, ?path = dst, "failed to write to the file"),
+					)?;
+					Ok::<_, tg::Error>(())
+				}
+			});
+			if let Err(error) = result {
+				return Err(tg::error!(?error, "failed to copy the file"));
+			}
+		}
+
+		// Set the dependencies attr.
+		let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
 		if !dependencies.is_empty() {
 			let dependencies = serde_json::to_vec(&dependencies)
-				.map_err(|source| tg::error!(!source, "failed to serialize dependencies"))?;
+				.map_err(|source| tg::error!(!source, "failed to serialize the dependencies"))?;
 			xattr::set(dst, tg::file::XATTR_DEPENDENCIES_NAME, &dependencies)
-				.map_err(|source| tg::error!(!source, "failed to write dependencies' xattr"))?;
+				.map_err(|source| tg::error!(!source, "failed to write the dependencies attr"))?;
 		}
 
-		// Set the file's permissions.
-		if *executable {
+		// Set the permissions.
+		if node.executable {
 			let permissions = std::fs::Permissions::from_mode(0o755);
-			std::fs::set_permissions(path, permissions)
+			std::fs::set_permissions(dst, permissions)
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
+
 		Ok(())
 	}
 
-	fn checkout_inner_symlink_node(
+	fn checkout_inner_symlink(
 		&self,
 		state: &mut State,
-		path: PathBuf,
+		path: &Path,
 		_id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::Symlink,

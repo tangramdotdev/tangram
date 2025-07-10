@@ -424,9 +424,9 @@ impl Server {
 			let mode = metadata.permissions().mode();
 			let executable = mode & 0o111 != 0;
 			let new_mode = if metadata.is_dir() || executable {
-				0o755
+				0o555
 			} else {
-				0o644
+				0o444
 			};
 			if new_mode != mode {
 				let permissions = std::fs::Permissions::from_mode(new_mode);

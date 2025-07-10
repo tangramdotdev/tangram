@@ -253,7 +253,6 @@ impl Runtime {
 			}
 		});
 
-		// Spawn
 		// Spawn the signal task.
 		let signal_task = tokio::spawn({
 			let server = self.server.clone();

@@ -2,7 +2,7 @@ use super::{Blob, File, State, Variant};
 use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use num::ToPrimitive as _;
-use std::{ops::Not, sync::Arc};
+use std::{ops::Not, os::unix::fs::PermissionsExt as _, sync::Arc};
 use tangram_client as tg;
 use tangram_messenger::Messenger as _;
 
@@ -43,31 +43,38 @@ impl Server {
 	) -> tg::Result<()> {
 		// Rename the root to the cache directory.
 		let id = &state.graph.nodes[root].object.as_ref().unwrap().id;
-		let path = state.graph.nodes[root].path();
-		let dst = self.cache_path().join(id.to_string());
-		match tokio::fs::rename(path, &dst).await {
-			Ok(()) => {
-				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-				filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
-					|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
-				)?;
-			},
+		let src = state.graph.nodes[root].path();
+		let dst = &self.cache_path().join(id.to_string());
+		if id.is_directory() {
+			let permissions = std::fs::Permissions::from_mode(0o755);
+			std::fs::set_permissions(src, permissions).map_err(
+				|source| tg::error!(!source, %path = src.display(), "failed to set permissions"),
+			)?;
+		}
+		let done = match tokio::fs::rename(src, dst).await {
+			Ok(()) => false,
 			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {
+				true
 			},
 			Err(source) => {
-				return Err(tg::error!(!source, "failed to rename root"));
+				return Err(tg::error!(!source, "failed to rename the root"));
 			},
+		};
+		if !done && id.is_directory() {
+			let permissions = std::fs::Permissions::from_mode(0o555);
+			tokio::fs::set_permissions(dst, permissions).await.map_err(
+				|source| tg::error!(!source, %path = dst.display(), "failed to set permissions"),
+			)?;
+		}
+		if !done {
+			let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+			filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
+				|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
+			)?;
 		}
 
 		// Publish the cache entry message for the root.
-		let id = state.graph.nodes[root]
-			.object
-			.as_ref()
-			.unwrap()
-			.id
-			.clone()
-			.try_into()
-			.unwrap();
+		let id = id.clone().try_into().unwrap();
 		let message = crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
 			id,
 			touched_at,
@@ -90,45 +97,54 @@ impl Server {
 		nodes: &[usize],
 	) -> tg::Result<()> {
 		for node in std::iter::once(root).chain(nodes.iter().copied()) {
-			if !state.graph.nodes[node]
-				.metadata
-				.as_ref()
-				.is_some_and(std::fs::Metadata::is_file)
-			{
+			let node = &state.graph.nodes[node];
+			let Some(metadata) = node.metadata.as_ref() else {
+				continue;
+			};
+			if !metadata.is_file() {
 				continue;
 			}
-			let id = state.graph.nodes[node]
-				.object
-				.as_ref()
-				.unwrap()
-				.id
-				.to_string();
+			let id = node.object.as_ref().unwrap().id.to_string();
 
 			// Copy the file to a temp.
-			let src = state.graph.nodes[node].path();
+			let src = node.path();
 			let temp = Temp::new(self);
 			let dst = temp.path();
 			std::fs::copy(src, dst)
 				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
 
+			// Set its permissions.
+			let executable = metadata.permissions().mode() & 0o111 != 0;
+			let mode = if executable { 0o555 } else { 0o444 };
+			let permissions = std::fs::Permissions::from_mode(mode);
+			std::fs::set_permissions(dst, permissions).map_err(
+				|source| tg::error!(!source, %path = dst.display(), "failed to set permissions"),
+			)?;
+
 			// Rename the temp to the cache directory.
 			let src = temp.path();
 			let dst = &self.cache_path().join(id);
-			match std::fs::rename(src, dst) {
-				Ok(()) => {
-					let epoch =
-						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-					filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
-						|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
-					)?;
-				},
+			let done = match std::fs::rename(src, dst) {
+				Ok(()) => false,
 				Err(error)
-					if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {},
+					if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) =>
+				{
+					true
+				},
 				Err(source) => {
 					return Err(tg::error!(!source, "failed to rename file"));
 				},
+			};
+
+			// Set the file times.
+			if !done {
+				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+				filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
+					|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
+				)?;
 			}
 		}
+
 		Ok(())
 	}
 

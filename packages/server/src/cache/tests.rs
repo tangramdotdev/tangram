@@ -122,7 +122,10 @@ async fn file_with_dependency() {
 		  "entries": {
 		    "fil_012aqdy9h7v8bermq0hvx4jgpr8apz26st50tx734bha2hdfd0hpa0": {
 		      "kind": "file",
-		      "contents": "foo"
+		      "contents": "foo",
+		      "xattrs": {
+		        "user.tangram.dependencies": "[\"bar\"]"
+		      }
 		    },
 		    "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg": {
 		      "kind": "file",
@@ -212,7 +215,10 @@ async fn directory_with_file_with_dependency() {
 		      "entries": {
 		        "foo": {
 		          "kind": "file",
-		          "contents": "foo"
+		          "contents": "foo",
+		          "xattrs": {
+		            "user.tangram.dependencies": "[\"bar\"]"
+		          }
 		        }
 		      }
 		    },
