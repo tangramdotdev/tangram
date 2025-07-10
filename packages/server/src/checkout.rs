@@ -508,48 +508,45 @@ impl Server {
 
 		let src = &self.cache_path().join(id.to_string());
 		let dst = &path;
-		let mut done = false;
 
 		// Attempt to reflink the file.
 		let result = reflink(src, dst);
 		if result.is_ok()
 			|| result.is_err_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists)
 		{
-			done = true;
+			return Ok(());
 		}
 
 		// Attempt to write the file.
-		if !done {
-			let result = tokio::runtime::Handle::current().block_on({
-				let server = self.clone();
-				async move {
-					let dst = &dst;
-					let contents = node
-						.contents
-						.as_ref()
-						.ok_or_else(|| tg::error!("missing contents"))?;
-					let mut reader = tg::Blob::with_id(contents.clone())
-						.read(&server, tg::blob::read::Arg::default())
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-					let mut reader = InspectReader::new(&mut reader, {
-						let progress = state.progress.clone();
-						move |buf| {
-							progress.increment("bytes", buf.len().to_u64().unwrap());
-						}
-					});
-					let mut file = tokio::fs::File::create(dst).await.map_err(
-						|source| tg::error!(!source, ?path = dst, "failed to create the file"),
-					)?;
-					tokio::io::copy(&mut reader, &mut file).await.map_err(
-						|source| tg::error!(!source, ?path = dst, "failed to write to the file"),
-					)?;
-					Ok::<_, tg::Error>(())
-				}
-			});
-			if let Err(error) = result {
-				return Err(tg::error!(?error, "failed to copy the file"));
+		let result = tokio::runtime::Handle::current().block_on({
+			let server = self.clone();
+			async move {
+				let dst = &dst;
+				let contents = node
+					.contents
+					.as_ref()
+					.ok_or_else(|| tg::error!("missing contents"))?;
+				let mut reader = tg::Blob::with_id(contents.clone())
+					.read(&server, tg::blob::read::Arg::default())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+				let mut reader = InspectReader::new(&mut reader, {
+					let progress = state.progress.clone();
+					move |buf| {
+						progress.increment("bytes", buf.len().to_u64().unwrap());
+					}
+				});
+				let mut file = tokio::fs::File::create(dst).await.map_err(
+					|source| tg::error!(!source, ?path = dst, "failed to create the file"),
+				)?;
+				tokio::io::copy(&mut reader, &mut file).await.map_err(
+					|source| tg::error!(!source, ?path = dst, "failed to write to the file"),
+				)?;
+				Ok::<_, tg::Error>(())
 			}
+		});
+		if let Err(error) = result {
+			return Err(tg::error!(?error, "failed to copy the file"));
 		}
 
 		// Set the dependencies attr.

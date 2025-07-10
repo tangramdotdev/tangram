@@ -385,69 +385,51 @@ impl Server {
 
 	async fn import_objects_task_inner(
 		&self,
-		batch: Vec<tg::export::ObjectItem>,
+		items: Vec<tg::export::ObjectItem>,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Create the store future.
-		let store_future = {
-			async {
-				let batch = batch
-					.clone()
-					.into_iter()
-					.map(|item| (item.id, Some(item.bytes), None))
-					.collect();
-				let arg = crate::store::PutBatchArg {
-					objects: batch,
+		// Store the items.
+		let objects = items
+			.clone()
+			.into_iter()
+			.map(|item| (item.id, Some(item.bytes), None))
+			.collect();
+		let arg = crate::store::PutBatchArg {
+			objects,
+			touched_at,
+		};
+		self.store.put_batch(arg).await?;
+
+		// Publish the put object messages.
+		items
+			.iter()
+			.map(|item| async {
+				let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.clone())?;
+				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+					cache_reference: None,
+					children: data.children().collect(),
+					id: item.id.clone(),
+					size: item.bytes.len().to_u64().unwrap(),
 					touched_at,
-				};
-				self.store.put_batch(arg).await?;
+				});
+				let message = serde_json::to_vec(&message)
+					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+				let _published = self
+					.messenger
+					.stream_publish("index".to_owned(), message.into())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 				Ok::<_, tg::Error>(())
-			}
-		};
-
-		// Create the messenger future.
-		let messenger_future = {
-			async {
-				batch
-					.iter()
-					.map(|item| async {
-						let data =
-							tg::object::Data::deserialize(item.id.kind(), item.bytes.clone())?;
-						let message =
-							crate::index::Message::PutObject(crate::index::PutObjectMessage {
-								cache_reference: None,
-								children: data.children().collect(),
-								id: item.id.clone(),
-								size: item.bytes.len().to_u64().unwrap(),
-								touched_at,
-							});
-						let message = serde_json::to_vec(&message).map_err(|source| {
-							tg::error!(!source, "failed to serialize the message")
-						})?;
-						let _published = self
-							.messenger
-							.stream_publish("index".to_owned(), message.into())
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to publish the message")
-							})?;
-						Ok::<_, tg::Error>(())
-					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect::<()>()
-					.await?;
-				Ok::<_, tg::Error>(())
-			}
-		};
-
-		// Join the store and messenger futures.
-		futures::try_join!(store_future, messenger_future)?;
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<()>()
+			.await?;
 
 		// Update the progress.
-		let objects = batch.len().to_u64().unwrap();
-		let bytes = batch
+		let objects = items.len().to_u64().unwrap();
+		let bytes = items
 			.iter()
 			.map(|item| item.bytes.len().to_u64().unwrap())
 			.sum();
