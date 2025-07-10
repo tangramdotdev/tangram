@@ -42,9 +42,9 @@ export class Directory {
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let entries = await resolved.reduce<
-			Promise<{ [key: string]: tg.Artifact }>
-		>(async function reduce(promiseEntries, arg) {
-			let entries = await promiseEntries;
+			Promise<{ [key: string]: tg.Graph.Edge<tg.Artifact> }>
+		>(async function reduce(promise, arg) {
+			let entries = await promise;
 			if (arg === undefined) {
 				// If the arg is undefined, then continue.
 			} else if (arg instanceof Directory) {
@@ -65,10 +65,6 @@ export class Directory {
 					entries[name] = entry;
 				}
 			} else if (typeof arg === "object") {
-				if ("node" in arg && typeof arg.node === "number") {
-					throw new Error("nested graph args are not allowed");
-				}
-
 				// If the arg is an object, then apply each entry.
 				for (let [key, value] of Object.entries(arg)) {
 					// Separate the first normal path component from the trailing path components.
@@ -104,6 +100,13 @@ export class Directory {
 						// If there are no trailing path components, then create the artifact specified by the value.
 						if (value === undefined) {
 							delete entries[name];
+						} else if (typeof value === "number") {
+							entries[name] = { node: value };
+						} else if (
+							typeof value === "object" &&
+							typeof value.node === "number"
+						) {
+							entries[name] = value;
 						} else if (
 							typeof value === "string" ||
 							value instanceof Uint8Array ||
