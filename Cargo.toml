@@ -201,6 +201,7 @@ zstd = "0.13"
 
 [patch.crates-io]
 async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip" }
+v8 = { git = "https://github.com/tangramdotdev/rusty_v8", branch = "rusty-v8-archive-target-var" }
 
 [profile.dev.package.blake3]
 opt-level = 3
