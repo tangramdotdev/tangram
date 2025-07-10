@@ -1,6 +1,6 @@
 use crate::{Server, database::Database};
 use indoc::{formatdoc, indoc};
-use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
+use rusqlite as sqlite;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
@@ -105,9 +105,10 @@ impl Server {
 			let mut rows = statement
 				.query(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			rows.advance()
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let Some(row) = rows.get() else {
+			let Some(row) = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			else {
 				completes.push(None);
 				continue;
 			};

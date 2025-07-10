@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{FutureExt as _, future};
 use indoc::{formatdoc, indoc};
-use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
+use rusqlite as sqlite;
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
@@ -68,10 +68,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
-		rows.advance()
-			.map_err(|source| tg::error!(!source, "query failed"))?;
-		let Some(row) = rows.get() else {
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
 			return Ok(None);
 		};
 		let count = row

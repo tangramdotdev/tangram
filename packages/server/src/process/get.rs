@@ -6,7 +6,7 @@ use futures::{
 use indoc::{formatdoc, indoc};
 #[cfg(feature = "postgres")]
 use num::ToPrimitive as _;
-use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
+use rusqlite as sqlite;
 use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
@@ -165,13 +165,14 @@ impl Server {
 		);
 		let mut statement = database
 			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([id.to_string()])
-			.map_err(|source| tg::error!(!source, "query failed"))?;
-		rows.advance()
-			.map_err(|source| tg::error!(!source, "query failed"))?;
-		let Some(row) = rows.get() else {
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
 			return Ok(None);
 		};
 
@@ -280,11 +281,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let mut children = Vec::new();
-		rows.advance()
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
-		while let Some(row) = rows.get() {
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		{
 			let item = row
 				.get::<_, String>(0)
 				.map_err(|source| tg::error!(!source, "expected a string"))?
@@ -300,8 +302,6 @@ impl Server {
 				.transpose()
 				.map_err(|source| tg::error!(!source, "expected a valid tag"))?;
 			children.push(tg::Referent { item, path, tag });
-			rows.advance()
-				.map_err(|source| tg::error!(!source, "query failed"))?;
 		}
 
 		let data = tg::process::Data {
