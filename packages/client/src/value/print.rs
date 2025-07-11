@@ -246,7 +246,13 @@ where
 				self.graph_reference_object(reference)?;
 			},
 			tg::directory::Object::Node(node) => {
-				self.directory_node(node, false)?;
+				if !node.entries.is_empty() {
+					self.start_map()?;
+					for (name, edge) in &node.entries {
+						self.map_entry(name, |s| s.graph_edge_artifact(edge))?;
+					}
+					self.finish_map()?;
+				}
 			},
 		}
 		write!(self.writer, ")")?;

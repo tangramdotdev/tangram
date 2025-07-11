@@ -77,7 +77,7 @@ async fn artifact_symlink() {
 		assert_snapshot!(display(server.as_ref(), a).await, @r#"
 		tg.directory({
 		  "link": tg.symlink({
-		    "artifact": tg.directory({}),
+		    "artifact": tg.directory(),
 		  }),
 		})
 		"#);

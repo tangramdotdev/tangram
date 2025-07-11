@@ -685,12 +685,12 @@ async fn import_directory_from_parent() {
 	let assertions = |object: String, _metadata: String, lockfile: Option<tg::Lockfile>| async move {
 		assert_snapshot!(object, @r#"
 		tg.directory({
-		  "a": tg.directory({}),
+		  "a": tg.directory(),
 		  "tangram.ts": tg.file({
 		    "contents": tg.blob("import a from \"./a\";"),
 		    "dependencies": {
 		      "./a": {
-		        "item": tg.directory({}),
+		        "item": tg.directory(),
 		        "path": "a",
 		      },
 		    },

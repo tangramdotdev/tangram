@@ -387,7 +387,7 @@ async fn directory_with_symlink_cycle() {
 		{
 		  "kind": "directory",
 		  "entries": {
-		    "dir_01ra86dj63y1evzwrnbf1779h09dhea2nps68sdk49gy1z8fwx56h0": {
+		    "dir_011vas8gvwzskkk6thjsjq87ahjqs6v0wyyrxg0d0xn088mctzvv2g": {
 		      "kind": "directory",
 		      "entries": {
 		        "link": {
