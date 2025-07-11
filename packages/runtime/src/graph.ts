@@ -34,33 +34,48 @@ export class Graph {
 		let nodes = await Promise.all(
 			(arg.nodes ?? []).map(async (node) => {
 				if (node.kind === "directory") {
+					let entries = Object.fromEntries(
+						Object.entries(node.entries ?? {}).map(([name, edge]) => {
+							return [name, tg.Graph.Edge.fromArg(edge)];
+						}),
+					);
 					return {
 						kind: "directory" as const,
-						entries: node.entries ?? {},
+						entries,
 					};
 				} else if (node.kind === "file") {
+					let contents = await tg.blob(node.contents);
+					let dependencies = Object.fromEntries(
+						Object.entries(node.dependencies ?? {}).map(([key, value]) => {
+							let referent: tg.Referent<tg.Graph.Edge<tg.Object>>;
+							if (
+								typeof value === "number" ||
+								"node" in value ||
+								tg.Object.is(value)
+							) {
+								let item = tg.Graph.Edge.fromArg(value);
+								referent = { item };
+							} else {
+								let item = tg.Graph.Edge.fromArg(value.item);
+								referent = { item, path: value.path, tag: value.tag };
+							}
+							return [key, referent];
+						}),
+					);
+					const executable = node.executable ?? false;
 					return {
 						kind: "file" as const,
-						contents: await tg.blob(node.contents),
-						dependencies: Object.fromEntries(
-							Object.entries(node.dependencies ?? {}).map(([key, value]) => {
-								if (
-									typeof value === "number" ||
-									"node" in value ||
-									tg.Object.is(value)
-								) {
-									value = { item: value };
-								}
-								return [key, value];
-							}),
-						),
-						executable: node.executable ?? false,
+						contents,
+						dependencies,
+						executable,
 					};
 				} else if (node.kind === "symlink") {
+					let artifact = tg.Graph.Edge.fromArg(node.artifact);
+					let path = node.path;
 					return {
 						kind: "symlink" as const,
-						artifact: node.artifact,
-						path: node.path,
+						artifact,
+						path,
 					};
 				} else {
 					return tg.unreachable();
@@ -159,7 +174,7 @@ export class Graph {
 				} else if (argNode.kind === "symlink") {
 					let artifact: tg.Graph.Edge<tg.Artifact> | undefined;
 					if (typeof argNode.artifact === "number") {
-						artifact = argNode.artifact + offset;
+						artifact = { graph: undefined, node: argNode.artifact + offset };
 					} else if (
 						argNode.artifact !== undefined &&
 						"node" in argNode.artifact
@@ -293,12 +308,26 @@ export namespace Graph {
 			path?: string | undefined;
 		};
 
-		export type Edge<T> = number | tg.Graph.Arg.Reference | T;
+		export type Edge<T> = tg.Graph.Arg.Reference | T;
 
-		export type Reference = {
-			graph?: tg.Graph | undefined;
-			node: number;
-		};
+		export type Reference =
+			| number
+			| {
+					graph?: tg.Graph | undefined;
+					node: number;
+			  };
+
+		export namespace Reference {
+			export let is = (value: unknown): value is tg.Graph.Arg.Reference => {
+				return (
+					typeof value === "number" ||
+					(typeof value === "object" &&
+						value !== null &&
+						"node" in value &&
+						typeof value.node === "number")
+				);
+			};
+		}
 	}
 
 	export type Object = {
@@ -402,7 +431,7 @@ export namespace Graph {
 				data.entries = globalThis.Object.fromEntries(
 					globalThis.Object.entries(object.entries).map(([name, artifact]) => [
 						name,
-						tg.Graph.Edge.toData(artifact, (artifact) => artifact.id),
+						tg.Graph.Edge.toDataString(artifact, (artifact) => artifact.id),
 					]),
 				);
 			}
@@ -448,7 +477,7 @@ export namespace Graph {
 							return [
 								reference,
 								tg.Referent.toData(referent, (item) =>
-									tg.Graph.Edge.toData(item, (item) => item.id),
+									tg.Graph.Edge.toDataString(item, (item) => item.id),
 								),
 							];
 						},
@@ -498,7 +527,7 @@ export namespace Graph {
 		export let toData = (object: tg.Graph.Symlink): tg.Graph.Data.Symlink => {
 			let data: tg.Graph.Data.Symlink = {};
 			if (object.artifact !== undefined) {
-				data.artifact = tg.Graph.Edge.toData(
+				data.artifact = tg.Graph.Edge.toDataString(
 					object.artifact,
 					(artifact) => artifact.id,
 				);
@@ -528,21 +557,34 @@ export namespace Graph {
 		};
 	}
 
-	export type Edge<T> = number | tg.Graph.Reference | T;
+	export type Edge<T> = tg.Graph.Reference | T;
 
 	export namespace Edge {
+		export let fromArg = <T>(arg: tg.Graph.Arg.Edge<T>): tg.Graph.Edge<T> => {
+			if (tg.Graph.Arg.Reference.is(arg)) {
+				return tg.Graph.Reference.fromArg(arg);
+			} else {
+				return arg;
+			}
+		};
+
 		export let toData = <T, U>(
 			object: tg.Graph.Edge<T>,
 			f: (item: T) => U,
 		): tg.Graph.Data.Edge<U> => {
-			if (typeof object === "number") {
-				return object;
-			} else if (
-				typeof object === "object" &&
-				object !== null &&
-				"node" in object
-			) {
+			if (typeof object === "object" && object !== null && "node" in object) {
 				return tg.Graph.Reference.toData(object);
+			} else {
+				return f(object);
+			}
+		};
+
+		export let toDataString = <T, U>(
+			object: tg.Graph.Edge<T>,
+			f: (item: T) => U,
+		): tg.Graph.Data.Edge<U> => {
+			if (typeof object === "object" && object !== null && "node" in object) {
+				return tg.Graph.Reference.toDataString(object);
 			} else {
 				return f(object);
 			}
@@ -552,13 +594,15 @@ export namespace Graph {
 			data: tg.Graph.Data.Edge<T>,
 			f: (item: T) => U,
 		): tg.Graph.Edge<U> => {
-			if (typeof data === "number") {
-				return data;
-			} else if (typeof data === "object" && data !== null && "node" in data) {
-				return tg.Graph.Reference.fromData(data);
-			} else {
-				return f(data);
+			if (
+				typeof data === "string" ||
+				(typeof data === "object" && data !== null && "node" in data)
+			) {
+				try {
+					return tg.Graph.Reference.fromData(data);
+				} catch {}
 			}
+			return f(data as T);
 		};
 
 		export let children = <T>(object: tg.Graph.Edge<T>): Array<tg.Object> => {
@@ -584,21 +628,66 @@ export namespace Graph {
 	};
 
 	export namespace Reference {
+		export let fromArg = (arg: tg.Graph.Arg.Reference): tg.Graph.Reference => {
+			return typeof arg === "number" ? { node: arg } : arg;
+		};
+
 		export let toData = (
 			object: tg.Graph.Reference,
 		): tg.Graph.Data.Reference => {
-			let data: tg.Graph.Data.Reference = { node: object.node };
+			let data: { graph?: tg.Graph.Id; node: number };
 			if (object.graph !== undefined) {
-				data.graph = object.graph.id;
+				data = { graph: object.graph.id, node: object.node };
+			} else {
+				data = { node: object.node };
 			}
 			return data;
+		};
+
+		export let toDataString = (
+			object: tg.Graph.Reference,
+		): tg.Graph.Data.Reference => {
+			let string = "";
+			if (object.graph !== undefined) {
+				string += `graph=${object.graph.id}&`;
+			}
+			string += `node=${object.node}`;
+			return string;
 		};
 
 		export let fromData = (
 			data: tg.Graph.Data.Reference,
 		): tg.Graph.Reference => {
-			let graph = data.graph ? tg.Graph.withId(data.graph) : undefined;
-			return { graph, node: data.node };
+			if (typeof data === "number") {
+				return { graph: undefined, node: data };
+			} else if (typeof data === "string") {
+				let graph: tg.Graph | undefined;
+				let node: number | undefined;
+				for (let param of data.split("&")) {
+					let [key, value] = param.split("=");
+					if (value === undefined) {
+						throw new Error("missing value");
+					}
+					switch (key) {
+						case "graph": {
+							graph = tg.Graph.withId(decodeURIComponent(value));
+							break;
+						}
+						case "node": {
+							node = Number.parseInt(decodeURIComponent(value));
+							break;
+						}
+						default: {
+							throw new Error("invalid key");
+						}
+					}
+				}
+				tg.assert(node !== undefined);
+				return { graph, node };
+			} else {
+				let graph = data.graph ? tg.Graph.withId(data.graph) : undefined;
+				return { graph, node: data.node };
+			}
 		};
 
 		export let children = (object: tg.Graph.Reference): Array<tg.Object> => {
@@ -607,6 +696,15 @@ export namespace Graph {
 			} else {
 				return [];
 			}
+		};
+
+		export let is = (value: unknown): value is tg.Graph.Reference => {
+			return (
+				typeof value === "object" &&
+				value !== null &&
+				"node" in value &&
+				typeof value.node === "number"
+			);
 		};
 	}
 
@@ -642,11 +740,26 @@ export namespace Graph {
 			path?: string;
 		};
 
-		export type Edge<T> = number | tg.Graph.Data.Reference | T;
+		export type Edge<T> = tg.Graph.Data.Reference | T;
 
-		export type Reference = {
-			graph?: tg.Graph.Id;
-			node: number;
-		};
+		export type Reference =
+			| string
+			| {
+					graph?: tg.Graph.Id;
+					node: number;
+			  };
+
+		export namespace Reference {
+			export let is = (value: unknown): value is tg.Graph.Data.Reference => {
+				return (
+					typeof value === "number" ||
+					typeof value === "string" ||
+					(typeof value === "object" &&
+						value !== null &&
+						"node" in value &&
+						typeof value.node === "number")
+				);
+			};
+		}
 	}
 }

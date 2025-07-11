@@ -1,4 +1,4 @@
-import * as tg from "./index.ts";
+import type * as tg from "./index.ts";
 
 export type Referent<T> = {
 	item: T;
@@ -15,34 +15,41 @@ export namespace Referent {
 				tag?: tg.Tag | undefined;
 		  };
 
-	export let toData = <T, U = T>(
+	export let toData = <T, U>(
 		value: tg.Referent<T>,
-		f?: (item: T) => U,
+		f: (item: T) => U,
 	): tg.Referent.Data<U> => {
-		// @ts-ignore
-		let string = (f !== undefined ? f(value.item) : value.item).toString();
-		if (value.path !== undefined || value.tag !== undefined) {
-			string += "?";
-		}
-		if (value.path !== undefined) {
-			string += `path=${encodeURIComponent(value.path)}`;
-		}
-		if (value.tag !== undefined) {
-			if (value.path !== undefined) {
-				string += "&";
+		let item = f(value.item);
+		if (typeof item === "string" || typeof item === "number") {
+			let string = item.toString();
+			if (value.path !== undefined || value.tag !== undefined) {
+				string += "?";
 			}
-			string += `tag=${encodeURIComponent(value.tag)}`;
+			if (value.path !== undefined) {
+				string += `path=${encodeURIComponent(value.path)}`;
+			}
+			if (value.tag !== undefined) {
+				if (value.path !== undefined) {
+					string += "&";
+				}
+				string += `tag=${encodeURIComponent(value.tag)}`;
+			}
+			return string;
+		} else {
+			return {
+				item,
+				path: value.path,
+				tag: value.tag,
+			};
 		}
-		return string;
 	};
 
-	export let fromData = <T, U = T>(
+	export let fromData = <T, U>(
 		data: tg.Referent.Data<T>,
-		f?: (item: T) => U,
+		f: (item: T) => U,
 	): tg.Referent<U> => {
 		if (typeof data === "string") {
 			let [itemString, params] = data.split("?");
-			tg.assert(itemString !== undefined);
 			let item = f !== undefined ? f(itemString as T) : (itemString as U);
 			let referent: tg.Referent<U> = { item };
 			if (params !== undefined) {
@@ -70,7 +77,7 @@ export namespace Referent {
 		} else {
 			return {
 				...data,
-				item: f !== undefined ? f(data.item) : (data.item as unknown as U),
+				item: f(data.item),
 			};
 		}
 	};

@@ -1,35 +1,37 @@
 import * as tg from "./index.ts";
 
-export let directory = async (...args: Array<tg.Unresolved<Directory.Arg>>) => {
-	return await Directory.new(...args);
+export let directory = async (
+	...args: Array<tg.Unresolved<tg.Directory.Arg>>
+) => {
+	return await tg.Directory.new(...args);
 };
 
 export class Directory {
-	#state: Directory.State;
+	#state: tg.Directory.State;
 
-	constructor(state: Directory.State) {
+	constructor(state: tg.Directory.State) {
 		this.#state = state;
 	}
 
-	get state(): Directory.State {
+	get state(): tg.Directory.State {
 		return this.#state;
 	}
 
-	static withId(id: Directory.Id): Directory {
-		return new Directory({ id, stored: true });
+	static withId(id: tg.Directory.Id): tg.Directory {
+		return new tg.Directory({ id, stored: true });
 	}
 
-	static withObject(object: Directory.Object): Directory {
-		return new Directory({ object, stored: false });
+	static withObject(object: tg.Directory.Object): tg.Directory {
+		return new tg.Directory({ object, stored: false });
 	}
 
-	static fromData(data: Directory.Data): Directory {
-		return Directory.withObject(Directory.Object.fromData(data));
+	static fromData(data: tg.Directory.Data): tg.Directory {
+		return tg.Directory.withObject(tg.Directory.Object.fromData(data));
 	}
 
 	static async new(
-		...args: Array<tg.Unresolved<Directory.Arg>>
-	): Promise<Directory> {
+		...args: Array<tg.Unresolved<tg.Directory.Arg>>
+	): Promise<tg.Directory> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
 			if (
@@ -37,7 +39,7 @@ export class Directory {
 				"node" in arg &&
 				typeof arg.node === "number"
 			) {
-				return Directory.withObject(arg as tg.Graph.Reference);
+				return tg.Directory.withObject(arg as tg.Graph.Reference);
 			}
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));
@@ -47,7 +49,7 @@ export class Directory {
 			let entries = await promise;
 			if (arg === undefined) {
 				// If the arg is undefined, then continue.
-			} else if (arg instanceof Directory) {
+			} else if (arg instanceof tg.Directory) {
 				// If the arg is a directory, then apply each entry.
 				for (let [name, entry] of Object.entries(await arg.entries())) {
 					// Get an existing entry.
@@ -55,10 +57,10 @@ export class Directory {
 
 					// Merge the existing entry with the entry if they are both directories.
 					if (
-						existingEntry instanceof Directory &&
-						entry instanceof Directory
+						existingEntry instanceof tg.Directory &&
+						entry instanceof tg.Directory
 					) {
-						entry = await Directory.new(existingEntry, entry);
+						entry = await tg.Directory.new(existingEntry, entry);
 					}
 
 					// Set the entry.
@@ -81,7 +83,7 @@ export class Directory {
 					let existingEntry = entries[name];
 
 					// Remove the entry if it is not a directory.
-					if (!(existingEntry instanceof Directory)) {
+					if (!(existingEntry instanceof tg.Directory)) {
 						existingEntry = undefined;
 					}
 
@@ -90,7 +92,7 @@ export class Directory {
 						let trailingPath = tg.path.fromComponents(trailingComponents);
 
 						// Merge the entry with the trailing path.
-						let newEntry = await Directory.new(existingEntry, {
+						let newEntry = await tg.Directory.new(existingEntry, {
 							[trailingPath]: value,
 						});
 
@@ -335,7 +337,7 @@ export namespace Directory {
 		};
 
 		export let fromData = (data: tg.Directory.Data): tg.Directory.Object => {
-			if ("node" in data) {
+			if (tg.Graph.Data.Reference.is(data)) {
 				return tg.Graph.Reference.fromData(data);
 			} else {
 				return tg.Graph.Directory.fromData(data);

@@ -29,11 +29,11 @@ export class Symlink {
 
 	static async new(arg_: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink> {
 		let arg = await tg.Symlink.arg(arg_);
-		if ("node" in arg) {
-			return tg.Symlink.withObject(arg as tg.Graph.Reference);
+		if (tg.Graph.Arg.Reference.is(arg)) {
+			return tg.Symlink.withObject(tg.Graph.Reference.fromArg(arg));
 		} else {
 			return tg.Symlink.withObject({
-				artifact: arg.artifact,
+				artifact: tg.Graph.Edge.fromArg(arg.artifact),
 				path: arg.path,
 			});
 		}
@@ -208,7 +208,7 @@ export namespace Symlink {
 		};
 
 		export let fromData = (data: tg.Symlink.Data): tg.Symlink.Object => {
-			if ("node" in data) {
+			if (tg.Graph.Data.Reference.is(data)) {
 				return tg.Graph.Reference.fromData(data);
 			} else {
 				return tg.Graph.Symlink.fromData(data);

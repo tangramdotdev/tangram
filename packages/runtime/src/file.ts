@@ -4,14 +4,14 @@ import { unindent } from "./template.ts";
 export async function file(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
-): Promise<File>;
-export async function file(...args: tg.Args<File.Arg>): Promise<File>;
+): Promise<tg.File>;
+export async function file(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
 export async function file(
 	firstArg:
 		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<File.Arg>>,
-	...args: tg.Args<File.Arg>
-): Promise<File> {
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.File.Arg>>,
+	...args: tg.Args<tg.File.Arg>
+): Promise<tg.File> {
 	return await inner(false, firstArg, ...args);
 }
 
@@ -19,8 +19,8 @@ async function inner(
 	raw: boolean,
 	firstArg:
 		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<File.Arg>>,
-	...args: tg.Args<File.Arg>
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.File.Arg>>,
+	...args: tg.Args<tg.File.Arg>
 ): Promise<tg.File> {
 	if (Array.isArray(firstArg) && "raw" in firstArg) {
 		let strings = firstArg;
@@ -70,33 +70,38 @@ export class File {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
 			if (typeof arg === "object" && "node" in arg) {
-				return File.withObject(arg as tg.Graph.Reference);
+				return tg.File.withObject(arg as tg.Graph.Reference);
 			}
 		}
-		let arg = await File.arg(...args);
+		let arg = await tg.File.arg(...args);
 		let contents = await tg.blob(arg.contents);
 		let dependencies = Object.fromEntries(
 			Object.entries(arg.dependencies ?? {}).map(([key, value]) => {
+				let referent: tg.Referent<tg.Graph.Edge<tg.Object>>;
 				if (
-					tg.Object.is(value) ||
 					typeof value === "number" ||
-					"node" in value
+					"node" in value ||
+					tg.Object.is(value)
 				) {
-					value = { item: value };
+					let item = tg.Graph.Edge.fromArg(value);
+					referent = { item };
+				} else {
+					let item = tg.Graph.Edge.fromArg(value.item);
+					referent = { item, path: value.path, tag: value.tag };
 				}
-				return [key, value];
+				return [key, referent];
 			}),
 		);
 		let executable = arg.executable ?? false;
 		let object = { contents, dependencies, executable };
-		return File.withObject(object);
+		return tg.File.withObject(object);
 	}
 
 	static async arg(
-		...args: tg.Args<File.Arg>
-	): Promise<Exclude<File.Arg.Object, tg.Graph.Arg.Reference>> {
-		type Arg = Exclude<File.Arg.Object, tg.Graph.Arg.Reference>;
-		return await tg.Args.apply<File.Arg, Arg>({
+		...args: tg.Args<tg.File.Arg>
+	): Promise<Exclude<tg.File.Arg.Object, tg.Graph.Arg.Reference>> {
+		type Arg = Exclude<tg.File.Arg.Object, tg.Graph.Arg.Reference>;
+		return await tg.Args.apply<tg.File.Arg, Arg>({
 			args,
 			map: async (arg) => {
 				if (arg === undefined) {
@@ -123,16 +128,16 @@ export class File {
 		});
 	}
 
-	static expect(value: unknown): File {
+	static expect(value: unknown): tg.File {
 		tg.assert(value instanceof File);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is File {
+	static assert(value: unknown): asserts value is tg.File {
 		tg.assert(value instanceof File);
 	}
 
-	get id(): File.Id {
+	get id(): tg.File.Id {
 		if (this.#state.id! !== undefined) {
 			return this.#state.id;
 		}
@@ -311,7 +316,7 @@ export namespace File {
 		};
 
 		export let fromData = (data: tg.File.Data): tg.File.Object => {
-			if ("node" in data) {
+			if (tg.Graph.Data.Reference.is(data)) {
 				return tg.Graph.Reference.fromData(data);
 			} else {
 				return tg.Graph.File.fromData(data);

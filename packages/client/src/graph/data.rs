@@ -1,5 +1,6 @@
 use crate::{self as tg, util::serde::is_false};
 use bytes::Bytes;
+use serde_with::{DisplayFromStr, serde_as};
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_itertools::IteratorExt as _;
 
@@ -20,17 +21,21 @@ pub enum Node {
 	Symlink(Symlink),
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Directory {
+	#[serde_as(as = "BTreeMap<_, DisplayFromStr>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
 
+	#[serde_as(as = "BTreeMap<_, DisplayFromStr>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 
@@ -38,8 +43,10 @@ pub struct File {
 	pub executable: bool,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Symlink {
+	#[serde_as(as = "Option<DisplayFromStr>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 
@@ -57,9 +64,10 @@ pub enum Edge<T> {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(from = "ReferenceSerde", into = "ReferenceSerde")]
 pub struct Reference {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub graph: Option<tg::graph::Id>,
+
 	pub node: usize,
 }
 
@@ -136,27 +144,38 @@ impl Reference {
 	}
 }
 
+impl<T> std::fmt::Display for Edge<T>
+where
+	T: std::fmt::Display,
+{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Reference(reference) => write!(f, "{reference}"),
+			Self::Object(object) => write!(f, "{object}"),
+		}
+	}
+}
+
 impl<T> std::str::FromStr for Edge<T>
 where
-	T: std::str::FromStr + std::fmt::Display,
+	T: std::str::FromStr,
 {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if let Ok(reference) = s.parse() {
-			return Ok(Self::Reference(reference));
+			Ok(Self::Reference(reference))
+		} else if let Ok(object) = s.parse() {
+			Ok(Self::Object(object))
+		} else {
+			Err(tg::error!("expected an edge"))
 		}
-		if let Ok(object) = s.parse() {
-			return Ok(Self::Object(object));
-		}
-		Err(tg::error!("expected an edge"))
 	}
 }
 
 impl std::fmt::Display for Reference {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "?")?;
 		if let Some(graph) = &self.graph {
-			write!(f, "graph={graph},")?;
+			write!(f, "graph={graph}&")?;
 		}
 		write!(f, "node={}", self.node)?;
 		Ok(())
@@ -165,6 +184,7 @@ impl std::fmt::Display for Reference {
 
 impl std::str::FromStr for Reference {
 	type Err = tg::Error;
+
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)
 			.map_err(|_| tg::error!("failed to deserialize edge"))?;
@@ -205,30 +225,26 @@ impl From<tg::graph::object::Edge<tg::Artifact>> for Edge<tg::artifact::Id> {
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 enum ReferenceSerde {
-	Number(usize),
+	String(String),
 	Object {
 		graph: Option<tg::graph::Id>,
 		node: usize,
 	},
 }
 
-impl From<ReferenceSerde> for Reference {
-	fn from(value: ReferenceSerde) -> Self {
+impl TryFrom<ReferenceSerde> for Reference {
+	type Error = tg::Error;
+
+	fn try_from(value: ReferenceSerde) -> Result<Self, Self::Error> {
 		match value {
-			ReferenceSerde::Object { graph, node } => Reference { graph, node },
-			ReferenceSerde::Number(node) => Reference { graph: None, node },
+			ReferenceSerde::String(string) => string.parse(),
+			ReferenceSerde::Object { graph, node } => Ok(Self { graph, node }),
 		}
 	}
 }
 
 impl From<Reference> for ReferenceSerde {
 	fn from(value: Reference) -> Self {
-		match value.graph {
-			None => Self::Number(value.node),
-			Some(graph) => Self::Object {
-				graph: Some(graph),
-				node: value.node,
-			},
-		}
+		Self::String(value.to_string())
 	}
 }

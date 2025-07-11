@@ -501,7 +501,7 @@ async fn graph_directory() {
 						},
 					],
 				});
-				return tg.directory({ graph: graph, node: 0 });
+				return tg.directory({ graph, node: 0 });
 			}
 		"#),
 	};
@@ -563,7 +563,7 @@ async fn graph_symlink() {
 						path: "/bin/sh",
 					}],
 				});
-				return tg.symlink({ graph: graph, node: 0 });  
+				return tg.symlink({ graph, node: 0 });  
 			}
 		"#),
 	};
@@ -597,7 +597,7 @@ async fn directory_with_symlink_cycle() {
 						},
 					],
 				});
-				return tg.directory({ graph: graph, node: 0 });
+				return tg.directory({ graph, node: 0 });
 			}
 		"#)
 	};

@@ -13,10 +13,7 @@ export class Error {
 	constructor();
 	constructor(message: string, arg?: Error.Arg);
 	constructor(arg: Error.Arg);
-	constructor(
-		firstArg?: undefined | string | Error.Arg,
-		secondArg?: Error.Arg,
-	) {
+	constructor(firstArg?: string | Error.Arg, secondArg?: Error.Arg) {
 		if (firstArg !== undefined && typeof firstArg === "string") {
 			this.message = firstArg;
 		}
@@ -40,7 +37,7 @@ export class Error {
 				this.values = firstArg.values ?? {};
 			}
 		}
-		if (secondArg !== undefined && typeof secondArg === "object") {
+		if (secondArg !== undefined) {
 			if ("code" in secondArg) {
 				this.code = secondArg.code;
 			}
@@ -167,22 +164,30 @@ export namespace Error {
 
 	export namespace Location {
 		export let toData = (value: Location): LocationData => {
+			let file =
+				value.file.kind === "module"
+					? {
+							kind: "module" as const,
+							value: tg.Module.toData(value.file.value),
+						}
+					: value.file;
 			return {
 				...value,
-				file:
-					value.file.kind === "module"
-						? { kind: "module", value: tg.Module.toData(value.file.value) }
-						: value.file,
+				file: file,
 			};
 		};
 
 		export let fromData = (data: LocationData): Location => {
+			let file =
+				data.file.kind === "module"
+					? {
+							kind: "module" as const,
+							value: tg.Module.fromData(data.file.value),
+						}
+					: data.file;
 			return {
 				...data,
-				file:
-					data.file.kind === "module"
-						? { kind: "module", value: tg.Module.fromData(data.file.value) }
-						: data.file,
+				file,
 			};
 		};
 	}

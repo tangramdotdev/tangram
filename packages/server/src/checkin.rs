@@ -353,7 +353,7 @@ impl Server {
 
 		let state = Arc::into_inner(state).unwrap();
 
-		// Find the desired item in the graph.
+		// Find the item.
 		let node = state
 			.graph
 			.paths
@@ -361,7 +361,7 @@ impl Server {
 			.copied()
 			.ok_or_else(|| tg::error!("failed to get item"))?;
 
-		// Get the id, path, tag, and subpath.
+		// Create the referent.
 		let item = state.graph.nodes[node]
 			.object
 			.as_ref()
@@ -372,11 +372,10 @@ impl Server {
 			.unwrap();
 		let path = state.graph.nodes[node].path.as_deref().cloned();
 		let tag = None;
+		let referent = tg::Referent { item, path, tag };
 
 		// Create the output.
-		let output = tg::checkin::Output {
-			referent: tg::Referent { item, path, tag },
-		};
+		let output = tg::checkin::Output { referent };
 
 		Ok(output)
 	}

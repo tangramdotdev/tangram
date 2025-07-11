@@ -41,6 +41,8 @@ export let start = async (process: tg.Process): Promise<tg.Value.Data> => {
 
 	// Store the output.
 	await tg.Value.store(output);
+
+	// Get the output data.
 	let outputData = tg.Value.toData(output);
 
 	return outputData;
