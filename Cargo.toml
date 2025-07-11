@@ -128,7 +128,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "stream",
   "rustls-tls",
 ] }
-rusqlite = { version = "0.36", features = ["blob", "bundled", "functions"] }
+rusqlite = { version = "0.37", features = ["blob", "bundled", "functions"] }
 rustls = "0.23"
 scopeguard = "1"
 serde = { version = "1", features = ["rc", "derive"] }
@@ -141,7 +141,7 @@ serde-untagged = "0.1"
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "30", features = [
+swc_core = { version = "31", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
@@ -180,7 +180,7 @@ tokio-postgres = { version = "0.7", features = [
 tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
-toml = { version = "0.8" }
+toml = { version = "0.9" }
 tower = { version = "0.5", features = ["timeout", "util"] }
 tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1"
