@@ -1,8 +1,9 @@
 use crate::{Server, database::Database, util::iter::Ext as _};
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
 use indoc::indoc;
+use itertools::Itertools as _;
 use num::ToPrimitive as _;
-use rusqlite as sqlite;
+use rusqlite::{self as sqlite};
 #[cfg(feature = "postgres")]
 use std::collections::HashMap;
 use std::{collections::BTreeSet, pin::pin, time::Duration};
@@ -383,18 +384,74 @@ impl Server {
 			.prepare_cached(children_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
-		// Prepare a statement for the objects.
-		let objects_statement = indoc!(
+		// Prepare a statement for inserting objects.
+		let combined_insert_incomplete_children_statement = indoc!(
 			"
-				insert into objects (id, cache_reference, size, touched_at)
-				values (?1, ?2, ?3, ?4)
-				on conflict (id) do update set touched_at = ?4;
-			"
+			insert into objects (id, cache_reference, size, touched_at, incomplete_children)
+				values (
+					?1,
+					?2,
+					?3,
+					?4,
+					(
+						select count(*)
+						from object_children
+						left join objects child_objects on child_objects.id = object_children.child
+						where object_children.object = ?1
+							and (child_objects.complete is null or child_objects.complete = 0)
+					)
+				)
+				on conflict (id) do update set
+					touched_at = ?4
+				returning incomplete_children, complete;"
 		);
-		let mut objects_statement = transaction
-			.prepare_cached(objects_statement)
+		let mut combined_insert_incomplete_children_statement = transaction
+			.prepare_cached(combined_insert_incomplete_children_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+		// Prepare a statement for updating the count, depth, weight of the object.
+		let update_statement = indoc!(
+			"
+				with updates as (
+				select
+						coalesce(min(child_objects.complete), 1) as complete,
+						1 + coalesce(sum(child_objects.count), 0) as count,
+						1 + coalesce(max(child_objects.depth), 0) as depth,
+						objects.size + coalesce(sum(child_objects.weight), 0) as weight
+				from objects
+				left join object_children on object_children.object = objects.id
+				left join objects as child_objects on child_objects.id = object_children.child
+				where objects.id = ?1
+			)
+			update objects
+			set (complete, count, depth, weight) = (
+					select complete, count, depth, weight from updates
+			)
+			where objects.id = ?1;
+			"
+		);
+		let mut update_children_statement = transaction
+			.prepare_cached(update_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare a statement for finding parents of the object and decrementing their incomplete_children_count.
+		let parents_statement = indoc!(
+			"
+				update objects
+					set incomplete_children = incomplete_children - 1
+					where objects.id in (
+						select object_children.object
+						from object_children
+						where object_children.child = ?1
+					)
+					returning objects.id, objects.incomplete_children;
+			"
+		);
+		let mut parents_statement = transaction
+			.prepare_cached(parents_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		let mut objects_to_update = Vec::new();
 		for message in messages {
 			// Execute inserts for each object in the batch.
 			let id = message.id;
@@ -412,11 +469,46 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Insert the object.
-			let params = rusqlite::params![&id.to_string(), cache_reference, size, touched_at];
-			objects_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			// Insert the object and get the incomplete chidren count
+			let (incomplete_children_count, complete) =
+				combined_insert_incomplete_children_statement
+					.query_one(
+						rusqlite::params![&id.to_string(), cache_reference, size, touched_at],
+						|row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+					)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			if incomplete_children_count == 0 && complete == 0 {
+				objects_to_update.push(id);
+			}
+
+			while let Some(object) = objects_to_update.pop() {
+				// Update the count, depth, weight of the object.
+				update_children_statement
+					.execute(rusqlite::params![&object.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Find all parents of the object, decrement their incomplete_children_count, and if incomplete_children_count is now 0, add them to the queue.
+				parents_statement
+					.query_map(rusqlite::params![&object.to_string()], |row| {
+						let id = row.get::<_, String>(0)?;
+						let incomplete_children_count = row.get::<_, i64>(1)?;
+						Ok((id, incomplete_children_count))
+					})
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.filter_map_ok(|(id, incomplete_children)| {
+						if incomplete_children == 0 {
+							Some((id, incomplete_children))
+						} else {
+							None
+						}
+					})
+					.for_each(|res| {
+						if let Ok((id, _)) = res {
+							let id = id.parse().unwrap();
+							objects_to_update.push(id);
+						}
+					});
+			}
 		}
 
 		Ok(())
@@ -707,33 +799,107 @@ impl Server {
 			.filter_map(|message| message.cache_reference.as_ref())
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
-		let statement = indoc!(
+		let insert_children_statement = indoc!(
 			"
-				call insert_objects_and_children(
+				select insert_children(
 					$1::text[],
 					$2::text[],
-					$3::int8[],
-					$4::int8[],
-					$5::text[],
-					$6::int8[]
+					$3::int8[]
 				);
 			"
 		);
 		transaction
 			.inner()
 			.execute(
-				statement,
+				insert_children_statement,
 				&[
 					&ids.as_slice(),
-					&cache_references.as_slice(),
-					&size.as_slice(),
-					&touched_ats.as_slice(),
 					&children.as_slice(),
 					&parent_indices.as_slice(),
 				],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the function"))?;
+		let insert_objects_statement = indoc!(
+			"
+				select insert_objects(
+					$1::text[],
+					$2::text[],
+					$3::int8[],
+					$4::int8[]
+				) as ids;
+			"
+		);
+		let inserted = transaction
+			.inner()
+			.query_one(
+				insert_objects_statement,
+				&[
+					&ids.as_slice(),
+					&cache_references.as_slice(),
+					&size.as_slice(),
+					&touched_ats.as_slice(),
+				],
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the function"))?;
+
+		let update_stats_statement = indoc!(
+			"
+			select update_stats(
+				$1::text[]
+			);
+			"
+		);
+
+		let update_incomplete_children_statement = indoc!(
+			"
+			select update_incomplete_children(
+				$1::text[]
+			) as ids;
+			"
+		);
+
+		let decrement_parents_statement = indoc!(
+			"
+				select decrement_parents(
+					$1::text[]
+				) as ids;
+			"
+		);
+
+		let newly_inserted = inserted
+			.get::<_, Vec<String>>("ids")
+			.into_iter()
+			.collect::<Vec<_>>();
+
+		let row = transaction
+			.inner()
+			.query_one(update_incomplete_children_statement, &[&newly_inserted])
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the function"))?;
+
+		// TODO: i think i should only decrement parents for objects that were newly complete, inserted is including ones that existed already.
+		let mut queue: Vec<String> = row.get::<_, Vec<String>>("ids");
+
+		// Process parent updates if needed
+		while !queue.is_empty() {
+			transaction
+				.inner()
+				.execute(update_stats_statement, &[&queue])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
+
+			let parents = transaction
+				.inner()
+				.query_one(decrement_parents_statement, &[&queue])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
+			queue = parents
+				.get::<_, Vec<String>>("ids")
+				.into_iter()
+				.collect::<Vec<_>>();
+		}
 
 		Ok(())
 	}
