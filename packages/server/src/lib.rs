@@ -1,7 +1,8 @@
 #[cfg(feature = "v8")]
 use self::compiler::Compiler;
 use self::{
-	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
+	database::Database, index::Index, messenger::Messenger, runtime::Runtime, store::Store,
+	util::fs::remove,
 };
 #[cfg(feature = "nats")]
 use async_nats as nats;
@@ -10,7 +11,6 @@ use futures::{FutureExt as _, Stream, StreamExt as _, future, stream::FuturesUno
 use http_body_util::BodyExt as _;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use indoc::{formatdoc, indoc};
-use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
 	convert::Infallible,
@@ -92,7 +92,8 @@ pub struct Inner {
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	http: Option<Http>,
-	index: Database,
+	// index: Database,
+	index: Index,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
@@ -281,49 +282,10 @@ impl Server {
 
 		// Create the index.
 		let index = match &config.index {
-			self::config::Index::Sqlite(options) => {
-				let initialize = Arc::new(|connection: &sqlite::Connection| {
-					connection.pragma_update(None, "auto_vaccum", "incremental")?;
-					connection.pragma_update(None, "busy_timeout", "5000")?;
-					connection.pragma_update(None, "cache_size", "-20000")?;
-					connection.pragma_update(None, "foreign_keys", "on")?;
-					connection.pragma_update(None, "journal_mode", "wal")?;
-					connection.pragma_update(None, "mmap_size", "2147483648")?;
-					connection.pragma_update(None, "recursive_triggers", "on")?;
-					connection.pragma_update(None, "synchronous", "normal")?;
-					connection.pragma_update(None, "temp_store", "memory")?;
-					Ok(())
-				});
-				let options = db::sqlite::DatabaseOptions {
-					connections: options.connections,
-					initialize,
-					path: directory.join("index"),
-				};
-				let database = db::sqlite::Database::new(options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-				Database::Sqlite(database)
-			},
-			self::config::Index::Postgres(options) => {
-				#[cfg(not(feature = "postgres"))]
-				{
-					let _ = options;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with postgres support"
-					));
-				}
-				#[cfg(feature = "postgres")]
-				{
-					let options = db::postgres::DatabaseOptions {
-						url: options.url.clone(),
-						connections: options.connections,
-					};
-					let database = db::postgres::Database::new(options)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-					Database::Postgres(database)
-				}
-			},
+			// config::Store::Memory => Index::new_memory(),
+			// #[cfg(feature = "foundationdb")]
+			// config::Store::Fdb(fdb) => Index::new_fdb(fdb)?,
+			config::Index::Lmdb(lmdb) => Index::new_lmdb(lmdb)?,
 		};
 
 		// Create the messenger.
@@ -434,11 +396,6 @@ impl Server {
 		self::database::migrate(&server.database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
-
-		// Migrate the index.
-		self::index::migrate(&server.index)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
 
 		// Set the remotes if specified in the config.
 		if let Some(remotes) = &server.config.remotes {

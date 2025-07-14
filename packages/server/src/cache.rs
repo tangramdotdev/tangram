@@ -71,6 +71,7 @@ impl Server {
 				.map(|metadata| {
 					metadata.into_iter().fold(
 						tg::object::Metadata {
+							complete: false,
 							count: Some(0),
 							depth: Some(0),
 							weight: Some(0),
@@ -88,7 +89,9 @@ impl Server {
 								.weight
 								.zip(b.as_ref().and_then(|b| b.weight))
 								.map(|(a, b)| a + b);
+							let complete = a.complete || b.as_ref().map_or(false, |b| b.complete);
 							tg::object::Metadata {
+								complete,
 								count,
 								depth,
 								weight,

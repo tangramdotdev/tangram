@@ -574,8 +574,7 @@ impl Cli {
 				connections: parallelism,
 				path: directory.join("database"),
 			});
-		let index = tangram_server::config::Index::Sqlite(tangram_server::config::SqliteIndex {
-			connections: parallelism,
+		let index = tangram_server::config::Index::Lmdb(tangram_server::config::LmdbIndex {
 			path: directory.join("index"),
 		});
 		let http = Some(tangram_server::config::Http {
@@ -786,32 +785,16 @@ impl Cli {
 		// Set the index config.
 		if let Some(index) = self.config.as_ref().and_then(|config| config.index.clone()) {
 			config.index = match index {
-				self::config::Index::Sqlite(index) => {
-					let mut index_ = tangram_server::config::SqliteIndex {
-						connections: parallelism,
-						path: config.directory.clone(),
-					};
-					if let Some(connections) = index.connections {
-						index_.connections = connections;
-					}
-					if let Some(path) = index.path {
-						index_.path = path;
-					}
-					tangram_server::config::Index::Sqlite(index_)
+				// #[cfg(feature = "foundationdb")]
+				// config::Store::Fdb(fdb) => {
+				// 	todo!()
+				// },
+				config::Index::Lmdb(lmdb) => {
+					tangram_server::config::Index::Lmdb(tangram_server::config::LmdbIndex {
+						path: lmdb.path.unwrap_or_else(|| config.directory.join("index")),
+					})
 				},
-				self::config::Index::Postgres(index) => {
-					let mut database_ = tangram_server::config::PostgresIndex {
-						connections: parallelism,
-						url: "postgres://localhost:5432".parse().unwrap(),
-					};
-					if let Some(connections) = index.connections {
-						database_.connections = connections;
-					}
-					if let Some(url) = index.url {
-						database_.url = url;
-					}
-					tangram_server::config::Index::Postgres(database_)
-				},
+				// config::Store::Memory => tangram_server::config::Store::Memory,
 			};
 		}
 

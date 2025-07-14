@@ -1,5 +1,5 @@
 use self::graph::Graph;
-use crate::Server;
+use crate::{Server, index::Index};
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
 };
@@ -34,14 +34,14 @@ struct State {
 	object_queue_sender: async_channel::Sender<ObjectQueueItem>,
 }
 
-struct StateSync {
+struct StateSync<'a> {
 	arg: tg::export::Arg,
 	database: sqlite::Connection,
 	event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	file: Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	graph: Graph,
 	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
-	index: sqlite::Connection,
+	index: &'a Index,
 	queue: VecDeque<QueueItem>,
 }
 
@@ -130,36 +130,36 @@ impl Server {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
 		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
-		// If the database, index, and store are synchronous, and all items are complete, then export synchronously.
-		if self.database.is_sqlite()
-			&& self.index.is_sqlite()
-			&& matches!(self.store, crate::Store::Lmdb(_) | crate::Store::Memory(_))
-		{
-			let complete = self.export_items_complete(&arg).await?;
-			if complete {
-				let (import_complete_sender, import_complete_receiver) =
-					tokio::sync::mpsc::channel(4096);
-				let import_task = tokio::spawn(async move {
-					let mut stream = std::pin::pin!(stream);
-					while let Some(event) = stream.try_next().await? {
-						import_complete_sender.send(event).await.ok();
-					}
-					Ok::<_, tg::Error>(())
-				});
-				scopeguard::defer! {
-					import_task.abort();
-				}
-				tokio::task::spawn_blocking({
-					let server = self.clone();
-					let arg = arg.clone();
-					let event_sender = event_sender.clone();
-					move || server.export_sync_task(arg, import_complete_receiver, event_sender)
-				})
-				.await
-				.unwrap()?;
-				return Ok(());
-			}
-		}
+		// // If the database, index, and store are synchronous, and all items are complete, then export synchronously.
+		// if self.database.is_sqlite()
+		// 	&& self.index.is_sqlite()
+		// 	&& matches!(self.store, crate::Store::Lmdb(_) | crate::Store::Memory(_))
+		// {
+		// 	let complete = self.export_items_complete(&arg).await?;
+		// 	if complete {
+		// 		let (import_complete_sender, import_complete_receiver) =
+		// 			tokio::sync::mpsc::channel(4096);
+		// 		let import_task = tokio::spawn(async move {
+		// 			let mut stream = std::pin::pin!(stream);
+		// 			while let Some(event) = stream.try_next().await? {
+		// 				import_complete_sender.send(event).await.ok();
+		// 			}
+		// 			Ok::<_, tg::Error>(())
+		// 		});
+		// 		scopeguard::defer! {
+		// 			import_task.abort();
+		// 		}
+		// 		tokio::task::spawn_blocking({
+		// 			let server = self.clone();
+		// 			let arg = arg.clone();
+		// 			let event_sender = event_sender.clone();
+		// 			move || server.export_sync_task(arg, import_complete_receiver, event_sender)
+		// 		})
+		// 		.await
+		// 		.unwrap()?;
+		// 		return Ok(());
+		// 	}
+		// }
 
 		// Create the state.
 		let queue_counter = AtomicUsize::new(0);
@@ -352,95 +352,93 @@ impl Server {
 		}
 	}
 
-	fn export_sync_task(
-		&self,
-		arg: tg::export::Arg,
-		import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
-		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
-	) -> tg::Result<()> {
-		// Create a database connection.
-		let database = self
-			.database
-			.try_unwrap_sqlite_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the database to be sqlite"))?
-			.create_connection(true)
-			.map_err(|source| tg::error!(!source, "failed to create a connection"))?;
+	// fn export_sync_task(
+	// 	&self,
+	// 	arg: tg::export::Arg,
+	// 	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
+	// 	event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
+	// ) -> tg::Result<()> {
+	// 	// Create a database connection.
+	// 	let database = self
+	// 		.database
+	// 		.try_unwrap_sqlite_ref()
+	// 		.ok()
+	// 		.ok_or_else(|| tg::error!("expected the database to be sqlite"))?
+	// 		.create_connection(true)
+	// 		.map_err(|source| tg::error!(!source, "failed to create a connection"))?;
 
-		// Create an index connection.
-		let index = self
-			.index
-			.try_unwrap_sqlite_ref()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the index to be sqlite"))?
-			.create_connection(true)
-			.map_err(|source| tg::error!(!source, "failed to create a connection"))?;
+	// 	let index = self
+	// 		.index
+	// 		.try_unwrap_lmdb_ref()
+	// 		.ok()
+	// 		.ok_or_else(|| tg::error!("expected the index to be lmdb"))?
+	// 		.clone();
 
-		// Create the state.
-		let mut state = StateSync {
-			arg,
-			database,
-			event_sender,
-			file: None,
-			graph: Graph::new(),
-			import_complete_receiver,
-			index,
-			queue: VecDeque::new(),
-		};
+	// 	// Create the state.
+	// 	let mut state = StateSync {
+	// 		arg,
+	// 		database,
+	// 		event_sender,
+	// 		file: None,
+	// 		graph: Graph::new(),
+	// 		import_complete_receiver,
+	// 		index,
+	// 		queue: VecDeque::new(),
+	// 	};
 
-		// Enqueue the items.
-		for item in state.arg.items.iter().cloned() {
-			let item = match item {
-				Either::Left(process) => QueueItem::Process(ProcessQueueItem {
-					parent: None,
-					process,
-				}),
-				Either::Right(object) => QueueItem::Object(ObjectQueueItem {
-					parent: None,
-					object,
-				}),
-			};
-			state.queue.push_back(item);
-		}
+	// 	// Enqueue the items.
+	// 	for item in state.arg.items.iter().cloned() {
+	// 		let item = match item {
+	// 			Either::Left(process) => QueueItem::Process(ProcessQueueItem {
+	// 				parent: None,
+	// 				process,
+	// 			}),
+	// 			Either::Right(object) => QueueItem::Object(ObjectQueueItem {
+	// 				parent: None,
+	// 				object,
+	// 			}),
+	// 		};
+	// 		state.queue.push_back(item);
+	// 	}
 
-		// Export each item.
-		while let Some(item) = state.queue.pop_front() {
-			// Update the graph.
-			let len = state.import_complete_receiver.len();
-			let mut buffer = Vec::with_capacity(len);
-			state
-				.import_complete_receiver
-				.blocking_recv_many(&mut buffer, len);
-			for complete in buffer {
-				match complete {
-					tg::import::Complete::Process(complete) => {
-						let id = Either::Left(complete.id.clone());
-						let complete = complete.complete
-							&& (!state.arg.commands || complete.commands_complete)
-							&& (!state.arg.outputs || complete.outputs_complete);
-						state.graph.update(None, id, complete);
-					},
-					tg::import::Complete::Object(complete) => {
-						let id = Either::Right(complete.id.clone());
-						let complete = true;
-						state.graph.update(None, id, complete);
-					},
-				}
-			}
+	// 	// Export each item.
+	// 	while let Some(item) = state.queue.pop_front() {
+	// 		// Update the graph.
+	// 		let len = state.import_complete_receiver.len();
+	// 		let mut buffer = Vec::with_capacity(len);
+	// 		state
+	// 			.import_complete_receiver
+	// 			.blocking_recv_many(&mut buffer, len);
+	// 		for complete in buffer {
+	// 			match complete {
+	// 				tg::import::Complete::Process(complete) => {
+	// 					let id = Either::Left(complete.id.clone());
+	// 					let complete = complete.complete
+	// 						&& (!state.arg.commands || complete.commands_complete)
+	// 						&& (!state.arg.outputs || complete.outputs_complete);
+	// 					state.graph.update(None, id, complete);
+	// 				},
+	// 				tg::import::Complete::Object(complete) => {
+	// 					let id = Either::Right(complete.id.clone());
+	// 					let complete = true;
+	// 					state.graph.update(None, id, complete);
+	// 				},
+	// 			}
+	// 		}
 
-			// Export the item.
-			match item {
-				QueueItem::Process(item) => {
-					Self::export_sync_inner_process(&mut state, item)?;
-				},
-				QueueItem::Object(item) => {
-					self.export_sync_inner_object(&mut state, item)?;
-				},
-			}
-		}
+	// 		// Export the item.
+	// 		match item {
+	// 			QueueItem::Process(item) => {
+	// 				Self::export_sync_inner_process(&mut state, item)?;
+	// 			},
+	// 			QueueItem::Object(item) => {
+	// 				self.export_sync_inner_object(&mut state, item)?;
+	// 			},
+	// 		}
+	// 	}
 
-		Ok(())
-	}
+	// 	Ok(())
+	// }
 
 	async fn export_inner_processes(
 		&self,
@@ -570,67 +568,67 @@ impl Server {
 		Ok(())
 	}
 
-	fn export_sync_inner_process(state: &mut StateSync, item: ProcessQueueItem) -> tg::Result<()> {
-		let ProcessQueueItem { parent, process } = item;
+	// fn export_sync_inner_process(state: &mut StateSync, item: ProcessQueueItem) -> tg::Result<()> {
+	// 	let ProcessQueueItem { parent, process } = item;
 
-		// If the process has already been sent or is complete, then update the progress and return.
-		let (inserted, complete) = state.graph.update(
-			parent.map(Either::Left),
-			Either::Left(process.clone()),
-			false,
-		);
-		if complete {
-			let process_complete = Self::export_sync_get_process_complete(state, &process)
-				.map_err(|source| tg::error!(!source, "failed to get the process complete"))?;
-			let event = tg::export::Event::Complete(tg::export::Complete::Process(
-				process_complete.clone(),
-			));
-			state
-				.event_sender
-				.blocking_send(Ok(event))
-				.map_err(|source| {
-					tg::error!(!source, "failed to send the process complete event")
-				})?;
-		}
-		if !inserted || complete {
-			return Ok(());
-		}
+	// 	// If the process has already been sent or is complete, then update the progress and return.
+	// 	let (inserted, complete) = state.graph.update(
+	// 		parent.map(Either::Left),
+	// 		Either::Left(process.clone()),
+	// 		false,
+	// 	);
+	// 	if complete {
+	// 		let process_complete = Self::export_sync_get_process_complete(state, &process)
+	// 			.map_err(|source| tg::error!(!source, "failed to get the process complete"))?;
+	// 		let event = tg::export::Event::Complete(tg::export::Complete::Process(
+	// 			process_complete.clone(),
+	// 		));
+	// 		state
+	// 			.event_sender
+	// 			.blocking_send(Ok(event))
+	// 			.map_err(|source| {
+	// 				tg::error!(!source, "failed to send the process complete event")
+	// 			})?;
+	// 	}
+	// 	if !inserted || complete {
+	// 		return Ok(());
+	// 	}
 
-		// Get the process
-		let data = Self::try_get_process_local_sync(&state.database, &process)?
-			.ok_or_else(|| tg::error!("failed to find the process"))?;
+	// 	// Get the process
+	// 	let data = Self::try_get_process_local_sync(&state.database, &process)?
+	// 		.ok_or_else(|| tg::error!("failed to find the process"))?;
 
-		// Enqueue the children.
-		if state.arg.recursive {
-			for child in data.children.into_iter().flatten() {
-				let item = QueueItem::Process(ProcessQueueItem {
-					parent: Some(process.clone()),
-					process: child.item,
-				});
-				state.queue.push_back(item);
-			}
-		}
+	// 	// Enqueue the children.
+	// 	if state.arg.recursive {
+	// 		for child in data.children.into_iter().flatten() {
+	// 			let item = QueueItem::Process(ProcessQueueItem {
+	// 				parent: Some(process.clone()),
+	// 				process: child.item,
+	// 			});
+	// 			state.queue.push_back(item);
+	// 		}
+	// 	}
 
-		// Enqueue the objects.
-		let mut objects: Vec<tg::object::Id> = Vec::new();
-		if state.arg.commands {
-			objects.push(data.command.clone().into());
-		}
-		if state.arg.outputs {
-			if let Some(output) = &data.output {
-				objects.extend(output.children());
-			}
-		}
-		for child in objects {
-			let item = QueueItem::Object(ObjectQueueItem {
-				parent: Some(Either::Left(process.clone())),
-				object: child,
-			});
-			state.queue.push_back(item);
-		}
+	// 	// Enqueue the objects.
+	// 	let mut objects: Vec<tg::object::Id> = Vec::new();
+	// 	if state.arg.commands {
+	// 		objects.push(data.command.clone().into());
+	// 	}
+	// 	if state.arg.outputs {
+	// 		if let Some(output) = &data.output {
+	// 			objects.extend(output.children());
+	// 		}
+	// 	}
+	// 	for child in objects {
+	// 		let item = QueueItem::Object(ObjectQueueItem {
+	// 			parent: Some(Either::Left(process.clone())),
+	// 			object: child,
+	// 		});
+	// 		state.queue.push_back(item);
+	// 	}
 
-		Ok(())
-	}
+	// 	Ok(())
+	// }
 
 	async fn export_inner_objects(
 		&self,
@@ -735,59 +733,59 @@ impl Server {
 		Ok(())
 	}
 
-	fn export_sync_inner_object(
-		&self,
-		state: &mut StateSync,
-		item: ObjectQueueItem,
-	) -> tg::Result<()> {
-		let ObjectQueueItem { parent, object } = item;
+	// fn export_sync_inner_object(
+	// 	&self,
+	// 	state: &mut StateSync,
+	// 	item: ObjectQueueItem,
+	// ) -> tg::Result<()> {
+	// 	let ObjectQueueItem { parent, object } = item;
 
-		// If the object has already been sent or is complete, then update the progress and return.
-		let (inserted, complete) = state
-			.graph
-			.update(parent, Either::Right(object.clone()), false);
-		if complete {
-			let object_complete = Self::export_sync_get_object_complete(state, &object)?;
-			let event =
-				tg::export::Event::Complete(tg::export::Complete::Object(object_complete.clone()));
-			state
-				.event_sender
-				.blocking_send(Ok(event))
-				.map_err(|source| tg::error!(!source, "failed to send"))?;
-		}
-		if !inserted || complete {
-			return Ok(());
-		}
+	// 	// If the object has already been sent or is complete, then update the progress and return.
+	// 	let (inserted, complete) = state
+	// 		.graph
+	// 		.update(parent, Either::Right(object.clone()), false);
+	// 	if complete {
+	// 		let object_complete = Self::export_sync_get_object_complete(state, &object)?;
+	// 		let event =
+	// 			tg::export::Event::Complete(tg::export::Complete::Object(object_complete.clone()));
+	// 		state
+	// 			.event_sender
+	// 			.blocking_send(Ok(event))
+	// 			.map_err(|source| tg::error!(!source, "failed to send"))?;
+	// 	}
+	// 	if !inserted || complete {
+	// 		return Ok(());
+	// 	}
 
-		// Get the object.
-		let bytes = self
-			.try_get_object_sync(&object, &mut state.file)?
-			.ok_or_else(|| tg::error!("failed to find the object"))?
-			.bytes;
-		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
+	// 	// Get the object.
+	// 	let bytes = self
+	// 		.try_get_object_sync(&object, &mut state.file)?
+	// 		.ok_or_else(|| tg::error!("failed to find the object"))?
+	// 		.bytes;
+	// 	let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
 
-		// Send the object.
-		let item = tg::export::Item::Object(tg::export::ObjectItem {
-			id: object.clone(),
-			bytes: bytes.clone(),
-		});
-		let event = tg::export::Event::Item(item);
-		state
-			.event_sender
-			.blocking_send(Ok(event))
-			.map_err(|source| tg::error!(!source, "failed to send"))?;
+	// 	// Send the object.
+	// 	let item = tg::export::Item::Object(tg::export::ObjectItem {
+	// 		id: object.clone(),
+	// 		bytes: bytes.clone(),
+	// 	});
+	// 	let event = tg::export::Event::Item(item);
+	// 	state
+	// 		.event_sender
+	// 		.blocking_send(Ok(event))
+	// 		.map_err(|source| tg::error!(!source, "failed to send"))?;
 
-		// Enqueue the children.
-		for child in data.children() {
-			let item = QueueItem::Object(ObjectQueueItem {
-				parent: Some(Either::Right(object.clone())),
-				object: child,
-			});
-			state.queue.push_back(item);
-		}
+	// 	// Enqueue the children.
+	// 	for child in data.children() {
+	// 		let item = QueueItem::Object(ObjectQueueItem {
+	// 			parent: Some(Either::Right(object.clone())),
+	// 			object: child,
+	// 		});
+	// 		state.queue.push_back(item);
+	// 	}
 
-		Ok(())
-	}
+	// 	Ok(())
+	// }
 
 	async fn export_get_process_complete(
 		&self,
@@ -808,22 +806,22 @@ impl Server {
 		Ok(complete)
 	}
 
-	fn export_sync_get_process_complete(
-		state: &mut StateSync,
-		id: &tg::process::Id,
-	) -> tg::Result<tg::export::ProcessComplete> {
-		let metadata = Self::try_get_process_metadata_local_sync(&state.index, id)?
-			.ok_or_else(|| tg::error!("failed to find the process"))?;
-		let complete = tg::export::ProcessComplete {
-			commands_count: metadata.commands_count,
-			commands_weight: metadata.commands_weight,
-			count: metadata.count,
-			id: id.clone(),
-			outputs_count: metadata.outputs_count,
-			outputs_weight: metadata.outputs_weight,
-		};
-		Ok(complete)
-	}
+	// fn export_sync_get_process_complete(
+	// 	state: &mut StateSync,
+	// 	id: &tg::process::Id,
+	// ) -> tg::Result<tg::export::ProcessComplete> {
+	// 	let metadata = Self::try_get_process_metadata_local_sync(&state.index, id)?
+	// 		.ok_or_else(|| tg::error!("failed to find the process"))?;
+	// 	let complete = tg::export::ProcessComplete {
+	// 		commands_count: metadata.commands_count,
+	// 		commands_weight: metadata.commands_weight,
+	// 		count: metadata.count,
+	// 		id: id.clone(),
+	// 		outputs_count: metadata.outputs_count,
+	// 		outputs_weight: metadata.outputs_weight,
+	// 	};
+	// 	Ok(complete)
+	// }
 
 	async fn export_get_object_complete(
 		&self,
@@ -838,18 +836,18 @@ impl Server {
 		Ok(output)
 	}
 
-	fn export_sync_get_object_complete(
-		state: &mut StateSync,
-		id: &tg::object::Id,
-	) -> tg::Result<tg::export::ObjectComplete> {
-		let metadata = Self::try_get_object_metadata_local_sync(&state.index, id)?;
-		let complete = tg::export::ObjectComplete {
-			count: metadata.as_ref().and_then(|metadata| metadata.count),
-			id: id.clone(),
-			weight: metadata.as_ref().and_then(|metadata| metadata.weight),
-		};
-		Ok(complete)
-	}
+	// fn export_sync_get_object_complete(
+	// 	state: &mut StateSync,
+	// 	id: &tg::object::Id,
+	// ) -> tg::Result<tg::export::ObjectComplete> {
+	// 	let metadata = Self::try_get_object_metadata_local_sync(&state.index, id)?;
+	// 	let complete = tg::export::ObjectComplete {
+	// 		count: metadata.as_ref().and_then(|metadata| metadata.count),
+	// 		id: id.clone(),
+	// 		weight: metadata.as_ref().and_then(|metadata| metadata.weight),
+	// 	};
+	// 	Ok(complete)
+	// }
 
 	pub(crate) async fn handle_export_request<H>(
 		handle: &H,

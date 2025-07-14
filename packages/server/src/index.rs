@@ -1,20 +1,15 @@
-use crate::{Server, database::Database, util::iter::Ext as _};
-use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
-use http_body_util::combinators;
-use indoc::indoc;
-use itertools::Itertools as _;
+use crate::{Server, util::iter::Ext as _};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
-use rusqlite::{self as sqlite, fallible_iterator::FallibleIterator};
-#[cfg(feature = "postgres")]
-use std::collections::HashMap;
 use std::{collections::BTreeSet, pin::pin, time::Duration};
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{self as messenger, Acker, prelude::*};
 use tokio_util::task::AbortOnDropHandle;
+
+mod lmdb;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
@@ -249,36 +244,7 @@ impl Server {
 				}
 			}
 
-			// Handle the messages.
-			match &self.index {
-				Database::Sqlite(index) => {
-					self.indexer_task_handle_messages_sqlite(
-						index,
-						put_cache_entry_messages,
-						put_object_messages,
-						touch_object_messages,
-						put_process_messages,
-						touch_process_messages,
-						put_tag_messages,
-						delete_tag_messages,
-					)
-					.await?;
-				},
-				#[cfg(feature = "postgres")]
-				Database::Postgres(index) => {
-					self.indexer_task_handle_messages_postgres(
-						index,
-						put_cache_entry_messages,
-						put_object_messages,
-						touch_object_messages,
-						put_process_messages,
-						touch_process_messages,
-						put_tag_messages,
-						delete_tag_messages,
-					)
-					.await?;
-				},
-			}
+			self.indexer_put_objects(put_object_messages).await?;
 
 			// Acknowledge the messages.
 			future::try_join_all(ackers.into_iter().map(async |acker| {
@@ -293,788 +259,160 @@ impl Server {
 		Ok(())
 	}
 
-	#[allow(clippy::too_many_arguments)]
-	async fn indexer_task_handle_messages_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		put_cache_entry_messages: Vec<PutCacheEntryMessage>,
-		put_object_messages: Vec<PutObjectMessage>,
-		touch_object_messages: Vec<TouchObjectMessage>,
-		put_process_messages: Vec<PutProcessMessage>,
-		touch_process_messages: Vec<TouchProcessMessage>,
-		put_tag_messages: Vec<PutTagMessage>,
-		delete_tag_messages: Vec<DeleteTagMessage>,
-	) -> tg::Result<()> {
-		let options = db::ConnectionOptions {
-			kind: db::ConnectionKind::Write,
-			priority: db::Priority::Low,
-		};
-		let connection = database
-			.connection_with_options(options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		connection
-			.with(move |connection| {
-				// Begin a transaction.
-				let transaction = connection
-					.transaction()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
-				// Handle the messages.
-				Self::indexer_put_cache_entries_sqlite(put_cache_entry_messages, &transaction)?;
-				Self::indexer_put_objects_sqlite(put_object_messages, &transaction)?;
-				Self::indexer_touch_objects_sqlite(touch_object_messages, &transaction)?;
-				Self::indexer_put_processes_sqlite(put_process_messages, &transaction)?;
-				Self::indexer_touch_processes_sqlite(touch_process_messages, &transaction)?;
-				Self::indexer_put_tags_sqlite(put_tag_messages, &transaction)?;
-				Self::indexer_delete_tags_sqlite(delete_tag_messages, &transaction)?;
-
-				// Commit the transaction.
-				transaction
-					.commit()
-					.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-				Ok::<_, tg::Error>(())
-			})
-			.await?;
-
-		Ok(())
-	}
-
-	fn indexer_put_cache_entries_sqlite(
-		messages: Vec<PutCacheEntryMessage>,
-		transaction: &sqlite::Transaction<'_>,
-	) -> tg::Result<()> {
-		let statement = indoc!(
-			"
-				insert or replace into cache_entries (id, touched_at)
-				values (?1, ?2);
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		for message in messages {
-			let params = sqlite::params![message.id.to_string(), message.touched_at];
-			statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	fn indexer_put_objects_sqlite(
-		messages: Vec<PutObjectMessage>,
-		transaction: &sqlite::Transaction<'_>,
-	) -> tg::Result<()> {
-		// Prepare a statement for the object children
-		let children_statement = indoc!(
-			"
-				insert into object_children (object, child)
-				values (?1, ?2)
-				on conflict (object, child) do nothing;
-			"
-		);
-		let mut children_statement = transaction
-			.prepare_cached(children_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		// Prepare a statement for inserting objects.
-		let combined_insert_incomplete_children_statement = indoc!(
-			"
-			insert into objects (id, cache_reference, size, touched_at, incomplete_children)
-				values (
-					?1,
-					?2,
-					?3,
-					?4,
-					(
-						select count(*)
-						from object_children
-						left join objects child_objects on child_objects.id = object_children.child
-						where object_children.object = ?1
-							and (child_objects.complete is null or child_objects.complete = 0)
-					)
-				)
-				on conflict (id) do update set
-					touched_at = ?4
-				returning incomplete_children;"
-		);
-		let mut combined_insert_incomplete_children_statement = transaction
-			.prepare_cached(combined_insert_incomplete_children_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		let mut objects_to_update = Vec::new();
-
-		// Prepare a statement for updating the count, depth, weight of the object.
-		let update_statement = indoc!(
-			"
-				with updates as (
-				select
-						coalesce(min(child_objects.complete), 1) as complete,
-						1 + coalesce(sum(child_objects.count), 0) as count,
-						1 + coalesce(max(child_objects.depth), 0) as depth,
-						objects.size + coalesce(sum(child_objects.weight), 0) as weight
-				from objects
-				left join object_children on object_children.object = objects.id
-				left join objects as child_objects on child_objects.id = object_children.child
-				where objects.id = ?1
-			)
-			update objects
-			set (complete, count, depth, weight) = (
-					select complete, count, depth, weight from updates
-			)
-			where objects.id = ?1;
-			"
-		);
-		let mut update_children_statement = transaction
-			.prepare_cached(update_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		// Prepare a statement for finding parents of the object and decrementing their incomplete_children_count.
-		let parents_statement = indoc!(
-			"
-				update objects
-					set incomplete_children = incomplete_children - 1
-					where objects.id in (
-						select object_children.object
-						from object_children
-						where object_children.child = ?1
-					)
-					returning objects.id, objects.incomplete_children;
-			"
-		);
-		let mut parents_statement = transaction
-			.prepare_cached(parents_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		for message in messages {
-			// Execute inserts for each object in the batch.
-			let id = message.id;
-			let cache_reference = message.cache_reference.as_ref().map(ToString::to_string);
-			let children = message.children;
-			let size = message.size;
-			let touched_at = message.touched_at;
-
-			// Insert the children.
-			for child in children {
-				let child = child.to_string();
-				let params = rusqlite::params![&id.to_string(), &child];
-				children_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
-
-			// Insert the object and get the incomplete chidren count
-			let incomplete_children_count = combined_insert_incomplete_children_statement
-				.query_one(
-					rusqlite::params![&id.to_string(), cache_reference, size, touched_at],
-					|row| row.get::<_, i64>(0),
-				)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			if incomplete_children_count == 0 {
-				objects_to_update.push(id);
-			}
-
-			while let Some(object) = objects_to_update.pop() {
-				// Update the count, depth, weight of the object.
-				update_children_statement
-					.execute(rusqlite::params![&object.to_string()])
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-				// Find all parents of the object, decrement their incomplete_children_count, and if incomplete_children_count is now 0, add them to the queue.
-				parents_statement
-					.query_map(rusqlite::params![&object.to_string()], |row| {
-						let id = row.get::<_, String>(0)?;
-						let incomplete_children_count = row.get::<_, i64>(1)?;
-						Ok((id, incomplete_children_count))
-					})
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-					.filter_map_ok(|(id, incomplete_children)| {
-						if incomplete_children == 0 {
-							Some((id, incomplete_children))
-						} else {
-							None
-						}
-					})
-					.for_each(|res| {
-						if let Ok((id, _)) = res {
-							let id = id.parse().unwrap();
-							objects_to_update.push(id);
-						}
-					});
-			}
-		}
-
-		Ok(())
-	}
-
-	fn indexer_touch_objects_sqlite(
-		messages: Vec<TouchObjectMessage>,
-		transaction: &sqlite::Transaction<'_>,
-	) -> tg::Result<()> {
-		let statement = indoc!(
-			"
-				update objects
-				set touched_at = ?1
-				where id = ?2;
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		for message in messages {
-			let params = sqlite::params![message.touched_at, message.id.to_string()];
-			statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	fn indexer_put_processes_sqlite(
-		messages: Vec<PutProcessMessage>,
-		transaction: &sqlite::Transaction<'_>,
-	) -> tg::Result<()> {
-		let object_statement = indoc!(
-			"
-				insert into process_objects (process, object, kind)
-				values (?1, ?2, ?3)
-				on conflict (process, object, kind) do nothing;
-			"
-		);
-		let mut object_statement = transaction
-			.prepare_cached(object_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		let child_statement = indoc!(
-			"
-				insert into process_children (process, position, child, path, tag)
-				values (?1, ?2, ?3, ?4, ?5)
-				on conflict (process, child) do nothing;
-			"
-		);
-		let mut child_statement = transaction
-			.prepare_cached(child_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		let process_statement = indoc!(
-			"
-				insert into processes (id, touched_at)
-				values (?1, ?2)
-				on conflict (id) do update set touched_at = ?2;
-			"
-		);
-		let mut process_statement = transaction
-			.prepare_cached(process_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
-		for message in messages {
-			// Insert the objects.
-			for (object, kind) in message.objects {
-				let params =
-					sqlite::params![message.id.to_string(), object.to_string(), kind.to_string()];
-				object_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
-
-			// Insert the children.
-			if let Some(children) = message.children {
-				for (position, child) in children.iter().enumerate() {
-					let params = sqlite::params![
-						message.id.to_string(),
-						position,
-						child.item.to_string(),
-						child.path.as_ref().map(|path| path.display().to_string()),
-						child.tag.as_ref().map(ToString::to_string),
-					];
-					child_statement
-						.execute(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				}
-			}
-
-			// Insert the process.
-			let params = sqlite::params![message.id.to_string(), message.touched_at];
-			process_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	fn indexer_touch_processes_sqlite(
-		messages: Vec<TouchProcessMessage>,
-		transaction: &sqlite::Transaction<'_>,
-	) -> tg::Result<()> {
-		let statement = indoc!(
-			"
-				update processes
-				set touched_at = ?1
-				where id = ?2;
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		for message in messages {
-			let params = sqlite::params![message.touched_at, message.id.to_string()];
-			statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	fn indexer_put_tags_sqlite(
-		messages: Vec<PutTagMessage>,
-		transaction: &sqlite::Transaction<'_>,
-	) -> tg::Result<()> {
-		let statement = indoc!(
-			"
-				insert or replace into tags (tag, item)
-				values (?1, ?2);
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		for message in messages {
-			let params = sqlite::params![message.tag, message.item.to_string()];
-			statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	fn indexer_delete_tags_sqlite(
-		messages: Vec<DeleteTagMessage>,
-		transaction: &sqlite::Transaction<'_>,
-	) -> tg::Result<()> {
-		let statement = indoc!(
-			"
-				delete from tags
-				where tag = ?1;
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		for message in messages {
-			let params = sqlite::params![message.tag];
-			statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	#[allow(clippy::too_many_arguments)]
-	#[cfg(feature = "postgres")]
-	async fn indexer_task_handle_messages_postgres(
-		&self,
-		database: &db::postgres::Database,
-		put_cache_entry_messages: Vec<PutCacheEntryMessage>,
-		put_object_messages: Vec<PutObjectMessage>,
-		touch_object_messages: Vec<TouchObjectMessage>,
-		put_process_messages: Vec<PutProcessMessage>,
-		touch_process_messages: Vec<TouchProcessMessage>,
-		put_tag_messages: Vec<PutTagMessage>,
-		delete_tag_messages: Vec<DeleteTagMessage>,
-	) -> tg::Result<()> {
-		let options = db::ConnectionOptions {
-			kind: db::ConnectionKind::Write,
-			priority: db::Priority::Low,
-		};
-		let mut connection = database
-			.connection_with_options(options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
-		// Handle the messages.
-		self.indexer_put_cache_entries_postgres(put_cache_entry_messages, &transaction)
-			.await?;
-		self.indexer_put_objects_postgres(put_object_messages, &transaction)
-			.await?;
-		self.indexer_touch_objects_postgres(touch_object_messages, &transaction)
-			.await?;
-		self.indexer_put_processes_postgres(put_process_messages, &transaction)
-			.await?;
-		self.indexer_touch_processes_postgres(touch_process_messages, &transaction)
-			.await?;
-		self.indexer_put_tags_postgres(put_tag_messages, &transaction)
-			.await?;
-		self.indexer_delete_tags_postgres(delete_tag_messages, &transaction)
-			.await?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-		Ok(())
-	}
-
-	#[cfg(feature = "postgres")]
-	async fn indexer_put_cache_entries_postgres(
-		&self,
-		messages: Vec<PutCacheEntryMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		for message in messages {
-			let statement = indoc!(
-				"
-					insert or replace into cache_entries (id, touched_at)
-					values ($1, $2);
-				"
-			);
-			let params = db::params![message.id.to_string(), message.touched_at];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	#[cfg(feature = "postgres")]
-	async fn indexer_put_objects_postgres(
-		&self,
-		messages: Vec<PutObjectMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		// Get the unique messages.
-		let unique_messages: HashMap<&tg::object::Id, &PutObjectMessage, fnv::FnvBuildHasher> =
-			messages
+	async fn indexer_put_objects(&self, messages: Vec<PutObjectMessage>) -> tg::Result<()> {
+		// Insert the children
+		let object_children_batch_arg = PutObjectChildrenBatchArg {
+			items: messages
 				.iter()
-				.map(|message| (&message.id, message))
-				.collect();
+				.map(|message| PutObjectChildrenArg {
+					id: message.id.clone(),
+					children: message.children.iter().cloned().collect(),
+				})
+				.collect::<Vec<_>>(),
+		};
+		self.index
+			.put_object_children_batch(object_children_batch_arg)
+			.await?;
 
-		// Insert into the objects and object_children tables.
-		let ids = unique_messages
-			.values()
-			.map(|message| message.id.to_string())
-			.collect::<Vec<_>>();
-		let size = unique_messages
-			.values()
-			.map(|message| message.size.to_i64().unwrap())
-			.collect::<Vec<_>>();
-		let touched_ats = unique_messages
-			.values()
-			.map(|message| message.touched_at)
-			.collect::<Vec<_>>();
-		let children = unique_messages
-			.values()
-			.flat_map(|message| message.children.iter().map(ToString::to_string))
-			.collect::<Vec<_>>();
-		let parent_indices = unique_messages
-			.values()
-			.enumerate()
-			.flat_map(|(index, message)| {
-				std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
+		// Compute the incomplete children counts, keep track of those with incomplete_children = 0.
+		let incomplete_children_counts = self
+			.index
+			.try_get_object_incomplete_children_count_batch(
+				messages
+					.iter()
+					.map(|message| message.id.clone())
+					.collect::<Vec<_>>()
+					.as_slice(),
+			)
+			.await?;
+
+		// Get the objects to insert.
+		let objects: Vec<PutObjectArg> = messages
+			.iter()
+			.zip(incomplete_children_counts)
+			.map(|(message, incomplete_children)| PutObjectArg {
+				id: message.id.clone(),
+				cache_reference: message.cache_reference.clone(),
+				size: Some(message.size),
+				touched_at: Some(message.touched_at),
+				incomplete_children: Some(incomplete_children),
+				complete: false,
+				count: None,
+				depth: None,
+				weight: None,
 			})
-			.collect::<Vec<_>>();
-		let cache_references = unique_messages
-			.values()
-			.filter_map(|message| message.cache_reference.as_ref())
-			.map(ToString::to_string)
-			.collect::<Vec<_>>();
-		let statement = indoc!(
-			"
-				select insert_objects_and_children(
-					$1::text[],
-					$2::text[],
-					$3::int8[],
-					$4::int8[],
-					$5::text[],
-					$6::int8[]
-				) as ids;
-			"
-		);
-		let row = transaction
-			.inner()
-			.query_one(
-				statement,
-				&[
-					&ids.as_slice(),
-					&cache_references.as_slice(),
-					&size.as_slice(),
-					&touched_ats.as_slice(),
-					&children.as_slice(),
-					&parent_indices.as_slice(),
-				],
-			)
+			.collect();
+
+		// Get the objects whose incomplete_children count is 0.
+		let mut queue: Vec<QueueItem> = objects
+			.iter()
+			.filter(|object| object.incomplete_children.unwrap() == 0)
+			.map(|object| QueueItem {
+				id: object.id.clone(),
+			})
+			.collect();
+		let ids: Vec<tg::object::Id> = objects
+			.iter()
+			.filter(|object| object.incomplete_children.unwrap() == 0)
+			.map(|object| object.id.clone())
+			.collect();
+
+		// Insert the objects.
+		let arg = PutObjectBatchArg { objects };
+		self.index
+			.put_object_batch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the function"))?;
+			.map_err(|source| tg::error!(!source, "failed to put objects in the index"))?;
 
-		let mut queue: Vec<String> = row.get::<_, Vec<String>>("ids");
+		struct QueueItem {
+			id: tg::object::Id,
+		}
 
-		let update_stats_sql = indoc!(
-			"
-				with recursive update_queue(id) as (
-						select unnest($1::text[])
-				), updates as (
-						select
-								q.id,
-								coalesce(min(c.complete::int), 1) as complete,
-								1 + coalesce(sum(c.count), 0) as count,
-								1 + coalesce(max(c.depth), 0) as depth,
-								o.size + coalesce(sum(c.weight), 0) as weight
-						from update_queue q
-						join objects o on o.id = q.id
-						left join object_children oc on oc.object = o.id
-						left join objects c on c.id = oc.child
-						group by q.id, o.size
-				)
-				update objects o
-				set complete = u.complete,
-						count = u.count,
-						depth = u.depth,
-						weight = u.weight
-				from updates u
-				where o.id = u.id;
-			"
-		);
+		#[derive(Default)]
+		struct Stats {
+			count: u64,
+			depth: u64,
+			weight: u64,
+		}
 
-		let decrement_parents_sql = indoc!(
-			"
-			with updated as (
-					update objects
-					set incomplete_children = incomplete_children - 1
-					where id in (
-							select object from object_children where child = any($1::text[])
-					)
-					returning id, incomplete_children
-			)
-			select id from updated where incomplete_children = 0;
-    "
-		);
-
-		// Process parent updates if needed
+		// Process parent updates if needed.
 		while !queue.is_empty() {
-			transaction
-				.inner()
-				.execute(update_stats_sql, &[&queue])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
+			let object_ids = queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+			// For all objects whose incomplete_children count is 0, find all of its children, grab their count, depth, and weight and add them up to get the count, depth, and weight of the parent.
+			let children_batch = self
+				.index
+				.try_get_object_children_batch(&object_ids)
+				.await?;
+			let mut objects_to_update: Vec<PutObjectArg> = Vec::new();
+			for (object, children) in queue.iter().zip(children_batch.iter()) {
+				let children_objects = self.index.try_get_object_batch(children).await?;
+				let object = self
+					.index
+					.try_get_object_batch(&[object.id.clone()])
+					.await?
+					.first()
+					.cloned()
+					.unwrap()
+					.unwrap();
+				let stats =
+					children_objects
+						.iter()
+						.try_fold(Stats::default(), |mut stats, child| {
+							let child = child.as_ref().ok_or_else(|| {
+								tg::error!(?child, "failed to get child object in indexer task")
+							})?;
+							stats.count += child.count.ok_or_else(|| {
+								tg::error!("expected a count for the child object")
+							})?;
+							stats.depth = stats.depth.max(child.depth.ok_or_else(|| {
+								tg::error!("expected a depth for the child object")
+							})?);
+							stats.weight += child.weight.ok_or_else(|| {
+								tg::error!("expected a weight for the child object")
+							})?;
+							Ok::<_, tg::error::Error>(stats)
+						})?;
+				objects_to_update.push(PutObjectArg {
+					id: object.id.clone(),
+					cache_reference: None,
+					incomplete_children: Some(0),
+					size: None,
+					touched_at: None,
+					complete: true,
+					count: Some(1 + stats.count),
+					depth: Some(1 + stats.depth),
+					weight: Some(object.size.unwrap() + stats.weight),
+				});
+			}
 
-			let parent_rows = transaction
-				.inner()
-				.query(decrement_parents_sql, &[&queue])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
-			queue = parent_rows
+			// Update the count, depth, weight of the objects.
+			self.index
+				.put_object_batch(PutObjectBatchArg {
+					objects: objects_to_update,
+				})
+				.await?;
+
+			// For all objects who are now complete, find their parents and decrement their incomplete children count. All items whose incomplete_children count is 0 are now eligible for update themselves.
+			let parents = self.index.try_get_object_parents_batch(&object_ids).await?;
+
+			let parents: Vec<tg::object::Id> = parents.into_iter().flatten().collect();
+
+			let incomplete_children_counts = self
+				.index
+				.decrement_object_incomplete_children_count_batch(&parents)
+				.await?;
+
+			queue = parents
 				.iter()
-				.map(|row| row.get::<_, String>("id"))
+				.zip(incomplete_children_counts.iter())
+				.filter_map(|(parent, incomplete_children)| {
+					if *incomplete_children == 0 {
+						Some(QueueItem { id: parent.clone() })
+					} else {
+						None
+					}
+				})
 				.collect();
-		}
-
-		Ok(())
-	}
-
-	#[cfg(feature = "postgres")]
-	async fn indexer_touch_objects_postgres(
-		&self,
-		messages: Vec<TouchObjectMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		for message in messages {
-			let statement = indoc!(
-				"
-					update objects
-					set touched_at = $1
-					where id = $2;
-				"
-			);
-			let params = db::params![message.touched_at, message.id.to_string()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	#[cfg(feature = "postgres")]
-	async fn indexer_put_processes_postgres(
-		&self,
-		messages: Vec<PutProcessMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		for message in messages {
-			// Insert the objects.
-			let objects: Vec<&tg::object::Id> = message.objects.iter().map(|(id, _)| id).collect();
-			let kinds: Vec<&ProcessObjectKind> =
-				message.objects.iter().map(|(_, kind)| kind).collect();
-			if !message.objects.is_empty() {
-				let statement = indoc!(
-					"
-						insert into process_objects (process, object, kind)
-						select $1, unnest($2::text[]), unnest($3::text[])
-						on conflict (process, object, kind) do nothing;
-					"
-				);
-				transaction
-					.inner()
-					.execute(
-						statement,
-						&[
-							&message.id.to_string(),
-							&objects.iter().map(ToString::to_string).collect::<Vec<_>>(),
-							&kinds.iter().map(ToString::to_string).collect::<Vec<_>>(),
-						],
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
-
-			// Insert the children.
-			if let Some(children) = &message.children {
-				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
-				let statement = indoc!(
-					"
-						insert into process_children (process, position, child, path, tag)
-						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
-						on conflict (process, child) do nothing;
-					"
-				);
-				transaction
-					.inner()
-					.execute(
-						statement,
-						&[
-							&message.id.to_string(),
-							&positions.as_slice(),
-							&children
-								.iter()
-								.map(|referent| referent.item.to_string())
-								.collect::<Vec<_>>(),
-							&children
-								.iter()
-								.map(|referent| {
-									referent
-										.path
-										.as_ref()
-										.map(|path| path.display().to_string())
-								})
-								.collect::<Vec<_>>(),
-							&children
-								.iter()
-								.map(|referent| referent.tag.as_ref().map(ToString::to_string))
-								.collect::<Vec<_>>(),
-						],
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
-
-			// Insert the process.
-			let process_statement = indoc!(
-				"
-					insert into processes (id, touched_at)
-					values ($1, $2)
-					on conflict (id) do update set
-						touched_at = $2;
-				"
-			);
-			transaction
-				.inner()
-				.execute(
-					process_statement,
-					&[&message.id.to_string(), &message.touched_at],
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	#[cfg(feature = "postgres")]
-	async fn indexer_touch_processes_postgres(
-		&self,
-		messages: Vec<TouchProcessMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		for message in messages {
-			let statement = indoc!(
-				"
-					update processes
-					set touched_at = $1
-					where id = $2;
-				"
-			);
-			let params = db::params![message.touched_at, message.id.to_string()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	#[cfg(feature = "postgres")]
-	async fn indexer_put_tags_postgres(
-		&self,
-		messages: Vec<PutTagMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		for message in messages {
-			let statement = indoc!(
-				"
-					insert into tags (tag, item)
-					values ($1, $2)
-					on conflict (tag) do update
-					set tag = $1, item = $2;
-				"
-			);
-			let params = db::params![message.tag, message.item];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
-
-		Ok(())
-	}
-
-	#[cfg(feature = "postgres")]
-	async fn indexer_delete_tags_postgres(
-		&self,
-		messages: Vec<DeleteTagMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		for message in messages {
-			let statement = indoc!(
-				"
-					delete from tags
-					where tag = $1;
-				"
-			);
-			let params = db::params![message.tag];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())
@@ -1131,77 +469,6 @@ impl Server {
 	}
 }
 
-pub async fn migrate(database: &Database) -> tg::Result<()> {
-	#[allow(irrefutable_let_patterns)]
-	let Database::Sqlite(database) = database else {
-		return Ok(());
-	};
-
-	let migrations = vec![migration_0000(database).boxed()];
-
-	let connection = database
-		.connection()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-	let version =
-		connection
-			.with(|connection| {
-				connection
-					.pragma_query_value(None, "user_version", |row| {
-						Ok(row.get_unwrap::<_, usize>(0))
-					})
-					.map_err(|source| tg::error!(!source, "failed to get the version"))
-			})
-			.await?;
-	drop(connection);
-
-	// If this path is from a newer version of Tangram, then return an error.
-	if version > migrations.len() {
-		return Err(tg::error!(
-			r"The index has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
-		));
-	}
-
-	// Run all migrations and update the version.
-	let migrations = migrations.into_iter().enumerate().skip(version);
-	for (version, migration) in migrations {
-		// Run the migration.
-		migration.await?;
-
-		// Update the version.
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		connection
-			.with(move |connection| {
-				connection
-					.pragma_update(None, "user_version", version + 1)
-					.map_err(|source| tg::error!(!source, "failed to get the version"))
-			})
-			.await?;
-	}
-
-	Ok(())
-}
-
-async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
-	let sql = include_str!("index/schema.sql");
-	let connection = database
-		.write_connection()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-	connection
-		.with(move |connection| {
-			connection
-				.execute_batch(sql)
-				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
-			Ok::<_, tg::Error>(())
-		})
-		.await?;
-	Ok(())
-}
-
 impl std::fmt::Display for ProcessObjectKind {
 	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
@@ -1221,6 +488,179 @@ impl std::str::FromStr for ProcessObjectKind {
 			"error" => Ok(Self::Error),
 			"output" => Ok(Self::Output),
 			_ => Err(tg::error!("invalid kind")),
+		}
+	}
+}
+
+pub use self::lmdb::Lmdb;
+
+#[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Index {
+	// #[cfg(feature = "foundationdb")]
+	// Fdb(Fdb),
+	Lmdb(Lmdb),
+	// Memory(Memory),
+	// S3(S3),
+}
+
+#[derive(Clone, Debug)]
+pub struct PutObjectBatchArg {
+	objects: Vec<PutObjectArg>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct PutObjectArg {
+	pub cache_reference: Option<tg::artifact::Id>,
+	pub id: tg::object::Id,
+	pub size: Option<u64>,
+	pub touched_at: Option<i64>,
+	pub incomplete_children: Option<u64>,
+	pub complete: bool,
+	pub count: Option<u64>,
+	pub depth: Option<u64>,
+	pub weight: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PutObjectChildrenArg {
+	pub id: tg::object::Id,
+	pub children: Vec<tg::object::Id>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PutObjectChildrenBatchArg {
+	items: Vec<PutObjectChildrenArg>,
+}
+
+pub struct DecrementObjectIncompleteChildrenBatchArg {
+	pub ids: Vec<tg::object::Id>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Object {
+	pub id: tg::object::Id,
+	pub complete: bool,
+	pub count: Option<u64>,
+	pub depth: Option<u64>,
+	pub incomplete_children: Option<u64>,
+	pub size: Option<u64>,
+	pub weight: Option<u64>,
+}
+
+impl Index {
+	// #[cfg(feature = "foundationdb")]
+	// pub fn new_fdb(config: &crate::config::FdbStore) -> tg::Result<Self> {
+	// 	let fdb = Fdb::new(config)?;
+	// 	Ok(Self::Fdb(fdb))
+	// }
+
+	pub fn new_lmdb(config: &crate::config::LmdbIndex) -> tg::Result<Self> {
+		let lmdb = Lmdb::new(config)?;
+		Ok(Self::Lmdb(lmdb))
+	}
+
+	// pub fn new_memory() -> Self {
+	// 	Self::Memory(Memory::new())
+	// }
+
+	pub async fn try_get_object_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<Object>>> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.try_get_objects_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_batch(ids).await,
+			// Self::Memory(memory) => Ok(memory.try_get_objects_batch(ids)),
+		}
+	}
+
+	pub async fn try_get_object_incomplete_children_count_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<u64>> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.try_get_objects_complete_batch(ids).await,
+			Self::Lmdb(lmdb) => {
+				lmdb.try_get_object_incomplete_children_count_batch(ids)
+					.await
+			},
+			// Self::Memory(memory) => Ok(memory.try_get_objects_complete_batch(ids)),
+		}
+	}
+
+	pub async fn try_get_object_complete_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<bool>>> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.try_get_objects_complete_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_complete_batch(ids).await,
+			// Self::Memory(memory) => Ok(memory.try_get_objects_complete_batch(ids)),
+		}
+	}
+
+	pub async fn try_get_object_parents_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.try_get_object_parents_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_parents_batch(ids).await,
+			// Self::Memory(memory) => Ok(memory.try_get_object_parents_batch(ids)),
+		}
+	}
+
+	pub async fn try_get_object_children_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.try_get_object_children_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_children_batch(ids).await,
+			// Self::Memory(memory) => Ok(memory.try_get_object_children_batch(ids)),
+		}
+	}
+
+	pub async fn put_object_batch(&self, arg: PutObjectBatchArg) -> tg::Result<()> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.put_objects_batch(arg).await,
+			Self::Lmdb(lmdb) => lmdb.put_object_batch(arg).await,
+			// Self::Memory(memory) => memory.put_objects_batch(arg),
+		}
+	}
+
+	pub async fn put_object_children_batch(
+		&self,
+		arg: PutObjectChildrenBatchArg,
+	) -> tg::Result<()> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.put_object_children_batch(arg).await,
+			Self::Lmdb(lmdb) => lmdb.put_object_children_batch(arg).await,
+			// Self::Memory(memory) => memory.put_object_children_batch(arg),
+		}
+	}
+
+	pub async fn decrement_object_incomplete_children_count_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<u64>> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.decrement_object_incomplete_children_count_batch(ids).await,
+			Self::Lmdb(lmdb) => {
+				lmdb.decrement_object_incomplete_children_count_batch(ids)
+					.await
+			},
+			// Self::Memory(memory) => memory.decrement_object_incomplete_children_count_batch(ids),
 		}
 	}
 }

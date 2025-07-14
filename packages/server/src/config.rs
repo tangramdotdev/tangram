@@ -79,22 +79,34 @@ pub struct Http {
 
 #[derive(Clone, Debug)]
 pub enum Index {
-	Postgres(PostgresIndex),
-	Sqlite(SqliteIndex),
+	// #[cfg(feature = "foundationdb")]
+	// Fdb(FdbIndex),
+	Lmdb(LmdbIndex),
+	// Memory,
+	// S3(S3Store),
 }
 
 #[derive(Clone, Debug)]
-pub struct PostgresIndex {
-	pub connections: usize,
-	pub url: Url,
-}
-
-#[derive(Clone, Debug)]
-pub struct SqliteIndex {
-	pub connections: usize,
+pub struct LmdbIndex {
 	pub path: PathBuf,
 }
 
+// #[derive(Clone, Debug)]
+// pub enum Index {
+// 	Postgres(PostgresIndex),
+// 	Sqlite(SqliteIndex),
+// }
+// #[derive(Clone, Debug)]
+// pub struct PostgresIndex {
+// 	pub connections: usize,
+// 	pub url: Url,
+// }
+
+// #[derive(Clone, Debug)]
+// pub struct SqliteIndex {
+// 	pub connections: usize,
+// 	pub path: PathBuf,
+// }
 #[derive(Clone, Debug)]
 pub struct Indexer {
 	pub message_batch_size: usize,
@@ -193,8 +205,11 @@ impl Config {
 			connections: 1,
 			path: directory.join("database"),
 		});
-		let index = Index::Sqlite(SqliteIndex {
-			connections: 1,
+		// let index = Index::Sqlite(SqliteIndex {
+		// 	connections: 1,
+		// 	path: directory.join("index"),
+		// });
+		let index = Index::Lmdb(LmdbIndex {
 			path: directory.join("index"),
 		});
 		let indexer = Some(Indexer::default());

@@ -48,8 +48,7 @@ impl Context {
 			connections: 1,
 			path: directory.join("database"),
 		});
-		let index = crate::config::Index::Sqlite(crate::config::SqliteIndex {
-			connections: 1,
+		let index = crate::config::Index::Lmdb(crate::config::LmdbIndex {
 			path: directory.join("index"),
 		});
 		let indexer = Some(crate::config::Indexer::default());

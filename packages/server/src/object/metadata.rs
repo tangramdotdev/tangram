@@ -1,9 +1,7 @@
 use crate::Server;
 use futures::{FutureExt as _, future};
-use indoc::{formatdoc, indoc};
-use rusqlite::{self as sqlite, fallible_streaming_iterator::FallibleStreamingIterator as _};
+use rusqlite::{self as sqlite};
 use tangram_client::{self as tg, prelude::*};
-use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
 
 impl Server {
@@ -24,71 +22,24 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		// Get an index connection.
-		let connection = self
-			.index
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let objects = self.index.try_get_object_batch(&[id.clone()]).await?;
+		let object = objects.into_iter().next().unwrap();
+		println!("object: {:?}", object);
+		let metadata = object.map(|object| tg::object::Metadata {
+			complete: object.complete,
+			count: object.count,
+			depth: object.depth,
+			weight: object.weight,
+		});
 
-		// Get the object metadata.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select count, depth, weight
-				from objects
-				where id = {p}1;
-			",
-		);
-		let params = db::params![id];
-		let output = connection
-			.query_optional_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(output)
+		Ok(metadata)
 	}
 
 	pub(crate) fn try_get_object_metadata_local_sync(
-		index: &sqlite::Connection,
-		id: &tg::object::Id,
+		_index: &sqlite::Connection,
+		_id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let statement = indoc!(
-			"
-				select count, depth, weight
-				from objects
-				where id = ?1;
-			"
-		);
-		let mut statement = index
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query([id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
-		rows.advance()
-			.map_err(|source| tg::error!(!source, "query failed"))?;
-		let Some(row) = rows.get() else {
-			return Ok(None);
-		};
-		let count = row
-			.get::<_, Option<u64>>(0)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let depth = row
-			.get::<_, Option<u64>>(1)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let weight = row
-			.get::<_, Option<u64>>(2)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let metadata = tg::object::Metadata {
-			count,
-			depth,
-			weight,
-		};
-		Ok(Some(metadata))
+		todo!()
 	}
 
 	async fn try_get_object_metadata_remote(
