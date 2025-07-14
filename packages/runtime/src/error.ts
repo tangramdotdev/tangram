@@ -1,6 +1,63 @@
 import * as tg from "./index.ts";
 import type { Range } from "./range.ts";
 
+export function error(): tg.Error;
+export function error(message: string, arg?: tg.Error.Arg): tg.Error;
+export function error(arg: tg.Error.Arg): tg.Error;
+export function error(
+	firstArg?: string | Error.Arg,
+	secondArg?: Error.Arg,
+): tg.Error {
+	let arg: tg.Error.Arg = {};
+	if (firstArg !== undefined && typeof firstArg === "string") {
+		arg.message = firstArg;
+		if (secondArg !== undefined) {
+			if ("code" in secondArg) {
+				arg.code = secondArg.code;
+			}
+			if ("location" in secondArg) {
+				arg.location = secondArg.location;
+			}
+			if ("message" in secondArg) {
+				arg.message = secondArg.message;
+			}
+			if ("source" in secondArg) {
+				arg.source = secondArg.source;
+			}
+			if ("stack" in secondArg) {
+				arg.stack = secondArg.stack;
+			}
+			if ("values" in secondArg) {
+				arg.values = secondArg.values ?? {};
+			}
+		}
+	} else if (firstArg !== undefined && typeof firstArg === "object") {
+		if ("code" in firstArg) {
+			arg.code = firstArg.code;
+		}
+		if ("location" in firstArg) {
+			arg.location = firstArg.location;
+		}
+		if ("message" in firstArg) {
+			arg.message = firstArg.message;
+		}
+		if ("source" in firstArg) {
+			arg.source = firstArg.source;
+		}
+		if ("stack" in firstArg) {
+			arg.stack = firstArg.stack;
+		}
+		if ("values" in firstArg) {
+			arg.values = firstArg.values ?? {};
+		}
+	}
+	if (!("stack" in arg)) {
+		// @ts-ignore
+		globalThis.Error.captureStackTrace(arg, tg.error);
+	}
+	return new tg.Error(arg);
+}
+
 // biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 export class Error {
 	code: string | undefined;
@@ -10,59 +67,26 @@ export class Error {
 	stack: Array<tg.Error.Location> | undefined;
 	values: { [key: string]: string };
 
-	constructor();
-	constructor(message: string, arg?: Error.Arg);
-	constructor(arg: Error.Arg);
-	constructor(firstArg?: string | Error.Arg, secondArg?: Error.Arg) {
-		if (firstArg !== undefined && typeof firstArg === "string") {
-			this.message = firstArg;
+	constructor(arg: Error.Arg) {
+		if ("code" in arg) {
+			this.code = arg.code;
 		}
-		if (firstArg !== undefined && typeof firstArg === "object") {
-			if ("code" in firstArg) {
-				this.code = firstArg.code;
-			}
-			if ("location" in firstArg) {
-				this.location = firstArg.location;
-			}
-			if ("message" in firstArg) {
-				this.message = firstArg.message;
-			}
-			if ("source" in firstArg) {
-				this.source = firstArg.source;
-			}
-			if ("stack" in firstArg) {
-				this.stack = firstArg.stack;
-			}
-			if ("values" in firstArg) {
-				this.values = firstArg.values ?? {};
-			}
+		if ("location" in arg) {
+			this.location = arg.location;
 		}
-		if (secondArg !== undefined) {
-			if ("code" in secondArg) {
-				this.code = secondArg.code;
-			}
-			if ("location" in secondArg) {
-				this.location = secondArg.location;
-			}
-			if ("message" in secondArg) {
-				this.message = secondArg.message;
-			}
-			if ("source" in secondArg) {
-				this.source = secondArg.source;
-			}
-			if ("stack" in secondArg) {
-				this.stack = secondArg.stack;
-			}
-			if ("values" in secondArg) {
-				this.values = secondArg.values ?? {};
-			}
+		if ("message" in arg) {
+			this.message = arg.message;
 		}
-		if (this.stack === undefined) {
-			// @ts-ignore
-			globalThis.Error.captureStackTrace(this, Error);
+		if ("source" in arg) {
+			this.source = arg.source;
 		}
-		// @ts-ignore
-		this.values = this.values ?? {};
+		if ("stack" in arg) {
+			this.stack = arg.stack;
+		}
+		if ("values" in arg) {
+			this.values = arg.values ?? {};
+		}
+		this.values ??= {};
 	}
 }
 

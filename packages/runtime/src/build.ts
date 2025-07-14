@@ -102,7 +102,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	let wait = await process.wait();
 	if (wait.error !== undefined) {
 		let error = wait.error;
-		throw new tg.Error("the child process failed", {
+		throw tg.error("the child process failed", {
 			source: {
 				item: error,
 				path,

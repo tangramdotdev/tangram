@@ -18,7 +18,7 @@ import { Command, CommandBuilder, command } from "./command.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
 // biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
-import { Error } from "./error.ts";
+import { Error, error } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
 import { Module } from "./module.ts";
@@ -102,6 +102,7 @@ export {
 	directory,
 	download,
 	encoding,
+	error,
 	extract,
 	file,
 	graph,
