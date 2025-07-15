@@ -260,161 +260,7 @@ impl Server {
 	}
 
 	async fn indexer_put_objects(&self, messages: Vec<PutObjectMessage>) -> tg::Result<()> {
-		// Insert the children
-		let object_children_batch_arg = PutObjectChildrenBatchArg {
-			items: messages
-				.iter()
-				.map(|message| PutObjectChildrenArg {
-					id: message.id.clone(),
-					children: message.children.iter().cloned().collect(),
-				})
-				.collect::<Vec<_>>(),
-		};
-		self.index
-			.put_object_children_batch(object_children_batch_arg)
-			.await?;
-
-		// Compute the incomplete children counts, keep track of those with incomplete_children = 0.
-		let incomplete_children_counts = self
-			.index
-			.try_get_object_incomplete_children_count_batch(
-				messages
-					.iter()
-					.map(|message| message.id.clone())
-					.collect::<Vec<_>>()
-					.as_slice(),
-			)
-			.await?;
-
-		// Get the objects to insert.
-		let objects: Vec<PutObjectArg> = messages
-			.iter()
-			.zip(incomplete_children_counts)
-			.map(|(message, incomplete_children)| PutObjectArg {
-				id: message.id.clone(),
-				cache_reference: message.cache_reference.clone(),
-				size: Some(message.size),
-				touched_at: Some(message.touched_at),
-				incomplete_children: Some(incomplete_children),
-				complete: false,
-				count: None,
-				depth: None,
-				weight: None,
-			})
-			.collect();
-
-		// Get the objects whose incomplete_children count is 0.
-		let mut queue: Vec<QueueItem> = objects
-			.iter()
-			.filter(|object| object.incomplete_children.unwrap() == 0)
-			.map(|object| QueueItem {
-				id: object.id.clone(),
-			})
-			.collect();
-		let ids: Vec<tg::object::Id> = objects
-			.iter()
-			.filter(|object| object.incomplete_children.unwrap() == 0)
-			.map(|object| object.id.clone())
-			.collect();
-
-		// Insert the objects.
-		let arg = PutObjectBatchArg { objects };
-		self.index
-			.put_object_batch(arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put objects in the index"))?;
-
-		struct QueueItem {
-			id: tg::object::Id,
-		}
-
-		#[derive(Default)]
-		struct Stats {
-			count: u64,
-			depth: u64,
-			weight: u64,
-		}
-
-		// Process parent updates if needed.
-		while !queue.is_empty() {
-			let object_ids = queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
-			// For all objects whose incomplete_children count is 0, find all of its children, grab their count, depth, and weight and add them up to get the count, depth, and weight of the parent.
-			let children_batch = self
-				.index
-				.try_get_object_children_batch(&object_ids)
-				.await?;
-			let mut objects_to_update: Vec<PutObjectArg> = Vec::new();
-			for (object, children) in queue.iter().zip(children_batch.iter()) {
-				let children_objects = self.index.try_get_object_batch(children).await?;
-				let object = self
-					.index
-					.try_get_object_batch(&[object.id.clone()])
-					.await?
-					.first()
-					.cloned()
-					.unwrap()
-					.unwrap();
-				let stats =
-					children_objects
-						.iter()
-						.try_fold(Stats::default(), |mut stats, child| {
-							let child = child.as_ref().ok_or_else(|| {
-								tg::error!(?child, "failed to get child object in indexer task")
-							})?;
-							stats.count += child.count.ok_or_else(|| {
-								tg::error!("expected a count for the child object")
-							})?;
-							stats.depth = stats.depth.max(child.depth.ok_or_else(|| {
-								tg::error!("expected a depth for the child object")
-							})?);
-							stats.weight += child.weight.ok_or_else(|| {
-								tg::error!("expected a weight for the child object")
-							})?;
-							Ok::<_, tg::error::Error>(stats)
-						})?;
-				objects_to_update.push(PutObjectArg {
-					id: object.id.clone(),
-					cache_reference: None,
-					incomplete_children: Some(0),
-					size: None,
-					touched_at: None,
-					complete: true,
-					count: Some(1 + stats.count),
-					depth: Some(1 + stats.depth),
-					weight: Some(object.size.unwrap() + stats.weight),
-				});
-			}
-
-			// Update the count, depth, weight of the objects.
-			self.index
-				.put_object_batch(PutObjectBatchArg {
-					objects: objects_to_update,
-				})
-				.await?;
-
-			// For all objects who are now complete, find their parents and decrement their incomplete children count. All items whose incomplete_children count is 0 are now eligible for update themselves.
-			let parents = self.index.try_get_object_parents_batch(&object_ids).await?;
-
-			let parents: Vec<tg::object::Id> = parents.into_iter().flatten().collect();
-
-			let incomplete_children_counts = self
-				.index
-				.decrement_object_incomplete_children_count_batch(&parents)
-				.await?;
-
-			queue = parents
-				.iter()
-				.zip(incomplete_children_counts.iter())
-				.filter_map(|(parent, incomplete_children)| {
-					if *incomplete_children == 0 {
-						Some(QueueItem { id: parent.clone() })
-					} else {
-						None
-					}
-				})
-				.collect();
-		}
-
+		self.index.put_objects(messages)?;
 		Ok(())
 	}
 
@@ -564,6 +410,14 @@ impl Index {
 	// pub fn new_memory() -> Self {
 	// 	Self::Memory(Memory::new())
 	// }
+	pub fn put_objects(&self, messages: Vec<PutObjectMessage>) -> tg::Result<()> {
+		match self {
+			// #[cfg(feature = "foundationdb")]
+			// Self::Fdb(fdb) => fdb.put_objects(messages).await,
+			Self::Lmdb(lmdb) => lmdb.put_objects(&messages),
+			// Self::Memory(memory) => memory.put_objects(messages),
+		}
+	}
 
 	pub async fn try_get_object_batch(
 		&self,
@@ -572,7 +426,7 @@ impl Index {
 		match self {
 			// #[cfg(feature = "foundationdb")]
 			// Self::Fdb(fdb) => fdb.try_get_objects_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_object_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_batch(ids),
 			// Self::Memory(memory) => Ok(memory.try_get_objects_batch(ids)),
 		}
 	}
@@ -584,10 +438,7 @@ impl Index {
 		match self {
 			// #[cfg(feature = "foundationdb")]
 			// Self::Fdb(fdb) => fdb.try_get_objects_complete_batch(ids).await,
-			Self::Lmdb(lmdb) => {
-				lmdb.try_get_object_incomplete_children_count_batch(ids)
-					.await
-			},
+			Self::Lmdb(lmdb) => lmdb.try_get_object_incomplete_children_count_batch(ids),
 			// Self::Memory(memory) => Ok(memory.try_get_objects_complete_batch(ids)),
 		}
 	}
@@ -599,7 +450,7 @@ impl Index {
 		match self {
 			// #[cfg(feature = "foundationdb")]
 			// Self::Fdb(fdb) => fdb.try_get_objects_complete_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_object_complete_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_complete_batch(ids),
 			// Self::Memory(memory) => Ok(memory.try_get_objects_complete_batch(ids)),
 		}
 	}
@@ -611,7 +462,7 @@ impl Index {
 		match self {
 			// #[cfg(feature = "foundationdb")]
 			// Self::Fdb(fdb) => fdb.try_get_object_parents_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_object_parents_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_parents_batch(ids),
 			// Self::Memory(memory) => Ok(memory.try_get_object_parents_batch(ids)),
 		}
 	}
@@ -623,44 +474,44 @@ impl Index {
 		match self {
 			// #[cfg(feature = "foundationdb")]
 			// Self::Fdb(fdb) => fdb.try_get_object_children_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_object_children_batch(ids).await,
+			Self::Lmdb(lmdb) => lmdb.try_get_object_children_batch(ids),
 			// Self::Memory(memory) => Ok(memory.try_get_object_children_batch(ids)),
 		}
 	}
 
-	pub async fn put_object_batch(&self, arg: PutObjectBatchArg) -> tg::Result<()> {
-		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.put_objects_batch(arg).await,
-			Self::Lmdb(lmdb) => lmdb.put_object_batch(arg).await,
-			// Self::Memory(memory) => memory.put_objects_batch(arg),
-		}
-	}
+	// pub async fn put_object_batch(&self, arg: PutObjectBatchArg) -> tg::Result<()> {
+	// 	match self {
+	// 		// #[cfg(feature = "foundationdb")]
+	// 		// Self::Fdb(fdb) => fdb.put_objects_batch(arg).await,
+	// 		Self::Lmdb(lmdb) => lmdb.put_object_batch(arg).await,
+	// 		// Self::Memory(memory) => memory.put_objects_batch(arg),
+	// 	}
+	// }
 
-	pub async fn put_object_children_batch(
-		&self,
-		arg: PutObjectChildrenBatchArg,
-	) -> tg::Result<()> {
-		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.put_object_children_batch(arg).await,
-			Self::Lmdb(lmdb) => lmdb.put_object_children_batch(arg).await,
-			// Self::Memory(memory) => memory.put_object_children_batch(arg),
-		}
-	}
+	// pub async fn put_object_children_batch(
+	// 	&self,
+	// 	arg: PutObjectChildrenBatchArg,
+	// ) -> tg::Result<()> {
+	// 	match self {
+	// 		// #[cfg(feature = "foundationdb")]
+	// 		// Self::Fdb(fdb) => fdb.put_object_children_batch(arg).await,
+	// 		Self::Lmdb(lmdb) => lmdb.put_object_children_batch(arg).await,
+	// 		// Self::Memory(memory) => memory.put_object_children_batch(arg),
+	// 	}
+	// }
 
-	pub async fn decrement_object_incomplete_children_count_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<u64>> {
-		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.decrement_object_incomplete_children_count_batch(ids).await,
-			Self::Lmdb(lmdb) => {
-				lmdb.decrement_object_incomplete_children_count_batch(ids)
-					.await
-			},
-			// Self::Memory(memory) => memory.decrement_object_incomplete_children_count_batch(ids),
-		}
-	}
+	// pub async fn decrement_object_incomplete_children_count_batch(
+	// 	&self,
+	// 	ids: &[tg::object::Id],
+	// ) -> tg::Result<Vec<u64>> {
+	// 	match self {
+	// 		// #[cfg(feature = "foundationdb")]
+	// 		// Self::Fdb(fdb) => fdb.decrement_object_incomplete_children_count_batch(ids).await,
+	// 		Self::Lmdb(lmdb) => {
+	// 			lmdb.decrement_object_incomplete_children_count_batch(ids)
+	// 				.await
+	// 		},
+	// 		// Self::Memory(memory) => memory.decrement_object_incomplete_children_count_batch(ids),
+	// 	}
+	// }
 }

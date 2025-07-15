@@ -1,18 +1,20 @@
 use bytes::Bytes;
+use fnv::FnvHashSet;
 use foundationdb_tuple::TuplePack as _;
 use heed::{self as lmdb, DatabaseFlags};
 use http::header::CACHE_CONTROL;
 use num::ToPrimitive as _;
 use serde::de;
-use tangram_client as tg;
+use tangram_client::{self as tg, value::print};
 
-use crate::{index::PutObjectBatchArg, process::complete};
+use crate::{
+	index::PutObjectBatchArg,
+	process::{complete, start},
+};
 
 pub struct Lmdb {
 	db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
 	env: lmdb::Env,
-	sender: tokio::sync::mpsc::Sender<Message>,
-	task: tokio::task::JoinHandle<()>,
 }
 
 enum Message {
@@ -65,29 +67,178 @@ impl Lmdb {
 			.commit()
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-		// Create the task.
-		let (sender, receiver) = tokio::sync::mpsc::channel::<Message>(256);
-		let task = tokio::spawn({
-			let env = env.clone();
-			async move { Self::task(env, db, receiver).await }
-		});
-
-		Ok(Self {
-			db,
-			env,
-			sender,
-			task,
-		})
+		Ok(Self { db, env })
 	}
 
-	pub async fn try_get_object_batch(
+	pub fn put_objects(&self, messages: &[super::PutObjectMessage]) -> tg::Result<()> {
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		// Insert the children
+		let object_children_batch_arg = crate::index::PutObjectChildrenBatchArg {
+			items: messages
+				.iter()
+				.map(|message| crate::index::PutObjectChildrenArg {
+					id: message.id.clone(),
+					children: message.children.iter().cloned().collect(),
+				})
+				.collect::<Vec<_>>(),
+		};
+		self.put_object_children_batch_with_transaction(
+			&mut transaction,
+			object_children_batch_arg,
+		)?;
+
+		// Compute the incomplete children counts, keep track of those with incomplete_children = 0.
+		let incomplete_children_counts = self
+			.try_get_object_incomplete_children_count_batch_with_transaction(
+				&transaction,
+				messages
+					.iter()
+					.map(|message| message.id.clone())
+					.collect::<Vec<_>>()
+					.as_slice(),
+			)?;
+
+		// Get the objects to insert.
+		let objects: Vec<crate::index::PutObjectArg> = messages
+			.iter()
+			.zip(incomplete_children_counts)
+			.map(
+				|(message, incomplete_children)| crate::index::PutObjectArg {
+					id: message.id.clone(),
+					cache_reference: message.cache_reference.clone(),
+					size: Some(message.size),
+					touched_at: Some(message.touched_at),
+					incomplete_children: Some(incomplete_children),
+					complete: false,
+					count: None,
+					depth: None,
+					weight: None,
+				},
+			)
+			.collect();
+
+		// Insert the objects.
+		let arg = PutObjectBatchArg {
+			objects: objects.clone(),
+		};
+		let inserted =
+			self.insert_if_not_exists_object_batch_with_transaction(&mut transaction, arg)?;
+
+		// Filter the objects that were just inserted and had incomplete_children = 0.
+		let mut queue: Vec<tg::object::Id> = objects
+			.iter()
+			.zip(inserted.into_iter())
+			.filter(|(object, inserted)| *inserted && object.incomplete_children.unwrap() == 0)
+			.map(|(object, _)| object.id.clone())
+			.collect();
+
+		#[derive(Default)]
+		struct Stats {
+			count: u64,
+			depth: u64,
+			weight: u64,
+		}
+
+		// Process parent updates if needed.
+		while !queue.is_empty() {
+			let object_ids = queue
+				.iter()
+				.cloned()
+				.collect::<FnvHashSet<_>>()
+				.into_iter()
+				.collect::<Vec<_>>();
+
+			// For all objects whose incomplete_children count is 0, find all of its children, grab their count, depth, and weight and add them up to get the count, depth, and weight of the parent.
+			let children_batch =
+				self.try_get_object_children_batch_with_transaction(&transaction, &object_ids)?;
+
+			let mut objects_to_update: Vec<crate::index::PutObjectArg> = Vec::new();
+			for (id, children) in object_ids.iter().zip(children_batch.iter()) {
+				let children_objects =
+					self.try_get_object_batch_with_transaction(&transaction, children)?;
+				let object = self
+					.try_get_object_batch_with_transaction(&transaction, &[id.clone()])?
+					.first()
+					.cloned()
+					.unwrap()
+					.unwrap();
+				let stats =
+					children_objects
+						.iter()
+						.try_fold(Stats::default(), |mut stats, child| {
+							let child = child.as_ref().ok_or_else(|| {
+								tg::error!(?child, "failed to get child object in indexer task")
+							})?;
+							stats.count += child.count.ok_or_else(|| {
+								tg::error!("expected a count for the child object")
+							})?;
+							stats.depth = stats.depth.max(child.depth.ok_or_else(|| {
+								tg::error!("expected a depth for the child object")
+							})?);
+							stats.weight += child.weight.ok_or_else(|| {
+								tg::error!("expected a weight for the child object")
+							})?;
+							Ok::<_, tg::error::Error>(stats)
+						})?;
+				objects_to_update.push(crate::index::PutObjectArg {
+					id: object.id.clone(),
+					cache_reference: None,
+					incomplete_children: Some(0),
+					size: None,
+					touched_at: None,
+					complete: true,
+					count: Some(1 + stats.count),
+					depth: Some(1 + stats.depth),
+					weight: Some(object.size.unwrap() + stats.weight),
+				});
+			}
+
+			// Update the count, depth, weight of the objects.
+			self.update_object_batch_with_transaction(
+				&mut transaction,
+				PutObjectBatchArg {
+					objects: objects_to_update,
+				},
+			)?;
+
+			// For all objects who are now complete, find their parents and decrement their incomplete children count. All items whose incomplete_children count is 0 are now eligible for update themselves.
+			let parents =
+				self.try_get_object_parents_batch_with_transaction(&transaction, &object_ids)?;
+
+			let parents: Vec<tg::object::Id> = parents.into_iter().flatten().collect();
+
+			let incomplete_children_counts = self
+				.decrement_object_incomplete_children_count_batch_with_transaction(
+					&mut transaction,
+					&parents,
+				)?;
+
+			queue = parents
+				.iter()
+				.zip(incomplete_children_counts.iter())
+				.filter_map(|(parent, incomplete_children)| {
+					if *incomplete_children == 0 {
+						Some(parent.clone())
+					} else {
+						None
+					}
+				})
+				.collect();
+		}
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn try_get_object_batch_with_transaction<'a>(
 		&self,
+		transaction: &'a lmdb::RwTxn<'a>,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<super::Object>>> {
-		let transaction = self
-			.env
-			.read_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let complete_key = (0, id.to_bytes(), 0);
@@ -99,7 +250,7 @@ impl Lmdb {
 
 			let complete_bytes = self
 				.db
-				.get(&transaction, &complete_key.pack_to_vec())
+				.get(transaction, &complete_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			let complete = if let Some(complete) = complete_bytes {
 				// Convert the byte slice to a bool
@@ -117,7 +268,7 @@ impl Lmdb {
 
 			let count = self
 				.db
-				.get(&transaction, &count_key.pack_to_vec())
+				.get(transaction, &count_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			let count = match count {
 				Some(count) => {
@@ -128,7 +279,7 @@ impl Lmdb {
 			};
 			let depth = self
 				.db
-				.get(&transaction, &depth_key.pack_to_vec())
+				.get(transaction, &depth_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			let depth = match depth {
 				Some(depth) => {
@@ -139,7 +290,7 @@ impl Lmdb {
 			};
 			let incomplete_children = self
 				.db
-				.get(&transaction, &incomplete_children_key.pack_to_vec())
+				.get(transaction, &incomplete_children_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			let incomplete_children = match incomplete_children {
 				Some(incomplete_children) => {
@@ -151,7 +302,7 @@ impl Lmdb {
 			};
 			let size = self
 				.db
-				.get(&transaction, &size_key.pack_to_vec())
+				.get(transaction, &size_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			let size = match size {
 				Some(size) => {
@@ -162,7 +313,7 @@ impl Lmdb {
 			};
 			let weight = self
 				.db
-				.get(&transaction, &weight_key.pack_to_vec())
+				.get(transaction, &weight_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			let weight = match weight {
 				Some(weight) => {
@@ -186,20 +337,29 @@ impl Lmdb {
 		Ok(output)
 	}
 
-	pub async fn try_get_object_complete_batch(
+	pub fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<bool>>> {
+	) -> tg::Result<Vec<Option<super::Object>>> {
 		let transaction = self
 			.env
-			.read_txn()
+			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let output = self.try_get_object_batch_with_transaction(&transaction, ids)?;
+		Ok(output)
+	}
+
+	pub fn try_get_object_complete_batch_with_transaction(
+		&self,
+		transaction: &lmdb::RwTxn,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<bool>>> {
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let complete_key = (0, id.to_bytes(), 0);
 			let complete = self
 				.db
-				.get(&transaction, &complete_key.pack_to_vec())
+				.get(transaction, &complete_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			let complete = if let Some(complete) = complete {
 				// Convert the byte slice to a bool
@@ -220,14 +380,23 @@ impl Lmdb {
 		Ok(output)
 	}
 
-	pub async fn try_get_object_parents_batch(
+	pub fn try_get_object_complete_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
+	) -> tg::Result<Vec<Option<bool>>> {
 		let transaction = self
 			.env
-			.read_txn()
+			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let output = self.try_get_object_complete_batch_with_transaction(&transaction, ids)?;
+		Ok(output)
+	}
+
+	pub fn try_get_object_parents_batch_with_transaction(
+		&self,
+		transaction: &lmdb::RwTxn,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let mut parents = Vec::new();
@@ -247,25 +416,33 @@ impl Lmdb {
 			}
 			output.push(parents);
 		}
-
 		Ok(output)
 	}
 
-	pub async fn try_get_object_children_batch(
+	pub fn try_get_object_parents_batch(
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
 		let transaction = self
 			.env
-			.read_txn()
+			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let output = self.try_get_object_parents_batch_with_transaction(&transaction, ids)?;
+		Ok(output)
+	}
+
+	pub fn try_get_object_children_batch_with_transaction(
+		&self,
+		transaction: &lmdb::RwTxn,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let mut children = Vec::new();
 			let key = (1, id.to_bytes());
 			let dup = self
 				.db
-				.get_duplicates(&transaction, &key.pack_to_vec())
+				.get_duplicates(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			if let Some(dup) = dup {
 				for child in dup {
@@ -278,18 +455,32 @@ impl Lmdb {
 			}
 			output.push(children);
 		}
-
 		Ok(output)
 	}
 
-	pub async fn try_get_object_incomplete_children_count_batch(
+	pub fn try_get_object_children_batch(
 		&self,
 		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
+		let transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let output = self.try_get_object_children_batch_with_transaction(&transaction, ids)?;
+		Ok(output)
+	}
+
+	pub fn try_get_object_incomplete_children_count_batch_with_transaction(
+		&self,
+		transaction: &lmdb::RwTxn,
+		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<u64>> {
-		let children_batch = self.try_get_object_children_batch(ids).await?;
+		let children_batch =
+			self.try_get_object_children_batch_with_transaction(&transaction, ids)?;
 		let mut output = Vec::with_capacity(ids.len());
 		for children in children_batch {
-			let children_objects = self.try_get_object_batch(&children).await?;
+			let children_objects =
+				self.try_get_object_batch_with_transaction(&transaction, &children)?;
 			let mut incomplete_children_count = 0;
 			for object in children_objects {
 				if let Some(object) = object {
@@ -305,239 +496,198 @@ impl Lmdb {
 		Ok(output)
 	}
 
-	pub async fn put_object_batch(&self, arg: super::PutObjectBatchArg) -> tg::Result<()> {
-		if arg.objects.is_empty() {
-			return Ok(());
-		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = Message::PutObjects(PutObjectBatchMessage {
-			objects: arg.objects.clone(),
-			response_sender: sender,
-		});
-		self.sender
-			.send(message)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the message"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(())
-	}
-
-	pub async fn put_object_children_batch(
-		&self,
-		arg: super::PutObjectChildrenBatchArg,
-	) -> tg::Result<()> {
-		if arg.items.is_empty() {
-			return Ok(());
-		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = Message::PutObjectChildren(PutObjectChildrenBatchMessage {
-			items: arg.items.clone(),
-			response_sender: sender,
-		});
-		self.sender
-			.send(message)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the message"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(())
-	}
-
-	pub async fn decrement_object_incomplete_children_count_batch(
+	pub fn try_get_object_incomplete_children_count_batch(
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<u64>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = Message::DecrementObjectIncompleteChildrenCountBatch(
-			DecrementObjectIncompleteChildrenBatchArg {
-				ids: ids.to_vec(),
-				response_sender: sender,
-			},
-		);
-		self.sender
-			.send(message)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the message"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(response)
+		let transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let output = self
+			.try_get_object_incomplete_children_count_batch_with_transaction(&transaction, ids)?;
+		Ok(output)
 	}
 
-	async fn task(
-		env: lmdb::Env,
-		db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
-		mut receiver: tokio::sync::mpsc::Receiver<Message>,
-	) {
-		while let Some(message) = receiver.recv().await {
-			match message {
-				Message::PutObjects(message) => {
-					let result = async {
-						let mut transaction = env.write_txn().map_err(|source| {
-							tg::error!(!source, "failed to begin a transaction")
-						})?;
-						for object in message.objects {
-							let id = object.id.clone();
-							let complete_key = (0, id.to_bytes(), 0);
-							let count_key = (0, id.to_bytes(), 1);
-							let depth_key = (0, id.to_bytes(), 2);
-							let incomplete_children_key = (0, id.to_bytes(), 3);
-							let size_key = (0, id.to_bytes(), 4);
-							let weight_key = (0, id.to_bytes(), 5);
+	pub fn insert_if_not_exists_object_batch_with_transaction(
+		&self,
+		transaction: &mut lmdb::RwTxn,
+		arg: super::PutObjectBatchArg,
+	) -> tg::Result<Vec<bool>> {
+		let mut output = Vec::with_capacity(arg.objects.len());
+		for object in arg.objects {
+			let id = object.id.clone();
+			let complete_key = (0, id.to_bytes(), 0);
+			let count_key = (0, id.to_bytes(), 1);
+			let depth_key = (0, id.to_bytes(), 2);
+			let incomplete_children_key = (0, id.to_bytes(), 3);
+			let size_key = (0, id.to_bytes(), 4);
+			let weight_key = (0, id.to_bytes(), 5);
 
-							// Write the complete key.
-							let bytes = if object.complete { [1] } else { [0] };
-							db.delete(&mut transaction, &complete_key.pack_to_vec())
-								.map_err(|source| {
-									tg::error!(!source, "failed to delete the value")
-								})?;
-							db.put(&mut transaction, &complete_key.pack_to_vec(), &bytes)
-								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			// Write the complete key.
+			if self
+				.db
+				.get(transaction, &complete_key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to get the key"))?
+				.is_some()
+			{
+				output.push(false);
+				continue;
+			}
+			let bytes = if object.complete { [1] } else { [0] };
+			self.db
+				.delete(transaction, &complete_key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+			self.db
+				.put(transaction, &complete_key.pack_to_vec(), &bytes)
+				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 
-							if let Some(count) = object.count {
-								let bytes = count.to_le_bytes().to_vec();
-								db.put(&mut transaction, &count_key.pack_to_vec(), &bytes)
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
-							}
-							if let Some(depth) = object.depth {
-								let bytes = depth.to_le_bytes().to_vec();
-								db.put(&mut transaction, &depth_key.pack_to_vec(), &bytes)
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
-							}
-							if let Some(incomplete_children) = object.incomplete_children {
-								let bytes = incomplete_children.to_le_bytes().to_vec();
-								db.put(
-									&mut transaction,
-									&incomplete_children_key.pack_to_vec(),
-									&bytes,
-								)
-								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
-							}
-							if let Some(size) = object.size {
-								let bytes = size.to_le_bytes().to_vec();
-								db.put(&mut transaction, &size_key.pack_to_vec(), &bytes)
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
-							}
-							if let Some(weight) = object.weight {
-								let bytes = weight.to_le_bytes().to_vec();
-								db.put(&mut transaction, &weight_key.pack_to_vec(), &bytes)
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
-							}
-						}
-						transaction.commit().map_err(|source| {
-							tg::error!(!source, "failed to commit the transaction")
-						})?;
-						Ok::<_, tg::Error>(())
-					}
-					.await;
-					message.response_sender.send(result).ok();
-				},
-				Message::PutObjectChildren(message) => {
-					let result = async {
-						let mut transaction = env.write_txn().map_err(|source| {
-							tg::error!(!source, "failed to begin a transaction")
-						})?;
-						for item in message.items {
-							for child in item.children {
-								// Insert the object, child key
-								let key = (1, item.id.to_bytes());
-								db.put(&mut transaction, &key.pack_to_vec(), &child.to_bytes())
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
-								// Insert the child, parent key
-								let key = (2, child.to_bytes());
-								db.put(&mut transaction, &key.pack_to_vec(), &item.id.to_bytes())
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
-							}
-						}
-						transaction.commit().map_err(|source| {
-							tg::error!(!source, "failed to commit the transaction")
-						})?;
-						Ok::<_, tg::Error>(())
-					}
-					.await;
-					message.response_sender.send(result).ok();
-				},
-				Message::DecrementObjectIncompleteChildrenCountBatch(
-					decrement_object_incomplete_children_batch_arg,
-				) => {
-					let result = async {
-						let mut transaction = env.write_txn().map_err(|source| {
-							tg::error!(!source, "failed to begin a transaction")
-						})?;
-						let mut output = Vec::with_capacity(
-							decrement_object_incomplete_children_batch_arg.ids.len(),
-						);
-						for id in &decrement_object_incomplete_children_batch_arg.ids {
-							let incomplete_children_key = (0, id.to_bytes(), 3);
-							let incomplete_children = db
-								.get(&transaction, &incomplete_children_key.pack_to_vec())
-								.map_err(|source| tg::error!(!source, "failed to get the value"))?;
-							if let Some(incomplete_children) = incomplete_children {
-								let mut incomplete_children =
-									u64::from_le_bytes(incomplete_children.try_into().unwrap());
-								if incomplete_children > 0 {
-									incomplete_children -= 1;
-									let bytes = incomplete_children.to_le_bytes().to_vec();
-									let flags = lmdb::PutFlags::NO_OVERWRITE;
-									let result = db.put_with_flags(
-										&mut transaction,
-										flags,
-										&incomplete_children_key.pack_to_vec(),
-										&bytes,
-									);
-									match result {
-										Ok(())
-										| Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
-										Err(error) => {
-											return Err(tg::error!(
-												!error,
-												"failed to put the value"
-											));
-										},
-									}
-								}
-								output.push(incomplete_children);
-							} else {
-								output.push(0);
-							}
-						}
-						transaction.commit().map_err(|source| {
-							tg::error!(!source, "failed to commit the transaction")
-						})?;
-						Ok::<_, tg::Error>(output)
-					}
-					.await;
-					decrement_object_incomplete_children_batch_arg
-						.response_sender
-						.send(result)
-						.ok();
-				},
+			if let Some(count) = object.count {
+				let bytes = count.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &count_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(depth) = object.depth {
+				let bytes = depth.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &depth_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(incomplete_children) = object.incomplete_children {
+				let bytes = incomplete_children.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &incomplete_children_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(size) = object.size {
+				let bytes = size.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &size_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(weight) = object.weight {
+				let bytes = weight.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &weight_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
 		}
+		return Ok(output);
 	}
-}
 
-impl Drop for Lmdb {
-	fn drop(&mut self) {
-		self.task.abort();
+	pub fn update_object_batch_with_transaction(
+		&self,
+		transaction: &mut lmdb::RwTxn,
+		arg: super::PutObjectBatchArg,
+	) -> tg::Result<()> {
+		for object in arg.objects {
+			let id = object.id.clone();
+			let complete_key = (0, id.to_bytes(), 0);
+			let count_key = (0, id.to_bytes(), 1);
+			let depth_key = (0, id.to_bytes(), 2);
+			let incomplete_children_key = (0, id.to_bytes(), 3);
+			let size_key = (0, id.to_bytes(), 4);
+			let weight_key = (0, id.to_bytes(), 5);
+
+			// Write the complete key.
+			let bytes = if object.complete { [1] } else { [0] };
+			self.db
+				.delete(transaction, &complete_key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+			self.db
+				.put(transaction, &complete_key.pack_to_vec(), &bytes)
+				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+
+			if let Some(count) = object.count {
+				let bytes = count.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &count_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(depth) = object.depth {
+				let bytes = depth.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &depth_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(incomplete_children) = object.incomplete_children {
+				let bytes = incomplete_children.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &incomplete_children_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(size) = object.size {
+				let bytes = size.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &size_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+			if let Some(weight) = object.weight {
+				let bytes = weight.to_le_bytes().to_vec();
+				self.db
+					.put(transaction, &weight_key.pack_to_vec(), &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+		}
+		Ok(())
+	}
+
+	pub fn put_object_children_batch_with_transaction(
+		&self,
+		transaction: &mut lmdb::RwTxn,
+		arg: super::PutObjectChildrenBatchArg,
+	) -> tg::Result<()> {
+		for item in arg.items {
+			for child in item.children {
+				// Insert the object, child key
+				let key = (1, item.id.to_bytes());
+				self.db
+					.put(transaction, &key.pack_to_vec(), &child.to_bytes())
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+				// Insert the child, parent key
+				let key = (2, child.to_bytes());
+				self.db
+					.put(transaction, &key.pack_to_vec(), &item.id.to_bytes())
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+		}
+		Ok(())
+	}
+
+	pub fn decrement_object_incomplete_children_count_batch_with_transaction(
+		&self,
+		transaction: &mut lmdb::RwTxn,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<u64>> {
+		let mut output = Vec::with_capacity(ids.len());
+		for id in ids {
+			let incomplete_children_key = (0, id.to_bytes(), 3);
+			let incomplete_children = self
+				.db
+				.get(transaction, &incomplete_children_key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
+			let incomplete_children = incomplete_children.ok_or_else(|| {
+				tg::error!("expected an incomplete_children value for the object")
+			})?;
+			let mut incomplete_children =
+				u64::from_le_bytes(incomplete_children.try_into().unwrap());
+			if incomplete_children == 0 {
+				return Err(tg::error!(
+					"incomplete_children count is already 0 for the object"
+				));
+			}
+			incomplete_children -= 1;
+			let bytes = incomplete_children.to_le_bytes().to_vec();
+			self.db
+				.delete(transaction, &incomplete_children_key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+			self.db
+				.put(transaction, &incomplete_children_key.pack_to_vec(), &bytes)
+				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			output.push(incomplete_children);
+		}
+		Ok::<_, tg::Error>(output)
 	}
 }
 
