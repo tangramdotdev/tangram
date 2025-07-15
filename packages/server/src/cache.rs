@@ -316,7 +316,9 @@ impl Server {
 			Err(error)
 				if matches!(
 					error.kind(),
-					std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::DirectoryNotEmpty
+					std::io::ErrorKind::AlreadyExists
+						| std::io::ErrorKind::DirectoryNotEmpty
+						| std::io::ErrorKind::PermissionDenied
 				) =>
 			{
 				true

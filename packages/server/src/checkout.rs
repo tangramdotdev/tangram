@@ -511,9 +511,7 @@ impl Server {
 
 		// Attempt to reflink the file.
 		let result = reflink(src, dst);
-		if result.is_ok()
-			|| result.is_err_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists)
-		{
+		if result.is_ok() {
 			return Ok(());
 		}
 

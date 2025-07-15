@@ -53,7 +53,14 @@ impl Server {
 		}
 		let done = match tokio::fs::rename(src, dst).await {
 			Ok(()) => false,
-			Err(error) if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) => {
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::AlreadyExists
+						| std::io::ErrorKind::DirectoryNotEmpty
+						| std::io::ErrorKind::PermissionDenied
+				) =>
+			{
 				true
 			},
 			Err(source) => {
@@ -126,13 +133,8 @@ impl Server {
 			let dst = &self.cache_path().join(id);
 			let done = match std::fs::rename(src, dst) {
 				Ok(()) => false,
-				Err(error)
-					if matches!(error.raw_os_error(), Some(libc::EEXIST | libc::ENOTEMPTY)) =>
-				{
-					true
-				},
 				Err(source) => {
-					return Err(tg::error!(!source, "failed to rename file"));
+					return Err(tg::error!(!source, "failed to rename the file"));
 				},
 			};
 
