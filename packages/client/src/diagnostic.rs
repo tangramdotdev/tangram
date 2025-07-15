@@ -23,33 +23,18 @@ pub enum Severity {
 	Hint,
 }
 
-impl From<Diagnostic> for lsp::Diagnostic {
-	fn from(value: Diagnostic) -> Self {
-		let range = value
-			.location
-			.map(|location| location.range.into())
-			.unwrap_or_default();
-		let severity = Some(value.severity.into());
-		let source = Some("tangram".to_owned());
-		let message = value.message;
-		Self {
-			range,
+impl std::fmt::Display for Diagnostic {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let Self {
 			severity,
-			source,
 			message,
-			..Default::default()
+			location,
+		} = self;
+		write!(f, "{severity} {message}")?;
+		if let Some(location) = location {
+			write!(f, " {location}")?;
 		}
-	}
-}
-
-impl From<Severity> for lsp::DiagnosticSeverity {
-	fn from(value: Severity) -> Self {
-		match value {
-			Severity::Error => lsp::DiagnosticSeverity::ERROR,
-			Severity::Warning => lsp::DiagnosticSeverity::WARNING,
-			Severity::Info => lsp::DiagnosticSeverity::INFORMATION,
-			Severity::Hint => lsp::DiagnosticSeverity::HINT,
-		}
+		Ok(())
 	}
 }
 
@@ -78,17 +63,32 @@ impl std::str::FromStr for Severity {
 	}
 }
 
-impl std::fmt::Display for Diagnostic {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let Self {
+impl From<Diagnostic> for lsp::Diagnostic {
+	fn from(value: Diagnostic) -> Self {
+		let range = value
+			.location
+			.map(|location| location.range.into())
+			.unwrap_or_default();
+		let severity = Some(value.severity.into());
+		let source = Some("tangram".to_owned());
+		let message = value.message;
+		Self {
+			range,
 			severity,
+			source,
 			message,
-			location,
-		} = self;
-		write!(f, "{severity} {message}")?;
-		if let Some(location) = location {
-			write!(f, " {location}")?;
+			..Default::default()
 		}
-		Ok(())
+	}
+}
+
+impl From<Severity> for lsp::DiagnosticSeverity {
+	fn from(value: Severity) -> Self {
+		match value {
+			Severity::Error => lsp::DiagnosticSeverity::ERROR,
+			Severity::Warning => lsp::DiagnosticSeverity::WARNING,
+			Severity::Info => lsp::DiagnosticSeverity::INFORMATION,
+			Severity::Hint => lsp::DiagnosticSeverity::HINT,
+		}
 	}
 }

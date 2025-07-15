@@ -1,6 +1,6 @@
 use crate::{self as tg, util::serde::is_default};
 use std::path::PathBuf;
-use tangram_uri as uri;
+use tangram_uri::Uri;
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
@@ -104,8 +104,8 @@ impl<T> Referent<T>
 where
 	T: std::fmt::Display,
 {
-	pub fn to_uri(&self) -> uri::Uri {
-		let mut builder = uri::Uri::builder().path(self.item.to_string());
+	pub fn to_uri(&self) -> Uri {
+		let mut builder = Uri::builder().path(self.item.to_string());
 		let mut query = Vec::new();
 		if let Some(path) = &self.options.path {
 			let path = path.to_string_lossy();
@@ -130,7 +130,7 @@ impl<T> Referent<T>
 where
 	T: std::str::FromStr,
 {
-	pub fn with_uri(uri: &uri::Uri) -> tg::Result<Self> {
+	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let item = uri
 			.path()
 			.parse()
@@ -182,7 +182,7 @@ where
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let uri = uri::Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
 		let reference = Self::with_uri(&uri)?;
 		Ok(reference)
 	}

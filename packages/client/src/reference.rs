@@ -7,11 +7,11 @@ use std::{
 };
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
-use tangram_uri as uri;
+use tangram_uri::Uri;
 
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Reference {
-	uri: uri::Uri,
+	uri: Uri,
 	item: Item,
 	options: Options,
 }
@@ -49,7 +49,7 @@ pub struct Options {
 }
 
 impl Reference {
-	pub fn with_uri(uri: uri::Uri) -> tg::Result<Self> {
+	pub fn with_uri(uri: Uri) -> tg::Result<Self> {
 		let path = uri.path();
 		let path =
 			urlencoding::decode(path).map_err(|source| tg::error!(!source, "invalid path"))?;
@@ -69,7 +69,7 @@ impl Reference {
 	pub fn with_item_and_options(item: &Item, options: &Options) -> Self {
 		let path = item.to_string();
 		let query = serde_urlencoded::to_string(options).unwrap();
-		let uri = uri::Uri::builder().path(path).query(query).build().unwrap();
+		let uri = Uri::builder().path(path).query(query).build().unwrap();
 		Self::with_uri(uri).unwrap()
 	}
 
@@ -104,7 +104,7 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn uri(&self) -> &uri::Uri {
+	pub fn uri(&self) -> &Uri {
 		&self.uri
 	}
 
@@ -173,7 +173,7 @@ impl std::str::FromStr for Reference {
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let uri = uri::Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
 		let reference = Self::with_uri(uri)?;
 		Ok(reference)
 	}
