@@ -72,13 +72,13 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Advanced {
-	/// Options for rendering error traces.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error_trace_options: Option<tg::error::TraceOptions>,
-
 	/// The path to the preferred autobuild package for `tangram init`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub init_autobuild_reference: Option<tg::Reference>,
+
+	/// Whether to capture and display internal error locations.
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub internal_error_locations: bool,
 
 	/// Whether to preserve temporary directories.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,13 +89,13 @@ pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_dequeue_timeout: Option<Duration>,
 
-	/// Whether to enable publishing of data to tokio console.
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub tokio_console: bool,
-
 	/// Whether all server processes share a single directory.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub shared_directory: Option<bool>,
+
+	/// Whether to enable publishing of data to tokio console.
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub tokio_console: bool,
 
 	/// Whether to write process logs to the server's stderr.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

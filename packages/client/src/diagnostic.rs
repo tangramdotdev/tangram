@@ -8,7 +8,14 @@ pub struct Diagnostic {
 	pub message: String,
 }
 
-#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	derive_more::IsVariant,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
 pub enum Severity {
 	Error,
 	Warning,

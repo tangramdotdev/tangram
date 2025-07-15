@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import type { Range } from "./range.ts";
 
 export function error(): tg.Error;
 export function error(message: string, arg?: tg.Error.Arg): tg.Error;
@@ -102,8 +101,8 @@ export namespace Error {
 
 	export type Location = {
 		symbol?: string;
-		file: File;
-		range: Range;
+		file: tg.Error.File;
+		range: tg.Range;
 	};
 
 	export type File =
@@ -112,47 +111,41 @@ export namespace Error {
 
 	export type Data = {
 		code?: string;
-		location?: LocationData;
+		location?: tg.Error.Data.Location;
 		message?: string;
-		source?: tg.Referent<tg.Error.Data>;
-		stack?: Array<LocationData>;
+		source?: tg.Referent.Data<tg.Error.Data>;
+		stack?: Array<tg.Error.Data.Location>;
 		values?: { [key: string]: string };
 	};
 
-	export type LocationData = {
-		symbol?: string;
-		file: FileData;
-		range: Range;
-	};
+	export namespace Data {
+		export type Location = {
+			symbol?: string;
+			file: tg.Error.Data.File;
+			range: tg.Range;
+		};
 
-	export type FileData =
-		| { kind: "internal"; value: string }
-		| { kind: "module"; value: tg.Module.Data };
+		export type File =
+			| { kind: "internal"; value: string }
+			| { kind: "module"; value: tg.Module.Data };
+	}
 
-	export let toData = (value: Error): Data => {
+	export let toData = (value: tg.Error): tg.Error.Data => {
 		let data: tg.Error.Data = {};
 		if (value.code !== undefined) {
 			data.code = value.code;
 		}
 		if (value.location !== undefined) {
-			data.location = Location.toData(value.location);
+			data.location = tg.Error.Location.toData(value.location);
 		}
 		if (value.message !== undefined) {
 			data.message = value.message;
 		}
 		if (value.source !== undefined) {
-			data.source = {
-				item: Error.toData(value.source.item),
-			};
-			if (value.source.path !== undefined) {
-				data.source.path = value.source.path;
-			}
-			if (value.source.tag !== undefined) {
-				data.source.tag = value.source.tag;
-			}
+			data.source = tg.Referent.toData(value.source, tg.Error.toData);
 		}
 		if (value.stack !== undefined) {
-			data.stack = value.stack.map(Location.toData);
+			data.stack = value.stack.map(tg.Error.Location.toData);
 		}
 		if (value.values !== undefined) {
 			data.values = value.values;
@@ -160,25 +153,22 @@ export namespace Error {
 		return data;
 	};
 
-	export let fromData = (data: Data): Error => {
+	export let fromData = (data: tg.Error.Data): tg.Error => {
 		let arg: tg.Error.Arg = {};
 		if ("code" in data) {
 			arg.code = data.code;
 		}
 		if ("location" in data) {
-			arg.location = Location.fromData(data.location);
+			arg.location = tg.Error.Location.fromData(data.location);
 		}
 		if ("message" in data) {
 			arg.message = data.message;
 		}
 		if ("source" in data) {
-			arg.source = {
-				...data.source,
-				item: Error.fromData(data.source.item),
-			};
+			arg.source = tg.Referent.fromData(data.source, tg.Error.fromData);
 		}
 		if ("stack" in data) {
-			arg.stack = data.stack.map(Location.fromData);
+			arg.stack = data.stack.map(tg.Error.Location.fromData);
 		}
 		if ("values" in data) {
 			arg.values = data.values;
@@ -187,7 +177,7 @@ export namespace Error {
 	};
 
 	export namespace Location {
-		export let toData = (value: Location): LocationData => {
+		export let toData = (value: tg.Error.Location): tg.Error.Data.Location => {
 			let file =
 				value.file.kind === "module"
 					? {
@@ -201,7 +191,7 @@ export namespace Error {
 			};
 		};
 
-		export let fromData = (data: LocationData): Location => {
+		export let fromData = (data: tg.Error.Data.Location): tg.Error.Location => {
 			let file =
 				data.file.kind === "module"
 					? {

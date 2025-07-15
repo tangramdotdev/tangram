@@ -173,7 +173,7 @@ async fn assertion_failure_in_tag_dependency() {
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: error in foo
 		   ╰────
-		   ╭─[foo:./tangram.ts:1:25]
+		   ╭─[foo:tangram.ts:1:25]
 		 1 │ export default () => tg.assert(false, "error in foo");
 		   ·                         ▲
 		   ·                         ╰── Uncaught Error: error in foo
@@ -223,7 +223,7 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 		   ·                      ▲
 		   ·                      ╰── Uncaught Error: failure in foo
 		   ╰────
-		   ╭─[foo:./tangram.ts:2:22]
+		   ╭─[foo:tangram.ts:2:22]
 		 1 │ import bar from "../bar";
 		 2 │ export default () => bar();
 		   ·                      ▲

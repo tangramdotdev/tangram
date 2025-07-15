@@ -2,7 +2,7 @@ import ts from "typescript";
 import { assert, unreachable } from "./assert.ts";
 import type { Diagnostic, Severity } from "./diagnostics.ts";
 import { log } from "./log.ts";
-import type { Module } from "./module.ts";
+import { Module } from "./module.ts";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
@@ -205,15 +205,9 @@ let getImportAttributesFromImportExpression = (
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module: Module): string => {
 	if (module.kind === "dts") {
-		return `lib:/${module.referent.slice(2)}`;
+		return `lib:/${module.referent.item.slice(2)}`;
 	}
-	let string = module.referent;
-	if (string.indexOf("?") === -1) {
-		string += "?";
-	} else {
-		string += "&";
-	}
-	string += `kind=${module.kind}`;
+	let string = Module.toDataString(module);
 	let extension: string;
 	if (module.kind === "js") {
 		extension = ".js";
@@ -230,16 +224,13 @@ export let fileNameFromModule = (module: Module): string => {
 export let moduleFromFileName = (fileName: string): Module => {
 	if (fileName.startsWith("lib:/")) {
 		let path = fileName.slice(5);
-		let referent = `./${path}`;
+		let item = `./${path}`;
 		return {
 			kind: "dts",
-			referent,
+			referent: { item },
 		};
 	}
-	let index = fileName.indexOf("kind=");
-	let referent = fileName.slice(0, index - 1);
-	let kind = fileName.match(/kind=([a-z]+)/)![1]!;
-	return { kind, referent };
+	return Module.fromDataString(fileName);
 };
 
 /** Convert a diagnostic. */

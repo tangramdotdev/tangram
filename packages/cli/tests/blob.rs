@@ -37,7 +37,7 @@ async fn create_from_file() {
 			.arg("get")
 			.arg(id)
 			.arg("--depth=inf")
-			.arg("--format=tgvn")
+			.arg("--format=tgon")
 			.arg("--pretty=true")
 			.output()
 			.await

@@ -266,7 +266,8 @@ impl Cli {
 			Ok(config) => config,
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
-				Self::print_error_basic(&error, None);
+				let error = tg::Referent::with_item(error);
+				Self::print_error_basic(error);
 				return std::process::ExitCode::FAILURE;
 			},
 		};
@@ -351,7 +352,8 @@ impl Cli {
 			Err(error) => {
 				eprintln!("{} failed to run the command", "error".red().bold());
 				runtime.block_on(async {
-					cli.print_error(&error, None).await;
+					let error = tg::Referent::with_item(error);
+					cli.print_error(error).await;
 				});
 				std::process::ExitCode::FAILURE
 			},
@@ -401,7 +403,8 @@ impl Cli {
 		// Get the health and print diagnostics.
 		let health = handle.health().await?;
 		if !self.args.quiet {
-			for diagnostic in &health.diagnostics {
+			for diagnostic in health.diagnostics {
+				let diagnostic = tg::Referent::with_item(diagnostic);
 				self.print_diagnostic(diagnostic).await;
 			}
 		}
@@ -660,6 +663,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 		{
+			config.advanced.internal_error_locations = advanced.internal_error_locations;
 			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
 				config.advanced.process_dequeue_timeout = process_dequeue_timeout;
 			}
@@ -1252,16 +1256,16 @@ impl Cli {
 	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
 		let handle = self.handle().await?;
 		let mut item = reference.item().clone();
-		let mut options = reference.options().cloned();
+		let mut options = reference.options().clone();
 		if let tg::reference::Item::Path(path) = &mut item {
 			*path = std::path::absolute(&path)
 				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 		}
-		if let Some(path) = options.as_mut().and_then(|options| options.path.as_mut()) {
+		if let Some(path) = options.path.as_mut() {
 			*path = std::path::absolute(&path)
 				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 		}
-		let reference = tg::Reference::with_item_and_options(&item, options.as_ref());
+		let reference = tg::Reference::with_item_and_options(&item, &options);
 		let stream = handle.get(&reference).await?;
 		let output = self.render_progress_stream(stream).await?;
 		Ok(output)
@@ -1286,25 +1290,21 @@ impl Cli {
 		let referent = self.get_reference(reference).await?;
 		let item = referent
 			.item
+			.clone()
 			.right()
 			.ok_or_else(|| tg::error!("expected an object"))?;
-		let mut referent = tg::Referent {
-			item,
-			path: referent.path,
-			tag: referent.tag,
-		};
+		let mut referent = referent.map(|_| item);
 
 		// If the reference's path is relative, then make the referent's path relative to the current working directory.
-		referent.path = referent
-			.path
-			.take()
+		referent.options.path = referent
+			.path()
 			.map(|path| {
 				if reference.path().is_none_or(Path::is_absolute) {
-					Ok(path)
+					Ok(path.clone())
 				} else {
 					let current_dir = std::env::current_dir()
 						.map_err(|source| tg::error!(!source, "failed to get current dir"))?;
-					crate::util::path_diff(&current_dir, &path)
+					crate::util::path::diff(&current_dir, path)
 				}
 			})
 			.transpose()?;
@@ -1317,10 +1317,10 @@ impl Cli {
 				)
 				.await?
 				.ok_or_else(|| tg::error!("could not determine the executable"))?;
-				if let Some(path) = &mut referent.path {
+				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_name);
 				} else {
-					referent.path.replace(root_module_name.into());
+					referent.options.path.replace(root_module_name.into());
 				}
 				let kind = if Path::new(root_module_name)
 					.extension()
@@ -1337,18 +1337,13 @@ impl Cli {
 				};
 				let item = directory.get(&handle, root_module_name).await?;
 				let item = tg::module::Item::Object(item.into());
-				let referent = tg::Referent {
-					item,
-					path: referent.path,
-					tag: referent.tag,
-				};
+				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }
 			},
 
 			tg::Object::File(file) => {
 				let path = referent
-					.path
-					.as_ref()
+					.path()
 					.ok_or_else(|| tg::error!("expected a path"))?;
 				if !tg::package::is_module_path(path) {
 					return Err(tg::error!("expected a module path"));
@@ -1361,11 +1356,7 @@ impl Cli {
 					unreachable!()
 				};
 				let item = tg::module::Item::Object(file.clone().into());
-				let referent = tg::Referent {
-					item,
-					path: referent.path,
-					tag: referent.tag,
-				};
+				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }
 			},
 

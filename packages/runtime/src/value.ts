@@ -43,7 +43,7 @@ export namespace Value {
 		}
 	};
 
-	export let fromData = (data: Data): Value => {
+	export let fromData = (data: tg.Value.Data): tg.Value => {
 		if (
 			typeof data === "undefined" ||
 			typeof data === "boolean" ||

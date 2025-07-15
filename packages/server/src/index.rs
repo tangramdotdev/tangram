@@ -496,8 +496,8 @@ impl Server {
 						message.id.to_string(),
 						position,
 						child.item.to_string(),
-						child.path.as_ref().map(|path| path.display().to_string()),
-						child.tag.as_ref().map(ToString::to_string),
+						child.path().map(|path| path.display().to_string()),
+						child.tag().map(ToString::to_string),
 					];
 					child_statement
 						.execute(params)
@@ -815,15 +815,12 @@ impl Server {
 							&children
 								.iter()
 								.map(|referent| {
-									referent
-										.path
-										.as_ref()
-										.map(|path| path.display().to_string())
+									referent.path().map(|path| path.display().to_string())
 								})
 								.collect::<Vec<_>>(),
 							&children
 								.iter()
-								.map(|referent| referent.tag.as_ref().map(ToString::to_string))
+								.map(|referent| referent.tag().map(ToString::to_string))
 								.collect::<Vec<_>>(),
 						],
 					)

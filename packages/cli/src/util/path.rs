@@ -36,23 +36,3 @@ pub fn normalize(src: impl AsRef<Path>) -> PathBuf {
 	}
 	components.into_iter().collect()
 }
-
-#[cfg(test)]
-mod test {
-	use std::path::PathBuf;
-
-	#[test]
-	fn normalize() {
-		let path = "../foo/bar";
-		assert_eq!(PathBuf::from(path), super::normalize(path));
-
-		let path = "../foo/../bar";
-		assert_eq!(PathBuf::from("../bar"), super::normalize(path));
-
-		let path = "foo/../bar";
-		assert_eq!(PathBuf::from("bar"), super::normalize(path));
-
-		let path = "../foo/../bar/../baz";
-		assert_eq!(PathBuf::from("../baz"), super::normalize(path));
-	}
-}

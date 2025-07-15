@@ -25,7 +25,7 @@ pub enum Format {
 	Bytes,
 	Json,
 	#[default]
-	Tgvn,
+	Tgon,
 }
 
 impl Cli {
@@ -46,7 +46,7 @@ impl Cli {
 				let data = tg::object::Data::deserialize(args.object.kind(), bytes.clone())?;
 				Self::print_json(&data, args.pretty).await?;
 			},
-			Format::Tgvn => {
+			Format::Tgon => {
 				let depth = match args.depth {
 					Depth::Finite(depth) => depth,
 					Depth::Infinite => u64::MAX,

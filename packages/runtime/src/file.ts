@@ -84,10 +84,10 @@ export class File {
 					tg.Object.is(value)
 				) {
 					let item = tg.Graph.Edge.fromArg(value);
-					referent = { item };
+					referent = { item, options: {} };
 				} else {
 					let item = tg.Graph.Edge.fromArg(value.item);
-					referent = { item, path: value.path, tag: value.tag };
+					referent = { item, options: value.options };
 				}
 				return [key, referent];
 			}),
@@ -215,8 +215,8 @@ export class File {
 							object = referent.item;
 						}
 						let value = {
-							...referent,
 							item: object,
+							options: referent.options,
 						};
 						return [reference, value];
 					}),
@@ -236,8 +236,8 @@ export class File {
 							object = referent.item;
 						}
 						let value = {
-							...referent,
 							item: object,
+							options: referent.options,
 						};
 						return [reference, value];
 					}),

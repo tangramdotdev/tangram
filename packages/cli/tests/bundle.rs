@@ -63,7 +63,7 @@ async fn directory_no_dependencies() {
 	test_bundle(directory, assertions).await;
 }
 
-/// Test bundling a directory that contains files with dependencies.  #[tokio::test]
+/// Test bundling a directory that contains files with dependencies.
 #[tokio::test]
 async fn directory_containing_file_with_file_dependency() {
 	let directory = temp::directory! {
@@ -317,7 +317,7 @@ where
 			.arg("get")
 			.arg(id.clone())
 			.arg("--depth=inf")
-			.arg("--format=tgvn")
+			.arg("--format=tgon")
 			.arg("--pretty=true")
 			.output()
 			.await

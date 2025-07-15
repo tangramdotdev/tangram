@@ -103,7 +103,7 @@ async fn file_with_tag_dependency() {
 		  "contents": "foo",
 		  "xattrs": {
 		    "user.tangram.dependencies": "[\"bar\"]",
-		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}]}"
+		    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}}]}"
 		  }
 		}
 		"#);
@@ -261,7 +261,7 @@ async fn directory_with_file_with_dependency() {
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": \"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"\n      }\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": \"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"\n        }\n      }\n    }\n  ]\n}"
 		    }
 		  }
 		}
@@ -284,7 +284,9 @@ async fn directory_with_file_with_dependency() {
 		    },
 		    {
 		      "dependencies": {
-		        "bar": "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
+		        "bar": {
+		          "item": "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
+		        }
 		      },
 		      "kind": "file"
 		    }
@@ -377,7 +379,7 @@ async fn directory_with_file_with_id_dependency_with_tag_dependency() {
 		        "artifacts": {
 		          "kind": "directory",
 		          "entries": {
-		            "fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg": {
+		            "fil_015he7ezx34nn8v07bjhetjtd6d08wvtz12zdtzrjejea66fq2fwjg": {
 		              "kind": "file",
 		              "contents": "bar",
 		              "xattrs": {
@@ -396,12 +398,12 @@ async fn directory_with_file_with_id_dependency_with_tag_dependency() {
 		      "kind": "file",
 		      "contents": "foo",
 		      "xattrs": {
-		        "user.tangram.dependencies": "[\"fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg\"]"
+		        "user.tangram.dependencies": "[\"fil_015he7ezx34nn8v07bjhetjtd6d08wvtz12zdtzrjejea66fq2fwjg\"]"
 		      }
 		    },
 		    "tangram.lock": {
 		      "kind": "file",
-		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg\": {\n          \"item\": 2\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\",\n      \"dependencies\": {\n        \"baz\": \"fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg\"\n      }\n    }\n  ]\n}"
+		      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": 1\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"fil_015he7ezx34nn8v07bjhetjtd6d08wvtz12zdtzrjejea66fq2fwjg\": {\n          \"item\": 2\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\",\n      \"dependencies\": {\n        \"baz\": {\n          \"item\": \"fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg\"\n        }\n      }\n    }\n  ]\n}"
 		    }
 		  }
 		}
@@ -424,7 +426,7 @@ async fn directory_with_file_with_id_dependency_with_tag_dependency() {
 		    },
 		    {
 		      "dependencies": {
-		        "fil_019xf26zfnft8rmgdj92h3633z9sgwwtp0jqg1xkyyvtakznt5j4kg": {
+		        "fil_015he7ezx34nn8v07bjhetjtd6d08wvtz12zdtzrjejea66fq2fwjg": {
 		          "item": 2
 		        }
 		      },
@@ -433,7 +435,9 @@ async fn directory_with_file_with_id_dependency_with_tag_dependency() {
 		    {
 		      "contents": "blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg",
 		      "dependencies": {
-		        "baz": "fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg"
+		        "baz": {
+		          "item": "fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg"
+		        }
 		      },
 		      "kind": "file"
 		    }

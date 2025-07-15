@@ -1,6 +1,5 @@
-use crate::{self as tg, util::serde::is_false};
+use crate as tg;
 use itertools::Itertools as _;
-use serde_with::serde_as;
 use std::{collections::BTreeMap, fmt::Debug, path::PathBuf};
 
 pub use self::data::Error as Data;
@@ -52,32 +51,9 @@ pub enum File {
 	Module(tg::Module),
 }
 
-pub struct Trace<'a> {
-	pub error: &'a Error,
-	pub options: &'a TraceOptions,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct TraceOptions {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub internal: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub reverse: bool,
-}
-
 impl Error {
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
 		data.try_into()
-	}
-
-	#[must_use]
-	pub fn trace<'a>(&'a self, options: &'a TraceOptions) -> Trace<'a> {
-		Trace {
-			error: self,
-			options,
-		}
 	}
 
 	#[must_use]
@@ -162,16 +138,6 @@ impl File {
 	}
 }
 
-impl TraceOptions {
-	#[must_use]
-	pub fn internal() -> Self {
-		Self {
-			internal: true,
-			..Default::default()
-		}
-	}
-}
-
 pub fn ok<T>(value: T) -> Result<T> {
 	Ok(value)
 }
@@ -190,13 +156,7 @@ impl TryFrom<Data> for Error {
 		let source = value
 			.source
 			.map(|referent| {
-				let item = Box::new((*referent.item).try_into()?);
-				let referent = tg::Referent {
-					item,
-					path: referent.path,
-					tag: referent.tag,
-				};
-				Ok::<_, tg::Error>(referent)
+				referent.try_map(|item| Ok::<_, tg::Error>(Box::new((*item).try_into()?)))
 			})
 			.transpose()?;
 		let values = value.values;
@@ -260,11 +220,10 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 				message: Some(error.to_string()),
 				location: None,
 				stack: None,
-				source: error.source().map(Into::into).map(|error| tg::Referent {
-					item: Box::new(error),
-					path: None,
-					tag: None,
-				}),
+				source: error
+					.source()
+					.map(Into::into)
+					.map(|error| tg::Referent::with_item(Box::new(error))),
 				values: BTreeMap::new(),
 			},
 		}
@@ -278,11 +237,10 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 			message: Some(value.to_string()),
 			location: None,
 			stack: None,
-			source: value.source().map(Into::into).map(|error| tg::Referent {
-				item: Box::new(error),
-				path: None,
-				tag: None,
-			}),
+			source: value
+				.source()
+				.map(Into::into)
+				.map(|error| tg::Referent::with_item(Box::new(error))),
 			values: BTreeMap::new(),
 		}
 	}
@@ -304,42 +262,6 @@ impl<'a> From<&'a std::panic::Location<'a>> for Location {
 				},
 			},
 		}
-	}
-}
-
-impl std::fmt::Display for Trace<'_> {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let mut errors = vec![self.error];
-		while let Some(next) = errors.last().unwrap().source.as_ref() {
-			errors.push(next.item.as_ref());
-		}
-		if self.options.reverse {
-			errors.reverse();
-		}
-		for error in errors {
-			let message = error.message.as_deref().unwrap_or("an error occurred");
-			writeln!(f, "-> {message}")?;
-			if let Some(location) = &error.location {
-				if !location.file.is_internal() || self.options.internal {
-					writeln!(f, "   {location}")?;
-				}
-			}
-			for (key, value) in &error.values {
-				let key = key.as_str();
-				let value = value.as_str();
-				writeln!(f, "   {key} = {value}")?;
-			}
-			let mut stack = error.stack.iter().flatten().collect::<Vec<_>>();
-			if self.options.reverse {
-				stack.reverse();
-			}
-			for location in stack {
-				if !location.file.is_internal() || self.options.internal {
-					writeln!(f, "   {location}")?;
-				}
-			}
-		}
-		Ok(())
 	}
 }
 
@@ -422,14 +344,14 @@ macro_rules! error {
 	({ $error:ident }, !$source:ident, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = $crate::Referent { item: std::boxed::Box::new(source), path: None, tag: None};
+		let source = $crate::Referent::with_item(std::boxed::Box::new(source));
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};
 	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source = $crate::Error::from(source);
-		let source = $crate::Referent { item: std::boxed::Box::new(source), path: None, tag: None };
+		let source = $crate::Referent::with_item(std::boxed::Box::new(source));
 		$error.source.replace(source);
 		$crate::error!({ $error }, $($arg)*)
 	};

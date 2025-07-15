@@ -126,8 +126,7 @@ impl Cli {
 			let view_task = {
 				let handle = handle.clone();
 				let item = crate::viewer::Item::Process(process.clone());
-				let tg::Referent { path, tag, .. } = referent.clone();
-				let root = tg::Referent { item, path, tag };
+				let root = referent.clone().map(|_| item);
 				let task = Task::spawn_blocking(move |stop| {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
@@ -140,8 +139,7 @@ impl Cli {
 							let viewer_options = crate::viewer::Options {
 								auto_expand_and_collapse_processes: true,
 								display_paths_relative_to_cwd: root
-									.path
-									.as_ref()
+									.path()
 									.is_some_and(|path| path.is_relative()),
 								show_process_commands: false,
 							};
@@ -202,7 +200,8 @@ impl Cli {
 		// Get the output.
 		if let Some(error) = wait.error {
 			eprintln!("{} the process failed", "error".red().bold());
-			self.print_error(&error, Some(&referent)).await;
+			let error = referent.map(|_| error);
+			self.print_error(error).await;
 		}
 
 		// Set the exit.

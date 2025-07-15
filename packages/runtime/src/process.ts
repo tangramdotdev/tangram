@@ -190,7 +190,7 @@ export namespace Process {
 			return output;
 		};
 
-		export let fromData = (data: Data): State => {
+		export let fromData = (data: tg.Process.Data): tg.Process.State => {
 			let output: State = {
 				command: tg.Command.withId(data.command),
 				error:
@@ -249,7 +249,9 @@ export namespace Process {
 			output?: tg.Value.Data;
 		};
 
-		export let fromData = (data: Data): WaitOutput => {
+		export let fromData = (
+			data: tg.Process.WaitOutput.Data,
+		): tg.Process.WaitOutput => {
 			let output: WaitOutput = {
 				error:
 					data.error !== undefined ? tg.Error.fromData(data.error) : undefined,

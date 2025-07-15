@@ -41,12 +41,12 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let tg::Referent { item, path, tag } = self.get_reference(&args.reference).await?;
-		let item = match item {
-			Either::Left(process) => crate::viewer::Item::Process(process),
-			Either::Right(object) => crate::viewer::Item::Value(object.into()),
+		let referent = self.get_reference(&args.reference).await?;
+		let item = match referent.item() {
+			Either::Left(process) => crate::viewer::Item::Process(process.clone()),
+			Either::Right(object) => crate::viewer::Item::Value(object.clone().into()),
 		};
-		let root = tg::Referent { item, path, tag };
+		let root = referent.map(|_| item);
 
 		let kind = args.kind;
 		let print = args.print;
@@ -62,8 +62,7 @@ impl Cli {
 					let options = crate::viewer::Options {
 						auto_expand_and_collapse_processes: false,
 						display_paths_relative_to_cwd: root
-							.path
-							.as_ref()
+							.path()
 							.is_some_and(|path| path.is_relative()),
 						show_process_commands: true,
 					};

@@ -301,7 +301,9 @@ impl Server {
 				.map(|tag| tag.parse())
 				.transpose()
 				.map_err(|source| tg::error!(!source, "expected a valid tag"))?;
-			children.push(tg::Referent { item, path, tag });
+			let options = tg::referent::Options { path, tag };
+			let referent = tg::Referent { item, options };
+			children.push(referent);
 		}
 
 		let data = tg::process::Data {

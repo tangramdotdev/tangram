@@ -20,7 +20,7 @@ impl Cli {
 
 		for reference in &args.references {
 			let referent = self.get_reference(reference).await?;
-			let Either::Right(object) = &referent.item else {
+			let Either::Right(object) = referent.item() else {
 				return Err(tg::error!("expected an object"));
 			};
 			if let Ok(blob) = tg::Blob::try_from(object.clone()) {

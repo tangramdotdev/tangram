@@ -293,3 +293,60 @@ impl Reference {
 			.await
 	}
 }
+
+impl<T> std::fmt::Display for Edge<T>
+where
+	T: std::fmt::Display,
+{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Reference(reference) => write!(f, "{reference}"),
+			Self::Object(object) => write!(f, "{object}"),
+		}
+	}
+}
+
+impl<T> std::str::FromStr for Edge<T>
+where
+	T: std::str::FromStr,
+{
+	type Err = tg::Error;
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if let Ok(reference) = s.parse() {
+			Ok(Self::Reference(reference))
+		} else if let Ok(object) = s.parse() {
+			Ok(Self::Object(object))
+		} else {
+			Err(tg::error!("expected an edge"))
+		}
+	}
+}
+
+impl std::fmt::Display for Reference {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		if let Some(graph) = &self.graph {
+			write!(f, "graph={graph}&")?;
+		}
+		write!(f, "node={}", self.node)?;
+		Ok(())
+	}
+}
+
+impl std::str::FromStr for Reference {
+	type Err = tg::Error;
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)
+			.map_err(|_| tg::error!("failed to deserialize edge"))?;
+		let graph = value
+			.get("graph")
+			.map(|s| s.parse())
+			.transpose()?
+			.map(tg::Graph::with_id);
+		let node = value
+			.get("node")
+			.ok_or_else(|| tg::error!("missing node"))?
+			.parse()
+			.map_err(|_| tg::error!("expected a number"))?;
+		Ok(Self { graph, node })
+	}
+}

@@ -208,3 +208,7 @@ pub fn is_true(value: &bool) -> bool {
 pub fn is_zero(value: &usize) -> bool {
 	*value == 0
 }
+
+pub fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+	value == &T::default()
+}

@@ -242,8 +242,10 @@ impl Server {
 			.into_iter()
 			.map(|row| tg::Referent {
 				item: row.child,
-				path: row.path,
-				tag: row.tag,
+				options: tg::referent::Options {
+					path: row.path,
+					tag: row.tag,
+				},
 			})
 			.collect();
 

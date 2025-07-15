@@ -454,7 +454,7 @@ impl Server {
 						.item()
 						.try_unwrap_path_ref()
 						.ok()
-						.or_else(|| reference.options()?.path.as_ref())
+						.or_else(|| reference.options().path.as_ref())
 						.ok_or_else(|| tg::error!(%reference, "expected a path reference"))?;
 					let path = arg.current_node_path.parent().unwrap().join(path);
 					let path = tokio::fs::canonicalize(&path).await.map_err(
@@ -795,28 +795,27 @@ impl Server {
 					.clone()
 					.into_iter()
 					.map(|(reference, referent)| {
-						let tg::Referent { item, path, tag } = referent;
-						let item = match item {
-							Either::Left(lockfile_index)
-								if graph_indices.contains_key(&lockfile_index) =>
-							{
+						let item = match referent.item() {
+							Either::Left(index) if graph_indices.contains_key(index) => {
 								tg::graph::object::Edge::Reference(tg::graph::object::Reference {
 									graph: None,
-									node: graph_indices.get(&lockfile_index).copied().unwrap(),
+									node: graph_indices.get(index).copied().unwrap(),
 								})
 							},
-							Either::Left(lockfile_index) => {
-								let object = visited[lockfile_index]
+							Either::Left(index) => {
+								let object = visited[*index]
 									.as_ref()
 									.ok_or_else(|| tg::error!("expected an object"))?
 									.clone();
 								tg::graph::object::Edge::Object(object)
 							},
 							Either::Right(id) => {
-								tg::graph::object::Edge::Object(tg::Object::with_id(id))
+								let object = tg::Object::with_id(id.clone());
+								tg::graph::object::Edge::Object(object)
 							},
 						};
-						Ok::<_, tg::Error>((reference, tg::Referent { item, path, tag }))
+						let referent = referent.map(|_| item);
+						Ok::<_, tg::Error>((reference, referent))
 					})
 					.try_collect()
 				else {
@@ -904,14 +903,13 @@ impl Server {
 					.clone()
 					.into_iter()
 					.map(|(reference, referent)| {
-						let tg::Referent { item, path, tag } = referent;
-						let item = match item {
-							Either::Left(node) => visited[node]
+						let item = match referent.item() {
+							Either::Left(node) => visited[*node]
 								.clone()
 								.ok_or_else(|| tg::error!("expected an object"))?,
-							Either::Right(id) => tg::Object::with_id(id),
+							Either::Right(id) => tg::Object::with_id(id.clone()),
 						};
-						Ok::<_, tg::Error>((reference, tg::Referent { item, path, tag }))
+						Ok::<_, tg::Error>((reference, referent.map(|_| item)))
 					})
 					.try_collect::<_, BTreeMap<_, _>, _>()
 				else {
@@ -986,14 +984,14 @@ fn get_paths(root_path: &Path, lockfile: &tg::Lockfile) -> tg::Result<Vec<Option
 			},
 			tg::lockfile::Node::File(tg::lockfile::File { dependencies, .. }) => {
 				for referent in dependencies.values() {
-					let Either::Left(index) = &referent.item else {
+					let Either::Left(index) = referent.item() else {
 						continue;
 					};
 					// Skip tags.
-					if referent.tag.is_some() {
+					if referent.tag().is_some() {
 						continue;
 					}
-					let Some(path) = &referent.path else {
+					let Some(path) = referent.path() else {
 						continue;
 					};
 					let path = node_path.parent().unwrap().join(path);

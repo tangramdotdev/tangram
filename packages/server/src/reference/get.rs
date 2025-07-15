@@ -16,11 +16,7 @@ impl Server {
 			tg::reference::Item::Process(process) => {
 				let item = Either::Left(process.clone());
 				let output = tg::get::Output {
-					referent: tg::Referent {
-						item,
-						path: None,
-						tag: None,
-					},
+					referent: tg::Referent::with_item(item),
 				};
 				let event = tg::progress::Event::Output(Some(output));
 				let stream = stream::once(future::ok(event));
@@ -29,11 +25,7 @@ impl Server {
 			tg::reference::Item::Object(object) => {
 				let item = Either::Right(object.clone());
 				let output = tg::get::Output {
-					referent: tg::Referent {
-						item,
-						path: None,
-						tag: None,
-					},
+					referent: tg::Referent::with_item(item),
 				};
 				let event = tg::progress::Event::Output(Some(output));
 				let stream = stream::once(future::ok(event));
@@ -62,11 +54,9 @@ impl Server {
 						tg::progress::Event::Finish(indicator)
 					},
 					tg::progress::Event::Output(output) => {
-						let path = output.referent.path;
 						let referent = tg::Referent {
 							item: Either::Right(output.referent.item.into()),
-							path,
-							tag: output.referent.tag,
+							options: output.referent.options,
 						};
 						let output = Some(tg::get::Output { referent });
 						tg::progress::Event::Output(output)
@@ -83,8 +73,10 @@ impl Server {
 				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,
-						path: None,
-						tag: Some(tag),
+						options: tg::referent::Options {
+							path: None,
+							tag: Some(tag),
+						},
 					},
 				};
 				let event = tg::progress::Event::Output(Some(output));
@@ -109,7 +101,7 @@ impl Server {
 
 		let path = path.join("/").parse()?;
 		let query = request.query_params().transpose()?;
-		let reference = tg::Reference::with_item_and_options(&path, query.as_ref());
+		let reference = tg::Reference::with_item_and_options(&path, &query.unwrap_or_default());
 
 		let stream = handle.try_get(&reference).await?;
 

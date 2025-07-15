@@ -25,14 +25,12 @@ impl Server {
 		let kind = infer_module_kind(file_name)?;
 
 		// Create the module.
-		Ok(tg::module::Data {
+		let module = tg::module::Data {
 			kind,
-			referent: tg::Referent {
-				item: tg::module::data::Item::Path(path.to_owned()),
-				path: None,
-				tag: None,
-			},
-		})
+			referent: tg::Referent::with_item(tg::module::data::Item::Path(path.to_owned())),
+		};
+
+		Ok(module)
 	}
 }
 

@@ -44,12 +44,12 @@ impl Module {
 
 impl std::fmt::Display for Module {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		if let Some(tag) = &self.referent.tag {
+		if let Some(tag) = &self.referent.options.tag {
 			write!(f, "{tag}")?;
-			if let Some(path) = &self.referent.path {
+			if let Some(path) = &self.referent.options.path {
 				write!(f, ": {}", path.display())?;
 			}
-		} else if let Some(path) = &self.referent.path {
+		} else if let Some(path) = &self.referent.options.path {
 			write!(f, "{}", path.display())?;
 		} else {
 			match &self.referent.item {
@@ -58,7 +58,7 @@ impl std::fmt::Display for Module {
 				},
 				Item::Object(object) => {
 					write!(f, "{object}")?;
-					if let Some(path) = &self.referent.path {
+					if let Some(path) = &self.referent.options.path {
 						write!(f, ":{}", path.display())?;
 					}
 				},

@@ -41,7 +41,7 @@ impl S3 {
 	pub async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::GET;
-		let url = tangram_uri::Reference::parse(self.config.url.as_str()).unwrap();
+		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
 		let authority = url.authority().ok_or_else(|| tg::error!("invalid url"))?;
 		let bucket = &self.config.bucket;
 		let url = url
@@ -92,7 +92,7 @@ impl S3 {
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::PUT;
-		let url = tangram_uri::Reference::parse(self.config.url.as_str()).unwrap();
+		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
 		let authority = url.authority().ok_or_else(|| tg::error!("invalid url"))?;
 		let bucket = &self.config.bucket;
 		let url = url
@@ -134,12 +134,12 @@ impl S3 {
 	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
 		arg.objects
 			.into_iter()
-			.map(|(id, bytes, reference)| {
+			.map(|(id, bytes, cache_reference)| {
 				self.put(super::PutArg {
 					id,
 					bytes,
 					touched_at: arg.touched_at,
-					cache_reference: reference,
+					cache_reference,
 				})
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -150,7 +150,7 @@ impl S3 {
 	pub async fn delete(&self, arg: super::DeleteArg) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::DELETE;
-		let url = tangram_uri::Reference::parse(self.config.url.as_str()).unwrap();
+		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
 		let authority = url.authority().ok_or_else(|| tg::error!("invalid url"))?;
 		let bucket = &self.config.bucket;
 		let url = url

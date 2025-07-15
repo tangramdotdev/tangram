@@ -37,11 +37,9 @@ impl Cli {
 		let module = if args.runtime {
 			tg::module::Data {
 				kind: tg::module::Kind::Dts,
-				referent: tg::Referent {
-					item: tg::module::data::Item::Path("tangram.d.ts".into()),
-					path: None,
-					tag: None,
-				},
+				referent: tg::Referent::with_item(tg::module::data::Item::Path(
+					"tangram.d.ts".into(),
+				)),
 			}
 		} else {
 			self.get_module(&args.reference).await?.to_data()

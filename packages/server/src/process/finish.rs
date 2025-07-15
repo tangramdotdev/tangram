@@ -114,6 +114,28 @@ impl Server {
 			}
 		}
 
+		// Remove internal error locations if necessary.
+		if !self.config.advanced.internal_error_locations {
+			if let Some(error) = &mut error {
+				let mut stack = vec![error];
+				while let Some(error) = stack.pop() {
+					if let Some(location) = &mut error.location {
+						if matches!(location.file, tg::error::data::File::Internal(_)) {
+							error.location = None;
+						}
+					}
+					if let Some(stack) = &mut error.stack {
+						stack.retain(|location| {
+							!matches!(location.file, tg::error::data::File::Internal(_))
+						});
+					}
+					if let Some(source) = &mut error.source {
+						stack.push(&mut *source.item);
+					}
+				}
+			}
+		}
+
 		// Get a database connection.
 		let connection = self
 			.database
@@ -200,8 +222,10 @@ impl Server {
 			.into_iter()
 			.map(|row| tg::Referent {
 				item: row.child,
-				path: row.path,
-				tag: row.tag,
+				options: tg::referent::Options {
+					path: row.path,
+					tag: row.tag,
+				},
 			})
 			.collect();
 		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {

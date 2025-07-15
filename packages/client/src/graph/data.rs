@@ -1,6 +1,6 @@
 use crate::{self as tg, util::serde::is_false};
 use bytes::Bytes;
-use serde_with::{DisplayFromStr, serde_as};
+use serde_with::{DisplayFromStr, PickFirst, serde_as};
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_itertools::IteratorExt as _;
 
@@ -24,7 +24,7 @@ pub enum Node {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Directory {
-	#[serde_as(as = "BTreeMap<_, DisplayFromStr>")]
+	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
@@ -35,7 +35,7 @@ pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
 
-	#[serde_as(as = "BTreeMap<_, DisplayFromStr>")]
+	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 
@@ -46,7 +46,7 @@ pub struct File {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Symlink {
-	#[serde_as(as = "Option<DisplayFromStr>")]
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 

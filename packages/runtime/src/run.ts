@@ -43,17 +43,14 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		},
 		...args,
 	);
-	let path: string | undefined;
-	let tag: string | undefined;
+	let sourceOptions: tg.Referent.Options = {};
 	if (
 		"executable" in arg &&
 		typeof arg.executable === "object" &&
 		"module" in arg.executable
 	) {
-		path = arg.executable.module.referent.path;
-		tag = arg.executable.module.referent.tag;
-		arg.executable.module.referent.path = undefined;
-		arg.executable.module.referent.tag = undefined;
+		sourceOptions = arg.executable.module.referent.options;
+		arg.executable.module.referent.options = {};
 	}
 	let checksum = arg.checksum;
 	let processMounts: Array<tg.Process.Mount> = [];
@@ -103,20 +100,22 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	);
 	let network = "network" in arg ? arg.network : state.network;
 	let commandId = await command.store();
+	let commandReferent = {
+		item: commandId,
+		options: sourceOptions,
+	};
 	let spawnOutput = await syscall("process_spawn", {
 		checksum,
-		command: commandId,
+		command: commandReferent,
 		create: false,
 		mounts: processMounts,
 		network,
 		parent: undefined,
-		path,
 		remote: undefined,
 		retry: false,
 		stderr,
 		stdin: processStdin,
 		stdout,
-		tag,
 	});
 	let process = new tg.Process({
 		id: spawnOutput.process,
@@ -129,8 +128,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		throw tg.error("the child process failed", {
 			source: {
 				item: error,
-				path,
-				tag,
+				options: sourceOptions,
 			},
 		});
 	}

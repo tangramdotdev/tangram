@@ -117,7 +117,8 @@ impl Cli {
 			},
 
 			tg::progress::Event::Diagnostic(diagnostic) => {
-				self.print_diagnostic(&diagnostic).await;
+				self.print_diagnostic(tg::Referent::with_item(diagnostic))
+					.await;
 			},
 
 			tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {

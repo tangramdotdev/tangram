@@ -21,7 +21,7 @@ export namespace Module {
 
 	export type Item = string | tg.Object;
 
-	export let toData = (value: Module): Data => {
+	export let toData = (value: tg.Module): tg.Module.Data => {
 		return {
 			kind: value.kind,
 			referent: tg.Referent.toData(value.referent, (item) =>
@@ -30,7 +30,7 @@ export namespace Module {
 		};
 	};
 
-	export let fromData = (data: Data): Module => {
+	export let fromData = (data: tg.Module.Data): tg.Module => {
 		return {
 			kind: data.kind,
 			referent: tg.Referent.fromData(data.referent, (item) => {
@@ -41,6 +41,63 @@ export namespace Module {
 				}
 			}),
 		};
+	};
+
+	export let toDataString = (value: tg.Module): string => {
+		let item = value.referent.item;
+		let string = item.toString();
+		let params = [];
+		if (value.referent.options?.path !== undefined) {
+			params.push(`path=${encodeURIComponent(value.referent.options.path)}`);
+		}
+		if (value.referent.options?.tag !== undefined) {
+			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
+		}
+		params.push(`kind=${encodeURIComponent(value.kind)}`);
+		string += "?";
+		string += params.join("&");
+		return string;
+	};
+
+	export let fromDataString = (data: string): tg.Module => {
+		let [itemString, params] = data.split("?");
+		let kind: tg.Module.Kind | undefined;
+		let item = tg.Object.withId(itemString!);
+		let options: tg.Referent.Data.Options = {};
+		if (params !== undefined) {
+			for (let param of params.split("&")) {
+				let [key, value] = param.split("=");
+				if (value === undefined) {
+					throw new Error("missing value");
+				}
+				switch (key) {
+					case "path": {
+						options.path = decodeURIComponent(value);
+						break;
+					}
+					case "tag": {
+						options.tag = decodeURIComponent(value);
+						break;
+					}
+					case "kind": {
+						kind = decodeURIComponent(value) as Kind;
+						break;
+					}
+					default: {
+						throw new Error("invalid key");
+					}
+				}
+			}
+		}
+		tg.assert(kind !== undefined);
+		let module = {
+			kind,
+			referent: {
+				item,
+				options,
+			},
+		};
+		return module;
 	};
 
 	export let children = (value: Module): Array<tg.Object> => {

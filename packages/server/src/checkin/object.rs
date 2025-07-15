@@ -185,7 +185,7 @@ impl Server {
 							.as_ref()
 							.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
 						let item: tangram_client::graph::data::Edge<tangram_client::object::Id> =
-							match &referent.item {
+							match referent.item() {
 								Either::Left(id) => tg::graph::data::Edge::Object(id.clone()),
 								Either::Right(index) => graph_indices
 									.get(index)
@@ -204,8 +204,7 @@ impl Server {
 							};
 						let referent = tg::Referent {
 							item,
-							path: referent.path.clone(),
-							tag: referent.tag.clone(),
+							options: referent.options.clone(),
 						};
 						Ok::<_, tg::Error>((reference.clone(), referent))
 					})
@@ -292,7 +291,7 @@ impl Server {
 						let referent = referent
 							.as_ref()
 							.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
-						let item = match &referent.item {
+						let item = match referent.item() {
 							Either::Left(id) => id.clone(),
 							Either::Right(index) => state.graph.nodes[*index]
 								.object
@@ -302,11 +301,7 @@ impl Server {
 								.clone(),
 						};
 						let item = tg::graph::data::Edge::Object(item);
-						let referent = tg::Referent {
-							item,
-							path: referent.path.clone(),
-							tag: referent.tag.clone(),
-						};
+						let referent = referent.clone().map(|_| item);
 						Ok::<_, tg::Error>((reference.clone(), referent))
 					})
 					.collect::<tg::Result<_>>()?;

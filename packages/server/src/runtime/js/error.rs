@@ -96,11 +96,8 @@ pub(super) fn from_exception<'s>(
 		.and_then(|value| value.to_object(scope))
 	{
 		let error = from_exception(state, scope, source.into())?;
-		Some(tg::Referent {
-			item: Box::new(error),
-			path: None,
-			tag: None,
-		})
+		let referent = tg::Referent::with_item(Box::new(error));
+		Some(referent)
 	} else {
 		None
 	};

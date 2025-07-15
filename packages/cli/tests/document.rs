@@ -42,7 +42,12 @@ async fn hello_world() {
 		          "location": {
 		            "module": {
 		              "kind": "ts",
-		              "referent": "fil_01gpjbypzsmz18x9ma5n8ta1gz0tn4wm58xfe0zk9487n1q8tdxh10?path=tangram.ts"
+		              "referent": {
+		                "item": "fil_01gpjbypzsmz18x9ma5n8ta1gz0tn4wm58xfe0zk9487n1q8tdxh10",
+		                "options": {
+		                  "path": "tangram.ts"
+		                }
+		              }
 		            },
 		            "range": {
 		              "end": {
@@ -63,7 +68,12 @@ async fn hello_world() {
 		                  "location": {
 		                    "module": {
 		                      "kind": "ts",
-		                      "referent": "fil_01gpjbypzsmz18x9ma5n8ta1gz0tn4wm58xfe0zk9487n1q8tdxh10?path=tangram.ts"
+		                      "referent": {
+		                        "item": "fil_01gpjbypzsmz18x9ma5n8ta1gz0tn4wm58xfe0zk9487n1q8tdxh10",
+		                        "options": {
+		                          "path": "tangram.ts"
+		                        }
+		                      }
 		                    },
 		                    "range": {
 		                      "end": {

@@ -372,7 +372,8 @@ impl Server {
 			.unwrap();
 		let path = state.graph.nodes[node].path.as_deref().cloned();
 		let tag = None;
-		let referent = tg::Referent { item, path, tag };
+		let options = tg::referent::Options { path, tag };
+		let referent = tg::Referent { item, options };
 
 		// Create the output.
 		let output = tg::checkin::Output { referent };

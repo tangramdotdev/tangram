@@ -1354,9 +1354,15 @@ declare namespace tg {
 
 	export type Referent<T> = {
 		item: T;
-		path?: string | undefined;
-		tag?: tg.Tag | undefined;
+		options: tg.Referent.Options;
 	};
+
+	export namespace Referent {
+		export type Options = {
+			path?: string | undefined;
+			tag?: tg.Tag | undefined;
+		};
+	}
 
 	/** Resolve all deeply nested promises in an unresolved value. */
 	export let resolve: <T extends tg.Unresolved<tg.Value>>(

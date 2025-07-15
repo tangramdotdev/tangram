@@ -151,24 +151,24 @@ impl Server {
 			.map(|(reference, referent)| {
 				let referent =
 					referent.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
-				match referent.item {
+				match referent.item().clone() {
 					Either::Left(id) => {
 						let item = Either::Right(id);
-						let referent = tg::Referent {
-							item,
-							path: referent.path,
-							tag: referent.tag,
-						};
-						Ok((reference, referent))
+						Ok((reference, referent.map(|_| item)))
 					},
 					Either::Right(node) => {
 						let item =
 							Self::create_lockfile_node(state, node, nodes, objects, visited)?;
 						let path = referent
-							.path
+							.path()
+							.cloned()
 							.or_else(|| state.graph.referent_path(index, node));
-						let tag = referent.tag.or_else(|| state.graph.nodes[node].tag.clone());
-						let referent = tg::Referent { item, path, tag };
+						let tag = referent
+							.tag()
+							.cloned()
+							.or_else(|| state.graph.nodes[node].tag.clone());
+						let options = tg::referent::Options { path, tag };
+						let referent = tg::Referent { item, options };
 						Ok::<_, tg::Error>((reference, referent))
 					},
 				}
@@ -397,13 +397,11 @@ fn strip_nodes_inner(
 				.dependencies
 				.into_iter()
 				.filter_map(|(reference, referent)| {
-					let tg::Referent { item, path, tag } = referent;
-
 					// Special case, the reference is by ID.
-					let item: Either<usize, tg::object::Id> = match item {
+					let item: Either<usize, tg::object::Id> = match referent.item() {
 						Either::Left(node) => {
 							if let Some(node) = strip_nodes_inner(
-								old_nodes, node, visited, new_nodes, object_ids, preserve,
+								old_nodes, *node, visited, new_nodes, object_ids, preserve,
 							) {
 								node
 							} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
@@ -412,9 +410,9 @@ fn strip_nodes_inner(
 								return None;
 							}
 						},
-						Either::Right(id) => Either::Right(id),
+						Either::Right(id) => Either::Right(id.clone()),
 					};
-					Some((reference, tg::Referent { item, path, tag }))
+					Some((reference, referent.map(|_| item)))
 				})
 				.collect();
 

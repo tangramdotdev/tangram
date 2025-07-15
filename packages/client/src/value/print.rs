@@ -319,11 +319,11 @@ where
 				for (reference, referent) in &file.dependencies {
 					s.map_entry(reference.as_str(), |s| {
 						s.start_map()?;
-						s.map_entry("item", |s| s.graph_edge_object(&referent.item))?;
-						if let Some(path) = &referent.path {
+						s.map_entry("item", |s| s.graph_edge_object(referent.item()))?;
+						if let Some(path) = referent.path() {
 							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 						}
-						if let Some(tag) = &referent.tag {
+						if let Some(tag) = referent.tag() {
 							s.map_entry("tag", |s| s.string(tag.as_str()))?;
 						}
 						s.finish_map()?;
@@ -543,10 +543,10 @@ where
 				tg::module::Item::Path(path) => s.string(path.to_string_lossy().as_ref()),
 				tg::module::Item::Object(object) => s.object(object),
 			})?;
-			if let Some(path) = &value.referent.path {
+			if let Some(path) = &value.referent.path() {
 				s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 			}
-			if let Some(tag) = &value.referent.tag {
+			if let Some(tag) = &value.referent.tag() {
 				s.map_entry("tag", |s| s.string(tag.as_str()))?;
 			}
 			s.finish_map()?;

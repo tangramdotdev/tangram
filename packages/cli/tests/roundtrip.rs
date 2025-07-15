@@ -135,7 +135,7 @@ async fn display(server: &test::Server, object: impl Into<tg::Object>) -> String
 		.arg("get")
 		.arg(object)
 		.arg("--depth=inf")
-		.arg("--format=tgvn")
+		.arg("--format=tgon")
 		.arg("--pretty=true")
 		.output()
 		.await
@@ -174,13 +174,6 @@ async fn test_roundtrip<'a, F, Fut>(
 {
 	test(TG, async move |context| {
 		let config = tangram_cli::Config {
-			advanced: Some(tangram_cli::config::Advanced {
-				error_trace_options: Some(tg::error::TraceOptions {
-					internal: true,
-					reverse: false,
-				}),
-				..Default::default()
-			}),
 			remotes: Some(Vec::new()),
 			..Default::default()
 		};

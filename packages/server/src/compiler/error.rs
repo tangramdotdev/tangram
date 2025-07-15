@@ -40,11 +40,7 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
 		.map(|cause| from_exception(scope, cause.into()))
-		.map(|error| tg::Referent {
-			item: Box::new(error),
-			path: None,
-			tag: None,
-		});
+		.map(|error| tg::Referent::with_item(Box::new(error)));
 
 	// Get the stack trace.
 	let stack = v8::String::new_external_onebyte_static(scope, b"stack").unwrap();

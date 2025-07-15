@@ -560,12 +560,7 @@ impl Compiler {
 		handler(params)
 			.await
 			.inspect_err(|error| {
-				let options = tg::error::TraceOptions {
-					internal: true,
-					..Default::default()
-				};
-				let trace = error.trace(&options);
-				tracing::error!("the notification handler failed\n{trace}");
+				tracing::error!(?error, "the notification handler failed");
 			})
 			.ok();
 	}
@@ -748,11 +743,7 @@ impl Compiler {
 		if let Ok(path) = path.strip_prefix(self.library_temp.path()) {
 			let kind = tg::module::Kind::Dts;
 			let item = tg::module::data::Item::Path(path.to_owned());
-			let referent = tg::Referent {
-				item,
-				path: None,
-				tag: None,
-			};
+			let referent = tg::Referent::with_item(item);
 			let module = tg::module::Data { kind, referent };
 			return Ok(module);
 		}
@@ -799,11 +790,7 @@ impl Compiler {
 				directory.get(&self.server, path).await?.id().into()
 			};
 			let item = tg::module::data::Item::Object(object);
-			let referent = tg::Referent {
-				item,
-				path: None,
-				tag: None,
-			};
+			let referent = tg::Referent::with_item(item);
 			let module = tg::module::Data { kind, referent };
 			return Ok(module);
 		}

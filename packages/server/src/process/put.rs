@@ -205,13 +205,8 @@ impl Server {
 				.map(|(position, child)| {
 					let transaction = transaction.clone();
 					async move {
-						let params = db::params![
-							id,
-							position,
-							child.item,
-							child.path.as_ref(),
-							child.tag.as_ref()
-						];
+						let params =
+							db::params![id, position, child.item, child.path(), child.tag()];
 						transaction
 							.execute(statement.into(), params)
 							.await
@@ -406,15 +401,12 @@ impl Server {
 							&children
 								.iter()
 								.map(|referent| {
-									referent
-										.path
-										.as_ref()
-										.map(|path| path.display().to_string())
+									referent.path().map(|path| path.display().to_string())
 								})
 								.collect::<Vec<_>>(),
 							&children
 								.iter()
-								.map(|referent| referent.tag.as_ref().map(ToString::to_string))
+								.map(|referent| referent.tag().map(ToString::to_string))
 								.collect::<Vec<_>>(),
 						],
 					)

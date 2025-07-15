@@ -2384,24 +2384,15 @@ let convertLocation = (node: ts.Node): Location => {
 function isExported(
 	typeChecker: ts.TypeChecker,
 	packageExports: Array<ts.Symbol>,
-	thisModule: Module,
+	_thisModule: Module,
 	symbol: ts.Symbol,
-	node: ts.Node,
+	_node: ts.Node,
 ) {
-	// If the symbol is not from our package, then it is exported.
-	let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
-	// If the symbol is from a library file, then it is exported.
-	if (module_.kind === "dts") {
-		return true;
-	} else if (
-		(module_.kind === "ts" || module_.kind === "js") &&
-		(thisModule.kind === "ts" || thisModule.kind === "js")
-	) {
-		// If the symbol is from a different package, then it is exported.
-		if (module_.referent !== thisModule.referent) {
-			return true;
-		}
-	}
+	// TODO If the symbol is from a different module, then it is exported.
+	// let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
+	// if (module_ !== thisModule) {
+	// 	return true;
+	// }
 
 	// Go through all globalExports to see if our symbol is there.
 	return packageExports.some((export_) => {

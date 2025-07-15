@@ -94,18 +94,16 @@ declare global {
 
 	type SpawnArg = {
 		checksum: tg.Checksum | undefined;
-		command: tg.Command.Id | undefined;
+		command: tg.Referent<tg.Command.Id>;
 		create: boolean;
 		mounts: Array<tg.Process.Mount>;
 		network: boolean | undefined;
 		parent: tg.Process.Id | undefined;
-		path: string | undefined;
 		remote: string | undefined;
 		retry: boolean;
 		stderr: string | undefined;
 		stdin: string | undefined;
 		stdout: string | undefined;
-		tag: string | undefined;
 	};
 
 	type SpawnOutput = {

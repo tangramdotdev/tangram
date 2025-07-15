@@ -176,7 +176,7 @@ impl Server {
 		current: &mut State<'a>,
 		referrer: usize,
 		reference: &tg::Reference,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
+		_progress: &crate::progress::Handle<tg::checkin::Output>,
 	) -> tg::Result<tg::Referent<Either<tg::object::Id, usize>>> {
 		// Bail if the item is a path.
 		if reference.item().try_unwrap_path_ref().is_ok() {
@@ -208,17 +208,14 @@ impl Server {
 		if current.candidates.is_none() {
 			// Check if there is already a result.
 			if let Some(referent) = current.packages.get(pattern.name()) {
-				let tag = referent.tag.as_ref().unwrap();
+				let tag = referent.tag().unwrap();
 				if pattern.matches(tag) {
 					return Ok(referent.clone().map(Either::Right));
 				}
 				return Err(tg::error!(%tag, %pattern, "incompatible versions"));
 			}
 
-			let remote = reference
-				.options()
-				.as_ref()
-				.and_then(|query| query.remote.clone());
+			let remote = reference.options().remote.clone();
 
 			// List tags that match the pattern, if not locked.
 			let mut candidates: im::Vector<_> = if current.arg.locked {
@@ -259,7 +256,7 @@ impl Server {
 				})
 				.and_then(|referent| {
 					let lockfile_node = referent.item.as_ref().left().copied();
-					let version = referent.tag.clone()?;
+					let version = referent.tag().cloned()?;
 
 					// Skip the lockfile version if any updates have been requested.
 					if current
@@ -271,7 +268,7 @@ impl Server {
 						return None;
 					}
 
-					let (object, unify) = match &referent.item {
+					let (object, unify) = match referent.item() {
 						Either::Left(node) => {
 							let object = current.lockfile.unwrap().objects[*node].clone()?;
 							(object, true)
@@ -286,7 +283,7 @@ impl Server {
 						lockfile_node,
 						object,
 						tag: version,
-						path: referent.path.clone(),
+						path: referent.path().cloned(),
 						unify,
 					})
 				}) {
@@ -304,12 +301,6 @@ impl Server {
 			.pop_back()
 			.ok_or_else(|| tg::error!(%reference, "tag does not exist"))?;
 
-		progress.diagnostic(tg::Diagnostic {
-			location: None,
-			severity: tg::diagnostic::Severity::Info,
-			message: format!("resolving {reference} with {}", candidate.tag),
-		});
-
 		// Create the node.
 		let node = self
 			.unify_visit_object(
@@ -323,8 +314,10 @@ impl Server {
 
 		let referent = tg::Referent {
 			item: node,
-			path: candidate.path.clone(),
-			tag: Some(candidate.tag.clone()),
+			options: tg::referent::Options {
+				path: candidate.path.clone(),
+				tag: Some(candidate.tag.clone()),
+			},
 		};
 
 		// Update the list of solved packages.
@@ -589,10 +582,10 @@ impl Server {
 			} else {
 				let index = Box::pin(self.unify_visit_object_inner(
 					state,
-					&referent.item,
+					referent.item(),
 					lockfile_node,
 					Some(root),
-					referent.path.clone(),
+					referent.path().cloned(),
 					None,
 					unify,
 					visited,
@@ -600,8 +593,10 @@ impl Server {
 				.await?;
 				let referent = tg::Referent {
 					item: Either::Right(index),
-					path: referent.path,
-					tag: None,
+					options: tg::referent::Options {
+						path: referent.path().cloned(),
+						tag: None,
+					},
 				};
 				dependencies.push((reference, Some(referent)));
 			}

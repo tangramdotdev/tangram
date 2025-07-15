@@ -39,7 +39,7 @@ pub async fn spawn(
 				if let Some(command) = &arg.command {
 					// Push the command.
 					let arg = tg::push::Arg {
-						items: vec![Either::Right(command.clone().into())],
+						items: vec![Either::Right(command.item.clone().into())],
 						remote: Some(remote.to_owned()),
 						..Default::default()
 					};

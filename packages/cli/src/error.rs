@@ -9,17 +9,12 @@ use tangram_client::{self as tg};
 use tokio::io::AsyncReadExt;
 
 impl Cli {
-	pub(crate) fn print_error_basic(
-		error: &tg::Error,
-		referent: Option<&tg::Referent<tg::object::Id>>,
-	) {
-		let mut stack = vec![(
-			error,
-			referent.and_then(|referent| referent.path.clone()),
-			referent.and_then(|referent| referent.tag.clone()),
-		)];
+	pub(crate) fn print_error_basic(error: tg::Referent<tg::Error>) {
+		let mut stack = vec![error];
 
-		while let Some((error, path, tag)) = stack.pop() {
+		while let Some(error) = stack.pop() {
+			let (referent, error) = error.replace(());
+
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
@@ -32,43 +27,31 @@ impl Cli {
 			}
 
 			// Print the location.
-			if let Some(location) = &error.location {
-				Self::print_error_location_basic(path.as_ref(), tag.as_ref(), location, message);
+			if let Some(mut location) = error.location {
+				if let tg::error::File::Module(module) = &mut location.file {
+					module.referent.inherit(&referent);
+				}
+				Self::print_error_location_basic(&location, message);
 			}
 
 			// Print the stack.
-			for location in error.stack.iter().flatten() {
-				Self::print_error_location_basic(path.as_ref(), tag.as_ref(), location, message);
+			for mut location in error.stack.into_iter().flatten() {
+				if let tg::error::File::Module(module) = &mut location.file {
+					module.referent.inherit(&referent);
+				}
+				Self::print_error_location_basic(&location, message);
 			}
 
 			// Add the source to the stack.
-			if let Some(source) = &error.source {
-				let mut new_path = path.clone();
-				let mut new_tag = tag.clone();
-				match (&path, &source.path, &tag, &source.tag) {
-					(Some(path_), Some(source_path), None, None) => {
-						new_path = Some(path_.parent().unwrap().join(source_path));
-					},
-					(None, Some(source_path), None, None) => {
-						new_path = Some(source_path.clone());
-					},
-					(_, path_, _, Some(tag_)) => {
-						new_tag = Some(tag_.clone());
-						new_path = path_.clone();
-					},
-					_ => (),
-				}
-				stack.push((source.item.as_ref(), new_path, new_tag));
+			if let Some(source) = error.source {
+				let mut source = source.map(|item| *item);
+				source.inherit(&referent);
+				stack.push(source);
 			}
 		}
 	}
 
-	fn print_error_location_basic(
-		path: Option<&PathBuf>,
-		tag: Option<&tg::Tag>,
-		location: &tg::error::Location,
-		_message: &str,
-	) {
+	fn print_error_location_basic(location: &tg::error::Location, _message: &str) {
 		match &location.file {
 			tg::error::File::Internal(path) => {
 				eprintln!(
@@ -79,17 +62,12 @@ impl Cli {
 				);
 			},
 			tg::error::File::Module(module) => {
-				Self::print_location_basic(path, tag, module, &location.range);
+				Self::print_location_basic(module, &location.range);
 			},
 		}
 	}
 
-	fn print_location_basic(
-		path: Option<&PathBuf>,
-		tag: Option<&tg::Tag>,
-		module: &tg::Module,
-		range: &tg::Range,
-	) {
+	fn print_location_basic(module: &tg::Module, range: &tg::Range) {
 		match &module.referent.item {
 			tg::module::Item::Path(path) => {
 				eprintln!(
@@ -101,19 +79,19 @@ impl Cli {
 			},
 			tg::module::Item::Object(_) => {
 				let mut name = String::new();
-				if let Some(tag) = &module.referent.tag.as_ref().or(tag) {
+				if let Some(tag) = module.referent.tag() {
 					write!(name, "{tag}").unwrap();
-					if let Some(path) = &module.referent.path.as_ref().or(path) {
+					if let Some(path) = module.referent.path() {
 						write!(name, ":").unwrap();
-						let path = crate::util::normalize_path(path);
+						let path = crate::util::path::normalize(path);
 						write!(name, "{}", path.display()).unwrap();
 					}
-				} else if let Some(path) = module.referent.path.as_ref().or(path) {
+				} else if let Some(path) = module.referent.path() {
 					let path = std::env::current_dir()
 						.ok()
 						.and_then(|cwd| {
 							let path = std::fs::canonicalize(cwd.join(path)).ok()?;
-							let path = crate::util::path_diff(&cwd, &path).ok()?;
+							let path = crate::util::path::diff(&cwd, &path).ok()?;
 							if path.is_relative() && !path.starts_with("..") {
 								return Some(PathBuf::from(".").join(path));
 							}
@@ -133,22 +111,16 @@ impl Cli {
 		}
 	}
 
-	pub(crate) async fn print_error(
-		&mut self,
-		error: &tg::Error,
-		referent: Option<&tg::Referent<tg::object::Id>>,
-	) {
+	pub(crate) async fn print_error(&mut self, error: tg::Referent<tg::Error>) {
 		let internal = self
 			.config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.error_trace_options.clone())
-			.unwrap_or_default()
-			.internal;
-		let path = referent.and_then(|referent| referent.path.clone());
-		let tag = referent.and_then(|referent| referent.tag.clone());
-		let mut stack = vec![(path, tag, error)];
-		while let Some((path, tag, error)) = stack.pop() {
+			.is_some_and(|advanced| advanced.internal_error_locations);
+		let mut stack = vec![error];
+		while let Some(error) = stack.pop() {
+			let (referent, error) = error.replace(());
+
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
 			eprintln!("{} {message}", "->".red());
@@ -161,60 +133,37 @@ impl Cli {
 			}
 
 			// Print the location.
-			if let Some(location) = &error.location {
-				self.print_error_location(
-					&mut path.clone(),
-					&mut tag.clone(),
-					location,
-					internal,
-					message,
-				)
-				.await;
+			if let Some(mut location) = error.location {
+				if let tg::error::File::Module(module) = &mut location.file {
+					module.referent.inherit(&referent);
+				}
+				self.print_error_location(&location, message, internal)
+					.await;
 			}
 
 			// Print the stack.
-			let mut stack_path = path.clone();
-			let mut stack_tag = tag.clone();
-			for location in error.stack.iter().flatten() {
-				self.print_error_location(
-					&mut stack_path,
-					&mut stack_tag,
-					location,
-					internal,
-					message,
-				)
-				.await;
+			for mut location in error.stack.into_iter().flatten() {
+				if let tg::error::File::Module(module) = &mut location.file {
+					module.referent.inherit(&referent);
+				}
+				self.print_error_location(&location, message, internal)
+					.await;
 			}
 
 			// Add the source to the stack.
-			if let Some(source) = &error.source {
-				let mut path = path;
-				let mut tag = tag;
-				match (&path, &source.path, &tag, &source.tag) {
-					(Some(path_), Some(source), None, None) => {
-						path.replace(path_.parent().unwrap().join(source));
-					},
-					(None, Some(source), None, None) => {
-						path.replace(source.clone());
-					},
-					(_, path_, _, Some(tag_)) => {
-						tag.replace(tag_.clone());
-						path = path_.clone();
-					},
-					_ => (),
-				}
-				stack.push((path, tag, source.item.as_ref()));
+			if let Some(source) = error.source {
+				let mut source = source.map(|item| *item);
+				source.inherit(&referent);
+				stack.push(source);
 			}
 		}
 	}
 
 	async fn print_error_location(
 		&mut self,
-		path: &mut Option<PathBuf>,
-		tag: &mut Option<tg::Tag>,
 		location: &tg::error::Location,
-		internal: bool,
 		message: &str,
+		internal: bool,
 	) {
 		match &location.file {
 			tg::error::File::Internal(path) => {
@@ -232,12 +181,13 @@ impl Cli {
 					module: module.to_data(),
 					range: location.range,
 				};
-				self.print_location(path, tag, &location, message).await;
+				self.print_location(&location, message).await;
 			},
 		}
 	}
 
-	pub(crate) async fn print_diagnostic(&mut self, diagnostic: &tg::Diagnostic) {
+	pub(crate) async fn print_diagnostic(&mut self, referent: tg::Referent<tg::Diagnostic>) {
+		let diagnostic = referent.item();
 		let severity = match diagnostic.severity {
 			tg::diagnostic::Severity::Error => "error".red().bold(),
 			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
@@ -246,18 +196,11 @@ impl Cli {
 		};
 		eprintln!("{severity} {}", diagnostic.message);
 		if let Some(location) = &diagnostic.location {
-			Box::pin(self.print_location(&mut None, &mut None, location, &diagnostic.message))
-				.await;
+			Box::pin(self.print_location(location, &diagnostic.message)).await;
 		}
 	}
 
-	async fn print_location(
-		&mut self,
-		path: &mut Option<PathBuf>,
-		tag: &mut Option<tg::Tag>,
-		location: &tg::Location,
-		message: &str,
-	) {
+	async fn print_location(&mut self, location: &tg::Location, message: &str) {
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
 			tg::module::data::Item::Path(path) => {
@@ -274,31 +217,21 @@ impl Cli {
 				}
 			},
 			tg::module::data::Item::Object(object) => {
-				if let Some(tag_) = &module.referent.tag {
-					tag.replace(tag_.clone());
-					path.take();
-				}
-				if let Some(path_) = &module.referent.path {
-					let path_ = path
-						.take()
-						.map_or_else(|| path_.clone(), |path| path.parent().unwrap().join(path_));
-					path.replace(path_);
-				}
 				let mut name = String::new();
-				if let Some(tag) = &tag {
+				if let Some(tag) = module.referent.tag() {
 					write!(name, "{tag}").unwrap();
-					if let Some(path) = &path {
+					if let Some(path) = module.referent.path() {
 						write!(name, ":").unwrap();
-						let path = crate::util::normalize_path(path);
+						let path = crate::util::path::normalize(path);
 						write!(name, "{}", path.display()).unwrap();
 					}
-				} else if let Some(path) = &path {
+				} else if let Some(path) = module.referent.path() {
 					let path = if path.is_relative() {
 						std::env::current_dir()
 							.ok()
 							.and_then(|cwd| {
 								let path = std::fs::canonicalize(cwd.join(path)).ok()?;
-								let path = crate::util::path_diff(&cwd, &path).ok()?;
+								let path = crate::util::path::diff(&cwd, &path).ok()?;
 								if path.is_relative() && !path.starts_with("..") {
 									return Some(PathBuf::from(".").join(path));
 								}
@@ -306,7 +239,7 @@ impl Cli {
 							})
 							.unwrap_or_else(|| path.clone())
 					} else {
-						crate::util::normalize_path(path)
+						crate::util::path::normalize(path)
 					};
 					write!(name, "{}", path.display()).unwrap();
 				} else {

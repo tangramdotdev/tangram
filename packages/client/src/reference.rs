@@ -11,9 +11,9 @@ use tangram_uri as uri;
 
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Reference {
-	uri: uri::Reference,
+	uri: uri::Uri,
 	item: Item,
-	options: Option<Options>,
+	options: Options,
 }
 
 #[derive(
@@ -36,14 +36,20 @@ pub enum Item {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<Either<tg::process::Id, tg::object::Id>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tag: Option<tg::tag::Pattern>,
 }
 
 impl Reference {
-	pub fn with_uri(uri: uri::Reference) -> tg::Result<Self> {
+	pub fn with_uri(uri: uri::Uri) -> tg::Result<Self> {
 		let path = uri.path();
 		let path =
 			urlencoding::decode(path).map_err(|source| tg::error!(!source, "invalid path"))?;
@@ -54,22 +60,16 @@ impl Reference {
 				serde_urlencoded::from_str(query)
 					.map_err(|source| tg::error!(!source, "invalid query"))
 			})
-			.transpose()?;
+			.transpose()?
+			.unwrap_or_default();
 		Ok(Self { uri, item, options })
 	}
 
-	pub fn with_item_and_options(item: &Item, options: Option<&Options>) -> Self {
+	#[must_use]
+	pub fn with_item_and_options(item: &Item, options: &Options) -> Self {
 		let path = item.to_string();
-		let query = options
-			.as_ref()
-			.map(serde_urlencoded::to_string)
-			.transpose()
-			.unwrap();
-		let uri = uri::Reference::builder()
-			.path(path)
-			.query(query)
-			.build()
-			.unwrap();
+		let query = serde_urlencoded::to_string(options).unwrap();
+		let uri = uri::Uri::builder().path(path).query(query).build().unwrap();
 		Self::with_uri(uri).unwrap()
 	}
 
@@ -104,7 +104,7 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn uri(&self) -> &uri::Reference {
+	pub fn uri(&self) -> &uri::Uri {
 		&self.uri
 	}
 
@@ -119,8 +119,8 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn options(&self) -> Option<&Options> {
-		self.options.as_ref()
+	pub fn options(&self) -> &Options {
+		&self.options
 	}
 
 	pub async fn get<H>(
@@ -156,7 +156,8 @@ impl Reference {
 
 	pub fn path(&self) -> Option<&Path> {
 		self.options()
-			.and_then(|opt| opt.path.as_ref())
+			.path
+			.as_ref()
 			.or(self.item().try_unwrap_path_ref().ok())
 			.map(PathBuf::as_ref)
 	}
@@ -172,8 +173,7 @@ impl std::str::FromStr for Reference {
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let uri =
-			uri::Reference::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let uri = uri::Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
 		let reference = Self::with_uri(uri)?;
 		Ok(reference)
 	}

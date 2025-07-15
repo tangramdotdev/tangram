@@ -1,4 +1,4 @@
-use crate::Reference;
+use crate::Uri;
 
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
@@ -43,7 +43,7 @@ impl Builder {
 		self
 	}
 
-	pub fn build(self) -> Result<Reference, Error> {
+	pub fn build(self) -> Result<Uri, Error> {
 		let mut string = String::new();
 		if let Some(scheme) = &self.scheme {
 			string.push_str(scheme);
@@ -63,7 +63,7 @@ impl Builder {
 			string.push('#');
 			string.push_str(fragment);
 		}
-		let reference = string.parse().ok().ok_or(Error)?;
-		Ok(reference)
+		let uri = string.parse().ok().ok_or(Error)?;
+		Ok(uri)
 	}
 }

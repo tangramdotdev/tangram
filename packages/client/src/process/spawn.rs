@@ -1,5 +1,4 @@
 use crate::{self as tg, util::serde::is_false};
-use std::path::PathBuf;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -10,7 +9,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
-	pub command: Option<tg::command::Id>,
+	pub command: Option<tg::Referent<tg::command::Id>>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::process::data::Mount>,
@@ -20,9 +19,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
@@ -38,9 +34,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdout: Option<tg::process::Stdio>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub tag: Option<tg::Tag>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

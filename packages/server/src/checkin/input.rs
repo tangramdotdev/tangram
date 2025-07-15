@@ -184,8 +184,10 @@ impl Server {
 						};
 						referent.replace(tg::Referent {
 							item: Either::Right(index),
-							path: Some(path),
-							tag: None,
+							options: tg::referent::Options {
+								path: Some(path),
+								tag: None,
+							},
 						});
 					}
 				} else if let Ok(id) = import.reference.item().try_unwrap_object_ref() {
@@ -271,10 +273,7 @@ impl Server {
 					tokio::spawn({
 						let server = self.clone();
 						let pattern = pattern.clone();
-						let remote = import
-							.reference
-							.options()
-							.and_then(|options| options.remote.clone());
+						let remote = import.reference.options().remote.clone();
 						async move {
 							server.pull_tag(pattern.clone(), remote.clone()).await.ok();
 						}

@@ -1,5 +1,4 @@
 use super::{Item, Options, data, log::Log};
-use crate::util;
 use crossterm as ct;
 use futures::{TryStreamExt as _, future, stream::FuturesUnordered};
 use num::ToPrimitive as _;
@@ -136,7 +135,7 @@ where
 		let parent = Rc::downgrade(parent);
 		let title = referent
 			.as_ref()
-			.map_or(String::new(), |referent| Self::item_title(&referent.item));
+			.map_or(String::new(), |referent| Self::item_title(referent.item()));
 
 		let expand_task = match (&referent, options.auto_expand_and_collapse_processes) {
 			(Some(referent), true) => {
@@ -340,11 +339,11 @@ where
 						tg::module::Item::Object(object) => tg::Value::Object(object),
 					},
 				);
-				if let Some(path) = &executable.module.referent.path {
+				if let Some(path) = executable.module.referent.path() {
 					let path = path.to_string_lossy().to_string();
 					referent.insert("path".to_owned(), tg::Value::String(path));
 				}
-				if let Some(tag) = &executable.module.referent.tag {
+				if let Some(tag) = executable.module.referent.tag() {
 					referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
 				}
 				map.insert("referent".to_owned(), tg::Value::Map(referent));
@@ -476,18 +475,18 @@ where
 					.into_iter()
 					.map(async |(reference, referent)| {
 						let mut map = BTreeMap::new();
-						let item = match &referent.item {
+						let item = match referent.item() {
 							tg::graph::object::Edge::Reference(reference) => {
 								reference.get(handle).await?.into()
 							},
 							tg::graph::object::Edge::Object(object) => object.clone(),
 						};
 						map.insert("item".into(), tg::Value::Object(item));
-						if let Some(path) = referent.path {
+						if let Some(path) = referent.path() {
 							let path = path.to_string_lossy().to_string();
 							map.insert("path".to_owned(), tg::Value::String(path));
 						}
-						if let Some(tag) = referent.tag {
+						if let Some(tag) = referent.tag() {
 							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
 						}
 						Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
@@ -566,21 +565,22 @@ where
 							.into_iter()
 							.map(async |(reference, referent)| {
 								let mut map = BTreeMap::new();
-								let item = match referent.item {
-									tg::graph::object::Edge::Reference(mut reference) => {
+								let item = match referent.item() {
+									tg::graph::object::Edge::Reference(reference) => {
+										let mut reference = reference.clone();
 										if reference.graph.is_none() {
 											reference.graph.replace(graph.clone());
 										}
 										reference.get(handle).await?.into()
 									},
-									tg::graph::object::Edge::Object(object) => object,
+									tg::graph::object::Edge::Object(object) => object.clone(),
 								};
 								map.insert("item".into(), tg::Value::Object(item));
-								if let Some(path) = referent.path {
+								if let Some(path) = referent.path() {
 									let path = path.to_string_lossy().to_string();
 									map.insert("path".to_owned(), tg::Value::String(path));
 								}
-								if let Some(tag) = referent.tag {
+								if let Some(tag) = referent.tag() {
 									map.insert(
 										"tag".to_owned(),
 										tg::Value::String(tag.to_string()),
@@ -825,11 +825,9 @@ where
 		let mut children = process
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
-		while let Some(child) = children.try_next().await? {
-			// Attempt to convert path/tag.
-			let child = get_child_process_with_path_and_tag(handle, &referent, &child)
-				.await
-				.unwrap_or(child);
+		while let Some(mut child) = children.try_next().await? {
+			// Inherit from the referent.
+			child.inherit(&referent);
 
 			// Check the status of the process.
 			let finished = child
@@ -964,17 +962,14 @@ where
 		referent: tg::Referent<Item>,
 		update_sender: NodeUpdateSender,
 	) {
-		let tg::Referent { item, path, tag } = referent;
-		let result = match item {
+		let result = match referent.item() {
 			Item::Process(process) => {
-				let referent = tg::Referent {
-					item: process,
-					path,
-					tag,
-				};
+				let referent = referent.clone().map(|_| process.clone());
 				Self::expand_process(handle, referent, update_sender.clone()).await
 			},
-			Item::Value(value) => Self::expand_value(handle, value, update_sender.clone()).await,
+			Item::Value(value) => {
+				Self::expand_value(handle, value.clone(), update_sender.clone()).await
+			},
 		};
 		if let Err(error) = result {
 			let update = move |node: Rc<RefCell<Node>>| {
@@ -1141,7 +1136,7 @@ where
 	) -> Self {
 		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
-		let title = Self::item_title(&referent.item);
+		let title = Self::item_title(referent.item());
 		let expand_task = if options.auto_expand_and_collapse_processes {
 			let handle = handle.clone();
 			let referent = referent.clone();
@@ -1154,14 +1149,10 @@ where
 			None
 		};
 
-		let update_task = if let Item::Process(process) = &referent.item {
+		let update_task = if let Item::Process(process) = referent.item() {
 			// Create the update task.
 			let update_task = Task::spawn_local({
-				let process = tg::Referent {
-					item: process.clone(),
-					path: referent.path.clone(),
-					tag: referent.tag.clone(),
-				};
+				let process = referent.clone().map(|_| process.clone());
 				let handle = handle.clone();
 				let options = options.clone();
 				let update_sender = update_sender.clone();
@@ -1331,12 +1322,12 @@ where
 		}
 
 		// Use the referent if its fields are set.
-		let title = match (&process.path, &process.tag) {
+		let title = match (process.path(), process.tag()) {
 			(Some(path), None) => {
 				if options.display_paths_relative_to_cwd {
 					std::env::current_dir()
 						.ok()
-						.and_then(|cwd| crate::util::path_diff(&cwd, path).ok())
+						.and_then(|cwd| crate::util::path::diff(&cwd, path).ok())
 						.map_or_else(
 							|| path.display().to_string(),
 							|path| path.display().to_string(),
@@ -1560,7 +1551,7 @@ where
 				node.borrow()
 					.referent
 					.as_ref()
-					.and_then(|referent| match &referent.item {
+					.and_then(|referent| match referent.item() {
 						Item::Process(process) => Some(process.clone()),
 						Item::Value(_) => None,
 					});
@@ -1672,7 +1663,7 @@ where
 		let Some(referent) = self.selected.borrow().referent.clone() else {
 			return;
 		};
-		let contents = match &referent.item {
+		let contents = match referent.item() {
 			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
 				if let tg::Value::Object(object) = value {
@@ -1697,55 +1688,6 @@ where
 		write!(tty, "\x1B]52;c;{encoded}\x07").ok();
 		tty.flush().ok();
 	}
-}
-
-async fn get_child_process_with_path_and_tag<H>(
-	handle: &H,
-	parent: &tg::Referent<tg::Process>,
-	child: &tg::Referent<tg::Process>,
-) -> tg::Result<tg::Referent<tg::Process>>
-where
-	H: tg::Handle,
-{
-	let mut child = child.clone();
-
-	// Inherit the parent's tag if necessary.
-	if child.tag.is_none() && parent.tag.is_some() {
-		child.tag = parent.tag.clone();
-	}
-
-	if child.path.is_none() && parent.path.is_some() {
-		// Check if the child has the same executable as the parent.
-		let child_executable = child
-			.item
-			.command(handle)
-			.await?
-			.executable(handle)
-			.await?
-			.objects()
-			.first()
-			.map(tg::Object::id);
-		let parent_executable = parent
-			.item
-			.command(handle)
-			.await?
-			.executable(handle)
-			.await?
-			.objects()
-			.first()
-			.map(tg::Object::id);
-		if child_executable == parent_executable {
-			child.path = parent.path.clone();
-		}
-	} else if let (Some(child_path), Some(referent_path)) = (&child.path, &parent.path) {
-		// Join child paths if necessary.
-		let parent_path = referent_path.parent().unwrap_or(referent_path);
-		let path = util::normalize_path(parent_path.join(child_path));
-		child.path.replace(path);
-		return Ok(child);
-	}
-
-	Ok(child)
 }
 
 impl<H> Drop for Tree<H> {

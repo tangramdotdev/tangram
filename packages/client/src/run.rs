@@ -96,6 +96,11 @@ where
 	}
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
+	let options = tg::referent::Options {
+		path: arg.path,
+		tag: arg.tag,
+	};
+	let command = Some(tg::Referent::new(command_id, options));
 	let checksum = arg.checksum;
 	let network = arg
 		.network
@@ -125,17 +130,15 @@ where
 	let arg = tg::process::spawn::Arg {
 		cached: arg.cached,
 		checksum,
-		command: Some(command_id),
+		command,
 		mounts: process_mounts,
 		network,
 		parent: arg.parent,
-		path: arg.path,
 		remote: arg.remote,
 		retry: arg.retry,
 		stderr,
 		stdin,
 		stdout,
-		tag: arg.tag,
 	};
 	let process = tg::Process::spawn(handle, arg).await?;
 	let output = process.output(handle).await?;

@@ -40,6 +40,11 @@ where
 	builder = builder.user(arg.user);
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
+	let options = tg::referent::Options {
+		path: arg.path,
+		tag: arg.tag,
+	};
+	let command = Some(tg::Referent::new(command_id, options));
 	if arg.network && arg.checksum.is_none() {
 		return Err(tg::error!(
 			"a checksum is required to build with network enabled"
@@ -48,17 +53,15 @@ where
 	let arg = tg::process::spawn::Arg {
 		cached: arg.cached,
 		checksum: arg.checksum,
-		command: Some(command_id),
+		command,
 		mounts: vec![],
 		network: arg.network,
 		parent: arg.parent,
-		path: arg.path,
 		remote: arg.remote,
 		retry: arg.retry,
 		stderr: None,
 		stdin: None,
 		stdout: None,
-		tag: arg.tag,
 	};
 	let process = tg::Process::spawn(handle, arg).await?;
 	let output = process.output(handle).await?;

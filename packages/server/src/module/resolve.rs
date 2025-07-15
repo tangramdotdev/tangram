@@ -13,42 +13,15 @@ impl Server {
 		let kind = import.kind;
 
 		// Get the referent.
-		let referent = match referrer {
-			// Handle a path referrer.
-			tg::module::Data {
-				referent:
-					tg::Referent {
-						item: tg::module::data::Item::Path(item),
-						tag,
-						path,
-					},
-				..
-			} => {
-				let referrer = tg::Referent {
-					item: item.as_ref(),
-					path: path.clone(),
-					tag: tag.clone(),
-				};
+		let referent = match referrer.referent.item() {
+			tg::module::data::Item::Path(path) => {
+				let referrer = referrer.referent.clone().map(|_| path.as_ref());
 				self.resolve_module_with_path_referrer(&referrer, import)
 					.await?
 			},
-
-			// Handle an object referrer.
-			tg::module::Data {
-				referent:
-					tg::Referent {
-						item: tg::module::data::Item::Object(item),
-						tag,
-						path,
-					},
-				..
-			} => {
-				let referrer = tg::Referent {
-					item,
-					path: path.clone(),
-					tag: tag.clone(),
-				};
-				self.resolve_module_with_object_referrer(referrer, import)
+			tg::module::data::Item::Object(object) => {
+				let referrer = referrer.referent.clone().map(|_| object);
+				self.resolve_module_with_object_referrer(&referrer, import)
 					.await?
 			},
 		};
@@ -56,7 +29,7 @@ impl Server {
 		// If the kind is not known, then try to infer it from the path extension.
 		let kind = if let Some(kind) = kind {
 			Some(kind)
-		} else if let Some(path) = &referent.path {
+		} else if let Some(path) = referent.path() {
 			let extension = path.extension();
 			if extension.is_some_and(|extension| extension == "js") {
 				Some(tg::module::Kind::Js)
@@ -65,7 +38,7 @@ impl Server {
 			} else {
 				None
 			}
-		} else if let tg::module::data::Item::Path(path) = &referent.item {
+		} else if let tg::module::data::Item::Path(path) = referent.item() {
 			let extension = path.extension();
 			if extension.is_some_and(|extension| extension == "js") {
 				Some(tg::module::Kind::Js)
@@ -82,7 +55,7 @@ impl Server {
 		let kind = if let Some(kind) = kind {
 			kind
 		} else {
-			match &referent.item {
+			match referent.item() {
 				tg::module::data::Item::Path(path) => {
 					let metadata = tokio::fs::symlink_metadata(&path)
 						.await
@@ -188,24 +161,21 @@ impl Server {
 			.dependencies
 			.get(&import.reference)
 			.ok_or_else(|| tg::error!("failed to resolve reference"))?;
-		let referent = match &referent.item {
+		let referent = match referent.item() {
 			Either::Left(index) => {
 				let item = crate::Server::create_object_from_lockfile_node(&lockfile.nodes, *index)
 					.map_err(|source| tg::error!(!source, "failed to resolve the dependency"))?;
-				tg::Referent {
-					item,
-					path: referent.path.clone(),
-					tag: referent.tag.clone(),
-				}
+				referent.clone().map(|_| item)
 			},
 			Either::Right(id) => {
-				let path = referent.path.clone().or_else(|| referrer.path.clone());
-				let tag = referent.tag.clone().or_else(|| referent.tag.clone());
-				tg::Referent {
-					item: tg::Object::with_id(id.clone()),
-					path,
-					tag,
-				}
+				let item = tg::Object::with_id(id.clone());
+				let path = referent
+					.path()
+					.cloned()
+					.or_else(|| referrer.path().cloned());
+				let tag = referent.tag().cloned();
+				let options = tg::referent::Options { path, tag };
+				tg::Referent { item, options }
 			},
 		};
 
@@ -219,7 +189,7 @@ impl Server {
 
 	async fn resolve_module_with_object_referrer(
 		&self,
-		referrer: tg::Referent<&tg::object::Id>,
+		referrer: &tg::Referent<&tg::object::Id>,
 		import: &tg::module::Import,
 	) -> Result<tg::Referent<tg::module::data::Item>, tg::Error> {
 		let referrer_object = tg::Object::with_id(referrer.item.clone());
@@ -233,20 +203,14 @@ impl Server {
 				file.get_dependency(self, &import.reference).await?,
 			)
 			.await?;
-
-		let object = referent.item.id();
-		let item = tg::module::data::Item::Object(object);
-		let tag = referent.tag;
-		let referrer_path = referrer.path.as_deref().and_then(|path| path.parent());
-		let path = match (referrer_path, &referent.path) {
-			(Some(referrer), Some(referent)) => {
-				Some(crate::util::path::normalize(referrer.join(referent)))
-			},
-			(None, Some(referent)) => Some(referent.clone()),
-			(Some(referrer), None) => Some(referrer.to_owned()),
-			(None, None) => None,
-		};
-		Ok(tg::Referent { item, path, tag })
+		let mut referent = referent.map(|item| tg::module::data::Item::Object(item.id()));
+		referent.inherit(referrer);
+		referent.options.path = referent
+			.options
+			.path
+			.as_ref()
+			.map(crate::util::path::normalize);
+		Ok(referent)
 	}
 
 	async fn try_resolve_module_with_kind(
@@ -254,13 +218,13 @@ impl Server {
 		kind: Option<tg::module::Kind>,
 		referent: tg::Referent<tg::Object>,
 	) -> tg::Result<tg::Referent<tg::Object>> {
-		match (kind, &referent.item) {
+		match (kind, referent.item()) {
 			(
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
 				let path =
-					tg::package::try_get_root_module_file_name(self, Either::Left(&referent.item))
+					tg::package::try_get_root_module_file_name(self, Either::Left(referent.item()))
 						.await?;
 				let (item, path) = if let Some(path) = path {
 					let file = directory
@@ -276,12 +240,15 @@ impl Server {
 				} else {
 					return Err(tg::error!("expected a root module"));
 				};
-				let path = referent.path.map_or_else(|| path.into(), |p| p.join(path));
-				Ok(tg::Referent {
-					item,
+				let path = referent
+					.path()
+					.map_or_else(|| path.into(), |p| p.join(path));
+				let options = tg::referent::Options {
 					path: Some(path),
-					tag: referent.tag,
-				})
+					tag: referent.tag().cloned(),
+				};
+				let referent = tg::Referent { item, options };
+				Ok(referent)
 			},
 			(
 				None

@@ -45,7 +45,7 @@ where
 	let command = archive_command(artifact, format, compression);
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command),
+		command: Some(tg::Referent::with_item(command)),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -84,7 +84,7 @@ where
 	let command = bundle_command(artifact);
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command),
+		command: Some(tg::Referent::with_item(command)),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -117,7 +117,7 @@ where
 	let command = checksum_command(input, algorithm);
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command),
+		command: Some(tg::Referent::with_item(command)),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -157,7 +157,7 @@ where
 	let command = compress_command(input, format);
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command),
+		command: Some(tg::Referent::with_item(command)),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -186,7 +186,7 @@ where
 	let command = decompress_command(input);
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command),
+		command: Some(tg::Referent::with_item(command)),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -221,7 +221,7 @@ where
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
 		checksum: Some(checksum.clone()),
-		command: Some(command),
+		command: Some(tg::Referent::with_item(command)),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)
@@ -259,7 +259,7 @@ where
 	let command = extract_command(input);
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
-		command: Some(command),
+		command: Some(tg::Referent::with_item(command)),
 		..Default::default()
 	};
 	let output = tg::Process::spawn(handle, arg)

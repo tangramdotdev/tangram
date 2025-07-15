@@ -182,7 +182,7 @@ async fn file_through_symlink() {
 		{
 		  "count": 5,
 		  "depth": 4,
-		  "weight": 375
+		  "weight": 394
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -230,7 +230,7 @@ async fn file_with_symlink_no_kind() {
 		{
 		  "count": 8,
 		  "depth": 4,
-		  "weight": 669
+		  "weight": 694
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -278,7 +278,7 @@ async fn file_with_symlink() {
 		{
 		  "count": 7,
 		  "depth": 3,
-		  "weight": 612
+		  "weight": 637
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -324,7 +324,7 @@ async fn artifact_symlink() {
 		{
 		  "count": 6,
 		  "depth": 5,
-		  "weight": 445
+		  "weight": 466
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -387,7 +387,7 @@ async fn lockfile_out_of_date() {
 		{
 		  "count": 7,
 		  "depth": 4,
-		  "weight": 502
+		  "weight": 527
 		}
 		"#);
 		assert!(lockfile.is_none());
@@ -1129,7 +1129,12 @@ async fn tagged_object() {
 		    {
 		      "kind": "file",
 		      "dependencies": {
-		        "hello": "fil_01b64fk2r3af0mp8wek1630m1k57bq8fqp0yvqjq7701b3tngbfyxg?tag=hello"
+		        "hello": {
+		          "item": "fil_01b64fk2r3af0mp8wek1630m1k57bq8fqp0yvqjq7701b3tngbfyxg",
+		          "options": {
+		            "tag": "hello"
+		          }
+		        }
 		      }
 		    }
 		  ]
@@ -1192,7 +1197,9 @@ async fn simple_tagged_package() {
 		      "dependencies": {
 		        "a": {
 		          "item": 2,
-		          "tag": "a"
+		          "options": {
+		            "tag": "a"
+		          }
 		        }
 		      }
 		    },
@@ -1321,7 +1328,9 @@ async fn tagged_package_with_cyclic_dependency() {
 		      "dependencies": {
 		        "a": {
 		          "item": 2,
-		          "tag": "a"
+		          "options": {
+		            "tag": "a"
+		          }
 		        }
 		      }
 		    },
@@ -1338,7 +1347,9 @@ async fn tagged_package_with_cyclic_dependency() {
 		      "dependencies": {
 		        "./tangram.ts": {
 		          "item": 4,
-		          "path": "tangram.ts"
+		          "options": {
+		            "path": "tangram.ts"
+		          }
 		        }
 		      }
 		    },
@@ -1348,7 +1359,9 @@ async fn tagged_package_with_cyclic_dependency() {
 		      "dependencies": {
 		        "./foo.tg.ts": {
 		          "item": 3,
-		          "path": "foo.tg.ts"
+		          "options": {
+		            "path": "foo.tg.ts"
+		          }
 		        }
 		      }
 		    }
@@ -1568,11 +1581,15 @@ async fn tag_dependency_cycles() {
 		      "dependencies": {
 		        "a/*": {
 		          "item": 2,
-		          "tag": "a/1.1.0"
+		          "options": {
+		            "tag": "a/1.1.0"
+		          }
 		        },
 		        "b/*": {
 		          "item": 4,
-		          "tag": "b/1.0.0"
+		          "options": {
+		            "tag": "b/1.0.0"
+		          }
 		        }
 		      }
 		    },
@@ -1588,7 +1605,9 @@ async fn tag_dependency_cycles() {
 		      "dependencies": {
 		        "b/*": {
 		          "item": 4,
-		          "tag": "b/1.0.0"
+		          "options": {
+		            "tag": "b/1.0.0"
+		          }
 		        }
 		      }
 		    },
@@ -1605,7 +1624,9 @@ async fn tag_dependency_cycles() {
 		      "dependencies": {
 		        "./tangram.ts": {
 		          "item": 6,
-		          "path": "tangram.ts"
+		          "options": {
+		            "path": "tangram.ts"
+		          }
 		        }
 		      }
 		    },
@@ -1615,11 +1636,15 @@ async fn tag_dependency_cycles() {
 		      "dependencies": {
 		        "./foo.tg.ts": {
 		          "item": 5,
-		          "path": "foo.tg.ts"
+		          "options": {
+		            "path": "foo.tg.ts"
+		          }
 		        },
 		        "a/*": {
 		          "item": 2,
-		          "tag": "a/1.1.0"
+		          "options": {
+		            "tag": "a/1.1.0"
+		          }
 		        }
 		      }
 		    }
@@ -1740,11 +1765,15 @@ async fn tag_diamond_dependency() {
 		      "dependencies": {
 		        "b": {
 		          "item": 2,
-		          "tag": "b"
+		          "options": {
+		            "tag": "b"
+		          }
 		        },
 		        "c": {
 		          "item": 5,
-		          "tag": "c"
+		          "options": {
+		            "tag": "c"
+		          }
 		        }
 		      }
 		    },
@@ -1760,7 +1789,9 @@ async fn tag_diamond_dependency() {
 		      "dependencies": {
 		        "a/^1": {
 		          "item": 4,
-		          "tag": "a/1.1.0"
+		          "options": {
+		            "tag": "a/1.1.0"
+		          }
 		        }
 		      }
 		    },
@@ -1782,7 +1813,9 @@ async fn tag_diamond_dependency() {
 		      "dependencies": {
 		        "a/^1.0": {
 		          "item": 4,
-		          "tag": "a/1.1.0"
+		          "options": {
+		            "tag": "a/1.1.0"
+		          }
 		        }
 		      }
 		    }
@@ -2014,7 +2047,9 @@ async fn update_tagged_package() {
 		      "dependencies": {
 		        "a/^1": {
 		          "item": 2,
-		          "tag": "a/1.0.0"
+		          "options": {
+		            "tag": "a/1.0.0"
+		          }
 		        }
 		      }
 		    },
@@ -2077,7 +2112,12 @@ async fn update_tagged_package() {
 		    {
 		      "kind": "file",
 		      "dependencies": {
-		        "a/^1": "dir_013a21q59fsmhghm22hyzfnbh9c9j0h4h1v6ep59t8f7tyvs8vdpeg?tag=a%2F1.0.0"
+		        "a/^1": {
+		          "item": "dir_013a21q59fsmhghm22hyzfnbh9c9j0h4h1v6ep59t8f7tyvs8vdpeg",
+		          "options": {
+		            "tag": "a/1.0.0"
+		          }
+		        }
 		      }
 		    }
 		  ]
@@ -2116,7 +2156,9 @@ async fn update_tagged_package() {
 		      "dependencies": {
 		        "a/^1": {
 		          "item": 2,
-		          "tag": "a/1.1.0"
+		          "options": {
+		            "tag": "a/1.1.0"
+		          }
 		        }
 		      }
 		    },
@@ -2211,7 +2253,7 @@ async fn test_checkin_inner(
 		.arg("get")
 		.arg(id.clone())
 		.arg("--depth=inf")
-		.arg("--format=tgvn")
+		.arg("--format=tgon")
 		.arg("--pretty=true")
 		.output()
 		.await

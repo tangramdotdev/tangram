@@ -151,25 +151,22 @@ impl Cli {
 		let referent = self.get_reference(&reference).await?;
 		let item = referent
 			.item
+			.clone()
 			.right()
 			.ok_or_else(|| tg::error!("expected an object"))?;
-		let mut referent = tg::Referent {
-			item,
-			path: referent.path,
-			tag: referent.tag,
-		};
+		let mut referent = referent.map(|_| item);
 
 		// If the reference's path is relative, then make the referent's path relative to the current working directory.
-		referent.path = referent
+		referent.options.path = referent
+			.options
 			.path
-			.take()
 			.map(|path| {
 				if reference.path().is_none_or(Path::is_absolute) {
 					Ok(path)
 				} else {
 					let current_dir = std::env::current_dir()
 						.map_err(|source| tg::error!(!source, "failed to get current dir"))?;
-					crate::util::path_diff(&current_dir, &path)
+					crate::util::path::diff(&current_dir, &path)
 				}
 			})
 			.transpose()?;
@@ -194,10 +191,10 @@ impl Cli {
 				)
 				.await?
 				.ok_or_else(|| tg::error!("could not determine the executable"))?;
-				if let Some(path) = &mut referent.path {
+				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_file_name);
 				} else {
-					referent.path.replace(root_module_file_name.into());
+					referent.options.path.replace(root_module_file_name.into());
 				}
 				let kind = if Path::new(root_module_file_name)
 					.extension()
@@ -230,7 +227,7 @@ impl Cli {
 			},
 
 			tg::Object::File(file) => {
-				let path = referent.path.as_ref().and_then(|path| {
+				let path = referent.path().and_then(|path| {
 					if tg::package::is_module_path(path) {
 						Some(path)
 					} else {
@@ -421,17 +418,15 @@ impl Cli {
 		let arg = tg::process::spawn::Arg {
 			cached: options.cached,
 			checksum: options.checksum,
-			command: Some(command.id()),
+			command: Some(tg::Referent::with_item(command.id())),
 			mounts,
 			network,
 			parent: None,
-			path: None,
 			remote: remote.clone(),
 			retry,
 			stderr,
 			stdin,
 			stdout,
-			tag: None,
 		};
 		let process = tg::Process::spawn(&handle, arg).await?;
 
@@ -447,11 +442,7 @@ impl Cli {
 		}
 
 		// Get the referent.
-		let referent = tg::Referent {
-			item: referent.item.id(),
-			path: referent.path,
-			tag: referent.tag,
-		};
+		let referent = referent.map(|item| item.id());
 
 		Ok((referent, process))
 	}

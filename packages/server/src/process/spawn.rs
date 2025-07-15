@@ -29,6 +29,9 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Get the command.
+		let command = arg.command.as_ref().unwrap();
+
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some()
 			|| (arg.mounts.is_empty()
@@ -44,8 +47,8 @@ impl Server {
 				self.try_add_process_child(
 					parent,
 					&id,
-					arg.path.as_ref(),
-					arg.tag.as_ref(),
+					command.options.path.as_ref(),
+					command.options.tag.as_ref(),
 					Some(&token),
 				)
 				.await
@@ -67,8 +70,8 @@ impl Server {
 				self.try_add_process_child(
 					parent,
 					&id,
-					arg.path.as_ref(),
-					arg.tag.as_ref(),
+					command.options.path.as_ref(),
+					command.options.tag.as_ref(),
 					token.as_ref(),
 				)
 				.await
@@ -87,11 +90,17 @@ impl Server {
 		// Reuse a local process if possible.
 		if let Some(id) = self.try_reuse_process_local(&arg).await? {
 			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(parent, &id, arg.path.as_ref(), arg.tag.as_ref(), None)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-					)?;
+				self.try_add_process_child(
+					parent,
+					&id,
+					command.options.path.as_ref(),
+					command.options.tag.as_ref(),
+					None,
+				)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 			}
 			let output = tg::process::spawn::Output {
 				process: id,
@@ -107,8 +116,8 @@ impl Server {
 				self.try_add_process_child(
 					parent,
 					&output.process,
-					arg.path.as_ref(),
-					arg.tag.as_ref(),
+					command.options.path.as_ref(),
+					command.options.tag.as_ref(),
 					output.token.as_ref(),
 				)
 				.await
@@ -162,8 +171,8 @@ impl Server {
 			self.try_add_process_child(
 				parent,
 				&id,
-				arg.path.as_ref(),
-				arg.tag.as_ref(),
+				command.options.path.as_ref(),
+				command.options.tag.as_ref(),
 				token.as_ref(),
 			)
 			.await
@@ -193,6 +202,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
+
+		// Get the command.
+		let command = arg.command.as_ref().unwrap().clone();
 
 		// Begin a transaction.
 		let transaction = connection
@@ -234,7 +246,7 @@ impl Server {
 				limit 1;
 			"
 		);
-		let params = db::params![arg.command, arg.checksum];
+		let params = db::params![command.item, arg.checksum];
 		let Some(Row {
 			id,
 			error,
@@ -307,6 +319,9 @@ impl Server {
 		&self,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::Id>> {
+		// Get the command.
+		let command = arg.command.as_ref().unwrap();
+
 		// If the checksum is not set, then return.
 		let Some(expected_checksum) = arg.checksum.clone() else {
 			return Ok(None);
@@ -354,7 +369,7 @@ impl Server {
 				limit 1;
 			"
 		);
-		let params = db::params![arg.command, arg.checksum];
+		let params = db::params![command.item, arg.checksum];
 		let Some(Row {
 			id: existing_id,
 			actual_checksum,
@@ -381,17 +396,18 @@ impl Server {
 		};
 
 		// Touch the command.
-		if let Some(command) = &arg.command {
-			let arg = tg::object::touch::Arg { remote: None };
-			self.touch_object(&command.clone().into(), arg).await?;
-		}
+		self.touch_object(
+			&command.item.clone().into(),
+			tg::object::touch::Arg::default(),
+		)
+		.await?;
 
 		// Create an ID.
 		let id = tg::process::Id::new();
 
 		// Get the host.
-		let command = tg::Command::with_id(arg.command.clone().unwrap());
-		let host = &*command.host(self).await?;
+		let command_ = tg::Command::with_id(command.item.clone());
+		let host = &*command_.host(self).await?;
 
 		// Copy the log file.
 		let src = self.logs_path().join(existing_id.to_string());
@@ -489,7 +505,7 @@ impl Server {
 			id,
 			actual_checksum,
 			true,
-			arg.command,
+			command.item,
 			now,
 			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
 			exit,
@@ -522,11 +538,15 @@ impl Server {
 		&self,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<(tg::process::Id, String)> {
+		// Get the command.
+		let command = arg.command.as_ref().unwrap();
+
 		// Touch the command.
-		if let Some(command) = &arg.command {
-			let arg = tg::object::touch::Arg { remote: None };
-			self.touch_object(&command.clone().into(), arg).await?;
-		}
+		self.touch_object(
+			&command.item.clone().into(),
+			tg::object::touch::Arg::default(),
+		)
+		.await?;
 
 		// Create an ID.
 		let id = tg::process::Id::new();
@@ -549,8 +569,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
 
 		// Get the host.
-		let command = tg::Command::with_id(arg.command.clone().unwrap());
-		let host = &*command.host(self).await?;
+		let command_ = tg::Command::with_id(command.item.clone());
+		let host = &*command_.host(self).await?;
 
 		// Get a database connection.
 		let mut connection = self
@@ -627,7 +647,7 @@ impl Server {
 		let params = db::params![
 			id,
 			cacheable,
-			arg.command,
+			command.item,
 			now,
 			now,
 			arg.checksum,

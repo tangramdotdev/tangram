@@ -114,15 +114,13 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		if let Ok(value) = v8::Local::<v8::Number>::try_from(self.value) {
-			let value = value.number_value(self.scope).unwrap();
-			let Some(value) = value.to_i64() else {
-				return Err(Error::custom("invalid value"));
-			};
-			visitor.visit_i64(value)
-		} else {
-			Err(Error::custom("invalid value"))
-		}
+		let value = v8::Local::<v8::Number>::try_from(self.value)
+			.map_err(|_| Error::custom("expected a number"))?;
+		let value = value.number_value(self.scope).unwrap();
+		let Some(value) = value.to_i64() else {
+			return Err(Error::custom("invalid value"));
+		};
+		visitor.visit_i64(value)
 	}
 
 	fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -150,15 +148,13 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		if let Ok(value) = v8::Local::<v8::Number>::try_from(self.value) {
-			let value = value.number_value(self.scope).unwrap();
-			let Some(value) = value.to_u64() else {
-				return Err(Error::custom("invalid value"));
-			};
-			visitor.visit_u64(value)
-		} else {
-			Err(Error::custom("invalid value"))
-		}
+		let value = v8::Local::<v8::Number>::try_from(self.value)
+			.map_err(|_| Error::custom("expected a number"))?;
+		let value = value.number_value(self.scope).unwrap();
+		let Some(value) = value.to_u64() else {
+			return Err(Error::custom("invalid value"));
+		};
+		visitor.visit_u64(value)
 	}
 
 	fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -172,12 +168,10 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		if let Ok(value) = v8::Local::<v8::Number>::try_from(self.value) {
-			let value = value.number_value(self.scope).unwrap();
-			visitor.visit_f64(value)
-		} else {
-			Err(Error::custom("invalid value"))
-		}
+		let value = v8::Local::<v8::Number>::try_from(self.value)
+			.map_err(|_| Error::custom("expected a number"))?;
+		let value = value.number_value(self.scope).unwrap();
+		visitor.visit_f64(value)
 	}
 
 	fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -213,7 +207,8 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(self.value).unwrap();
+		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(self.value)
+			.map_err(|_| Error::custom("expected a uint8array"))?;
 		let bytes = if let Some(data) = uint8_array
 			.get_backing_store()
 			.and_then(|backing_store| backing_store.data())
@@ -281,7 +276,8 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		let array = v8::Local::<v8::Array>::try_from(self.value).unwrap();
+		let array = v8::Local::<v8::Array>::try_from(self.value)
+			.map_err(|_| Error::custom("expected an array"))?;
 		let length = array.length();
 		visitor.visit_seq(SeqAccess {
 			array,
@@ -314,7 +310,8 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		let object = v8::Local::<v8::Object>::try_from(self.value).unwrap();
+		let object = v8::Local::<v8::Object>::try_from(self.value)
+			.map_err(|_| Error::custom("expected an object"))?;
 		let keys = object
 			.get_property_names(self.scope, v8::GetPropertyNamesArgs::default())
 			.unwrap();
@@ -358,7 +355,9 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 			let keys = object
 				.get_property_names(self.scope, v8::GetPropertyNamesArgs::default())
 				.unwrap();
-			let tag = keys.get_index(self.scope, 0).unwrap();
+			let tag = keys
+				.get_index(self.scope, 0)
+				.ok_or_else(|| Error::custom("expected at least one key"))?;
 			let content = object.get(self.scope, tag).unwrap();
 			visitor.visit_enum(EnumAccess {
 				content,

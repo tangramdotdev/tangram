@@ -15,19 +15,19 @@ async fn processes() {
 
 		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export let e = () => "e";
-				export let d = () => "d";
-				export let c = () => "c";
-				export let b = async () => {
-					await tg.build(e);
-					await tg.build(d);
-					return "b";
-				};
 				export let a = async () => {
 					await tg.build(c);
 					await tg.build(b);
 					return "a";
 				};
+				export let b = async () => {
+					await tg.build(e);
+					await tg.build(d);
+					return "b";
+				};
+				export let c = () => "c";
+				export let d = () => "d";
+				export let e = () => "e";
 			"#),
 		};
 
@@ -118,25 +118,25 @@ async fn objects() {
 		let server = context.spawn_server().await.unwrap();
 		let directory = temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				export let h = () => tg.file("h");
-				export let g = () => tg.file("g");
-				export let f = () => tg.file("f");
-				export let e = () => tg.file("e");
-				export let d = () => tg.directory({
-					"h": tg.build(h),
-				});
-				export let c = () => tg.directory({
-					"g": tg.build(g),
-				});
-				export let b = () => tg.directory({
-					"f": tg.build(f),
-				});
 				export let a = () => tg.directory({
 					"b": tg.build(b),
 					"c": tg.build(c),
 					"d": tg.build(d),
 					"e": tg.build(e),
 				});
+				export let b = () => tg.directory({
+					"f": tg.build(f),
+				});
+				export let c = () => tg.directory({
+					"g": tg.build(g),
+				});
+				export let d = () => tg.directory({
+					"h": tg.build(h),
+				});
+				export let e = () => tg.file("e");
+				export let f = () => tg.file("f");
+				export let g = () => tg.file("g");
+				export let h = () => tg.file("h");
 			"#),
 		};
 

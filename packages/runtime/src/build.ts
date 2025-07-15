@@ -43,17 +43,14 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		},
 		...args,
 	);
-	let path: string | undefined;
-	let tag: string | undefined;
+	let sourceOptions: tg.Referent.Options = {};
 	if (
 		"executable" in arg &&
 		typeof arg.executable === "object" &&
 		"module" in arg.executable
 	) {
-		path = arg.executable.module.referent.path;
-		tag = arg.executable.module.referent.tag;
-		arg.executable.module.referent.path = undefined;
-		arg.executable.module.referent.tag = undefined;
+		sourceOptions = arg.executable.module.referent.options;
+		arg.executable.module.referent.options = {};
 	}
 	let commandMounts: Array<tg.Command.Mount> | undefined;
 	if ("mounts" in arg && arg.mounts !== undefined) {
@@ -79,20 +76,22 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		throw new Error("a checksum is required to build with network enabled");
 	}
 	let commandId = await command.store();
+	let commandReferent = {
+		item: commandId,
+		options: sourceOptions,
+	};
 	let spawnOutput = await syscall("process_spawn", {
 		checksum,
-		command: commandId,
+		command: commandReferent,
 		create: false,
 		mounts: [],
 		network,
 		parent: undefined,
-		path,
 		remote: undefined,
 		retry: false,
 		stderr: undefined,
 		stdin: undefined,
 		stdout: undefined,
-		tag,
 	});
 	let process = new tg.Process({
 		id: spawnOutput.process,
@@ -105,8 +104,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		throw tg.error("the child process failed", {
 			source: {
 				item: error,
-				path,
-				tag,
+				options: sourceOptions,
 			},
 		});
 	}

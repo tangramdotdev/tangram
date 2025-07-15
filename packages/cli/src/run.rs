@@ -195,7 +195,8 @@ impl Cli {
 		// Print the error.
 		if let Some(error) = wait.error {
 			eprintln!("{} the process failed", "error".red().bold());
-			self.print_error(&error, Some(&referent)).await;
+			let error = referent.map(|_| error);
+			self.print_error(error).await;
 		}
 
 		// Print the output.

@@ -318,8 +318,7 @@ impl File {
 				};
 				tg::Referent {
 					item,
-					path: referent.path.clone(),
-					tag: referent.tag.clone(),
+					options: referent.options.clone(),
 				}
 			},
 			Object::Node(node) => {

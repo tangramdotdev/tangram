@@ -54,10 +54,10 @@ export class Graph {
 								tg.Object.is(value)
 							) {
 								let item = tg.Graph.Edge.fromArg(value);
-								referent = { item };
+								referent = { item, options: {} };
 							} else {
 								let item = tg.Graph.Edge.fromArg(value.item);
-								referent = { item, path: value.path, tag: value.tag };
+								referent = { item, options: value.options };
 							}
 							return [key, referent];
 						}),
@@ -142,22 +142,22 @@ export class Graph {
 									"node" in value ||
 									tg.Object.is(value)
 								) {
-									referent = { item: value };
+									referent = { item: value, options: {} };
 								} else {
 									referent = value;
 								}
 								if (typeof referent.item === "number") {
 									node.dependencies[reference] = {
-										...referent,
 										item: referent.item + offset,
+										options: referent.options,
 									};
 								} else if ("node" in referent.item) {
 									node.dependencies[reference] = {
-										...referent,
 										item: {
-											...referent.item,
+											graph: referent.item.graph,
 											node: referent.item.node + offset,
 										},
+										options: referent.options,
 									};
 								} else if (tg.Object.is(referent.item)) {
 									node.dependencies[reference] = referent;
@@ -431,7 +431,7 @@ export namespace Graph {
 				data.entries = globalThis.Object.fromEntries(
 					globalThis.Object.entries(object.entries).map(([name, artifact]) => [
 						name,
-						tg.Graph.Edge.toDataString(artifact, (artifact) => artifact.id),
+						tg.Graph.Edge.toData(artifact, (artifact) => artifact.id),
 					]),
 				);
 			}
@@ -477,7 +477,7 @@ export namespace Graph {
 							return [
 								reference,
 								tg.Referent.toData(referent, (item) =>
-									tg.Graph.Edge.toDataString(item, (item) => item.id),
+									tg.Graph.Edge.toData(item, (item) => item.id),
 								),
 							];
 						},
@@ -527,7 +527,7 @@ export namespace Graph {
 		export let toData = (object: tg.Graph.Symlink): tg.Graph.Data.Symlink => {
 			let data: tg.Graph.Data.Symlink = {};
 			if (object.artifact !== undefined) {
-				data.artifact = tg.Graph.Edge.toDataString(
+				data.artifact = tg.Graph.Edge.toData(
 					object.artifact,
 					(artifact) => artifact.id,
 				);
@@ -579,17 +579,6 @@ export namespace Graph {
 			}
 		};
 
-		export let toDataString = <T, U>(
-			object: tg.Graph.Edge<T>,
-			f: (item: T) => U,
-		): tg.Graph.Data.Edge<U> => {
-			if (typeof object === "object" && object !== null && "node" in object) {
-				return tg.Graph.Reference.toDataString(object);
-			} else {
-				return f(object);
-			}
-		};
-
 		export let fromData = <T, U>(
 			data: tg.Graph.Data.Edge<T>,
 			f: (item: T) => U,
@@ -603,6 +592,17 @@ export namespace Graph {
 				} catch {}
 			}
 			return f(data as T);
+		};
+
+		export let toDataString = <T, U extends string>(
+			object: tg.Graph.Edge<T>,
+			f: (item: T) => U,
+		): string => {
+			if (typeof object === "object" && object !== null && "node" in object) {
+				return tg.Graph.Reference.toDataString(object);
+			} else {
+				return f(object);
+			}
 		};
 
 		export let children = <T>(object: tg.Graph.Edge<T>): Array<tg.Object> => {
@@ -644,9 +644,20 @@ export namespace Graph {
 			return data;
 		};
 
-		export let toDataString = (
-			object: tg.Graph.Reference,
-		): tg.Graph.Data.Reference => {
+		export let fromData = (
+			data: tg.Graph.Data.Reference,
+		): tg.Graph.Reference => {
+			if (typeof data === "number") {
+				return { graph: undefined, node: data };
+			} else if (typeof data === "string") {
+				return tg.Graph.Reference.fromDataString(data);
+			} else {
+				let graph = data.graph ? tg.Graph.withId(data.graph) : undefined;
+				return { graph, node: data.node };
+			}
+		};
+
+		export let toDataString = (object: tg.Graph.Reference): string => {
 			let string = "";
 			if (object.graph !== undefined) {
 				string += `graph=${object.graph.id}&`;
@@ -655,39 +666,30 @@ export namespace Graph {
 			return string;
 		};
 
-		export let fromData = (
-			data: tg.Graph.Data.Reference,
-		): tg.Graph.Reference => {
-			if (typeof data === "number") {
-				return { graph: undefined, node: data };
-			} else if (typeof data === "string") {
-				let graph: tg.Graph | undefined;
-				let node: number | undefined;
-				for (let param of data.split("&")) {
-					let [key, value] = param.split("=");
-					if (value === undefined) {
-						throw new Error("missing value");
+		export let fromDataString = (data: string): tg.Graph.Reference => {
+			let graph: tg.Graph | undefined;
+			let node: number | undefined;
+			for (let param of data.split("&")) {
+				let [key, value] = param.split("=");
+				if (value === undefined) {
+					throw new Error("missing value");
+				}
+				switch (key) {
+					case "graph": {
+						graph = tg.Graph.withId(decodeURIComponent(value));
+						break;
 					}
-					switch (key) {
-						case "graph": {
-							graph = tg.Graph.withId(decodeURIComponent(value));
-							break;
-						}
-						case "node": {
-							node = Number.parseInt(decodeURIComponent(value));
-							break;
-						}
-						default: {
-							throw new Error("invalid key");
-						}
+					case "node": {
+						node = Number.parseInt(decodeURIComponent(value));
+						break;
+					}
+					default: {
+						throw new Error("invalid key");
 					}
 				}
-				tg.assert(node !== undefined);
-				return { graph, node };
-			} else {
-				let graph = data.graph ? tg.Graph.withId(data.graph) : undefined;
-				return { graph, node: data.node };
 			}
+			tg.assert(node !== undefined);
+			return { graph, node };
 		};
 
 		export let children = (object: tg.Graph.Reference): Array<tg.Object> => {
