@@ -64,7 +64,7 @@ impl Server {
 			return Ok(Some(output));
 		}
 
-		// Return a matching local process if one exists.
+		// Return a cached local process if one exists.
 		if let Some((id, token)) = self.try_get_cached_process_local(&arg).await? {
 			if let Some(parent) = arg.parent.as_ref() {
 				self.try_add_process_child(
@@ -87,8 +87,11 @@ impl Server {
 			return Ok(Some(output));
 		}
 
-		// Reuse a local process if possible.
-		if let Some(id) = self.try_reuse_process_local(&arg).await? {
+		// Return a cached local process with mismatched checksum if possible.
+		if let Some(id) = self
+			.try_get_cached_process_with_mismatched_checksum_local(&arg)
+			.await?
+		{
 			if let Some(parent) = arg.parent.as_ref() {
 				self.try_add_process_child(
 					parent,
@@ -229,19 +232,20 @@ impl Server {
 				"with params as (select $1::text as command, $2::text as checksum)"
 			},
 		};
+		let is = match &transaction {
+			database::Transaction::Sqlite(_) => "is",
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => "is not distinct from",
+		};
 		let statement = formatdoc!(
 			"
 				{params}
 				select id, error, exit, status
 				from processes, params
 				where
-					processes.cacheable = 1 and
 					processes.command = params.command and
-					case
-						when processes.expected_checksum is null and params.checksum is null then true
-						when processes.expected_checksum = params.checksum then true
-						else false
-					end
+					processes.cacheable = 1 and
+					processes.expected_checksum {is} params.checksum
 				order by processes.created_at desc
 				limit 1;
 			"
@@ -315,7 +319,7 @@ impl Server {
 		Ok(Some((id, token)))
 	}
 
-	async fn try_reuse_process_local(
+	async fn try_get_cached_process_with_mismatched_checksum_local(
 		&self,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::Id>> {
@@ -334,7 +338,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Attempt to get a matching process.
+		// Attempt to get a process.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			id: tg::process::Id,
@@ -357,19 +361,15 @@ impl Server {
 				select id, actual_checksum, output
 				from processes, params
 				where
+					processes.command = params.command and
 					processes.cacheable = 1 and
-					processes.command = {p}1 and
-					case
-						when params.checksum is null then true
-						when processes.actual_checksum is null then false
-						when split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1) then true
-						else false
-					end
+					processes.actual_checksum is not null and
+					split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1)
 				order by processes.created_at desc
 				limit 1;
 			"
 		);
-		let params = db::params![command.item, arg.checksum];
+		let params = db::params![command.item, expected_checksum];
 		let Some(Row {
 			id: existing_id,
 			actual_checksum,
@@ -387,12 +387,12 @@ impl Server {
 
 		// Set the exit, output, and error.
 		let (exit, error) = if expected_checksum == actual_checksum {
-			(Some(0), None)
+			(0, None)
 		} else {
 			let expected = &expected_checksum;
 			let actual = &actual_checksum;
 			let error = tg::error!("checksum does not match, expected {expected}, actual {actual}");
-			(Some(1), Some(error))
+			(1, Some(error))
 		};
 
 		// Touch the command.
@@ -509,7 +509,7 @@ impl Server {
 			now,
 			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
 			exit,
-			arg.checksum,
+			expected_checksum,
 			now,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
