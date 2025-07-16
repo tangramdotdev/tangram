@@ -50,7 +50,26 @@ end;
 
 create index objects_cache_entry_index on objects (cache_reference) where cache_reference is not null;
 
-create index objects_complete_index on objects (complete);
+create trigger objects_insert_cache_reference_trigger
+after insert on objects
+for each row
+begin
+	update cache_entries
+	set reference_count = reference_count + 1
+	where id = new.cache_reference;
+end;
+
+create trigger objects_delete_trigger
+after delete on objects
+for each row
+begin
+	update cache_entries
+	set reference_count = reference_count - 1
+	where id = old.cache_reference;
+
+	delete from object_children
+	where object = old.id;
+end;
 
 create table object_children (
 	object text not null,
