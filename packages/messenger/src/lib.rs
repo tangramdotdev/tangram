@@ -74,9 +74,13 @@ pub struct BatchConfig {
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
 pub enum Error {
+	#[display("not found")]
 	NotFound,
+	#[display("exceeded maximum messages")]
 	MaxMessages,
+	#[display("exceeded maximum bytes")]
 	MaxBytes,
+	#[display("publish failed")]
 	PublishFailed,
 	Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }

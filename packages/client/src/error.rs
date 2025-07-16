@@ -30,10 +30,10 @@ pub struct Error {
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum Code {
-	#[display("cancellation")]
 	Cancellation,
-	#[display("checksum_mismatch")]
 	ChecksumMismatch,
 }
 

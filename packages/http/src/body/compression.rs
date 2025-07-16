@@ -18,10 +18,10 @@ pub struct Decompression<B> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, derive_more::Display, derive_more::FromStr)]
+#[display(rename_all = "lowercase")]
+#[from_str(rename_all = "lowercase")]
 pub enum Algorithm {
-	#[display("gzip")]
 	Gzip,
-	#[display("zstd")]
 	Zstd,
 }
 

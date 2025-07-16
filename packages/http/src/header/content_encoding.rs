@@ -5,6 +5,7 @@ pub enum ContentEncoding {
 }
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
+#[display("invalid content encoding")]
 pub struct FromStrError;
 
 impl std::fmt::Display for ContentEncoding {

@@ -108,7 +108,9 @@ impl Server {
 					error = Some(
 						tg::error!(
 							code = tg::error::Code::ChecksumMismatch,
-							"checksum does not match, expected {expected}, actual {actual}"
+							%expected,
+							%actual,
+							"checksum mismatch",
 						)
 						.to_data(),
 					);

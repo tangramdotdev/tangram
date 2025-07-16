@@ -20,6 +20,7 @@ pub struct Uri {
 
 #[derive(Clone, Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum ParseError {
+	#[display("invalid uri")]
 	Invalid,
 	Regex(regex::Error),
 	Utf8(std::string::FromUtf8Error),

@@ -10,6 +10,7 @@ pub struct Builder {
 }
 
 #[derive(Clone, Debug, derive_more::Display, derive_more::Error)]
+#[display("invalid uri")]
 pub struct Error;
 
 impl Builder {

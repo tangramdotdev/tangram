@@ -13,7 +13,9 @@ pub struct Preference {
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
 pub enum FromStrError {
+	#[display("missing encoding")]
 	MissingEncoding,
+	#[display("invalid weight")]
 	InvalidWeight,
 	ContentEncoding(super::content_encoding::FromStrError),
 }

@@ -31,6 +31,7 @@ pub enum Operator {
 }
 
 #[derive(Clone, Debug, derive_more::Display, derive_more::Error)]
+#[display("parse error")]
 pub struct ParseError;
 
 impl Pattern {

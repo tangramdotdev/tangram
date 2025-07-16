@@ -12,6 +12,7 @@ mod tests;
 pub enum Error {
 	Glob(globset::Error),
 	Io(std::io::Error),
+	#[display("invalid path")]
 	Path,
 }
 
