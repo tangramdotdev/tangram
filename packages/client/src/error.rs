@@ -33,6 +33,8 @@ pub struct Error {
 pub enum Code {
 	#[display("cancellation")]
 	Cancellation,
+	#[display("checksum_mismatch")]
+	ChecksumMismatch,
 }
 
 /// An error location.

@@ -7,6 +7,7 @@ create table processes (
   depth integer,
   enqueued_at integer,
   error text,
+  error_code text,
   exit integer,
   expected_checksum text,
   finished_at integer,

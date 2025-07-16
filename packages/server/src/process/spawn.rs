@@ -237,6 +237,11 @@ impl Server {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is not distinct from",
 		};
+		let isnt = match &transaction {
+			database::Transaction::Sqlite(_) => "is not",
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => "is distinct from",
+		};
 		let statement = formatdoc!(
 			"
 				{params}
@@ -245,7 +250,8 @@ impl Server {
 				where
 					processes.command = params.command and
 					processes.cacheable = 1 and
-					processes.expected_checksum {is} params.checksum
+					processes.expected_checksum {is} params.checksum and
+					processes.error_code {isnt} 'cancellation'
 				order by processes.created_at desc
 				limit 1;
 			"
@@ -263,14 +269,6 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-
-		// If the process is canceled, then return.
-		if error
-			.as_ref()
-			.is_some_and(|error| matches!(error.0.code, Some(tg::error::Code::Cancellation)))
-		{
-			return Ok(None);
-		}
 
 		// If the process failed and the retry flag is set, then return.
 		let failed = error.is_some() || exit.is_some_and(|exit| exit != 0);
@@ -355,6 +353,11 @@ impl Server {
 				"with params as (select $1::text as command, $2::text as checksum)"
 			},
 		};
+		let is = match &connection {
+			database::Connection::Sqlite(_) => "is",
+			#[cfg(feature = "postgres")]
+			database::Connection::Postgres(_) => "is not distinct from",
+		};
 		let statement = formatdoc!(
 			"
 				{params}
@@ -363,6 +366,7 @@ impl Server {
 				where
 					processes.command = params.command and
 					processes.cacheable = 1 and
+					processes.error_code {is} 'checksum_mismatch' and
 					processes.actual_checksum is not null and
 					split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1)
 				order by processes.created_at desc
@@ -391,7 +395,10 @@ impl Server {
 		} else {
 			let expected = &expected_checksum;
 			let actual = &actual_checksum;
-			let error = tg::error!("checksum does not match, expected {expected}, actual {actual}");
+			let error = tg::error!(
+				code = tg::error::Code::ChecksumMismatch,
+				"checksum does not match, expected {expected}, actual {actual}"
+			);
 			(1, Some(error))
 		};
 
@@ -450,6 +457,7 @@ impl Server {
 					command,
 					created_at,
 					error,
+					error_code,
 					exit,
 					expected_checksum,
 					finished_at,
@@ -487,17 +495,18 @@ impl Server {
 					command = {p}4,
 					created_at = {p}5,
 					error = {p}6,
-					exit = {p}7,
-					expected_checksum = {p}8,
-					finished_at = {p}9,
-					host = {p}10,
-					mounts = {p}11,
-					network = {p}12,
-					output = {p}13,
-					retry = {p}14,
-					status = {p}15,
-					token_count = {p}16,
-					touched_at = {p}17;
+					error_code = {p}7,
+					exit = {p}8,
+					expected_checksum = {p}9,
+					finished_at = {p}10,
+					host = {p}11,
+					mounts = {p}12,
+					network = {p}13,
+					output = {p}14,
+					retry = {p}15,
+					status = {p}16,
+					token_count = {p}17,
+					touched_at = {p}18;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -508,6 +517,7 @@ impl Server {
 			command.item,
 			now,
 			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
+			error.as_ref().and_then(|error| error.code),
 			exit,
 			expected_checksum,
 			now,

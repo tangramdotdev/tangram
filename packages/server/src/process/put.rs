@@ -90,6 +90,7 @@ impl Server {
 					dequeued_at,
 					enqueued_at,
 					error,
+					error_code,
 					exit,
 					expected_checksum,
 					finished_at,
@@ -131,7 +132,8 @@ impl Server {
 					?21,
 					?22,
 					?23,
-					?24
+					?24,
+					?25
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
@@ -141,22 +143,23 @@ impl Server {
 					dequeued_at = ?6,
 					enqueued_at = ?7,
 					error = ?8,
-					exit = ?9,
-					expected_checksum = ?10,
-					finished_at = ?11,
-					host = ?12,
-					log = ?13,
-					mounts = ?14,
-					network = ?15,
-					output = ?16,
-					retry = ?17,
-					started_at = ?18,
-					status = ?19,
-					stderr = ?20,
-					stdin = ?21,
-					stdout = ?22,
-					token_count = ?23,
-					touched_at = ?24
+					error_code = ?9,
+					exit = ?10,
+					expected_checksum = ?11,
+					finished_at = ?12,
+					host = ?13,
+					log = ?14,
+					mounts = ?15,
+					network = ?16,
+					output = ?17,
+					retry = ?18,
+					started_at = ?19,
+					status = ?20,
+					stderr = ?21,
+					stdin = ?22,
+					stdout = ?23,
+					token_count = ?24,
+					touched_at = ?25
 			"
 		);
 		let params = db::params![
@@ -168,6 +171,7 @@ impl Server {
 			arg.data.dequeued_at,
 			arg.data.enqueued_at,
 			arg.data.error.as_ref().map(db::value::Json),
+			arg.data.error.as_ref().and_then(|error| error.code),
 			arg.data.exit,
 			arg.data.expected_checksum,
 			arg.data.finished_at,
@@ -265,6 +269,7 @@ impl Server {
 					dequeued_at,
 					enqueued_at,
 					error,
+					error_code,
 					exit,
 					expected_checksum,
 					finished_at,
@@ -306,7 +311,8 @@ impl Server {
 					$21,
 					$22,
 					$23,
-					$24
+					$24,
+					$25
 				)
 				on conflict (id) do update set
 					actual_checksum = $2,
@@ -316,22 +322,23 @@ impl Server {
 					dequeued_at = $6,
 					enqueued_at = $7,
 					error = $8,
-					exit = $9,
-					expected_checksum = $10,
-					finished_at = $11,
-					host = $12,
-					log = $13,
-					mounts = $14,
-					network = $15,
-					output = $16,
-					retry = $17,
-					started_at = $18,
-					status = $19,
-					stderr = $20,
-					stdin = $21,
-					stdout = $22,
-					token_count = $23,
-					touched_at = $24;
+					error_code = $9,
+					exit = $10,
+					expected_checksum = $11,
+					finished_at = $12,
+					host = $13,
+					log = $14,
+					mounts = $15,
+					network = $16,
+					output = $17,
+					retry = $18,
+					started_at = $19,
+					status = $20,
+					stderr = $21,
+					stdin = $22,
+					stdout = $23,
+					token_count = $24,
+					touched_at = $25;
 			"
 		);
 		transaction
@@ -349,6 +356,12 @@ impl Server {
 						.error
 						.as_ref()
 						.map(|error| serde_json::to_string(error).unwrap()),
+					&arg.data
+						.error
+						.as_ref()
+						.and_then(|error| error.code)
+						.as_ref()
+						.map(ToString::to_string),
 					&arg.data.exit.map(|exit| exit.to_i64().unwrap()),
 					&arg.data.expected_checksum.as_ref().map(ToString::to_string),
 					&arg.data.finished_at,

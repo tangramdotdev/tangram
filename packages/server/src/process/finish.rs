@@ -106,8 +106,11 @@ impl Server {
 					.ok_or_else(|| tg::error!(%id, "the actual checksum was not set"))?;
 				if expected != actual {
 					error = Some(
-						tg::error!("checksum does not match, expected {expected}, actual {actual}")
-							.to_data(),
+						tg::error!(
+							code = tg::error::Code::ChecksumMismatch,
+							"checksum does not match, expected {expected}, actual {actual}"
+						)
+						.to_data(),
 					);
 					exit = 1;
 				}
@@ -151,14 +154,15 @@ impl Server {
 				set
 					actual_checksum = {p}1,
 					error = {p}2,
-					finished_at = {p}3,
+					error_code = {p}3,
+					finished_at = {p}4,
 					heartbeat_at = null,
-					output = {p}4,
-					exit = {p}5,
-					status = {p}6,
-					touched_at = {p}7
+					output = {p}5,
+					exit = {p}6,
+					status = {p}7,
+					touched_at = {p}8
 				where
-					id = {p}8 and
+					id = {p}9 and
 					status != 'finished';
 			"
 		);
@@ -166,6 +170,7 @@ impl Server {
 		let params = db::params![
 			arg.checksum,
 			error.clone().map(db::value::Json),
+			error.as_ref().and_then(|error| error.code),
 			now,
 			output.clone().map(db::value::Json),
 			exit,
