@@ -1,13 +1,13 @@
-import bun from "bun" with { path: "../packages/packages/bun" };
+import bun from "bun" with { local: "../packages/packages/bun" };
 import foundationdb from "foundationdb" with {
-	path: "../packages/packages/foundationdb",
+	local: "../packages/packages/foundationdb",
 };
-import { libclang } from "llvm" with { path: "../packages/packages/llvm" };
-import { cargo } from "rust" with { path: "../packages/packages/rust" };
-import xz from "xz" with { path: "../packages/packages/xz" };
-import zlib from "zlib" with { path: "../packages/packages/zlib" };
-import * as std from "std" with { path: "../packages/packages/std" };
-import { $ } from "std" with { path: "../packages/packages/std" };
+import { libclang } from "llvm" with { local: "../packages/packages/llvm" };
+import { cargo } from "rust" with { local: "../packages/packages/rust" };
+import xz from "xz" with { local: "../packages/packages/xz" };
+import zlib from "zlib" with { local: "../packages/packages/zlib" };
+import * as std from "std" with { local: "../packages/packages/std" };
+import { $ } from "std" with { local: "../packages/packages/std" };
 
 import source from "." with { type: "directory" };
 
@@ -111,7 +111,7 @@ export const build = async (arg?: Arg) => {
 	const unwrapped = output
 		.then((dir) => dir.get("bin/tangram"))
 		.then(tg.File.expect);
-	const wrapped = std.wrap(unwrapped, { libraryPaths });
+	const wrapped = std.wrap(unwrapped, { host, libraryPaths });
 	return await tg.directory(output, {
 		["bin/tangram"]: wrapped,
 		["bin/tg"]: tg.symlink("tangram"),
