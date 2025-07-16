@@ -67,11 +67,11 @@ pub fn host_import_module_dynamically_callback<'s>(
 		// Compile the module.
 		let module = compile_module(scope, &module, text)?;
 
+		// Instantiate the module.
+		module.instantiate_module(scope, resolve_module_callback)?;
+
 		Some(module)
 	}?;
-
-	// Instantiate the module.
-	module.instantiate_module(scope, resolve_module_callback)?;
 
 	// Evaluate the module.
 	let output = module.evaluate(scope)?;

@@ -129,7 +129,6 @@ impl Server {
 			checksum: wait.checksum,
 			error: wait.error.as_ref().map(tg::Error::to_data),
 			exit: wait.exit,
-			force: false,
 			output,
 			remote: process.remote().cloned(),
 		};

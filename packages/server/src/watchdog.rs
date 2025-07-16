@@ -104,7 +104,6 @@ impl Server {
 						checksum: None,
 						error,
 						exit: 1,
-						force: false,
 						output: None,
 						remote: None,
 					};
