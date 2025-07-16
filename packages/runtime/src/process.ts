@@ -17,9 +17,9 @@ export class Process {
 		return this.#state;
 	}
 
-	async wait(): Promise<tg.Process.WaitOutput> {
+	async wait(): Promise<tg.Process.Wait> {
 		let data = await syscall("process_wait", this.#id, this.#remote);
-		let output = tg.Process.WaitOutput.fromData(data);
+		let output = tg.Process.Wait.fromData(data);
 		return output;
 	}
 
@@ -236,23 +236,21 @@ export namespace Process {
 		stdout?: string;
 	};
 
-	export type WaitOutput = {
+	export type Wait = {
 		error: tg.Error | undefined;
 		exit: number;
 		output?: tg.Value;
 	};
 
-	export namespace WaitOutput {
+	export namespace Wait {
 		export type Data = {
 			error?: tg.Error.Data;
 			exit: number;
 			output?: tg.Value.Data;
 		};
 
-		export let fromData = (
-			data: tg.Process.WaitOutput.Data,
-		): tg.Process.WaitOutput => {
-			let output: WaitOutput = {
+		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
+			let output: Wait = {
 				error:
 					data.error !== undefined ? tg.Error.fromData(data.error) : undefined,
 				exit: data.exit,
@@ -263,7 +261,7 @@ export namespace Process {
 			return output;
 		};
 
-		export let toData = (value: WaitOutput): Data => {
+		export let toData = (value: Wait): Data => {
 			let output: Data = {
 				exit: value.exit,
 			};
