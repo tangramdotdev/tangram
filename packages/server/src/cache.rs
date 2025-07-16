@@ -685,7 +685,7 @@ impl Server {
 				.parent()
 				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 			let dst = &target;
-			crate::util::path::diff(src, dst)?
+			tg::util::path::diff(src, dst)?
 		} else if let Some(path) = &node.path {
 			path.clone()
 		} else {

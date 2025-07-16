@@ -1307,11 +1307,7 @@ where
 		Ok(())
 	}
 
-	async fn process_title(
-		handle: &H,
-		process: &tg::Referent<tg::Process>,
-		options: &Options,
-	) -> Option<String> {
+	async fn process_title(handle: &H, process: &tg::Referent<tg::Process>) -> Option<String> {
 		// Get the original commands' executable.
 		let command = process.item.command(handle).await.ok()?.clone();
 		let executable = command.executable(handle).await.ok()?.clone();
@@ -1323,19 +1319,7 @@ where
 
 		// Use the referent if its fields are set.
 		let title = match (process.path(), process.tag()) {
-			(Some(path), None) => {
-				if options.display_paths_relative_to_cwd {
-					std::env::current_dir()
-						.ok()
-						.and_then(|cwd| crate::util::path::diff(&cwd, path).ok())
-						.map_or_else(
-							|| path.display().to_string(),
-							|path| path.display().to_string(),
-						)
-				} else {
-					path.display().to_string()
-				}
-			},
+			(Some(path), None) => path.display().to_string(),
 			(Some(path), Some(tag)) => format!("{tag}:{}", path.display()),
 			(None, Some(tag)) => tag.to_string(),
 			_ => {
@@ -1368,7 +1352,7 @@ where
 	where
 		H: tg::Handle,
 	{
-		if let Some(title) = Self::process_title(handle, process, options).await {
+		if let Some(title) = Self::process_title(handle, process).await {
 			update_sender
 				.send(Box::new(|node| {
 					node.borrow_mut().title = title;

@@ -99,9 +99,9 @@ impl Server {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
-		let path = path.join("/").parse()?;
-		let query = request.query_params().transpose()?;
-		let reference = tg::Reference::with_item_and_options(&path, &query.unwrap_or_default());
+		let item = path.join("/").parse()?;
+		let options = request.query_params().transpose()?.unwrap_or_default();
+		let reference = tg::Reference::with_item_and_options(item, options);
 
 		let stream = handle.try_get(&reference).await?;
 

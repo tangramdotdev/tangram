@@ -503,7 +503,7 @@ impl Graph {
 		}
 
 		// Compute the relative path.
-		crate::util::path::diff(referrer_path, referent_path).ok()
+		tg::util::path::diff(referrer_path, referent_path).ok()
 	}
 }
 

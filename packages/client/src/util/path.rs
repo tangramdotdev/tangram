@@ -1,5 +1,5 @@
+use crate as tg;
 use std::path::{Path, PathBuf};
-use tangram_client as tg;
 
 pub fn diff(src: &Path, dst: &Path) -> tg::Result<PathBuf> {
 	if !src.is_absolute() || !dst.is_absolute() {

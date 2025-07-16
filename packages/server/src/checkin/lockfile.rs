@@ -296,7 +296,8 @@ fn mark_nodes_to_preserve(nodes: &[tg::lockfile::Node]) -> Vec<bool> {
 							.filter_map(|(reference, referent)| {
 								let child = referent.item.as_ref().left().copied()?;
 								let is_tagged = reference.item().try_unwrap_tag_ref().is_ok()
-									&& reference.path().is_none();
+									&& (reference.options().local.is_none()
+										&& !reference.item().is_path());
 								Some((child, is_tagged))
 							}) {
 						if is_tagged {
@@ -333,7 +334,7 @@ fn mark_nodes_to_preserve(nodes: &[tg::lockfile::Node]) -> Vec<bool> {
 				tg::lockfile::Node::File(file) => {
 					file.dependencies.iter().any(|(reference, referent)| {
 						(reference.item().try_unwrap_tag_ref().is_ok()
-							&& reference.path().is_none())
+							&& (reference.options().local.is_none() && !reference.item().is_path()))
 							|| referent.item.as_ref().left().is_some_and(|item| {
 								preserve[*item] || find(&mut set, node) == tagged
 							})

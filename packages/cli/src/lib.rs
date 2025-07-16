@@ -58,7 +58,6 @@ mod tag;
 mod tangram;
 mod tree;
 mod update;
-mod util;
 mod view;
 mod viewer;
 
@@ -1255,20 +1254,36 @@ impl Cli {
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
 		let handle = self.handle().await?;
+
+		// Make the path absolute.
+		let relative = reference
+			.item()
+			.try_unwrap_path_ref()
+			.is_ok_and(|path| path.is_relative());
 		let mut item = reference.item().clone();
-		let mut options = reference.options().clone();
+		let options = reference.options().clone();
 		if let tg::reference::Item::Path(path) = &mut item {
 			*path = std::path::absolute(&path)
-				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
+				.map_err(|source| tg::error!(!source, "failed make the path absolute"))?;
 		}
-		if let Some(path) = options.path.as_mut() {
-			*path = std::path::absolute(&path)
-				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
-		}
-		let reference = tg::Reference::with_item_and_options(&item, &options);
+		let reference = tg::Reference::with_item_and_options(item, options);
+
+		// Get the reference
 		let stream = handle.get(&reference).await?;
-		let output = self.render_progress_stream(stream).await?;
-		Ok(output)
+		let mut referent = self.render_progress_stream(stream).await?;
+
+		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
+		if referent.tag().is_none()
+			&& relative
+			&& let Some(path) = referent.path()
+		{
+			let current_dir = std::env::current_dir()
+				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
+			let path = tg::util::path::diff(&current_dir, path)?;
+			referent.options.path = Some(path);
+		}
+
+		Ok(referent)
 	}
 
 	async fn get_references(
@@ -1294,20 +1309,6 @@ impl Cli {
 			.right()
 			.ok_or_else(|| tg::error!("expected an object"))?;
 		let mut referent = referent.map(|_| item);
-
-		// If the reference's path is relative, then make the referent's path relative to the current working directory.
-		referent.options.path = referent
-			.path()
-			.map(|path| {
-				if reference.path().is_none_or(Path::is_absolute) {
-					Ok(path.clone())
-				} else {
-					let current_dir = std::env::current_dir()
-						.map_err(|source| tg::error!(!source, "failed to get current dir"))?;
-					crate::util::path::diff(&current_dir, path)
-				}
-			})
-			.transpose()?;
 
 		let module = match referent.item.clone() {
 			tg::Object::Directory(directory) => {

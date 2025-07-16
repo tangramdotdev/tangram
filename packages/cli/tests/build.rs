@@ -182,7 +182,7 @@ async fn path_dependency_import_attribute() {
 	let artifact = temp::directory! {
 		"foo" => temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				import bar from "bar" with { path: "../bar" };
+				import bar from "bar" with { local: "../bar" };
 				export default () => tg.run(bar);
 			"#),
 		},

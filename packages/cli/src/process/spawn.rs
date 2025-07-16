@@ -156,21 +156,6 @@ impl Cli {
 			.ok_or_else(|| tg::error!("expected an object"))?;
 		let mut referent = referent.map(|_| item);
 
-		// If the reference's path is relative, then make the referent's path relative to the current working directory.
-		referent.options.path = referent
-			.options
-			.path
-			.map(|path| {
-				if reference.path().is_none_or(Path::is_absolute) {
-					Ok(path)
-				} else {
-					let current_dir = std::env::current_dir()
-						.map_err(|source| tg::error!(!source, "failed to get current dir"))?;
-					crate::util::path::diff(&current_dir, &path)
-				}
-			})
-			.transpose()?;
-
 		// Create the command builder.
 		let mut command_env = None;
 		let mut command = match referent.item.clone() {

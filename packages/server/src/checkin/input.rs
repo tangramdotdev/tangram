@@ -164,7 +164,12 @@ impl Server {
 			.get_file_dependencies(state, &path)?
 			.into_iter()
 			.map(|(import, mut referent)| {
-				if let Some(reference) = import.reference.path() {
+				if let Some(reference) = import.reference.options().local.as_ref().or(import
+					.reference
+					.item()
+					.try_unwrap_path_ref()
+					.ok())
+				{
 					let reference = path.parent().unwrap().join(reference);
 					let reference = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
 						crate::util::fs::canonicalize_parent_sync(&reference).map_err(
@@ -176,7 +181,7 @@ impl Server {
 						)?
 					};
 					if let Some(index) = self.checkin_visit(state, reference.clone())? {
-						let path = crate::util::path::diff(path.parent().unwrap(), &reference)?;
+						let path = tg::util::path::diff(path.parent().unwrap(), &reference)?;
 						let path = if path.as_os_str().is_empty() {
 							".".into()
 						} else {

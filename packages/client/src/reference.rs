@@ -20,6 +20,7 @@ pub struct Reference {
 	Clone,
 	Debug,
 	derive_more::From,
+	derive_more::IsVariant,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
@@ -36,16 +37,10 @@ pub enum Item {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<Either<tg::process::Id, tg::object::Id>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
+	pub local: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub tag: Option<tg::tag::Pattern>,
 }
 
 impl Reference {
@@ -66,11 +61,11 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_item_and_options(item: &Item, options: &Options) -> Self {
+	pub fn with_item_and_options(item: Item, options: Options) -> Self {
 		let path = item.to_string();
-		let query = serde_urlencoded::to_string(options).unwrap();
+		let query = serde_urlencoded::to_string(&options).unwrap();
 		let uri = Uri::builder().path(path).query(query).build().unwrap();
-		Self::with_uri(uri).unwrap()
+		Self { uri, item, options }
 	}
 
 	#[must_use]
@@ -123,6 +118,13 @@ impl Reference {
 		&self.options
 	}
 
+	pub fn name(&self) -> Option<&str> {
+		self.item()
+			.try_unwrap_tag_ref()
+			.ok()
+			.map(tg::tag::Pattern::name)
+	}
+
 	pub async fn get<H>(
 		&self,
 		handle: &H,
@@ -143,23 +145,6 @@ impl Reference {
 			.ok()
 			.ok_or_else(|| tg::error!("expected the output"))?;
 		Ok(output)
-	}
-}
-
-impl Reference {
-	pub fn name(&self) -> Option<&str> {
-		self.item()
-			.try_unwrap_tag_ref()
-			.ok()
-			.map(tg::tag::Pattern::name)
-	}
-
-	pub fn path(&self) -> Option<&Path> {
-		self.options()
-			.path
-			.as_ref()
-			.or(self.item().try_unwrap_path_ref().ok())
-			.map(PathBuf::as_ref)
 	}
 }
 

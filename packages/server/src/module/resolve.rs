@@ -94,7 +94,12 @@ impl Server {
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
 		// Resolve path dependencies.
-		if let Some(path) = import.reference.path() {
+		if let Some(path) = import.reference.options().local.as_ref().or(import
+			.reference
+			.item()
+			.try_unwrap_path_ref()
+			.ok())
+		{
 			let path =
 				crate::util::fs::canonicalize_parent(&referrer.item.parent().unwrap().join(path))
 					.await
@@ -205,11 +210,6 @@ impl Server {
 			.await?;
 		let mut referent = referent.map(|item| tg::module::data::Item::Object(item.id()));
 		referent.inherit(referrer);
-		referent.options.path = referent
-			.options
-			.path
-			.as_ref()
-			.map(crate::util::path::normalize);
 		Ok(referent)
 	}
 

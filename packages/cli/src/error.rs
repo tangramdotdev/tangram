@@ -1,10 +1,7 @@
 use crate::Cli;
 use anstream::eprintln;
 use crossterm::style::Stylize as _;
-use std::{
-	fmt::Write as _,
-	path::{Path, PathBuf},
-};
+use std::{fmt::Write as _, path::Path};
 use tangram_client::{self as tg};
 use tokio::io::AsyncReadExt;
 
@@ -82,22 +79,14 @@ impl Cli {
 				if let Some(tag) = module.referent.tag() {
 					write!(name, "{tag}").unwrap();
 					if let Some(path) = module.referent.path() {
-						write!(name, ":").unwrap();
-						let path = crate::util::path::normalize(path);
-						write!(name, "{}", path.display()).unwrap();
+						write!(name, ":{}", path.display()).unwrap();
 					}
 				} else if let Some(path) = module.referent.path() {
-					let path = std::env::current_dir()
-						.ok()
-						.and_then(|cwd| {
-							let path = std::fs::canonicalize(cwd.join(path)).ok()?;
-							let path = crate::util::path::diff(&cwd, &path).ok()?;
-							if path.is_relative() && !path.starts_with("..") {
-								return Some(PathBuf::from(".").join(path));
-							}
-							Some(path)
-						})
-						.unwrap_or_else(|| path.clone());
+					if path.components().next().is_some_and(|component| {
+						matches!(component, std::path::Component::Normal(_))
+					}) {
+						write!(name, "./").unwrap();
+					}
 					write!(name, "{}", path.display()).unwrap();
 				} else {
 					write!(name, "<unknown>").unwrap();
@@ -221,26 +210,14 @@ impl Cli {
 				if let Some(tag) = module.referent.tag() {
 					write!(name, "{tag}").unwrap();
 					if let Some(path) = module.referent.path() {
-						write!(name, ":").unwrap();
-						let path = crate::util::path::normalize(path);
-						write!(name, "{}", path.display()).unwrap();
+						write!(name, ":{}", path.display()).unwrap();
 					}
 				} else if let Some(path) = module.referent.path() {
-					let path = if path.is_relative() {
-						std::env::current_dir()
-							.ok()
-							.and_then(|cwd| {
-								let path = std::fs::canonicalize(cwd.join(path)).ok()?;
-								let path = crate::util::path::diff(&cwd, &path).ok()?;
-								if path.is_relative() && !path.starts_with("..") {
-									return Some(PathBuf::from(".").join(path));
-								}
-								Some(path)
-							})
-							.unwrap_or_else(|| path.clone())
-					} else {
-						crate::util::path::normalize(path)
-					};
+					if path.components().next().is_some_and(|component| {
+						matches!(component, std::path::Component::Normal(_))
+					}) {
+						write!(name, "./").unwrap();
+					}
 					write!(name, "{}", path.display()).unwrap();
 				} else {
 					write!(name, "<unknown>").unwrap();

@@ -286,7 +286,8 @@ impl Server {
 						return Ok((reference.clone(), referent));
 					},
 				};
-				let is_path_dependency = is_path_dependency && reference.path().is_some();
+				let is_path_dependency = is_path_dependency
+					&& (reference.options().local.is_some() || reference.item().is_path());
 				let index =
 					self.create_lockfile_for_artifact_inner(state, &edge, is_path_dependency)?;
 				let referent = referent.clone().map(|_| Either::Left(index));
@@ -451,10 +452,10 @@ impl Server {
 
 					// Compute the canonical path of the import.
 					let path = reference
-						.item()
-						.try_unwrap_path_ref()
-						.ok()
-						.or_else(|| reference.options().path.as_ref())
+						.options()
+						.local
+						.as_ref()
+						.or(reference.item().try_unwrap_path_ref().ok())
 						.ok_or_else(|| tg::error!(%reference, "expected a path reference"))?;
 					let path = arg.current_node_path.parent().unwrap().join(path);
 					let path = tokio::fs::canonicalize(&path).await.map_err(

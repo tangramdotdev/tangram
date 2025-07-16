@@ -50,7 +50,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 		Some(module)
 	}?;
 
-	// Get the module if it already exists. Otherwise, load and compile it.
+	// Find a module with the same item if it already exists. Otherwise, load and compile the module.
 	let option = state
 		.modules
 		.borrow()
@@ -75,6 +75,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 
 	// Evaluate the module.
 	let output = module.evaluate(scope)?;
+	let output = v8::Local::<v8::Promise>::try_from(output).unwrap();
 
 	// Get the module namespace.
 	let namespace = module.get_module_namespace();
@@ -92,7 +93,6 @@ pub fn host_import_module_dynamically_callback<'s>(
 	.data(namespace)
 	.build(scope)
 	.unwrap();
-	let output = v8::Local::<v8::Promise>::try_from(output).unwrap();
 	let promise = output.then(scope, handler).unwrap();
 
 	Some(promise)

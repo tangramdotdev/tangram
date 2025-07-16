@@ -61,9 +61,6 @@ impl Cli {
 				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
 						auto_expand_and_collapse_processes: false,
-						display_paths_relative_to_cwd: root
-							.path()
-							.is_some_and(|path| path.is_relative()),
 						show_process_commands: true,
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);

@@ -86,13 +86,16 @@ impl<T> Referent<T> {
 
 	pub fn inherit<U>(&mut self, parent: &tg::Referent<U>) {
 		if self.tag().is_none() {
-			self.options.tag = parent.tag().cloned();
-			match (self.path(), parent.path()) {
+			self.options.tag = parent.options.tag.clone();
+			match (&self.options.path, &parent.options.path) {
 				(None, Some(parent_path)) => {
-					self.options.path = Some(parent_path.clone());
+					let path = parent_path.clone();
+					self.options.path = Some(path);
 				},
 				(Some(self_path), Some(parent_path)) => {
-					self.options.path = Some(parent_path.parent().unwrap().join(self_path));
+					let path = parent_path.parent().unwrap().join(self_path);
+					let path = tg::util::path::normalize(&path);
+					self.options.path = Some(path);
 				},
 				_ => (),
 			}
