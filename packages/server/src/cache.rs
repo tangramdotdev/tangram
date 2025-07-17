@@ -14,9 +14,6 @@ use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::prelude::*;
 use tokio_util::task::AbortOnDropHandle;
 
-#[cfg(test)]
-mod tests;
-
 struct State {
 	artifact: tg::artifact::Id,
 	depth: usize,

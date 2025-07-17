@@ -27,6 +27,7 @@ workspace = true
 
 [dev-dependencies]
 insta = { workspace = true }
+tangram_cli_test = { workspace = true }
 
 [dependencies]
 anstream = { workspace = true }

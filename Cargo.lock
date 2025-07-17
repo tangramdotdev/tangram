@@ -5904,6 +5904,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "syntect",
+ "tangram_cli_test",
  "tangram_client",
  "tangram_either",
  "tangram_futures",
@@ -5923,6 +5924,19 @@ dependencies = [
  "urlencoding",
  "v8",
  "webbrowser",
+]
+
+[[package]]
+name = "tangram_cli_test"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "serde_json",
+ "tangram_client",
+ "tangram_temp",
+ "tokio",
+ "url",
+ "urlencoding",
 ]
 
 [[package]]

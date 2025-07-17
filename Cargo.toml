@@ -2,6 +2,7 @@
 default-members = ["packages/cli"]
 members = [
   "packages/cli",
+  "packages/cli/test",
   "packages/client",
   "packages/database",
   "packages/either",
@@ -155,6 +156,7 @@ swc_core = { version = "31", features = [
 ] }
 sync_wrapper = "1"
 syntect = { version = "5", features = ["default-fancy"] }
+tangram_cli_test = { path = "packages/cli/test" }
 tangram_client = { path = "packages/client" }
 tangram_database = { path = "packages/database" }
 tangram_either = { path = "packages/either" }

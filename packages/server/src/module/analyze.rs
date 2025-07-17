@@ -215,18 +215,18 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_analyze() {
+	fn analyze() {
 		let text = r#"
-			import defaultImport from "tg:default_import";
+			import defaultImport from "default_import";
 			import { namedImport } from "./named_import.tg.js";
-			import * as namespaceImport from "tg:namespace_import";
+			import * as namespaceImport from "namespace_import";
 			let dynamicImport = import("./dynamic_import.tg.ts");
 			let include = import("./include.txt");
 			export let nested = () => {
-				let nestedDynamicImport = import("tg:nested_dynamic_import");
+				let nestedDynamicImport = import("nested_dynamic_import");
 				let nestedInclude = import("./nested_include.txt");
 			};
-			export { namedExport } from "tg:named_export";
+			export { namedExport } from "named_export";
 			export * as namespaceExport from "./namespace_export.ts";
 		"#;
 		let module = tg::module::Data {
@@ -237,12 +237,12 @@ mod tests {
 			.unwrap()
 			.imports;
 		let expected = [
-			"tg:default_import",
+			"default_import",
 			"./named_import.tg.js",
-			"tg:namespace_import",
+			"namespace_import",
 			"./dynamic_import.tg.ts",
-			"tg:nested_dynamic_import",
-			"tg:named_export",
+			"nested_dynamic_import",
+			"named_export",
 			"./namespace_export.ts",
 			"./include.txt",
 			"./nested_include.txt",

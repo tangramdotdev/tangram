@@ -79,7 +79,6 @@ mod watchdog;
 pub use self::config::Config;
 
 pub mod config;
-pub mod test;
 
 #[derive(Clone)]
 pub struct Server(pub Arc<Inner>);

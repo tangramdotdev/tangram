@@ -1,7 +1,7 @@
 use indoc::indoc;
 use insta::assert_snapshot;
 use num::ToPrimitive as _;
-use tangram_cli::{assert_failure, assert_success, test::test};
+use tangram_cli_test::{Server, assert_failure, assert_success};
 use tangram_temp::{self as temp, Temp};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
@@ -14,12 +14,10 @@ async fn hello_world() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!""#);
 }
 
 #[tokio::test]
@@ -29,15 +27,13 @@ async fn hello_world_remote() {
 	}
 	.into();
 	let reference = ".";
-	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
-		assert_success!(local);
-		assert_success!(remote);
-		let local = std::str::from_utf8(&local.stdout).unwrap();
-		let remote = std::str::from_utf8(&remote.stdout).unwrap();
-		assert_snapshot!(local, @r#""Hello, World!""#);
-		assert_snapshot!(remote, @r#""Hello, World!""#);
-	};
-	test_build_remote(artifact, reference, assertions).await;
+	let (local, remote) = test_remote(artifact, reference).await;
+	assert_success!(local);
+	assert_success!(remote);
+	let local = std::str::from_utf8(&local.stdout).unwrap();
+	let remote = std::str::from_utf8(&remote.stdout).unwrap();
+	assert_snapshot!(local, @r#""Hello, World!""#);
+	assert_snapshot!(remote, @r#""Hello, World!""#);
 }
 
 /// Test building a module without a package.
@@ -51,12 +47,10 @@ async fn module_without_package() {
 	.into();
 	let reference = "./foo.tg.ts";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!""#);
 }
 
 #[tokio::test]
@@ -67,12 +61,10 @@ async fn no_return_value() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"");
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @"");
 }
 
 #[tokio::test]
@@ -83,12 +75,10 @@ async fn args() {
 	.into();
 	let reference = ".";
 	let args = vec!["Tangram".into()];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, Tangram!""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, Tangram!""#);
 }
 
 #[tokio::test]
@@ -103,12 +93,10 @@ async fn host_command_hello_world() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
 }
 
 #[tokio::test]
@@ -122,15 +110,11 @@ async fn host_command_hello_world_remote() {
 	}
 	.into();
 	let reference = ".";
-	let assertions = |local: std::process::Output, remote: std::process::Output| async move {
-		assert_success!(local);
-		assert_success!(remote);
-		let local = std::str::from_utf8(&local.stdout).unwrap();
-		let remote = std::str::from_utf8(&remote.stdout).unwrap();
-		assert_snapshot!(local, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
-		assert_snapshot!(remote, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
-	};
-	test_build_remote(artifact, reference, assertions).await;
+	let (local, remote) = test_remote(artifact, reference).await;
+	let stdout = std::str::from_utf8(&local.stdout).unwrap();
+	assert_snapshot!(stdout, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
+	let stdout = std::str::from_utf8(&remote.stdout).unwrap();
+	assert_snapshot!(stdout, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
 }
 
 #[tokio::test]
@@ -145,12 +129,10 @@ async fn two_modules() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello from bar""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello from bar""#);
 }
 
 #[tokio::test]
@@ -169,12 +151,10 @@ async fn path_dependency() {
 	.into();
 	let reference = "./foo";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello from bar""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello from bar""#);
 }
 
 #[tokio::test]
@@ -193,12 +173,10 @@ async fn path_dependency_import_attribute() {
 	.into();
 	let reference = "./foo";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello from bar""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello from bar""#);
 }
 
 #[tokio::test]
@@ -212,12 +190,10 @@ async fn named_command() {
 	.into();
 	let reference = ".#five";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"5");
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @"5");
 }
 
 #[tokio::test]
@@ -234,12 +210,10 @@ async fn concurrent_commands() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"9900");
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @"9900");
 }
 
 #[tokio::test]
@@ -250,10 +224,8 @@ async fn capture_error() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -268,12 +240,10 @@ async fn import_file() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!""#);
 }
 
 #[tokio::test]
@@ -294,12 +264,10 @@ async fn import_directory() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!""#);
 }
 
 #[tokio::test]
@@ -310,14 +278,12 @@ async fn template_raw() {
 		"),
 	}
 	.into();
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template(["\n\tHello, World!\n"])"#);
-	};
 	let reference = ".";
 	let args = vec![];
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template(["\n\tHello, World!\n"])"#);
 }
 
 #[tokio::test]
@@ -332,12 +298,10 @@ async fn template_single_line() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template(["cat ",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60])"#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template(["cat ",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60])"#);
 }
 
 #[tokio::test]
@@ -360,12 +324,10 @@ async fn template_with_quote() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60," \"$@\"' >> script.sh\n"])"#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60," \"$@\"' >> script.sh\n"])"#);
 }
 
 #[tokio::test]
@@ -382,12 +344,10 @@ async fn template_single_line_two_artifacts() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template([fil_01rjnfkrgx5j33g04j2htzk0yrtc3bk9k5259msv5b47w909cwp8y0," ",fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg])"#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template([fil_01rjnfkrgx5j33g04j2htzk0yrtc3bk9k5259msv5b47w909cwp8y0," ",fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg])"#);
 }
 
 #[tokio::test]
@@ -405,12 +365,10 @@ async fn template_empty_lines() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template(["function foo() {\n\techo \"Hello, World!\"\n\n}\n"])"#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template(["function foo() {\n\techo \"Hello, World!\"\n\n}\n"])"#);
 }
 
 #[tokio::test]
@@ -427,12 +385,10 @@ async fn template_only_placeholders_on_a_line() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template([fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\n"])"#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template([fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\n"])"#);
 }
 
 #[tokio::test]
@@ -449,12 +405,10 @@ async fn template_single_line_explicit_newline() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template([fil_01rjnfkrgx5j33g04j2htzk0yrtc3bk9k5259msv5b47w909cwp8y0,"\n",fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg])"#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template([fil_01rjnfkrgx5j33g04j2htzk0yrtc3bk9k5259msv5b47w909cwp8y0,"\n",fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg])"#);
 }
 
 #[tokio::test]
@@ -473,12 +427,10 @@ async fn template_multiple_placeholders() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#"tg.template(["cat\t",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\t",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\n"])"#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.template(["cat\t",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\t",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\n"])"#);
 }
 
 #[tokio::test]
@@ -491,12 +443,10 @@ async fn blob_template() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!\n""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!\n""#);
 }
 
 #[tokio::test]
@@ -512,12 +462,10 @@ async fn blob_template_two_placeholders() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!\nstring!\n""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!\nstring!\n""#);
 }
 
 #[tokio::test]
@@ -530,12 +478,10 @@ async fn blob_template_raw() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""\n\tHello, World!\n""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""\n\tHello, World!\n""#);
 }
 
 #[tokio::test]
@@ -548,12 +494,10 @@ async fn file_template() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!\n""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!\n""#);
 }
 
 #[tokio::test]
@@ -569,12 +513,10 @@ async fn file_template_two_placeholders() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""Hello, World!\nstring!\n""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""Hello, World!\nstring!\n""#);
 }
 
 #[tokio::test]
@@ -587,12 +529,10 @@ async fn file_template_raw() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""\n\tHello, World!\n""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""\n\tHello, World!\n""#);
 }
 
 #[tokio::test]
@@ -612,14 +552,12 @@ async fn directory_get_follows_intermediate_component_symlinks() {
 		}
 	}
 	.into();
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""foo""#);
-	};
 	let reference = ".";
 	let args = vec![];
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""foo""#);
 }
 
 #[tokio::test]
@@ -641,12 +579,10 @@ async fn directory_get_follows_final_component_symlinks() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""foo""#);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""foo""#);
 }
 
 #[tokio::test]
@@ -657,10 +593,8 @@ async fn cycle() {
 	.into();
 	let reference = ".#x";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -682,10 +616,8 @@ async fn cycle_between_packages() {
 	.into();
 	let reference = "./foo";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -708,12 +640,10 @@ async fn import_cycle_without_process_cycle() {
 	.into();
 	let reference = "./foo";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r###""foo""###);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r###""foo""###);
 }
 
 #[tokio::test]
@@ -730,10 +660,8 @@ async fn value_cycle_detection_object() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -750,10 +678,8 @@ async fn value_cycle_detection_array() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -761,7 +687,7 @@ async fn builtin_download_checksum() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default async () => {
-				let blob = await tg.download("https://example.com", "sha256:any");
+				let blob = await tg.download("https://www.example.com", "sha256:any");
 				return tg.file(blob);
 			};
 		"#),
@@ -769,12 +695,10 @@ async fn builtin_download_checksum() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"fil_01cvc6nxd5cmqrp4v6jq08735m6r4e08kk9wxz3fs17b5cvqs50n00");
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @"fil_01cvc6nxd5cmqrp4v6jq08735m6r4e08kk9wxz3fs17b5cvqs50n00");
 }
 
 #[tokio::test]
@@ -782,19 +706,17 @@ async fn builtin_download_exact_checksum() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default async () => {
-				let blob = await tg.download("https://example.com", "sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+				let blob = await tg.download("https://www.example.com", "sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
 				return tg.file(blob);
 			};
 		"#),
 	}.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @"fil_01cvc6nxd5cmqrp4v6jq08735m6r4e08kk9wxz3fs17b5cvqs50n00");
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @"fil_01cvc6nxd5cmqrp4v6jq08735m6r4e08kk9wxz3fs17b5cvqs50n00");
 }
 
 #[tokio::test]
@@ -802,17 +724,15 @@ async fn builtin_download_rejects_incorrect_checksum() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default async () => {
-				let blob = await tg.download("https://example.com", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+				let blob = await tg.download("https://www.example.com", "sha256:0000000000000000000000000000000000000000000000000000000000000000");
 				return tg.file(blob);
 			};
 		"#),
 	}.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -820,7 +740,7 @@ async fn builtin_download_rejects_malformed_checksum() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default async () => {
-				let blob = await tg.download("https://example.com", "nonsense");
+				let blob = await tg.download("https://www.example.com", "nonsense");
 				return tg.file(blob);
 			};
 		"#),
@@ -828,10 +748,8 @@ async fn builtin_download_rejects_malformed_checksum() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -846,10 +764,8 @@ async fn command_none_checksum() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -863,10 +779,8 @@ async fn command_set_checksum() {
 	}.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_failure!(output);
-	};
-	test_build(artifact, reference, args, assertions).await;
+	let output = test(artifact, reference, args).await;
+	assert_failure!(output);
 }
 
 #[tokio::test]
@@ -886,11 +800,8 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip_tar() {
 	);
 
 	let format = "tar";
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		assert_success!(output);
-	};
-	test_archive(module, format, assertions).await;
+	let output = test_archive(module, format).await;
+	assert_success!(output);
 }
 
 #[ignore = "zip is not working"]
@@ -911,18 +822,11 @@ async fn builtin_artifact_archive_extract_simple_dir_roundtrip_zip() {
 	);
 
 	let format = "zip";
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		assert_success!(output);
-	};
-	test_archive(module, format, assertions).await;
+	let output = test_archive(module, format).await;
+	assert_success!(output);
 }
 
-async fn test_archive<F, Fut>(module: &str, format: &str, assertions: F)
-where
-	F: FnOnce(std::process::Output) -> Fut + Send + 'static,
-	Fut: Future<Output = ()> + Send,
-{
+async fn test_archive(module: &str, format: &str) -> std::process::Output {
 	let module = module.replace("format", format);
 	let artifact = temp::directory! {
 		"tangram.ts" => module,
@@ -930,152 +834,146 @@ where
 	.into();
 	let reference = ".";
 	let args = vec![];
-	test_build(artifact, reference, args, assertions).await;
+	test(artifact, reference, args).await
 }
 
 #[tokio::test]
 async fn import_from_tag() {
-	test(TG, async move |context| {
-		// Create a remote server.
-		let remote_server = context.spawn_server().await.unwrap();
+	// Create a remote server.
+	let remote_server = Server::new(TG).await.unwrap();
 
-		// Create a local server.
-		let local_server = context.spawn_server().await.unwrap();
-		let output = local_server
-			.tg()
-			.arg("remote")
-			.arg("put")
-			.arg("default")
-			.arg(remote_server.url().to_string())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
+	// Create a local server.
+	let local_server = Server::new(TG).await.unwrap();
+	let output = local_server
+		.tg()
+		.arg("remote")
+		.arg("put")
+		.arg("default")
+		.arg(remote_server.url().to_string())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
 
-		// Create a package and tag it.
-		let foo = temp::directory! {
-			"tangram.ts" => temp::file!(r#"export default () => "foo";"#)
-		};
-		let artifact: temp::Artifact = foo.into();
-		let temp = Temp::new();
-		artifact.to_path(&temp).await.unwrap();
-		let tag = "foo";
-		let output = remote_server
-			.tg()
-			.arg("tag")
-			.arg(tag)
-			.arg(temp.path())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
+	// Create a package and tag it.
+	let foo = temp::directory! {
+		"tangram.ts" => temp::file!(r#"export default () => "foo";"#)
+	};
+	let artifact: temp::Artifact = foo.into();
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+	let tag = "foo";
+	let output = remote_server
+		.tg()
+		.arg("tag")
+		.arg(tag)
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
 
-		// Create a a package that imports the other package.
-		let bar = temp::directory! {
-			"bar" => temp::directory! {
-				"tangram.ts" => indoc!(r#"
-					import foo from "foo";
-					export default () => foo();
+	// Create a package that imports the other package.
+	let bar = temp::directory! {
+		"bar" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import foo from "foo";
+				export default () => foo();
 			"#)
-			}
-		};
-		let artifact: temp::Artifact = bar.into();
-		let temp = Temp::new();
-		artifact.to_path(&temp).await.unwrap();
-		let path = temp.path().join("bar");
-		let output = local_server
-			.tg()
-			.arg("build")
-			.arg(path.clone())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
-		assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(),@r#""foo""#);
-	})
-	.await;
+		}
+	};
+	let artifact: temp::Artifact = bar.into();
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+	let path = temp.path().join("bar");
+	let output = local_server
+		.tg()
+		.arg("build")
+		.arg(path.clone())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(),@r#""foo""#);
 }
 
 #[tokio::test]
 async fn import_from_tag_with_nested_module() {
-	test(TG, async move |context| {
-		// Create a local server.
-		let server = context.spawn_server().await.unwrap();
+	// Create a local server.
+	let server = Server::new(TG).await.unwrap();
 
-		// Create a package and tag it.
-		let a = temp::directory! {
-			"tangram.ts" => indoc!(r#"
-				export { foo } from "./foo/foo.tg.ts";
-				export { bar } from "./bar.tg.ts";
-				export const baz = () => "baz";
-			"#),
-			"bar.tg.ts" => indoc!(r#"
-					import * as b from "./tangram.ts";
-					export const bar = () => b.foo();
-				"#),
-			"foo" => temp::directory! {
-				"foo.tg.ts" => indoc!(r#"
-						export const foo = () => "foo";
-					"#)
-			}
-		};
-		let artifact: temp::Artifact = a.into();
-		let a_temp = Temp::new();
-		artifact.to_path(&a_temp).await.unwrap();
-		let tag = "a";
-		let output = server
-			.tg()
-			.arg("tag")
-			.arg(tag)
-			.arg(a_temp.path())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
+	// Create a package and tag it.
+	let a = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export { foo } from "./foo/foo.tg.ts";
+			export { bar } from "./bar.tg.ts";
+			export const baz = () => "baz";
+		"#),
+		"bar.tg.ts" => indoc!(r#"
+			import * as b from "./tangram.ts";
+			export const bar = () => b.foo();
+		"#),
+		"foo" => temp::directory! {
+			"foo.tg.ts" => indoc!(r#"
+				export const foo = () => "foo";
+			"#)
+		}
+	};
+	let artifact: temp::Artifact = a.into();
+	let a_temp = Temp::new();
+	artifact.to_path(&a_temp).await.unwrap();
+	let tag = "a";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg(tag)
+		.arg(a_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
 
-		// Create a package that imports a by tag.
-		let b = temp::directory! {
-			"tangram.ts" => indoc!(r#"
-					import * as a from "a";
-					export default async () => {
-					  return a.bar();
-					};
-				"#)
-		};
-		let artifact: temp::Artifact = b.into();
-		let b_temp = Temp::new();
-		artifact.to_path(&b_temp).await.unwrap();
-		let output = server
-			.tg()
-			.arg("build")
-			.arg(b_temp.path())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
+	// Create a package that imports a by tag.
+	let b = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as a from "a";
+			export default async () => {
+			  return a.bar();
+			};
+		"#)
+	};
+	let artifact: temp::Artifact = b.into();
+	let b_temp = Temp::new();
+	artifact.to_path(&b_temp).await.unwrap();
+	let output = server
+		.tg()
+		.arg("build")
+		.arg(b_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
 
-		// Mutate b_temp/tangram.ts to instead call a.baz();
-		let tangram_ts_path = b_temp.path().join("tangram.ts");
-		let new_content = indoc!(
-			r#"
+	// Mutate b_temp/tangram.ts to instead call a.baz();
+	let tangram_ts_path = b_temp.path().join("tangram.ts");
+	let new_content = indoc!(
+		r#"
 			import * as a from "a";
 			export default async () => {
 			  return a.baz();
 			};
 		"#
-		);
-		std::fs::write(&tangram_ts_path, new_content).unwrap();
-		// Rebuild.
-		let output = server
-			.tg()
-			.arg("build")
-			.arg(b_temp.path())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
-	})
-	.await;
+	);
+	std::fs::write(&tangram_ts_path, new_content).unwrap();
+	// Rebuild.
+	let output = server
+		.tg()
+		.arg("build")
+		.arg(b_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
 }
 
 #[tokio::test]
@@ -1093,268 +991,241 @@ async fn builtin_blob_compress_decompress_gz_roundtrip() {
 	.into();
 	let reference = ".";
 	let args = vec![];
-	let assertions = |output: std::process::Output| async move {
-		assert_success!(output);
-		let stdout = std::str::from_utf8(&output.stdout).unwrap();
-		assert_snapshot!(stdout, @r#""contents""#);
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#""contents""#);
+}
+
+#[tokio::test]
+async fn signal_cacheable_processs() {
+	let server = Server::new(TG).await.unwrap();
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r"
+			export let foo = async () => {
+				await tg.sleep(1);
+				return 42;
+			};
+		")
 	};
-	test_build(artifact, reference, args, assertions).await;
+	let temp = Temp::new();
+	artifact.to_path(temp.as_ref()).await.unwrap();
+	let output = server
+		.tg()
+		.arg("build")
+		.arg("--detach")
+		.arg(format!("{}#foo", temp.path().display()))
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let process = String::from_utf8(output.stdout).unwrap();
+	let process = process.trim();
+	let output = server
+		.tg()
+		.arg("signal")
+		.arg(process)
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+	let error_msg = String::from_utf8(output.stderr).unwrap();
+
+	insta::with_settings!({
+		filters => vec![(process, "[PROCESS]")],
+	}, {
+		assert_snapshot!(error_msg, @r"
+		error failed to run the command
+		-> failed to post process signal
+		-> cannot signal cacheable processes
+		   id = [PROCESS]
+		");
+	});
 }
 
 #[tokio::test]
-async fn test_signal_cacheable_processs() {
-	test(TG, async move |context| {
-		let server = context.spawn_server().await.unwrap();
-		let artifact = temp::directory! {
-			"tangram.ts" => indoc!(r"
-				export let foo = async () => {
-					await tg.sleep(1);
-					return 42;
-				};
-			")
-		};
-		let temp = Temp::new();
-		artifact.to_path(temp.as_ref()).await.unwrap();
-		let output = server
-			.tg()
-			.arg("build")
-			.arg("--detach")
-			.arg(format!("{}#foo", temp.path().display()))
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
-		let process = String::from_utf8(output.stdout).unwrap();
-		let process = process.trim();
-		let output = server
-			.tg()
-			.arg("signal")
-			.arg(process)
-			.output()
-			.await
-			.unwrap();
-		assert_failure!(output);
-		let error_msg = String::from_utf8(output.stderr).unwrap();
+async fn single_cancellation() {
+	let server = Server::new(TG).await.unwrap();
 
-		insta::with_settings!({
-			filters => vec![(process, "[PROCESS]")],
-		}, {
-			assert_snapshot!(error_msg, @r"
-			error failed to run the command
-			-> failed to post process signal
-			-> cannot signal cacheable processes
-			   id = [PROCESS]
-			");
-		});
-	})
-	.await;
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r"
+			export let foo = async () => {
+				return await tg.build(baz);
+			};
+
+			export let bar = async () => {
+				return await tg.build(baz);
+			};
+
+			export let baz = async () => {
+				await tg.sleep(2);
+				return 42;
+			};
+		")
+	};
+	let temp = Temp::new();
+	artifact.to_path(temp.as_ref()).await.unwrap();
+
+	let foo = server
+		.tg()
+		.arg("build")
+		.arg(format!("{}#foo", temp.path().display()))
+		.spawn()
+		.unwrap();
+	let bar = server
+		.tg()
+		.arg("build")
+		.arg(format!("{}#bar", temp.path().display()))
+		.spawn()
+		.unwrap();
+
+	// send ctrl+C to foo.
+	unsafe {
+		libc::kill(foo.id().unwrap().to_i32().unwrap(), libc::SIGINT);
+	}
+
+	let foo_output = foo.wait_with_output().await.unwrap();
+	let bar_output = bar.wait_with_output().await.unwrap();
+	assert_failure!(foo_output);
+	assert_success!(bar_output);
+	let output = String::from_utf8(bar_output.stdout).unwrap();
+	assert_snapshot!(output, @"42");
 }
 
 #[tokio::test]
-async fn test_single_cancellation() {
-	test(TG, async move |context| {
-		let server = context.spawn_server().await.unwrap();
+async fn multiple_cancellation() {
+	let server = Server::new(TG).await.unwrap();
 
-		let artifact = temp::directory! {
-			"tangram.ts" => indoc!(r"
-				export let foo = async () => {
-					return await tg.build(baz);
-				};
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r"
+			export let foo = async () => {
+				return await tg.build(baz);
+			};
 
-				export let bar = async () => {
-					return await tg.build(baz);
-				};
+			export let bar = async () => {
+				return await tg.build(baz);
+			};
 
-				export let baz = async () => {
-					await tg.sleep(2);
-					return 42;
-				};
-			")
-		};
-		let temp = Temp::new();
-		artifact.to_path(temp.as_ref()).await.unwrap();
+			export let baz = async () => {
+				await tg.sleep(2);
+				return 42;
+			};
+		")
+	};
+	let temp = Temp::new();
+	artifact.to_path(temp.as_ref()).await.unwrap();
 
-		let foo = server
-			.tg()
-			.arg("build")
-			.arg(format!("{}#foo", temp.path().display()))
-			.spawn()
-			.unwrap();
-		let bar = server
-			.tg()
-			.arg("build")
-			.arg(format!("{}#bar", temp.path().display()))
-			.spawn()
-			.unwrap();
+	let foo = server
+		.tg()
+		.arg("build")
+		.arg(format!("{}#foo", temp.path().display()))
+		.spawn()
+		.unwrap();
+	let bar = server
+		.tg()
+		.arg("build")
+		.arg(format!("{}#bar", temp.path().display()))
+		.spawn()
+		.unwrap();
 
-		// send ctrl+C to foo.
-		unsafe {
-			libc::kill(foo.id().unwrap().to_i32().unwrap(), libc::SIGINT);
-		}
+	unsafe {
+		libc::kill(foo.id().unwrap().to_i32().unwrap(), libc::SIGINT);
+		libc::kill(bar.id().unwrap().to_i32().unwrap(), libc::SIGINT);
+	}
 
-		let foo_output = foo.wait_with_output().await.unwrap();
-		let bar_output = bar.wait_with_output().await.unwrap();
-		assert_failure!(foo_output);
-		assert_success!(bar_output);
-		let output = String::from_utf8(bar_output.stdout).unwrap();
-		assert_snapshot!(output, @"42");
-	})
-	.await;
+	let foo_output = foo.wait_with_output().await.unwrap();
+	let bar_output = bar.wait_with_output().await.unwrap();
+	assert_failure!(foo_output);
+	assert_failure!(bar_output);
+
+	let output = String::from_utf8(bar_output.stderr).unwrap();
+	assert_snapshot!(output, @"");
 }
 
-#[tokio::test]
-async fn test_multiple_cancellation() {
-	test(TG, async move |context| {
-		let server = context.spawn_server().await.unwrap();
-
-		let artifact = temp::directory! {
-			"tangram.ts" => indoc!(r"
-				export let foo = async () => {
-					return await tg.build(baz);
-				};
-
-				export let bar = async () => {
-					return await tg.build(baz);
-				};
-
-				export let baz = async () => {
-					await tg.sleep(2);
-					return 42;
-				};
-			")
-		};
-		let temp = Temp::new();
-		artifact.to_path(temp.as_ref()).await.unwrap();
-
-		let foo = server
-			.tg()
-			.arg("build")
-			.arg(format!("{}#foo", temp.path().display()))
-			.spawn()
-			.unwrap();
-		let bar = server
-			.tg()
-			.arg("build")
-			.arg(format!("{}#bar", temp.path().display()))
-			.spawn()
-			.unwrap();
-
-		unsafe {
-			libc::kill(foo.id().unwrap().to_i32().unwrap(), libc::SIGINT);
-			libc::kill(bar.id().unwrap().to_i32().unwrap(), libc::SIGINT);
-		}
-
-		let foo_output = foo.wait_with_output().await.unwrap();
-		let bar_output = bar.wait_with_output().await.unwrap();
-		assert_failure!(foo_output);
-		assert_failure!(bar_output);
-
-		let output = String::from_utf8(bar_output.stderr).unwrap();
-		assert_snapshot!(output, @"");
-	})
-	.await;
-}
-
-async fn test_build<F, Fut>(
+async fn test(
 	artifact: temp::Artifact,
 	reference: &str,
 	args: Vec<String>,
-	assertions: F,
-) where
-	F: FnOnce(std::process::Output) -> Fut + Send + 'static,
-	Fut: Future<Output = ()> + Send,
-{
-	test(TG, async move |context| {
-		let server = context.spawn_server().await.unwrap();
-
-		let temp = Temp::new();
-		artifact.to_path(temp.as_ref()).await.unwrap();
-
-		// Build.
-		let mut command = server.tg();
-		command.current_dir(temp.path()).arg("build").arg(reference);
-		for arg in args {
-			command.arg("-a");
-			command.arg(arg);
-		}
-		let output = command.output().await.unwrap();
-
-		assertions(output).await;
-	})
-	.await;
+) -> std::process::Output {
+	let server = Server::new(TG).await.unwrap();
+	let temp = Temp::new();
+	artifact.to_path(temp.as_ref()).await.unwrap();
+	let mut command = server.tg();
+	command.current_dir(temp.path()).arg("build").arg(reference);
+	for arg in args {
+		command.arg("-a");
+		command.arg(arg);
+	}
+	command.output().await.unwrap()
 }
 
-async fn test_build_remote<F, Fut>(artifact: temp::Artifact, reference: &str, assertions: F)
-where
-	F: FnOnce(std::process::Output, std::process::Output) -> Fut + Send + 'static,
-	Fut: Future<Output = ()> + Send,
-{
-	test(TG, async move |context| {
-		let temp = Temp::new();
-		artifact.to_path(temp.as_ref()).await.unwrap();
+async fn test_remote(
+	artifact: temp::Artifact,
+	reference: &str,
+) -> (std::process::Output, std::process::Output) {
+	let temp = Temp::new();
+	artifact.to_path(temp.as_ref()).await.unwrap();
 
-		// Create a server.
-		let server = context.spawn_server().await.unwrap();
+	// Create a server.
+	let server = Server::new(TG).await.unwrap();
 
-		// Create a remote server.
-		let remote_server = context.spawn_server().await.unwrap();
+	// Create a remote server.
+	let remote_server = Server::new(TG).await.unwrap();
 
-		// Set the remote.
-		let output = server
-			.tg()
-			.current_dir(temp.path())
-			.arg("remote")
-			.arg("put")
-			.arg("default")
-			.arg(remote_server.url().to_string())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
+	// Set the remote.
+	let output = server
+		.tg()
+		.current_dir(temp.path())
+		.arg("remote")
+		.arg("put")
+		.arg("default")
+		.arg(remote_server.url().to_string())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
 
-		// Build on the remote.
-		let output = server
-			.tg()
-			.current_dir(temp.path())
-			.arg("build")
-			.arg("--remote")
-			.arg("default")
-			.arg("--detach")
-			.arg(reference)
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
-		let process_id = std::str::from_utf8(&output.stdout)
-			.unwrap()
-			.trim()
-			.to_owned();
+	// Build on the remote.
+	let output = server
+		.tg()
+		.current_dir(temp.path())
+		.arg("build")
+		.arg("--remote")
+		.arg("default")
+		.arg("--detach")
+		.arg(reference)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let process_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
 
-		// Get the output.
-		let output = server
-			.tg()
-			.current_dir(temp.path())
-			.arg("process")
-			.arg("output")
-			.arg(process_id.clone())
-			.output()
-			.await
-			.unwrap();
-		assert_success!(output);
+	// Get the output.
+	let output = server
+		.tg()
+		.current_dir(temp.path())
+		.arg("process")
+		.arg("output")
+		.arg(process_id.clone())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
 
-		// Get the output from the remote.
-		let remote_output = remote_server
-			.tg()
-			.current_dir(temp.path())
-			.arg("process")
-			.arg("output")
-			.arg(process_id)
-			.output()
-			.await
-			.unwrap();
-		assert_success!(remote_output);
+	// Get the output from the remote.
+	let remote_output = remote_server
+		.tg()
+		.current_dir(temp.path())
+		.arg("process")
+		.arg("output")
+		.arg(process_id)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(remote_output);
 
-		assertions(output, remote_output).await;
-	})
-	.await;
+	(output, remote_output)
 }

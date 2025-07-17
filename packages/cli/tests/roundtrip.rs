@@ -1,93 +1,78 @@
-use insta::assert_snapshot;
-use std::sync::Arc;
-use tangram_cli::{
-	assert_success,
-	test::{self, test},
-};
-use tangram_client as tg;
+use std::path::Path;
+use tangram_cli_test::{Server, assert_success};
 use tangram_temp::{self as temp, Temp};
+
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn directory() {
-	let directory = temp::directory! {
+	let artifact = temp::directory! {
 		"file" => temp::file!("hello!"),
 		"link" => temp::symlink!("file"),
-	};
-	let assertions = async move |_server, a: tg::Artifact, b: tg::Artifact| {
-		assert_eq!(a.id(), b.id());
-	};
-	test_roundtrip(directory, "", false, [], assertions).await;
+	}
+	.into();
+	let path = Path::new("");
+	let deterministic = false;
+	let tags = vec![];
+	test(artifact, path, deterministic, tags).await;
 }
 
 #[tokio::test]
 async fn file() {
-	let file = temp::file!("hello, world!");
-	let assertions = async move |_server, a: tg::Artifact, b: tg::Artifact| {
-		assert_eq!(a.id(), b.id());
-	};
-	test_roundtrip(file, "", false, [], assertions).await;
+	let artifact = temp::file!("hello, world!").into();
+	let path = Path::new("");
+	let deterministic = false;
+	let tags = vec![];
+	test(artifact, path, deterministic, tags).await;
 }
 
 #[tokio::test]
 async fn tagged_dependency() {
+	let artifact = temp::directory! {
+		"tangram.ts" => temp::file!(r#"import * as foo from "foo/*"#),
+	}
+	.into();
 	let foo = temp::directory! {
 		"tangram.ts" => temp::file!(""),
 	};
-	let directory = temp::directory! {
-		"tangram.ts" => temp::file!(r#"import * as foo from "foo/*"#),
-	};
-	let assertions = async move |_server, a: tg::Artifact, b: tg::Artifact| {
-		assert_eq!(a.id(), b.id());
-	};
-	test_roundtrip(
-		directory,
-		"",
-		false,
-		[("foo/1.0.0".into(), foo.into())],
-		assertions,
-	)
-	.await;
+	let path = Path::new("");
+	let deterministic = false;
+	let tags = vec![("foo/1.0.0".into(), foo.into())];
+	test(artifact, path, deterministic, tags).await;
 }
 
 #[tokio::test]
 async fn symlink() {
-	let directory = temp::directory! {
+	let artifact = temp::directory! {
 		"file" => temp::file!("hello!"),
 		"link" => temp::symlink!("file"),
-	};
-	let assertions = async move |_server, a: tg::Artifact, b: tg::Artifact| {
-		assert_eq!(a.id(), b.id());
-	};
-	test_roundtrip(directory, "link", false, [], assertions).await;
+	}
+	.into();
+	let path = Path::new("");
+	let deterministic = false;
+	let tags = vec![];
+	test(artifact, path, deterministic, tags).await;
 }
 
 #[tokio::test]
 async fn artifact_symlink() {
-	let directory = temp::directory! {
+	let artifact = temp::directory! {
 		".tangram" => temp::directory! {
 			"artifacts" => temp::directory! {
 				"dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg" => temp::directory!()
 			}
 		},
 		"link" => temp::symlink!(".tangram/artifacts/dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg"),
-	};
-	let assertions = async move |server: Arc<test::Server>, a: tg::Artifact, b: tg::Artifact| {
-		assert_eq!(a.id(), b.id());
-		assert_snapshot!(display(server.as_ref(), a).await, @r#"
-		tg.directory({
-		  "link": tg.symlink({
-		    "artifact": tg.directory(),
-		  }),
-		})
-		"#);
-	};
-	test_roundtrip(directory, "", false, [], assertions).await;
+	}.into();
+	let path = Path::new("");
+	let deterministic = false;
+	let tags = vec![];
+	test(artifact, path, deterministic, tags).await;
 }
 
 #[tokio::test]
 async fn cyclic_artifact_symlink() {
-	let directory = temp::directory! {
+	let artifact = temp::directory! {
 		".tangram" => temp::directory! {
 			"artifacts" => temp::directory! {
 				"sym_01jxvmh7z5daw3yztgjbrr3hmjv9cp0jhg1mjatcqccvyez83ff2eg" => temp::symlink!("sym_01tf70d3w3nm5tx0ghnhmcb6kcvms71967febephw12qmd9zkc1pvg"),
@@ -95,59 +80,16 @@ async fn cyclic_artifact_symlink() {
 			}
 		},
 		"link" => temp::symlink!(".tangram/artifacts/sym_01jxvmh7z5daw3yztgjbrr3hmjv9cp0jhg1mjatcqccvyez83ff2eg"),
-	};
-	let assertions = async move |server: Arc<test::Server>, a: tg::Artifact, b: tg::Artifact| {
-		assert_eq!(a.id(), b.id());
-		assert_snapshot!(display(server.as_ref(), a).await, @r#"
-		tg.directory({
-		  "link": tg.symlink({
-		    "artifact": tg.symlink({
-		      "graph": tg.graph({
-		        "nodes": [
-		          {
-		            "kind": "symlink",
-		            "artifact": {
-		              "node": 1,
-		            },
-		          },
-		          {
-		            "kind": "symlink",
-		            "artifact": {
-		              "node": 0,
-		            },
-		          },
-		        ],
-		      }),
-		      "node": 0,
-		    }),
-		  }),
-		})
-		"#);
-	};
-	test_roundtrip(directory, "", false, [], assertions).await;
-}
-
-async fn display(server: &test::Server, object: impl Into<tg::Object>) -> String {
-	let object = object.into().id().to_string();
-	let object_output = server
-		.tg()
-		.arg("object")
-		.arg("get")
-		.arg(object)
-		.arg("--depth=inf")
-		.arg("--format=tgon")
-		.arg("--pretty=true")
-		.output()
-		.await
-		.unwrap();
-	assert_success!(object_output);
-	std::str::from_utf8(&object_output.stdout).unwrap().into()
+	}.into();
+	let path = Path::new("");
+	let deterministic = false;
+	let tags = vec![];
+	test(artifact, path, deterministic, tags).await;
 }
 
 #[tokio::test]
 async fn object_dependency() {
-	let tags = [("empty".into(), temp::directory! {}.into())];
-	let directory = temp::directory! {
+	let artifact = temp::directory! {
 		"file" => temp::File {
 			contents: "".into(),
 			executable: false,
@@ -155,113 +97,91 @@ async fn object_dependency() {
 				("user.tangram.dependencies".into(), r#"["dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg"]"#.into())
 			].into(),
 		}
-	};
-	let assertions = async move |_server, a: tg::Artifact, b: tg::Artifact| {
-		assert_eq!(a.id(), b.id());
-	};
-	test_roundtrip(directory, "", true, tags, assertions).await;
+	}.into();
+	let path = Path::new("");
+	let deterministic = true;
+	let tags = vec![("empty".into(), temp::directory! {}.into())];
+	test(artifact, path, deterministic, tags).await;
 }
 
-async fn test_roundtrip<'a, F, Fut>(
-	artifact: impl Into<temp::Artifact> + Send + 'static,
-	path: &str,
+async fn test(
+	artifact: temp::Artifact,
+	path: &Path,
 	deterministic: bool,
-	tags: impl IntoIterator<Item = (String, temp::Artifact)> + Send + 'static,
-	assertions: F,
-) where
-	F: FnOnce(Arc<test::Server>, tg::Artifact, tg::Artifact) -> Fut + Send + 'static + 'a,
-	Fut: Future<Output = ()> + Send,
-{
-	test(TG, async move |context| {
-		let config = tangram_cli::Config {
-			remotes: Some(Vec::new()),
-			..Default::default()
-		};
-		let server = context.spawn_server_with_config(config).await.unwrap();
+	tags: Vec<(String, temp::Artifact)>,
+) {
+	let server = Server::new(TG).await.unwrap();
 
-		// Tag the objects.
-		let tags = tags.into_iter().collect::<Vec<_>>();
-		for (tag, artifact) in &tags {
-			let temp = Temp::new();
-			artifact.to_path(&temp).await.unwrap();
-
-			// Tag the dependency
-			let output = server
-				.tg()
-				.arg("tag")
-				.arg(tag)
-				.arg(temp.path())
-				.output()
-				.await
-				.unwrap();
-			assert_success!(output);
-		}
-
-		// Write the artifact to a temp.
-		let artifact: temp::Artifact = artifact.into();
+	// Tag.
+	let tags = tags.into_iter().collect::<Vec<_>>();
+	for (tag, artifact) in &tags {
 		let temp = Temp::new();
 		artifact.to_path(&temp).await.unwrap();
-
-		// Check in.
-		let mut command = server.tg();
-		command.arg("checkin").arg(temp.path().join(path));
-		if deterministic {
-			command.arg("--deterministic");
-		}
-		let output = command.output().await.unwrap();
-		assert_success!(output);
-
-		// Get the object.
-		let id = std::str::from_utf8(&output.stdout)
-			.unwrap()
-			.trim()
-			.to_owned();
-		let a = tg::Artifact::with_id(id.parse().unwrap());
-
-		// Index.
-		let output = server.tg().arg("index").output().await.unwrap();
-		assert_success!(output);
-
-		// Checkout.
-		let temp = temp::Temp::new();
 		let output = server
 			.tg()
-			.arg("checkout")
-			.arg(&id)
+			.arg("tag")
+			.arg(tag)
 			.arg(temp.path())
 			.output()
 			.await
 			.unwrap();
 		assert_success!(output);
+	}
 
-		// Clean.
-		for (tag, _) in &tags {
-			server
-				.tg()
-				.arg("tag")
-				.arg("delete")
-				.arg(tag)
-				.output()
-				.await
-				.unwrap();
-		}
-		server.tg().arg("clean").output().await.unwrap();
+	// Write the artifact.
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
 
-		// Check back in.
-		let mut command = server.tg();
-		command.arg("checkin").arg(temp.path());
-		if deterministic {
-			command.arg("--deterministic");
-		}
-		let output = command.output().await.unwrap();
-		assert_success!(output);
-		let id = std::str::from_utf8(&output.stdout)
-			.unwrap()
-			.trim()
-			.to_owned();
-		let b = tg::Artifact::with_id(id.parse().unwrap());
+	// Checkin.
+	let mut command = server.tg();
+	command.arg("checkin").arg(temp.path().join(path));
+	if deterministic {
+		command.arg("--deterministic");
+	}
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+	let a = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
 
-		assertions(server, a, b).await;
-	})
-	.await;
+	// Checkout.
+	let temp = temp::Temp::new();
+	let output = server
+		.tg()
+		.arg("checkout")
+		.arg(&a)
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Clean.
+	for (tag, _) in &tags {
+		server
+			.tg()
+			.arg("tag")
+			.arg("delete")
+			.arg(tag)
+			.output()
+			.await
+			.unwrap();
+	}
+	server.tg().arg("clean").output().await.unwrap();
+
+	// Check in.
+	let mut command = server.tg();
+	command.arg("checkin").arg(temp.path());
+	if deterministic {
+		command.arg("--deterministic");
+	}
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+	let b = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	assert_eq!(a, b);
 }

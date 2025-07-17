@@ -1,106 +1,35 @@
-use crate::Config;
-use futures::FutureExt as _;
-use std::{panic::AssertUnwindSafe, sync::Arc, time::Duration};
+use serde_json::json;
+use std::time::Duration;
 use tangram_client as tg;
 use tangram_temp::Temp;
 use url::Url;
 
-pub async fn test<F>(tg: &'static str, f: F)
-where
-	F: AsyncFnOnce(&mut Context) -> () + Send,
-{
-	// Create the context.
-	let mut context = Context::new(tg);
-
-	// Run the test and catch a panic if one occurs.
-	let result = AssertUnwindSafe(f(&mut context)).catch_unwind().await;
-
-	// Handle the result.
-	match result {
-		Ok(()) => {
-			// If there was no panic, then gracefully shutdown the servers.
-			for server in &context.servers {
-				server.stop_gracefully().await;
-			}
-		},
-		Err(error) => {
-			// If there was a panic, then forcefully shut down the servers and resume unwinding.
-			for server in &context.servers {
-				server.stop_forcefully().await;
-			}
-			std::panic::resume_unwind(error);
-		},
-	}
-}
-
-pub struct Context {
-	servers: Vec<Arc<Server>>,
-	tg: &'static str,
-}
-
 pub struct Server {
-	config: Config,
-	process: tokio::sync::Mutex<Option<tokio::process::Child>>,
-	temp: Arc<Temp>,
+	child: tokio::process::Child,
+	config: serde_json::Value,
+	temp: Temp,
 	tg: &'static str,
-}
-
-impl Context {
-	#[must_use]
-	pub fn new(tg: &'static str) -> Self {
-		Self {
-			servers: Vec::new(),
-			tg,
-		}
-	}
-
-	pub async fn spawn_server(&mut self) -> tg::Result<Arc<Server>> {
-		let server = Server::new(self.tg).await?;
-		let server = Arc::new(server);
-		self.servers.push(server.clone());
-		Ok(server)
-	}
-
-	pub async fn spawn_server_with_config(&mut self, config: Config) -> tg::Result<Arc<Server>> {
-		let server = Server::with_config(self.tg, config).await?;
-		let server = Arc::new(server);
-		self.servers.push(server.clone());
-		Ok(server)
-	}
-
-	pub async fn spawn_server_with_temp_and_config(
-		&mut self,
-		temp: Temp,
-		config: Config,
-	) -> tg::Result<Arc<Server>> {
-		let server = Server::with_temp_and_config(self.tg, temp, config).await?;
-		let server = Arc::new(server);
-		self.servers.push(server.clone());
-		Ok(server)
-	}
 }
 
 impl Server {
-	async fn new(tg: &'static str) -> tg::Result<Self> {
-		let config = Config {
-			remotes: Some(Vec::new()),
-			..Default::default()
-		};
+	pub async fn new(tg: &'static str) -> tg::Result<Self> {
+		let config = json!({
+			"remotes": [],
+		});
 		Self::with_config(tg, config).await
 	}
 
-	async fn with_config(tg: &'static str, config: Config) -> tg::Result<Self> {
+	pub async fn with_config(tg: &'static str, config: serde_json::Value) -> tg::Result<Self> {
 		// Create a temp and create the config and data paths.
 		let temp = Temp::new();
 		Self::with_temp_and_config(tg, temp, config).await
 	}
 
-	async fn with_temp_and_config(
+	pub async fn with_temp_and_config(
 		tg: &'static str,
 		temp: Temp,
-		config: Config,
+		config: serde_json::Value,
 	) -> tg::Result<Self> {
-		let temp = Arc::new(temp);
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -119,6 +48,7 @@ impl Server {
 
 		// Create the command.
 		let mut command = tokio::process::Command::new(tg);
+		command.kill_on_drop(true);
 		command.arg("--config");
 		command.arg(&config_path);
 		command.arg("--directory");
@@ -128,12 +58,12 @@ impl Server {
 
 		// Spawn the process.
 		let process = command.spawn().unwrap();
-		let process = tokio::sync::Mutex::new(Some(process));
 
 		// Wait for the server to start.
 		let mut started = false;
 		for _ in 0..100 {
 			let status = tokio::process::Command::new(tg)
+				.kill_on_drop(true)
 				.arg("--config")
 				.arg(&config_path)
 				.arg("--directory")
@@ -159,7 +89,7 @@ impl Server {
 		// Create the server.
 		let server = Self {
 			config,
-			process,
+			child: process,
 			temp,
 			tg,
 		};
@@ -173,6 +103,7 @@ impl Server {
 		let config_path = self.temp.path().join(".config/tangram/config.json");
 		let directory_path = self.temp.path().join(".tangram");
 		command
+			.kill_on_drop(true)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::piped())
 			.stderr(std::process::Stdio::piped())
@@ -186,9 +117,22 @@ impl Server {
 		command
 	}
 
+	pub async fn stop(mut self) -> std::process::Output {
+		self.child.kill().await.unwrap();
+		self.child.wait_with_output().await.unwrap()
+	}
+
+	pub fn child(&self) -> &tokio::process::Child {
+		&self.child
+	}
+
 	#[must_use]
-	pub fn config(&self) -> &Config {
+	pub fn config(&self) -> &serde_json::Value {
 		&self.config
+	}
+
+	pub fn temp(&self) -> &Temp {
+		&self.temp
 	}
 
 	#[must_use]
@@ -197,25 +141,6 @@ impl Server {
 		let path = path.to_str().unwrap();
 		let path = urlencoding::encode(path);
 		format!("http+unix://{path}").parse().unwrap()
-	}
-
-	pub async fn stop_gracefully(&self) {
-		if let Some(process) = self.process.lock().await.take() {
-			unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGINT) };
-			let output = process.wait_with_output().await.unwrap();
-			assert_success!(output);
-		}
-	}
-
-	pub async fn stop_forcefully(&self) {
-		if let Some(mut process) = self.process.lock().await.take() {
-			unsafe { libc::kill(process.id().unwrap().try_into().unwrap(), libc::SIGKILL) };
-			process.wait().await.ok();
-		}
-	}
-
-	pub fn temp(&self) -> Arc<Temp> {
-		self.temp.clone()
 	}
 }
 
@@ -246,6 +171,3 @@ macro_rules! assert_failure {
 		assert!(!output.status.success());
 	};
 }
-
-pub use assert_failure;
-pub use assert_success;
