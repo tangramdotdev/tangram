@@ -422,20 +422,8 @@ impl Cli {
 				.and_then(|config| config.as_ref().right())
 				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
-				let path = self
-					.args
-					.directory
-					.clone()
-					.or(self
-						.config
-						.as_ref()
-						.and_then(|config| config.directory.clone()))
-					.unwrap_or_else(|| {
-						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
-					});
-				let path = path.join("socket");
-				let path = path.to_str().unwrap();
-				let path = urlencoding::encode(path);
+				let path = self.directory_path().join("socket");
+				let path = urlencoding::encode(path.to_str().unwrap());
 				format!("http+unix://{path}").parse().unwrap()
 			});
 
@@ -518,20 +506,8 @@ impl Cli {
 				.and_then(|config| config.as_ref().right())
 				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
-				let path = self
-					.args
-					.directory
-					.clone()
-					.or(self
-						.config
-						.as_ref()
-						.and_then(|config| config.directory.clone()))
-					.unwrap_or_else(|| {
-						PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram")
-					});
-				let path = path.join("socket");
-				let path = path.to_str().unwrap();
-				let path = urlencoding::encode(path);
+				let path = self.directory_path().join("socket");
+				let path = urlencoding::encode(path.to_str().unwrap());
 				format!("http+unix://{path}").parse().unwrap()
 			});
 
@@ -556,15 +532,7 @@ impl Cli {
 
 	async fn server(&self) -> tg::Result<Server> {
 		// Create the default config.
-		let directory = self
-			.args
-			.directory
-			.clone()
-			.or(self
-				.config
-				.as_ref()
-				.and_then(|config| config.directory.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
+		let directory = self.directory_path();
 		let parallelism = std::thread::available_parallelism().unwrap().into();
 		let advanced = tangram_server::config::Advanced::default();
 		let authentication = None;
@@ -997,15 +965,7 @@ impl Cli {
 	/// Start the server.
 	async fn start_server(&self) -> tg::Result<()> {
 		// Ensure the directory exists.
-		let directory = self
-			.args
-			.directory
-			.clone()
-			.or(self
-				.config
-				.as_ref()
-				.and_then(|config| config.directory.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
+		let directory = self.directory_path();
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -1052,19 +1012,8 @@ impl Cli {
 
 	/// Stop the server.
 	async fn stop_server(&self) -> tg::Result<()> {
-		// Get the lock file path.
-		let directory = self
-			.args
-			.directory
-			.clone()
-			.or(self
-				.config
-				.as_ref()
-				.and_then(|config| config.directory.clone()))
-			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"));
-		let lock_path = directory.join("lock");
-
 		// Read the PID from the lock file.
+		let lock_path = self.directory_path().join("lock");
 		let pid = tokio::fs::read_to_string(&lock_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the pid from the lock file"))?
@@ -1177,6 +1126,23 @@ impl Cli {
 		.await
 	}
 
+	fn config_path(&self) -> PathBuf {
+		self.args.config.clone().unwrap_or_else(|| {
+			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
+		})
+	}
+
+	fn directory_path(&self) -> PathBuf {
+		self.args
+			.directory
+			.clone()
+			.or(self
+				.config
+				.as_ref()
+				.and_then(|config| config.directory.clone()))
+			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
+	}
+
 	fn read_config(directory: Option<PathBuf>) -> tg::Result<Option<Config>> {
 		let directory = directory.unwrap_or_else(|| {
 			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
@@ -1196,13 +1162,11 @@ impl Cli {
 		Ok(Some(config))
 	}
 
-	fn _write_config(config: &Config, directory: Option<PathBuf>) -> tg::Result<()> {
-		let directory = directory.unwrap_or_else(|| {
-			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
-		});
+	#[allow(dead_code)]
+	fn write_config(&self, config: &Config) -> tg::Result<()> {
 		let config = serde_json::to_string_pretty(&config)
 			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
-		std::fs::write(directory, config)
+		std::fs::write(self.config_path(), config)
 			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
 		Ok(())
 	}

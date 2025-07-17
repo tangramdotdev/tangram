@@ -1,16 +1,69 @@
 use crate::Cli;
+use std::os::unix::fs::PermissionsExt as _;
 use tangram_client::{self as tg, prelude::*};
 
 /// Remove unused processes and objects.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
-pub struct Args {}
+pub struct Args {
+	#[arg(short, long)]
+	force: bool,
+}
 
 impl Cli {
-	pub async fn command_clean(&mut self, _args: Args) -> tg::Result<()> {
+	pub async fn command_clean(&mut self, args: Args) -> tg::Result<()> {
+		if args.force {
+			self.command_clean_force().await?;
+			return Ok(());
+		}
 		let handle = self.handle().await?;
 		let stream = handle.clean().await?;
 		self.render_progress_stream(stream).await?;
+		Ok(())
+	}
+
+	pub async fn command_clean_force(&mut self) -> tg::Result<()> {
+		if !self.directory_path().exists() {
+			return Ok(());
+		}
+		let mut stack = vec![self.directory_path()];
+		while let Some(path) = stack.pop() {
+			let metadata = tokio::fs::metadata(&path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+			let mut perms = metadata.permissions();
+			#[cfg(unix)]
+			{
+				let mode = perms.mode();
+				if metadata.is_dir() {
+					perms.set_mode(mode | 0o300);
+				} else {
+					perms.set_mode(mode | 0o200);
+				}
+			}
+			#[cfg(not(unix))]
+			{
+				perms.set_readonly(false);
+			}
+			tokio::fs::set_permissions(&path, perms)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+			if metadata.is_dir() {
+				let mut entries = tokio::fs::read_dir(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
+				while let Some(entry) = entries
+					.next_entry()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read the directory"))?
+				{
+					stack.push(entry.path());
+				}
+			}
+		}
+		tokio::fs::remove_dir_all(self.directory_path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to remove the directory"))?;
 		Ok(())
 	}
 }
