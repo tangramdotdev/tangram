@@ -241,12 +241,12 @@ impl Server {
 
 		// Create the database.
 		let database = match &config.database {
-			self::config::Database::Sqlite(options) => {
+			self::config::Database::Sqlite(config) => {
 				let initialize = Arc::new(self::database::initialize);
 				let options = db::sqlite::DatabaseOptions {
-					connections: options.connections,
+					connections: config.connections,
 					initialize,
-					path: directory.join("database"),
+					path: config.path.clone(),
 				};
 				let database = db::sqlite::Database::new(options)
 					.await
@@ -264,8 +264,8 @@ impl Server {
 				#[cfg(feature = "postgres")]
 				{
 					let options = db::postgres::DatabaseOptions {
-						url: options.url.clone(),
 						connections: options.connections,
+						url: options.url.clone(),
 					};
 					let database = db::postgres::Database::new(options)
 						.await

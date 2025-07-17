@@ -18,8 +18,8 @@ pub enum Error {
 
 #[derive(Clone, Debug)]
 pub struct DatabaseOptions {
-	pub url: Url,
 	pub connections: usize,
+	pub url: Url,
 }
 
 #[derive(Clone, Debug)]

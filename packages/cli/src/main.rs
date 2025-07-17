@@ -706,30 +706,30 @@ impl Cli {
 		{
 			config.database = match database {
 				self::config::Database::Sqlite(database) => {
-					let mut database_ = tangram_server::config::SqliteDatabase {
+					let mut new = tangram_server::config::SqliteDatabase {
 						connections: parallelism,
 						path: config.directory.clone(),
 					};
 					if let Some(connections) = database.connections {
-						database_.connections = connections;
+						new.connections = connections;
 					}
 					if let Some(path) = database.path {
-						database_.path = path;
+						new.path = path;
 					}
-					tangram_server::config::Database::Sqlite(database_)
+					tangram_server::config::Database::Sqlite(new)
 				},
 				self::config::Database::Postgres(database) => {
-					let mut database_ = tangram_server::config::PostgresDatabase {
+					let mut new = tangram_server::config::PostgresDatabase {
 						connections: parallelism,
 						url: "postgres://localhost:5432".parse().unwrap(),
 					};
 					if let Some(connections) = database.connections {
-						database_.connections = connections;
+						new.connections = connections;
 					}
 					if let Some(url) = database.url {
-						database_.url = url;
+						new.url = url;
 					}
-					tangram_server::config::Database::Postgres(database_)
+					tangram_server::config::Database::Postgres(new)
 				},
 			};
 		}
@@ -744,11 +744,11 @@ impl Cli {
 				config.http = Some(tangram_server::config::Http::default());
 			},
 			Some(Either::Right(http)) => {
-				let mut http_ = config.http.unwrap_or_default();
+				let mut new = config.http.unwrap_or_default();
 				if let Some(url) = http.url.clone() {
-					http_.url = Some(url);
+					new.url = Some(url);
 				}
-				config.http = Some(http_);
+				config.http = Some(new);
 			},
 		}
 
@@ -756,30 +756,30 @@ impl Cli {
 		if let Some(index) = self.config.as_ref().and_then(|config| config.index.clone()) {
 			config.index = match index {
 				self::config::Index::Sqlite(index) => {
-					let mut index_ = tangram_server::config::SqliteIndex {
+					let mut new = tangram_server::config::SqliteIndex {
 						connections: parallelism,
 						path: config.directory.clone(),
 					};
 					if let Some(connections) = index.connections {
-						index_.connections = connections;
+						new.connections = connections;
 					}
 					if let Some(path) = index.path {
-						index_.path = path;
+						new.path = path;
 					}
-					tangram_server::config::Index::Sqlite(index_)
+					tangram_server::config::Index::Sqlite(new)
 				},
 				self::config::Index::Postgres(index) => {
-					let mut database_ = tangram_server::config::PostgresIndex {
+					let mut new = tangram_server::config::PostgresIndex {
 						connections: parallelism,
 						url: "postgres://localhost:5432".parse().unwrap(),
 					};
 					if let Some(connections) = index.connections {
-						database_.connections = connections;
+						new.connections = connections;
 					}
 					if let Some(url) = index.url {
-						database_.url = url;
+						new.url = url;
 					}
-					tangram_server::config::Index::Postgres(database_)
+					tangram_server::config::Index::Postgres(new)
 				},
 			};
 		}
@@ -798,17 +798,17 @@ impl Cli {
 				config.indexer = Some(tangram_server::config::Indexer::default());
 			},
 			Some(Either::Right(indexer)) => {
-				let mut indexer_ = config.indexer.unwrap_or_default();
+				let mut new = config.indexer.unwrap_or_default();
 				if let Some(message_batch_size) = indexer.message_batch_size {
-					indexer_.message_batch_size = message_batch_size;
+					new.message_batch_size = message_batch_size;
 				}
 				if let Some(message_batch_timeout) = indexer.message_batch_timeout {
-					indexer_.message_batch_timeout = message_batch_timeout;
+					new.message_batch_timeout = message_batch_timeout;
 				}
 				if let Some(insert_batch_size) = indexer.insert_batch_size {
-					indexer_.insert_batch_size = insert_batch_size;
+					new.insert_batch_size = insert_batch_size;
 				}
-				config.indexer = Some(indexer_);
+				config.indexer = Some(new);
 			},
 		}
 
@@ -821,11 +821,11 @@ impl Cli {
 			config.messenger = match messenger {
 				self::config::Messenger::Memory => tangram_server::config::Messenger::Memory,
 				self::config::Messenger::Nats(messenger) => {
-					let mut messenger_ = tangram_server::config::NatsMessenger::default();
+					let mut new = tangram_server::config::NatsMessenger::default();
 					if let Some(url) = messenger.url {
-						messenger_.url = url;
+						new.url = url;
 					}
-					tangram_server::config::Messenger::Nats(messenger_)
+					tangram_server::config::Messenger::Nats(new)
 				},
 			}
 		}
@@ -861,17 +861,17 @@ impl Cli {
 				config.runner = Some(tangram_server::config::Runner::default());
 			},
 			Some(Either::Right(runner)) => {
-				let mut runner_ = config.runner.unwrap_or_default();
+				let mut new = config.runner.unwrap_or_default();
 				if let Some(concurrency) = runner.concurrency {
-					runner_.concurrency = concurrency;
+					new.concurrency = concurrency;
 				}
 				if let Some(heartbeat_interval) = runner.heartbeat_interval {
-					runner_.heartbeat_interval = heartbeat_interval;
+					new.heartbeat_interval = heartbeat_interval;
 				}
 				if let Some(remotes) = runner.remotes.clone() {
-					runner_.remotes = remotes;
+					new.remotes = remotes;
 				}
-				config.runner = Some(runner_);
+				config.runner = Some(new);
 			},
 		}
 
@@ -912,17 +912,17 @@ impl Cli {
 				config.vfs = Some(tangram_server::config::Vfs::default());
 			},
 			Some(Either::Right(vfs)) => {
-				let mut vfs_ = config.vfs.unwrap_or_default();
+				let mut new = config.vfs.unwrap_or_default();
 				if let Some(cache_ttl) = vfs.cache_ttl {
-					vfs_.cache_ttl = cache_ttl;
+					new.cache_ttl = cache_ttl;
 				}
 				if let Some(cache_size) = vfs.cache_size {
-					vfs_.cache_size = cache_size;
+					new.cache_size = cache_size;
 				}
 				if let Some(database_connections) = vfs.database_connections {
-					vfs_.database_connections = database_connections;
+					new.database_connections = database_connections;
 				}
-				config.vfs = Some(vfs_);
+				config.vfs = Some(new);
 			},
 		}
 
@@ -940,17 +940,17 @@ impl Cli {
 				config.watchdog = Some(tangram_server::config::Watchdog::default());
 			},
 			Some(Either::Right(watchdog)) => {
-				let mut watchdog_ = config.watchdog.unwrap_or_default();
+				let mut new = config.watchdog.unwrap_or_default();
 				if let Some(batch_size) = watchdog.batch_size {
-					watchdog_.batch_size = batch_size;
+					new.batch_size = batch_size;
 				}
 				if let Some(interval) = watchdog.interval {
-					watchdog_.interval = interval;
+					new.interval = interval;
 				}
 				if let Some(ttl) = watchdog.ttl {
-					watchdog_.ttl = ttl;
+					new.ttl = ttl;
 				}
-				config.watchdog = Some(watchdog_);
+				config.watchdog = Some(new);
 			},
 		}
 
