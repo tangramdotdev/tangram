@@ -1171,11 +1171,15 @@ impl Cli {
 		Ok(())
 	}
 
-	fn print_output(value: &tg::Value) {
+	fn print_output(value: &tg::Value, depth: crate::object::get::Depth) {
 		let stdout = std::io::stdout();
+		let depth = match depth {
+			crate::object::get::Depth::Finite(depth) => Some(depth),
+			crate::object::get::Depth::Infinite => None,
+		};
 		let output = if stdout.is_terminal() {
 			let options = tg::value::print::Options {
-				depth: Some(0),
+				depth,
 				style: tg::value::print::Style::Pretty { indentation: "  " },
 			};
 			value.print(options)

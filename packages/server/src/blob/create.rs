@@ -340,7 +340,7 @@ impl Server {
 					.as_ref()
 					.map(|artifact| crate::store::CacheReference {
 						artifact: artifact.clone(),
-						subpath: None,
+						path: None,
 						position: blob.position,
 						length: blob.length,
 					});

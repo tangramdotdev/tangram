@@ -40,9 +40,13 @@ pub struct Options {
 	#[arg(short, long)]
 	pub detach: bool,
 
-	/// Set the subpath to use for the executable.
+	/// Set the path to use for the executable.
 	#[arg(short = 'x', long)]
-	pub executable_subpath: Option<PathBuf>,
+	pub executable_path: Option<PathBuf>,
+
+	/// The depth with which to print the output.
+	#[arg(long, default_value = "1")]
+	pub print_depth: crate::object::get::Depth,
 
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
@@ -76,6 +80,7 @@ impl Cli {
 			let options = crate::build::Options {
 				checkout: None,
 				detach: false,
+				print_depth: crate::object::get::Depth::Finite(0),
 				spawn,
 				view: crate::build::View::default(),
 			};
@@ -92,8 +97,8 @@ impl Cli {
 			reference
 		};
 
-		// Handle the executable subpath.
-		let reference = if let Some(executable_subpath) = &options.executable_subpath {
+		// Handle the executable path.
+		let reference = if let Some(path) = &options.executable_path {
 			let referent = self.get_reference(&reference).await?;
 			let directory = referent
 				.item
@@ -102,7 +107,7 @@ impl Cli {
 				.try_unwrap_directory()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
-			let artifact = directory.get(&handle, executable_subpath).await?;
+			let artifact = directory.get(&handle, path).await?;
 			tg::Reference::with_object(&artifact.id().into())
 		} else {
 			reference
@@ -202,7 +207,7 @@ impl Cli {
 		// Print the output.
 		if let Some(value) = wait.output {
 			if !value.is_null() {
-				Self::print_output(&value);
+				Self::print_output(&value, options.print_depth);
 			}
 		}
 

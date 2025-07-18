@@ -318,8 +318,8 @@ where
 					tg::Value::Object(executable.artifact.clone().into()),
 				);
 				if let Some(path) = &executable.path {
-					let subpath = path.to_string_lossy().to_string();
-					map.insert("path".to_owned(), tg::Value::String(subpath));
+					let path = path.to_string_lossy().to_string();
+					map.insert("path".to_owned(), tg::Value::String(path));
 				}
 				tg::Value::Map(map)
 			},

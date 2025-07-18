@@ -22,7 +22,7 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Options {
 	/// Whether to check out the output.
@@ -33,6 +33,10 @@ pub struct Options {
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
 	#[arg(short, long)]
 	pub detach: bool,
+
+	/// The depth with which to print the output.
+	#[arg(long, default_value = "1")]
+	pub print_depth: crate::object::get::Depth,
 
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
@@ -248,7 +252,7 @@ impl Cli {
 
 		// Print the output.
 		if print && !output.is_null() {
-			Self::print_output(&output);
+			Self::print_output(&output, options.print_depth);
 		}
 
 		Ok(Some(output))

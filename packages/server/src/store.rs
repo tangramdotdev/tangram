@@ -57,7 +57,7 @@ pub struct CacheReference {
 	pub length: u64,
 	pub position: u64,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub subpath: Option<PathBuf>,
+	pub path: Option<PathBuf>,
 }
 
 impl Store {

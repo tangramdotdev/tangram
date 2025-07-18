@@ -220,8 +220,8 @@ impl Reader {
 			let mut path = server
 				.cache_path()
 				.join(cache_reference.artifact.to_string());
-			if let Some(subpath) = &cache_reference.subpath {
-				path.push(subpath);
+			if let Some(path_) = &cache_reference.path {
+				path.push(path_);
 			}
 			let file = tokio::fs::File::open(path)
 				.await

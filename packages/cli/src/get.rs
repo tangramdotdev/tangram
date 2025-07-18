@@ -14,17 +14,11 @@ pub struct Args {
 	#[arg(long)]
 	pub pretty: Option<bool>,
 
-	#[arg(long, default_value = "1")]
-	pub depth: Depth,
+	#[arg(short, long, default_value = "1")]
+	pub depth: crate::object::get::Depth,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
-}
-
-#[derive(Clone, Debug)]
-pub enum Depth {
-	Finite(u64),
-	Infinite,
 }
 
 impl Cli {
@@ -48,29 +42,14 @@ impl Cli {
 			},
 			Either::Right(object) => {
 				self.command_object_get(crate::object::get::Args {
+					depth,
 					format,
 					object,
 					pretty,
-					depth,
 				})
 				.await?;
 			},
 		}
 		Ok(())
-	}
-}
-
-impl std::str::FromStr for Depth {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let depth = if s.starts_with("inf") {
-			Depth::Infinite
-		} else {
-			s.parse()
-				.map(Depth::Finite)
-				.map_err(|_| tg::error!("invalid depth"))?
-		};
-		Ok(depth)
 	}
 }

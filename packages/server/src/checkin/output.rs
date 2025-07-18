@@ -331,22 +331,17 @@ impl Server {
 				{
 					let mut stack = vec![blob];
 					while let Some(blob) = stack.pop() {
-						let (artifact, subpath) = if state.arg.destructive {
-							let subpath = node.path().strip_prefix(root_path).unwrap().to_owned();
-							let subpath = subpath
-								.to_str()
-								.unwrap()
-								.is_empty()
-								.not()
-								.then_some(subpath);
-							(root.clone(), subpath)
+						let (artifact, path) = if state.arg.destructive {
+							let path = node.path().strip_prefix(root_path).unwrap().to_owned();
+							let path = path.to_str().unwrap().is_empty().not().then_some(path);
+							(root.clone(), path)
 						} else {
 							let artifact = object.id.clone().try_into().unwrap();
 							(artifact, None)
 						};
 						let reference = crate::store::CacheReference {
 							artifact,
-							subpath,
+							path,
 							position: blob.position,
 							length: blob.length,
 						};

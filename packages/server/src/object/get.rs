@@ -180,8 +180,8 @@ impl Server {
 
 		// Read the leaf from the file.
 		let mut path = self.cache_path().join(cache_reference.artifact.to_string());
-		if let Some(subpath) = &cache_reference.subpath {
-			path.push(subpath);
+		if let Some(path_) = &cache_reference.path {
+			path.push(path_);
 		}
 		let mut file = match tokio::fs::File::open(path).await {
 			Ok(file) => file,
@@ -232,20 +232,20 @@ impl Server {
 
 		// Replace the file if necessary.
 		match file {
-			Some((artifact, subpath, _))
-				if artifact == &cache_reference.artifact && subpath == &cache_reference.subpath => {},
+			Some((artifact, path_, _))
+				if artifact == &cache_reference.artifact && path_ == &cache_reference.path => {},
 			_ => {
 				drop(file.take());
 				let mut path = self.cache_path().join(cache_reference.artifact.to_string());
-				if let Some(subpath) = &cache_reference.subpath {
-					path = path.join(subpath);
+				if let Some(path_) = &cache_reference.path {
+					path = path.join(path_);
 				}
 				let file_ = std::fs::File::open(&path).map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
 				)?;
 				file.replace((
 					cache_reference.artifact.clone(),
-					cache_reference.subpath.clone(),
+					cache_reference.path.clone(),
 					file_,
 				));
 			},

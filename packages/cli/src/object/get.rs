@@ -1,4 +1,4 @@
-use crate::{Cli, get::Depth};
+use crate::Cli;
 use crossterm::tty::IsTty as _;
 use tangram_client::{self as tg, prelude::*};
 use tokio::io::AsyncWriteExt as _;
@@ -7,6 +7,9 @@ use tokio::io::AsyncWriteExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(short, long, default_value = "1")]
+	pub depth: Depth,
+
 	#[arg(long)]
 	pub format: Option<Format>,
 
@@ -15,9 +18,12 @@ pub struct Args {
 
 	#[arg(long)]
 	pub pretty: Option<bool>,
+}
 
-	#[arg(long, default_value = "1")]
-	pub depth: Depth,
+#[derive(Clone, Copy, Debug)]
+pub enum Depth {
+	Finite(u64),
+	Infinite,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
@@ -48,23 +54,24 @@ impl Cli {
 			},
 			Format::Tgon => {
 				let depth = match args.depth {
-					Depth::Finite(depth) => depth,
-					Depth::Infinite => u64::MAX,
+					Depth::Finite(depth) => Some(depth),
+					Depth::Infinite => None,
 				};
 				let style = if pretty {
 					tg::value::print::Style::Pretty { indentation: "  " }
 				} else {
 					tg::value::print::Style::Compact
 				};
-				let options = tg::value::print::Options {
-					depth: Some(depth),
-					style,
-				};
+				let options = tg::value::print::Options { depth, style };
 				let object = tg::Object::with_id(args.object);
-				if depth > 1 {
-					object.load_recursive(&handle).await?;
-				} else if depth > 0 {
-					object.load(&handle).await?;
+				match depth {
+					Some(0) => {
+						object.load(&handle).await?;
+					},
+					Some(_) => {
+						object.load_recursive(&handle).await?;
+					},
+					_ => (),
 				}
 				let value = tg::Value::from(object);
 				let output = value.print(options);
@@ -85,5 +92,20 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to flush the output"))?;
 		Ok(())
+	}
+}
+
+impl std::str::FromStr for Depth {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let depth = if s.starts_with("inf") {
+			Depth::Infinite
+		} else {
+			s.parse()
+				.map(Depth::Finite)
+				.map_err(|_| tg::error!("invalid depth"))?
+		};
+		Ok(depth)
 	}
 }
