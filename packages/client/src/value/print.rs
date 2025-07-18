@@ -243,7 +243,7 @@ where
 		write!(self.writer, "tg.directory(")?;
 		match object {
 			tg::directory::Object::Reference(reference) => {
-				self.graph_reference_object(reference)?;
+				self.graph_reference(reference)?;
 			},
 			tg::directory::Object::Node(node) => {
 				if !node.entries.is_empty() {
@@ -297,7 +297,7 @@ where
 		write!(self.writer, "tg.file(")?;
 		match object {
 			tg::file::Object::Reference(reference) => {
-				self.graph_reference_object(reference)?;
+				self.graph_reference(reference)?;
 			},
 			tg::file::Object::Node(node) => {
 				self.file_node(node, false)?;
@@ -360,7 +360,7 @@ where
 		write!(self.writer, "tg.symlink(")?;
 		match object {
 			tg::symlink::Object::Reference(reference) => {
-				self.graph_reference_object(reference)?;
+				self.graph_reference(reference)?;
 			},
 			tg::symlink::Object::Node(node) => {
 				self.symlink_node(node, false)?;
@@ -425,7 +425,7 @@ where
 	fn graph_edge_object(&mut self, edge: &tg::graph::object::Edge<tg::Object>) -> Result {
 		match edge {
 			tg::graph::object::Edge::Reference(reference) => {
-				self.graph_reference_object(reference)?;
+				self.graph_reference(reference)?;
 			},
 			tg::graph::object::Edge::Object(object) => {
 				self.object(object)?;
@@ -437,7 +437,7 @@ where
 	fn graph_edge_artifact(&mut self, edge: &tg::graph::object::Edge<tg::Artifact>) -> Result {
 		match edge {
 			tg::graph::object::Edge::Reference(reference) => {
-				self.graph_reference_object(reference)?;
+				self.graph_reference(reference)?;
 			},
 			tg::graph::object::Edge::Object(object) => {
 				self.artifact(object)?;
@@ -446,7 +446,7 @@ where
 		Ok(())
 	}
 
-	fn graph_reference_object(&mut self, reference: &tg::graph::object::Reference) -> Result {
+	fn graph_reference(&mut self, reference: &tg::graph::object::Reference) -> Result {
 		self.start_map()?;
 		if let Some(graph) = &reference.graph {
 			self.map_entry("graph", |s| s.graph(graph))?;

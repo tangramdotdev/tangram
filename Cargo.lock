@@ -234,9 +234,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.25"
+version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40f6024f3f856663b45fd0c9b6f2024034a702f453549449e0d84a305900dad4"
+checksum = "ddb939d66e4ae03cee6091612804ba446b12878410cfa17f785f4dd67d4014e8"
 dependencies = [
  "brotli",
  "bzip2",
@@ -362,9 +362,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-credential-types"
-version = "1.2.3"
+version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "687bc16bc431a8533fe0097c7f0182874767f920989d7260950172ae8e3c4465"
+checksum = "b68c2194a190e1efc999612792e25b1ab3abfefe4306494efaaabc25933c0cbe"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
@@ -430,9 +430,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-http"
-version = "0.62.1"
+version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99335bec6cdc50a346fda1437f9fefe33abf8c99060739a546a16457f2862ca9"
+checksum = "43c82ba4cab184ea61f6edaafc1072aad3c2a17dcf4c0fce19ac5694b90d8b5f"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -648,7 +648,7 @@ dependencies = [
 [[package]]
 name = "biome_aria"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_aria_metadata",
 ]
@@ -656,7 +656,7 @@ dependencies = [
 [[package]]
 name = "biome_aria_metadata"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_deserialize",
  "biome_deserialize_macros",
@@ -672,7 +672,7 @@ dependencies = [
 [[package]]
 name = "biome_console"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_markup",
  "biome_text_size",
@@ -685,7 +685,7 @@ dependencies = [
 [[package]]
 name = "biome_deserialize"
 version = "0.6.0"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -698,7 +698,7 @@ dependencies = [
 [[package]]
 name = "biome_deserialize_macros"
 version = "0.6.0"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_string_case",
  "proc-macro-error2",
@@ -710,7 +710,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "backtrace",
  "biome_console",
@@ -730,7 +730,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics_categories"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "quote",
  "serde",
@@ -739,7 +739,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics_macros"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -750,7 +750,7 @@ dependencies = [
 [[package]]
 name = "biome_formatter"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_console",
  "biome_deserialize",
@@ -770,7 +770,7 @@ dependencies = [
 [[package]]
 name = "biome_js_factory"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_js_syntax",
  "biome_rowan",
@@ -779,7 +779,7 @@ dependencies = [
 [[package]]
 name = "biome_js_formatter"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_deserialize",
  "biome_deserialize_macros",
@@ -800,7 +800,7 @@ dependencies = [
 [[package]]
 name = "biome_js_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -821,7 +821,7 @@ dependencies = [
 [[package]]
 name = "biome_js_syntax"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_aria",
  "biome_aria_metadata",
@@ -835,7 +835,7 @@ dependencies = [
 [[package]]
 name = "biome_json_factory"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_json_syntax",
  "biome_rowan",
@@ -844,7 +844,7 @@ dependencies = [
 [[package]]
 name = "biome_json_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -860,18 +860,19 @@ dependencies = [
 [[package]]
 name = "biome_json_syntax"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_rowan",
  "biome_string_case",
  "camino",
+ "dirs",
  "serde",
 ]
 
 [[package]]
 name = "biome_markup"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -881,7 +882,7 @@ dependencies = [
 [[package]]
 name = "biome_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -895,7 +896,7 @@ dependencies = [
 [[package]]
 name = "biome_rowan"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_text_edit",
  "biome_text_size",
@@ -907,7 +908,7 @@ dependencies = [
 [[package]]
 name = "biome_string_case"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_rowan",
 ]
@@ -915,7 +916,7 @@ dependencies = [
 [[package]]
 name = "biome_suppression"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -925,7 +926,7 @@ dependencies = [
 [[package]]
 name = "biome_text_edit"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "biome_text_size",
  "serde",
@@ -935,7 +936,7 @@ dependencies = [
 [[package]]
 name = "biome_text_size"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 dependencies = [
  "serde",
 ]
@@ -943,7 +944,7 @@ dependencies = [
 [[package]]
 name = "biome_unicode_table"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#bdbc2b10ac21dcb35b41e93b17e712ba80f421ca"
+source = "git+https://github.com/biomejs/biome#00cbc851aa845a8a4a0224cb03381ce2d81ab780"
 
 [[package]]
 name = "bit-set"
@@ -1214,18 +1215,18 @@ checksum = "df8670b8c7b9dae1793364eafadf7239c40d669904660c5960d74cfd80b46a53"
 
 [[package]]
 name = "castaway"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0abae9be0aaf9ea96a3b1b8b1b55c602ca751eba1b1500220cea4ecbafe7c0d5"
+checksum = "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a"
 dependencies = [
  "rustversion",
 ]
 
 [[package]]
 name = "cc"
-version = "1.2.29"
+version = "1.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c1599538de2394445747c8cf7935946e3cc27e9625f889d979bfb2aaf569362"
+checksum = "deec109607ca693028562ed836a5f1c4b8bd77755c4e132fc5ce11b0b6211ae7"
 dependencies = [
  "jobserver",
  "libc",
@@ -1495,9 +1496,9 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.4.2"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a97769d94ddab943e4510d138150169a2758b5ef3eb191a9ee688de3e23ef7b3"
+checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
 dependencies = [
  "cfg-if",
 ]
@@ -1587,7 +1588,7 @@ dependencies = [
  "futures-core",
  "mio",
  "parking_lot",
- "rustix 1.0.7",
+ "rustix 1.0.8",
  "signal-hook",
  "signal-hook-mio",
  "winapi",
@@ -1614,9 +1615,9 @@ dependencies = [
 
 [[package]]
 name = "curve25519-dalek"
-version = "4.2.0"
+version = "4.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373b7c5dbd637569a2cca66e8d66b8c446a1e7bf064ea321d265d7b3dfe7c97e"
+checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -1838,6 +1839,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users",
+ "windows-sys 0.60.2",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2039,9 +2061,9 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "fiat-crypto"
-version = "0.3.0"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
+checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "filetime"
@@ -2539,9 +2561,9 @@ dependencies = [
 
 [[package]]
 name = "hstr"
-version = "1.1.6"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b85186bc48d3c611ead052cc3f907748e40b63d73a99e4ed34d18063e2baaf1b"
+checksum = "4933df6fceb5d21a21e9fb5b46e572a83be4108e5b544de7ebe87cc1245b5d23"
 dependencies = [
  "hashbrown 0.14.5",
  "new_debug_unreachable",
@@ -2661,7 +2683,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.2",
 ]
 
 [[package]]
@@ -3155,6 +3177,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0791ab7e08ccc8e0ce893f6906eb2703ed8739d8e89b57c0714e71bad09024c8"
 dependencies = [
  "liblzma-sys",
+ "num_cpus",
 ]
 
 [[package]]
@@ -3751,6 +3774,12 @@ name = "openssl-probe"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
+
+[[package]]
+name = "option-ext"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "outref"
@@ -4450,6 +4479,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_users"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd6f9d3d47bdd2ad6945c5015a226ec6155d0bcdfd8f7cd29f86b71f8de99d2b"
+dependencies = [
+ "getrandom 0.2.16",
+ "libredox",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "ref-cast"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4477,7 +4517,7 @@ checksum = "78c81d000a2c524133cc00d2f92f019d399e57906c3b7119271a2495354fe895"
 dependencies = [
  "cfg-if",
  "libc",
- "rustix 1.0.7",
+ "rustix 1.0.8",
  "windows",
 ]
 
@@ -4573,7 +4613,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.2",
 ]
 
 [[package]]
@@ -4691,15 +4731,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.7"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c71e83d6afe7ff64890ec6b71d6a69bb8a610ab78ce364b3352876bb4c801266"
+checksum = "11181fbabf243db407ef8df94a6ce0b2f9a733bd8be4ad02b4eda9602296cac8"
 dependencies = [
  "bitflags 2.9.1",
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4976,9 +5016,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.140"
+version = "1.0.141"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
+checksum = "30b9eff21ebe718216c6ec64e1d9ac57087aad11efc64e32002bce4a0d4c03d3"
 dependencies = [
  "itoa",
  "memchr",
@@ -5422,9 +5462,9 @@ dependencies = [
 
 [[package]]
 name = "swc_atoms"
-version = "6.0.1"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fda66fe4175cddc27a79643ded7ce297b6b2bf133f038ec5907fb4673e4b2ba"
+checksum = "3500dcf04c84606b38464561edc5e46f5132201cb3e23cf9613ed4033d6b1bb2"
 dependencies = [
  "hstr",
  "once_cell",
@@ -5433,9 +5473,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "13.0.4"
+version = "14.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e103c3a47a343a175e9f65603122c5d3c8ec007776b00a4a4bc368a1347c4770"
+checksum = "20708c71c9e53ff193555b038e073feb8388e904b04ddc72b8ec9ff180914be8"
 dependencies = [
  "anyhow",
  "ast_node",
@@ -5491,9 +5531,9 @@ dependencies = [
 
 [[package]]
 name = "swc_core"
-version = "31.1.0"
+version = "33.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fe7787e59eccca32521b3a49a80c6957f8c44270f3967bdef23f9921482c4eb"
+checksum = "335a81ed92f8f9681cfba04e4a3209af39ef44af20e92083526fb846c0cea598"
 dependencies = [
  "swc_allocator",
  "swc_atoms",
@@ -5510,9 +5550,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "13.0.1"
+version = "14.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3de29559723afd8436efd427648b22346fd408f741f93c0464aa0815857e69a4"
+checksum = "d5d8d26e697ce58654f0816890af7a28efd8660c154b613acefa2d3727e8ec93"
 dependencies = [
  "bitflags 2.9.1",
  "is-macro",
@@ -5529,9 +5569,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_codegen"
-version = "15.0.2"
+version = "16.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a639a205901c8cc0af6f2d7ff4548eb86f0935b1e70662423a9298a304ead6c2"
+checksum = "7b3a46868f249b86a74f91774c8faf12340abb86ba7c3ff152bdc7a8f94011b6"
 dependencies = [
  "ascii",
  "compact_str 0.7.1",
@@ -5564,9 +5604,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_lexer"
-version = "19.0.1"
+version = "21.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "180810f860c9128eb74b970da8826e0d86fd8f99808c2fbe224cc5c714af2b70"
+checksum = "11758fd42a7313734ad713a39d320693ab181a42fc6dd6ad3d473cded40ca9af"
 dependencies = [
  "arrayvec",
  "bitflags 2.9.1",
@@ -5588,9 +5628,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_loader"
-version = "13.0.0"
+version = "14.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b08fa5f55ac0188a35a75f27574329e129b06cbb0d517ab7b2093eff45b2745"
+checksum = "c675d14700c92f12585049b22b02356f1e142f4b0c32a4d0eb4b7a968a4c0c1e"
 dependencies = [
  "anyhow",
  "pathdiff",
@@ -5603,9 +5643,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "19.0.1"
+version = "21.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98c059cc69b577ca26d5bc1efdb022c7ee3e186637b6b355bb2f6660491a6ed1"
+checksum = "482bce3a5a199befa9420e2b094fd7fb4e1d9d71a02f0ee1bf24e610ad066311"
 dependencies = [
  "either",
  "num-bigint",
@@ -5619,9 +5659,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_transforms_base"
-version = "20.0.0"
+version = "22.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2231c70c3cb3ce733e71224b287ce494a60d928b1b0f151129ff18d023cc7b0"
+checksum = "70af89987ce2d0c05d031a014608cd1e9af3bd18292453c659ae27b6fb19f8f8"
 dependencies = [
  "better_scoped_tls",
  "indexmap 2.10.0",
@@ -5641,9 +5681,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_transforms_module"
-version = "22.0.0"
+version = "24.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18d95549469ee647db603c7d26b3cea733b8b66cf902b5252c1739581422a868"
+checksum = "56e045a1d1d732dfb4bd3269639d326ca2611ebdda242d611e035be2f886802a"
 dependencies = [
  "Inflector",
  "anyhow",
@@ -5669,9 +5709,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_transforms_react"
-version = "22.1.0"
+version = "24.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cd6178c6de84b8090d0c8229441ab8a57829b8502b30d44b8f2ae927fea2c0a"
+checksum = "23b7c2d9188eaeac8a15f338faafa9e3aeba2ee96749d626d9316c97e45046bb"
 dependencies = [
  "base64 0.22.1",
  "bytes-str",
@@ -5693,9 +5733,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_transforms_typescript"
-version = "22.0.0"
+version = "24.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4055107e9b37650b3b26d12f8535f5b2b3d28efc3de6f3d4c951efb468970d5e"
+checksum = "81b3d8a18fbc3182849a84a126afa20c033f8e9dd6bc804fbb17c2180d5e658e"
 dependencies = [
  "bytes-str",
  "rustc-hash 2.1.1",
@@ -5711,9 +5751,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_utils"
-version = "18.1.0"
+version = "19.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21c9a1dda55bddf62dae2130640452813ad70df9014450852b94753b154885ec"
+checksum = "d9b34cc429270ae5d908574f3cf531fcb9dc52d43f689c5e8ca9598ebc117a32"
 dependencies = [
  "indexmap 2.10.0",
  "num_cpus",
@@ -5730,9 +5770,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_visit"
-version = "13.0.0"
+version = "14.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ad28e3449b376bfe1f2bde28bfcf305961ba23c1e205bedb03a7c108a1d1ff6"
+checksum = "3d187b3440f20dac5d5a61aaedff585aefac9c75c1a6650abb7f25936a4f0e67"
 dependencies = [
  "new_debug_unreachable",
  "num-bigint",
@@ -5987,7 +6027,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.2",
  "winnow",
  "zstd",
 ]
@@ -6304,7 +6344,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.3.3",
  "once_cell",
- "rustix 1.0.7",
+ "rustix 1.0.8",
  "windows-sys 0.59.0",
 ]
 
@@ -6323,7 +6363,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45c6481c4829e4cc63825e62c49186a34538b7b2750b73b266581ffb612fb5ed"
 dependencies = [
- "rustix 1.0.7",
+ "rustix 1.0.8",
  "windows-sys 0.59.0",
 ]
 
@@ -6562,9 +6602,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0207d6ed1852c2a124c1fbec61621acb8330d2bf969a5d0643131e9affd985a5"
+checksum = "ed0aee96c12fa71097902e0bb061a5e1ebd766a6636bb605ba401c45c1650eac"
 dependencies = [
  "indexmap 2.10.0",
  "serde",
@@ -6603,18 +6643,18 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5c1c469eda89749d2230d8156a5969a69ffe0d6d01200581cdc6110674d293e"
+checksum = "97200572db069e74c512a14117b296ba0a80a30123fbbb5aa1f4a348f639ca30"
 dependencies = [
  "winnow",
 ]
 
 [[package]]
 name = "toml_writer"
-version = "1.0.0"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b679217f2848de74cabd3e8fc5e6d66f40b7da40f8e1954d92054d9010690fd5"
+checksum = "fcc842091f2def52017664b53082ecbbeb5c7731092bad69d2c63050401dfd64"
 
 [[package]]
 name = "tonic"
@@ -7242,14 +7282,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.2",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8782dd5a41a24eed3a4f40b606249b3e236ca61adf1f25ea4d45c73de122b502"
+checksum = "7e8983c3ab33d6fb807cfcdad2491c4ea8cbc8ed839181c7dfd9c67c83e261b2"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -7698,7 +7738,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af3a19837351dc82ba89f8a125e22a3c475f05aba604acc023d62b2739ae2909"
 dependencies = [
  "libc",
- "rustix 1.0.7",
+ "rustix 1.0.8",
 ]
 
 [[package]]
