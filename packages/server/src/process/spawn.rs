@@ -113,10 +113,11 @@ impl Server {
 			return Ok(Some(output));
 		}
 
-		// Attempt to get a remote process.
-		if let Some(output) = self.try_get_cached_process_remote(&arg).await? {
-			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(
+		// If cached is true, then attempt to get a remote process, and return none if none is found.
+		if matches!(arg.cached, Some(true)) {
+			if let Some(output) = self.try_get_cached_process_remote(&arg).await? {
+				if let Some(parent) = arg.parent.as_ref() {
+					self.try_add_process_child(
 					parent,
 					&output.process,
 					command.options.path.as_ref(),
@@ -127,12 +128,9 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %parent, %child = output.process, "failed to add the process as a child"),
 				)?;
+				}
+				return Ok(Some(output));
 			}
-			return Ok(Some(output));
-		}
-
-		// If cached is true, then return none.
-		if matches!(arg.cached, Some(true)) {
 			return Ok(None);
 		}
 
@@ -832,7 +830,7 @@ impl Server {
 				select exists(
 					select 1 from ancestors where id = {p}2
 				);
-		"
+			"
 		);
 		let params = db::params![parent, child];
 		let cycle = connection
