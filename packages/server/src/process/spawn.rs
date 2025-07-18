@@ -487,7 +487,8 @@ impl Server {
 					{p}14,
 					{p}15,
 					{p}16,
-					{p}17
+					{p}17,
+					{p}18
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
