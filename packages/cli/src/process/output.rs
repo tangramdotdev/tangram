@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = "1")]
+	#[arg(short, long, default_value = "0")]
 	pub depth: crate::object::get::Depth,
 
 	#[arg(index = 1)]

@@ -29,25 +29,22 @@ impl Cli {
 			Either::Right(object) => Either::Right(object.id().clone()),
 		});
 		eprintln!("{} {referent}", "info".blue().bold());
-		let Args {
-			format,
-			pretty,
-			depth,
-			..
-		} = args;
 		match referent.item {
 			Either::Left(process) => {
-				self.command_process_get(crate::process::get::Args { pretty, process })
-					.await?;
+				let args = crate::process::get::Args {
+					process,
+					pretty: args.pretty,
+				};
+				self.command_process_get(args).await?;
 			},
 			Either::Right(object) => {
-				self.command_object_get(crate::object::get::Args {
-					depth,
-					format,
+				let args = crate::object::get::Args {
 					object,
-					pretty,
-				})
-				.await?;
+					depth: args.depth,
+					format: args.format,
+					pretty: args.pretty,
+				};
+				self.command_object_get(args).await?;
 			},
 		}
 		Ok(())

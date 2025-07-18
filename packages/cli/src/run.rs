@@ -45,7 +45,7 @@ pub struct Options {
 	pub executable_path: Option<PathBuf>,
 
 	/// The depth with which to print the output.
-	#[arg(long, default_value = "1")]
+	#[arg(long, default_value = "0")]
 	pub print_depth: crate::object::get::Depth,
 
 	#[command(flatten)]

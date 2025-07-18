@@ -65,13 +65,13 @@ impl Cli {
 				let options = tg::value::print::Options { depth, style };
 				let object = tg::Object::with_id(args.object);
 				match depth {
-					Some(0) => {
+					Some(0) => (),
+					Some(1) => {
 						object.load(&handle).await?;
 					},
-					Some(_) => {
+					None | Some(_) => {
 						object.load_recursive(&handle).await?;
 					},
-					_ => (),
 				}
 				let value = tg::Value::from(object);
 				let output = value.print(options);
