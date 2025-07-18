@@ -85,6 +85,7 @@ impl Runtime {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
 		cmd.arg("-C").arg(&cwd);
+
 		// Create the proxy.
 		let proxy = if root_mount {
 			None

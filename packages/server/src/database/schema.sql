@@ -52,19 +52,11 @@ end;
 create trigger processes_update_depth_trigger
 after update of depth on processes
 for each row
+when new.depth <> old.depth
 begin
   update processes
-  set depth = updates.depth
-  from (
-    select
-      processes.id,
-      coalesce(max(child_processes.depth), 0) + 1 as depth
-    from processes
-    left join process_children on process_children.process = processes.id
-    left join processes child_processes on child_processes.id = process_children.child
-    group by processes.id
-  ) as updates
-  where processes.id = updates.id and processes.id in (
+  set depth = max(processes.depth, new.depth + 1)
+  where processes.id in (
     select process
     from process_children
     where process_children.child = new.id
@@ -109,30 +101,20 @@ create table process_children (
 
 create unique index process_children_process_child_index on process_children (process, child);
 
-create unique index process_children_index on process_children (process, position);
+create unique index process_children_process_position_index on process_children (process, position);
 
-create index process_children_child_process_index on process_children (child);
+create index process_children_child_index on process_children (child);
 
 create trigger process_children_insert_trigger
 after insert on process_children
 for each row
 begin
   update processes
-  set depth = updates.depth
-  from (
-    select
-      processes.id,
-      coalesce(max(child_processes.depth), 0) + 1 as depth
-    from processes
-    left join process_children on process_children.process = processes.id
-    left join processes child_processes on child_processes.id = process_children.child
-    group by processes.id
-  ) as updates
-  where processes.id = updates.id and processes.id in (
-    select process
-    from process_children
-    where process_children.child = new.child
-  );
+  set depth = max(
+    processes.depth,
+    (select depth from processes where id = new.child)
+  )
+  where processes.id = new.process;
 end;
 
 create table pipes (
