@@ -122,8 +122,8 @@ impl Server {
 			return Ok(tg::Referent::with_item(tg::module::data::Item::Path(path)));
 		}
 
-		// Get the lockfile and its path.
-		let (lockfile_path, lockfile) = 'a: {
+		// Get the lock and its path.
+		let (lock_path, lock) = 'a: {
 			// Search the ancestors for a lockfile, if it exists.
 			for ancestor in referrer.item.ancestors().skip(1) {
 				// Check if the lockfile exists.
@@ -139,7 +139,7 @@ impl Server {
 				let contents = tokio::fs::read_to_string(&lockfile_path).await.map_err(
 					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to read the lockfile"),
 				)?;
-				let lockfile = serde_json::from_str::<tg::Lockfile>(&contents).map_err(
+				let lockfile = serde_json::from_str::<tg::graph::Data>(&contents).map_err(
 					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to deserialize the lockfile"),
 				)?;
 				break 'a (lockfile_path, lockfile);
@@ -151,13 +151,13 @@ impl Server {
 			);
 		};
 
-		// Find the referrer in the lockfile.
+		// Find the referrer in the lock.
 		let module_index = self
-			.find_node_index_in_lockfile(referrer.item, &lockfile_path, &lockfile)
+			.find_node_in_lock(Either::Right(referrer.item), &lock_path, &lock)
 			.await?;
 
 		// The module within the lockfile must be a file for it to have imports.
-		let file = &lockfile.nodes[module_index]
+		let file = &lock.nodes[module_index]
 			.try_unwrap_file_ref()
 			.map_err(|_| tg::error!("expected a file node"))?;
 
@@ -167,12 +167,12 @@ impl Server {
 			.get(&import.reference)
 			.ok_or_else(|| tg::error!("failed to resolve reference"))?;
 		let referent = match referent.item() {
-			Either::Left(index) => {
-				let item = crate::Server::create_object_from_lockfile_node(&lockfile.nodes, *index)
+			tg::graph::data::Edge::Reference(reference) => {
+				let item = crate::Server::create_object_from_lock_node(&lock.nodes, reference.node)
 					.map_err(|source| tg::error!(!source, "failed to resolve the dependency"))?;
 				referent.clone().map(|_| item)
 			},
-			Either::Right(id) => {
+			tg::graph::data::Edge::Object(id) => {
 				let item = tg::Object::with_id(id.clone());
 				let path = referent
 					.path()

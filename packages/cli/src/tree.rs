@@ -9,7 +9,7 @@ pub struct Args {
 	#[arg(long)]
 	pub depth: Option<u32>,
 
-	/// If this flag is set, the package's lockfile will not be updated.
+	/// If this flag is set, the lock will not be updated.
 	#[arg(long, default_value = "false")]
 	pub locked: bool,
 
@@ -24,7 +24,6 @@ impl Cli {
 			depth: args.depth,
 			kind: crate::view::Kind::Inline,
 			locked: args.locked,
-			print: true,
 			reference: args.reference,
 		};
 		self.command_view(args).await?;

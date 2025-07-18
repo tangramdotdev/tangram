@@ -36,8 +36,8 @@ impl Server {
 					destructive: false,
 					deterministic: false,
 					ignore: true,
+					lock: true,
 					locked: false,
-					lockfile: true,
 					path: path.clone(),
 					updates: Vec::new(),
 				};

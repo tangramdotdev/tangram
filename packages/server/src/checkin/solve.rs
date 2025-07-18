@@ -1,6 +1,5 @@
-#![allow(clippy::too_many_arguments)]
 use super::Graph;
-use crate::{Server, lockfile::Lockfile};
+use crate::{Server, lock::Lock};
 use std::{
 	collections::BTreeMap,
 	path::{Path, PathBuf},
@@ -11,56 +10,34 @@ use tangram_either::Either;
 #[derive(Clone, Debug)]
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
-
-	// The current artifacts path
 	artifacts_path: &'a Path,
-
-	// The lockfile, if it exists.
-	lockfile: Option<&'a Lockfile>,
-
-	// A cache of already solved objects.
+	lock: Option<&'a Lock>,
 	packages: im::HashMap<String, tg::Referent<usize>>,
-
-	// Flag set when any error occurs. Intermediate errors are reported as diagnostics.
 	errored: bool,
-
-	// The current graph.
 	graph: Graph,
-
-	// A work queue of edges we will have to follow, in depth-first order.
 	queue: im::Vector<Unresolved>,
-
-	// A lazily-initialized set of packages to try.
 	candidates: Option<im::Vector<Candidate>>,
-
-	// A list of visited edges.
 	visited: im::HashSet<Unresolved>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Candidate {
-	lockfile_node: Option<usize>,
+	lock_node: Option<usize>,
 	object: tg::Object,
 	path: Option<PathBuf>,
 	tag: tg::Tag,
 	unify: bool,
 }
 
-// An unresolved reference in the graph.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Unresolved {
-	// The constraint the referrer places on the dependency.
 	reference: tg::Reference,
-
-	// The source node of the edge.
 	src: usize,
-
-	// The destination of the edge.
 	dst: Option<usize>,
 }
 
 impl Server {
-	pub(super) async fn checkin_unify(&self, state: &mut super::State) -> tg::Result<()> {
+	pub(super) async fn checkin_solve(&self, state: &mut super::State) -> tg::Result<()> {
 		// Copy the current state of the graph.
 		let graph = state.graph.clone();
 
@@ -71,7 +48,7 @@ impl Server {
 		let mut current = State {
 			arg: &state.arg,
 			artifacts_path: state.artifacts_path.as_ref(),
-			lockfile: state.lockfile.as_ref(),
+			lock: state.lock.as_ref(),
 			packages: im::HashMap::new(),
 			errored: false,
 			graph,
@@ -92,7 +69,7 @@ impl Server {
 
 		// Validate.
 		if current.errored {
-			return Err(tg::error!("failed to unify dependencies"));
+			return Err(tg::error!("failed to solve dependencies"));
 		}
 
 		// Update state.
@@ -193,7 +170,7 @@ impl Server {
 				.right()
 				.ok_or_else(|| tg::error!("expected an object"))?;
 			let node = self
-				.unify_visit_object(current, object, None, None, false)
+				.checkin_solve_visit_object(current, object, None, None, false)
 				.await?;
 			return Ok(tg::Referent::with_item(Either::Right(node)));
 		}
@@ -235,7 +212,7 @@ impl Server {
 					let object = output.item.right()?;
 					Some(Candidate {
 						object: tg::Object::with_id(object),
-						lockfile_node: None,
+						lock_node: None,
 						tag: output.tag,
 						path: None,
 						unify: true,
@@ -244,21 +221,25 @@ impl Server {
 				.collect()
 			};
 
-			// If there is a solution in the lockfile already, but it doesn't match the list of updates, give it the highest precedence
+			// If there is a solution in the lock already, but it doesn't match the list of updates, give it the highest precedence
 			if let Some(candidate) = current.graph.nodes[referrer]
-				.lockfile_index
+				.lock_index
 				.and_then(|node| {
-					current.lockfile.unwrap().nodes[node]
+					current.lock.unwrap().nodes[node]
 						.try_unwrap_file_ref()
 						.ok()?
 						.dependencies
 						.get(reference)
 				})
 				.and_then(|referent| {
-					let lockfile_node = referent.item.as_ref().left().copied();
+					let lock_node = referent
+						.item
+						.try_unwrap_reference_ref()
+						.ok()
+						.map(|reference| reference.node);
 					let version = referent.tag().cloned()?;
 
-					// Skip the lockfile version if any updates have been requested.
+					// Skip the lock version if any updates have been requested.
 					if current
 						.arg
 						.updates
@@ -269,18 +250,18 @@ impl Server {
 					}
 
 					let (object, unify) = match referent.item() {
-						Either::Left(node) => {
-							let object = current.lockfile.unwrap().objects[*node].clone()?;
+						tg::graph::data::Edge::Reference(reference) => {
+							let object = current.lock.unwrap().objects[reference.node].clone()?;
 							(object, true)
 						},
-						Either::Right(object) => {
-							// If the object is referred to by ID within the lockfile, don't attempt to unify it.
+						tg::graph::data::Edge::Object(object) => {
+							// If the object is referred to by ID within the lock, do not attempt to unify it.
 							let object = tg::Object::with_id(object.clone());
 							(object, false)
 						},
 					};
 					Some(Candidate {
-						lockfile_node,
+						lock_node,
 						object,
 						tag: version,
 						path: referent.path().cloned(),
@@ -303,10 +284,10 @@ impl Server {
 
 		// Create the node.
 		let node = self
-			.unify_visit_object(
+			.checkin_solve_visit_object(
 				current,
 				&candidate.object,
-				candidate.lockfile_node,
+				candidate.lock_node,
 				Some(candidate.tag.clone()),
 				candidate.unify,
 			)
@@ -331,19 +312,19 @@ impl Server {
 		Ok(referent.map(Either::Right))
 	}
 
-	async fn unify_visit_object(
+	async fn checkin_solve_visit_object(
 		&self,
 		state: &mut State<'_>,
 		object: &tg::Object,
-		lockfile_node: Option<usize>,
+		lock_node: Option<usize>,
 		tag: Option<tg::Tag>,
 		unify: bool,
 	) -> tg::Result<usize> {
 		let mut visited = BTreeMap::new();
-		self.unify_visit_object_inner(
+		self.checkin_solve_visit_object_inner(
 			state,
 			object,
-			lockfile_node,
+			lock_node,
 			None,
 			None,
 			tag,
@@ -353,11 +334,12 @@ impl Server {
 		.await
 	}
 
-	async fn unify_visit_object_inner(
+	#[allow(clippy::too_many_arguments)]
+	async fn checkin_solve_visit_object_inner(
 		&self,
 		state: &mut State<'_>,
 		object: &tg::Object,
-		lockfile_node: Option<usize>,
+		lock_node: Option<usize>,
 		root: Option<usize>,
 		subpath: Option<PathBuf>,
 		tag: Option<tg::Tag>,
@@ -429,7 +411,7 @@ impl Server {
 
 		// Create the node.
 		let node = super::Node {
-			lockfile_index: lockfile_node,
+			lock_index: lock_node,
 			id: id_,
 			metadata: None,
 			object: Some(object_),
@@ -454,29 +436,18 @@ impl Server {
 		if unify {
 			match object {
 				tg::Object::Directory(directory) => {
-					self.unify_visit_directory_edges(
-						state,
-						lockfile_node,
-						root,
-						subpath,
-						index,
-						directory,
-						visited,
+					self.checkin_solve_visit_directory(
+						state, lock_node, root, subpath, index, directory, visited,
 					)
 					.await?;
 				},
 				tg::Object::File(file) => {
-					self.unify_visit_file_edges(state, lockfile_node, root, index, file, visited)
+					self.checkin_solve_visit_file(state, lock_node, root, index, file, visited)
 						.await?;
 				},
 				tg::Object::Symlink(symlink) => {
-					self.unify_visit_symlink_edges(
-						state,
-						lockfile_node,
-						root,
-						index,
-						symlink,
-						visited,
+					self.checkin_solve_visit_symlink(
+						state, lock_node, root, index, symlink, visited,
 					)
 					.await?;
 				},
@@ -488,10 +459,11 @@ impl Server {
 		Ok(index)
 	}
 
-	async fn unify_visit_directory_edges(
+	#[allow(clippy::too_many_arguments)]
+	async fn checkin_solve_visit_directory(
 		&self,
 		state: &mut State<'_>,
-		lockfile_node: Option<usize>,
+		lock_node: Option<usize>,
 		root: usize,
 		subpath: Option<PathBuf>,
 		index: usize,
@@ -503,30 +475,30 @@ impl Server {
 			let subpath = subpath
 				.as_ref()
 				.map_or_else(|| name.as_str().into(), |subpath| subpath.join(&name));
-			let unify = lockfile_node.is_none_or(|node| {
-				let Ok(directory) = state.lockfile.unwrap().nodes[node].try_unwrap_directory_ref()
+			let unify = lock_node.is_none_or(|node| {
+				let Ok(directory) = state.lock.unwrap().nodes[node].try_unwrap_directory_ref()
 				else {
 					return true;
 				};
-				let Some(entry) = directory.entries.get(&name) else {
+				let Some(edge) = directory.entries.get(&name) else {
 					return true;
 				};
-				entry.is_left()
+				edge.is_reference()
 			});
-			let lockfile_node = lockfile_node.and_then(|node| {
-				state.lockfile.unwrap().nodes[node]
+			let lock_node = lock_node.and_then(|node| {
+				state.lock.unwrap().nodes[node]
 					.try_unwrap_directory_ref()
 					.ok()?
 					.entries
 					.get(&name)?
-					.as_ref()
-					.left()
-					.copied()
+					.try_unwrap_reference_ref()
+					.ok()
+					.map(|reference| reference.node)
 			});
-			let child_index = Box::pin(self.unify_visit_object_inner(
+			let child_index = Box::pin(self.checkin_solve_visit_object_inner(
 				state,
 				&object.into(),
-				lockfile_node,
+				lock_node,
 				Some(root),
 				Some(subpath),
 				None,
@@ -544,10 +516,10 @@ impl Server {
 		Ok(())
 	}
 
-	async fn unify_visit_file_edges(
+	async fn checkin_solve_visit_file(
 		&self,
 		state: &mut State<'_>,
-		lockfile_node: Option<usize>,
+		lock_node: Option<usize>,
 		root: usize,
 		index: usize,
 		file: &tg::File,
@@ -555,35 +527,35 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut dependencies = Vec::new();
 		for (reference, referent) in file.dependencies(self).await? {
-			let unify = lockfile_node.is_none_or(|node| {
-				let Ok(file) = state.lockfile.unwrap().nodes[node].try_unwrap_file_ref() else {
+			let unify = lock_node.is_none_or(|node| {
+				let Ok(file) = state.lock.unwrap().nodes[node].try_unwrap_file_ref() else {
 					return true;
 				};
 				let Some(referent) = file.dependencies.get(&reference) else {
 					return true;
 				};
-				referent.item.is_left()
+				referent.item.is_reference()
 			});
-			let lockfile_node = lockfile_node.and_then(|node| {
-				state.lockfile.unwrap().nodes[node]
+			let lock_node = lock_node.and_then(|node| {
+				state.lock.unwrap().nodes[node]
 					.try_unwrap_file_ref()
 					.ok()?
 					.dependencies
 					.get(&reference)?
 					.item
-					.as_ref()
-					.left()
-					.copied()
+					.try_unwrap_reference_ref()
+					.ok()
+					.map(|reference| reference.node)
 			});
 
 			// Leave tag references as unresolved.
 			if reference.item().try_unwrap_tag_ref().is_ok() {
 				dependencies.push((reference, None));
 			} else {
-				let index = Box::pin(self.unify_visit_object_inner(
+				let index = Box::pin(self.checkin_solve_visit_object_inner(
 					state,
 					referent.item(),
-					lockfile_node,
+					lock_node,
 					Some(root),
 					referent.path().cloned(),
 					None,
@@ -608,10 +580,10 @@ impl Server {
 		Ok(())
 	}
 
-	async fn unify_visit_symlink_edges(
+	async fn checkin_solve_visit_symlink(
 		&self,
 		state: &mut State<'_>,
-		lockfile_node: Option<usize>,
+		lock_node: Option<usize>,
 		root: usize,
 		index: usize,
 		_symlink: &tg::Symlink,
@@ -625,26 +597,28 @@ impl Server {
 			.as_ref()
 			.and_then(|artifact| artifact.as_ref().left())
 		{
-			let unify = lockfile_node.is_none_or(|node| {
-				let Ok(symlink) = state.lockfile.unwrap().nodes[node].try_unwrap_symlink_ref()
-				else {
+			let unify = lock_node.is_none_or(|node| {
+				let Ok(symlink) = state.lock.unwrap().nodes[node].try_unwrap_symlink_ref() else {
 					return true;
 				};
-				let tg::lockfile::Symlink {
+				let tg::graph::data::Symlink {
 					artifact: Some(artifact),
 					..
 				} = symlink
 				else {
 					return true;
 				};
-				artifact.is_left()
+				artifact.is_reference()
 			});
-			let lockfile_node = lockfile_node.and_then(|node| {
-				let symlink = state.lockfile.unwrap().nodes[node]
+			let lock_node = lock_node.and_then(|node| {
+				let symlink = state.lock.unwrap().nodes[node]
 					.try_unwrap_symlink_ref()
 					.ok()?;
-				let tg::lockfile::Symlink {
-					artifact: Some(Either::Left(node)),
+				let tg::graph::data::Symlink {
+					artifact:
+						Some(tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							node, ..
+						})),
 					..
 				} = symlink
 				else {
@@ -657,10 +631,10 @@ impl Server {
 				.unwrap_symlink_ref()
 				.path
 				.clone();
-			let node = Box::pin(self.unify_visit_object_inner(
+			let node = Box::pin(self.checkin_solve_visit_object_inner(
 				state,
 				&tg::Object::with_id(artifact.clone().into()),
-				lockfile_node,
+				lock_node,
 				Some(root),
 				path,
 				None,

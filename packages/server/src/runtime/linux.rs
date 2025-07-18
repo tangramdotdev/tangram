@@ -432,8 +432,8 @@ impl Runtime {
 				deterministic: true,
 				ignore: false,
 				path: output.clone(),
+				lock: false,
 				locked: true,
-				lockfile: false,
 				updates: Vec::new(),
 			};
 			let artifact = tg::checkin(&self.server, arg)

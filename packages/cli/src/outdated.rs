@@ -5,7 +5,7 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// If this flag is set, the package's lockfile will not be updated.
+	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
 	pub locked: bool,
 

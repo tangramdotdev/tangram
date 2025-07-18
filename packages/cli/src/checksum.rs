@@ -27,13 +27,13 @@ impl Cli {
 		};
 		if let Ok(blob) = tg::Blob::try_from(object.clone()) {
 			let algorithm = args.algorithm;
-			let command = tg::builtin::checksum_command(&Either::Left(blob), algorithm);
+			let command = tg::builtin::checksum_command(Either::Left(blob), algorithm);
 			let command = command.store(&handle).await?;
 			let reference = tg::Reference::with_object(&command.into());
 			self.build(args.build, reference, vec![], true).await?;
 		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
 			let algorithm = args.algorithm;
-			let command = tg::builtin::checksum_command(&Either::Right(artifact), algorithm);
+			let command = tg::builtin::checksum_command(Either::Right(artifact), algorithm);
 			let command = command.store(&handle).await?;
 			let reference = tg::Reference::with_object(&command.into());
 			self.build(args.build, reference, vec![], true).await?;

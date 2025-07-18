@@ -201,8 +201,8 @@ impl Runtime {
 			destructive: true,
 			deterministic: true,
 			ignore: false,
+			lock: false,
 			locked: false,
-			lockfile: false,
 			path: temp.path().to_owned(),
 			updates: Vec::new(),
 		};

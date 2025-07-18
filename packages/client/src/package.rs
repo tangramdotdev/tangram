@@ -9,17 +9,6 @@ pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
 #[must_use]
-pub fn is_root_module_path(path: &Path) -> bool {
-	let Some(name) = path.file_name() else {
-		return false;
-	};
-	let Some(name) = name.to_str() else {
-		return false;
-	};
-	tg::package::ROOT_MODULE_FILE_NAMES.contains(&name)
-}
-
-#[must_use]
 pub fn is_module_path(path: &Path) -> bool {
 	let Some(name) = path.file_name() else {
 		return false;
@@ -32,13 +21,27 @@ pub fn is_module_path(path: &Path) -> bool {
 		|| name.ends_with(".tg.ts")
 }
 
-pub async fn is<H>(handle: &H, package: Either<&tg::Object, &Path>) -> tg::Result<bool>
-where
-	H: tg::Handle,
-{
-	try_get_root_module_file_name(handle, package)
-		.await
-		.map(|option| option.is_some())
+#[must_use]
+pub fn is_root_module_path(path: &Path) -> bool {
+	let Some(name) = path.file_name() else {
+		return false;
+	};
+	let Some(name) = name.to_str() else {
+		return false;
+	};
+	tg::package::ROOT_MODULE_FILE_NAMES.contains(&name)
+}
+
+#[must_use]
+pub fn is_non_root_module_path(path: &Path) -> bool {
+	let Some(name) = path.file_name() else {
+		return false;
+	};
+	let Some(name) = name.to_str() else {
+		return false;
+	};
+	!tg::package::ROOT_MODULE_FILE_NAMES.contains(&name)
+		&& (name.ends_with(".tg.js") || name.ends_with(".tg.ts"))
 }
 
 pub async fn try_get_root_module_file_name<H>(

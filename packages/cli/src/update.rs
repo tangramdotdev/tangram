@@ -1,9 +1,8 @@
 use crate::Cli;
-use futures::TryStreamExt as _;
 use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
 
-/// Update a package's lockfile.
+/// Update a lock.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -17,31 +16,28 @@ pub struct Args {
 impl Cli {
 	pub async fn command_update(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let updates = args
-			.patterns
-			.unwrap_or_else(|| vec![tg::tag::Pattern::wildcard()]);
 
 		// Get the absolute path.
 		let path = std::path::absolute(&args.path)
 			.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 
-		// Remove an existing lockfile.
-		tokio::fs::remove_file(path.clone().join(tg::package::LOCKFILE_FILE_NAME))
-			.await
-			.ok();
+		// Get the updates.
+		let updates = args
+			.patterns
+			.unwrap_or_else(|| vec![tg::tag::Pattern::wildcard()]);
 
-		// Check in the package.
+		// Check in the path.
 		let arg = tg::checkin::Arg {
 			destructive: false,
 			deterministic: false,
 			ignore: true,
+			lock: true,
 			locked: false,
-			lockfile: true,
 			path,
 			updates,
 		};
 		let stream = handle.checkin(arg).await?;
-		stream.map_ok(|_| ()).try_collect::<()>().await?;
+		self.render_progress_stream(stream).await?;
 
 		Ok(())
 	}

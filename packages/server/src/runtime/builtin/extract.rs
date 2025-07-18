@@ -100,8 +100,8 @@ impl Runtime {
 			.checkin(tg::checkin::Arg {
 				deterministic: false,
 				ignore: false,
+				lock: false,
 				locked: false,
-				lockfile: false,
 				destructive: true,
 				path: temp.path().to_owned(),
 				updates: Vec::new(),

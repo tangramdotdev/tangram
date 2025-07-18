@@ -19,7 +19,7 @@ pub struct Arg {
 	pub force: bool,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub lockfile: bool,
+	pub lock: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,

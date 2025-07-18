@@ -22,7 +22,7 @@ async fn directory() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "hello.txt": tg.file({
@@ -45,7 +45,7 @@ async fn directory() {
 	  "weight": 439
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -59,7 +59,7 @@ async fn file() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "README.md": tg.file({
@@ -74,7 +74,7 @@ async fn file() {
 	  "weight": 173
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -88,7 +88,7 @@ async fn symlink() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "link": tg.symlink({
@@ -103,7 +103,7 @@ async fn symlink() {
 	  "weight": 93
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -118,7 +118,7 @@ async fn directory_with_duplicate_entries() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a.txt": tg.file({
@@ -136,7 +136,7 @@ async fn directory_with_duplicate_entries() {
 	  "weight": 238
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -156,7 +156,7 @@ async fn file_through_symlink() {
 	let path = Path::new("a");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -179,7 +179,7 @@ async fn file_through_symlink() {
 	  "weight": 394
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -197,7 +197,7 @@ async fn file_with_symlink_no_kind() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar.tg.ts": tg.file({
@@ -226,7 +226,7 @@ async fn file_with_symlink_no_kind() {
 	  "weight": 694
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -244,7 +244,7 @@ async fn file_with_symlink() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar.tg.ts": tg.file({
@@ -273,7 +273,7 @@ async fn file_with_symlink() {
 	  "weight": 637
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -293,7 +293,7 @@ async fn artifact_symlink() {
 	let path = Path::new("a");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -318,11 +318,11 @@ async fn artifact_symlink() {
 	  "weight": 466
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
-async fn lockfile_out_of_date() {
+async fn lock_out_of_date() {
 	let artifact = temp::directory! {
 		"tangram.ts" => r#"import "./b.tg.ts";"#,
 		"./b.tg.ts" => "",
@@ -331,8 +331,8 @@ async fn lockfile_out_of_date() {
 				{
 					"kind": "directory",
 					"entries": {
-						"a.tg.ts": 1,
-						"tangram.ts": 2
+						"a.tg.ts": { "node": 1 },
+						"tangram.ts": { "node": 2 }
 					}
 				},
 				{
@@ -342,7 +342,7 @@ async fn lockfile_out_of_date() {
 					"kind": "file",
 					"dependencies": {
 						"./a.tg.ts": {
-							"item": 0,
+							"item": { "node": 0 },
 							"path": "./a.tg.ts"
 						}
 					}
@@ -354,7 +354,7 @@ async fn lockfile_out_of_date() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "b.tg.ts": tg.file({
@@ -380,7 +380,7 @@ async fn lockfile_out_of_date() {
 	  "weight": 527
 	}
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -397,7 +397,7 @@ async fn simple_path_dependency() {
 	let path = Path::new("foo");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -415,7 +415,7 @@ async fn simple_path_dependency() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -440,7 +440,7 @@ async fn package_with_nested_dependencies() {
 	let path = Path::new("foo");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar": tg.directory({
@@ -496,7 +496,7 @@ async fn package_with_nested_dependencies() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -510,7 +510,7 @@ async fn package() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -518,7 +518,7 @@ async fn package() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -535,7 +535,7 @@ async fn directory_with_nested_packages() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar": tg.directory({
@@ -550,7 +550,7 @@ async fn directory_with_nested_packages() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -566,7 +566,7 @@ async fn import_directory_from_current() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -598,7 +598,7 @@ async fn import_directory_from_current() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -615,7 +615,7 @@ async fn import_package_from_current() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -650,7 +650,7 @@ async fn import_package_from_current() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -665,7 +665,7 @@ async fn import_directory_from_parent() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory(),
@@ -680,7 +680,7 @@ async fn import_directory_from_parent() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -697,7 +697,7 @@ async fn import_package_with_type_directory_from_parent() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -720,7 +720,7 @@ async fn import_package_with_type_directory_from_parent() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -737,7 +737,7 @@ async fn import_package_from_parent() {
 	let path = Path::new("directory");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -760,7 +760,7 @@ async fn import_package_from_parent() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -775,7 +775,7 @@ async fn package_with_cyclic_modules() {
 	let path = Path::new("package");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "foo.tg.ts": tg.file({
@@ -842,7 +842,7 @@ async fn package_with_cyclic_modules() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -861,7 +861,7 @@ async fn cyclic_dependencies() {
 	let path = Path::new("directory/foo");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "graph": tg.graph({
@@ -911,7 +911,7 @@ async fn cyclic_dependencies() {
 	  "node": 0,
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -935,7 +935,7 @@ async fn directory_destructive() {
 	let path = Path::new("directory");
 	let destructive = true;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -957,7 +957,7 @@ async fn directory_destructive() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -977,7 +977,7 @@ async fn default_ignore() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -985,7 +985,7 @@ async fn default_ignore() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -1024,7 +1024,7 @@ async fn missing_in_lockfile() {
 	let path = Path::new("a");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1032,7 +1032,7 @@ async fn missing_in_lockfile() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -1055,7 +1055,7 @@ async fn invalid_lockfile() {
 	let path = Path::new("a");
 	let destructive = false;
 	let tags = vec![];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1063,7 +1063,7 @@ async fn invalid_lockfile() {
 	  }),
 	})
 	"#);
-	assert!(lockfile.is_none());
+	assert!(lock.is_none());
 }
 
 #[tokio::test]
@@ -1075,7 +1075,7 @@ async fn tagged_object() {
 	.into();
 	let path = Path::new("");
 	let destructive = false;
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1091,13 +1091,15 @@ async fn tagged_object() {
 	  }),
 	})
 	"#);
-	assert_json_snapshot!(lockfile.unwrap(), @r#"
+	assert_json_snapshot!(lock.unwrap(), @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
@@ -1138,7 +1140,7 @@ async fn simple_tagged_package() {
 	.into();
 	let destructive = false;
 	let path = Path::new("");
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1156,20 +1158,24 @@ async fn simple_tagged_package() {
 	  }),
 	})
 	"#);
-	assert_json_snapshot!(lockfile.unwrap(), @r#"
+	assert_json_snapshot!(lock.unwrap(), @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
 	      "kind": "file",
 	      "dependencies": {
 	        "a": {
-	          "item": 2,
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
 	            "tag": "a"
 	          }
@@ -1209,7 +1215,7 @@ async fn tagged_package_with_cyclic_dependency() {
 		}
 		.into(),
 	)];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1286,20 +1292,24 @@ async fn tagged_package_with_cyclic_dependency() {
 	  }),
 	})
 	"#);
-	assert_json_snapshot!(lockfile.unwrap(), @r#"
+	assert_json_snapshot!(lock.unwrap(), @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
 	      "kind": "file",
 	      "dependencies": {
 	        "a": {
-	          "item": 2,
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
 	            "tag": "a"
 	          }
@@ -1309,8 +1319,12 @@ async fn tagged_package_with_cyclic_dependency() {
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "foo.tg.ts": 3,
-	        "tangram.ts": 4
+	        "foo.tg.ts": {
+	          "node": 3
+	        },
+	        "tangram.ts": {
+	          "node": 4
+	        }
 	      }
 	    },
 	    {
@@ -1318,7 +1332,9 @@ async fn tagged_package_with_cyclic_dependency() {
 	      "contents": "blb_01ycqx996y57ta8qpg72zsn6g446x37htxw7v3se7xmaa5nwrwx2t0",
 	      "dependencies": {
 	        "./tangram.ts": {
-	          "item": 4,
+	          "item": {
+	            "node": 4
+	          },
 	          "options": {
 	            "path": "tangram.ts"
 	          }
@@ -1330,7 +1346,9 @@ async fn tagged_package_with_cyclic_dependency() {
 	      "contents": "blb_018dz0kathbh9mktnftc933pd35gy651y1ppqe3tg2q0an0dt35zr0",
 	      "dependencies": {
 	        "./foo.tg.ts": {
-	          "item": 3,
+	          "item": {
+	            "node": 3
+	          },
 	          "options": {
 	            "path": "foo.tg.ts"
 	          }
@@ -1386,7 +1404,7 @@ async fn tag_dependency_cycles() {
 
 	let path = Path::new("");
 	let destructive = false;
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1538,26 +1556,32 @@ async fn tag_dependency_cycles() {
 	  }),
 	})
 	"#);
-	assert_json_snapshot!(lockfile.unwrap(), @r#"
+	assert_json_snapshot!(lock.unwrap(), @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
 	      "kind": "file",
 	      "dependencies": {
 	        "a/*": {
-	          "item": 2,
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
 	            "tag": "a/1.1.0"
 	          }
 	        },
 	        "b/*": {
-	          "item": 4,
+	          "item": {
+	            "node": 4
+	          },
 	          "options": {
 	            "tag": "b/1.0.0"
 	          }
@@ -1567,7 +1591,9 @@ async fn tag_dependency_cycles() {
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 3
+	        "tangram.ts": {
+	          "node": 3
+	        }
 	      }
 	    },
 	    {
@@ -1575,7 +1601,9 @@ async fn tag_dependency_cycles() {
 	      "contents": "blb_0158re2012fvbq8s0zxgsdmkmg7k05y79mnbeha500h9k973hk06k0",
 	      "dependencies": {
 	        "b/*": {
-	          "item": 4,
+	          "item": {
+	            "node": 4
+	          },
 	          "options": {
 	            "tag": "b/1.0.0"
 	          }
@@ -1585,8 +1613,12 @@ async fn tag_dependency_cycles() {
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "foo.tg.ts": 5,
-	        "tangram.ts": 6
+	        "foo.tg.ts": {
+	          "node": 5
+	        },
+	        "tangram.ts": {
+	          "node": 6
+	        }
 	      }
 	    },
 	    {
@@ -1594,7 +1626,9 @@ async fn tag_dependency_cycles() {
 	      "contents": "blb_01mv4a5380n5nacg4cvgh1r1f0vcrk489j6rfsj031gxp9b8t9gxq0",
 	      "dependencies": {
 	        "./tangram.ts": {
-	          "item": 6,
+	          "item": {
+	            "node": 6
+	          },
 	          "options": {
 	            "path": "tangram.ts"
 	          }
@@ -1606,13 +1640,17 @@ async fn tag_dependency_cycles() {
 	      "contents": "blb_01ajr136dx93ph4zrx9eqbq5gz05gh530ew34qzh0dgh4jbvvx6m30",
 	      "dependencies": {
 	        "./foo.tg.ts": {
-	          "item": 5,
+	          "item": {
+	            "node": 5
+	          },
 	          "options": {
 	            "path": "foo.tg.ts"
 	          }
 	        },
 	        "a/*": {
-	          "item": 2,
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
 	            "tag": "a/1.1.0"
 	          }
@@ -1675,7 +1713,7 @@ async fn tag_diamond_dependency() {
 			.into(),
 		),
 	];
-	let (object, _metadata, lockfile) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1721,26 +1759,32 @@ async fn tag_diamond_dependency() {
 	  }),
 	})
 	"#);
-	assert_json_snapshot!(lockfile.unwrap(), @r#"
+	assert_json_snapshot!(lock.unwrap(), @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
 	      "kind": "file",
 	      "dependencies": {
 	        "b": {
-	          "item": 2,
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
 	            "tag": "b"
 	          }
 	        },
 	        "c": {
-	          "item": 5,
+	          "item": {
+	            "node": 5
+	          },
 	          "options": {
 	            "tag": "c"
 	          }
@@ -1750,7 +1794,9 @@ async fn tag_diamond_dependency() {
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 3
+	        "tangram.ts": {
+	          "node": 3
+	        }
 	      }
 	    },
 	    {
@@ -1758,7 +1804,9 @@ async fn tag_diamond_dependency() {
 	      "contents": "blb_01dra984m32dp47yvrynmkcxzcxmgmptmgnyhb8xk6th2wk3wgkae0",
 	      "dependencies": {
 	        "a/^1": {
-	          "item": 4,
+	          "item": {
+	            "node": 4
+	          },
 	          "options": {
 	            "tag": "a/1.1.0"
 	          }
@@ -1774,7 +1822,9 @@ async fn tag_diamond_dependency() {
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 6
+	        "tangram.ts": {
+	          "node": 6
+	        }
 	      }
 	    },
 	    {
@@ -1782,7 +1832,9 @@ async fn tag_diamond_dependency() {
 	      "contents": "blb_01xv04mkcazz11b2wsjy0kp279772f9wb2gbsn2maer3qxhbdvvppg",
 	      "dependencies": {
 	        "a/^1.0": {
-	          "item": 4,
+	          "item": {
+	            "node": 4
+	          },
 	          "options": {
 	            "tag": "a/1.1.0"
 	          }
@@ -1932,7 +1984,7 @@ async fn tag_dependencies_after_clean() {
 		.unwrap();
 	assert_success!(output);
 
-	// Checkin the artifact to server 2 again, this time the lockfile has been written to disk.
+	// Checkin the artifact to server 2 again, this time the lock has been written to disk.
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
@@ -1946,7 +1998,6 @@ async fn tag_dependencies_after_clean() {
 async fn update_tagged_package() {
 	let server = Server::new(TG).await.unwrap();
 
-	// Tag old version.
 	let old: temp::Artifact = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
 			export default () => "a/1.0.0";
@@ -1955,6 +2006,7 @@ async fn update_tagged_package() {
 	.into();
 	let temp = Temp::new();
 	old.to_path(temp.path()).await.unwrap();
+
 	let output = server
 		.tg()
 		.arg("tag")
@@ -1965,7 +2017,6 @@ async fn update_tagged_package() {
 		.unwrap();
 	assert_success!(output);
 
-	// Create new artifact and check it in.
 	let local: temp::Artifact = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
 			import a from "a/^1";
@@ -1976,7 +2027,6 @@ async fn update_tagged_package() {
 	let local_temp = Temp::new();
 	local.to_path(local_temp.path()).await.unwrap();
 
-	// Create initial checkin.
 	let output = server
 		.tg()
 		.arg("checkin")
@@ -1986,28 +2036,31 @@ async fn update_tagged_package() {
 		.unwrap();
 	assert_success!(output);
 
-	// Check the original lockfile.
-	let lockfile = tokio::fs::read(local_temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+	let lock = tokio::fs::read(local_temp.path().join(tg::package::LOCKFILE_FILE_NAME))
 		.await
 		.ok()
-		.map(|bytes| serde_json::from_slice::<tg::Lockfile>(&bytes))
+		.map(|bytes| serde_json::from_slice::<tg::graph::Data>(&bytes))
 		.transpose()
-		.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))
+		.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))
 		.unwrap();
-	assert_json_snapshot!(lockfile, @r#"
+	assert_json_snapshot!(lock, @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
 	      "kind": "file",
 	      "dependencies": {
 	        "a/^1": {
-	          "item": 2,
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
 	            "tag": "a/1.0.0"
 	          }
@@ -2024,7 +2077,6 @@ async fn update_tagged_package() {
 	}
 	"#);
 
-	// Publish an update.
 	let new: temp::Artifact = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
 			export default () => "a/1.1.0";
@@ -2033,6 +2085,7 @@ async fn update_tagged_package() {
 	.into();
 	let temp = Temp::new();
 	new.to_path(temp.path()).await.unwrap();
+
 	let output = server
 		.tg()
 		.arg("tag")
@@ -2043,7 +2096,6 @@ async fn update_tagged_package() {
 		.unwrap();
 	assert_success!(output);
 
-	// Checkin again.
 	let output = server
 		.tg()
 		.arg("checkin")
@@ -2053,21 +2105,22 @@ async fn update_tagged_package() {
 		.unwrap();
 	assert_success!(output);
 
-	// Verify the lockfile hasn't changed.
-	let lockfile = tokio::fs::read(local_temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+	let lock = tokio::fs::read(local_temp.path().join(tg::package::LOCKFILE_FILE_NAME))
 		.await
 		.ok()
-		.map(|bytes| serde_json::from_slice::<tg::Lockfile>(&bytes))
+		.map(|bytes| serde_json::from_slice::<tg::graph::Data>(&bytes))
 		.transpose()
-		.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))
+		.map_err(|source| tg::error!(!source, "failed to deserialize lock"))
 		.unwrap();
-	assert_json_snapshot!(lockfile, @r#"
+	assert_json_snapshot!(lock, @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
@@ -2085,7 +2138,6 @@ async fn update_tagged_package() {
 	}
 	"#);
 
-	// Update.
 	let output = server
 		.tg()
 		.arg("update")
@@ -2095,28 +2147,31 @@ async fn update_tagged_package() {
 		.unwrap();
 	assert_success!(output);
 
-	// Verify the lockfile is different.
-	let lockfile = tokio::fs::read(local_temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+	let lock = tokio::fs::read(local_temp.path().join(tg::package::LOCKFILE_FILE_NAME))
 		.await
 		.ok()
-		.map(|bytes| serde_json::from_slice::<tg::Lockfile>(&bytes))
+		.map(|bytes| serde_json::from_slice::<tg::graph::Data>(&bytes))
 		.transpose()
-		.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))
+		.map_err(|source| tg::error!(!source, "failed to deserialize lock"))
 		.unwrap();
-	assert_json_snapshot!(lockfile, @r#"
+	assert_json_snapshot!(lock, @r#"
 	{
 	  "nodes": [
 	    {
 	      "kind": "directory",
 	      "entries": {
-	        "tangram.ts": 1
+	        "tangram.ts": {
+	          "node": 1
+	        }
 	      }
 	    },
 	    {
 	      "kind": "file",
 	      "dependencies": {
 	        "a/^1": {
-	          "item": 2,
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
 	            "tag": "a/1.1.0"
 	          }
@@ -2139,7 +2194,7 @@ async fn test(
 	path: &Path,
 	destructive: bool,
 	tags: Vec<(String, temp::Artifact)>,
-) -> (String, String, Option<tg::Lockfile>) {
+) -> (String, String, Option<tg::graph::Data>) {
 	let server = Server::new(TG).await.unwrap();
 	test_inner(&server, artifact, path, destructive, tags).await
 }
@@ -2150,7 +2205,7 @@ async fn test_inner(
 	path: &Path,
 	destructive: bool,
 	tags: Vec<(String, temp::Artifact)>,
-) -> (String, String, Option<tg::Lockfile>) {
+) -> (String, String, Option<tg::graph::Data>) {
 	// Tag the objects.
 	for (tag, artifact) in tags {
 		let temp = Temp::new();
@@ -2224,14 +2279,14 @@ async fn test_inner(
 	assert_success!(metadata_output);
 	let metadata = std::str::from_utf8(&metadata_output.stdout).unwrap().into();
 
-	// Get the lockfile.
-	let lockfile = tokio::fs::read(path.join(tg::package::LOCKFILE_FILE_NAME))
+	// Get the lock.
+	let lock = tokio::fs::read(path.join(tg::package::LOCKFILE_FILE_NAME))
 		.await
 		.ok()
 		.map(|bytes| serde_json::from_slice(&bytes))
 		.transpose()
-		.map_err(|source| tg::error!(!source, "failed to deserialize lockfile"))
+		.map_err(|source| tg::error!(!source, "failed to deserialize lock"))
 		.unwrap();
 
-	(object, metadata, lockfile)
+	(object, metadata, lock)
 }

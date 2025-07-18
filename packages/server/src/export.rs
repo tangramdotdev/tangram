@@ -265,7 +265,7 @@ impl Server {
 		Ok(arg
 			.items
 			.iter()
-			.map(async |item| self.export_item_complete(arg, item).await)
+			.map(async |item| self.export_item_complete(arg, item.as_ref()).await)
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?
@@ -276,7 +276,7 @@ impl Server {
 	async fn export_item_complete(
 		&self,
 		arg: &tg::export::Arg,
-		item: &Either<tg::process::Id, tg::object::Id>,
+		item: Either<&tg::process::Id, &tg::object::Id>,
 	) -> Result<bool, tg::Error> {
 		match item {
 			Either::Left(process) => {

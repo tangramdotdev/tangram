@@ -15,9 +15,9 @@ pub struct Args {
 	#[arg(short, long, requires = "path")]
 	pub force: bool,
 
-	/// If false, don't write lockfiles.
+	/// Whether to write the lock.
 	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
-	pub lockfile: bool,
+	pub lock: bool,
 
 	/// The path to check out the artifact to.
 	#[arg(index = 2)]
@@ -52,12 +52,12 @@ impl Cli {
 		// Check out the artifact.
 		let dependencies = args.dependencies.unwrap_or(true);
 		let force = args.force;
-		let lockfile = args.lockfile;
+		let lock = args.lock;
 		let arg = tg::checkout::Arg {
 			artifact,
 			dependencies,
 			force,
-			lockfile,
+			lock,
 			path,
 		};
 		let stream = handle

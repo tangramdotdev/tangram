@@ -55,7 +55,7 @@ pub struct Options {
 	#[arg(long)]
 	pub host: Option<String>,
 
-	/// If this flag is set, the package's lockfile will not be updated.
+	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
 	pub locked: bool,
 

@@ -85,16 +85,16 @@ impl Server {
 		// Update the path.
 		state.graph.paths.insert(path.clone(), index);
 
-		// Lookup the lockfile node.
-		let lockfile_node = state
-			.lockfile
+		// Look up the lock node.
+		let lock_index = state
+			.lock
 			.as_ref()
-			.and_then(|lockfile| lockfile.get_node_for_path(&path).ok());
+			.and_then(|lock| lock.get_node_for_path(&path).ok());
 
 		// Create the node.
 		let node = Node {
 			id,
-			lockfile_index: lockfile_node,
+			lock_index,
 			variant,
 			metadata: Some(metadata),
 			object: None,
@@ -105,18 +105,17 @@ impl Server {
 		};
 		state.graph.nodes.push_back(node);
 
-		// Visit the edges.
 		match &state.graph.nodes[index].variant {
-			Variant::Directory(_) => self.checkin_visit_directory_edges(state, index)?,
-			Variant::File(_) => self.checkin_visit_file_edges(state, index)?,
-			Variant::Symlink(_) => self.checkin_visit_symlink_edges(state, index)?,
+			Variant::Directory(_) => self.checkin_visit_directory(state, index)?,
+			Variant::File(_) => self.checkin_visit_file(state, index)?,
+			Variant::Symlink(_) => self.checkin_visit_symlink(state, index)?,
 			Variant::Object => return Err(tg::error!("unreachable")),
 		}
 
 		Ok(Some(index))
 	}
 
-	fn checkin_visit_directory_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_directory(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Read the entries.
 		let read_dir = std::fs::read_dir(state.graph.nodes[index].path())
 			.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
@@ -155,7 +154,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_visit_file_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_file(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Get the list of all dependencies.
 		let path = state.graph.nodes[index].path().to_owned();
 
@@ -294,7 +293,7 @@ impl Server {
 	}
 
 	#[allow(clippy::unnecessary_wraps)]
-	fn checkin_visit_symlink_edges(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_symlink(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		let path = state.graph.nodes[index].path();
 		let target = std::fs::read_link(path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;

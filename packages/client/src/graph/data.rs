@@ -10,7 +10,14 @@ pub struct Graph {
 }
 
 #[derive(
-	Clone, Debug, serde::Deserialize, serde::Serialize, derive_more::TryUnwrap, derive_more::Unwrap,
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	serde::Deserialize,
+	serde::Serialize,
 )]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[try_unwrap(ref)]
@@ -22,7 +29,7 @@ pub enum Node {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Directory {
 	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -30,7 +37,7 @@ pub struct Directory {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
@@ -44,7 +51,7 @@ pub struct File {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Symlink {
 	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -55,15 +62,25 @@ pub struct Symlink {
 }
 
 #[derive(
-	Clone, Debug, derive_more::TryUnwrap, derive_more::Unwrap, serde::Deserialize, serde::Serialize,
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	serde::Deserialize,
+	serde::Serialize,
 )]
 #[serde(untagged)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Edge<T> {
 	Reference(Reference),
 	Object(T),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Reference {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub graph: Option<tg::graph::Id>,

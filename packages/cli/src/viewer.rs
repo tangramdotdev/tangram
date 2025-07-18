@@ -378,10 +378,6 @@ where
 		Ok(())
 	}
 
-	pub fn tree(&self) -> &Tree<H> {
-		&self.tree
-	}
-
 	pub fn update(&mut self) {
 		while let Ok(update) = self.update_receiver.try_recv() {
 			update(self);

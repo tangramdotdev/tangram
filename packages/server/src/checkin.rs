@@ -1,4 +1,4 @@
-use crate::{Server, lockfile::Lockfile};
+use crate::{Server, lock::Lock};
 use bytes::Bytes;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _};
 use indoc::indoc;
@@ -17,10 +17,10 @@ use tangram_ignore as ignore;
 use tokio_util::task::AbortOnDropHandle;
 
 mod input;
-mod lockfile;
+mod lock;
 mod object;
 mod output;
-mod unify;
+mod solve;
 
 struct State {
 	arg: tg::checkin::Arg,
@@ -28,7 +28,7 @@ struct State {
 	fixup_sender: Option<std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>>,
 	graph: Graph,
 	graph_objects: Vec<GraphObject>,
-	lockfile: Option<Lockfile>,
+	lock: Option<Lock>,
 	ignorer: Option<ignore::Ignorer>,
 	progress: crate::progress::Handle<tg::checkin::Output>,
 }
@@ -49,7 +49,7 @@ pub struct Graph {
 #[derive(Clone, Debug)]
 struct Node {
 	id: Option<tg::object::Id>,
-	lockfile_index: Option<usize>,
+	lock_index: Option<usize>,
 	metadata: Option<std::fs::Metadata>,
 	object: Option<Object>,
 	path: Option<Arc<PathBuf>>,
@@ -217,10 +217,10 @@ impl Server {
 		}
 		let artifacts_path = artifacts_path.unwrap_or_else(|| self.artifacts_path());
 
-		// Parse a lockfile if it exists.
-		let lockfile = self
-			.try_parse_lockfile(&root_path)
-			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
+		// Read a lock for the path.
+		let lock = self
+			.try_read_lock_for_path(&root_path)
+			.map_err(|source| tg::error!(!source, "failed to read the lock"))?;
 
 		// Create the state.
 		let (fixup_sender, fixup_receiver) = if arg.destructive {
@@ -240,7 +240,7 @@ impl Server {
 			fixup_sender,
 			graph,
 			graph_objects: Vec::new(),
-			lockfile,
+			lock,
 			ignorer,
 			progress: progress.clone(),
 		};
@@ -270,11 +270,11 @@ impl Server {
 		// Remove the ignorer.
 		state.ignorer.take();
 
-		// Unify.
+		// Solve.
 		if !(state.arg.deterministic || state.arg.locked) {
 			let start = Instant::now();
-			self.checkin_unify(&mut state).await?;
-			tracing::trace!(elapsed = ?start.elapsed(), "unify");
+			self.checkin_solve(&mut state).await?;
+			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
 		// Create blobs.
@@ -333,23 +333,23 @@ impl Server {
 		})
 		.map(|result| result.unwrap());
 
-		let lockfile_future = tokio::spawn({
+		let lock_future = tokio::spawn({
 			let server = self.clone();
 			let state = state.clone();
 			async move {
 				let start = Instant::now();
 				server
-					.checkin_create_lockfile_task(&state)
+					.checkin_create_lock_task(&state)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to create lockfile"))?;
-				tracing::trace!(elapsed = ?start.elapsed(), "writing lockfile");
+					.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+				tracing::trace!(elapsed = ?start.elapsed(), "create lock");
 				Ok::<_, tg::Error>(())
 			}
-			.inspect_err(|error| tracing::error!(?error, "lockfile task failed"))
+			.inspect_err(|error| tracing::error!(?error, "lock task failed"))
 		})
 		.map(|result| result.unwrap());
 
-		futures::try_join!(cache_and_store_future, lockfile_future)?;
+		futures::try_join!(cache_and_store_future, lock_future)?;
 
 		let state = Arc::into_inner(state).unwrap();
 

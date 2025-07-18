@@ -370,46 +370,46 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn checkin_create_lockfile_task(&self, state: &State) -> tg::Result<()> {
+	pub(super) async fn checkin_create_lock_task(&self, state: &State) -> tg::Result<()> {
 		let lockfile_path = state.graph.nodes[0]
 			.path()
 			.join(tg::package::LOCKFILE_FILE_NAME);
 
-		// Skip creating a lockfile if this is a destructive checkin, the caller did not request a lockfile, or the root is not a directory.
+		// Skip creating a lock if this is a destructive checkin, the caller did not request a lock, or the root is not a directory.
 		if state.arg.destructive
-			|| !state.arg.lockfile
+			|| !state.arg.lock
 			|| !state.graph.nodes[0].metadata.as_ref().unwrap().is_dir()
 		{
 			return Ok(());
 		}
 
-		// Create a lockfile.
-		let lockfile = Self::create_lockfile(state)?;
+		// Create a lock.
+		let lock = Self::checkin_create_lock(state)?;
 
-		// If this is a locked checkin, then verify the lockfile is unchanged.
+		// If this is a locked checkin, then verify the lock is unchanged.
 		if state.arg.locked
 			&& state
-				.lockfile
+				.lock
 				.as_ref()
-				.is_some_and(|existing| existing.nodes != lockfile.nodes)
+				.is_some_and(|existing| existing.nodes != lock.nodes)
 		{
-			return Err(tg::error!("the lockfile is out of date"));
+			return Err(tg::error!("the lock is out of date"));
 		}
 
-		// Do nothing if the lockfile is empty.
-		if lockfile.nodes.is_empty() {
+		// Do nothing if the lock is empty.
+		if lock.nodes.is_empty() {
 			crate::util::fs::remove(&lockfile_path).await.ok();
 			return Ok(());
 		}
 
-		// Serialize the lockfile.
-		let contents = serde_json::to_vec_pretty(&lockfile)
-			.map_err(|source| tg::error!(!source, "failed to serialize lockfile"))?;
+		// Serialize the lock.
+		let contents = serde_json::to_vec_pretty(&lock)
+			.map_err(|source| tg::error!(!source, "failed to serialize lock"))?;
 
 		// Write to disk.
 		tokio::fs::write(&lockfile_path, contents)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write lockfile"))?;
+			.map_err(|source| tg::error!(!source, "failed to write lock"))?;
 
 		Ok(())
 	}

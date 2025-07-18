@@ -45,7 +45,7 @@ mod health;
 mod http;
 mod import;
 mod index;
-mod lockfile;
+mod lock;
 mod messenger;
 mod module;
 mod object;
@@ -799,11 +799,11 @@ impl Server {
 					.await;
 				tracing::trace!("removed temps");
 
-				// Release the lock file.
+				// Unlock the lock file.
 				let lock_file = server.lock_file.lock().unwrap().take();
 				if let Some(lock_file) = lock_file {
 					lock_file.set_len(0).await.ok();
-					tracing::trace!("released lockfile");
+					tracing::trace!("released lock file");
 				}
 
 				tracing::trace!("finished shutdown");

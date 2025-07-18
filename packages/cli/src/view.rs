@@ -15,13 +15,9 @@ pub struct Args {
 	#[arg(long, default_value = "fullscreen")]
 	pub kind: Kind,
 
-	/// If this flag is set, the package's lockfile will not be updated.
+	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
 	pub locked: bool,
-
-	/// If this flag is set, the package's lockfile will not be updated.
-	#[arg(long, hide = true)]
-	pub print: bool,
 
 	/// The reference to view.
 	#[arg(index = 1, default_value = ".")]
@@ -49,7 +45,6 @@ impl Cli {
 		let root = referent.map(|_| item);
 
 		let kind = args.kind;
-		let print = args.print;
 		Task::spawn_blocking(move |stop| {
 			let local_set = tokio::task::LocalSet::new();
 			let runtime = tokio::runtime::Builder::new_current_thread()
@@ -71,9 +66,6 @@ impl Cli {
 						Kind::Fullscreen => {
 							viewer.run_fullscreen(stop).await?;
 						},
-					}
-					if print {
-						println!("{}", viewer.tree().display());
 					}
 					Ok::<_, tg::Error>(())
 				})

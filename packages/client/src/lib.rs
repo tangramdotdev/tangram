@@ -22,7 +22,6 @@ pub use self::{
 	health::Health,
 	id::Id,
 	location::Location,
-	lockfile::Lockfile,
 	module::Module,
 	mutation::Mutation,
 	object::Handle as Object,
@@ -66,7 +65,6 @@ pub mod id;
 pub mod import;
 pub mod index;
 pub mod location;
-pub mod lockfile;
 pub mod module;
 pub mod mutation;
 pub mod object;

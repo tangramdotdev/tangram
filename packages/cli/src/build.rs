@@ -231,7 +231,7 @@ impl Cli {
 				artifact,
 				dependencies: path.is_some(),
 				force: false,
-				lockfile: false,
+				lock: false,
 				path,
 			};
 			let stream = handle.checkout(arg).await?;

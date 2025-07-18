@@ -861,7 +861,7 @@ impl Compiler {
 						artifact,
 						dependencies: false,
 						force: false,
-						lockfile: false,
+						lock: false,
 						path: None,
 					};
 					self.server

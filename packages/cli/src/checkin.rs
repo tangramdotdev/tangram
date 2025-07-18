@@ -18,13 +18,13 @@ pub struct Args {
 	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
 	pub ignore: bool,
 
-	/// If this flag is set, lockfiles will not be updated.
+	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
 	pub locked: bool,
 
-	/// If false, don't write lockfiles.
+	/// Whether to write the lock.
 	#[arg(default_value = "true", long, action = clap::ArgAction::Set)]
-	pub lockfile: bool,
+	pub lock: bool,
 
 	/// The path to check in.
 	#[arg(default_value = ".", index = 1)]
@@ -50,8 +50,8 @@ impl Cli {
 			deterministic: args.deterministic,
 			destructive: args.destructive,
 			ignore: args.ignore,
+			lock: args.lock,
 			locked: args.locked,
-			lockfile: args.lockfile,
 			path,
 			updates,
 		};

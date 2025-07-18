@@ -107,14 +107,14 @@ pub fn bundle_command(artifact: &tg::Artifact) -> tg::Command {
 }
 
 pub async fn checksum<H>(
-	input: &Either<tg::Blob, tg::Artifact>,
+	input: Either<&tg::Blob, &tg::Artifact>,
 	handle: &H,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum>
 where
 	H: tg::Handle,
 {
-	let command = checksum_command(input, algorithm);
+	let command = checksum_command(input.cloned(), algorithm);
 	let command = command.store(handle).await?;
 	let arg = tg::process::spawn::Arg {
 		command: Some(tg::Referent::with_item(command)),
@@ -135,14 +135,14 @@ where
 
 #[must_use]
 pub fn checksum_command(
-	input: &Either<tg::Blob, tg::Artifact>,
+	input: Either<tg::Blob, tg::Artifact>,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Command {
 	let host = "builtin";
 	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
 		path: "checksum".into(),
 	});
-	let args = vec![input.clone().into(), algorithm.to_string().into()];
+	let args = vec![input.into(), algorithm.to_string().into()];
 	tg::Command::builder(host, executable).args(args).build()
 }
 
