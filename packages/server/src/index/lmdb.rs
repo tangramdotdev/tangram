@@ -3,6 +3,7 @@ use fnv::FnvHashSet;
 use foundationdb_tuple::TuplePack as _;
 use heed::{self as lmdb, DatabaseFlags};
 use http::header::CACHE_CONTROL;
+use im::HashMap;
 use num::ToPrimitive as _;
 use serde::de;
 use tangram_client::{self as tg, value::print};
@@ -71,10 +72,25 @@ impl Lmdb {
 	}
 
 	pub fn put_objects(&self, messages: &[super::PutObjectMessage]) -> tg::Result<()> {
+		// Get the unique messages.
+		let unique_messages: HashMap<
+			&tg::object::Id,
+			&super::PutObjectMessage,
+			fnv::FnvBuildHasher,
+		> = messages
+			.iter()
+			.map(|message| (&message.id, message))
+			.collect();
+		let messages = unique_messages
+			.into_iter()
+			.map(|(_, message)| message)
+			.collect::<Vec<_>>();
+
 		let mut transaction = self
 			.env
 			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
 		// Insert the children
 		let object_children_batch_arg = crate::index::PutObjectChildrenBatchArg {
 			items: messages
@@ -90,50 +106,35 @@ impl Lmdb {
 			object_children_batch_arg,
 		)?;
 
-		// Compute the incomplete children counts, keep track of those with incomplete_children = 0.
-		let incomplete_children_counts = self
-			.try_get_object_incomplete_children_count_batch_with_transaction(
-				&transaction,
-				messages
-					.iter()
-					.map(|message| message.id.clone())
-					.collect::<Vec<_>>()
-					.as_slice(),
-			)?;
-
-		// Get the objects to insert.
+		// Insert the objects.
 		let objects: Vec<crate::index::PutObjectArg> = messages
 			.iter()
-			.zip(incomplete_children_counts)
-			.map(
-				|(message, incomplete_children)| crate::index::PutObjectArg {
-					id: message.id.clone(),
-					cache_reference: message.cache_reference.clone(),
-					size: Some(message.size),
-					touched_at: Some(message.touched_at),
-					incomplete_children: Some(incomplete_children),
-					complete: false,
-					count: None,
-					depth: None,
-					weight: None,
-				},
-			)
+			.map(|message| crate::index::PutObjectArg {
+				id: message.id.clone(),
+				cache_reference: message.cache_reference.clone(),
+				size: Some(message.size),
+				touched_at: Some(message.touched_at),
+				incomplete_children: None,
+				complete: false,
+				count: None,
+				depth: None,
+				weight: None,
+			})
 			.collect();
+		let arg = PutObjectBatchArg { objects };
+		self.insert_if_not_exists_object_batch_with_transaction(&mut transaction, arg)?;
 
-		// Insert the objects.
-		let arg = PutObjectBatchArg {
-			objects: objects.clone(),
-		};
-		let inserted =
-			self.insert_if_not_exists_object_batch_with_transaction(&mut transaction, arg)?;
+		// Update the incomplete children counts.
+		let ids = self.update_incomplete_children_counts_batch_with_transaction(
+			&mut transaction,
+			messages
+				.iter()
+				.map(|message| message.id.clone())
+				.collect::<Vec<_>>()
+				.as_slice(),
+		)?;
 
-		// Filter the objects that were just inserted and had incomplete_children = 0.
-		let mut queue: Vec<tg::object::Id> = objects
-			.iter()
-			.zip(inserted.into_iter())
-			.filter(|(object, inserted)| *inserted && object.incomplete_children.unwrap() == 0)
-			.map(|(object, _)| object.id.clone())
-			.collect();
+		let mut queue = ids;
 
 		#[derive(Default)]
 		struct Stats {
@@ -144,19 +145,12 @@ impl Lmdb {
 
 		// Process parent updates if needed.
 		while !queue.is_empty() {
-			let object_ids = queue
-				.iter()
-				.cloned()
-				.collect::<FnvHashSet<_>>()
-				.into_iter()
-				.collect::<Vec<_>>();
-
 			// For all objects whose incomplete_children count is 0, find all of its children, grab their count, depth, and weight and add them up to get the count, depth, and weight of the parent.
 			let children_batch =
-				self.try_get_object_children_batch_with_transaction(&transaction, &object_ids)?;
+				self.try_get_object_children_batch_with_transaction(&transaction, &queue)?;
 
 			let mut objects_to_update: Vec<crate::index::PutObjectArg> = Vec::new();
-			for (id, children) in object_ids.iter().zip(children_batch.iter()) {
+			for (id, children) in queue.iter().zip(children_batch.iter()) {
 				let children_objects =
 					self.try_get_object_batch_with_transaction(&transaction, children)?;
 				let object = self
@@ -206,7 +200,7 @@ impl Lmdb {
 
 			// For all objects who are now complete, find their parents and decrement their incomplete children count. All items whose incomplete_children count is 0 are now eligible for update themselves.
 			let parents =
-				self.try_get_object_parents_batch_with_transaction(&transaction, &object_ids)?;
+				self.try_get_object_parents_batch_with_transaction(&transaction, &queue)?;
 
 			let parents: Vec<tg::object::Id> = parents.into_iter().flatten().collect();
 
@@ -215,8 +209,7 @@ impl Lmdb {
 					&mut transaction,
 					&parents,
 				)?;
-
-			queue = parents
+			let parents_to_update: Vec<tg::object::Id> = parents
 				.iter()
 				.zip(incomplete_children_counts.iter())
 				.filter_map(|(parent, incomplete_children)| {
@@ -227,6 +220,10 @@ impl Lmdb {
 					}
 				})
 				.collect();
+
+			let unique_parents: FnvHashSet<_> = parents_to_update.iter().cloned().collect();
+
+			queue = unique_parents.into_iter().collect::<Vec<_>>();
 		}
 		transaction
 			.commit()
@@ -470,18 +467,18 @@ impl Lmdb {
 		Ok(output)
 	}
 
-	pub fn try_get_object_incomplete_children_count_batch_with_transaction(
+	pub fn update_incomplete_children_counts_batch_with_transaction(
 		&self,
-		transaction: &lmdb::RwTxn,
+		transaction: &mut lmdb::RwTxn,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<u64>> {
+	) -> tg::Result<Vec<tg::object::Id>> {
 		let children_batch =
-			self.try_get_object_children_batch_with_transaction(&transaction, ids)?;
+			self.try_get_object_children_batch_with_transaction(transaction, ids)?;
 		let mut output = Vec::with_capacity(ids.len());
-		for children in children_batch {
+		for (id, children) in ids.iter().zip(children_batch) {
 			let children_objects =
-				self.try_get_object_batch_with_transaction(&transaction, &children)?;
-			let mut incomplete_children_count = 0;
+				self.try_get_object_batch_with_transaction(transaction, &children)?;
+			let mut incomplete_children_count: u64 = 0;
 			for object in children_objects {
 				if let Some(object) = object {
 					if !object.complete {
@@ -491,7 +488,32 @@ impl Lmdb {
 					incomplete_children_count += 1;
 				}
 			}
-			output.push(incomplete_children_count);
+			// Update the incomplete children count for the object.
+			let incomplete_children_key = (0, id.to_bytes(), 3);
+			let bytes = incomplete_children_count.to_le_bytes().to_vec();
+			self.db
+				.put(transaction, &incomplete_children_key.pack_to_vec(), &bytes)
+				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			let complete_key = (0, id.to_bytes(), 0);
+			let complete_bytes = self
+				.db
+				.get(transaction, &complete_key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
+			let complete = if let Some(complete) = complete_bytes {
+				// Convert the byte slice to a bool
+				if complete == [1] {
+					true
+				} else if complete == [0] {
+					false
+				} else {
+					panic!("Invalid boolean value stored in LMDB");
+				}
+			} else {
+				return Err(tg::error!("expected a complete value for the object"));
+			};
+			if !complete && incomplete_children_count == 0 {
+				output.push(id.clone());
+			}
 		}
 		Ok(output)
 	}
@@ -499,13 +521,13 @@ impl Lmdb {
 	pub fn try_get_object_incomplete_children_count_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<u64>> {
-		let transaction = self
+	) -> tg::Result<Vec<tg::object::Id>> {
+		let mut transaction = self
 			.env
 			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let output = self
-			.try_get_object_incomplete_children_count_batch_with_transaction(&transaction, ids)?;
+		let output =
+			self.update_incomplete_children_counts_batch_with_transaction(&mut transaction, ids)?;
 		Ok(output)
 	}
 
@@ -573,7 +595,7 @@ impl Lmdb {
 					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
 		}
-		return Ok(output);
+		Ok(output)
 	}
 
 	pub fn update_object_batch_with_transaction(

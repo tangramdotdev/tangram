@@ -434,7 +434,7 @@ impl Index {
 	pub async fn try_get_object_incomplete_children_count_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<u64>> {
+	) -> tg::Result<Vec<tg::object::Id>> {
 		match self {
 			// #[cfg(feature = "foundationdb")]
 			// Self::Fdb(fdb) => fdb.try_get_objects_complete_batch(ids).await,
