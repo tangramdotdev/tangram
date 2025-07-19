@@ -1395,7 +1395,9 @@ impl xdr::Decode for nfs_ftype4 {
 			7 => nfs_ftype4::NF4FIFO,
 			8 => nfs_ftype4::NF4ATTRDIR,
 			9 => nfs_ftype4::NF4NAMEDATTR,
-			_ => return Err(xdr::Error::Custom("expected a valid nfs_ftype4".into())),
+			_ => {
+				return Err(xdr::Error::Custom("expected a valid nfs_ftype4".into()));
+			},
 		};
 		Ok(ftype)
 	}

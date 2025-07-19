@@ -130,7 +130,9 @@ impl Mutation {
 					tg::Value::String(string) => {
 						tg::Template::with_components([string.clone().into()])
 					},
-					_ => return Err(tg::error!("expected an artifact, string, or template")),
+					_ => {
+						return Err(tg::error!("expected an artifact, string, or template"));
+					},
 				};
 
 				let template = if let Some(separator) = separator {
@@ -174,7 +176,9 @@ impl Mutation {
 					tg::Value::String(string) => {
 						tg::Template::with_components([string.clone().into()])
 					},
-					_ => return Err(tg::error!("expected an artifact, string, or template")),
+					_ => {
+						return Err(tg::error!("expected an artifact, string, or template"));
+					},
 				};
 
 				let template = if let Some(separator) = separator {
@@ -230,10 +234,16 @@ impl TryFrom<Data> for Mutation {
 				value: Box::new((*value).try_into()?),
 			},
 			Data::Prepend { values } => Self::Prepend {
-				values: values.into_iter().map(TryInto::try_into).collect::<tg::Result<_>>()?,
+				values: values
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<_>>()?,
 			},
 			Data::Append { values } => Self::Append {
-				values: values.into_iter().map(TryInto::try_into).collect::<tg::Result<_>>()?,
+				values: values
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<_>>()?,
 			},
 			Data::Prefix {
 				template,

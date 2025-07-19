@@ -97,7 +97,9 @@ impl tangram_vfs::Provider for Provider {
 				size: HELLO_WORLD.len().to_u64().unwrap(),
 			}),
 			LINK_NODE_ID => Attrs::new(FileType::Symlink),
-			_ => return Err(Error::from_raw_os_error(libc::ENOENT)),
+			_ => {
+				return Err(Error::from_raw_os_error(libc::ENOENT));
+			},
 		};
 		Ok(attr)
 	}

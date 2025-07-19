@@ -304,7 +304,9 @@ impl Runtime {
 
 				match poll {
 					// If no promises are ready, then return pending.
-					Poll::Pending => return Poll::Pending,
+					Poll::Pending => {
+						return Poll::Pending;
+					},
 
 					// If there is a promise to fulfill, then resolve or reject it and run microtasks.
 					Poll::Ready(Some(output)) => {

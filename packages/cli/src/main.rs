@@ -1149,7 +1149,9 @@ impl Cli {
 		});
 		let config = match std::fs::read_to_string(&directory) {
 			Ok(config) => config,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
 			Err(source) => {
 				return Err(
 					tg::error!(!source, %directory = directory.display(), "failed to read the config file"),

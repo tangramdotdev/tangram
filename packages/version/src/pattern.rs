@@ -62,7 +62,9 @@ impl Component {
 			return false;
 		}
 		let minor = match self.minor {
-			None => return true,
+			None => {
+				return true;
+			},
 			Some(minor) => minor,
 		};
 		let patch = match self.patch {

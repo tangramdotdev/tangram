@@ -62,7 +62,9 @@ fn char_(input: &mut Input) -> ModalResult<char> {
 					'n' => '\n',
 					'r' => '\r',
 					't' => '\t',
-					_ => return Err(tg::error!("invalid char")),
+					_ => {
+						return Err(tg::error!("invalid char"));
+					},
 				};
 				Ok(c)
 			}),

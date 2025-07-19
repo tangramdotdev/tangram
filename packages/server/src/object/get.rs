@@ -61,7 +61,9 @@ impl Server {
 		let mut bytes = match &self.store {
 			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_sync(id)?,
 			crate::store::Store::Memory(memory) => memory.try_get(id),
-			_ => return Err(tg::error!("invalid store")),
+			_ => {
+				return Err(tg::error!("invalid store"));
+			},
 		};
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
@@ -185,7 +187,9 @@ impl Server {
 		}
 		let mut file = match tokio::fs::File::open(path).await {
 			Ok(file) => file,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
 			Err(error) => {
 				return Err(tg::error!(
 					!error,

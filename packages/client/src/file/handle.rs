@@ -311,7 +311,9 @@ impl File {
 							Some(tg::graph::Node::Symlink(_)) => {
 								tg::Symlink::with_graph_and_node(graph, reference.node).into()
 							},
-							None => return Err(tg::error!("invalid index")),
+							None => {
+								return Err(tg::error!("invalid index"));
+							},
 						}
 					},
 					tg::graph::object::Edge::Object(object) => object,
@@ -339,7 +341,9 @@ impl File {
 							Some(tg::graph::Node::Symlink(_)) => {
 								tg::Symlink::with_graph_and_node(graph, reference.node).into()
 							},
-							None => return Err(tg::error!("invalid index")),
+							None => {
+								return Err(tg::error!("invalid index"));
+							},
 						};
 						referent.map(|_| object)
 					},

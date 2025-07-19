@@ -482,7 +482,9 @@ impl Server {
 				}
 				true
 			},
-			Err(source) => return Err(tg::error!(!source, "failed to stat the path")),
+			Err(source) => {
+				return Err(tg::error!(!source, "failed to stat the path"));
+			},
 		};
 		let cache_exists = tokio::fs::try_exists(&cache_path)
 			.await

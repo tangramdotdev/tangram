@@ -172,7 +172,9 @@ impl tg::Client {
 								})?;
 								return Err(error);
 							},
-							_ => return Err(tg::error!(%event, "unknown event")),
+							_ => {
+								return Err(tg::error!(%event, "unknown event"));
+							},
 						}
 					},
 				};

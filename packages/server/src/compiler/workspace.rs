@@ -16,7 +16,9 @@ impl Compiler {
 		for uri in added {
 			let path = match uri.scheme().unwrap().as_str() {
 				"file" => PathBuf::from(uri.path().as_str()),
-				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
+				scheme => {
+					return Err(tg::error!(%scheme, "invalid URI for workspace folder"));
+				},
 			};
 			workspaces.insert(path);
 		}
@@ -25,7 +27,9 @@ impl Compiler {
 		for uri in removed {
 			let path = match uri.scheme().unwrap().as_str() {
 				"file" => PathBuf::from(uri.path().as_str()),
-				scheme => return Err(tg::error!(%scheme, "invalid URI for workspace folder")),
+				scheme => {
+					return Err(tg::error!(%scheme, "invalid URI for workspace folder"));
+				},
 			};
 			workspaces.remove(&path);
 		}

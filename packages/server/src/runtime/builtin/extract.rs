@@ -27,7 +27,9 @@ impl Runtime {
 		let blob = match input {
 			tg::Value::Object(tg::Object::Blob(blob)) => blob.clone(),
 			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
-			_ => return Err(tg::error!("expected a blob or a file")),
+			_ => {
+				return Err(tg::error!("expected a blob or a file"));
+			},
 		};
 
 		// Create the reader.

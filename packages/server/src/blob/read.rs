@@ -436,7 +436,9 @@ impl AsyncRead for Object {
 		// Poll the read future if necessary.
 		if let Some(read) = this.read.as_mut() {
 			match read.get_mut().as_mut().poll(cx) {
-				Poll::Pending => return Poll::Pending,
+				Poll::Pending => {
+					return Poll::Pending;
+				},
 				Poll::Ready(Err(error)) => {
 					this.read.take();
 					return Poll::Ready(Err(std::io::Error::other(error)));
@@ -490,7 +492,9 @@ impl AsyncBufRead for Object {
 		// Poll the read future if necessary.
 		if let Some(read) = this.read.as_mut() {
 			match read.get_mut().as_mut().poll(cx) {
-				Poll::Pending => return Poll::Pending,
+				Poll::Pending => {
+					return Poll::Pending;
+				},
 				Poll::Ready(Err(error)) => {
 					this.read.take();
 					return Poll::Ready(Err(std::io::Error::other(error)));

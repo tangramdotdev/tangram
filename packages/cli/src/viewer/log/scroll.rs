@@ -233,7 +233,9 @@ fn next_grapheme<'a>(
 	};
 
 	let (chunk, byte) = match position.cmp(&end_position) {
-		std::cmp::Ordering::Greater => return Err(Error::Append),
+		std::cmp::Ordering::Greater => {
+			return Err(Error::Append);
+		},
 		std::cmp::Ordering::Equal => (chunks.len(), 0),
 		std::cmp::Ordering::Less => {
 			let chunk = chunks

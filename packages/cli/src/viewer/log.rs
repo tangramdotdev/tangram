@@ -88,7 +88,9 @@ where
 					scroll.take();
 					self.update_log_stream(true).await?;
 				},
-				Ok(_) => return Ok(()),
+				Ok(_) => {
+					return Ok(());
+				},
 				Err(error) => {
 					drop(chunks);
 					self.update_log_stream(matches!(error, scroll::Error::Append))
@@ -245,7 +247,9 @@ where
 			let scroll = scroll.as_mut().unwrap();
 			let chunks = self.chunks.lock().await;
 			match scroll.scroll_up(1, &chunks) {
-				Ok(_) => return Ok(()),
+				Ok(_) => {
+					return Ok(());
+				},
 				// If we need to append or prepend, update the log stream and try again.
 				Err(error) => {
 					drop(chunks);

@@ -62,7 +62,9 @@ impl Blob {
 		let kind = match kind {
 			0 => Kind::Leaf,
 			1 => Kind::Branch,
-			_ => return Err(tg::error!("invalid kind")),
+			_ => {
+				return Err(tg::error!("invalid kind"));
+			},
 		};
 		let blob = match kind {
 			Kind::Leaf => Self::Leaf(Leaf {

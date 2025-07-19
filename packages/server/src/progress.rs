@@ -191,7 +191,9 @@ impl<T> Handle<T> {
 					.try_send(Ok(tg::progress::Event::Finish(event)))
 					.ok();
 			},
-			tg::progress::Event::Output(_) => return Some(Ok(event)),
+			tg::progress::Event::Output(_) => {
+				return Some(Ok(event));
+			},
 		}
 		None
 	}

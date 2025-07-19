@@ -93,7 +93,9 @@ impl Data {
 					tg::value::Data::String(string) => {
 						tg::template::Data::with_components([string.clone().into()])
 					},
-					_ => return Err(tg::error!("expected an artifact, string, or template")),
+					_ => {
+						return Err(tg::error!("expected an artifact, string, or template"));
+					},
 				};
 
 				let template = if let Some(separator) = separator {
@@ -137,7 +139,9 @@ impl Data {
 					tg::value::Data::String(string) => {
 						tg::template::Data::with_components([string.clone().into()])
 					},
-					_ => return Err(tg::error!("expected an artifact, string, or template")),
+					_ => {
+						return Err(tg::error!("expected an artifact, string, or template"));
+					},
 				};
 
 				let template = if let Some(separator) = separator {

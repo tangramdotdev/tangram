@@ -64,7 +64,9 @@ where
 						*this.done = true;
 						return Poll::Ready(Some(item));
 					},
-					Poll::Pending => return Poll::Pending,
+					Poll::Pending => {
+						return Poll::Pending;
+					},
 				}
 			}
 
@@ -78,7 +80,9 @@ where
 					*this.done = true;
 					return Poll::Ready(None);
 				},
-				Poll::Pending => return Poll::Pending,
+				Poll::Pending => {
+					return Poll::Pending;
+				},
 			}
 		}
 	}

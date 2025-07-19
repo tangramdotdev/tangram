@@ -145,7 +145,9 @@ impl Ignorer {
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 					continue;
 				},
-				Err(error) => return Err(error.into()),
+				Err(error) => {
+					return Err(error.into());
+				},
 			};
 			let file = Self::file_with_contents(&contents)?;
 			files.push(file);

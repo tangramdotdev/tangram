@@ -246,7 +246,9 @@ impl Server {
 				let path = symlink.path.clone();
 				tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path })
 			},
-			Variant::Object => return Ok(()),
+			Variant::Object => {
+				return Ok(());
+			},
 		};
 		graph.nodes.push(node);
 		Ok(())
@@ -336,7 +338,9 @@ impl Server {
 				));
 				(kind, data)
 			},
-			Variant::Object => return Ok(()),
+			Variant::Object => {
+				return Ok(());
+			},
 		};
 
 		// Create the object.

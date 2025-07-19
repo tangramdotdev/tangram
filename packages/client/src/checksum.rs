@@ -141,7 +141,9 @@ impl std::str::FromStr for Algorithm {
 			"sha256" => Self::Sha256,
 			"sha512" => Self::Sha512,
 			"blake3" => Self::Blake3,
-			algorithm => return Err(tg::error!(%algorithm, "invalid algorithm")),
+			algorithm => {
+				return Err(tg::error!(%algorithm, "invalid algorithm"));
+			},
 		};
 		Ok(algorithm)
 	}

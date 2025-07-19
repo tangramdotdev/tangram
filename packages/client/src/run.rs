@@ -117,7 +117,9 @@ where
 	let stdin = match stdin {
 		None => None,
 		Some(Either::Left(stdio)) => Some(stdio),
-		Some(Either::Right(_)) => return Err(tg::error!("expected stdio")),
+		Some(Either::Right(_)) => {
+			return Err(tg::error!("expected stdio"));
+		},
 	};
 	let stdout = arg
 		.stdout

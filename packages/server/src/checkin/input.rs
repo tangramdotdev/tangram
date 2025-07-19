@@ -109,7 +109,9 @@ impl Server {
 			Variant::Directory(_) => self.checkin_visit_directory(state, index)?,
 			Variant::File(_) => self.checkin_visit_file(state, index)?,
 			Variant::Symlink(_) => self.checkin_visit_symlink(state, index)?,
-			Variant::Object => return Err(tg::error!("unreachable")),
+			Variant::Object => {
+				return Err(tg::error!("unreachable"));
+			},
 		}
 
 		Ok(Some(index))

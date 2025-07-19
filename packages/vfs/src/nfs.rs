@@ -373,7 +373,9 @@ where
 		// Handle verification.
 		let verf = match self.handle_auth(cred, verf).await {
 			Ok(verf) => verf,
-			Err(stat) => return rpc::reject(rpc::ReplyRejected::AuthError(stat)),
+			Err(stat) => {
+				return rpc::reject(rpc::ReplyRejected::AuthError(stat));
+			},
 		};
 
 		let COMPOUND4args {
@@ -512,7 +514,9 @@ where
 
 		let attr = match self.provider.get_attr_ext(fh.0).await {
 			Ok(attr) => attr,
-			Err(error) => return ACCESS4res::Error(error.into()),
+			Err(error) => {
+				return ACCESS4res::Error(error.into());
+			},
 		};
 		let access = match attr {
 			ExtAttr::Normal(Attrs {
@@ -748,8 +752,12 @@ where
 		let (fh, confirm_flags) = match arg.claim {
 			open_claim4::CLAIM_NULL(name) => match self.lookup(fh, &name).await {
 				Ok(Some(fh)) => (fh, OPEN4_RESULT_CONFIRM),
-				Ok(None) => return OPEN4res::Error(nfsstat4::NFS4ERR_NOENT),
-				Err(e) => return OPEN4res::Error(e),
+				Ok(None) => {
+					return OPEN4res::Error(nfsstat4::NFS4ERR_NOENT);
+				},
+				Err(e) => {
+					return OPEN4res::Error(e);
+				},
 			},
 			open_claim4::CLAIM_PREVIOUS(open_delegation_type4::OPEN_DELEGATE_NONE) => (fh, 0),
 			_ => {
@@ -850,11 +858,15 @@ where
 				typ: FileType::Directory,
 				..
 			})
-			| ExtAttr::AttrDir(_) => return READ4res::Error(nfsstat4::NFS4ERR_ISDIR),
+			| ExtAttr::AttrDir(_) => {
+				return READ4res::Error(nfsstat4::NFS4ERR_ISDIR);
+			},
 			ExtAttr::Normal(Attrs {
 				typ: FileType::Symlink,
 				..
-			}) => return READ4res::Error(nfsstat4::NFS4ERR_INVAL),
+			}) => {
+				return READ4res::Error(nfsstat4::NFS4ERR_INVAL);
+			},
 			ExtAttr::AttrFile(len) => len.to_u64().unwrap(),
 		};
 
@@ -915,13 +927,17 @@ where
 		if handle == 0 {
 			handle = match self.provider.opendir(fh.0).await {
 				Ok(handle) => handle,
-				Err(error) => return READDIR4res::Error(error.into()),
+				Err(error) => {
+					return READDIR4res::Error(error.into());
+				},
 			};
 		}
 
 		let entries = match self.provider.readdir(handle).await {
 			Ok(entries) => entries,
-			Err(error) => return READDIR4res::Error(error.into()),
+			Err(error) => {
+				return READDIR4res::Error(error.into());
+			},
 		};
 
 		let mut reply = Vec::with_capacity(entries.len());

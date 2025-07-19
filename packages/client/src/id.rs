@@ -152,7 +152,9 @@ impl Id {
 			8 => Kind::Pty,
 			9 => Kind::User,
 			10 => Kind::Request,
-			_ => return Err(tg::error!(%kind, "invalid kind")),
+			_ => {
+				return Err(tg::error!(%kind, "invalid kind"));
+			},
 		};
 
 		let algorithm = reader
@@ -174,7 +176,9 @@ impl Id {
 					.map_err(|source| tg::error!(!source, "failed to read the body"))?;
 				Body::Blake3(body)
 			},
-			_ => return Err(tg::error!(%algorithm, "invalid algorithm")),
+			_ => {
+				return Err(tg::error!(%algorithm, "invalid algorithm"));
+			},
 		};
 
 		Ok(Self { kind, body })
