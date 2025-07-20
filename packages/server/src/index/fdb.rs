@@ -77,25 +77,24 @@ impl Fdb {
 					Self::insert_if_not_exists_object_batch_with_transaction(&transaction, arg)
 						.await?;
 
-					// Update the incomplete children counts.
-					let ids = Self::update_incomplete_children_counts_batch_with_transaction(
-						&transaction,
-						&messages
-							.iter()
-							.map(|message| message.id.clone())
-							.collect::<Vec<_>>(),
-					)
-					.await?;
+					// // Update the incomplete children counts.
+					// let ids = Self::update_incomplete_children_counts_batch_with_transaction(
+					// 	&transaction,
+					// 	&messages
+					// 		.iter()
+					// 		.map(|message| message.id.clone())
+					// 		.collect::<Vec<_>>(),
+					// )
+					// .await?;
 
-					let mut queue = ids;
-					dbg!(&queue.len());
+					// let mut queue = ids;
 
-					#[derive(Default)]
-					struct Stats {
-						count: u64,
-						depth: u64,
-						weight: u64,
-					}
+					// #[derive(Default)]
+					// struct Stats {
+					// 	count: u64,
+					// 	depth: u64,
+					// 	weight: u64,
+					// }
 
 					// // Process parent updates if needed.
 					// while !queue.is_empty() {
@@ -201,6 +200,7 @@ impl Fdb {
 
 					// 	queue = unique_parents.into_iter().collect::<Vec<_>>();
 					// }
+					// Ok(())
 					Ok(())
 				}
 			})
@@ -223,22 +223,19 @@ impl Fdb {
 			let weight_key = (0, id.to_bytes(), 5);
 
 			let complete_bytes = transaction.get(&complete_key.pack_to_vec(), false).await?;
-			let complete = if let Some(complete) = complete_bytes {
-				// Convert the byte slice to a bool
-				if complete.as_ref() == [1] {
-					true
-				} else if complete.as_ref() == [0] {
-					false
-				} else {
+			let complete = match complete_bytes {
+				Some(complete) if complete.as_ref() == [1] => true,
+				Some(complete) if complete.as_ref() == [0] => false,
+				Some(_) => {
 					return Err(FdbBindingError::new_custom_error(
 						"Invalid boolean value stored in FDB".into(),
 					));
-				}
-			} else {
-				output.push(None);
-				continue;
+				},
+				None => {
+					output.push(None);
+					continue;
+				},
 			};
-
 			let count = transaction.get(&count_key.pack_to_vec(), false).await?;
 			let count = match count {
 				Some(count) => {
@@ -378,10 +375,21 @@ impl Fdb {
 			let mut stream = pin!(stream);
 			while let Some(entries) = stream.try_next().await? {
 				for entry in entries {
-					let parent_id = tg::object::Id::from_slice(entry.value()).map_err(|_| {
-						FdbBindingError::new_custom_error("failed to deserialize parent id".into())
-					})?;
-					parents.push(parent_id);
+					// Extract parent ID from the key since value is now empty
+					let key_tuple: Vec<foundationdb_tuple::Element> =
+						foundationdb_tuple::unpack(entry.key()).map_err(|_| {
+							FdbBindingError::new_custom_error("failed to unpack key".into())
+						})?;
+					if let Some(foundationdb_tuple::Element::Bytes(parent_bytes)) = key_tuple.get(2)
+					{
+						let parent_id =
+							tg::object::Id::from_slice(parent_bytes.as_ref()).map_err(|_| {
+								FdbBindingError::new_custom_error(
+									"failed to deserialize parent id".into(),
+								)
+							})?;
+						parents.push(parent_id);
+					}
 				}
 			}
 			output.push(parents);
@@ -403,10 +411,21 @@ impl Fdb {
 			let mut stream = pin!(stream);
 			while let Some(entries) = stream.try_next().await? {
 				for entry in entries {
-					let child_id = tg::object::Id::from_slice(entry.value()).map_err(|_| {
-						FdbBindingError::new_custom_error("failed to deserialize child id".into())
-					})?;
-					children.push(child_id);
+					// Extract child ID from the key since value is now empty
+					let key_tuple: Vec<foundationdb_tuple::Element> =
+						foundationdb_tuple::unpack(entry.key()).map_err(|_| {
+							FdbBindingError::new_custom_error("failed to unpack key".into())
+						})?;
+					if let Some(foundationdb_tuple::Element::Bytes(child_bytes)) = key_tuple.get(2)
+					{
+						let child_id =
+							tg::object::Id::from_slice(child_bytes.as_ref()).map_err(|_| {
+								FdbBindingError::new_custom_error(
+									"failed to deserialize child id".into(),
+								)
+							})?;
+						children.push(child_id);
+					}
 				}
 			}
 			output.push(children);
@@ -559,12 +578,12 @@ impl Fdb {
 	) -> Result<(), FdbBindingError> {
 		for item in arg.items {
 			for child in item.children {
-				// Insert the object, child key
-				let key = (1, item.id.to_bytes());
-				transaction.set(&key.pack_to_vec(), &child.to_bytes());
-				// Insert the child, parent key
-				let key = (2, child.to_bytes());
-				transaction.set(&key.pack_to_vec(), &item.id.to_bytes());
+				// Insert the object, child key - include child ID to make key unique
+				let key = (1, item.id.to_bytes(), child.to_bytes());
+				transaction.set(&key.pack_to_vec(), &[]);
+				// Insert the child, parent key - include parent ID to make key unique
+				let key = (2, child.to_bytes(), item.id.to_bytes());
+				transaction.set(&key.pack_to_vec(), &[]);
 			}
 		}
 		Ok(())

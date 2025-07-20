@@ -97,22 +97,6 @@ pub struct FdbIndex {
 	pub path: Option<PathBuf>,
 }
 
-// #[derive(Clone, Debug)]
-// pub enum Index {
-// 	Postgres(PostgresIndex),
-// 	Sqlite(SqliteIndex),
-// }
-// #[derive(Clone, Debug)]
-// pub struct PostgresIndex {
-// 	pub connections: usize,
-// 	pub url: Url,
-// }
-
-// #[derive(Clone, Debug)]
-// pub struct SqliteIndex {
-// 	pub connections: usize,
-// 	pub path: PathBuf,
-// }
 #[derive(Clone, Debug)]
 pub struct Indexer {
 	pub message_batch_size: usize,
