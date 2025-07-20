@@ -6,13 +6,19 @@ use num::ToPrimitive as _;
 use tangram_client as tg;
 
 pub struct Lmdb {
-	db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
+	db: Db,
 	env: lmdb::Env,
-	sender: tokio::sync::mpsc::Sender<Message>,
-	task: tokio::task::JoinHandle<()>,
+	sender: RequestSender,
 }
 
-enum Message {
+type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
+
+type RequestSender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
+type RequestReceiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
+type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
+type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
+
+enum Request {
 	Delete(Delete),
 	Put(Put),
 	Touch(Touch),
@@ -21,20 +27,17 @@ enum Message {
 struct Delete {
 	ids: Vec<tg::object::Id>,
 	now: i64,
-	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 	ttl: u64,
 }
 
 struct Put {
 	items: Vec<(tg::object::Id, Option<Bytes>, Option<CacheReference>)>,
 	touched_at: i64,
-	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
 struct Touch {
 	ids: Vec<tg::object::Id>,
 	touched_at: i64,
-	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
 
 impl Lmdb {
@@ -47,35 +50,30 @@ impl Lmdb {
 			.open(&config.path)
 			.map_err(|source| tg::error!(!source, "failed to create or open the database file"))?;
 		let env = unsafe {
-			heed::EnvOpenOptions::new()
+			lmdb::EnvOpenOptions::new()
 				.map_size(1_099_511_627_776)
 				.max_dbs(3)
 				.max_readers(1_000)
-				.flags(heed::EnvFlags::NO_SUB_DIR)
+				.flags(lmdb::EnvFlags::NO_SUB_DIR)
 				.open(&config.path)
 				.map_err(|source| tg::error!(!source, "failed to open the database"))?
 		};
 		let mut transaction = env.write_txn().unwrap();
-		let db: heed::Database<heed::types::Bytes, heed::types::Bytes> = env
+		let db = env
 			.create_database(&mut transaction, None)
 			.map_err(|source| tg::error!(!source, "failed to open the database"))?;
 		transaction
 			.commit()
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-		// Create the task.
-		let (sender, receiver) = tokio::sync::mpsc::channel::<Message>(256);
-		let task = tokio::spawn({
+		// Create the thread.
+		let (sender, receiver) = tokio::sync::mpsc::channel(256);
+		std::thread::spawn({
 			let env = env.clone();
-			async move { Self::task(env, db, receiver).await }
+			move || Self::task(&env, &db, receiver)
 		});
 
-		Ok(Self {
-			db,
-			env,
-			sender,
-			task,
-		})
+		Ok(Self { db, env, sender })
 	}
 
 	pub async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tg::Error> {
@@ -240,15 +238,14 @@ impl Lmdb {
 
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = Message::Put(Put {
+		let request = Request::Put(Put {
 			items: vec![(arg.id, arg.bytes, arg.cache_reference)],
 			touched_at: arg.touched_at,
-			response_sender: sender,
 		});
 		self.sender
-			.send(message)
+			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -257,15 +254,14 @@ impl Lmdb {
 
 	pub async fn touch(&self, id: &tg::object::Id, touched_at: i64) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = Message::Touch(Touch {
+		let request = Request::Touch(Touch {
 			ids: vec![id.clone()],
 			touched_at,
-			response_sender: sender,
 		});
 		self.sender
-			.send(message)
+			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -277,15 +273,14 @@ impl Lmdb {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = Message::Put(Put {
+		let request = Request::Put(Put {
 			items: arg.objects.clone(),
 			touched_at: arg.touched_at,
-			response_sender: sender,
 		});
 		self.sender
-			.send(message)
+			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -297,139 +292,150 @@ impl Lmdb {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = Message::Delete(Delete {
+		let request = Request::Delete(Delete {
 			ids: arg.ids,
 			now: arg.now,
 			ttl: arg.ttl,
-			response_sender: sender,
 		});
 		self.sender
-			.send(message)
+			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
 		Ok(())
 	}
 
-	async fn task(
-		env: lmdb::Env,
-		db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
-		mut receiver: tokio::sync::mpsc::Receiver<Message>,
-	) {
-		while let Some(message) = receiver.recv().await {
-			match message {
-				Message::Delete(message) => {
-					let result = async {
-						let mut transaction = env.write_txn().map_err(|source| {
-							tg::error!(!source, "failed to begin a transaction")
-						})?;
-						for id in message.ids {
-							let key = (0, id.to_bytes(), 1);
-							let Some(touched_at) =
-								db.get(&transaction, &key.pack_to_vec()).map_err(|source| {
-									tg::error!(!source, "failed to get the touch time")
-								})?
-							else {
-								continue;
-							};
-							let touched_at = touched_at
-								.try_into()
-								.map_err(|source| tg::error!(!source, "invalid touch time"))?;
-							let touched_at = i64::from_le_bytes(touched_at);
-							if message.now - touched_at >= message.ttl.to_i64().unwrap() {
-								let key = (0, id.to_bytes(), 0);
-								db.delete(&mut transaction, &key.pack_to_vec()).map_err(
-									|source| tg::error!(!source, "failed to delete the object"),
-								)?;
-								let key = (0, id.to_bytes(), 1);
-								db.delete(&mut transaction, &key.pack_to_vec()).map_err(
-									|source| tg::error!(!source, "failed to delete the object"),
-								)?;
-								let key = (0, id.to_bytes(), 2);
-								db.delete(&mut transaction, &key.pack_to_vec()).map_err(
-									|source| tg::error!(!source, "failed to delete the object"),
-								)?;
-							}
-						}
-						transaction.commit().map_err(|source| {
-							tg::error!(!source, "failed to commit the transaction")
-						})?;
-						Ok::<_, tg::Error>(())
+	fn task(env: &lmdb::Env, db: &Db, mut receiver: RequestReceiver) {
+		while let Some((request, sender)) = receiver.blocking_recv() {
+			let mut requests = vec![request];
+			let mut senders = vec![sender];
+			while let Ok((request, sender)) = receiver.try_recv() {
+				requests.push(request);
+				senders.push(sender);
+			}
+			let result = env
+				.write_txn()
+				.map_err(|source| tg::error!(!source, "failed to begin a transaction"));
+			let mut transaction = match result {
+				Ok(transaction) => transaction,
+				Err(error) => {
+					for sender in senders {
+						sender.send(Err(error.clone())).ok();
 					}
-					.await;
-					message.response_sender.send(result).ok();
+					continue;
 				},
-				Message::Put(message) => {
-					let result = async {
-						let mut transaction = env.write_txn().map_err(|source| {
-							tg::error!(!source, "failed to begin a transaction")
-						})?;
-						for (id, bytes, reference) in message.items {
-							if let Some(bytes) = bytes {
-								let key = (0, id.to_bytes(), 0);
-								let flags = lmdb::PutFlags::NO_OVERWRITE;
-								let result = db.put_with_flags(
-									&mut transaction,
-									flags,
-									&key.pack_to_vec(),
-									&bytes,
-								);
-								match result {
-									Ok(()) | Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
-									Err(error) => {
-										return Err(tg::error!(!error, "failed to put the value"));
-									},
-								}
-							}
-							let key = (0, id.to_bytes(), 1);
-							let touched_at = message.touched_at.to_le_bytes();
-							db.put(&mut transaction, &key.pack_to_vec(), &touched_at)
-								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
-							if let Some(reference) = reference {
-								let key = (0, id.to_bytes(), 2);
-								let value = serde_json::to_vec(&reference).unwrap();
-								db.put(&mut transaction, &key.pack_to_vec(), &value)
-									.map_err(|source| {
-										tg::error!(!source, "failed to put the value")
-									})?;
-							}
-						}
-						transaction.commit().map_err(|source| {
-							tg::error!(!source, "failed to commit the transaction")
-						})?;
-						Ok::<_, tg::Error>(())
-					}
-					.await;
-					message.response_sender.send(result).ok();
-				},
-				Message::Touch(message) => {
-					let result = async {
-						let mut transaction = env.write_txn().map_err(|source| {
-							tg::error!(!source, "failed to begin a transaction")
-						})?;
-						for id in message.ids {
-							let key = (0, id.to_bytes(), 1);
-							let touched_at = message.touched_at.to_le_bytes();
-							db.put(&mut transaction, &key.pack_to_vec(), &touched_at)
-								.map_err(|source| tg::error!(!source, "failed to put the value"))?;
-						}
-						transaction.commit().map_err(|source| {
-							tg::error!(!source, "failed to commit the transaction")
-						})?;
-						Ok::<_, tg::Error>(())
-					}
-					.await;
-					message.response_sender.send(result).ok();
-				},
+			};
+			let mut responses = vec![];
+			for request in requests {
+				match request {
+					Request::Delete(request) => {
+						let result = Self::task_delete(env, db, &mut transaction, request);
+						responses.push(result);
+					},
+					Request::Put(request) => {
+						let result = Self::task_put(env, db, &mut transaction, request);
+						responses.push(result);
+					},
+					Request::Touch(request) => {
+						let result = Self::task_touch(env, db, &mut transaction, request);
+						responses.push(result);
+					},
+				}
+			}
+			let result = transaction
+				.commit()
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"));
+			if let Err(error) = result {
+				for sender in senders {
+					sender.send(Err(error.clone())).ok();
+				}
+				continue;
+			}
+			for (sender, result) in std::iter::zip(senders, responses) {
+				sender.send(result).ok();
 			}
 		}
 	}
-}
 
-impl Drop for Lmdb {
-	fn drop(&mut self) {
-		self.task.abort();
+	fn task_delete(
+		_env: &lmdb::Env,
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		message: Delete,
+	) -> tg::Result<()> {
+		for id in message.ids {
+			let key = (0, id.to_bytes(), 1);
+			let Some(touched_at) = db
+				.get(transaction, &key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to get the touch time"))?
+			else {
+				continue;
+			};
+			let touched_at = touched_at
+				.try_into()
+				.map_err(|source| tg::error!(!source, "invalid touch time"))?;
+			let touched_at = i64::from_le_bytes(touched_at);
+			if message.now - touched_at >= message.ttl.to_i64().unwrap() {
+				let key = (0, id.to_bytes(), 0);
+				db.delete(transaction, &key.pack_to_vec())
+					.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
+				let key = (0, id.to_bytes(), 1);
+				db.delete(transaction, &key.pack_to_vec())
+					.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
+				let key = (0, id.to_bytes(), 2);
+				db.delete(transaction, &key.pack_to_vec())
+					.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
+			}
+		}
+		Ok(())
+	}
+
+	fn task_put(
+		_env: &lmdb::Env,
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		message: Put,
+	) -> tg::Result<()> {
+		for (id, bytes, reference) in message.items {
+			if let Some(bytes) = bytes {
+				let key = (0, id.to_bytes(), 0);
+				let flags = lmdb::PutFlags::NO_OVERWRITE;
+				let result = db.put_with_flags(transaction, flags, &key.pack_to_vec(), &bytes);
+				match result {
+					Ok(()) | Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
+					Err(error) => {
+						return Err(tg::error!(!error, "failed to put the value"));
+					},
+				}
+			}
+			let key = (0, id.to_bytes(), 1);
+			let touched_at = message.touched_at.to_le_bytes();
+			db.put(transaction, &key.pack_to_vec(), &touched_at)
+				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			if let Some(reference) = reference {
+				let key = (0, id.to_bytes(), 2);
+				let value = serde_json::to_vec(&reference).unwrap();
+				db.put(transaction, &key.pack_to_vec(), &value)
+					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			}
+		}
+		Ok(())
+	}
+
+	fn task_touch(
+		_env: &lmdb::Env,
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		message: Touch,
+	) -> tg::Result<()> {
+		for id in message.ids {
+			let key = (0, id.to_bytes(), 1);
+			let touched_at = message.touched_at.to_le_bytes();
+			db.put(transaction, &key.pack_to_vec(), &touched_at)
+				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+		}
+		Ok(())
 	}
 }
