@@ -1,13 +1,8 @@
 use self::graph::Graph;
-use crate::{Server, index::Index};
-use futures::{
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
-};
-use rusqlite as sqlite;
+use crate::Server;
+use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
 use std::{
-	collections::VecDeque,
 	panic::AssertUnwindSafe,
-	path::PathBuf,
 	pin::{Pin, pin},
 	sync::{Arc, Mutex, atomic::AtomicUsize},
 };
@@ -34,21 +29,21 @@ struct State {
 	object_queue_sender: async_channel::Sender<ObjectQueueItem>,
 }
 
-struct StateSync<'a> {
-	arg: tg::export::Arg,
-	database: sqlite::Connection,
-	event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
-	file: Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
-	graph: Graph,
-	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
-	index: &'a Index,
-	queue: VecDeque<QueueItem>,
-}
+// struct StateSync<'a> {
+// 	arg: tg::export::Arg,
+// 	database: sqlite::Connection,
+// 	event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
+// 	file: Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
+// 	graph: Graph,
+// 	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
+// 	index: &'a Index,
+// 	queue: VecDeque<QueueItem>,
+// }
 
-enum QueueItem {
-	Process(ProcessQueueItem),
-	Object(ObjectQueueItem),
-}
+// enum QueueItem {
+// 	Process(ProcessQueueItem),
+// 	Object(ObjectQueueItem),
+// }
 
 struct ProcessQueueItem {
 	parent: Option<tg::process::Id>,
@@ -261,96 +256,96 @@ impl Server {
 		Ok(())
 	}
 
-	async fn export_items_complete(&self, arg: &tg::export::Arg) -> tg::Result<bool> {
-		Ok(arg
-			.items
-			.iter()
-			.map(async |item| self.export_item_complete(arg, item).await)
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?
-			.into_iter()
-			.all(|complete| complete))
-	}
+	// async fn export_items_complete(&self, arg: &tg::export::Arg) -> tg::Result<bool> {
+	// 	Ok(arg
+	// 		.items
+	// 		.iter()
+	// 		.map(async |item| self.export_item_complete(arg, item).await)
+	// 		.collect::<FuturesUnordered<_>>()
+	// 		.try_collect::<Vec<_>>()
+	// 		.await?
+	// 		.into_iter()
+	// 		.all(|complete| complete))
+	// }
 
-	async fn export_item_complete(
-		&self,
-		arg: &tg::export::Arg,
-		item: &Either<tg::process::Id, tg::object::Id>,
-	) -> Result<bool, tg::Error> {
-		match item {
-			Either::Left(process) => {
-				if arg.recursive {
-					let Some(output) =
-						self.try_get_process_complete(process)
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the process complete")
-							})?
-					else {
-						return Ok(false);
-					};
-					Ok(output.complete
-						&& (!arg.commands || output.commands_complete)
-						&& (!arg.outputs || output.outputs_complete))
-				} else {
-					let Some(process) = self
-						.try_get_process_local(process)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the process"))?
-					else {
-						return Ok(false);
-					};
-					if arg.commands {
-						let command_complete = self
-							.try_get_object_complete(&process.data.command.clone().into())
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the object complete")
-							})?
-							.is_some_and(|complete| complete);
-						if !command_complete {
-							return Ok(false);
-						}
-					}
-					if arg.outputs {
-						if let Some(output) = process.data.output {
-							let output_complete = output
-								.children()
-								.map(|child| async move {
-									Ok::<_, tg::Error>(
-										self.try_get_object_complete(&child)
-											.await
-											.map_err(|source| {
-												tg::error!(
-													!source,
-													"failed to get the object complete"
-												)
-											})?
-											.is_some_and(|complete| complete),
-									)
-								})
-								.collect::<FuturesUnordered<_>>()
-								.try_collect::<Vec<_>>()
-								.await?
-								.into_iter()
-								.all(|complete| complete);
-							if !output_complete {
-								return Ok(false);
-							}
-						}
-					}
-					Ok(true)
-				}
-			},
-			Either::Right(object) => Ok::<_, tg::Error>(
-				self.try_get_object_complete(object)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the object complete"))?
-					.is_some_and(|complete| complete),
-			),
-		}
-	}
+	// async fn export_item_complete(
+	// 	&self,
+	// 	arg: &tg::export::Arg,
+	// 	item: &Either<tg::process::Id, tg::object::Id>,
+	// ) -> Result<bool, tg::Error> {
+	// 	match item {
+	// 		Either::Left(process) => {
+	// 			if arg.recursive {
+	// 				let Some(output) =
+	// 					self.try_get_process_complete(process)
+	// 						.await
+	// 						.map_err(|source| {
+	// 							tg::error!(!source, "failed to get the process complete")
+	// 						})?
+	// 				else {
+	// 					return Ok(false);
+	// 				};
+	// 				Ok(output.complete
+	// 					&& (!arg.commands || output.commands_complete)
+	// 					&& (!arg.outputs || output.outputs_complete))
+	// 			} else {
+	// 				let Some(process) = self
+	// 					.try_get_process_local(process)
+	// 					.await
+	// 					.map_err(|source| tg::error!(!source, "failed to get the process"))?
+	// 				else {
+	// 					return Ok(false);
+	// 				};
+	// 				if arg.commands {
+	// 					let command_complete = self
+	// 						.try_get_object_complete(&process.data.command.clone().into())
+	// 						.await
+	// 						.map_err(|source| {
+	// 							tg::error!(!source, "failed to get the object complete")
+	// 						})?
+	// 						.is_some_and(|complete| complete);
+	// 					if !command_complete {
+	// 						return Ok(false);
+	// 					}
+	// 				}
+	// 				if arg.outputs {
+	// 					if let Some(output) = process.data.output {
+	// 						let output_complete = output
+	// 							.children()
+	// 							.map(|child| async move {
+	// 								Ok::<_, tg::Error>(
+	// 									self.try_get_object_complete(&child)
+	// 										.await
+	// 										.map_err(|source| {
+	// 											tg::error!(
+	// 												!source,
+	// 												"failed to get the object complete"
+	// 											)
+	// 										})?
+	// 										.is_some_and(|complete| complete),
+	// 								)
+	// 							})
+	// 							.collect::<FuturesUnordered<_>>()
+	// 							.try_collect::<Vec<_>>()
+	// 							.await?
+	// 							.into_iter()
+	// 							.all(|complete| complete);
+	// 						if !output_complete {
+	// 							return Ok(false);
+	// 						}
+	// 					}
+	// 				}
+	// 				Ok(true)
+	// 			}
+	// 		},
+	// 		Either::Right(object) => Ok::<_, tg::Error>(
+	// 			self.try_get_object_complete(object)
+	// 				.await
+	// 				.map_err(|source| tg::error!(!source, "failed to get the object complete"))?
+	// 				.is_some_and(|complete| complete),
+	// 		),
+	// 	}
+	// }
 
 	// fn export_sync_task(
 	// 	&self,

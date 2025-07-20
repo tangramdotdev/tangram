@@ -1,6 +1,5 @@
 use crate::Server;
 use futures::{FutureExt as _, future};
-use rusqlite::{self as sqlite};
 use tangram_client::{self as tg, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
 
@@ -24,7 +23,6 @@ impl Server {
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let objects = self.index.try_get_object_batch(&[id.clone()]).await?;
 		let object = objects.into_iter().next().unwrap();
-		println!("object: {:?}", object);
 		let metadata = object.map(|object| tg::object::Metadata {
 			complete: object.complete,
 			count: object.count,
@@ -33,13 +31,6 @@ impl Server {
 		});
 
 		Ok(metadata)
-	}
-
-	pub(crate) fn try_get_object_metadata_local_sync(
-		_index: &sqlite::Connection,
-		_id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Metadata>> {
-		todo!()
 	}
 
 	async fn try_get_object_metadata_remote(

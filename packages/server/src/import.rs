@@ -199,21 +199,22 @@ impl Server {
 			.iter()
 			.filter_map(|item| item.clone().right())
 			.collect::<Vec<_>>();
-		let (process_completes, object_completes) = futures::try_join!(
-			self.try_get_process_complete_batch(&processes),
-			self.try_get_object_complete_batch(&objects),
-		)?;
-		let processes_complete = process_completes.iter().all(|option| {
-			option.as_ref().is_some_and(|process_complete| {
-				process_complete.complete
-					&& process_complete.commands_complete
-					&& process_complete.outputs_complete
-			})
-		});
+		// let (process_completes, object_completes) = futures::try_join!(
+		// self.try_get_process_complete_batch(&processes),
+		let object_completes = self.try_get_object_complete_batch(&objects).await?;
+		// )?;
+		// let processes_complete = process_completes.iter().all(|option| {
+		// 	option.as_ref().is_some_and(|process_complete| {
+		// 		process_complete.complete
+		// 			&& process_complete.commands_complete
+		// 			&& process_complete.outputs_complete
+		// 	})
+		// });
 		let objects_complete = object_completes
 			.iter()
 			.all(|option| option.is_some_and(|object_complete| object_complete));
-		let complete = processes_complete && objects_complete;
+		// let complete = processes_complete && objects_complete;
+		let complete = objects_complete;
 		Ok(complete)
 	}
 

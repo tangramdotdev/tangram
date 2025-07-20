@@ -1,42 +1,14 @@
-use bytes::Bytes;
 use fnv::FnvHashSet;
 use foundationdb_tuple::TuplePack as _;
 use heed::{self as lmdb, DatabaseFlags};
-use http::header::CACHE_CONTROL;
 use im::HashMap;
-use num::ToPrimitive as _;
-use serde::de;
-use tangram_client::{self as tg, value::print};
+use tangram_client::{self as tg};
 
-use crate::{
-	index::PutObjectBatchArg,
-	process::{complete, start},
-};
+use crate::index::PutObjectBatchArg;
 
 pub struct Lmdb {
 	db: lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>,
 	env: lmdb::Env,
-}
-
-enum Message {
-	PutObjects(PutObjectBatchMessage),
-	PutObjectChildren(PutObjectChildrenBatchMessage),
-	DecrementObjectIncompleteChildrenCountBatch(DecrementObjectIncompleteChildrenBatchArg),
-}
-
-struct PutObjectBatchMessage {
-	objects: Vec<super::PutObjectArg>,
-	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
-}
-
-struct PutObjectChildrenBatchMessage {
-	items: Vec<super::PutObjectChildrenArg>,
-	response_sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
-}
-
-pub struct DecrementObjectIncompleteChildrenBatchArg {
-	ids: Vec<tg::object::Id>,
-	response_sender: tokio::sync::oneshot::Sender<tg::Result<Vec<u64>>>,
 }
 
 impl Lmdb {
@@ -358,19 +330,14 @@ impl Lmdb {
 				.db
 				.get(transaction, &complete_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
-			let complete = if let Some(complete) = complete {
-				// Convert the byte slice to a bool
-				let complete = if complete == [1] {
-					true
-				} else if complete == [0] {
-					false
-				} else {
-					panic!("Invalid boolean value stored in LMDB");
-				};
-				Some(complete)
-			} else {
-				output.push(None);
-				continue;
+			let complete = match complete {
+				Some([1]) => Some(true),
+				Some([0]) => Some(false),
+				Some(_) => panic!("Invalid boolean value stored in LMDB"),
+				None => {
+					output.push(None);
+					continue;
+				},
 			};
 			output.push(complete);
 		}
@@ -400,7 +367,7 @@ impl Lmdb {
 			let key = (2, id.to_bytes());
 			let dup = self
 				.db
-				.get_duplicates(&transaction, &key.pack_to_vec())
+				.get_duplicates(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
 			if let Some(dup) = dup {
 				for parent in dup {
@@ -413,18 +380,6 @@ impl Lmdb {
 			}
 			output.push(parents);
 		}
-		Ok(output)
-	}
-
-	pub fn try_get_object_parents_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
-		let transaction = self
-			.env
-			.write_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let output = self.try_get_object_parents_batch_with_transaction(&transaction, ids)?;
 		Ok(output)
 	}
 
@@ -452,18 +407,6 @@ impl Lmdb {
 			}
 			output.push(children);
 		}
-		Ok(output)
-	}
-
-	pub fn try_get_object_children_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
-		let transaction = self
-			.env
-			.write_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let output = self.try_get_object_children_batch_with_transaction(&transaction, ids)?;
 		Ok(output)
 	}
 
@@ -499,35 +442,16 @@ impl Lmdb {
 				.db
 				.get(transaction, &complete_key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?;
-			let complete = if let Some(complete) = complete_bytes {
-				// Convert the byte slice to a bool
-				if complete == [1] {
-					true
-				} else if complete == [0] {
-					false
-				} else {
-					panic!("Invalid boolean value stored in LMDB");
-				}
-			} else {
-				return Err(tg::error!("expected a complete value for the object"));
+			let complete = match complete_bytes {
+				Some([1]) => true,
+				Some([0]) => false,
+				Some(_) => panic!("Invalid boolean value stored in LMDB"),
+				None => return Err(tg::error!("expected a complete value for the object")),
 			};
 			if !complete && incomplete_children_count == 0 {
 				output.push(id.clone());
 			}
 		}
-		Ok(output)
-	}
-
-	pub fn try_get_object_incomplete_children_count_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let mut transaction = self
-			.env
-			.write_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let output =
-			self.update_incomplete_children_counts_batch_with_transaction(&mut transaction, ids)?;
 		Ok(output)
 	}
 
@@ -622,33 +546,53 @@ impl Lmdb {
 				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 
 			if let Some(count) = object.count {
+				let count_key = count_key.pack_to_vec();
 				let bytes = count.to_le_bytes().to_vec();
 				self.db
-					.put(transaction, &count_key.pack_to_vec(), &bytes)
+					.delete(transaction, &count_key)
+					.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+				self.db
+					.put(transaction, &count_key, &bytes)
 					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
 			if let Some(depth) = object.depth {
+				let depth_key = depth_key.pack_to_vec();
 				let bytes = depth.to_le_bytes().to_vec();
 				self.db
-					.put(transaction, &depth_key.pack_to_vec(), &bytes)
+					.delete(transaction, &depth_key)
+					.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+				self.db
+					.put(transaction, &depth_key, &bytes)
 					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
 			if let Some(incomplete_children) = object.incomplete_children {
+				let incomplete_children_key = incomplete_children_key.pack_to_vec();
 				let bytes = incomplete_children.to_le_bytes().to_vec();
 				self.db
-					.put(transaction, &incomplete_children_key.pack_to_vec(), &bytes)
+					.delete(transaction, &incomplete_children_key)
+					.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+				self.db
+					.put(transaction, &incomplete_children_key, &bytes)
 					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
 			if let Some(size) = object.size {
+				let size_key = size_key.pack_to_vec();
 				let bytes = size.to_le_bytes().to_vec();
 				self.db
-					.put(transaction, &size_key.pack_to_vec(), &bytes)
+					.delete(transaction, &size_key)
+					.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+				self.db
+					.put(transaction, &size_key, &bytes)
 					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
 			if let Some(weight) = object.weight {
+				let weight_key = weight_key.pack_to_vec();
 				let bytes = weight.to_le_bytes().to_vec();
 				self.db
-					.put(transaction, &weight_key.pack_to_vec(), &bytes)
+					.delete(transaction, &weight_key)
+					.map_err(|source| tg::error!(!source, "failed to delete the value"))?;
+				self.db
+					.put(transaction, &weight_key, &bytes)
 					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
 		}
@@ -712,28 +656,3 @@ impl Lmdb {
 		Ok::<_, tg::Error>(output)
 	}
 }
-
-// objects children
-// (object_id, child_id) -> key
-// need to also keep track of parents for each child.
-// (child_id, parent_id)-> key
-// Need to do range queries to find the parents of a child and the children of a parent.
-
-//objects
-// (object_id, 0) complete -> key
-// (object_id, 1) count -> key
-// (object_id, 2) depth -> key
-// (object_id, 3) size -> key
-// (object_id, 4) weight
-// (object_id, 5) incomplete_children
-
-// Step 1. Insert children into the object_children table.
-// Step 2: Compute the incomplete children count for an object.
-// For all of the object's children, see which ones are not present in the objects table or whose complete field is false. Set the incomplete children count, and keep track of all ids whose incomplete_children count is 0. => initial condition.
-// Step 3. Insert objects into the objects table with their initial values.
-
-// Begin loop
-// Step 4: Update the count, depth, weight
-// For all objects whose incomplete_children count is 0, find all of its children, grab their count, depth, and weight and add them up to get the count, depth, and weight of the parent.
-
-// Step 5. For all objects who are now complete, find their parents and decrement their incomplete children count. All items whose incomplete_children count is 0 are now eligible for update themselves.

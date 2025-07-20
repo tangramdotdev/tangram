@@ -89,7 +89,7 @@ impl Server {
 								.weight
 								.zip(b.as_ref().and_then(|b| b.weight))
 								.map(|(a, b)| a + b);
-							let complete = a.complete || b.as_ref().map_or(false, |b| b.complete);
+							let complete = a.complete || b.as_ref().is_some_and(|b| b.complete);
 							tg::object::Metadata {
 								complete,
 								count,

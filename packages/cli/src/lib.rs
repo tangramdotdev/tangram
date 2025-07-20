@@ -785,16 +785,17 @@ impl Cli {
 		// Set the index config.
 		if let Some(index) = self.config.as_ref().and_then(|config| config.index.clone()) {
 			config.index = match index {
-				// #[cfg(feature = "foundationdb")]
-				// config::Store::Fdb(fdb) => {
-				// 	todo!()
-				// },
+				#[cfg(feature = "foundationdb")]
+				config::Index::Fdb(fdb) => {
+					tangram_server::config::Index::Fdb(tangram_server::config::FdbIndex {
+						path: fdb.path,
+					})
+				},
 				config::Index::Lmdb(lmdb) => {
 					tangram_server::config::Index::Lmdb(tangram_server::config::LmdbIndex {
 						path: lmdb.path.unwrap_or_else(|| config.directory.join("index")),
 					})
 				},
-				// config::Store::Memory => tangram_server::config::Store::Memory,
 			};
 		}
 

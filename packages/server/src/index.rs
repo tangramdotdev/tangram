@@ -9,6 +9,8 @@ use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{self as messenger, Acker, prelude::*};
 use tokio_util::task::AbortOnDropHandle;
 
+#[cfg(feature = "foundationdb")]
+mod fdb;
 mod lmdb;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -260,7 +262,7 @@ impl Server {
 	}
 
 	async fn indexer_put_objects(&self, messages: Vec<PutObjectMessage>) -> tg::Result<()> {
-		self.index.put_objects(messages)?;
+		self.index.put_objects(&messages).await?;
 		Ok(())
 	}
 
@@ -338,14 +340,16 @@ impl std::str::FromStr for ProcessObjectKind {
 	}
 }
 
+#[cfg(feature = "foundationdb")]
+pub use self::fdb::Fdb;
 pub use self::lmdb::Lmdb;
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Index {
-	// #[cfg(feature = "foundationdb")]
-	// Fdb(Fdb),
+	#[cfg(feature = "foundationdb")]
+	Fdb(Fdb),
 	Lmdb(Lmdb),
 	// Memory(Memory),
 	// S3(S3),
@@ -380,10 +384,6 @@ pub struct PutObjectChildrenBatchArg {
 	items: Vec<PutObjectChildrenArg>,
 }
 
-pub struct DecrementObjectIncompleteChildrenBatchArg {
-	pub ids: Vec<tg::object::Id>,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Object {
 	pub id: tg::object::Id,
@@ -396,25 +396,22 @@ pub struct Object {
 }
 
 impl Index {
-	// #[cfg(feature = "foundationdb")]
-	// pub fn new_fdb(config: &crate::config::FdbStore) -> tg::Result<Self> {
-	// 	let fdb = Fdb::new(config)?;
-	// 	Ok(Self::Fdb(fdb))
-	// }
+	#[cfg(feature = "foundationdb")]
+	pub fn new_fdb(config: &crate::config::FdbIndex) -> tg::Result<Self> {
+		let fdb = Fdb::new(config)?;
+		Ok(Self::Fdb(fdb))
+	}
 
 	pub fn new_lmdb(config: &crate::config::LmdbIndex) -> tg::Result<Self> {
 		let lmdb = Lmdb::new(config)?;
 		Ok(Self::Lmdb(lmdb))
 	}
 
-	// pub fn new_memory() -> Self {
-	// 	Self::Memory(Memory::new())
-	// }
-	pub fn put_objects(&self, messages: Vec<PutObjectMessage>) -> tg::Result<()> {
+	pub async fn put_objects(&self, messages: &[PutObjectMessage]) -> tg::Result<()> {
 		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.put_objects(messages).await,
-			Self::Lmdb(lmdb) => lmdb.put_objects(&messages),
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.put_objects(messages).await,
+			Self::Lmdb(lmdb) => lmdb.put_objects(messages),
 			// Self::Memory(memory) => memory.put_objects(messages),
 		}
 	}
@@ -424,22 +421,10 @@ impl Index {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Object>>> {
 		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.try_get_objects_batch(ids).await,
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_object_batch(ids).await,
 			Self::Lmdb(lmdb) => lmdb.try_get_object_batch(ids),
 			// Self::Memory(memory) => Ok(memory.try_get_objects_batch(ids)),
-		}
-	}
-
-	pub async fn try_get_object_incomplete_children_count_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<tg::object::Id>> {
-		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.try_get_objects_complete_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_object_incomplete_children_count_batch(ids),
-			// Self::Memory(memory) => Ok(memory.try_get_objects_complete_batch(ids)),
 		}
 	}
 
@@ -448,70 +433,10 @@ impl Index {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<bool>>> {
 		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.try_get_objects_complete_batch(ids).await,
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_object_complete_batch(ids).await,
 			Self::Lmdb(lmdb) => lmdb.try_get_object_complete_batch(ids),
 			// Self::Memory(memory) => Ok(memory.try_get_objects_complete_batch(ids)),
 		}
 	}
-
-	pub async fn try_get_object_parents_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
-		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.try_get_object_parents_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_object_parents_batch(ids),
-			// Self::Memory(memory) => Ok(memory.try_get_object_parents_batch(ids)),
-		}
-	}
-
-	pub async fn try_get_object_children_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Vec<tg::object::Id>>> {
-		match self {
-			// #[cfg(feature = "foundationdb")]
-			// Self::Fdb(fdb) => fdb.try_get_object_children_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_object_children_batch(ids),
-			// Self::Memory(memory) => Ok(memory.try_get_object_children_batch(ids)),
-		}
-	}
-
-	// pub async fn put_object_batch(&self, arg: PutObjectBatchArg) -> tg::Result<()> {
-	// 	match self {
-	// 		// #[cfg(feature = "foundationdb")]
-	// 		// Self::Fdb(fdb) => fdb.put_objects_batch(arg).await,
-	// 		Self::Lmdb(lmdb) => lmdb.put_object_batch(arg).await,
-	// 		// Self::Memory(memory) => memory.put_objects_batch(arg),
-	// 	}
-	// }
-
-	// pub async fn put_object_children_batch(
-	// 	&self,
-	// 	arg: PutObjectChildrenBatchArg,
-	// ) -> tg::Result<()> {
-	// 	match self {
-	// 		// #[cfg(feature = "foundationdb")]
-	// 		// Self::Fdb(fdb) => fdb.put_object_children_batch(arg).await,
-	// 		Self::Lmdb(lmdb) => lmdb.put_object_children_batch(arg).await,
-	// 		// Self::Memory(memory) => memory.put_object_children_batch(arg),
-	// 	}
-	// }
-
-	// pub async fn decrement_object_incomplete_children_count_batch(
-	// 	&self,
-	// 	ids: &[tg::object::Id],
-	// ) -> tg::Result<Vec<u64>> {
-	// 	match self {
-	// 		// #[cfg(feature = "foundationdb")]
-	// 		// Self::Fdb(fdb) => fdb.decrement_object_incomplete_children_count_batch(ids).await,
-	// 		Self::Lmdb(lmdb) => {
-	// 			lmdb.decrement_object_incomplete_children_count_batch(ids)
-	// 				.await
-	// 		},
-	// 		// Self::Memory(memory) => memory.decrement_object_incomplete_children_count_batch(ids),
-	// 	}
-	// }
 }

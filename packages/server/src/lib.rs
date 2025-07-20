@@ -283,8 +283,8 @@ impl Server {
 		// Create the index.
 		let index = match &config.index {
 			// config::Store::Memory => Index::new_memory(),
-			// #[cfg(feature = "foundationdb")]
-			// config::Store::Fdb(fdb) => Index::new_fdb(fdb)?,
+			#[cfg(feature = "foundationdb")]
+			config::Index::Fdb(fdb) => Index::new_fdb(fdb)?,
 			config::Index::Lmdb(lmdb) => Index::new_lmdb(lmdb)?,
 		};
 

@@ -180,8 +180,8 @@ pub struct Http {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Index {
-	// #[cfg(feature = "foundationdb")]
-	// Fdb(FdbIndex),
+	#[cfg(feature = "foundationdb")]
+	Fdb(FdbIndex),
 	Lmdb(LmdbIndex),
 	// #[default]
 	// Memory,
@@ -191,6 +191,14 @@ pub enum Index {
 #[derive(Clone, Default, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LmdbIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+}
+
+#[cfg(feature = "foundationdb")]
+#[derive(Clone, Default, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FdbIndex {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }

@@ -79,8 +79,8 @@ pub struct Http {
 
 #[derive(Clone, Debug)]
 pub enum Index {
-	// #[cfg(feature = "foundationdb")]
-	// Fdb(FdbIndex),
+	#[cfg(feature = "foundationdb")]
+	Fdb(FdbIndex),
 	Lmdb(LmdbIndex),
 	// Memory,
 	// S3(S3Store),
@@ -89,6 +89,12 @@ pub enum Index {
 #[derive(Clone, Debug)]
 pub struct LmdbIndex {
 	pub path: PathBuf,
+}
+
+#[cfg(feature = "foundationdb")]
+#[derive(Clone, Debug)]
+pub struct FdbIndex {
+	pub path: Option<PathBuf>,
 }
 
 // #[derive(Clone, Debug)]
