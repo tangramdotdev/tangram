@@ -7,6 +7,12 @@ use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 
+#[derive(Clone, Debug, serde::Deserialize)]
+struct Row {
+	tag: tg::Tag,
+	item: Either<tg::process::Id, tg::object::Id>,
+}
+
 impl Server {
 	pub async fn list_tags(
 		&self,
@@ -53,44 +59,20 @@ impl Server {
 	}
 
 	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let mut rows = self.query_tags(&arg.pattern).await?;
 
-		#[derive(Clone, Debug, serde::Deserialize)]
-		struct Row {
-			tag: tg::Tag,
-			item: Either<tg::process::Id, tg::object::Id>,
+		// If there is no match and the last component is normal, search for any versioned items.
+		if matches!(
+			arg.pattern.components().last(),
+			Some(tg::tag::pattern::Component::Normal(_))
+		) && rows.is_empty()
+		{
+			let mut pattern = arg.pattern.into_components();
+			pattern.push(tg::tag::pattern::Component::Wildcard);
+			rows = self
+				.query_tags(&tg::tag::Pattern::with_components(pattern))
+				.await?;
 		}
-		let p = connection.p();
-		let prefix = arg
-			.pattern
-			.as_str()
-			.char_indices()
-			.find(|(_, c)| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | '/')))
-			.map_or(arg.pattern.as_str().len(), |(i, _)| i);
-		let prefix = &arg.pattern.as_str()[..prefix];
-		let statement = formatdoc!(
-			"
-				select tag, item
-				from tags
-				where tag >= {p}1 and tag < {p}1 || x'ff';
-			"
-		);
-		let params = db::params![prefix];
-		let mut rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Filter the rows.
-		rows.retain(|row| arg.pattern.matches(&row.tag));
-
-		// Sort the rows.
-		rows.sort_by(|a, b| a.tag.cmp(&b.tag));
 
 		// Reverse if requested.
 		if arg.reverse {
@@ -114,6 +96,43 @@ impl Server {
 		let output = tg::tag::list::Output { data };
 
 		Ok(output)
+	}
+
+	async fn query_tags(&self, pattern: &tg::tag::Pattern) -> tg::Result<Vec<Row>> {
+		// Get a database connection.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		let p = connection.p();
+		let prefix = pattern
+			.as_str()
+			.char_indices()
+			.find(|(_, c)| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | '/')))
+			.map_or(pattern.as_str().len(), |(i, _)| i);
+		let prefix = &pattern.as_str()[..prefix];
+		let statement = formatdoc!(
+			"
+				select tag, item
+				from tags
+				where tag >= {p}1 and tag < {p}1 || x'ff';
+			"
+		);
+		let params = db::params![prefix];
+		let mut rows = connection
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Filter the rows.
+		rows.retain(|row| pattern.matches(&row.tag));
+
+		// Sort the rows.
+		rows.sort_by(|a, b| a.tag.cmp(&b.tag));
+
+		Ok(rows)
 	}
 
 	pub(crate) async fn handle_list_tags_request<H>(
