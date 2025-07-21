@@ -387,7 +387,7 @@ impl Server {
 		// Prepare a statement for inserting objects.
 		let combined_insert_incomplete_children_statement = indoc!(
 			"
-			insert into objects (id, cache_reference, size, touched_at, incomplete_children)
+			insert into objects (id, cache_reference, size, touched_at, incomplete_children, reference_count)
 				values (
 					?1,
 					?2,
@@ -399,6 +399,11 @@ impl Server {
 						left join objects child_objects on child_objects.id = object_children.child
 						where object_children.object = ?1
 							and (child_objects.complete is null or child_objects.complete = 0)
+					),
+					(
+						(select count(*) from object_children where child = ?1) +
+						(select count(*) from process_objects where object = ?1) +
+						(select count(*) from tags where item = ?1)
 					)
 				)
 				on conflict (id) do update set
@@ -447,8 +452,114 @@ impl Server {
 					returning objects.id, objects.incomplete_children;
 			"
 		);
+
+		// Prepare a statement for finding processes that use this object and decrementing their incomplete counts.
+		let process_parents_statement = indoc!(
+			"
+				update processes
+				set
+					incomplete_commands = case when process_objects.kind = 'command' then incomplete_commands - 1 else incomplete_commands end,
+					incomplete_outputs = case when process_objects.kind = 'output' then incomplete_outputs - 1 else incomplete_outputs end
+				from process_objects
+				where processes.id = process_objects.process
+				and process_objects.object = ?1
+				returning processes.id, processes.incomplete_commands, processes.incomplete_outputs, processes.commands_complete, processes.outputs_complete, processes.incomplete_children, process_objects.kind;
+			"
+		);
+
+		// Prepare statements for updating commands and outputs completion.
+		let update_process_commands_complete_statement = indoc!(
+			"
+				with updates as (
+					select
+						processes.id,
+						min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) as commands_complete,
+						coalesce(sum(command_objects.count), 0) + coalesce(sum(child_processes.commands_count), 0) as commands_count,
+						max(coalesce(max(command_objects.depth), 0), coalesce(max(child_processes.commands_depth), 0)) as commands_depth,
+						coalesce(sum(command_objects.weight), 0) + coalesce(sum(child_processes.commands_weight), 0) as commands_weight
+					from processes
+					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
+					left join objects command_objects on command_objects.id = process_objects_commands.object
+					left join process_children process_children_commands on process_children_commands.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_commands.child
+					where processes.id = ?1
+					group by processes.id
+				)
+				update processes
+				set (commands_complete, commands_count, commands_depth, commands_weight) = (
+					select commands_complete, commands_count, commands_depth, commands_weight from updates
+				)
+				where processes.id = ?1;
+			"
+		);
+
+		let update_process_outputs_complete_statement = indoc!(
+			"
+				with updates as (
+					select
+						processes.id,
+						min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) as outputs_complete,
+						coalesce(sum(output_objects.count), 0) + coalesce(sum(child_processes.outputs_count), 0) as outputs_count,
+						max(coalesce(max(output_objects.depth), 0), coalesce(max(child_processes.outputs_depth), 0)) as outputs_depth,
+						coalesce(sum(output_objects.weight), 0) + coalesce(sum(child_processes.outputs_weight), 0) as outputs_weight
+					from processes
+					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
+					left join objects output_objects on output_objects.id = process_objects_outputs.object
+					left join process_children process_children_outputs on process_children_outputs.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_outputs.child
+					where processes.id = ?1
+					group by processes.id
+				)
+				update processes
+				set (outputs_complete, outputs_count, outputs_depth, outputs_weight) = (
+					select outputs_complete, outputs_count, outputs_depth, outputs_weight from updates
+				)
+				where processes.id = ?1;
+			"
+		);
+
+		// Prepare statements for updating parent processes' incomplete_children_commands/outputs when child processes become complete.
+		let update_parent_incomplete_children_commands_statement = indoc!(
+			"
+				update processes
+				set incomplete_children_commands = incomplete_children_commands - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = ?1
+				);
+			"
+		);
+
+		let update_parent_incomplete_children_outputs_statement = indoc!(
+			"
+				update processes
+				set incomplete_children_outputs = incomplete_children_outputs - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = ?1
+				);
+			"
+		);
 		let mut parents_statement = transaction
 			.prepare_cached(parents_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut process_parents_statement =
+			transaction
+				.prepare_cached(process_parents_statement)
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut update_process_commands_complete_statement = transaction
+			.prepare_cached(update_process_commands_complete_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut update_process_outputs_complete_statement = transaction
+			.prepare_cached(update_process_outputs_complete_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut update_parent_incomplete_children_commands_statement = transaction
+			.prepare_cached(update_parent_incomplete_children_commands_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut update_parent_incomplete_children_outputs_statement = transaction
+			.prepare_cached(update_parent_incomplete_children_outputs_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let mut objects_to_update = Vec::new();
@@ -469,7 +580,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Insert the object and get the incomplete chidren count
+			// Insert the object and get the incomplete children count.
 			let (incomplete_children_count, complete) =
 				combined_insert_incomplete_children_statement
 					.query_one(
@@ -487,7 +598,7 @@ impl Server {
 					.execute(rusqlite::params![&object.to_string()])
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-				// Find all parents of the object, decrement their incomplete_children_count, and if incomplete_children_count is now 0, add them to the queue.
+				// Find all parent objects, decrement their incomplete_children_count, and if incomplete_children_count is now 0, add them to the queue.
 				parents_statement
 					.query_map(rusqlite::params![&object.to_string()], |row| {
 						let id = row.get::<_, String>(0)?;
@@ -506,6 +617,83 @@ impl Server {
 						if let Ok((id, _)) = res {
 							let id = id.parse().unwrap();
 							objects_to_update.push(id);
+						}
+					});
+
+				// Find all parent processes that use this object, decrement their incomplete_commands/incomplete_outputs counts.
+				process_parents_statement
+					.query_map(rusqlite::params![&object.to_string()], |row| {
+						let id = row.get::<_, String>(0)?;
+						let incomplete_commands = row.get::<_, i64>(1)?;
+						let incomplete_outputs = row.get::<_, i64>(2)?;
+						let commands_complete = row.get::<_, i64>(3)?;
+						let outputs_complete = row.get::<_, i64>(4)?;
+						let incomplete_children = row.get::<_, i64>(5)?;
+						let kind = row.get::<_, String>(6)?;
+						Ok((
+							id,
+							incomplete_commands,
+							incomplete_outputs,
+							commands_complete,
+							outputs_complete,
+							incomplete_children,
+							kind,
+						))
+					})
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.for_each(|res| {
+						if let Ok((
+							id,
+							incomplete_commands,
+							incomplete_outputs,
+							commands_complete,
+							outputs_complete,
+							incomplete_children,
+							kind,
+						)) = res
+						{
+							// Check if we should update commands completion.
+							if kind == "command"
+								&& commands_complete == 0
+								&& incomplete_commands == 0
+								&& incomplete_children == 0
+							{
+								// Update the commands completion fields.
+								let _ = update_process_commands_complete_statement
+									.execute(rusqlite::params![&id])
+									.map_err(|source| {
+										tg::error!(!source, "failed to execute the statement")
+									});
+
+								// Update parent processes' incomplete_children_commands count.
+								// This process just became commands_complete = 1, so decrement parents.
+								let _ = update_parent_incomplete_children_commands_statement
+									.execute(rusqlite::params![&id])
+									.map_err(|source| {
+										tg::error!(!source, "failed to execute the statement")
+									});
+							}
+
+							// Check if we should update outputs completion.
+							if kind == "output"
+								&& outputs_complete == 0 && incomplete_outputs == 0
+								&& incomplete_children == 0
+							{
+								// Update the outputs completion fields.
+								let _ = update_process_outputs_complete_statement
+									.execute(rusqlite::params![&id])
+									.map_err(|source| {
+										tg::error!(!source, "failed to execute the statement")
+									});
+
+								// Update parent processes' incomplete_children_outputs count.
+								// This process just became outputs_complete = 1, so decrement parents.
+								let _ = update_parent_incomplete_children_outputs_statement
+									.execute(rusqlite::params![&id])
+									.map_err(|source| {
+										tg::error!(!source, "failed to execute the statement")
+									});
+							}
 						}
 					});
 			}
@@ -564,17 +752,179 @@ impl Server {
 			.prepare_cached(child_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+		// Prepare a statement for updating commands completion fields.
+		let update_commands_complete_statement = indoc!(
+			"
+				with updates as (
+					select
+						processes.id,
+						min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) as commands_complete,
+						coalesce(sum(command_objects.count), 0) + coalesce(sum(child_processes.commands_count), 0) as commands_count,
+						max(coalesce(max(command_objects.depth), 0), coalesce(max(child_processes.commands_depth), 0)) as commands_depth,
+						coalesce(sum(command_objects.weight), 0) + coalesce(sum(child_processes.commands_weight), 0) as commands_weight
+					from processes
+					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
+					left join objects command_objects on command_objects.id = process_objects_commands.object
+					left join process_children process_children_commands on process_children_commands.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_commands.child
+					where processes.id = ?1
+					group by processes.id
+				)
+				update processes
+				set (commands_complete, commands_count, commands_depth, commands_weight) = (
+					select commands_complete, commands_count, commands_depth, commands_weight from updates
+				)
+				where processes.id = ?1;
+			"
+		);
+		let mut update_commands_complete_statement = transaction
+			.prepare_cached(update_commands_complete_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare a statement for updating outputs completion fields.
+		let update_outputs_complete_statement = indoc!(
+			"
+				with updates as (
+					select
+						processes.id,
+						min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) as outputs_complete,
+						coalesce(sum(output_objects.count), 0) + coalesce(sum(child_processes.outputs_count), 0) as outputs_count,
+						max(coalesce(max(output_objects.depth), 0), coalesce(max(child_processes.outputs_depth), 0)) as outputs_depth,
+						coalesce(sum(output_objects.weight), 0) + coalesce(sum(child_processes.outputs_weight), 0) as outputs_weight
+					from processes
+					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
+					left join objects output_objects on output_objects.id = process_objects_outputs.object
+					left join process_children process_children_outputs on process_children_outputs.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_outputs.child
+					where processes.id = ?1
+					group by processes.id
+				)
+				update processes
+				set (outputs_complete, outputs_count, outputs_depth, outputs_weight) = (
+					select outputs_complete, outputs_count, outputs_depth, outputs_weight from updates
+				)
+				where processes.id = ?1;
+			"
+		);
+		let mut update_outputs_complete_statement = transaction
+			.prepare_cached(update_outputs_complete_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare a statement for finding parents and decrementing their incomplete_children count.
+		let parents_statement = indoc!(
+			"
+				update processes
+				set incomplete_children = incomplete_children - 1
+				where processes.id in (
+					select process_children.process
+					from process_children
+					where process_children.child = ?1
+				)
+				returning processes.id, processes.incomplete_children;
+			"
+		);
+
+		// Prepare statements for updating parent processes' incomplete_children_commands/outputs when child processes become complete.
+		let update_parent_incomplete_children_commands_statement = indoc!(
+			"
+				update processes
+				set incomplete_children_commands = incomplete_children_commands - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = ?1
+				);
+			"
+		);
+
+		let update_parent_incomplete_children_outputs_statement = indoc!(
+			"
+				update processes
+				set incomplete_children_outputs = incomplete_children_outputs - 1
+				where id in (
+					select process
+					from process_children
+					where process_children.child = ?1
+				);
+			"
+		);
+
+		let mut parents_statement = transaction
+			.prepare_cached(parents_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut update_parent_incomplete_children_commands_statement = transaction
+			.prepare_cached(update_parent_incomplete_children_commands_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut update_parent_incomplete_children_outputs_statement = transaction
+			.prepare_cached(update_parent_incomplete_children_outputs_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let process_statement = indoc!(
 			"
-				insert into processes (id, touched_at)
-				values (?1, ?2)
-				on conflict (id) do update set touched_at = ?2;
+				insert into processes (
+					id,
+					touched_at,
+					incomplete_children,
+					incomplete_commands,
+					incomplete_outputs,
+					incomplete_children_commands,
+					incomplete_children_outputs,
+					reference_count
+				)
+				values (
+					?1,
+					?2,
+					(
+						select count(*)
+						from process_children
+						left join processes child_processes on child_processes.id = process_children.child
+						where process_children.process = ?1
+						and (child_processes.complete is null or child_processes.complete = 0)
+					),
+					(
+						select count(*)
+						from process_objects
+						left join objects on objects.id = process_objects.object
+						where process_objects.process = ?1
+						and process_objects.kind = 'command'
+						and (objects.complete is null or objects.complete = 0)
+					),
+					(
+						select count(*)
+						from process_objects
+						left join objects on objects.id = process_objects.object
+						where process_objects.process = ?1
+						and process_objects.kind = 'output'
+						and (objects.complete is null or objects.complete = 0)
+					),
+					(
+						select count(*)
+						from process_children
+						left join processes child_processes on child_processes.id = process_children.child
+						where process_children.process = ?1
+						and (child_processes.complete is null or child_processes.commands_complete = 0)
+					),
+					(
+						select count(*)
+						from process_children
+						left join processes child_processes on child_processes.id = process_children.child
+						where process_children.process = ?1
+						and (child_processes.complete is null or child_processes.outputs_complete = 0)
+					),
+					(
+						(select count(*) from process_children where child = ?1) +
+						(select count(*) from tags where item = ?1)
+					)
+				)
+				on conflict (id) do update set
+					touched_at = ?2
 			"
 		);
 		let mut process_statement = transaction
 			.prepare_cached(process_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+		let mut processes_to_update = Vec::new();
 		for message in messages {
 			// Insert the objects.
 			for (object, kind) in message.objects {
@@ -601,11 +951,155 @@ impl Server {
 				}
 			}
 
-			// Insert the process.
+			// Insert the process and check if it becomes complete.
 			let params = sqlite::params![message.id.to_string(), message.touched_at];
 			process_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Check if this process is now complete (all incomplete counts are 0).
+			let (incomplete_children, incomplete_commands, incomplete_outputs) = transaction
+				.prepare_cached("select incomplete_children, incomplete_commands, incomplete_outputs from processes where id = ?1")
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+				.query_row(sqlite::params![message.id.to_string()], |row| {
+					let incomplete_children: i64 = row.get(0)?;
+					let incomplete_commands: i64 = row.get(1)?;
+					let incomplete_outputs: i64 = row.get(2)?;
+					Ok((incomplete_children, incomplete_commands, incomplete_outputs))
+				})
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// If incomplete_children = 0, update complete and count fields.
+			if incomplete_children == 0 {
+				let update_complete_statement = indoc!(
+					"
+						with updates as (
+							select
+								processes.id,
+								coalesce(min(child_processes.complete), 1) as complete,
+								1 + coalesce(sum(child_processes.count), 0) as count
+							from processes
+							left join process_children on process_children.process = processes.id
+							left join processes as child_processes on child_processes.id = process_children.child
+							where processes.id = ?1
+							group by processes.id
+						)
+						update processes
+						set (complete, count) = (
+							select complete, count from updates
+						)
+						where processes.id = ?1;
+					"
+				);
+				transaction
+					.prepare_cached(update_complete_statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+					.execute(rusqlite::params![&message.id.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// If all incomplete counts are 0, add to the full update queue.
+			if incomplete_children == 0 && incomplete_commands == 0 && incomplete_outputs == 0 {
+				processes_to_update.push(message.id);
+			}
+		}
+
+		// Process completion updates.
+		while let Some(process_id) = processes_to_update.pop() {
+			// Get the current state of the process to check trigger conditions.
+			let (complete, commands_complete, incomplete_commands, outputs_complete, incomplete_outputs, incomplete_children) = transaction
+				.prepare_cached("select complete, commands_complete, incomplete_commands, outputs_complete, incomplete_outputs, incomplete_children from processes where id = ?1")
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+				.query_row(rusqlite::params![&process_id.to_string()], |row| {
+					let complete: i64 = row.get(0)?;
+					let commands_complete: i64 = row.get(1)?;
+					let incomplete_commands: i64 = row.get(2)?;
+					let outputs_complete: i64 = row.get(3)?;
+					let incomplete_outputs: i64 = row.get(4)?;
+					let incomplete_children: i64 = row.get(5)?;
+					Ok((complete, commands_complete, incomplete_commands, outputs_complete, incomplete_outputs, incomplete_children))
+				})
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Update commands completion if conditions are met: commands_complete = 0, incomplete_commands = 0, incomplete_children = 0.
+			// Only update if not already complete to avoid duplicate work.
+			if commands_complete == 0 && incomplete_commands == 0 && incomplete_children == 0 {
+				update_commands_complete_statement
+					.execute(rusqlite::params![&process_id.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Update parent processes' incomplete_children_commands count.
+				// This process just became commands_complete = 1, so decrement parents.
+				update_parent_incomplete_children_commands_statement
+					.execute(rusqlite::params![&process_id.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Update outputs completion if conditions are met: outputs_complete = 0, incomplete_outputs = 0, incomplete_children = 0.
+			// Only update if not already complete to avoid duplicate work.
+			if outputs_complete == 0 && incomplete_outputs == 0 && incomplete_children == 0 {
+				update_outputs_complete_statement
+					.execute(rusqlite::params![&process_id.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Update parent processes' incomplete_children_outputs count.
+				// This process just became outputs_complete = 1, so decrement parents.
+				update_parent_incomplete_children_outputs_statement
+					.execute(rusqlite::params![&process_id.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Update overall process completion if conditions are met: complete = 0, incomplete_children = 0.
+			// Only update if not already complete to avoid duplicate work.
+			if complete == 0 && incomplete_children == 0 {
+				let update_complete_statement = indoc!(
+					"
+						with updates as (
+							select
+								processes.id,
+								coalesce(min(child_processes.complete), 1) as complete,
+								1 + coalesce(sum(child_processes.count), 0) as count
+							from processes
+							left join process_children on process_children.process = processes.id
+							left join processes as child_processes on child_processes.id = process_children.child
+							where processes.id = ?1
+							group by processes.id
+						)
+						update processes
+						set (complete, count) = (
+							select complete, count from updates
+						)
+						where processes.id = ?1;
+					"
+				);
+				transaction
+					.prepare_cached(update_complete_statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+					.execute(rusqlite::params![&process_id.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Find all parents of this process, decrement their incomplete_children count.
+			parents_statement
+				.query_map(rusqlite::params![&process_id.to_string()], |row| {
+					let id = row.get::<_, String>(0)?;
+					let incomplete_children = row.get::<_, i64>(1)?;
+					Ok((id, incomplete_children))
+				})
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.filter_map_ok(|(id, incomplete_children)| {
+					if incomplete_children == 0 {
+						Some(id)
+					} else {
+						None
+					}
+				})
+				.for_each(|res| {
+					if let Ok(id) = res {
+						let id = id.parse().unwrap();
+						processes_to_update.push(id);
+					}
+				});
 		}
 
 		Ok(())
