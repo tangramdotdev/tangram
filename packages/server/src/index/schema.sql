@@ -36,14 +36,6 @@ create index objects_reference_count_zero_index on objects (touched_at) where re
 
 create index objects_cache_entry_index on objects (cache_reference) where cache_reference is not null;
 
-create trigger objects_insert_cache_reference_trigger
-after insert on objects
-for each row
-begin
-	update cache_entries
-	set reference_count = reference_count + 1
-	where id = new.cache_reference;
-end;
 
 create trigger objects_delete_trigger
 after delete on objects
@@ -65,15 +57,6 @@ create table object_children (
 create unique index object_children_index on object_children (object, child);
 
 create index object_children_child_index on object_children (child);
-
-create trigger object_children_insert_trigger
-after insert on object_children
-for each row
-begin
-	update objects
-	set reference_count = objects.reference_count + 1
-	where id = new.child;
-end;
 
 create trigger object_children_delete_trigger
 after delete on object_children
@@ -132,15 +115,6 @@ create unique index process_children_index on process_children (process, positio
 
 create index process_children_child_process_index on process_children (child);
 
-create trigger process_children_insert_trigger
-after insert on process_children
-for each row
-begin
-	update processes
-	set reference_count = processes.reference_count + 1
-	where id = new.child;
-end;
-
 create trigger process_children_delete_trigger
 after delete on process_children
 for each row
@@ -159,14 +133,6 @@ create table process_objects (
 create unique index process_objects_index on process_objects (process, object, kind);
 
 create index process_objects_object_index on process_objects (object);
-
-create trigger process_objects_insert_trigger
-after insert on process_objects
-begin
-	update objects
-	set reference_count = reference_count + 1
-	where id = new.object;
-end;
 
 create trigger process_objects_delete_trigger
 after delete on process_objects

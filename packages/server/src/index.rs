@@ -578,6 +578,20 @@ impl Server {
 				children_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Update child object's reference_count.
+				let child_ref_update_statement = indoc!(
+					"
+						update objects
+						set reference_count = reference_count + 1
+						where id = ?1;
+					"
+				);
+				transaction
+					.prepare_cached(child_ref_update_statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+					.execute(rusqlite::params![&child])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
 			// Insert the object and get the incomplete children count.
@@ -588,6 +602,23 @@ impl Server {
 						|row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
 					)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Update cache_entries reference_count if this object has a cache_reference.
+			if let Some(ref cache_ref) = cache_reference {
+				let cache_update_statement = indoc!(
+					"
+						update cache_entries
+						set reference_count = reference_count + 1
+						where id = ?1;
+					"
+				);
+				transaction
+					.prepare_cached(cache_update_statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+					.execute(rusqlite::params![cache_ref])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
 			if incomplete_children_count == 0 && complete == 0 {
 				objects_to_update.push(id);
 			}
@@ -933,6 +964,20 @@ impl Server {
 				object_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Update object's reference_count.
+				let object_ref_update_statement = indoc!(
+					"
+						update objects
+						set reference_count = reference_count + 1
+						where id = ?1;
+					"
+				);
+				transaction
+					.prepare_cached(object_ref_update_statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+					.execute(rusqlite::params![&object.to_string()])
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
 			// Insert the children.
@@ -947,6 +992,20 @@ impl Server {
 					];
 					child_statement
 						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+					// Update child process's reference_count.
+					let child_ref_update_statement = indoc!(
+						"
+							update processes
+							set reference_count = reference_count + 1
+							where id = ?1;
+						"
+					);
+					transaction
+						.prepare_cached(child_ref_update_statement)
+						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
+						.execute(rusqlite::params![&child.item.to_string()])
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				}
 			}
@@ -1006,7 +1065,7 @@ impl Server {
 
 		// Process completion updates.
 		while let Some(process_id) = processes_to_update.pop() {
-			// Get the current state of the process to check trigger conditions.
+			// Get the current state of the process to check update conditions.
 			let (complete, commands_complete, incomplete_commands, outputs_complete, incomplete_outputs, incomplete_children) = transaction
 				.prepare_cached("select complete, commands_complete, incomplete_commands, outputs_complete, incomplete_outputs, incomplete_children from processes where id = ?1")
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?
