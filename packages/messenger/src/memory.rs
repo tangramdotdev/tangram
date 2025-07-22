@@ -243,9 +243,9 @@ impl Stream {
 	}
 
 	async fn publish(&self, payload: Bytes) -> Result<u64, Error> {
-		let mut infos = self.batch_publish(vec![payload]).await?;
-		let info = infos.pop().ok_or_else(|| Error::MaxMessages)?;
-		Ok(info)
+		let mut ids = self.batch_publish(vec![payload]).await?;
+		let id = ids.pop().ok_or_else(|| Error::MaxMessages)?;
+		Ok(id)
 	}
 
 	async fn batch_publish(&self, payloads: Vec<Bytes>) -> Result<Vec<u64>, Error> {

@@ -194,9 +194,13 @@ impl Server {
 			.inspect_err(|error| {
 				tracing::error!(?error);
 			})
-			.filter_map(|result| future::ready(result.ok()))
-			.ready_chunks(config.message_batch_size)
-			.map(Ok);
+			.filter_map(|result| future::ready(result.ok()));
+		let stream = tokio_stream::StreamExt::chunks_timeout(
+			stream,
+			config.message_batch_size,
+			config.message_batch_timeout,
+		)
+		.map(Ok);
 		Ok(stream)
 	}
 

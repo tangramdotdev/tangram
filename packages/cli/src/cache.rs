@@ -1,5 +1,7 @@
 use crate::Cli;
 use tangram_client::{self as tg, Handle as _};
+
+/// Cache an artifact.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
