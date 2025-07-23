@@ -3,21 +3,28 @@ use crate::{
 };
 use async_broadcast as broadcast;
 use bytes::Bytes;
-use dashmap::DashMap;
 use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
 use num::ToPrimitive as _;
 use std::{
-	collections::HashMap,
+	collections::{BTreeMap, HashMap},
 	ops::Deref,
 	pin::pin,
-	sync::{Arc, Mutex, Weak},
+	sync::{Arc, RwLock, Weak},
 };
-use tokio::sync::{Notify, RwLock};
 
+#[derive(Clone)]
 pub struct Messenger {
+	inner: Arc<MessengerInner>,
+}
+
+pub struct MessengerInner {
 	receiver: broadcast::InactiveReceiver<(String, Bytes)>,
 	sender: broadcast::Sender<(String, Bytes)>,
-	streams: DashMap<String, Stream>,
+	state: RwLock<MessengerState>,
+}
+
+struct MessengerState {
+	streams: HashMap<String, Stream>,
 }
 
 #[derive(Clone)]
@@ -26,18 +33,24 @@ pub struct Stream {
 }
 
 pub struct StreamInner {
-	config: StreamConfig,
 	name: String,
-	notify: tokio::sync::Notify,
 	state: tokio::sync::RwLock<StreamState>,
 }
 
 struct StreamState {
 	bytes: u64,
 	closed: bool,
-	consumers: HashMap<String, Consumer>,
-	messages: Vec<(u64, Bytes)>,
-	id: u64,
+	config: StreamConfig,
+	consumers: HashMap<String, (Consumer, ConsumerState)>,
+	messages: BTreeMap<u64, Bytes>,
+	notify: Arc<tokio::sync::Notify>,
+	sequence: u64,
+}
+
+struct ConsumerState {
+	#[allow(dead_code)]
+	config: ConsumerConfig,
+	sequence: u64,
 }
 
 #[derive(Clone)]
@@ -46,16 +59,8 @@ pub struct Consumer {
 }
 
 pub struct ConsumerInner {
-	#[allow(dead_code)]
-	config: ConsumerConfig,
-	#[allow(dead_code)]
 	name: String,
-	state: Mutex<ConsumerState>,
 	stream: Weak<StreamInner>,
-}
-
-struct ConsumerState {
-	sequence: u64,
 }
 
 impl Messenger {
@@ -65,12 +70,14 @@ impl Messenger {
 		let receiver = receiver.deactivate();
 		sender.set_overflow(true);
 		sender.set_await_active(false);
-		let streams = DashMap::new();
-		Self {
+		let streams = HashMap::new();
+		let state = RwLock::new(MessengerState { streams });
+		let inner = Arc::new(MessengerInner {
 			receiver,
 			sender,
-			streams,
-		}
+			state,
+		});
+		Self { inner }
 	}
 
 	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
@@ -99,13 +106,24 @@ impl Messenger {
 	}
 
 	async fn get_stream(&self, name: String) -> Result<Stream, Error> {
-		Ok(self.streams.get(&name).ok_or(Error::NotFound)?.clone())
+		Ok(self
+			.state
+			.read()
+			.unwrap()
+			.streams
+			.get(&name)
+			.ok_or(Error::NotFound)?
+			.clone())
 	}
 
 	async fn create_stream(&self, name: String, config: StreamConfig) -> Result<Stream, Error> {
 		self.delete_stream(name.clone()).await?;
 		let stream = Stream::new(name.clone(), config);
-		self.streams.insert(name, stream.clone());
+		self.state
+			.write()
+			.unwrap()
+			.streams
+			.insert(name, stream.clone());
 		Ok(stream)
 	}
 
@@ -115,16 +133,19 @@ impl Messenger {
 		config: StreamConfig,
 	) -> Result<Stream, Error> {
 		let stream = self
+			.state
+			.write()
+			.unwrap()
 			.streams
 			.entry(name.clone())
 			.or_insert_with(|| Stream::new(name, config))
-			.value()
 			.clone();
 		Ok(stream)
 	}
 
 	async fn delete_stream(&self, name: String) -> Result<(), Error> {
-		if let Some((_, stream)) = self.streams.remove(&name) {
+		let stream = self.state.write().unwrap().streams.remove(&name);
+		if let Some(stream) = stream {
 			stream.close().await;
 		}
 		Ok(())
@@ -135,7 +156,14 @@ impl Messenger {
 		name: String,
 		payload: Bytes,
 	) -> Result<impl Future<Output = Result<u64, Error>>, Error> {
-		let stream = self.streams.get(&name).ok_or(Error::NotFound)?.clone();
+		let stream = self
+			.state
+			.read()
+			.unwrap()
+			.streams
+			.get(&name)
+			.ok_or(Error::NotFound)?
+			.clone();
 		let future = tokio::spawn(async move { stream.publish(payload).await })
 			.map(|result| result.unwrap());
 		Ok(future)
@@ -146,7 +174,14 @@ impl Messenger {
 		name: String,
 		payloads: Vec<Bytes>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error> {
-		let stream = self.streams.get(&name).ok_or(Error::NotFound)?.clone();
+		let stream = self
+			.state
+			.read()
+			.unwrap()
+			.streams
+			.get(&name)
+			.ok_or(Error::NotFound)?
+			.clone();
 		let future = tokio::spawn(async move { stream.batch_publish(payloads).await })
 			.map(|result| result.unwrap());
 		Ok(future)
@@ -157,16 +192,16 @@ impl Stream {
 	fn new(name: String, config: StreamConfig) -> Self {
 		let state = StreamState {
 			bytes: 0,
-			consumers: HashMap::default(),
 			closed: false,
-			messages: Vec::new(),
-			id: 0,
+			config,
+			consumers: HashMap::default(),
+			messages: BTreeMap::new(),
+			notify: Arc::new(tokio::sync::Notify::new()),
+			sequence: 0,
 		};
 		let inner = Arc::new(StreamInner {
-			config,
 			name,
-			notify: Notify::new(),
-			state: RwLock::new(state),
+			state: tokio::sync::RwLock::new(state),
 		});
 		Self { inner }
 	}
@@ -177,13 +212,17 @@ impl Stream {
 
 	async fn info(&self) -> Result<StreamInfo, Error> {
 		let state = self.state.read().await;
-		let first_sequence = state.messages.first().map_or_else(
+		let first_sequence = state.messages.iter().next().map_or_else(
 			|| {
-				if state.id == 0 { 0 } else { state.id + 1 }
+				if state.sequence == 0 {
+					0
+				} else {
+					state.sequence + 1
+				}
 			},
 			|(sequence, _)| *sequence,
 		);
-		let last_sequence = state.id;
+		let last_sequence = state.sequence;
 		let info = StreamInfo {
 			first_sequence,
 			last_sequence,
@@ -199,6 +238,7 @@ impl Stream {
 			.consumers
 			.get(&name)
 			.ok_or(Error::NotFound)?
+			.0
 			.clone())
 	}
 
@@ -211,10 +251,14 @@ impl Stream {
 		state.consumers.remove(&name);
 		let sequence = state
 			.messages
-			.first()
-			.map_or(state.id, |(sequence, _)| *sequence);
-		let consumer = Consumer::new(name.clone(), config, sequence, Arc::downgrade(&self.inner));
-		state.consumers.insert(name, consumer.clone());
+			.iter()
+			.next()
+			.map_or(state.sequence, |(sequence, _)| *sequence);
+		let consumer = Consumer::new(name.clone(), Arc::downgrade(&self.inner));
+		let consumer_state = ConsumerState { config, sequence };
+		state
+			.consumers
+			.insert(name, (consumer.clone(), consumer_state));
 		Ok(consumer)
 	}
 
@@ -224,15 +268,19 @@ impl Stream {
 		config: ConsumerConfig,
 	) -> Result<Consumer, Error> {
 		let mut state = self.state.write().await;
-		if let Some(consumer) = state.consumers.get(&name) {
+		if let Some((consumer, _)) = state.consumers.get(&name) {
 			return Ok(consumer.clone());
 		}
 		let sequence = state
 			.messages
-			.first()
-			.map_or(state.id, |(sequence, _)| *sequence);
-		let consumer = Consumer::new(name.clone(), config, sequence, Arc::downgrade(&self.inner));
-		state.consumers.insert(name, consumer.clone());
+			.iter()
+			.next()
+			.map_or(state.sequence, |(sequence, _)| *sequence);
+		let consumer = Consumer::new(name.clone(), Arc::downgrade(&self.inner));
+		let consumer_state = ConsumerState { config, sequence };
+		state
+			.consumers
+			.insert(name, (consumer.clone(), consumer_state));
 		Ok(consumer)
 	}
 
@@ -243,9 +291,9 @@ impl Stream {
 	}
 
 	async fn publish(&self, payload: Bytes) -> Result<u64, Error> {
-		let mut ids = self.batch_publish(vec![payload]).await?;
-		let id = ids.pop().ok_or_else(|| Error::MaxMessages)?;
-		Ok(id)
+		let mut sequences = self.batch_publish(vec![payload]).await?;
+		let sequence = sequences.pop().ok_or_else(|| Error::MaxMessages)?;
+		Ok(sequence)
 	}
 
 	async fn batch_publish(&self, payloads: Vec<Bytes>) -> Result<Vec<u64>, Error> {
@@ -253,48 +301,49 @@ impl Stream {
 		let mut state = self.state.write().await;
 
 		// Publish as many messages as possible.
-		let mut ids = Vec::new();
+		let mut sequences = Vec::new();
 		for payload in payloads {
-			if let Some(max_messages) = self.config.max_messages {
-				if 1 + state.messages.len().to_u64().unwrap() > max_messages {
+			if let Some(max_messages) = state.config.max_messages {
+				if state.messages.len().to_u64().unwrap() + 1 > max_messages {
 					break;
 				}
 			}
-			if let Some(max_bytes) = self.config.max_bytes {
+			if let Some(max_bytes) = state.config.max_bytes {
 				if state.bytes + payload.len().to_u64().unwrap() > max_bytes {
 					break;
 				}
 			}
-			state.id += 1;
-			let id = state.id;
+			state.sequence += 1;
+			let sequence = state.sequence;
 			state.bytes += payload.len().to_u64().unwrap();
-			state.messages.push((id, payload));
-			ids.push(id);
+			state.messages.insert(sequence, payload);
+			sequences.push(sequence);
 		}
 
 		// Notify consumers.
-		self.notify.notify_waiters();
+		state.notify.notify_waiters();
 
-		Ok(ids)
+		Ok(sequences)
 	}
 }
 
 impl Consumer {
-	fn new(name: String, config: ConsumerConfig, sequence: u64, stream: Weak<StreamInner>) -> Self {
-		let state = Mutex::new(ConsumerState { sequence });
-		let inner = Arc::new(ConsumerInner {
-			config,
-			name,
-			state,
-			stream,
-		});
+	fn new(name: String, stream: Weak<StreamInner>) -> Self {
+		let inner = Arc::new(ConsumerInner { name, stream });
 		Self { inner }
 	}
 
 	async fn info(&self) -> Result<ConsumerInfo, Error> {
-		let state = self.state.lock().unwrap();
+		let inner = self.stream.upgrade().ok_or_else(|| Error::NotFound)?;
+		let stream = Stream { inner };
+		let state = stream.state.read().await;
+		let consumer_state = &state
+			.consumers
+			.get(&self.name)
+			.ok_or_else(|| Error::NotFound)?
+			.1;
 		let info = ConsumerInfo {
-			sequence: state.sequence,
+			sequence: consumer_state.sequence,
 		};
 		Ok(info)
 	}
@@ -315,9 +364,8 @@ impl Consumer {
 		config: BatchConfig,
 	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
 		// Get the stream.
-		let stream = Stream {
-			inner: self.stream.upgrade().ok_or_else(|| Error::NotFound)?,
-		};
+		let inner = self.stream.upgrade().ok_or_else(|| Error::NotFound)?;
+		let stream = Stream { inner };
 
 		// Create the state.
 		struct State {
@@ -335,78 +383,82 @@ impl Consumer {
 		let stream = stream::try_unfold(state, move |state| async move {
 			// If the stream is empty, then wait for a notification.
 			{
-				let state_ = state.stream.state.read().await;
-				if state_.messages.is_empty() {
-					if state_.closed {
+				let stream_state = state.stream.state.read().await;
+				let consumer_state = &stream_state
+					.consumers
+					.get(&state.consumer.name)
+					.ok_or_else(|| Error::NotFound)?
+					.1;
+				if consumer_state.sequence == stream_state.sequence {
+					if stream_state.closed {
 						return Ok(None);
 					}
-					let notified = state.stream.notify.notified();
+					let notify = stream_state.notify.clone();
+					let notified = notify.notified();
 					let mut notified = pin!(notified);
 					notified.as_mut().enable();
-					drop(state_);
+					drop(stream_state);
 					notified.await;
 				}
 			}
 
-			// Acquire a lock on the stream.
-			let mut state_ = state.stream.state.write().await;
+			// Get the stream state.
+			let mut stream_state = state.stream.state.write().await;
 
 			// Get the messages.
-			let consumer_sequence = state.consumer.state.lock().unwrap().sequence;
+			let consumer_sequence = stream_state
+				.consumers
+				.get_mut(&state.consumer.name)
+				.ok_or_else(|| Error::NotFound)?
+				.1
+				.sequence;
 			let max_messages = state
 				.config
 				.max_messages
-				.map_or(state_.messages.len(), |max_messages| {
+				.map_or(stream_state.messages.len(), |max_messages| {
 					max_messages.to_usize().unwrap()
 				});
-			let messages = state_
+			let messages = stream_state
 				.messages
 				.iter()
-				.skip_while(|(sequence, _)| *sequence < consumer_sequence)
+				.skip_while(|(sequence, _)| **sequence <= consumer_sequence)
 				.take(max_messages)
-				.cloned()
+				.map(|(sequence, bytes)| (*sequence, bytes.clone()))
 				.collect::<Vec<_>>();
 
 			// Set the consumer's sequence number.
 			if let Some((sequence, _)) = messages.last() {
-				state.consumer.state.lock().unwrap().sequence = *sequence;
-			}
-
-			// Get the new first sequence number of the stream.
-			let first_sequence = state_
-				.consumers
-				.values()
-				.map(|consumer| consumer.state.lock().unwrap().sequence)
-				.min()
-				.unwrap();
-
-			// Remove messages whose sequence number is less than the new first sequence number.
-			for (sequence, _) in &messages {
-				if *sequence <= first_sequence {
-					let index = state_
-						.messages
-						.iter()
-						.position(|(s, _)| s == sequence)
-						.unwrap();
-					state_.messages.remove(index);
-				}
+				stream_state
+					.consumers
+					.get_mut(&state.consumer.name)
+					.ok_or_else(|| Error::NotFound)?
+					.1
+					.sequence = *sequence;
 			}
 
 			// Create the messages.
 			let messages = messages
 				.into_iter()
-				.map(|(_, payload)| {
-					let acker = Acker::new(future::ok(()));
-					Ok(Message {
+				.map(|(sequence, payload)| {
+					let inner = Arc::downgrade(&state.consumer.inner);
+					let acker = Acker::new(async move {
+						if let Some(inner) = inner.upgrade() {
+							let consumer = Consumer { inner };
+							consumer.ack(sequence).await?;
+						}
+						Ok::<_, Error>(())
+					});
+					let message = Message {
 						acker,
 						payload,
 						subject: state.stream.name.clone(),
-					})
+					};
+					Ok(message)
 				})
 				.collect::<Vec<_>>();
 
 			// Drop the state.
-			drop(state_);
+			drop(stream_state);
 
 			Ok::<_, Error>(Some((messages, state)))
 		})
@@ -415,11 +467,31 @@ impl Consumer {
 
 		Ok(stream)
 	}
+
+	async fn ack(&self, sequence: u64) -> Result<(), Error> {
+		let inner = self
+			.stream
+			.upgrade()
+			.ok_or_else(|| Error::other("the stream was destroyed"))?;
+		let stream = Stream { inner };
+		let mut state = stream.state.write().await;
+		let message = state.messages.remove(&sequence).unwrap();
+		state.bytes -= message.len().to_u64().unwrap();
+		Ok(())
+	}
 }
 
 impl Default for Messenger {
 	fn default() -> Self {
 		Self::new()
+	}
+}
+
+impl Deref for Messenger {
+	type Target = MessengerInner;
+
+	fn deref(&self) -> &Self::Target {
+		&self.inner
 	}
 }
 

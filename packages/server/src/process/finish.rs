@@ -203,7 +203,7 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish the put process message.
+		// Publish the put process index message.
 		let objects = std::iter::once((
 			data.command.clone().into(),
 			crate::index::ProcessObjectKind::Command,

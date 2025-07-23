@@ -340,7 +340,7 @@ impl Server {
 			)?;
 		}
 
-		// Spawn a task to publish a message to index the cache entry.
+		// Publish the put cache entry index message.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();

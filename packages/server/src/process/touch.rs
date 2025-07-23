@@ -50,7 +50,7 @@ impl Server {
 		// Drop the database connection.
 		drop(connection);
 
-		// Send a touch process message.
+		// Publish the touch process index message.
 		let message = crate::index::Message::TouchProcess(crate::index::TouchProcessMessage {
 			id: id.clone(),
 			touched_at,

@@ -114,7 +114,7 @@ impl Server {
 				// Wait for the indexing task to catch up.
 				let mut first_sequence = info.first_sequence;
 				let last_sequence = info.last_sequence;
-				while first_sequence < last_sequence {
+				while first_sequence <= last_sequence {
 					let info = stream.info().await.map_err(|source| {
 						tg::error!(!source, "failed to get the index stream info")
 					})?;

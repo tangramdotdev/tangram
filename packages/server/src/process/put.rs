@@ -28,7 +28,7 @@ impl Server {
 			},
 		}
 
-		// Publish the process message.
+		// Publish the put process index message.
 		let output = arg
 			.data
 			.output

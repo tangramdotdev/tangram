@@ -17,6 +17,8 @@ impl Cli {
 			return Ok(());
 		}
 		let handle = self.handle().await?;
+		let stream = handle.index().await?;
+		self.render_progress_stream(stream).await?;
 		let stream = handle.clean().await?;
 		self.render_progress_stream(stream).await?;
 		Ok(())

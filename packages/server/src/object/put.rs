@@ -21,38 +21,30 @@ impl Server {
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		let store_future = async {
-			let arg = crate::store::PutArg {
-				id: id.clone(),
-				bytes: Some(arg.bytes.clone()),
-				touched_at: now,
-				cache_reference: None,
-			};
-			self.store.put(arg).await?;
-			Ok::<_, tg::Error>(())
+		let put_arg = crate::store::PutArg {
+			id: id.clone(),
+			bytes: Some(arg.bytes.clone()),
+			touched_at: now,
+			cache_reference: None,
 		};
+		self.store.put(put_arg).await?;
 
-		let messenger_future = async {
-			let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
-			let size = arg.bytes.len().to_u64().unwrap();
-			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
-				children: data.children().collect(),
-				id: id.clone(),
-				size,
-				touched_at: now,
-				cache_reference: None,
-			});
-			let message = serde_json::to_vec(&message)
-				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message.into())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-			Ok::<_, tg::Error>(())
-		};
-
-		futures::try_join!(store_future, messenger_future)?;
+		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
+		let size = arg.bytes.len().to_u64().unwrap();
+		let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+			children: data.children().collect(),
+			id: id.clone(),
+			size,
+			touched_at: now,
+			cache_reference: None,
+		});
+		let message = serde_json::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		let _published = self
+			.messenger
+			.stream_publish("index".to_owned(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 		Ok(())
 	}

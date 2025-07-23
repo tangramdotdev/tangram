@@ -31,7 +31,6 @@ impl Server {
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		let progress = crate::progress::Handle::new();
-
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let progress = progress.clone();
 			let server = self.clone();

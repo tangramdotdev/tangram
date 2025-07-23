@@ -39,7 +39,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Send the tag message.
+		// Publish the put tag index message.
 		let message = crate::index::Message::PutTag(crate::index::PutTagMessage {
 			tag: tag.to_string(),
 			item: arg.item,

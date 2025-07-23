@@ -402,7 +402,7 @@ impl Server {
 		};
 		self.store.put_batch(arg).await?;
 
-		// Publish the put object messages.
+		// Publish the put object index messages.
 		items
 			.iter()
 			.map(|item| async {
