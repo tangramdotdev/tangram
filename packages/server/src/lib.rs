@@ -341,24 +341,30 @@ impl Server {
 			},
 		};
 
-		// Get or create the index stream and consumer.
-		let stream_config = tangram_messenger::StreamConfig {
-			discard: tangram_messenger::DiscardPolicy::New,
-			max_bytes: None,
-			max_messages: None,
-			retention: tangram_messenger::RetentionPolicy::WorkQueue,
-		};
-		let stream = messenger
-			.get_or_create_stream("index".to_owned(), stream_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to ensure the index stream exists"))?;
-		let consumer_config = tangram_messenger::ConsumerConfig {
-			deliver: tangram_messenger::DeliverPolicy::All,
-		};
-		stream
-			.get_or_create_consumer("index".to_owned(), consumer_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to ensure the index stream exists"))?;
+		// Create the index stream and consumer if the messenger is memory.
+		if messenger.is_memory() {
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				max_bytes: None,
+				max_messages: None,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+			};
+			let stream = messenger
+				.create_stream("index".to_owned(), stream_config)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to ensure the index stream exists")
+				})?;
+			let consumer_config = tangram_messenger::ConsumerConfig {
+				deliver: tangram_messenger::DeliverPolicy::All,
+			};
+			stream
+				.create_consumer("index".to_owned(), consumer_config)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to ensure the index stream exists")
+				})?;
+		}
 
 		// Create the remotes.
 		let remotes = DashMap::default();

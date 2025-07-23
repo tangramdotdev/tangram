@@ -1,18 +1,21 @@
 use bytes::Bytes;
 use tangram_messenger as messenger;
 
+#[derive(derive_more::IsVariant)]
 pub enum Messenger {
 	Memory(messenger::memory::Messenger),
 	#[cfg(feature = "nats")]
 	Nats(messenger::nats::Messenger),
 }
 
+#[derive(derive_more::IsVariant)]
 pub enum Stream {
 	Memory(messenger::memory::Stream),
 	#[cfg(feature = "nats")]
 	Nats(messenger::nats::Stream),
 }
 
+#[derive(derive_more::IsVariant)]
 pub enum Consumer {
 	Memory(messenger::memory::Consumer),
 	#[cfg(feature = "nats")]
