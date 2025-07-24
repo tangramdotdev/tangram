@@ -10,24 +10,15 @@ use tangram_http::{Body, response::Ext as _};
 
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.import";
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub items: Option<Vec<Either<tg::process::Id, tg::object::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct QueryArg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	items: Option<Vec<Either<tg::process::Id, tg::object::Id>>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	remote: Option<String>,
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
@@ -78,7 +69,7 @@ impl tg::Client {
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + use<>> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(QueryArg::from(arg)).unwrap();
+		let query = serde_urlencoded::to_string(arg).unwrap();
 		let uri = format!("/import?{query}");
 
 		// Create the body.
@@ -140,24 +131,6 @@ impl tg::Client {
 			});
 
 		Ok(stream)
-	}
-}
-
-impl From<Arg> for QueryArg {
-	fn from(value: Arg) -> Self {
-		Self {
-			items: value.items,
-			remote: value.remote,
-		}
-	}
-}
-
-impl From<QueryArg> for Arg {
-	fn from(value: QueryArg) -> Self {
-		Self {
-			items: value.items,
-			remote: value.remote,
-		}
 	}
 }
 

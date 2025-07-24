@@ -448,10 +448,9 @@ impl Server {
 	{
 		// Parse the arg.
 		let arg = request
-			.query_params::<tg::import::QueryArg>()
+			.query_params()
 			.transpose()?
-			.ok_or_else(|| tg::error!("query parameters required"))?
-			.into();
+			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		// Get the accept header.
 		let accept = request
