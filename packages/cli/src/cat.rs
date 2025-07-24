@@ -16,7 +16,7 @@ impl Cli {
 	pub async fn command_cat(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		let mut stdout = tokio::io::stdout();
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
 		for reference in &args.references {
 			let referent = self.get_reference(reference).await?;
@@ -24,12 +24,8 @@ impl Cli {
 				return Err(tg::error!("expected an object"));
 			};
 			if let Ok(blob) = tg::Blob::try_from(object.clone()) {
-				// Create a reader.
 				let reader = blob.read(&handle, tg::blob::read::Arg::default()).await?;
-
-				// Copy from the reader to stdout.
-				let mut writer = tokio::io::stdout();
-				tokio::io::copy(&mut pin!(reader), &mut writer)
+				tokio::io::copy(&mut pin!(reader), &mut stdout)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the blob to stdout"))?;
 			} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {

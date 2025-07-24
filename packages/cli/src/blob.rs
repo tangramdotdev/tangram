@@ -16,7 +16,7 @@ impl Cli {
 			let reader = std::io::Cursor::new(bytes);
 			handle.create_blob(reader).await?
 		} else {
-			let reader = tokio::io::stdin();
+			let reader = tokio::io::BufReader::new(tokio::io::stdin());
 			handle.create_blob(reader).await?
 		};
 		println!("{blob}");

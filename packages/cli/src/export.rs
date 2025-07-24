@@ -46,8 +46,8 @@ impl Cli {
 		};
 
 		// Create the import stream.
-		let stdin = tokio::io::stdin();
-		let stream = tangram_http::sse::decode(tokio::io::BufReader::new(stdin))
+		let stdin = tokio::io::BufReader::new(tokio::io::stdin());
+		let stream = tangram_http::sse::decode(stdin)
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
@@ -74,7 +74,7 @@ impl Cli {
 
 		// Write the stream.
 		let mut stream = pin!(stream);
-		let mut stdout = tokio::io::stdout();
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		while let Some(event) = stream.try_next().await? {
 			if let tg::export::Event::Item(item) = event {
 				item.to_writer(&mut stdout).await?;

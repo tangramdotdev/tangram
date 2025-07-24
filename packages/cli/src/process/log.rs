@@ -45,7 +45,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to get the process log"))?;
 
 		// Print the log.
-		let mut stdout = tokio::io::stdout();
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		while let Some(chunk) = log.try_next().await? {
 			stdout
 				.write_all(&chunk.bytes)

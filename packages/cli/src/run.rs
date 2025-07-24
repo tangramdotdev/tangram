@@ -274,7 +274,8 @@ where
 		let handle = handle.clone();
 		let remote = remote.clone();
 		async move {
-			stdio_task_inner(&handle, &stdout, remote, tokio::io::stdout()).await?;
+			let writer = tokio::io::BufWriter::new(tokio::io::stdout());
+			stdio_task_inner(&handle, &stdout, remote, writer).await?;
 			Ok::<_, tg::Error>(())
 		}
 	});
@@ -289,7 +290,8 @@ where
 			if stdout == stderr {
 				return Ok(());
 			}
-			stdio_task_inner(&handle, &stderr, remote, tokio::io::stderr()).await?;
+			let writer = tokio::io::BufWriter::new(tokio::io::stderr());
+			stdio_task_inner(&handle, &stderr, remote, writer).await?;
 			Ok::<_, tg::Error>(())
 		}
 	});
@@ -383,8 +385,11 @@ where
 		writer
 			.write_all(&chunk)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write chunk"))?;
-		writer.flush().await.ok();
+			.map_err(|source| tg::error!(!source, "failed to write the chunk"))?;
+		writer
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush the writer"))?;
 	}
 	Ok(())
 }

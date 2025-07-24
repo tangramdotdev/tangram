@@ -1195,8 +1195,8 @@ impl Cli {
 	where
 		T: serde::Serialize,
 	{
-		let mut stdout = tokio::io::stdout();
-		let pretty = pretty.unwrap_or(stdout.is_tty());
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+		let pretty = pretty.unwrap_or(stdout.get_ref().is_tty());
 		let json = if pretty {
 			serde_json::to_string_pretty(output)
 				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
@@ -1212,8 +1212,12 @@ impl Cli {
 			stdout
 				.write_all(b"\n")
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write"))?;
+				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 		}
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 		Ok(())
 	}
 

@@ -9,12 +9,9 @@ pub struct Args {}
 impl Cli {
 	pub async fn command_lsp(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-
 		let stdin = Box::new(tokio::io::BufReader::new(tokio::io::stdin()));
-		let stdout = Box::new(tokio::io::stdout());
-
+		let stdout = Box::new(tokio::io::BufWriter::new(tokio::io::stdout()));
 		handle.lsp(stdin, stdout).await?;
-
 		Ok(())
 	}
 }

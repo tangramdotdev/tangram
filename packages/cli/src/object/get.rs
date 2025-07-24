@@ -37,8 +37,8 @@ pub enum Format {
 impl Cli {
 	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let mut stdout = tokio::io::stdout();
-		let pretty = args.pretty.unwrap_or(stdout.is_tty());
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+		let pretty = args.pretty.unwrap_or(stdout.get_ref().is_tty());
 		match args.format.unwrap_or_default() {
 			Format::Bytes => {
 				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
@@ -90,7 +90,7 @@ impl Cli {
 		stdout
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush the output"))?;
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 		Ok(())
 	}
 }

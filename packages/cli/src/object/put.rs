@@ -23,7 +23,7 @@ impl Cli {
 			bytes.into_bytes().into()
 		} else {
 			let mut bytes = Vec::new();
-			tokio::io::stdin()
+			tokio::io::BufReader::new(tokio::io::stdin())
 				.read_to_end(&mut bytes)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
