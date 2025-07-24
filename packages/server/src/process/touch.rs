@@ -18,11 +18,6 @@ impl Server {
 			return Ok(());
 		}
 
-		// Verify the process is local.
-		if !self.get_process_exists_local(id).await? {
-			return Err(tg::error!("failed to find the process"));
-		}
-
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Get a database connection.
@@ -42,10 +37,13 @@ impl Server {
 			"
 		);
 		let params = db::params![touched_at, id];
-		connection
+		let n = connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if n == 0 {
+			return Err(tg::error!("failed to find the process"));
+		}
 
 		// Drop the database connection.
 		drop(connection);

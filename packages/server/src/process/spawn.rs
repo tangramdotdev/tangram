@@ -700,7 +700,7 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish the message.
+		// Publish the process created message.
 		tokio::spawn({
 			let server = self.clone();
 			async move {

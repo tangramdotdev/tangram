@@ -1,5 +1,5 @@
 use bytes::Bytes;
-#[allow(unused_imports)]
+#[cfg(target_os = "macos")]
 use num::ToPrimitive as _;
 use std::{ffi::OsString, path::PathBuf};
 

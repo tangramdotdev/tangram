@@ -59,7 +59,7 @@ impl Server {
 			.then(move |()| {
 				let server = server.clone();
 				let id = id.clone();
-				async move { server.try_get_process_status_local_inner(&id).await }
+				async move { server.get_current_process_status_local(&id).await }
 			})
 			.try_filter(move |status| {
 				future::ready(match (previous.as_mut(), *status) {
@@ -100,21 +100,6 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Status>> {
-		// Verify the process is local.
-		if !self.get_process_exists_local(id).await? {
-			return Ok(None);
-		}
-
-		// Get the current status.
-		let status = self.try_get_process_status_local_inner(id).await?;
-
-		Ok(Some(status))
-	}
-
-	async fn try_get_process_status_local_inner(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<tg::process::Status> {
 		// Get a database connection.
 		let connection = self
 			.database
@@ -132,10 +117,13 @@ impl Server {
 			"
 		);
 		let params = db::params![id];
-		let status = connection
-			.query_one_value_into(statement.into(), params)
+		let Some(status) = connection
+			.query_optional_value_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
 
 		// Drop the database connection.
 		drop(connection);

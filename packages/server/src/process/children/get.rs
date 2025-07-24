@@ -154,7 +154,7 @@ impl Server {
 				}
 			}
 
-			// If the process was finished or the length was reached, then send the end event and break.
+			// If the process is finished or the length is reached, then send the end event and break.
 			let end = arg.length.is_some_and(|length| read >= length);
 			if end || status.is_finished() {
 				let result = sender.try_send(Ok(tg::process::children::get::Event::End));

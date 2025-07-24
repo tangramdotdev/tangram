@@ -19,11 +19,6 @@ impl Server {
 			return Ok(());
 		}
 
-		// Verify the process is local.
-		if !self.get_process_exists_local(id).await? {
-			return Err(tg::error!("failed to find the process"));
-		}
-
 		// Get a database connection.
 		let connection = self
 			.database
