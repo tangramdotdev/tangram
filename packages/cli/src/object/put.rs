@@ -6,7 +6,7 @@ use tokio::io::AsyncReadExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
+	#[arg(index = 2)]
 	pub bytes: Option<String>,
 
 	#[arg(index = 1)]
@@ -23,7 +23,7 @@ impl Cli {
 			bytes.into_bytes().into()
 		} else {
 			let mut bytes = Vec::new();
-			tokio::io::BufReader::new(tokio::io::stdin())
+			crate::util::stdio::stdin()
 				.read_to_end(&mut bytes)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;

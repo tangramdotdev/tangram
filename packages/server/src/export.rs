@@ -203,7 +203,6 @@ impl Server {
 		scopeguard::defer! {
 			import_complete_task.abort();
 		}
-
 		// Enqueue the items.
 		state
 			.queue_counter
@@ -406,12 +405,7 @@ impl Server {
 		// Export each item.
 		while let Some(item) = state.queue.pop_front() {
 			// Update the graph.
-			let len = state.import_complete_receiver.len();
-			let mut buffer = Vec::with_capacity(len);
-			state
-				.import_complete_receiver
-				.blocking_recv_many(&mut buffer, len);
-			for complete in buffer {
+			while let Ok(complete) = state.import_complete_receiver.try_recv() {
 				match complete {
 					tg::import::Complete::Process(complete) => {
 						let id = Either::Left(complete.id.clone());

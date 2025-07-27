@@ -23,7 +23,7 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Create the export stream.
-		let stdin = tokio::io::BufReader::new(tokio::io::stdin());
+		let stdin = crate::util::stdio::stdin();
 		let stream = stream::try_unfold(stdin, |mut reader| async move {
 			let Some(item) = tg::export::Item::from_reader(&mut reader).await? else {
 				return Ok(None);

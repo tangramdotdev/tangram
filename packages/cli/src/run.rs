@@ -1,14 +1,12 @@
 use self::signal::handle_signals;
 use crate::Cli;
 use anstream::eprintln;
-use bytes::Bytes;
 use crossterm::style::Stylize as _;
-use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
-use std::{io::Read as _, path::PathBuf, pin::pin};
+use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
+use std::{path::PathBuf, pin::pin};
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
-use tokio_stream::wrappers::ReceiverStream;
 
 mod signal;
 mod stdio;
@@ -230,7 +228,7 @@ where
 	H: tg::Handle,
 {
 	// Spawn stdin task.
-	let stream = stdin_stream();
+	let stream = crate::util::stdio::stdin_stream();
 	let stdin_task = tokio::spawn({
 		let remote = remote.clone();
 		let handle = handle.clone();
@@ -306,30 +304,6 @@ where
 	stdin_result.unwrap()?;
 
 	Ok(())
-}
-
-fn stdin_stream() -> impl Stream<Item = tg::Result<Bytes>> + Send + 'static {
-	// Create a send/receive pair for sending stdin chunks. The channel is bounded to 1 to avoid buffering stdin messages.
-	let (send, recv) = tokio::sync::mpsc::channel(1);
-
-	// Spawn the stdin thread.
-	std::thread::spawn(move || {
-		let mut stdin = std::io::stdin();
-		loop {
-			let mut buf = vec![0u8; 4096];
-			let result = match stdin.read(&mut buf) {
-				Ok(0) => break,
-				Ok(n) => Ok(Bytes::copy_from_slice(&buf[0..n])),
-				Err(source) => Err(tg::error!(!source, "failed to read stdin")),
-			};
-			let result = send.blocking_send(result);
-			if result.is_err() {
-				break;
-			}
-		}
-	});
-
-	ReceiverStream::new(recv)
 }
 
 async fn stdio_task_inner<H>(

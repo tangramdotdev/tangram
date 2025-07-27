@@ -533,6 +533,8 @@ create table tags (
 	item text not null
 );
 
+create index tags_item_index on tags (item);
+
 create trigger tags_insert_trigger
 after insert on tags
 for each row

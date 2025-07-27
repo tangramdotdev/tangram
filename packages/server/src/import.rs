@@ -332,16 +332,16 @@ impl Server {
 		// Choose the batch parameters.
 		let (concurrency, max_objects_per_batch, max_bytes_per_batch) = match &self.store {
 			#[cfg(feature = "foundationdb")]
-			Store::Fdb(_) => (8, 1_000, 5_000_000),
-			Store::Lmdb(_) => (1, 1_000, 5_000_000),
+			Store::Fdb(_) => (64, 1_000, 1_000_000),
+			Store::Lmdb(_) => (1, 1_000, 1_000_000),
 			Store::Memory(_) => (1, 1, u64::MAX),
 			Store::S3(_) => (256, 1, u64::MAX),
 		};
 
 		// Create a stream of batches.
 		struct State {
-			object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
 			item: Option<tg::export::ObjectItem>,
+			object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
 		}
 		let state = State {
 			item: None,
@@ -363,7 +363,7 @@ impl Server {
 					state.item.replace(item);
 					return Some((batch, state));
 				}
-				batch_bytes += size;
+				batch_bytes += 100 + size;
 				batch.push(item);
 			}
 			if batch.is_empty() {

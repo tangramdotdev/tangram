@@ -58,6 +58,7 @@ mod tag;
 mod tangram;
 mod tree;
 mod update;
+mod util;
 mod view;
 mod viewer;
 
