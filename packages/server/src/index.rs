@@ -1,4 +1,4 @@
-use crate::{Server, database::Database, util::iter::Ext as _};
+use crate::{Server, util::iter::Ext as _};
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
 use indoc::indoc;
 use num::ToPrimitive as _;
@@ -13,6 +13,15 @@ use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{self as messenger, Acker, prelude::*};
 use tokio_util::task::AbortOnDropHandle;
+
+#[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Index {
+	Sqlite(db::sqlite::Database),
+	#[cfg(feature = "postgres")]
+	Postgres(db::postgres::Database),
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
@@ -253,7 +262,7 @@ impl Server {
 
 			// Handle the messages.
 			match &self.index {
-				Database::Sqlite(index) => {
+				Index::Sqlite(index) => {
 					self.indexer_task_handle_messages_sqlite(
 						index,
 						put_cache_entry_messages,
@@ -267,7 +276,7 @@ impl Server {
 					.await?;
 				},
 				#[cfg(feature = "postgres")]
-				Database::Postgres(index) => {
+				Index::Postgres(index) => {
 					self.indexer_task_handle_messages_postgres(
 						index,
 						put_cache_entry_messages,
@@ -977,12 +986,7 @@ impl Server {
 	}
 }
 
-pub async fn migrate(database: &Database) -> tg::Result<()> {
-	#[allow(irrefutable_let_patterns)]
-	let Database::Sqlite(database) = database else {
-		return Ok(());
-	};
-
+pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	let migrations = vec![migration_0000(database).boxed()];
 
 	let connection = database

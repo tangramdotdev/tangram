@@ -24,9 +24,59 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
+		match &self.index {
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_object_metadata_local_sqlite(database, id)
+					.await
+			},
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.try_get_object_metadata_local_postgres(database, id)
+					.await
+			},
+		}
+	}
+
+	async fn try_get_object_metadata_local_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
 		// Get an index connection.
-		let connection = self
-			.index
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select count, depth, weight
+				from objects
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id];
+		let output = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
+	}
+
+	#[cfg(feature = "postgres")]
+	async fn try_get_object_metadata_local_postgres(
+		&self,
+		database: &db::postgres::Database,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		// Get an index connection.
+		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

@@ -24,9 +24,67 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
+		match &self.index {
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_process_metadata_local_sqlite(database, id)
+					.await
+			},
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.try_get_process_metadata_local_postgres(database, id)
+					.await
+			},
+		}
+	}
+
+	async fn try_get_process_metadata_local_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Metadata>> {
 		// Get a database connection.
-		let connection = self
-			.index
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the process metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select
+					commands_count,
+					commands_depth,
+					commands_weight,
+					complete,
+					count,
+					outputs_count,
+					outputs_depth,
+					outputs_weight
+				from processes
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id];
+		let output = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
+	}
+
+	#[cfg(feature = "postgres")]
+	async fn try_get_process_metadata_local_postgres(
+		&self,
+		database: &db::postgres::Database,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		// Get a database connection.
+		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

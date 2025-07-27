@@ -1,7 +1,8 @@
 #[cfg(feature = "v8")]
 use self::compiler::Compiler;
 use self::{
-	database::Database, messenger::Messenger, runtime::Runtime, store::Store, util::fs::remove,
+	database::Database, index::Index, messenger::Messenger, runtime::Runtime, store::Store,
+	util::fs::remove,
 };
 #[cfg(feature = "nats")]
 use async_nats as nats;
@@ -82,7 +83,7 @@ pub struct Inner {
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	http: Option<Http>,
-	index: Database,
+	index: Index,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
@@ -292,7 +293,7 @@ impl Server {
 				let database = db::sqlite::Database::new(options)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-				Database::Sqlite(database)
+				Index::Sqlite(database)
 			},
 			self::config::Index::Postgres(options) => {
 				#[cfg(not(feature = "postgres"))]
@@ -311,7 +312,7 @@ impl Server {
 					let database = db::postgres::Database::new(options)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-					Database::Postgres(database)
+					Index::Postgres(database)
 				}
 			},
 		};
@@ -432,9 +433,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
 
 		// Migrate the index.
-		self::index::migrate(&server.index)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
+		if let Ok(database) = server.index.try_unwrap_sqlite_ref() {
+			self::index::migrate(database)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
+		}
 
 		// Set the remotes if specified in the config.
 		if let Some(remotes) = &server.config.remotes {

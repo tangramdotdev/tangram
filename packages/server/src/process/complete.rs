@@ -1,4 +1,4 @@
-use crate::{Server, database::Database};
+use crate::Server;
 use indoc::{formatdoc, indoc};
 use rusqlite as sqlite;
 use tangram_client as tg;
@@ -16,9 +16,57 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Output>> {
+		match &self.index {
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_process_complete_sqlite(database, id).await
+			},
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.try_get_process_complete_postgres(database, id).await
+			},
+		}
+	}
+
+	async fn try_get_process_complete_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<Output>> {
 		// Get an index connection.
-		let connection = self
-			.index
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select complete, commands_complete, outputs_complete
+				from processes
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id];
+		let output = connection
+			.query_optional_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
+	}
+
+	#[cfg(feature = "postgres")]
+	async fn try_get_process_complete_postgres(
+		&self,
+		database: &db::postgres::Database,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<Output>> {
+		// Get an index connection.
+		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -49,10 +97,13 @@ impl Server {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<Output>>> {
 		match &self.index {
-			Database::Sqlite(index) => self.try_get_process_complete_batch_sqlite(index, ids).await,
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_process_complete_batch_sqlite(database, ids)
+					.await
+			},
 			#[cfg(feature = "postgres")]
-			Database::Postgres(index) => {
-				self.try_get_process_complete_batch_postgres(index, ids)
+			crate::index::Index::Postgres(database) => {
+				self.try_get_process_complete_batch_postgres(database, ids)
 					.await
 			},
 		}
@@ -60,13 +111,13 @@ impl Server {
 
 	async fn try_get_process_complete_batch_sqlite(
 		&self,
-		index: &db::sqlite::Database,
+		database: &db::sqlite::Database,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<Output>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		let connection = index
+		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

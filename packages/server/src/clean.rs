@@ -156,9 +156,101 @@ impl Server {
 	}
 
 	async fn count_items(&self) -> tg::Result<Count> {
+		match &self.index {
+			crate::index::Index::Sqlite(database) => self.count_items_sqlite(database).await,
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => self.count_items_postgres(database).await,
+		}
+	}
+
+	async fn count_items_sqlite(&self, database: &db::sqlite::Database) -> tg::Result<Count> {
 		// Get an index connection.
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Count cache entries.
+		let statement = indoc!(
+			"
+				select count(*) from cache_entries;
+			"
+		);
+		let params = db::params![];
+		let cache_entries = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+
+		// Count processes.
+		let statement = indoc!(
+			"
+				select count(*) from processes;
+			"
+		);
+		let params = db::params![];
+		let processes = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+
+		// Count objects
+		let statement = indoc!(
+			"
+				select count(*) from objects;
+			"
+		);
+		let params = db::params![];
+		let objects = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+
+		// Get a database connection.
 		let connection = self
-			.index
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Count pipes and ptys.
+		let statement = indoc!(
+			"
+				select count(*) from pipes;
+			"
+		);
+		let params = db::params![];
+		let pipes = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
+
+		let statement = indoc!(
+			"
+				select count(*) from ptys;
+			"
+		);
+		let params = db::params![];
+		let ptys = connection
+			.query_one_value_into::<u64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
+
+		drop(connection);
+
+		Ok(Count {
+			cache_entries,
+			objects,
+			pipes,
+			processes,
+			ptys,
+		})
+	}
+
+	#[cfg(feature = "postgres")]
+	async fn count_items_postgres(&self, database: &db::postgres::Database) -> tg::Result<Count> {
+		// Get an index connection.
+		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -246,11 +338,237 @@ impl Server {
 		ttl: std::time::Duration,
 		batch_size: usize,
 	) -> tg::Result<InnerOutput> {
+		match &self.index {
+			crate::index::Index::Sqlite(database) => {
+				self.cleaner_task_inner_sqlite(database, now, ttl, batch_size)
+					.await
+			},
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.cleaner_task_inner_postgres(database, now, ttl, batch_size)
+					.await
+			},
+		}
+	}
+
+	async fn cleaner_task_inner_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		now: i64,
+		ttl: std::time::Duration,
+		batch_size: usize,
+	) -> tg::Result<InnerOutput> {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
 		// Get an index connection.
+		let connection = database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Delete processes from the index.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from processes
+				where id in (
+					select id from processes
+					where reference_count = 0 and touched_at <= {p}1
+					limit {p}2
+				)
+				returning id;
+			"
+		);
+		let params = db::params![max_touched_at, batch_size];
+		let processes = connection
+			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+
+		// Delete objects from the index.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from objects
+				where id in (
+					select id from objects
+					where reference_count = 0 and touched_at <= {p}1
+					limit {p}2
+				)
+				returning id;
+			"
+		);
+		let params = db::params![max_touched_at, batch_size];
+		let objects = connection
+			.query_all_value_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+
+		// Delete cache entries.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from cache_entries
+				where id in (
+					select id from cache_entries
+					where reference_count = 0 and touched_at <= {p}1
+					limit {p}2
+				)
+				returning id;
+			"
+		);
+		let params = db::params![max_touched_at, batch_size];
+		let cache_entries = connection
+			.query_all_value_into::<tg::artifact::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		// Delete objects.
+		let arg = crate::store::DeleteBatchArg {
+			ids: objects.clone(),
+			now,
+			ttl: ttl.as_secs(),
+		};
+		self.store.delete_batch(arg).await?;
+
+		// Get a database connection.
 		let connection = self
-			.index
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Delete processes.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from processes
+				where id = {p}1 and touched_at <= {p}2;
+			"
+		);
+		for id in &processes {
+			let params = db::params![&id, max_touched_at];
+			connection
+				.execute(statement.clone().into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		// Delete process logs.
+		for id in &processes {
+			let path = self.logs_path().join(id.to_string());
+			tokio::fs::remove_file(path).await.ok();
+		}
+
+		// Delete cache entries.
+		tokio::task::spawn_blocking({
+			let server = self.clone();
+			let cache_entries = cache_entries.clone();
+			move || {
+				for artifact in &cache_entries {
+					let path = server.cache_path().join(artifact.to_string());
+					crate::util::fs::remove_sync(&path).map_err(
+						|source| tg::error!(!source, %path = path.display(), "failed to remove the file"),
+					)?;
+				}
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.await
+		.unwrap()?;
+
+		// Get a database connection.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Delete pipes and ptys.
+		let max_created_at = now.saturating_sub(24 * 60 * 60);
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from pipes
+				where id in (
+					select id from pipes
+					where created_at <= {p}1
+					limit {p}2
+				)
+				returning id;
+			"
+		);
+		let params = db::params![max_created_at, batch_size];
+		let pipes = connection
+			.query_all_value_into::<tg::pipe::Id>(statement.clone().into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete the pipes"))?;
+
+		let statement = formatdoc!(
+			"
+				delete from ptys
+				where id in (
+					select id from ptys
+					where created_at <= {p}1
+					limit {p}2
+				)
+				returning id;
+			"
+		);
+		let params = db::params![max_created_at, batch_size];
+		let ptys = connection
+			.query_all_value_into::<tg::pty::Id>(statement.clone().into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete the ptys"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		for id in &pipes {
+			self.messenger
+				.delete_stream(id.to_string())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
+		}
+
+		for id in &ptys {
+			for name in ["master_writer", "master_reader"] {
+				self.messenger
+					.delete_stream(format!("{id}_{name}"))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
+			}
+		}
+
+		let output = InnerOutput {
+			cache_entries,
+			objects,
+			pipes,
+			processes,
+			ptys,
+		};
+
+		Ok(output)
+	}
+
+	#[cfg(feature = "postgres")]
+	async fn cleaner_task_inner_postgres(
+		&self,
+		database: &db::postgres::Database,
+		now: i64,
+		ttl: std::time::Duration,
+		batch_size: usize,
+	) -> tg::Result<InnerOutput> {
+		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
+
+		// Get an index connection.
+		let connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
