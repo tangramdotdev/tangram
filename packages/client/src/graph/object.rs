@@ -128,7 +128,7 @@ impl Directory {
 			.entries
 			.clone()
 			.into_iter()
-			.map(|(name, edge)| (name, edge.into()))
+			.map(|(name, edge)| (name, edge.to_data_artifact()))
 			.collect();
 		tg::graph::data::Directory { entries }
 	}
@@ -156,7 +156,12 @@ impl File {
 		let dependencies = self
 			.dependencies
 			.iter()
-			.map(|(reference, referent)| (reference.clone(), referent.clone().map(Into::into)))
+			.map(|(reference, referent)| {
+				(
+					reference.clone(),
+					referent.clone().map(|edge| edge.to_data()),
+				)
+			})
 			.collect();
 		let executable = self.executable;
 		tg::graph::data::File {
@@ -202,7 +207,7 @@ impl File {
 impl Symlink {
 	#[must_use]
 	pub fn to_data(&self) -> tg::graph::data::Symlink {
-		let artifact = self.artifact.as_ref().map(|edge| edge.clone().into());
+		let artifact = self.artifact.as_ref().map(Edge::to_data_artifact);
 		let path = self.path.clone();
 		tg::graph::data::Symlink { artifact, path }
 	}
@@ -220,10 +225,33 @@ impl Symlink {
 	}
 }
 
-impl<T> Edge<T> {
+impl Edge<tg::Object> {
 	#[must_use]
-	pub fn to_data(&self) -> tg::graph::data::Edge<T> {
-		todo!()
+	pub fn to_data(&self) -> tg::graph::data::Edge<tg::object::Id> {
+		match self {
+			tg::graph::object::Edge::Reference(reference) => {
+				tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: reference.graph.as_ref().map(tg::Graph::id),
+					node: reference.node,
+				})
+			},
+			tg::graph::object::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
+		}
+	}
+}
+
+impl Edge<tg::Artifact> {
+	#[must_use]
+	pub fn to_data_artifact(&self) -> tg::graph::data::Edge<tg::artifact::Id> {
+		match self {
+			tg::graph::object::Edge::Reference(reference) => {
+				tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: reference.graph.as_ref().map(tg::Graph::id),
+					node: reference.node,
+				})
+			},
+			tg::graph::object::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
+		}
 	}
 }
 

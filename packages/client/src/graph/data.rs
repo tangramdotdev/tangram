@@ -215,30 +215,6 @@ impl std::str::FromStr for Reference {
 	}
 }
 
-impl From<tg::graph::object::Edge<tg::Object>> for Edge<tg::object::Id> {
-	fn from(value: tg::graph::object::Edge<tg::Object>) -> Self {
-		match value {
-			tg::graph::object::Edge::Reference(data) => Self::Reference(Reference {
-				graph: data.graph.map(|data| data.id()),
-				node: data.node,
-			}),
-			tg::graph::object::Edge::Object(data) => Self::Object(data.id()),
-		}
-	}
-}
-
-impl From<tg::graph::object::Edge<tg::Artifact>> for Edge<tg::artifact::Id> {
-	fn from(value: tg::graph::object::Edge<tg::Artifact>) -> Self {
-		match value {
-			tg::graph::object::Edge::Reference(data) => Self::Reference(Reference {
-				graph: data.graph.map(|data| data.id()),
-				node: data.node,
-			}),
-			tg::graph::object::Edge::Object(data) => Self::Object(data.id()),
-		}
-	}
-}
-
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 enum ReferenceSerde {
