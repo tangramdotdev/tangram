@@ -382,8 +382,6 @@ impl Runtime {
 		let stdio_task = tokio::spawn({
 			let server = self.server.clone();
 			let process = process.clone();
-
-			// Get the stdio.
 			let stdin = child.stdin.take();
 			let stdout = child.stdout.take();
 			let stderr = child.stderr.take();
@@ -407,7 +405,12 @@ impl Runtime {
 		let exit = child.wait().await.map_err(
 			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
 		)?;
-		let exit = exit.code().or(exit.signal()).unwrap().to_u8().unwrap();
+		let exit = exit
+			.code()
+			.or(exit.signal().map(|signal| 128 + signal))
+			.unwrap()
+			.to_u8()
+			.unwrap();
 
 		// Stop and await the proxy task.
 		if let Some(task) = proxy.map(|(proxy, _)| proxy) {
