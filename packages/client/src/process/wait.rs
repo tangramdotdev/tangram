@@ -45,9 +45,7 @@ impl Wait {
 				return Err(tg::error!("the process exited with signal {signal}"));
 			},
 		}
-		let output = self
-			.output
-			.ok_or_else(|| tg::error!("expected the output to be set"))?;
+		let output = self.output.unwrap_or(tg::Value::Null);
 		Ok(output)
 	}
 }

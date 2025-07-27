@@ -138,9 +138,6 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	if (wait.exit >= 128) {
 		throw new Error(`the process exited with signal ${wait.exit - 128}`);
 	}
-	if (!("output" in wait)) {
-		throw new Error("expected the output to be set");
-	}
 	return wait.output;
 }
 
