@@ -19,8 +19,11 @@ use std::ops::Deref;
 	derive_more::Unwrap,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
+#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Id {

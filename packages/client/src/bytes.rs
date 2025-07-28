@@ -21,6 +21,17 @@ impl Cow<'_> {
 			Self::Owned(bytes) => bytes.as_ref(),
 		}
 	}
+
+	#[must_use]
+	pub fn slice<R>(&self, range: R) -> Self
+	where
+		R: std::slice::SliceIndex<[u8], Output = [u8]> + std::ops::RangeBounds<usize>,
+	{
+		match self {
+			Self::Borrowed(bytes) => Self::Borrowed(&bytes[range]),
+			Self::Owned(bytes) => Self::Owned(bytes.slice(range)),
+		}
+	}
 }
 
 impl AsRef<[u8]> for Cow<'_> {

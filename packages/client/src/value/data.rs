@@ -1,4 +1,5 @@
 use crate as tg;
+use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
 use num::ToPrimitive as _;
 use std::collections::BTreeMap;
@@ -13,19 +14,40 @@ use tangram_itertools::IteratorExt as _;
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Data {
+	#[tangram_serialize(id = 0)]
 	Null,
+
+	#[tangram_serialize(id = 1)]
 	Bool(bool),
+
+	#[tangram_serialize(id = 2)]
 	Number(f64),
+
+	#[tangram_serialize(id = 3)]
 	String(String),
+
+	#[tangram_serialize(id = 4)]
 	Array(Vec<Data>),
+
+	#[tangram_serialize(id = 5)]
 	Map(BTreeMap<String, Data>),
+
+	#[tangram_serialize(id = 6)]
 	Object(tg::object::Id),
+
+	#[tangram_serialize(id = 7)]
 	Bytes(Bytes),
+
+	#[tangram_serialize(id = 8)]
 	Mutation(tg::mutation::Data),
+
+	#[tangram_serialize(id = 9)]
 	Template(tg::template::Data),
 }
 
@@ -35,14 +57,34 @@ pub type Map = BTreeMap<String, Data>;
 
 impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
-		serde_json::to_vec(self)
-			.map(Into::into)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
+		let mut bytes = Vec::new();
+		#[cfg(not(feature = "serialize"))]
+		{
+			serde_json::to_writer(&mut bytes, self)
+				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		}
+		#[cfg(feature = "serialize")]
+		{
+			bytes.push(0);
+			tangram_serialize::to_writer(&mut bytes, self)
+				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		}
+		Ok(bytes.into())
 	}
 
 	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
-		serde_json::from_reader(bytes.into().as_ref())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
+		let bytes = bytes.into();
+		let mut reader = std::io::Cursor::new(bytes.as_ref());
+		let format = reader
+			.read_u8()
+			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+		match format {
+			0 => tangram_serialize::from_reader(&mut reader)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+			b'{' => serde_json::from_slice(&bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+			_ => Err(tg::error!("invalid format")),
+		}
 	}
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {

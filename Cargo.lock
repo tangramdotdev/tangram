@@ -3592,6 +3592,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
 
 [[package]]
+name = "num-derive"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
+]
+
+[[package]]
 name = "num-integer"
 version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6014,6 +6025,7 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_itertools",
+ "tangram_serialize",
  "tangram_uri",
  "tangram_version",
  "time",
@@ -6151,6 +6163,31 @@ dependencies = [
  "libc",
  "num",
  "scopeguard",
+]
+
+[[package]]
+name = "tangram_serialize"
+version = "0.0.0"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "num",
+ "num-derive",
+ "num-traits",
+ "tangram_serialize_macro",
+ "url",
+]
+
+[[package]]
+name = "tangram_serialize_macro"
+version = "0.0.0"
+dependencies = [
+ "heck",
+ "itertools 0.14.0",
+ "num",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

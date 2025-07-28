@@ -3,12 +3,24 @@ use std::path::PathBuf;
 use tangram_uri::Uri;
 
 #[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 pub struct Referent<T> {
+	#[tangram_serialize(id = 0)]
 	pub item: T,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
 	pub options: Options,
 }
 
@@ -23,12 +35,16 @@ pub struct Referent<T> {
 	PartialOrd,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Tag>,
 }
 

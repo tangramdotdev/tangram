@@ -2,35 +2,48 @@ use crate as tg;
 use itertools::Itertools as _;
 use tangram_itertools::IteratorExt as _;
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Data {
+	#[tangram_serialize(id = 0)]
 	Unset,
-	Set {
-		value: Box<tg::value::Data>,
-	},
-	SetIfUnset {
-		value: Box<tg::value::Data>,
-	},
-	Prepend {
-		values: Vec<tg::value::Data>,
-	},
-	Append {
-		values: Vec<tg::value::Data>,
-	},
+
+	#[tangram_serialize(id = 1)]
+	Set { value: Box<tg::value::Data> },
+
+	#[tangram_serialize(id = 2)]
+	SetIfUnset { value: Box<tg::value::Data> },
+
+	#[tangram_serialize(id = 3)]
+	Prepend { values: Vec<tg::value::Data> },
+
+	#[tangram_serialize(id = 4)]
+	Append { values: Vec<tg::value::Data> },
+
+	#[tangram_serialize(id = 5)]
 	Prefix {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 		template: tg::template::Data,
 	},
+
+	#[tangram_serialize(id = 6)]
 	Suffix {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		separator: Option<String>,
 		template: tg::template::Data,
 	},
-	Merge {
-		value: tg::value::data::Map,
-	},
+
+	#[tangram_serialize(id = 7)]
+	Merge { value: tg::value::data::Map },
 }
 
 impl Data {

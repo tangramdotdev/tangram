@@ -310,3 +310,27 @@ impl std::str::FromStr for Kind {
 		})
 	}
 }
+
+impl tangram_serialize::Serialize for Id {
+	fn serialize<W>(&self, serializer: &mut tangram_serialize::Serializer<W>) -> std::io::Result<()>
+	where
+		W: std::io::Write,
+	{
+		let bytes = self.to_bytes();
+		serializer.serialize_bytes(&bytes)?;
+		Ok(())
+	}
+}
+
+impl tangram_serialize::Deserialize for Id {
+	fn deserialize<R>(
+		deserializer: &mut tangram_serialize::Deserializer<R>,
+	) -> std::io::Result<Self>
+	where
+		R: std::io::Read,
+	{
+		let bytes = deserializer.deserialize_bytes()?;
+		let id = Self::from_slice(&bytes).map_err(std::io::Error::other)?;
+		Ok(id)
+	}
+}

@@ -1,11 +1,20 @@
 use crate::{self as tg, util::serde::is_false};
+use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 use std::{collections::BTreeMap, path::PathBuf};
 use tangram_itertools::IteratorExt as _;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Graph {
+	#[tangram_serialize(id = 0)]
 	pub nodes: Vec<tg::graph::data::Node>,
 }
 
@@ -18,46 +27,86 @@ pub struct Graph {
 	derive_more::Unwrap,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Node {
+	#[tangram_serialize(id = 0)]
 	Directory(Directory),
+
+	#[tangram_serialize(id = 1)]
 	File(File),
+
+	#[tangram_serialize(id = 2)]
 	Symlink(Symlink),
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Directory {
 	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
 
 	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub executable: bool,
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Symlink {
 	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
@@ -71,33 +120,69 @@ pub struct Symlink {
 	derive_more::Unwrap,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[serde(untagged)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Edge<T> {
+	#[tangram_serialize(id = 0)]
 	Reference(Reference),
+
+	#[tangram_serialize(id = 1)]
 	Object(T),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Reference {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub graph: Option<tg::graph::Id>,
 
+	#[tangram_serialize(id = 1)]
 	pub node: usize,
 }
 
 impl Graph {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
-		serde_json::to_vec(self)
-			.map(Into::into)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))
+		let mut bytes = Vec::new();
+		#[cfg(not(feature = "serialize"))]
+		{
+			serde_json::to_writer(&mut bytes, self)
+				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		}
+		#[cfg(feature = "serialize")]
+		{
+			bytes.push(0);
+			tangram_serialize::to_writer(&mut bytes, self)
+				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		}
+		Ok(bytes.into())
 	}
 
 	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
-		serde_json::from_reader(bytes.into().as_ref())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))
+		let bytes = bytes.into();
+		let mut reader = std::io::Cursor::new(bytes.as_ref());
+		let format = reader
+			.read_u8()
+			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+		match format {
+			0 => tangram_serialize::from_reader(&mut reader)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+			b'{' => serde_json::from_slice(&bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+			_ => Err(tg::error!("invalid format")),
+		}
 	}
 
 	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {

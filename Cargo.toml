@@ -12,6 +12,7 @@ members = [
   "packages/itertools",
   "packages/messenger",
   "packages/sandbox",
+  "packages/serialize",
   "packages/server",
   "packages/temp",
   "packages/uri",
@@ -90,6 +91,7 @@ foundationdb-tuple = "0.9"
 futures = "0.3"
 glob = "0.3"
 globset = "0.4"
+heck = "0.5"
 heed = "0.22"
 http = "1"
 http-body = "1"
@@ -109,6 +111,8 @@ mime = "0.3"
 moka = { version = "0.12", features = ["sync"] }
 notify = "8"
 num = "0.4"
+num-derive = "0.4"
+num-traits = "0.2"
 oauth2 = "5.0.0"
 octocrab = "0.44"
 once_cell = "1"
@@ -116,7 +120,9 @@ owo-colors = "4"
 petgraph = "0.8"
 pin-project = "1"
 pretty_assertions = "1"
+proc-macro2 = "1"
 proptest = "1"
+quote = "1"
 radix_trie = "0.2"
 rand = "0.9"
 ratatui = "0.29"
@@ -154,6 +160,7 @@ swc_core = { version = "33", features = [
   "ecma_transforms_typescript",
   "ecma_visit",
 ] }
+syn = "1"
 sync_wrapper = "1"
 syntect = { version = "5", features = ["default-fancy"] }
 tangram_cli_test = { path = "packages/cli/test" }
@@ -166,6 +173,7 @@ tangram_ignore = { path = "packages/ignore" }
 tangram_itertools = { path = "packages/itertools" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_sandbox = { path = "packages/sandbox" }
+tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server", default-features = false }
 tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }

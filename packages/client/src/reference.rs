@@ -9,7 +9,15 @@ use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 use tangram_uri::Uri;
 
-#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[tangram_serialize(display, from_str)]
 pub struct Reference {
 	uri: Uri,
 	item: Item,

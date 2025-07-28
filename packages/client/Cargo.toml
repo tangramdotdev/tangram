@@ -12,6 +12,7 @@ version = { workspace = true }
 
 [features]
 default = ["tls"]
+serialize = []
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
 [lints]
@@ -51,6 +52,7 @@ tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_itertools = { workspace = true }
+tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_version = { workspace = true }
 time = { workspace = true }

@@ -1,5 +1,5 @@
 use crate::{self as tg, util::serde::BytesBase64};
-use byteorder::WriteBytesExt as _;
+use byteorder::{ReadBytesExt as _, WriteBytesExt as _};
 use bytes::Bytes;
 use serde_with::serde_as;
 use std::io::Write as _;
@@ -19,14 +19,32 @@ pub struct Leaf {
 	pub bytes: Bytes,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Branch {
+	#[tangram_serialize(id = 0)]
 	pub children: Vec<Child>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Child {
+	#[tangram_serialize(id = 0)]
 	pub blob: tg::blob::Id,
+
+	#[tangram_serialize(id = 1)]
 	pub length: u64,
 }
 
@@ -46,8 +64,17 @@ impl Blob {
 			},
 			Self::Branch(branch) => {
 				bytes.write_u8(1).unwrap();
-				serde_json::to_writer(&mut bytes, branch)
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				#[cfg(not(feature = "serialize"))]
+				{
+					serde_json::to_writer(&mut bytes, branch)
+						.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				}
+				#[cfg(feature = "serialize")]
+				{
+					bytes.push(0);
+					tangram_serialize::to_writer(&mut bytes, branch)
+						.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				}
 			},
 		}
 		Ok(bytes.into())
@@ -66,13 +93,23 @@ impl Blob {
 				return Err(tg::error!("invalid kind"));
 			},
 		};
+		let bytes = bytes.slice(1..);
 		let blob = match kind {
 			Kind::Leaf => Self::Leaf(Leaf {
-				bytes: bytes.into_owned().slice(1..),
+				bytes: bytes.into_owned(),
 			}),
 			Kind::Branch => {
-				let branch = serde_json::from_reader(&bytes.as_ref()[1..])
-					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+				let mut reader = std::io::Cursor::new(bytes.as_ref());
+				let format = reader
+					.read_u8()
+					.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+				let branch = match format {
+					0 => tangram_serialize::from_reader(&mut reader)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+					b'{' => serde_json::from_slice(&bytes)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+					_ => Err(tg::error!("invalid format")),
+				}?;
 				Self::Branch(branch)
 			},
 		};

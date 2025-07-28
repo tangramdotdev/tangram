@@ -5,10 +5,22 @@ use tangram_itertools::IteratorExt as _;
 use tangram_uri::Uri;
 
 #[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 pub struct Module {
+	#[tangram_serialize(id = 0)]
 	pub kind: Kind,
+	#[tangram_serialize(id = 1)]
 	pub referent: tg::Referent<Item>,
 }
 
@@ -26,7 +38,10 @@ pub struct Module {
 	derive_more::Unwrap,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
+#[tangram_serialize(display, from_str)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {

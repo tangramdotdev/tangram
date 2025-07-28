@@ -17,8 +17,17 @@ pub mod put;
 pub use self::pattern::Pattern;
 
 #[derive(
-	Clone, Debug, Eq, Hash, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	PartialEq,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
+#[tangram_serialize(display, from_str)]
 pub struct Tag {
 	string: String,
 	components: Vec<Component>,

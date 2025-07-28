@@ -13,8 +13,11 @@ use std::ops::Deref;
 	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
+#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
 pub struct Id(crate::Id);
 
 impl Id {
