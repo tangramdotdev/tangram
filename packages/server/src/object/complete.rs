@@ -1,4 +1,8 @@
-use crate::Server;
+use crate::{Server, index::lmdb::Lmdb};
+
+#[cfg(feature = "foundationdb")]
+use crate::index::fdb::Fdb;
+
 use indoc::{formatdoc, indoc};
 use rusqlite as sqlite;
 use tangram_client as tg;
@@ -10,14 +14,45 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<bool>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(_) => {
+				// TODO
+				Ok(None)
+			},
+			crate::index::Index::Lmdb(_) => {
+				// TODO
+				Ok(None)
+			},
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_object_complete_sqlite(database, id).await
 			},
 			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.try_get_object_complete_postgres(database, id).await
-			},
+			crate::index::Index::Postgres(index) => self.try_get_object_complete_postgres(index, id).await,
 		}
+	}
+
+	#[cfg(feature = "foundationdb")]
+	async fn try_get_object_complete_fdb(
+		&self,
+		index: &Fdb,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<bool>> {
+		index
+			.try_get_object_complete_batch(&[id.clone()])
+			.await?
+			.pop()
+			.ok_or_else(|| tg::error!("there was a problem getting object complete"))
+	}
+
+	async fn try_get_object_complete_lmdb(
+		&self,
+		index: &Lmdb,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<bool>> {
+		index
+			.try_get_object_complete_batch(&[id.clone()])?
+			.pop()
+			.ok_or_else(|| tg::error!("there was a problem getting object complete"))
 	}
 
 	async fn try_get_object_complete_sqlite(
@@ -90,27 +125,59 @@ impl Server {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<bool>>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(_) => {
+				// TODO
+				Ok(vec![None; ids.len()])
+			},
+			crate::index::Index::Lmdb(_) => {
+				// TODO
+				Ok(vec![None; ids.len()])
+			},
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_object_complete_batch_sqlite(database, ids)
 					.await
 			},
 			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.try_get_object_complete_batch_postgres(database, ids)
+			crate::index::Index::Postgres(index) => {
+				self.try_get_object_complete_batch_postgres(index, ids)
 					.await
 			},
 		}
 	}
 
-	async fn try_get_object_complete_batch_sqlite(
+	#[cfg(feature = "foundationdb")]
+	async fn try_get_object_complete_batch_fdb(
 		&self,
-		database: &db::sqlite::Database,
+		index: &Fdb,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<bool>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		let connection = database
+		index.try_get_object_complete_batch(ids).await
+	}
+
+	async fn try_get_object_complete_batch_lmdb(
+		&self,
+		index: &Lmdb,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<bool>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		index.try_get_object_complete_batch(ids)
+	}
+
+	async fn try_get_object_complete_batch_sqlite(
+		&self,
+		index: &db::sqlite::Database,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<bool>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let connection = index
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -124,7 +191,7 @@ impl Server {
 	}
 
 	fn try_get_object_complete_batch_sqlite_sync(
-		connection: &sqlite::Connection,
+		index: &sqlite::Connection,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<bool>>> {
 		if ids.is_empty() {
@@ -137,7 +204,7 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut statement = connection
+		let mut statement = index
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut completes = Vec::new();

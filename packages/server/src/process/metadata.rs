@@ -25,6 +25,15 @@ impl Server {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(_) => {
+				// TODO
+				Ok(None)
+			},
+			crate::index::Index::Lmdb(_) => {
+				// TODO
+				Ok(None)
+			},
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_process_metadata_local_sqlite(database, id)
 					.await

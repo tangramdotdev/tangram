@@ -157,6 +157,27 @@ impl Server {
 
 	async fn count_items(&self) -> tg::Result<Count> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(_) => {
+				// TODO
+				Ok(Count {
+					cache_entries: 0,
+					objects: 0,
+					pipes: 0,
+					processes: 0,
+					ptys: 0,
+				})
+			},
+			crate::index::Index::Lmdb(_) => {
+				// TODO
+				Ok(Count {
+					cache_entries: 0,
+					objects: 0,
+					pipes: 0,
+					processes: 0,
+					ptys: 0,
+				})
+			},
 			crate::index::Index::Sqlite(database) => self.count_items_sqlite(database).await,
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => self.count_items_postgres(database).await,
@@ -339,6 +360,27 @@ impl Server {
 		batch_size: usize,
 	) -> tg::Result<InnerOutput> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(_) => {
+				// TODO
+				Ok(InnerOutput {
+					cache_entries: Vec::new(),
+					objects: Vec::new(),
+					pipes: Vec::new(),
+					processes: Vec::new(),
+					ptys: Vec::new(),
+				})
+			},
+			crate::index::Index::Lmdb(_) => {
+				// TODO
+				Ok(InnerOutput {
+					cache_entries: Vec::new(),
+					objects: Vec::new(),
+					pipes: Vec::new(),
+					processes: Vec::new(),
+					ptys: Vec::new(),
+				})
+			},
 			crate::index::Index::Sqlite(database) => {
 				self.cleaner_task_inner_sqlite(database, now, ttl, batch_size)
 					.await

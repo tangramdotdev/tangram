@@ -180,8 +180,24 @@ pub struct Http {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Index {
+	Fdb(FdbIndex),
+	Lmdb(LmdbIndex),
 	Postgres(PostgresIndex),
 	Sqlite(SqliteIndex),
+}
+
+#[derive(Clone, Default, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FdbIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+}
+
+#[derive(Clone, Default, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LmdbIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

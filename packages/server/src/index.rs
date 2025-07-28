@@ -1,5 +1,8 @@
+#[cfg(feature = "foundationdb")]
+use self::fdb::Fdb;
+use self::lmdb::Lmdb;
 use crate::{Server, util::iter::Ext as _};
-use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
+use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use num::ToPrimitive as _;
 use std::{collections::BTreeSet, pin::pin, time::Duration};
 use tangram_client as tg;
@@ -10,14 +13,20 @@ use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{self as messenger, Acker, prelude::*};
 use tokio_util::task::AbortOnDropHandle;
 
+#[cfg(feature = "foundationdb")]
+pub mod fdb;
+pub mod lmdb;
 #[cfg(feature = "postgres")]
-mod postgres;
-mod sqlite;
+pub mod postgres;
+pub mod sqlite;
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Index {
+	#[cfg(feature = "foundationdb")]
+	Fdb(Fdb),
+	Lmdb(Lmdb),
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Database),
 	Sqlite(db::sqlite::Database),
@@ -262,6 +271,33 @@ impl Server {
 
 			// Handle the messages.
 			match &self.index {
+				#[cfg(feature = "foundationdb")]
+				crate::index::Index::Fdb(index) => {
+					self.indexer_task_handle_messages_fdb(
+						index,
+						put_cache_entry_messages,
+						put_object_messages,
+						touch_object_messages,
+						put_process_messages,
+						touch_process_messages,
+						put_tag_messages,
+						delete_tag_messages,
+					)
+					.await?;
+				},
+				crate::index::Index::Lmdb(index) => {
+					self.indexer_task_handle_messages_lmdb(
+						index,
+						put_cache_entry_messages,
+						put_object_messages,
+						touch_object_messages,
+						put_process_messages,
+						touch_process_messages,
+						put_tag_messages,
+						delete_tag_messages,
+					)
+					.await?;
+				},
 				#[cfg(feature = "postgres")]
 				Index::Postgres(index) => {
 					self.indexer_task_handle_messages_postgres(

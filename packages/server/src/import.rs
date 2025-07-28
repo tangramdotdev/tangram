@@ -137,7 +137,7 @@ impl Server {
 						),
 					};
 					let result = futures::try_join!(
-						complete_sender_future,
+						// complete_sender_future,
 						process_send_future,
 						object_send_future
 					);

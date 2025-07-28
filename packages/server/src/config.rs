@@ -80,8 +80,20 @@ pub struct Http {
 
 #[derive(Clone, Debug)]
 pub enum Index {
+	Fdb(FdbIndex),
+	Lmdb(LmdbIndex),
 	Postgres(PostgresIndex),
 	Sqlite(SqliteIndex),
+}
+
+#[derive(Clone, Debug)]
+pub struct FdbIndex {
+	pub path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LmdbIndex {
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -192,8 +204,7 @@ impl Config {
 			connections: 1,
 			path: directory.join("database"),
 		});
-		let index = Index::Sqlite(SqliteIndex {
-			connections: 1,
+		let index = Index::Lmdb(LmdbIndex {
 			path: directory.join("index"),
 		});
 		let indexer = Some(Indexer::default());

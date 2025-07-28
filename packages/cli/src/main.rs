@@ -543,8 +543,7 @@ impl Cli {
 				connections: parallelism,
 				path: directory.join("database"),
 			});
-		let index = tangram_server::config::Index::Sqlite(tangram_server::config::SqliteIndex {
-			connections: parallelism,
+		let index = tangram_server::config::Index::Lmdb(tangram_server::config::LmdbIndex {
 			path: directory.join("index"),
 		});
 		let http = Some(tangram_server::config::Http {
@@ -756,6 +755,16 @@ impl Cli {
 		// Set the index config.
 		if let Some(index) = self.config.as_ref().and_then(|config| config.index.clone()) {
 			config.index = match index {
+				self::config::Index::Fdb(fdb) => {
+					tangram_server::config::Index::Fdb(tangram_server::config::FdbIndex {
+						path: fdb.path,
+					})
+				},
+				self::config::Index::Lmdb(lmdb) => {
+					tangram_server::config::Index::Lmdb(tangram_server::config::LmdbIndex {
+						path: lmdb.path.unwrap_or_else(|| config.directory.join("index")),
+					})
+				},
 				self::config::Index::Postgres(index) => {
 					let mut new = tangram_server::config::PostgresIndex {
 						connections: parallelism,

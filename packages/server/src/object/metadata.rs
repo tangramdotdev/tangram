@@ -1,4 +1,7 @@
-use crate::Server;
+use crate::{Server, index::lmdb::Lmdb};
+
+#[cfg(feature = "foundationdb")]
+use crate::index::fdb::Fdb;
 use futures::{FutureExt as _, future};
 use indoc::{formatdoc, indoc};
 use rusqlite as sqlite;
@@ -25,6 +28,11 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => self.try_get_object_metadata_local_fdb(database, id).await,
+			crate::index::Index::Lmdb(database) => {
+				self.try_get_object_metadata_local_lmdb(database, id).await
+			},
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_object_metadata_local_sqlite(database, id)
 					.await
@@ -35,6 +43,42 @@ impl Server {
 					.await
 			},
 		}
+	}
+
+	#[cfg(feature = "foundationdb")]
+	async fn try_get_object_metadata_local_fdb(
+		&self,
+		index: &Fdb,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		let metadata = index
+			.try_get_object_batch(&[id.clone()])
+			.await?
+			.first()
+			.and_then(|x| x.as_ref())
+			.map(|item| tg::object::Metadata {
+				count: item.count,
+				depth: item.depth,
+				weight: item.weight,
+			});
+		Ok(metadata)
+	}
+
+	async fn try_get_object_metadata_local_lmdb(
+		&self,
+		index: &Lmdb,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		let metadata = index
+			.try_get_object_batch(&[id.clone()])?
+			.first()
+			.and_then(|x| x.as_ref())
+			.map(|item| tg::object::Metadata {
+				count: item.count,
+				depth: item.depth,
+				weight: item.weight,
+			});
+		Ok(metadata)
 	}
 
 	async fn try_get_object_metadata_local_sqlite(
