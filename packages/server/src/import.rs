@@ -35,6 +35,8 @@ impl Server {
 		mut arg: tg::import::Arg,
 		mut stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
+		let session_id = tg::Id::new_uuidv7(tg::id::Kind::Request);
+
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let client = self.get_remote_client(remote.clone()).await?;
@@ -96,12 +98,19 @@ impl Server {
 		let objects_task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move { server.import_objects_task(object_receiver, &progress).await }
+			let session_id = session_id.clone();
+			async move {
+				server
+					.import_objects_task(object_receiver, session_id, &progress)
+					.await
+			}
 		}));
 
 		// Spawn a task that sends items from the stream to the other tasks.
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let event_sender = event_sender.clone();
+			let server = self.clone();
+			let session_id_clone = session_id.clone();
 			async move {
 				// Read the items from the stream and send them to the tasks.
 				loop {
@@ -161,6 +170,20 @@ impl Server {
 
 				match result {
 					Ok((Ok(()), Ok(()))) => {
+						// Send propagate message with session id
+						let message = crate::index::Message::Propogate(crate::index::PropogateMessage {
+							import_session_uuid: session_id_clone.to_string(),
+						});
+						let message = serde_json::to_vec(&message)
+							.map_err(|source| tg::error!(!source, "failed to serialize the message"));
+						if let Ok(message) = message {
+							let _published = server
+								.messenger
+								.stream_publish("index".to_owned(), message.into())
+								.await
+								.map_err(|source| tg::error!(!source, "failed to publish the message"));
+						}
+						
 						let event = tg::import::Event::End;
 						event_sender.send(Ok(event)).await.ok();
 					},
@@ -327,6 +350,7 @@ impl Server {
 	async fn import_objects_task(
 		&self,
 		object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
+		session_id: tg::Id,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
@@ -376,7 +400,7 @@ impl Server {
 		stream
 			.map(Ok)
 			.try_for_each_concurrent(concurrency, |batch| {
-				self.import_objects_task_inner(batch, progress)
+				self.import_objects_task_inner(batch, session_id.clone(), progress)
 			})
 			.await?;
 
@@ -386,6 +410,8 @@ impl Server {
 	async fn import_objects_task_inner(
 		&self,
 		items: Vec<tg::export::ObjectItem>,
+		// root_object_ids: Vec<tg::object::Id>,
+		session_id: tg::Id,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -412,6 +438,8 @@ impl Server {
 					children: data.children().collect(),
 					id: item.id.clone(),
 					size: item.bytes.len().to_u64().unwrap(),
+					import_session_uuid: session_id.clone(),
+					// root_object_ids: root_object_ids.clone(),
 					touched_at,
 				});
 				let message = serde_json::to_vec(&message)
