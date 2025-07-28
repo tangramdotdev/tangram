@@ -1,5 +1,7 @@
 use crate::Server;
 use futures::Stream;
+#[cfg(not(feature = "v8"))]
+use futures::future;
 use std::pin::Pin;
 use tangram_client as tg;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};

@@ -272,6 +272,26 @@ impl Server {
 
 		// Create the index.
 		let index = match &config.index {
+			self::config::Index::Postgres(options) => {
+				#[cfg(not(feature = "postgres"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with postgres support"
+					));
+				}
+				#[cfg(feature = "postgres")]
+				{
+					let options = db::postgres::DatabaseOptions {
+						url: options.url.clone(),
+						connections: options.connections,
+					};
+					let database = db::postgres::Database::new(options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
+					Index::Postgres(database)
+				}
+			},
 			self::config::Index::Sqlite(options) => {
 				let initialize = Arc::new(|connection: &sqlite::Connection| {
 					connection.pragma_update(None, "auto_vaccum", "incremental")?;
@@ -294,26 +314,6 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
 				Index::Sqlite(database)
-			},
-			self::config::Index::Postgres(options) => {
-				#[cfg(not(feature = "postgres"))]
-				{
-					let _ = options;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with postgres support"
-					));
-				}
-				#[cfg(feature = "postgres")]
-				{
-					let options = db::postgres::DatabaseOptions {
-						url: options.url.clone(),
-						connections: options.connections,
-					};
-					let database = db::postgres::Database::new(options)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-					Index::Postgres(database)
-				}
 			},
 		};
 
@@ -376,8 +376,19 @@ impl Server {
 		// Create the store.
 		let store = match &config.store {
 			config::Store::Memory => Store::new_memory(),
-			#[cfg(feature = "foundationdb")]
-			config::Store::Fdb(fdb) => Store::new_fdb(fdb)?,
+			config::Store::Fdb(fdb) => {
+				#[cfg(not(feature = "foundationdb"))]
+				{
+					let _ = fdb;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with foundationdb support"
+					));
+				}
+				#[cfg(feature = "foundationdb")]
+				{
+					Store::new_fdb(fdb)?
+				}
+			},
 			config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
 			config::Store::S3(s3) => Store::new_s3(s3),
 		};

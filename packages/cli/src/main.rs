@@ -706,19 +706,6 @@ impl Cli {
 			.and_then(|config| config.database.clone())
 		{
 			config.database = match database {
-				self::config::Database::Sqlite(database) => {
-					let mut new = tangram_server::config::SqliteDatabase {
-						connections: parallelism,
-						path: config.directory.clone(),
-					};
-					if let Some(connections) = database.connections {
-						new.connections = connections;
-					}
-					if let Some(path) = database.path {
-						new.path = path;
-					}
-					tangram_server::config::Database::Sqlite(new)
-				},
 				self::config::Database::Postgres(database) => {
 					let mut new = tangram_server::config::PostgresDatabase {
 						connections: parallelism,
@@ -731,6 +718,19 @@ impl Cli {
 						new.url = url;
 					}
 					tangram_server::config::Database::Postgres(new)
+				},
+				self::config::Database::Sqlite(database) => {
+					let mut new = tangram_server::config::SqliteDatabase {
+						connections: parallelism,
+						path: config.directory.clone(),
+					};
+					if let Some(connections) = database.connections {
+						new.connections = connections;
+					}
+					if let Some(path) = database.path {
+						new.path = path;
+					}
+					tangram_server::config::Database::Sqlite(new)
 				},
 			};
 		}
@@ -756,19 +756,6 @@ impl Cli {
 		// Set the index config.
 		if let Some(index) = self.config.as_ref().and_then(|config| config.index.clone()) {
 			config.index = match index {
-				self::config::Index::Sqlite(index) => {
-					let mut new = tangram_server::config::SqliteIndex {
-						connections: parallelism,
-						path: config.directory.clone(),
-					};
-					if let Some(connections) = index.connections {
-						new.connections = connections;
-					}
-					if let Some(path) = index.path {
-						new.path = path;
-					}
-					tangram_server::config::Index::Sqlite(new)
-				},
 				self::config::Index::Postgres(index) => {
 					let mut new = tangram_server::config::PostgresIndex {
 						connections: parallelism,
@@ -781,6 +768,19 @@ impl Cli {
 						new.url = url;
 					}
 					tangram_server::config::Index::Postgres(new)
+				},
+				self::config::Index::Sqlite(index) => {
+					let mut new = tangram_server::config::SqliteIndex {
+						connections: parallelism,
+						path: config.directory.clone(),
+					};
+					if let Some(connections) = index.connections {
+						new.connections = connections;
+					}
+					if let Some(path) = index.path {
+						new.path = path;
+					}
+					tangram_server::config::Index::Sqlite(new)
 				},
 			};
 		}
@@ -879,7 +879,6 @@ impl Cli {
 		// Set the store config.
 		if let Some(store) = self.config.as_ref().and_then(|config| config.store.clone()) {
 			config.store = match store {
-				#[cfg(feature = "foundationdb")]
 				config::Store::Fdb(fdb) => {
 					tangram_server::config::Store::Fdb(tangram_server::config::FdbStore {
 						path: fdb.path,
