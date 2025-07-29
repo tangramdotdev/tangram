@@ -160,7 +160,7 @@ swc_core = { version = "33", features = [
   "ecma_transforms_typescript",
   "ecma_visit",
 ] }
-syn = "1"
+syn = "2"
 sync_wrapper = "1"
 syntect = { version = "5", features = ["default-fancy"] }
 tangram_cli_test = { path = "packages/cli/test" }

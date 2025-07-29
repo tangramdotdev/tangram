@@ -12,68 +12,30 @@ impl<'a> Enum<'a> {
 		let attr = input
 			.attrs
 			.iter()
-			.find(|attr| attr.path.is_ident("tangram_serialize"));
+			.find(|attr| attr.path().is_ident("tangram_serialize"));
 
 		if let Some(attr) = attr {
-			// Parse the tangram_serialize attr as a list.
-			let meta = attr.parse_meta()?;
-			let syn::Meta::List(list) = meta else {
-				return Err(syn::Error::new_spanned(
-					attr,
-					"The tangram_serialize attribute must contain a list.",
-				));
-			};
-
-			// Parse the list items.
-			for item in &list.nested {
-				match item {
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("into") =>
-					{
-						// Get the value as a string literal.
-						let syn::Lit::Str(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "into" must be a string."#,
-							));
-						};
-
-						// Parse the value as a type.
-						let value = value.parse()?;
-
-						into = Some(value);
-					},
-
-					// Handle the "display" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("display") => {
-						display = true;
-					},
-
-					// Handle the "from_str" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("from_str") => {
-						from_str = true;
-					},
-
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("try_from") =>
-					{
-						// Get the value as a string literal.
-						let syn::Lit::Str(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "try_from" must be a string."#,
-							));
-						};
-
-						// Parse the value as a type.
-						let value = value.parse()?;
-
-						try_from = Some(value);
-					},
-
-					_ => {},
+			attr.parse_nested_meta(|meta| {
+				if meta.path.is_ident("into") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					into = Some(lit.parse()?);
+					Ok(())
+				} else if meta.path.is_ident("display") {
+					display = true;
+					Ok(())
+				} else if meta.path.is_ident("from_str") {
+					from_str = true;
+					Ok(())
+				} else if meta.path.is_ident("try_from") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					try_from = Some(lit.parse()?);
+					Ok(())
+				} else {
+					Err(meta.error("unsupported attribute"))
 				}
-			}
+			})?
 		}
 
 		// Validate attribute combinations
@@ -160,47 +122,19 @@ impl<'a> Variant<'a> {
 		let attr = variant
 			.attrs
 			.iter()
-			.find(|attr| attr.path.is_ident("tangram_serialize"));
+			.find(|attr| attr.path().is_ident("tangram_serialize"));
 
 		if let Some(attr) = attr {
-			// Parse the tangram_serialize attr as a list.
-			let meta = attr.parse_meta()?;
-			let syn::Meta::List(list) = meta else {
-				return Err(syn::Error::new_spanned(
-					attr,
-					"The tangram_serialize attribute must contain a list.",
-				));
-			};
-
-			// Parse the list items.
-			for item in &list.nested {
-				match item {
-					// Handle the "id" key.
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("id") =>
-					{
-						// Get the value as an integer literal.
-						let syn::Lit::Int(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "id" must be an integer."#,
-							));
-						};
-
-						// Parse the value as an integer.
-						let value = value.base10_parse().map_err(|_| {
-							syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "id" must be an integer."#,
-							)
-						})?;
-
-						id = Some(value);
-					},
-
-					_ => {},
+			attr.parse_nested_meta(|meta| {
+				if meta.path.is_ident("id") {
+					let value = meta.value()?;
+					let lit: syn::LitInt = value.parse()?;
+					id = Some(lit.base10_parse()?);
+					Ok(())
+				} else {
+					Err(meta.error("unsupported attribute"))
 				}
-			}
+			})?
 		}
 
 		Ok(Variant {

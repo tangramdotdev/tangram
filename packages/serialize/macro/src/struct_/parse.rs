@@ -16,77 +16,33 @@ impl<'a> Struct<'a> {
 		let attr = input
 			.attrs
 			.iter()
-			.find(|attr| attr.path.is_ident("tangram_serialize"));
+			.find(|attr| attr.path().is_ident("tangram_serialize"));
 
 		if let Some(attr) = attr {
-			// Parse the tangram_serialize attr as a list.
-			let meta = attr.parse_meta()?;
-			let syn::Meta::List(list) = meta else {
-				return Err(syn::Error::new_spanned(
-					attr,
-					"The tangram_serialize attribute must contain a list.",
-				));
-			};
-
-			// Parse the list items.
-			for item in &list.nested {
-				match item {
-					// Handle the "display" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("display") => {
-						display = true;
-					},
-
-					// Handle the "from_str" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("from_str") => {
-						from_str = true;
-					},
-
-					// Handle the "into" key.
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("into") =>
-					{
-						// Get the value as a string literal.
-						let syn::Lit::Str(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "into" must be a string."#,
-							));
-						};
-
-						// Parse the value as a type.
-						let value = value.parse()?;
-
-						into = Some(value);
-					},
-
-					// Handle the "transparent" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path))
-						if path.is_ident("transparent") =>
-					{
-						transparent = true;
-					},
-
-					// Handle the "try_from" key.
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("try_from") =>
-					{
-						// Get the value as a string literal.
-						let syn::Lit::Str(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "try_from" must be a string."#,
-							));
-						};
-
-						// Parse the value as a type.
-						let value = value.parse()?;
-
-						try_from = Some(value);
-					},
-
-					_ => {},
+			attr.parse_nested_meta(|meta| {
+				if meta.path.is_ident("display") {
+					display = true;
+					Ok(())
+				} else if meta.path.is_ident("from_str") {
+					from_str = true;
+					Ok(())
+				} else if meta.path.is_ident("into") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					into = Some(lit.parse()?);
+					Ok(())
+				} else if meta.path.is_ident("transparent") {
+					transparent = true;
+					Ok(())
+				} else if meta.path.is_ident("try_from") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					try_from = Some(lit.parse()?);
+					Ok(())
+				} else {
+					Err(meta.error("unsupported attribute"))
 				}
-			}
+			})?
 		}
 
 		// Validate attributes.
@@ -166,111 +122,47 @@ impl<'a> Field<'a> {
 		let attr = field
 			.attrs
 			.iter()
-			.find(|attr| attr.path.is_ident("tangram_serialize"));
+			.find(|attr| attr.path().is_ident("tangram_serialize"));
 
 		// Parse the list items.
 		if let Some(attr) = attr {
-			let meta = attr.parse_meta()?;
-			let syn::Meta::List(list) = meta else {
-				return Err(syn::Error::new_spanned(
-					attr,
-					"The tangram_serialize attribute must contain a list.",
-				));
-			};
-
-			for item in &list.nested {
-				match item {
-					// Handle the "deserialize_with" key.
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("deserialize_with") =>
-					{
-						// Get the value as an identifier.
-						let syn::Lit::Str(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "deserialize_with" must be a string."#,
-							));
-						};
-
-						deserialize_with = Some(value.value());
-					},
-
-					// Handle the "id" key.
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("id") =>
-					{
-						// Get the value as an integer literal.
-						let syn::Lit::Int(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "id" must be an integer."#,
-							));
-						};
-
-						// Parse the value as an integer.
-						let value = value.base10_parse().map_err(|_| {
-							syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "id" must be an integer."#,
-							)
-						})?;
-
-						id = Some(value);
-					},
-
-					// Handle the "serialize_with" key.
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("serialize_with") =>
-					{
-						// Get the value as an identifier.
-						let syn::Lit::Str(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "serialize_with" must be a string."#,
-							));
-						};
-
-						serialize_with = Some(value.value());
-					},
-
-					// Handle the "skip_serializing_if" key.
-					syn::NestedMeta::Meta(syn::Meta::NameValue(item))
-						if item.path.is_ident("skip_serializing_if") =>
-					{
-						// Get the value as a string.
-						let syn::Lit::Str(value) = &item.lit else {
-							return Err(syn::Error::new_spanned(
-								item,
-								r#"The value for the attribute "skip_serializing_if" must be a string."#,
-							));
-						};
-
-						skip_serializing_if = Some(value.value());
-					},
-
-					// Handle the "display" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("display") => {
-						display = true;
-					},
-
-					// Handle the "from_str" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("from_str") => {
-						from_str = true;
-					},
-
-					// Handle the "skip" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("skip") => {
-						skip = true;
-					},
-
-					// Handle the "default" key.
-					syn::NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("default") => {
-						default = true;
-					},
-
-					_ => {},
+			attr.parse_nested_meta(|meta| {
+				if meta.path.is_ident("deserialize_with") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					deserialize_with = Some(lit.value());
+					Ok(())
+				} else if meta.path.is_ident("id") {
+					let value = meta.value()?;
+					let lit: syn::LitInt = value.parse()?;
+					id = Some(lit.base10_parse()?);
+					Ok(())
+				} else if meta.path.is_ident("serialize_with") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					serialize_with = Some(lit.value());
+					Ok(())
+				} else if meta.path.is_ident("skip_serializing_if") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					skip_serializing_if = Some(lit.value());
+					Ok(())
+				} else if meta.path.is_ident("display") {
+					display = true;
+					Ok(())
+				} else if meta.path.is_ident("from_str") {
+					from_str = true;
+					Ok(())
+				} else if meta.path.is_ident("skip") {
+					skip = true;
+					Ok(())
+				} else if meta.path.is_ident("default") {
+					default = true;
+					Ok(())
+				} else {
+					Err(meta.error("unsupported attribute"))
 				}
-			}
+			})?
 		}
 
 		// Validate attribute combinations
