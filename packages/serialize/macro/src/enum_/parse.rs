@@ -35,7 +35,7 @@ impl<'a> Enum<'a> {
 				} else {
 					Err(meta.error("unsupported attribute"))
 				}
-			})?
+			})?;
 		}
 
 		// Validate attribute combinations
@@ -134,7 +134,7 @@ impl<'a> Variant<'a> {
 				} else {
 					Err(meta.error("unsupported attribute"))
 				}
-			})?
+			})?;
 		}
 
 		Ok(Variant {

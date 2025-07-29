@@ -42,7 +42,7 @@ impl<'a> Struct<'a> {
 				} else {
 					Err(meta.error("unsupported attribute"))
 				}
-			})?
+			})?;
 		}
 
 		// Validate attributes.
@@ -162,7 +162,7 @@ impl<'a> Field<'a> {
 				} else {
 					Err(meta.error("unsupported attribute"))
 				}
-			})?
+			})?;
 		}
 
 		// Validate attribute combinations
