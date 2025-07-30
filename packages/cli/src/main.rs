@@ -1389,7 +1389,7 @@ impl Cli {
 			None
 		};
 		let default = crate::config::Tracing {
-			filter: "tangram_cli=info,tangram_client=info,tangram_database=info,tangram_server=info,tangram_vfs=info".to_owned(),
+			filter: "tangram=info,tangram_client=info,tangram_database=info,tangram_server=info,tangram_vfs=info".to_owned(),
 			format: Some(crate::config::TracingFormat::Pretty),
 		};
 		let output_layer = config
