@@ -228,10 +228,11 @@ impl Server {
 					while let Some(result) = export_event_stream.next().await {
 						match result {
 							Ok(tg::export::Event::Item(item)) => {
-								let result = export_item_sender.send(Ok(item)).await;
+								let event = tg::export::Event::Item(item);
+								let result = export_item_sender.send(Ok(event)).await;
 								if let Err(error) = result {
-									progress
-										.error(tg::error!(!error, "failed to send export item"));
+									let error = tg::error!(!error, "failed to send export item");
+									progress.error(error);
 									break;
 								}
 							},
@@ -287,7 +288,8 @@ impl Server {
 			while let Some(result) = import_event_stream.next().await {
 				match result {
 					Ok(tg::import::Event::Complete(complete)) => {
-						import_complete_sender.send(Ok(complete)).await.ok();
+						let event = tg::import::Event::Complete(complete);
+						import_complete_sender.send(Ok(event)).await.ok();
 					},
 					Ok(tg::import::Event::Progress(import_progress)) => {
 						if let Some(processes) = import_progress.processes {

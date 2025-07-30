@@ -26,7 +26,8 @@ pub async fn import(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<(
 					let id = item.id;
 					let bytes = item.data.serialize()?;
 					let item = tg::export::Item::Object(tg::export::ObjectItem { id, bytes });
-					Ok::<_, tg::Error>(item)
+					let event = tg::export::Event::Item(item);
+					Ok::<_, tg::Error>(event)
 				});
 				let stream = stream::iter(stream).boxed();
 				let stream = server.import(arg, stream).await?;

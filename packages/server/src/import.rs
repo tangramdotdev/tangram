@@ -33,7 +33,7 @@ impl Server {
 	pub async fn import(
 		&self,
 		mut arg: tg::import::Arg,
-		mut stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+		mut stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
@@ -105,13 +105,16 @@ impl Server {
 			async move {
 				// Read the items from the stream and send them to the tasks.
 				loop {
-					let item = match stream.try_next().await {
-						Ok(Some(item)) => item,
+					let event = match stream.try_next().await {
+						Ok(Some(event)) => event,
 						Ok(None) => break,
 						Err(error) => {
 							event_sender.send(Err(error)).await.ok();
 							return;
 						},
+					};
+					let tg::export::Event::Item(item) = event else {
+						continue;
 					};
 					let complete_sender_future = match &item {
 						tg::export::Item::Process(item) => process_complete_sender
@@ -471,16 +474,16 @@ impl Server {
 		// Create the request stream.
 		let body = request.reader();
 		let stream = stream::try_unfold(body, |mut reader| async move {
-			let Some(item) = tg::export::Item::from_reader(&mut reader).await? else {
+			let Some(event) = tg::export::Event::from_reader(&mut reader).await? else {
 				return Ok(None);
 			};
-			if let tg::export::Item::Object(object) = &item {
+			if let tg::export::Event::Item(tg::export::Item::Object(object)) = &event {
 				let actual = tg::object::Id::new(object.id.kind(), &object.bytes);
 				if object.id != actual {
 					return Err(tg::error!(%expected = object.id, %actual, "invalid object id"));
 				}
 			}
-			Ok(Some((item, reader)))
+			Ok(Some((event, reader)))
 		})
 		.boxed();
 

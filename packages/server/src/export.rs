@@ -40,7 +40,7 @@ struct StateSync {
 	event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	file: Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	graph: Graph,
-	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
+	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Event>,
 	index: sqlite::Connection,
 	queue: VecDeque<QueueItem>,
 }
@@ -64,7 +64,7 @@ impl Server {
 	pub async fn export(
 		&self,
 		mut arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
@@ -127,7 +127,7 @@ impl Server {
 	async fn export_inner(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
 		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
 		// If the database, index, and store are synchronous, and all items are complete, then export synchronously.
@@ -183,18 +183,19 @@ impl Server {
 				let mut stream = pin!(stream);
 				while let Some(complete) = stream.try_next().await? {
 					match complete {
-						tg::import::Complete::Process(complete) => {
+						tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
 							let id = Either::Left(complete.id.clone());
 							let complete = complete.complete
 								&& (!state.arg.commands || complete.commands_complete)
 								&& (!state.arg.outputs || complete.outputs_complete);
 							state.graph.lock().unwrap().update(None, id, complete);
 						},
-						tg::import::Complete::Object(complete) => {
+						tg::import::Event::Complete(tg::import::Complete::Object(complete)) => {
 							let id = Either::Right(complete.id.clone());
 							let complete = true;
 							state.graph.lock().unwrap().update(None, id, complete);
 						},
+						_ => (),
 					}
 				}
 				Ok::<_, tg::Error>(())
@@ -354,7 +355,7 @@ impl Server {
 	fn export_sync_task(
 		&self,
 		arg: tg::export::Arg,
-		import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Complete>,
+		import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Event>,
 		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::export::Event>>,
 	) -> tg::Result<()> {
 		// Create a database connection.
@@ -407,18 +408,19 @@ impl Server {
 			// Update the graph.
 			while let Ok(complete) = state.import_complete_receiver.try_recv() {
 				match complete {
-					tg::import::Complete::Process(complete) => {
+					tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
 						let id = Either::Left(complete.id.clone());
 						let complete = complete.complete
 							&& (!state.arg.commands || complete.commands_complete)
 							&& (!state.arg.outputs || complete.outputs_complete);
 						state.graph.update(None, id, complete);
 					},
-					tg::import::Complete::Object(complete) => {
+					tg::import::Event::Complete(tg::import::Complete::Object(complete)) => {
 						let id = Either::Right(complete.id.clone());
 						let complete = true;
 						state.graph.update(None, id, complete);
 					},
+					_ => (),
 				}
 			}
 

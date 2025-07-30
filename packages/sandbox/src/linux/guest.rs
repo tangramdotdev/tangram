@@ -137,7 +137,7 @@ fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 			stat.st_mode & libc::S_IFDIR != 0
 		};
 
-		let ptr = target.as_ptr().cast_mut(); // :yikes: pretty sure this isn't UB.
+		let ptr = target.as_ptr().cast_mut();
 		let len = target.as_bytes_with_nul().len();
 		let mut esc = false;
 		for n in 1..len {

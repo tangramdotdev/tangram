@@ -66,7 +66,7 @@ impl tg::Client {
 	pub async fn import(
 		&self,
 		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Item>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + use<>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();
@@ -75,8 +75,8 @@ impl tg::Client {
 		// Create the body.
 		let body = Body::with_stream(stream.then(|result| async {
 			let frame = match result {
-				Ok(item) => {
-					let bytes = item.to_bytes().await;
+				Ok(event) => {
+					let bytes = event.to_bytes().await;
 					hyper::body::Frame::data(bytes)
 				},
 				Err(error) => {

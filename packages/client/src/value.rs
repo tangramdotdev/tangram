@@ -122,7 +122,10 @@ impl Value {
 			),
 			remote: None,
 		};
-		let stream = stream::iter(items.into_iter().map(Ok)).boxed();
+		let events = items
+			.into_iter()
+			.map(|item| Ok(tg::export::Event::Item(item)));
+		let stream = stream::iter(events).boxed();
 		let stream = handle.import(arg, stream).await?;
 		pin!(stream)
 			.try_last()

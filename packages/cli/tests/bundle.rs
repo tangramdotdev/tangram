@@ -40,7 +40,7 @@ async fn file_no_dependencies_js() {
 	"#);
 }
 
-// /// Test bundling a directory that contains no files with dependencies
+/// Test bundling a directory that contains no files with dependencies
 #[tokio::test]
 async fn directory_no_dependencies() {
 	let artifact = temp::directory! {

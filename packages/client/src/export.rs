@@ -103,7 +103,7 @@ impl tg::Client {
 	pub async fn export(
 		&self,
 		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Complete>> + Send + 'static>>,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + use<>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();

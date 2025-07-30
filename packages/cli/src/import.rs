@@ -25,10 +25,10 @@ impl Cli {
 		// Create the export stream.
 		let stdin = crate::util::stdio::stdin();
 		let stream = stream::try_unfold(stdin, |mut reader| async move {
-			let Some(item) = tg::export::Item::from_reader(&mut reader).await? else {
+			let Some(event) = tg::export::Event::from_reader(&mut reader).await? else {
 				return Ok(None);
 			};
-			Ok(Some((item, reader)))
+			Ok(Some((event, reader)))
 		})
 		.boxed();
 
