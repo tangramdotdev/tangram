@@ -33,7 +33,7 @@ pub struct Template {
 pub enum Component {
 	#[tangram_serialize(id = 0)]
 	String(String),
-	#[tangram_serialize(id = 0)]
+	#[tangram_serialize(id = 1)]
 	Artifact(tg::artifact::Id),
 }
 
