@@ -32,6 +32,23 @@ impl Server {
 		// Get the command.
 		let command = arg.command.as_ref().unwrap();
 
+		// Get the host.
+		let command_ = tg::Command::with_id(command.item.clone());
+		let host = command_.host(self).await?;
+
+		// Get a database connection.
+		let mut connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some()
 			|| (arg.mounts.is_empty()
@@ -42,9 +59,15 @@ impl Server {
 
 		// If the process is not cacheable or cached is false, then spawn a local process, add it as a child of the parent, and return it.
 		if !cacheable || matches!(arg.cached, Some(false)) {
-			let (id, token) = self.spawn_local_process(&arg).await?;
-			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(
+			// Spawn the process.
+			let (id, token, permit) = self
+				.spawn_local_process(&transaction, &arg, cacheable, &host)
+				.await?;
+
+			// Add the process as a child.
+			if let Some(parent) = &arg.parent {
+				self.add_process_child_with_transaction(
+					&transaction,
 					parent,
 					&id,
 					command.options.path.as_ref(),
@@ -56,18 +79,42 @@ impl Server {
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
 			}
+
+			// Commit the transaction.
+			transaction
+				.commit()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+			// Drop the connection.
+			drop(connection);
+
+			self.foo(&arg, &id, permit);
+
+			// Publish the child message.
+			if let Some(parent) = &arg.parent {
+				self.spawn_publish_process_child_message_task(parent);
+			}
+
+			// Create the output.
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
 				token: Some(token),
 			};
+
 			return Ok(Some(output));
 		}
 
 		// Return a cached local process if one exists.
-		if let Some((id, token)) = self.try_get_cached_process_local(&arg).await? {
-			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(
+		if let Some((id, token)) = self
+			.try_get_cached_process_local(&transaction, &arg)
+			.await?
+		{
+			// Add the process as a child.
+			if let Some(parent) = &arg.parent {
+				self.add_process_child_with_transaction(
+					&transaction,
 					parent,
 					&id,
 					command.options.path.as_ref(),
@@ -79,21 +126,40 @@ impl Server {
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
 			}
+
+			// Commit the transaction.
+			transaction
+				.commit()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+			// Drop the connection.
+			drop(connection);
+
+			// Publish the child message.
+			if let Some(parent) = &arg.parent {
+				self.spawn_publish_process_child_message_task(parent);
+			}
+
+			// Create the output.
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
 				token,
 			};
+
 			return Ok(Some(output));
 		}
 
 		// Return a cached local process with mismatched checksum if possible.
 		if let Some(id) = self
-			.try_get_cached_process_with_mismatched_checksum_local(&arg)
+			.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, &host)
 			.await?
 		{
-			if let Some(parent) = arg.parent.as_ref() {
-				self.try_add_process_child(
+			// Add the process as a child.
+			if let Some(parent) = &arg.parent {
+				self.add_process_child_with_transaction(
+					&transaction,
 					parent,
 					&id,
 					command.options.path.as_ref(),
@@ -105,29 +171,50 @@ impl Server {
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
 				)?;
 			}
+
+			// Commit the transaction.
+			transaction
+				.commit()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+			// Drop the connection.
+			drop(connection);
+
+			// Publish the child message.
+			if let Some(parent) = &arg.parent {
+				self.spawn_publish_process_child_message_task(parent);
+			}
+
+			// Create the output.
 			let output = tg::process::spawn::Output {
 				process: id,
 				remote: None,
 				token: None,
 			};
+
 			return Ok(Some(output));
 		}
 
 		// If cached is true, then attempt to get a remote process, and return none if none is found.
 		if matches!(arg.cached, Some(true)) {
+			// Drop the transaction and connection.
+			drop(transaction);
+			drop(connection);
+
 			if let Some(output) = self.try_get_cached_process_remote(&arg).await? {
-				if let Some(parent) = arg.parent.as_ref() {
-					self.try_add_process_child(
-					parent,
-					&output.process,
-					command.options.path.as_ref(),
-					command.options.tag.as_ref(),
-					output.token.as_ref(),
-				)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %parent, %child = output.process, "failed to add the process as a child"),
-				)?;
+				if let Some(parent) = &arg.parent {
+					self.add_process_child(
+						parent,
+						&output.process,
+						command.options.path.as_ref(),
+						command.options.tag.as_ref(),
+						output.token.as_ref(),
+					)
+					.await
+					.map_err(
+						|source| tg::error!(!source, %parent, %child = output.process, "failed to add the process as a child"),
+					)?;
 				}
 				return Ok(Some(output));
 			}
@@ -135,7 +222,21 @@ impl Server {
 		}
 
 		// Spawn a local process.
-		let (local_id, local_token) = self.spawn_local_process(&arg).await?;
+		let (local_id, local_token, local_permit) = self
+			.spawn_local_process(&transaction, &arg, cacheable, &host)
+			.await?;
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		// TODO
+		self.foo(&arg, &local_id, local_permit);
 
 		// Create a future that will await the local process.
 		let local = async { self.wait_process(&local_id).await };
@@ -167,9 +268,8 @@ impl Server {
 			},
 		};
 
-		// Add the process to the parent.
-		if let Some(parent) = arg.parent.as_ref() {
-			self.try_add_process_child(
+		if let Some(parent) = &arg.parent {
+			self.add_process_child(
 				parent,
 				&id,
 				command.options.path.as_ref(),
@@ -194,24 +294,13 @@ impl Server {
 
 	async fn try_get_cached_process_local(
 		&self,
+		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<Option<(tg::process::Id, Option<String>)>> {
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
+		let p = transaction.p();
 
 		// Get the command.
 		let command = arg.command.as_ref().unwrap().clone();
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Attempt to get a matching process.
 		#[derive(serde::Deserialize)]
@@ -293,32 +382,17 @@ impl Server {
 			Some(token)
 		};
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-		// Drop the connection.
-		drop(connection);
-
-		// Touch the process.
-		tokio::spawn({
-			let server = self.clone();
-			let id = id.clone();
-			async move {
-				let arg = tg::process::touch::Arg { remote: None };
-				server.touch_process(&id, arg).await.ok();
-			}
-		});
-
 		Ok(Some((id, token)))
 	}
 
 	async fn try_get_cached_process_with_mismatched_checksum_local(
 		&self,
+		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
+		host: &str,
 	) -> tg::Result<Option<tg::process::Id>> {
+		let p = transaction.p();
+
 		// Get the command.
 		let command = arg.command.as_ref().unwrap();
 
@@ -327,13 +401,6 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 		// Attempt to get a process.
 		#[derive(serde::Deserialize)]
 		struct Row {
@@ -341,20 +408,19 @@ impl Server {
 			actual_checksum: tg::Checksum,
 			output: Option<db::value::Json<tg::value::Data>>,
 		}
-		let p = connection.p();
-		let params = match &connection {
-			database::Connection::Sqlite(_) => {
+		let params = match &transaction {
+			database::Transaction::Sqlite(_) => {
 				"with params as (select ?1 as command, ?2 as checksum)"
 			},
 			#[cfg(feature = "postgres")]
-			database::Connection::Postgres(_) => {
+			database::Transaction::Postgres(_) => {
 				"with params as (select $1::text as command, $2::text as checksum)"
 			},
 		};
-		let is = match &connection {
-			database::Connection::Sqlite(_) => "is",
+		let is = match &transaction {
+			database::Transaction::Sqlite(_) => "is",
 			#[cfg(feature = "postgres")]
-			database::Connection::Postgres(_) => "is not distinct from",
+			database::Transaction::Postgres(_) => "is not distinct from",
 		};
 		let statement = formatdoc!(
 			"
@@ -376,16 +442,13 @@ impl Server {
 			id: existing_id,
 			actual_checksum,
 			output,
-		}) = connection
+		}) = transaction
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
-
-		// Drop the connection.
-		drop(connection);
 
 		// Set the exit, output, and error.
 		let (exit, error) = if expected_checksum == actual_checksum {
@@ -402,37 +465,13 @@ impl Server {
 			(1, Some(error))
 		};
 
-		// Touch the command.
-		self.touch_object(
-			&command.item.clone().into(),
-			tg::object::touch::Arg::default(),
-		)
-		.await?;
-
 		// Create an ID.
 		let id = tg::process::Id::new();
-
-		// Get the host.
-		let command_ = tg::Command::with_id(command.item.clone());
-		let host = &*command_.host(self).await?;
 
 		// Copy the log file.
 		let src = self.logs_path().join(existing_id.to_string());
 		let dst = self.logs_path().join(id.to_string());
 		tokio::fs::copy(src, dst).await.ok();
-
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Insert the process children.
 		let statement = formatdoc!(
@@ -536,28 +575,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
 		Ok(Some(id))
 	}
 
 	async fn spawn_local_process(
 		&self,
+		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<(tg::process::Id, String)> {
+		cacheable: bool,
+		host: &str,
+	) -> tg::Result<(tg::process::Id, String, Option<ProcessPermit>)> {
+		let p = transaction.p();
+
 		// Get the command.
 		let command = arg.command.as_ref().unwrap();
-
-		// Touch the command.
-		self.touch_object(
-			&command.item.clone().into(),
-			tg::object::touch::Arg::default(),
-		)
-		.await?;
 
 		// Create an ID.
 		let id = tg::process::Id::new();
@@ -565,23 +596,11 @@ impl Server {
 		// Create a token.
 		let token = Self::create_process_token();
 
-		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some()
-			|| (arg.mounts.is_empty()
-				&& !arg.network
-				&& arg.stdin.is_none()
-				&& arg.stdout.is_none()
-				&& arg.stderr.is_none());
-
 		// Create the log file.
 		let path = self.logs_path().join(id.to_string());
 		tokio::fs::File::create(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
-
-		// Get the host.
-		let command_ = tg::Command::with_id(command.item.clone());
-		let host = &*command_.host(self).await?;
 
 		// Attempt to acquire a permit immediately.
 		let permit = 'a: {
@@ -605,20 +624,6 @@ impl Server {
 		} else {
 			tg::process::Status::Enqueued
 		};
-
-		// Get a database connection.
-		let mut connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Insert the process.
 		let statement = formatdoc!(
@@ -724,23 +729,23 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok((id, token, permit))
+	}
 
-		// Drop the connection.
-		drop(connection);
-
+	fn foo(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		id: &tg::process::Id,
+		permit: Option<ProcessPermit>,
+	) {
 		// If a permit was immediately available, then spawn the process task and return.
 		if let Some(permit) = permit {
 			let process = tg::Process::new(id.clone(), None, None, None, None);
 			self.spawn_process_task(&process, permit);
-			return Ok((id, token));
+			return;
 		}
 
-		// Publish the created message.
+		// Spawn a task to publish the created message.
 		tokio::spawn({
 			let server = self.clone();
 			async move {
@@ -753,40 +758,40 @@ impl Server {
 			}
 		});
 
-		// Spawn a task to spawn the process when the parent's permit is available.
-		let server = self.clone();
-		let parent = arg.parent.clone();
-		let process = tg::Process::new(id.clone(), None, None, None, None);
-		tokio::spawn(async move {
-			// Acquire the parent's permit.
-			let Some(permit) = parent.as_ref().and_then(|parent| {
-				server
-					.process_permits
-					.get(parent)
-					.map(|permit| permit.clone())
-			}) else {
-				return;
-			};
-			let permit = permit
-				.lock_owned()
-				.map(|guard| ProcessPermit(Either::Right(guard)))
-				.await;
+		// Spawn a task to spawn the process task when the parent's permit is available.
+		tokio::spawn({
+			let server = self.clone();
+			let parent = arg.parent.clone();
+			let process = tg::Process::new(id.clone(), None, None, None, None);
+			async move {
+				// Acquire the parent's permit.
+				let Some(permit) = parent.as_ref().and_then(|parent| {
+					server
+						.process_permits
+						.get(parent)
+						.map(|permit| permit.clone())
+				}) else {
+					return;
+				};
+				let permit = permit
+					.lock_owned()
+					.map(|guard| ProcessPermit(Either::Right(guard)))
+					.await;
 
-			// Attempt to start the process.
-			let arg = tg::process::start::Arg {
-				remote: process.remote().cloned(),
-			};
-			let result = server.start_process(process.id(), arg.clone()).await;
-			if let Err(error) = result {
-				tracing::trace!(?error, "failed to start the process");
-				return;
+				// Attempt to start the process.
+				let arg = tg::process::start::Arg {
+					remote: process.remote().cloned(),
+				};
+				let result = server.start_process(process.id(), arg.clone()).await;
+				if let Err(error) = result {
+					tracing::trace!(?error, "failed to start the process");
+					return;
+				}
+
+				// Spawn the process task.
+				server.spawn_process_task(&process, permit);
 			}
-
-			// Spawn the process task.
-			server.spawn_process_task(&process, permit);
 		});
-
-		Ok((id, token))
 	}
 
 	async fn try_get_cached_process_remote(
@@ -822,20 +827,10 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Touch the process.
-		tokio::spawn({
-			let server = self.clone();
-			let output = output.clone();
-			async move {
-				let arg = tg::process::touch::Arg { remote: None };
-				server.touch_process(&output.process, arg).await.ok();
-			}
-		});
-
 		Ok(Some(output))
 	}
 
-	async fn try_add_process_child(
+	async fn add_process_child(
 		&self,
 		parent: &tg::process::Id,
 		child: &tg::process::Id,
@@ -843,22 +838,53 @@ impl Server {
 		tag: Option<&tg::Tag>,
 		token: Option<&String>,
 	) -> tg::Result<()> {
-		// Verify the process is local and started.
-		if self.try_get_current_process_status_local(parent).await?
-			!= Some(tg::process::Status::Started)
-		{
-			return Err(tg::error!("failed to find the process"));
-		}
-
 		// Get a database connection.
-		let connection = self
+		let mut connection = self
 			.database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		// Add the process as a child.
+		self.add_process_child_with_transaction(&transaction, parent, child, path, tag, token)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %parent, %child, "failed to add the process as a child"),
+			)?;
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Drop the connection.
+		drop(connection);
+
+		// Publish the child message.
+		self.spawn_publish_process_child_message_task(parent);
+
+		Ok(())
+	}
+
+	async fn add_process_child_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		parent: &tg::process::Id,
+		child: &tg::process::Id,
+		path: Option<&PathBuf>,
+		tag: Option<&tg::Tag>,
+		token: Option<&String>,
+	) -> tg::Result<()> {
+		let p = transaction.p();
+
 		// Determine if adding this child process creates a cycle.
-		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				with recursive ancestors as (
@@ -874,7 +900,7 @@ impl Server {
 			"
 		);
 		let params = db::params![parent, child];
-		let cycle = connection
+		let cycle = transaction
 			.query_one_value_into::<bool>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the cycle check"))?;
@@ -884,18 +910,7 @@ impl Server {
 			return Err(tg::error!("adding this child process creates a cycle"));
 		}
 
-		// Drop the connection.
-		drop(connection);
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
 		// Add the child to the database.
-		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				insert into process_children (process, position, child, path, tag, token)
@@ -904,15 +919,15 @@ impl Server {
 			"
 		);
 		let params = db::params![parent, child, path, tag, token];
-		connection
+		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
-		drop(connection);
+		Ok(())
+	}
 
-		// Publish the message.
+	fn spawn_publish_process_child_message_task(&self, parent: &tg::process::Id) {
 		tokio::spawn({
 			let server = self.clone();
 			let id = parent.clone();
@@ -927,8 +942,6 @@ impl Server {
 					.ok();
 			}
 		});
-
-		Ok(())
 	}
 
 	fn create_process_token() -> String {

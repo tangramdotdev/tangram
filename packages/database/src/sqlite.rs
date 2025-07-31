@@ -109,8 +109,9 @@ pub struct Json<T>(pub T);
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
 		let write_pool = Pool::new();
+		let flags = rusqlite::OpenFlags::default();
 		let options_ = ConnectionOptions {
-			flags: rusqlite::OpenFlags::default(),
+			flags,
 			initialize: options.initialize.clone(),
 			path: options.path.clone(),
 		};

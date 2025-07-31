@@ -1,5 +1,4 @@
 use crate::Server;
-use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
@@ -7,14 +6,6 @@ use tangram_messenger::prelude::*;
 
 impl Server {
 	pub async fn put_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_inner(id, arg).boxed().await
-	}
-
-	async fn put_object_inner(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,

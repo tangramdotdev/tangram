@@ -22,7 +22,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		self.store.touch(id, touched_at).await?;
 
-		// Publish the touch object index message.
+		// Publish the message.
 		let message = crate::index::Message::TouchObject(crate::index::TouchObjectMessage {
 			id: id.clone(),
 			touched_at,
