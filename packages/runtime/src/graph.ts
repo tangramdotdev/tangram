@@ -62,7 +62,7 @@ export class Graph {
 							return [key, referent];
 						}),
 					);
-					const executable = node.executable ?? false;
+					let executable = node.executable ?? false;
 					return {
 						kind: "file" as const,
 						contents,
@@ -511,9 +511,9 @@ export namespace Graph {
 		};
 
 		export let children = (object: tg.Graph.File): Array<tg.Object> => {
-			const dependencies = globalThis.Object.entries(
-				object.dependencies,
-			).flatMap(([_, referent]) => tg.Graph.Edge.children(referent.item));
+			let dependencies = globalThis.Object.entries(object.dependencies).flatMap(
+				([_, referent]) => tg.Graph.Edge.children(referent.item),
+			);
 			return [object.contents, ...dependencies];
 		};
 	}

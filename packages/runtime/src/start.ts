@@ -8,7 +8,7 @@ export let start = async (process: tg.Process): Promise<tg.Value.Data> => {
 	await process.load();
 
 	// Load the command.
-	const command = await process.command();
+	let command = await process.command();
 	await command.load();
 
 	// Import the module.

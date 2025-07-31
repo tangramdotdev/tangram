@@ -13,6 +13,9 @@ pub struct Item {
 
 pub async fn import(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<()> {
 	let (Serde(items),) = args;
+	if items.is_empty() {
+		return Ok(());
+	}
 	let server = state.server.clone();
 	state
 		.main_runtime_handle

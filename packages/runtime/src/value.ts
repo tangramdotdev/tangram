@@ -135,39 +135,43 @@ export namespace Value {
 	};
 
 	export let store = async (value: tg.Value): Promise<void> => {
-		// Get the objects.
-		let objects = tg.Value.objects(value);
-
 		// Collect all unstored objects in reverse topological order.
 		let unstored = [];
-		let stack = objects.filter((object) => !object.state.stored);
+		let stack = tg.Value.objects(value).filter((object) => {
+			return !object.state.stored;
+		});
 		while (stack.length > 0) {
 			let object = stack.pop()!;
 			unstored.push(object);
-			if (object.state.object !== undefined) {
-				let kind = tg.Object.kind(object);
-				let children = tg.Object.Object_.children({
-					kind,
-					value: object.state.object!,
-				} as tg.Object.Object_).filter((object) => !object.state.stored);
-				stack.push(...children);
+			if (object.state.object === undefined) {
+				continue;
 			}
+			let kind = tg.Object.kind(object);
+			let children = tg.Object.Object.children({
+				kind,
+				value: object.state.object!,
+			} as tg.Object.Object);
+			stack.push(...children.filter((object) => !object.state.stored));
 		}
 		unstored.reverse();
+		if (unstored.length === 0) {
+			return;
+		}
 
 		// Import.
 		let items = [];
 		for (let object of unstored) {
-			if (object.state.object !== undefined) {
-				let kind = tg.Object.kind(object);
-				let data = tg.Object.Object_.toData({
-					kind,
-					value: object.state.object,
-				} as tg.Object.Object_);
-				let id = syscall("object_id", data);
-				object.state.id = id;
-				items.push({ id, data });
+			if (object.state.object === undefined) {
+				continue;
 			}
+			let kind = tg.Object.kind(object);
+			let data = tg.Object.Object.toData({
+				kind,
+				value: object.state.object,
+			} as tg.Object.Object);
+			let id = syscall("object_id", data);
+			object.state.id = id;
+			items.push({ id, data });
 		}
 		await syscall("import", items);
 

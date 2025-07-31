@@ -583,6 +583,29 @@ impl Server {
 		let command_ = tg::Command::with_id(command.item.clone());
 		let host = &*command_.host(self).await?;
 
+		// Attempt to acquire a permit immediately.
+		let permit = 'a: {
+			if let Some(parent_id) = &arg.parent {
+				if let Some(parent_permit) = self.process_permits.get(parent_id) {
+					let parent_permit = parent_permit.clone();
+					if let Ok(guard) = parent_permit.try_lock_owned() {
+						break 'a Some(ProcessPermit(Either::Right(guard)));
+					}
+				}
+			}
+			if let Ok(server_permit) = self.process_semaphore.clone().try_acquire_owned() {
+				break 'a Some(ProcessPermit(Either::Left(server_permit)));
+			}
+			None
+		};
+
+		// Set the status.
+		let status = if permit.is_some() {
+			tg::process::Status::Started
+		} else {
+			tg::process::Status::Enqueued
+		};
+
 		// Get a database connection.
 		let mut connection = self
 			.database
@@ -607,10 +630,12 @@ impl Server {
 					created_at,
 					enqueued_at,
 					expected_checksum,
+					heartbeat_at,
 					host,
 					mounts,
 					network,
 					retry,
+					started_at,
 					status,
 					stderr,
 					stdin,
@@ -634,7 +659,9 @@ impl Server {
 					{p}13,
 					{p}14,
 					{p}15,
-					{p}16
+					{p}16,
+					{p}17,
+					{p}18
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -642,19 +669,23 @@ impl Server {
 					created_at = {p}4,
 					enqueued_at = {p}5,
 					expected_checksum = {p}6,
-					host = {p}7,
-					mounts = {p}8,
-					network = {p}9,
-					retry = {p}10,
-					status = {p}11,
-					stderr = {p}12,
-					stdin = {p}13,
-					stdout = {p}14,
-					token_count = {p}15,
-					touched_at = {p}16;
+					heartbeat_at = {p}7,
+					host = {p}8,
+					mounts = {p}9,
+					network = {p}10,
+					retry = {p}11,
+					started_at = {p}12,
+					status = {p}13,
+					stderr = {p}14,
+					stdin = {p}15,
+					stdout = {p}16,
+					token_count = {p}17,
+					touched_at = {p}18;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let heartbeat_at = if permit.is_some() { Some(now) } else { None };
+		let started_at = if permit.is_some() { Some(now) } else { None };
 		let params = db::params![
 			id,
 			cacheable,
@@ -662,11 +693,13 @@ impl Server {
 			now,
 			now,
 			arg.checksum,
+			heartbeat_at,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			arg.retry,
-			tg::process::Status::Enqueued,
+			started_at,
+			status,
 			arg.stderr,
 			arg.stdin,
 			arg.stdout,
@@ -700,7 +733,14 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish the process created message.
+		// If a permit was immediately available, then spawn the process task and return.
+		if let Some(permit) = permit {
+			let process = tg::Process::new(id.clone(), None, None, None, None);
+			self.spawn_process_task(&process, permit);
+			return Ok((id, token));
+		}
+
+		// Publish the created message.
 		tokio::spawn({
 			let server = self.clone();
 			async move {

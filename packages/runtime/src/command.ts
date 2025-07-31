@@ -131,7 +131,7 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					const host = await tg.Process.current
+					let host = await tg.Process.current
 						.command()
 						.then((command) => command.env())
 						.then((env) => env.TANGRAM_HOST);

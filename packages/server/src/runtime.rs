@@ -64,7 +64,7 @@ impl Runtime {
 		let state = process.load(self.server()).await?;
 
 		// Run the process.
-		let mut wait = match self {
+		let mut output = match self {
 			Runtime::Builtin(runtime) => runtime.run(process).boxed().await,
 			#[cfg(target_os = "macos")]
 			Runtime::Darwin(runtime) => runtime.run(process).boxed().await,
@@ -76,14 +76,14 @@ impl Runtime {
 
 		// Compute the checksum if necessary.
 		if let (Some(checksum), None, Some(value)) =
-			(&state.expected_checksum, &wait.checksum, &wait.output)
+			(&state.expected_checksum, &output.checksum, &output.output)
 		{
 			let algorithm = checksum.algorithm();
 			let checksum = self.compute_checksum(value, algorithm).await?;
-			wait.checksum = Some(checksum);
+			output.checksum = Some(checksum);
 		}
 
-		Ok(wait)
+		Ok(output)
 	}
 
 	async fn compute_checksum(

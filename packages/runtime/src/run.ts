@@ -154,11 +154,14 @@ async function arg_(
 				tg.Artifact.is(arg) ||
 				arg instanceof tg.Template
 			) {
+				let host = await tg.Process.current
+					.command()
+					.then((command) => command.env())
+					.then((env) => env.TANGRAM_HOST);
 				return {
 					args: ["-c", arg],
 					executable: "/bin/sh",
-					host: (await (await tg.Process.current.command()).env())!
-						.TANGRAM_HOST,
+					host,
 				};
 			} else if (arg instanceof tg.Command) {
 				let object = await arg.object();

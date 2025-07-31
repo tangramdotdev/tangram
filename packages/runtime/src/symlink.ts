@@ -126,7 +126,7 @@ export class Symlink {
 	async artifact(): Promise<tg.Artifact | undefined> {
 		let object = await this.object();
 		if ("node" in object) {
-			const graph = object.graph;
+			let graph = object.graph;
 			tg.assert(graph !== undefined);
 			let node = (await graph.nodes())[object.node];
 			tg.assert(node !== undefined);

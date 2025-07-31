@@ -31,7 +31,7 @@ export namespace Object {
 		stored: boolean;
 	};
 
-	export type Object_ =
+	export type Object =
 		| { kind: "blob"; value: tg.Blob.Object }
 		| { kind: "directory"; value: tg.Directory.Object }
 		| { kind: "file"; value: tg.File.Object }
@@ -39,8 +39,8 @@ export namespace Object {
 		| { kind: "graph"; value: tg.Graph.Object }
 		| { kind: "command"; value: tg.Command.Object };
 
-	export namespace Object_ {
-		export let toData = (object: tg.Object.Object_): tg.Object.Data => {
+	export namespace Object {
+		export let toData = (object: tg.Object.Object): tg.Object.Data => {
 			switch (object.kind) {
 				case "blob": {
 					let value = tg.Blob.Object.toData(object.value);
@@ -69,7 +69,7 @@ export namespace Object {
 			}
 		};
 
-		export let fromData = (data: tg.Object.Data): tg.Object.Object_ => {
+		export let fromData = (data: tg.Object.Data): tg.Object.Object => {
 			switch (data.kind) {
 				case "blob": {
 					let value = tg.Blob.Object.fromData(data.value);
@@ -98,7 +98,7 @@ export namespace Object {
 			}
 		};
 
-		export let children = (object: tg.Object.Object_): Array<tg.Object> => {
+		export let children = (object: tg.Object.Object): Array<tg.Object> => {
 			switch (object.kind) {
 				case "blob": {
 					return tg.Blob.Object.children(object.value);

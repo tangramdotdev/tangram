@@ -23,7 +23,8 @@ import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
-import { Object as Object_ } from "./object.ts";
+// biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
+import { Object } from "./object.ts";
 import { path } from "./path.ts";
 import { Process } from "./process.ts";
 import type { Range } from "./range.ts";
@@ -85,7 +86,7 @@ export {
 	Graph,
 	Module,
 	Mutation,
-	Object_ as Object,
+	Object,
 	Process,
 	Referent,
 	RunBuilder,
