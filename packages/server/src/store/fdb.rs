@@ -1,6 +1,6 @@
 use super::CacheReference;
 use bytes::Bytes;
-use foundationdb::{self as fdb, FdbBindingError};
+use foundationdb::{self as fdb, FdbBindingError, options::TransactionOption};
 use foundationdb_tuple::TuplePack as _;
 use futures::{TryStreamExt as _, future, stream::FuturesOrdered};
 use num::ToPrimitive as _;
@@ -167,15 +167,20 @@ impl Fdb {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
+				transaction.set_option(TransactionOption::NextWriteNoWriteConflictRange)?;
 				for (id, bytes, reference) in &arg.objects {
 					let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
 					if let Some(bytes) = bytes {
 						if bytes.is_empty() {
 							transaction.set(&subspace.pack(&0), &[]);
+							transaction
+								.set_option(TransactionOption::NextWriteNoWriteConflictRange)?;
 						} else {
 							let mut start = 0;
 							for chunk in bytes.chunks(VALUE_SIZE_LIMIT) {
 								transaction.set(&subspace.pack(&start), chunk);
+								transaction
+									.set_option(TransactionOption::NextWriteNoWriteConflictRange)?;
 								start += chunk.len();
 							}
 						}
@@ -183,10 +188,12 @@ impl Fdb {
 					let key = (0, id.to_bytes(), 1);
 					let value = arg.touched_at.to_le_bytes();
 					transaction.set(&key.pack_to_vec(), &value);
+					transaction.set_option(TransactionOption::NextWriteNoWriteConflictRange)?;
 					if let Some(reference) = reference {
 						let key = (0, id.to_bytes(), 2);
 						let value = serde_json::to_vec(reference).unwrap();
 						transaction.set(&key.pack_to_vec(), &value);
+						transaction.set_option(TransactionOption::NextWriteNoWriteConflictRange)?;
 					}
 				}
 				Ok(())

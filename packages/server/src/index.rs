@@ -659,7 +659,20 @@ impl Server {
 			.await?;
 		self.indexer_delete_tags_postgres(delete_tag_messages, &transaction)
 			.await?;
-		self.indexer_propogate_postgres(propogate_messages, &transaction)
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		self.indexer_propagate_postgres(propogate_messages, &transaction)
 			.await?;
 
 		// Commit the transaction.
@@ -979,190 +992,23 @@ impl Server {
 	}
 
 	#[cfg(feature = "postgres")]
-	async fn indexer_propogate_postgres(
+	async fn indexer_propagate_postgres(
 		&self,
 		messages: Vec<PropogateMessage>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
-		use std::collections::{HashMap, HashSet};
-
 		for message in messages {
-			// Step 1: Get initial queue of leaves
-			let statement = "select leaf from leaves where session_id = $1";
-			let params = db::params![&message.import_session_uuid];
-			let rows = transaction
-				.query(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get leaves"))?;
-
-			let mut queue: Vec<String> = rows.iter().map(|row| row.get::<String>(0)).collect();
-
-			if queue.is_empty() {
-				continue;
-			}
-
-			// Step 2: Get initial parent candidates from the leaves
-			let leaf_ids = queue
-				.iter()
-				.map(|id| id.to_string())
-				.collect::<Vec<_>>()
-				.join(",");
-
-			let statement = format!(
-				"select distinct oc.object as parent_id
-				 from object_children oc
-				 where oc.child in ({})",
-				leaf_ids
+			let statement = indoc!(
+				"
+					call propagate($1);
+				"
 			);
-			let params = db::params![];
-			let rows = transaction
-				.query(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get initial parents"))?;
-
-			let candidate_parents: HashSet<String> =
-				rows.iter().map(|row| row.get::<String>(0)).collect();
-
-			// Filter parents that have all children complete
-			if !candidate_parents.is_empty() {
-				let parent_ids = candidate_parents
-					.iter()
-					.map(|id| id.to_string())
-					.collect::<Vec<_>>()
-					.join(",");
-
-				let statement = format!(
-					"select cp.parent_id
-					 from (select unnest(array[{}]) as parent_id) cp
-					 join object_children oc on oc.object = cp.parent_id
-					 join objects o on o.id = oc.child
-					 group by cp.parent_id
-					 having count(*) = count(o.id) filter (where o.complete = 1)",
-					parent_ids
-				);
-				let params = db::params![];
-				let rows = transaction
-					.query(statement.into(), params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to filter ready parents"))?;
-
-				queue = rows.iter().map(|row| row.get::<String>(0)).collect();
-			} else {
-				queue.clear();
-			}
-
-			// Step 3: Process queue until empty
-			while !queue.is_empty() {
-				// Load object data for current queue
-				let object_ids = queue
-					.iter()
-					.map(|id| format!("'{}'", id.replace('\'', "''")))
-					.collect::<Vec<_>>()
-					.join(",");
-
-				// Get object data and children data
-				let statement = format!(
-					"select
-						q.id,
-						o.size,
-						coalesce(min(c.complete::int), 1) as complete,
-						1 + coalesce(sum(c.count), 0) as count,
-						1 + coalesce(max(c.depth), 0) as depth,
-						o.size + coalesce(sum(c.weight), 0) as weight
-					 from (select unnest(array[{}]) as id) q
-					 join objects o on o.id = q.id
-					 left join object_children oc on oc.object = o.id
-					 left join objects c on c.id = oc.child
-					 group by q.id, o.size",
-					object_ids
-				);
-				let params = db::params![];
-				let rows = transaction
-					.query(statement.into(), params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to compute object stats"))?;
-
-				// Collect updates to perform
-				let mut updates = HashMap::new();
-				for row in rows {
-					let id: String = row.get(0);
-					let complete: i32 = row.get(2);
-					let count: i64 = row.get(3);
-					let depth: i64 = row.get(4);
-					let weight: i64 = row.get(5);
-					updates.insert(id, (complete, count, depth, weight));
-				}
-
-				// Apply updates to objects
-				for (id, (complete, count, depth, weight)) in updates {
-					let statement = "update objects set complete = $1, count = $2, depth = $3, weight = $4 where id = $5";
-					let params = db::params![complete, count, depth, weight, &id];
-					transaction
-						.execute(statement.into(), params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to update object"))?;
-				}
-
-				// Step 4: Find next set of parents
-				let current_ids = queue
-					.iter()
-					.map(|id| current_ids.to_string())
-					.collect::<Vec<_>>()
-					.join(",");
-
-				let statement = format!(
-					"select distinct oc.object as parent_id
-					 from object_children oc
-					 where oc.child in ({})",
-					current_ids
-				);
-				let params = db::params![];
-				let rows = transaction
-					.query(statement.into(), params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get parent candidates"))?;
-
-				let candidate_parents: HashSet<String> =
-					rows.iter().map(|row| row.get::<String>(0)).collect();
-
-				// Filter parents that have all children complete
-				if !candidate_parents.is_empty() {
-					let parent_ids = candidate_parents
-						.iter()
-						.map(|id| format!("'{}'", id.replace('\'', "''")))
-						.collect::<Vec<_>>()
-						.join(",");
-
-					let statement = format!(
-						"select cp.parent_id
-						 from (select unnest(array[{}]) as parent_id) cp
-						 join object_children oc on oc.object = cp.parent_id
-						 join objects o on o.id = oc.child
-						 group by cp.parent_id
-						 having count(*) = count(o.id) filter (where o.complete = 1)",
-						parent_ids
-					);
-					let params = db::params![];
-					let rows = transaction
-						.query(statement.into(), params)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to filter ready parents"))?;
-
-					queue = rows.iter().map(|row| row.get::<String>(0)).collect();
-				} else {
-					queue.clear();
-				}
-			}
-
-			// Clean up leaves table
-			let statement = "truncate leaves";
-			let params = db::params![];
+			let params = db::params![message.import_session_uuid];
 			transaction
 				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to truncate leaves"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
-
 		Ok(())
 	}
 
