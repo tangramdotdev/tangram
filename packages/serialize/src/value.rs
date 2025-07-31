@@ -118,7 +118,6 @@ impl Deserialize for Value {
 			Kind::Array => Value::Array(deserializer.read_array()?),
 			Kind::Map => Value::Map(deserializer.read_map()?),
 			Kind::Struct => {
-				deserializer.ensure_kind(Kind::Struct)?;
 				let len = deserializer.read_len()?;
 				let mut fields = Vec::with_capacity(len);
 				for _ in 0..len {
@@ -129,7 +128,6 @@ impl Deserialize for Value {
 				Value::Struct(Struct { fields })
 			},
 			Kind::Enum => {
-				deserializer.ensure_kind(Kind::Enum)?;
 				let id = deserializer.read_id()?;
 				let value = deserializer.deserialize()?;
 				Value::Enum(Enum { id, value })
