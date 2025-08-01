@@ -23,11 +23,15 @@ impl Server {
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 		let size = arg.bytes.len().to_u64().unwrap();
 		let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+			cache_reference: None,
 			children: data.children().collect(),
+			complete: false,
+			count: None,
+			depth: None,
 			id: id.clone(),
 			size,
 			touched_at: now,
-			cache_reference: None,
+			weight: None,
 		});
 		let message = serde_json::to_vec(&message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;

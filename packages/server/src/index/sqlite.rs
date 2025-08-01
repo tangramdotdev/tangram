@@ -100,9 +100,9 @@ impl Server {
 		// Prepare a statement for the objects.
 		let objects_statement = indoc!(
 			"
-				insert into objects (id, cache_reference, size, touched_at)
-				values (?1, ?2, ?3, ?4)
-				on conflict (id) do update set touched_at = ?4;
+				insert into objects (id, cache_reference, complete, count, depth, size, touched_at, weight)
+				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+				on conflict (id) do update set touched_at = ?7;
 			"
 		);
 		let mut objects_statement = transaction
@@ -114,8 +114,12 @@ impl Server {
 			let id = message.id;
 			let cache_reference = message.cache_reference.as_ref().map(ToString::to_string);
 			let children = message.children;
+			let complete = message.complete;
+			let count = message.count;
+			let depth = message.depth;
 			let size = message.size;
 			let touched_at = message.touched_at;
+			let weight = message.weight;
 
 			// Insert the children.
 			for child in children {
@@ -127,7 +131,16 @@ impl Server {
 			}
 
 			// Insert the object.
-			let params = rusqlite::params![&id.to_string(), cache_reference, size, touched_at];
+			let params = rusqlite::params![
+				&id.to_string(),
+				cache_reference,
+				complete,
+				count,
+				depth,
+				size,
+				touched_at,
+				weight
+			];
 			objects_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;

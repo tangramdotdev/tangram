@@ -174,11 +174,15 @@ impl Server {
 					continue;
 				}
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+					cache_reference: None,
 					children: object.data.as_ref().unwrap().children().collect(),
+					complete: false,
+					count: None,
+					depth: None,
 					id: object.id.clone(),
 					size: object.bytes.as_ref().unwrap().len().to_u64().unwrap(),
 					touched_at,
-					cache_reference: None,
+					weight: None,
 				});
 				let message = serde_json::to_vec(&message)
 					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
@@ -206,9 +210,13 @@ impl Server {
 							crate::index::Message::PutObject(crate::index::PutObjectMessage {
 								cache_reference: Some(cache_reference),
 								children,
+								complete: false,
+								count: None,
+								depth: None,
 								id,
 								size,
 								touched_at,
+								weight: None,
 							});
 						let message = serde_json::to_vec(&message).map_err(|source| {
 							tg::error!(!source, "failed to serialize the message")
@@ -224,9 +232,13 @@ impl Server {
 			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
 				cache_reference: None,
 				children: graph.data.children().collect(),
+				complete: false,
+				count: None,
+				depth: None,
 				id: graph.id.clone().into(),
 				size: graph.bytes.len().to_u64().unwrap(),
 				touched_at,
+				weight: None,
 			});
 			let message = serde_json::to_vec(&message)
 				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;

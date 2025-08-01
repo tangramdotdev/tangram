@@ -413,9 +413,13 @@ impl Server {
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
 					cache_reference: None,
 					children: data.children().collect(),
+					complete: false,
+					count: None,
+					depth: None,
 					id: item.id.clone(),
 					size: item.bytes.len().to_u64().unwrap(),
 					touched_at,
+					weight: None,
 				});
 				let message = serde_json::to_vec(&message)
 					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;

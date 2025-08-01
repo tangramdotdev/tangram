@@ -117,7 +117,21 @@ begin
 	where id = new.id;
 end;
 
-create trigger objects_update_incomplete_children_trigger
+create trigger objects_update_incomplete_children_on_insert_trigger
+after insert on objects
+for each row
+when new.complete = 1
+begin
+	update objects
+	set incomplete_children = incomplete_children - 1
+	where id in (
+		select object
+		from object_children
+		where child = new.id
+	);
+end;
+
+create trigger objects_update_incomplete_children_on_update_trigger
 after update of complete on objects
 for each row
 when (old.complete = 0 and new.complete = 1)
@@ -344,7 +358,21 @@ begin
 	where id = new.id;
 end;
 
-create trigger processes_update_incomplete_commands_trigger
+create trigger processes_update_incomplete_commands_on_insert_trigger
+after insert on objects
+for each row
+when new.complete = 1
+begin
+	update processes
+	set incomplete_commands = incomplete_commands - 1
+	where id in (
+		select process
+		from process_objects
+		where process_objects.object = new.id and process_objects.kind = 'command'
+	);
+end;
+
+create trigger processes_update_incomplete_commands_on_update_trigger
 after update of complete on objects
 for each row
 when old.complete = 0 and new.complete = 1

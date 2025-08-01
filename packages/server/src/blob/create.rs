@@ -70,20 +70,13 @@ impl Server {
 			None
 		};
 
-		// Create the messenger future.
-		let messenger_future = async {
-			self.blob_create_messenger(&blob, cache_reference.clone(), touched_at)
-				.await
-		};
+		// Store.
+		self.blob_create_store(&blob, cache_reference.clone(), touched_at)
+			.await?;
 
-		// Create the store future.
-		let store_future = async {
-			self.blob_create_store(&blob, cache_reference.clone(), touched_at)
-				.await
-		};
-
-		// Join the messenger, and store futures.
-		futures::try_join!(messenger_future, store_future)?;
+		// Publish index messages.
+		self.blob_create_index(&blob, cache_reference.clone(), touched_at)
+			.await?;
 
 		// Create the output.
 		let output = tg::blob::create::Output {
@@ -278,54 +271,6 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn blob_create_messenger(
-		&self,
-		blob: &Blob,
-		cache_reference: Option<tg::artifact::Id>,
-		touched_at: i64,
-	) -> tg::Result<()> {
-		let mut stack = vec![blob];
-		while let Some(blob) = stack.pop() {
-			let children = blob
-				.data
-				.as_ref()
-				.map(|data| data.children().collect())
-				.unwrap_or_default();
-			let id = blob.id.clone().into();
-			let size = blob.size;
-			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
-				cache_reference: cache_reference.clone(),
-				children,
-				id,
-				size,
-				touched_at,
-			});
-			let message = serde_json::to_vec(&message)
-				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message.into())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-			stack.extend(&blob.children);
-		}
-		if let Some(id) = cache_reference {
-			let message =
-				crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
-					id,
-					touched_at,
-				});
-			let message = serde_json::to_vec(&message)
-				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message.into())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-		}
-		Ok(())
-	}
-
 	async fn blob_create_store(
 		&self,
 		blob: &Blob,
@@ -355,6 +300,68 @@ impl Server {
 			.put_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
+		Ok(())
+	}
+
+	async fn blob_create_index(
+		&self,
+		blob: &Blob,
+		cache_reference: Option<tg::artifact::Id>,
+		touched_at: i64,
+	) -> tg::Result<()> {
+		// Collect the blobs in topological order.
+		let mut blobs = Vec::new();
+		let mut stack = vec![blob];
+		while let Some(blob) = stack.pop() {
+			blobs.push(blob);
+			stack.extend(&blob.children);
+		}
+
+		// Publish put object messages in reverse topological order.
+		for blob in blobs.into_iter().rev() {
+			let children = blob
+				.data
+				.as_ref()
+				.map(|data| data.children().collect())
+				.unwrap_or_default();
+			let id = blob.id.clone().into();
+			let size = blob.size;
+			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+				cache_reference: cache_reference.clone(),
+				children,
+				complete: true,
+				count: Some(blob.count),
+				depth: Some(blob.depth),
+				id,
+				size,
+				touched_at,
+				weight: Some(blob.weight),
+			});
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			let _published = self
+				.messenger
+				.stream_publish("index".to_owned(), message.into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		}
+
+		// Publish a cache reference message if necessary.
+		if let Some(id) = cache_reference {
+			let message =
+				crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
+					id,
+					touched_at,
+				});
+			let message = serde_json::to_vec(&message)
+				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			let _published = self
+				.messenger
+				.stream_publish("index".to_owned(), message.into())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		}
+
 		Ok(())
 	}
 

@@ -2,7 +2,7 @@ use crate::{Server, util::iter::Ext as _};
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
 use std::{collections::BTreeSet, pin::pin, time::Duration};
-use tangram_client as tg;
+use tangram_client::{self as tg, util::serde::is_false};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
@@ -43,11 +43,20 @@ pub struct PutCacheEntryMessage {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutObjectMessage {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache_reference: Option<tg::artifact::Id>,
 	pub children: BTreeSet<tg::object::Id>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub complete: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub depth: Option<u64>,
 	pub id: tg::object::Id,
 	pub size: u64,
 	pub touched_at: i64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub weight: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
