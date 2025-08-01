@@ -95,7 +95,6 @@ impl Server {
 				.iter()
 				.map(|message| (&message.id, message))
 				.collect();
-
 		// Insert into the objects and object_children tables.
 		let ids = unique_messages
 			.values()
@@ -108,6 +107,22 @@ impl Server {
 		let touched_ats = unique_messages
 			.values()
 			.map(|message| message.touched_at)
+			.collect::<Vec<_>>();
+		let counts = unique_messages
+			.values()
+			.map(|message| message.count.map(|count| count.to_i64().unwrap()))
+			.collect::<Vec<_>>();
+		let depths = unique_messages
+			.values()
+			.map(|message| message.depth.map(|depth| depth.to_i64().unwrap()))
+			.collect::<Vec<_>>();
+		let weights = unique_messages
+			.values()
+			.map(|message| message.weight.map(|weight| weight.to_i64().unwrap()))
+			.collect::<Vec<_>>();
+		let completes = unique_messages
+			.values()
+			.map(|message| message.complete)
 			.collect::<Vec<_>>();
 		let children = unique_messages
 			.values()
@@ -132,8 +147,12 @@ impl Server {
 					$2::text[],
 					$3::int8[],
 					$4::int8[],
-					$5::text[],
-					$6::int8[]
+					$5::int8[],
+					$6::int8[],
+					$7::int8[],
+					$8::bool[],
+					$9::text[],
+					$10::int8[]
 				);
 			"
 		);
@@ -146,13 +165,16 @@ impl Server {
 					&cache_references.as_slice(),
 					&size.as_slice(),
 					&touched_ats.as_slice(),
+					&counts.as_slice(),
+					&depths.as_slice(),
+					&weights.as_slice(),
+					&completes.as_slice(),
 					&children.as_slice(),
 					&parent_indices.as_slice(),
 				],
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
-
 		Ok(())
 	}
 
