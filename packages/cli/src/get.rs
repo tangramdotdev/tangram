@@ -11,11 +11,17 @@ pub struct Args {
 	#[arg(long)]
 	pub format: Option<crate::object::get::Format>,
 
+	/// Whether to print blobs.
 	#[arg(long)]
-	pub pretty: Option<bool>,
+	pub print_blobs: bool,
 
-	#[arg(short, long, default_value = "1")]
-	pub depth: crate::object::get::Depth,
+	/// The depth to print.
+	#[arg(short = 'd', long, default_value = "1")]
+	pub print_depth: crate::object::get::Depth,
+
+	/// Whether to print pretty.
+	#[arg(long)]
+	pub print_pretty: Option<bool>,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
@@ -32,18 +38,18 @@ impl Cli {
 		match referent.item {
 			Either::Left(process) => {
 				let args = crate::process::get::Args {
+					pretty: args.print_pretty,
 					process,
-					pretty: args.pretty,
 				};
 				self.command_process_get(args).await?;
 			},
 			Either::Right(object) => {
 				let args = crate::object::get::Args {
-					object,
-					depth: args.depth,
 					format: args.format,
-					pretty: args.pretty,
-					blobs: false,
+					object,
+					print_blobs: args.print_blobs,
+					print_depth: args.print_depth,
+					print_pretty: args.print_pretty,
 				};
 				self.command_object_get(args).await?;
 			},

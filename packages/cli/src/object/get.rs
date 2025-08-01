@@ -6,21 +6,25 @@ use tokio::io::AsyncWriteExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = "1")]
-	pub depth: Depth,
-
+	/// The format to use.
 	#[arg(long)]
 	pub format: Option<Format>,
 
+	/// The object to print.
 	#[arg(index = 1)]
 	pub object: tg::object::Id,
 
+	/// Whether to print blobs.
 	#[arg(long)]
-	pub pretty: Option<bool>,
+	pub print_blobs: bool,
 
-	/// Whether to recurse into blobs.
+	/// The depth to print.
+	#[arg(short = 'd', long, default_value = "1")]
+	pub print_depth: Depth,
+
+	/// Whether to print pretty.
 	#[arg(long)]
-	pub blobs: bool,
+	pub print_pretty: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -41,7 +45,7 @@ impl Cli {
 	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let pretty = args.pretty;
+		let pretty = args.print_pretty;
 		match args.format.unwrap_or_default() {
 			Format::Bytes => {
 				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
@@ -53,12 +57,13 @@ impl Cli {
 			Format::Json => {
 				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
 				let data = tg::object::Data::deserialize(args.object.kind(), bytes.clone())?;
-				Self::print_json(&data, args.pretty).await?;
+				Self::print_json(&data, args.print_pretty).await?;
 			},
 			Format::Tgon => {
 				let object = tg::Object::with_id(args.object);
 				let value = tg::Value::from(object);
-				Cli::print_output(&handle, &value, args.depth, pretty, args.blobs).await?;
+				Cli::print_output(&handle, &value, args.print_depth, pretty, args.print_blobs)
+					.await?;
 			},
 		}
 		stdout

@@ -306,9 +306,10 @@ async fn test(artifact: temp::Artifact) -> std::process::Output {
 		.arg("object")
 		.arg("get")
 		.arg(id.clone())
-		.arg("--depth=inf")
 		.arg("--format=tgon")
-		.arg("--pretty=true")
+		.arg("--print-blobs")
+		.arg("--print-depth=inf")
+		.arg("--print-pretty=true")
 		.output()
 		.await
 		.unwrap()

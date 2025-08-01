@@ -4,7 +4,6 @@ use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{
-	io::IsTerminal as _,
 	path::{Path, PathBuf},
 	time::Duration,
 };
@@ -1183,13 +1182,13 @@ impl Cli {
 	where
 		H: tg::Handle,
 	{
-		let stdout = std::io::stdout();
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		let depth_option = match depth {
 			crate::object::get::Depth::Finite(depth) => Some(depth),
 			crate::object::get::Depth::Infinite => None,
 		};
 		value.load(handle, depth_option, blobs).await?;
-		let pretty = pretty.unwrap_or(stdout.is_terminal());
+		let pretty = pretty.unwrap_or(stdout.get_ref().is_tty());
 		let style = if pretty {
 			tg::value::print::Style::Pretty { indentation: "  " }
 		} else {
@@ -1201,7 +1200,14 @@ impl Cli {
 			blobs,
 		};
 		let output = value.print(options);
-		println!("{output}");
+		stdout
+			.write_all(output.as_bytes())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 		Ok(())
 	}
 

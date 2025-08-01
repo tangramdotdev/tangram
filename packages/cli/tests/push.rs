@@ -82,9 +82,10 @@ async fn test(artifact: temp::Artifact) {
 		.tg()
 		.arg("get")
 		.arg(id)
-		.arg("--depth=inf")
 		.arg("--format=tgon")
-		.arg("--pretty=true")
+		.arg("--print-blobs")
+		.arg("--print-depth=inf")
+		.arg("--print-pretty=true")
 		.output()
 		.await
 		.unwrap();
@@ -93,9 +94,10 @@ async fn test(artifact: temp::Artifact) {
 		.tg()
 		.arg("get")
 		.arg(id)
-		.arg("--depth=inf")
 		.arg("--format=tgon")
-		.arg("--pretty=true")
+		.arg("--print-blobs")
+		.arg("--print-depth=inf")
+		.arg("--print-pretty=true")
 		.output()
 		.await
 		.unwrap();

@@ -5,8 +5,17 @@ use tangram_client as tg;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long, default_value = "0")]
-	pub depth: crate::object::get::Depth,
+	/// Whether to print blobs.
+	#[arg(long)]
+	pub print_blobs: bool,
+
+	/// The depth to print.
+	#[arg(short = 'd', long, default_value = "0")]
+	pub print_depth: crate::object::get::Depth,
+
+	/// Whether to print pretty.
+	#[arg(long)]
+	pub print_pretty: Option<bool>,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
@@ -23,7 +32,14 @@ impl Cli {
 		let output = process.output(&handle).await?;
 
 		// Print the output.
-		Self::print_output(&handle, &output, args.depth, None, false).await?;
+		Self::print_output(
+			&handle,
+			&output,
+			args.print_depth,
+			args.print_pretty,
+			args.print_blobs,
+		)
+		.await?;
 
 		Ok(())
 	}

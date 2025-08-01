@@ -42,6 +42,10 @@ pub struct Options {
 	#[arg(short = 'x', long)]
 	pub executable_path: Option<PathBuf>,
 
+	/// Whether to recurse into blobs when printing.
+	#[arg(long)]
+	pub print_blobs: bool,
+
 	/// The depth with which to print the output.
 	#[arg(long, default_value = "0")]
 	pub print_depth: crate::object::get::Depth,
@@ -49,10 +53,6 @@ pub struct Options {
 	/// Whether to format the output as pretty.
 	#[arg(long)]
 	pub print_pretty: Option<bool>,
-
-	/// Whether to recurse into blobs when printing.
-	#[arg(long)]
-	pub print_blobs: bool,
 
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
@@ -215,7 +215,14 @@ impl Cli {
 		// Print the output.
 		if let Some(value) = wait.output {
 			if !value.is_null() {
-				Self::print_output(&handle, &value, options.print_depth, options.print_pretty, options.print_blobs).await?;
+				Self::print_output(
+					&handle,
+					&value,
+					options.print_depth,
+					options.print_pretty,
+					options.print_blobs,
+				)
+				.await?;
 			}
 		}
 
