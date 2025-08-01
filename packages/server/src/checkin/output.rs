@@ -176,7 +176,6 @@ impl Server {
 				let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
 					children: object.data.as_ref().unwrap().children().collect(),
 					id: object.id.clone(),
-					import_session_uuid: tg::Id::new_uuidv7(tg::id::Kind::Request),
 					size: object.bytes.as_ref().unwrap().len().to_u64().unwrap(),
 					touched_at,
 					cache_reference: None,
@@ -208,7 +207,6 @@ impl Server {
 								cache_reference: Some(cache_reference),
 								children,
 								id,
-								import_session_uuid: tg::Id::new_uuidv7(tg::id::Kind::Request),
 								size,
 								touched_at,
 							});
@@ -227,7 +225,6 @@ impl Server {
 				cache_reference: None,
 				children: graph.data.children().collect(),
 				id: graph.id.clone().into(),
-				import_session_uuid: tg::Id::new_uuidv7(tg::id::Kind::Request),
 				size: graph.bytes.len().to_u64().unwrap(),
 				touched_at,
 			});

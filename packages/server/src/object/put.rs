@@ -31,11 +31,9 @@ impl Server {
 
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 		let size = arg.bytes.len().to_u64().unwrap();
-		let session_id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
 			children: data.children().collect(),
 			id: id.clone(),
-			import_session_uuid: session_id.clone(),
 			size,
 			touched_at: now,
 			cache_reference: None,
@@ -49,8 +47,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 		// Send propagate message
-		let propagate_message = crate::index::Message::Propogate(crate::index::PropogateMessage {
-			import_session_uuid: session_id.to_string(),
+		let propagate_message = crate::index::Message::Propagate(crate::index::PropagateMessage {
+			root_id: id.to_string(),
 		});
 		let propagate_message = serde_json::to_vec(&propagate_message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the propagate message"))?;

@@ -284,7 +284,6 @@ impl Server {
 		cache_reference: Option<tg::artifact::Id>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let session_id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
 			let children = blob
@@ -298,7 +297,6 @@ impl Server {
 				cache_reference: cache_reference.clone(),
 				children,
 				id,
-				import_session_uuid: session_id.clone(),
 				size,
 				touched_at,
 			});
@@ -327,8 +325,8 @@ impl Server {
 		}
 
 		// Send propagate message
-		let propagate_message = crate::index::Message::Propogate(crate::index::PropogateMessage {
-			import_session_uuid: session_id.to_string(),
+		let propagate_message = crate::index::Message::Propagate(crate::index::PropagateMessage {
+			root_id: blob.id.to_string(),
 		});
 		let propagate_message = serde_json::to_vec(&propagate_message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the propagate message"))?;

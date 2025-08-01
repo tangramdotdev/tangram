@@ -33,7 +33,7 @@ pub enum Message {
 	TouchProcess(TouchProcessMessage),
 	PutTag(PutTagMessage),
 	DeleteTag(DeleteTagMessage),
-	Propogate(PropogateMessage),
+	Propagate(PropagateMessage),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -47,8 +47,6 @@ pub struct PutObjectMessage {
 	pub cache_reference: Option<tg::artifact::Id>,
 	pub children: BTreeSet<tg::object::Id>,
 	pub id: tg::object::Id,
-	pub import_session_uuid: tg::Id,
-	// pub root_object_ids: Vec<tg::object::Id>,
 	pub size: u64,
 	pub touched_at: i64,
 }
@@ -85,8 +83,8 @@ pub struct DeleteTagMessage {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PropogateMessage {
-	pub import_session_uuid: String,
+pub struct PropagateMessage {
+	pub root_id: String,
 }
 
 #[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
@@ -242,7 +240,7 @@ impl Server {
 			let mut touch_process_messages = Vec::new();
 			let mut put_tag_messages = Vec::new();
 			let mut delete_tag_messages = Vec::new();
-			let mut propogate_messages = Vec::new();
+			let mut propagate_messages = Vec::new();
 			for message in messages {
 				match message {
 					Message::PutCacheEntry(message) => {
@@ -266,8 +264,8 @@ impl Server {
 					Message::DeleteTag(message) => {
 						delete_tag_messages.push(message);
 					},
-					Message::Propogate(message) => {
-						propogate_messages.push(message);
+					Message::Propagate(message) => {
+						propagate_messages.push(message);
 					},
 				}
 			}
@@ -284,7 +282,7 @@ impl Server {
 						touch_process_messages,
 						put_tag_messages,
 						delete_tag_messages,
-						propogate_messages,
+						propagate_messages,
 					)
 					.await?;
 				},
@@ -299,7 +297,7 @@ impl Server {
 						touch_process_messages,
 						put_tag_messages,
 						delete_tag_messages,
-						propogate_messages,
+						propagate_messages,
 					)
 					.await?;
 				},
@@ -329,7 +327,7 @@ impl Server {
 		touch_process_messages: Vec<TouchProcessMessage>,
 		put_tag_messages: Vec<PutTagMessage>,
 		delete_tag_messages: Vec<DeleteTagMessage>,
-		propogate_messages: Vec<PropogateMessage>,
+		propagate_messages: Vec<PropagateMessage>,
 	) -> tg::Result<()> {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
@@ -356,7 +354,7 @@ impl Server {
 				Self::indexer_put_tags_sqlite(put_tag_messages, &transaction)?;
 				Self::indexer_delete_tags_sqlite(delete_tag_messages, &transaction)?;
 				// Propogate messages are not implemented for SQLite
-				drop(propogate_messages);
+				drop(propagate_messages);
 
 				// Commit the transaction.
 				transaction
@@ -627,7 +625,7 @@ impl Server {
 		touch_process_messages: Vec<TouchProcessMessage>,
 		put_tag_messages: Vec<PutTagMessage>,
 		delete_tag_messages: Vec<DeleteTagMessage>,
-		propogate_messages: Vec<PropogateMessage>,
+		propagate_messages: Vec<PropagateMessage>,
 	) -> tg::Result<()> {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
@@ -659,20 +657,7 @@ impl Server {
 			.await?;
 		self.indexer_delete_tags_postgres(delete_tag_messages, &transaction)
 			.await?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
-		self.indexer_propagate_postgres(propogate_messages, &transaction)
+		self.indexer_propagate_postgres(propagate_messages, &transaction)
 			.await?;
 
 		// Commit the transaction.
@@ -753,10 +738,6 @@ impl Server {
 			.filter_map(|message| message.cache_reference.as_ref())
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
-		let import_session_uuids = unique_messages
-			.values()
-			.map(|message| message.import_session_uuid.to_string())
-			.collect::<Vec<_>>();
 		// let root_object_ids = unique_messages
 		// 	.values()
 		// 	.flat_map(|message| message.root_object_ids.iter().map(ToString::to_string))
@@ -777,8 +758,7 @@ impl Server {
 					$4::int8[],
 					$5::text[],
 					$6::int8[],
-					$7::int8[],
-					$8::text[]
+					$7::int8[]
 				);
 			"
 		);
@@ -794,7 +774,6 @@ impl Server {
 					&children.as_slice(),
 					&parent_indices.as_slice(),
 					&leaves.as_slice(),
-					&import_session_uuids.as_slice(),
 				],
 			)
 			.await
@@ -994,7 +973,7 @@ impl Server {
 	#[cfg(feature = "postgres")]
 	async fn indexer_propagate_postgres(
 		&self,
-		messages: Vec<PropogateMessage>,
+		messages: Vec<PropagateMessage>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
@@ -1003,7 +982,7 @@ impl Server {
 					call propagate($1);
 				"
 			);
-			let params = db::params![message.import_session_uuid];
+			let params = db::params![message.root_id];
 			transaction
 				.execute(statement.into(), params)
 				.await
