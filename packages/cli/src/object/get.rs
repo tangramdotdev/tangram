@@ -1,5 +1,4 @@
 use crate::Cli;
-use crossterm::tty::IsTty as _;
 use tangram_client::{self as tg, prelude::*};
 use tokio::io::AsyncWriteExt as _;
 
@@ -18,6 +17,10 @@ pub struct Args {
 
 	#[arg(long)]
 	pub pretty: Option<bool>,
+
+	/// Whether to recurse into blobs.
+	#[arg(long)]
+	pub blobs: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -38,7 +41,7 @@ impl Cli {
 	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let pretty = args.pretty.unwrap_or(stdout.get_ref().is_tty());
+		let pretty = args.pretty;
 		match args.format.unwrap_or_default() {
 			Format::Bytes => {
 				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
@@ -53,38 +56,9 @@ impl Cli {
 				Self::print_json(&data, args.pretty).await?;
 			},
 			Format::Tgon => {
-				let depth = match args.depth {
-					Depth::Finite(depth) => Some(depth),
-					Depth::Infinite => None,
-				};
-				let style = if pretty {
-					tg::value::print::Style::Pretty { indentation: "  " }
-				} else {
-					tg::value::print::Style::Compact
-				};
-				let options = tg::value::print::Options { depth, style };
 				let object = tg::Object::with_id(args.object);
-				match depth {
-					Some(0) => (),
-					Some(1) => {
-						object.load(&handle).await?;
-					},
-					None | Some(_) => {
-						object.load_recursive(&handle).await?;
-					},
-				}
 				let value = tg::Value::from(object);
-				let output = value.print(options);
-				stdout
-					.write_all(output.as_bytes())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-				if pretty {
-					stdout
-						.write(b"\n")
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-				}
+				Cli::print_output(&handle, &value, args.depth, pretty, args.blobs).await?;
 			},
 		}
 		stdout

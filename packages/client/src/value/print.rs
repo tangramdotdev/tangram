@@ -15,6 +15,7 @@ pub struct Printer<W> {
 pub struct Options {
 	pub depth: Option<u64>,
 	pub style: Style,
+	pub blobs: bool,
 }
 
 #[derive(Clone, Debug, Default, derive_more::IsVariant)]
@@ -150,20 +151,32 @@ where
 	}
 
 	pub fn array(&mut self, value: &tg::value::Array) -> Result {
-		self.start_array()?;
-		for value in value {
-			self.array_value(|s| s.value(value))?;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
+		self.depth += 1;
+		if recurse {
+			self.start_array()?;
+			for value in value {
+				self.array_value(|s| s.value(value))?;
+			}
+			self.finish_array()?;
+		} else {
+			write!(self.writer, "[...]")?;
 		}
-		self.finish_array()?;
 		Ok(())
 	}
 
 	pub fn map(&mut self, value: &tg::value::Map) -> Result {
-		self.start_map()?;
-		for (key, value) in value {
-			self.map_entry(key, |s| s.value(value))?;
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
+		self.depth += 1;
+		if recurse {
+			self.start_map()?;
+			for (key, value) in value {
+				self.map_entry(key, |s| s.value(value))?;
+			}
+			self.finish_map()?;
+		} else {
+			write!(self.writer, "{{...}}")?;
 		}
-		self.finish_map()?;
 		Ok(())
 	}
 
@@ -188,7 +201,7 @@ where
 
 	pub fn blob(&mut self, value: &tg::Blob) -> Result {
 		let state = value.state().read().unwrap();
-		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
+		let recurse = self.options.blobs && self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
 		match (&state.id, &state.object, recurse) {
 			(Some(id), None, _) | (Some(id), Some(_), false) => {
@@ -564,75 +577,87 @@ where
 	}
 
 	pub fn mutation(&mut self, value: &tg::Mutation) -> Result {
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
+		self.depth += 1;
 		write!(self.writer, "tg.mutation(")?;
-		self.start_map()?;
-		match value {
-			tg::Mutation::Unset => {
-				self.map_entry("kind", |s| s.string("unset"))?;
-			},
-			tg::Mutation::Set { value } => {
-				self.map_entry("kind", |s| s.string("set"))?;
-				self.map_entry("value", |s| s.value(value.as_ref()))?;
-			},
-			tg::Mutation::SetIfUnset { value } => {
-				self.map_entry("kind", |s| s.string("set_if_unset"))?;
-				self.map_entry("value", |s| s.value(&value.as_ref().clone()))?;
-			},
-			tg::Mutation::Prepend { values } => {
-				self.map_entry("kind", |s| s.string("prepend"))?;
-				self.map_entry("values", |s| s.array(values))?;
-			},
-			tg::Mutation::Append { values } => {
-				self.map_entry("kind", |s| s.string("append"))?;
-				self.map_entry("values", |s| s.array(values))?;
-			},
-			tg::Mutation::Prefix {
-				template,
-				separator,
-			} => {
-				self.map_entry("kind", |s| s.string("prefix"))?;
-				if let Some(separator) = separator {
-					self.map_entry("separator", |s| s.string(separator))?;
-				}
-				self.map_entry("template", |s| s.template(template))?;
-			},
-			tg::Mutation::Suffix {
-				template,
-				separator,
-			} => {
-				self.map_entry("kind", |s| s.string("suffix"))?;
-				if let Some(separator) = separator {
-					self.map_entry("separator", |s| s.string(separator))?;
-				}
-				self.map_entry("template", |s| s.template(template))?;
-			},
-			tg::Mutation::Merge { value } => {
-				self.map_entry("kind", |s| s.string("merge"))?;
-				self.map_entry("value", |s| s.map(value))?;
-			},
+		if recurse {
+			self.start_map()?;
+			match value {
+				tg::Mutation::Unset => {
+					self.map_entry("kind", |s| s.string("unset"))?;
+				},
+				tg::Mutation::Set { value } => {
+					self.map_entry("kind", |s| s.string("set"))?;
+					self.map_entry("value", |s| s.value(value.as_ref()))?;
+				},
+				tg::Mutation::SetIfUnset { value } => {
+					self.map_entry("kind", |s| s.string("set_if_unset"))?;
+					self.map_entry("value", |s| s.value(&value.as_ref().clone()))?;
+				},
+				tg::Mutation::Prepend { values } => {
+					self.map_entry("kind", |s| s.string("prepend"))?;
+					self.map_entry("values", |s| s.array(values))?;
+				},
+				tg::Mutation::Append { values } => {
+					self.map_entry("kind", |s| s.string("append"))?;
+					self.map_entry("values", |s| s.array(values))?;
+				},
+				tg::Mutation::Prefix {
+					template,
+					separator,
+				} => {
+					self.map_entry("kind", |s| s.string("prefix"))?;
+					if let Some(separator) = separator {
+						self.map_entry("separator", |s| s.string(separator))?;
+					}
+					self.map_entry("template", |s| s.template(template))?;
+				},
+				tg::Mutation::Suffix {
+					template,
+					separator,
+				} => {
+					self.map_entry("kind", |s| s.string("suffix"))?;
+					if let Some(separator) = separator {
+						self.map_entry("separator", |s| s.string(separator))?;
+					}
+					self.map_entry("template", |s| s.template(template))?;
+				},
+				tg::Mutation::Merge { value } => {
+					self.map_entry("kind", |s| s.string("merge"))?;
+					self.map_entry("value", |s| s.map(value))?;
+				},
+			}
+			self.finish_map()?;
+		} else {
+			write!(self.writer, "...")?;
 		}
-		self.finish_map()?;
 		write!(self.writer, ")")?;
 		Ok(())
 	}
 
 	pub fn template(&mut self, value: &tg::Template) -> Result {
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
+		self.depth += 1;
 		write!(self.writer, "tg.template(")?;
-		self.start_array()?;
-		for component in &value.components {
-			self.array_value(|s| {
-				match component {
-					tg::template::Component::Artifact(artifact) => {
-						s.artifact(artifact)?;
-					},
-					tg::template::Component::String(string) => {
-						s.string(string)?;
-					},
-				}
-				Ok(())
-			})?;
+		if recurse {
+			self.start_array()?;
+			for component in &value.components {
+				self.array_value(|s| {
+					match component {
+						tg::template::Component::Artifact(artifact) => {
+							s.artifact(artifact)?;
+						},
+						tg::template::Component::String(string) => {
+							s.string(string)?;
+						},
+					}
+					Ok(())
+				})?;
+			}
+			self.finish_array()?;
+		} else {
+			write!(self.writer, "...")?;
 		}
-		self.finish_array()?;
 		write!(self.writer, ")")?;
 		Ok(())
 	}

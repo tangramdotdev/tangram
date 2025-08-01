@@ -2,6 +2,7 @@ use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
 use futures::{StreamExt as _, stream};
+use std::collections::VecDeque;
 use std::{collections::BTreeMap, pin::pin};
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
@@ -161,6 +162,107 @@ impl Value {
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
 			Self::Template(template) => Data::Template(template.to_data()),
 		}
+	}
+
+	pub async fn load<H>(&self, handle: &H, depth: Option<u64>, blobs: bool) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let mut queue = VecDeque::new();
+		queue.push_back((self.clone(), depth));
+		while let Some((value, depth)) = queue.pop_front() {
+			match depth {
+				Some(0) => (),
+				Some(1) => {
+					if let Self::Object(object) = &value {
+						if !blobs && object.is_blob() {
+							continue;
+						}
+						object.load(handle).await?;
+					}
+				},
+				Some(depth) => {
+					if let Self::Object(object) = &value {
+						if !blobs && object.is_blob() {
+							continue;
+						}
+						object.load(handle).await?;
+						let obj = object.object(handle).await?;
+						let children_objects = obj.children();
+						for child_object in children_objects {
+							let child_value = tg::Value::Object(child_object);
+							queue.push_back((child_value, Some(depth - 1)));
+						}
+					}
+					match &value {
+						Self::Array(array) => {
+							for child_value in array {
+								queue.push_back((child_value.clone(), Some(depth - 1)));
+							}
+						},
+						Self::Map(map) => {
+							for child_value in map.values() {
+								queue.push_back((child_value.clone(), Some(depth - 1)));
+							}
+						},
+						Self::Template(template) => {
+							for object in template.children() {
+								let child_value = tg::Value::Object(object);
+								queue.push_back((child_value, Some(depth - 1)));
+							}
+						},
+						Self::Mutation(mutation) => {
+							for object in mutation.children() {
+								let child_value = tg::Value::Object(object);
+								queue.push_back((child_value, Some(depth - 1)));
+							}
+						},
+						_ => (),
+					}
+				},
+				None => {
+					if let Self::Object(object) = &value {
+						// Skip loading blobs if blobs is false
+						if !blobs && object.is_blob() {
+							continue;
+						}
+						object.load(handle).await?;
+						let obj = object.object(handle).await?;
+						let children_objects = obj.children();
+						for child_object in children_objects {
+							let child_value = tg::Value::Object(child_object);
+							queue.push_back((child_value, None));
+						}
+					}
+					match &value {
+						Self::Array(array) => {
+							for child_value in array {
+								queue.push_back((child_value.clone(), None));
+							}
+						},
+						Self::Map(map) => {
+							for child_value in map.values() {
+								queue.push_back((child_value.clone(), None));
+							}
+						},
+						Self::Template(template) => {
+							for object in template.children() {
+								let child_value = tg::Value::Object(object);
+								queue.push_back((child_value, None));
+							}
+						},
+						Self::Mutation(mutation) => {
+							for object in mutation.children() {
+								let child_value = tg::Value::Object(object);
+								queue.push_back((child_value, None));
+							}
+						},
+						_ => (),
+					}
+				},
+			}
+		}
+		Ok(())
 	}
 
 	pub fn print(&self, options: self::print::Options) -> String {

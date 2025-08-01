@@ -43,6 +43,7 @@ impl Cli {
 					depth: args.depth,
 					format: args.format,
 					pretty: args.pretty,
+					blobs: false,
 				};
 				self.command_object_get(args).await?;
 			},

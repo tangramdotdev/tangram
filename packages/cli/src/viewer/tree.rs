@@ -1582,6 +1582,7 @@ where
 							let options = tg::value::print::Options {
 								depth: Some(1),
 								style: tg::value::print::Style::Pretty { indentation: "  " },
+								blobs: false,
 							};
 							value.print(options)
 						},
@@ -1656,6 +1657,7 @@ where
 					let options = tg::value::print::Options {
 						depth: Some(0),
 						style: tg::value::print::Style::Compact,
+						blobs: false,
 					};
 					value.print(options)
 				}

@@ -1173,22 +1173,36 @@ impl Cli {
 		Ok(())
 	}
 
-	fn print_output(value: &tg::Value, depth: crate::object::get::Depth) {
+	async fn print_output<H>(
+		handle: &H,
+		value: &tg::Value,
+		depth: crate::object::get::Depth,
+		pretty: Option<bool>,
+		blobs: bool,
+	) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
 		let stdout = std::io::stdout();
-		let depth = match depth {
+		let depth_option = match depth {
 			crate::object::get::Depth::Finite(depth) => Some(depth),
 			crate::object::get::Depth::Infinite => None,
 		};
-		let output = if stdout.is_terminal() {
-			let options = tg::value::print::Options {
-				depth,
-				style: tg::value::print::Style::Pretty { indentation: "  " },
-			};
-			value.print(options)
+		value.load(handle, depth_option, blobs).await?;
+		let pretty = pretty.unwrap_or(stdout.is_terminal());
+		let style = if pretty {
+			tg::value::print::Style::Pretty { indentation: "  " }
 		} else {
-			value.to_string()
+			tg::value::print::Style::Compact
 		};
+		let options = tg::value::print::Options {
+			depth: depth_option,
+			style,
+			blobs,
+		};
+		let output = value.print(options);
 		println!("{output}");
+		Ok(())
 	}
 
 	async fn print_json<T>(output: &T, pretty: Option<bool>) -> tg::Result<()>
