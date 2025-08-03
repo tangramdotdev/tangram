@@ -3,9 +3,11 @@ use crate as tg;
 use bytes::Bytes;
 use futures::{StreamExt as _, stream};
 use std::collections::VecDeque;
-use std::{collections::BTreeMap, pin::pin};
+use std::{collections::BTreeMap, pin::pin, sync::Arc};
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 pub use self::data::*;
 
@@ -164,102 +166,76 @@ impl Value {
 		}
 	}
 
-	pub async fn load<H>(&self, handle: &H, depth: Option<u64>, blobs: bool) -> tg::Result<()>
+	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
 	where
 		H: tg::Handle,
 	{
+		let mut children = Vec::new();
+		match self {
+			Self::Object(object) => {
+				let object = object.load(handle).await?;
+				for child in object.children() {
+					children.push(tg::Value::Object(child));
+				}
+			},
+			Self::Array(array) => {
+				for child in array {
+					children.push(child.clone());
+				}
+			},
+			Self::Map(map) => {
+				for child in map.values() {
+					children.push(child.clone());
+				}
+			},
+			Self::Template(template) => {
+				for object in template.children() {
+					children.push(tg::Value::Object(object));
+				}
+			},
+			Self::Mutation(mutation) => {
+				for object in mutation.children() {
+					children.push(tg::Value::Object(object));
+				}
+			},
+			_ => (),
+		}
+		Ok(children)
+	}
+
+	pub async fn load<H>(&self, handle: &H, depth: Option<u64>, blobs: bool) -> tg::Result<()>
+	where
+		H: tg::Handle + Clone + Send + Sync + 'static,
+	{
+		let semaphore = Arc::new(Semaphore::new(16));
+		let mut join_set: JoinSet<tg::Result<(Vec<Self>, Option<u64>)>> = JoinSet::new();
 		let mut queue = VecDeque::new();
 		queue.push_back((self.clone(), depth));
-		while let Some((value, depth)) = queue.pop_front() {
-			match depth {
-				Some(0) => (),
-				Some(1) => {
-					if let Self::Object(object) = &value {
-						if !blobs && object.is_blob() {
-							continue;
-						}
-						object.load(handle).await?;
+		while !queue.is_empty() || !join_set.is_empty() {
+			while let Some((value, depth)) = queue.pop_front() {
+				let depth = match depth {
+					Some(0) => continue,
+					Some(depth) => Some(depth - 1),
+					None => None,
+				};
+				if let Self::Object(object) = &value {
+					if !blobs && object.is_blob() {
+						continue;
 					}
-				},
-				Some(depth) => {
-					if let Self::Object(object) = &value {
-						if !blobs && object.is_blob() {
-							continue;
-						}
-						object.load(handle).await?;
-						let obj = object.object(handle).await?;
-						let children_objects = obj.children();
-						for child_object in children_objects {
-							let child_value = tg::Value::Object(child_object);
-							queue.push_back((child_value, Some(depth - 1)));
-						}
-					}
-					match &value {
-						Self::Array(array) => {
-							for child_value in array {
-								queue.push_back((child_value.clone(), Some(depth - 1)));
-							}
-						},
-						Self::Map(map) => {
-							for child_value in map.values() {
-								queue.push_back((child_value.clone(), Some(depth - 1)));
-							}
-						},
-						Self::Template(template) => {
-							for object in template.children() {
-								let child_value = tg::Value::Object(object);
-								queue.push_back((child_value, Some(depth - 1)));
-							}
-						},
-						Self::Mutation(mutation) => {
-							for object in mutation.children() {
-								let child_value = tg::Value::Object(object);
-								queue.push_back((child_value, Some(depth - 1)));
-							}
-						},
-						_ => (),
-					}
-				},
-				None => {
-					if let Self::Object(object) = &value {
-						// Skip loading blobs if blobs is false
-						if !blobs && object.is_blob() {
-							continue;
-						}
-						object.load(handle).await?;
-						let obj = object.object(handle).await?;
-						let children_objects = obj.children();
-						for child_object in children_objects {
-							let child_value = tg::Value::Object(child_object);
-							queue.push_back((child_value, None));
-						}
-					}
-					match &value {
-						Self::Array(array) => {
-							for child_value in array {
-								queue.push_back((child_value.clone(), None));
-							}
-						},
-						Self::Map(map) => {
-							for child_value in map.values() {
-								queue.push_back((child_value.clone(), None));
-							}
-						},
-						Self::Template(template) => {
-							for object in template.children() {
-								let child_value = tg::Value::Object(object);
-								queue.push_back((child_value, None));
-							}
-						},
-						Self::Mutation(mutation) => {
-							for object in mutation.children() {
-								let child_value = tg::Value::Object(object);
-								queue.push_back((child_value, None));
-							}
-						},
-						_ => (),
-					}
-				},
+				}
+				let permit = semaphore.clone().acquire_owned().await.unwrap();
+				let handle = handle.clone();
+				join_set.spawn(async move {
+					let _permit = permit;
+					let children = value.children(&handle).await?;
+					Ok((children, depth))
+				});
+			}
+			if let Some(result) = join_set.join_next().await {
+				let (children, depth): (Vec<Self>, Option<u64>) = result.unwrap()?;
+				for child in children {
+					queue.push_back((child, depth));
+				}
 			}
 		}
 		Ok(())
