@@ -56,7 +56,7 @@ unused_async = "allow"
 [workspace.dependencies]
 anstream = "0.6"
 astral-tokio-tar = "0.5"
-async_zip = { version = "0.0.17", features = ["full"] }
+async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip", features = ["full"] }
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
@@ -80,7 +80,7 @@ data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.74"
 derive_builder = "0.20"
-derive_more = { version = "2", features = ["full"] }
+derive_more = { git = "https://github.com/jeltef/derive_more", features = ["full"] }
 erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
@@ -201,18 +201,13 @@ unicode-width = "0.2"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { version = "130" }
+v8 = { git = "https://github.com/tangramdotdev/rusty_v8", branch = "rusty-v8-archive-target-var" }
 webbrowser = "1"
 webpki-roots = "1"
 winnow = "0.7"
 xattr = { version = "1" }
 zerocopy = { version = "0.8", features = ["derive"] }
 zstd = "0.13"
-
-[patch.crates-io]
-async_zip = { git = "https://github.com/tangramdotdev/rs-async-zip" }
-derive_more = { git = "https://github.com/jeltef/derive_more" }
-v8 = { git = "https://github.com/tangramdotdev/rusty_v8", branch = "rusty-v8-archive-target-var" }
 
 [profile.dev.package.blake3]
 opt-level = 3
