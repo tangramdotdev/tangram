@@ -748,6 +748,81 @@ impl Compiler {
 			return Ok(module);
 		}
 
+		// Handle a path in the tags directory.
+		if let Ok(path) = path.strip_prefix(self.server.tags_path()) {
+			// Check if the path is empty.
+			if path.as_os_str().is_empty() {
+				return Err(tg::error!(%uri, "invalid uri"));
+			}
+
+			// Look up the tag.
+			let mut pattern = Vec::new();
+			let mut components = path.components();
+			let mut output = None;
+			while let Some(component) = components.next() {
+				let component = component
+					.as_os_str()
+					.to_str()
+					.ok_or_else(|| tg::error!("invalid tag component"))?;
+				pattern.push(component.parse()?);
+				let pattern = tg::tag::Pattern::with_components(pattern.clone());
+				output = self.server.try_get_tag(&pattern).await?;
+				if output.is_some() {
+					break;
+				}
+			}
+			let output = output.ok_or_else(|| tg::error!(%uri, "could not resolve tag"))?;
+			let item = output
+				.item
+				.right()
+				.ok_or_else(|| tg::error!(%uri, "expected an object"))?;
+			let path: PathBuf = components.collect();
+
+			// Infer the kind.
+			let kind = if path.extension().is_some_and(|extension| extension == "js") {
+				tg::module::Kind::Js
+			} else if path.extension().is_some_and(|extension| extension == "ts") {
+				tg::module::Kind::Ts
+			} else if item.is_directory() {
+				tg::module::Kind::Directory
+			} else if item.is_file() {
+				tg::module::Kind::File
+			} else if item.is_symlink() {
+				tg::module::Kind::Symlink
+			} else {
+				return Err(tg::error!("expected a directory, file, or symlink"));
+			};
+
+			// Materialize the symlink if it does not exist.
+			let link = self.server.tags_path().join(output.tag.to_string());
+			if !matches!(tokio::fs::try_exists(&link).await, Ok(true)) {
+				// Create the parent directory.
+				tokio::fs::create_dir_all(link.parent().unwrap())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the tag directory"))?;
+
+				// Get the symlink target.
+				let artifact = self.server.artifacts_path().join(item.to_string());
+				let target = crate::util::path::diff(link.parent().unwrap(), &artifact)?;
+
+				// Create the symlink.
+				tokio::fs::symlink(target, link)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the symlink"))?;
+			}
+
+			// Create the referent.
+			let path = (!path.as_os_str().is_empty()).then_some(path);
+			let referent = tg::Referent {
+				item: tg::module::data::Item::Object(item),
+				path,
+				tag: Some(output.tag),
+			};
+
+			// Return the module.
+			return Ok(tg::module::Data { kind, referent });
+		}
+
 		// Handle a path in the cache directory.
 		if let Ok(path) = path.strip_prefix(self.server.cache_path()) {
 			#[allow(clippy::case_sensitive_file_extension_comparisons)]
@@ -797,7 +872,6 @@ impl Compiler {
 
 		// Create the module.
 		let module = self.server.module_for_path(path).await?;
-
 		Ok(module)
 	}
 
@@ -841,6 +915,42 @@ impl Compiler {
 				}
 				let path = path.display();
 				let uri = format!("file://{path}").parse().unwrap();
+				Ok(uri)
+			},
+
+			tg::module::Data {
+				referent:
+					tg::Referent {
+						item: tg::module::data::Item::Object(object),
+						tag: Some(tag),
+						path: subpath,
+					},
+				..
+			} => {
+				let artifact = object
+					.clone()
+					.try_into()
+					.map_err(|_| tg::error!("expected an artifact"))?;
+				if self.server.vfs.lock().unwrap().is_none() {
+					let arg = tg::checkout::Arg {
+						artifact,
+						dependencies: false,
+						force: false,
+						lockfile: false,
+						path: None,
+					};
+					self.server
+						.checkout(arg)
+						.await?
+						.map_ok(|_| ())
+						.try_collect::<()>()
+						.await?;
+				}
+				let path = self.server.tags_path().join(tag.to_string());
+				let path = subpath
+					.as_ref()
+					.map_or_else(|| path.clone(), |p| path.join(p));
+				let uri = format!("file://{}", path.display()).parse().unwrap();
 				Ok(uri)
 			},
 

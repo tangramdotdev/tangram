@@ -90,6 +90,11 @@ impl Tag {
 		}
 		self.as_str()
 	}
+
+	pub fn ancestors(&self) -> impl Iterator<Item = Self> + 'static {
+		let components = self.components.clone();
+		(1..components.len()).map(move |n| tg::Tag::with_components(components[0..n].to_vec()))
+	}
 }
 
 impl AsRef<str> for Tag {
@@ -266,5 +271,14 @@ mod tests {
 				.parse::<tg::Tag>()
 				.is_err()
 		);
+	}
+
+	#[test]
+	fn ancestors() {
+		let tag = "foo".parse::<tg::Tag>().unwrap();
+		assert!(tag.ancestors().next().is_none());
+
+		let tag = "foo/bar".parse::<tg::Tag>().unwrap();
+		assert_eq!(tag.ancestors().next(), Some("foo".parse().unwrap()));
 	}
 }
