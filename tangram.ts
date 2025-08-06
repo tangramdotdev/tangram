@@ -17,6 +17,7 @@ export type Arg = {
 	host?: string;
 	nats?: boolean;
 	postgres?: boolean;
+	sdk?: std.sdk.Arg;
 };
 
 export const build = async (arg?: Arg) => {
@@ -26,6 +27,7 @@ export const build = async (arg?: Arg) => {
 		host: host_,
 		nats = false,
 		postgres = false,
+		sdk,
 	} = arg ?? {};
 	const host = host_ ?? (await std.triple.host());
 	const build = build_ ?? host;
@@ -69,7 +71,7 @@ export const build = async (arg?: Arg) => {
 		features.push("foundationdb");
 		const fdbArtifact = foundationdb({ build, host });
 		envs.push(fdbArtifact, {
-			LIBCLANG_PATH: tg`${libclang({ build, host })}/lib`,
+			LIBCLANG_PATH: tg`${libclang({ build, host, sdk })}/lib`,
 			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
 		});
 		pre = tg`
@@ -88,6 +90,7 @@ export const build = async (arg?: Arg) => {
 		env,
 		features,
 		pre,
+		sdk,
 		source,
 		useCargoVendor: true,
 	});
@@ -123,11 +126,13 @@ export default build;
 export type CloudArg = {
 	build?: string;
 	host?: string;
+	sdk?: std.sdk.Arg;
 };
 
 export const cloud = async (arg?: CloudArg) => {
 	const host_ = arg?.host ?? (await std.triple.host());
 	const build_ = arg?.build ?? host_;
+	const sdk = arg?.sdk;
 	if (std.triple.os(host_) !== "linux") {
 		throw new Error(
 			"the cloud configuration is only available for Linux hosts",
@@ -139,6 +144,7 @@ export const cloud = async (arg?: CloudArg) => {
 		foundationdb: true,
 		nats: true,
 		postgres: true,
+		sdk,
 	});
 };
 
