@@ -20,7 +20,7 @@ pub struct Args {
 	pub remote: Option<Option<String>>,
 
 	/// Generate the documentation for the runtime.
-	#[arg(long, default_value = "false")]
+	#[arg(long)]
 	pub runtime: bool,
 }
 

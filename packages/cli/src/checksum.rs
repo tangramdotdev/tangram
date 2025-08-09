@@ -7,7 +7,7 @@ use tangram_either::Either;
 #[group(skip)]
 pub struct Args {
 	/// The checksum algorithm to use.
-	#[arg(long, default_value_t = tg::checksum::Algorithm::Sha256)]
+	#[arg(long, default_value = "sha256")]
 	pub algorithm: tg::checksum::Algorithm,
 
 	#[command(flatten)]

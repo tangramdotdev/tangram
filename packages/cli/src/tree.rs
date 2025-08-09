@@ -10,7 +10,7 @@ pub struct Args {
 	pub depth: Option<u32>,
 
 	/// If this flag is set, the lock will not be updated.
-	#[arg(long, default_value = "false")]
+	#[arg(long)]
 	pub locked: bool,
 
 	/// The reference to display a tree for.
