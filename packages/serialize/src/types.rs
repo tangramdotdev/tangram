@@ -1,6 +1,6 @@
 use crate::{Deserialize, Deserializer, Kind, Serialize, Serializer};
 use std::{
-	collections::BTreeMap,
+	collections::{BTreeMap, BTreeSet},
 	io::{Read, Result, Write},
 	sync::Arc,
 };
@@ -439,6 +439,32 @@ where
 		R: Read,
 	{
 		deserializer.deserialize_array()
+	}
+}
+
+impl<T> Serialize for BTreeSet<T>
+where
+	T: Serialize,
+{
+	fn serialize<W>(&self, serializer: &mut Serializer<W>) -> Result<()>
+	where
+		W: Write,
+	{
+		serializer.serialize_array(self.len(), self)
+	}
+}
+
+impl<T> Deserialize for BTreeSet<T>
+where
+	T: Deserialize + Ord,
+{
+	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
+	where
+		R: Read,
+	{
+		deserializer
+			.deserialize_array()
+			.map(|array| array.into_iter().collect())
 	}
 }
 

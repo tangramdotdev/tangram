@@ -40,15 +40,14 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Publish the put tag index message.
-		let message = crate::index::Message::PutTag(crate::index::PutTagMessage {
+		let message = crate::index::Message::PutTag(crate::index::message::PutTagMessage {
 			tag: tag.to_string(),
 			item: arg.item,
 		});
-		let message = serde_json::to_vec(&message)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		let message = message.serialize()?;
 		let _published = self
 			.messenger
-			.stream_publish("index".to_owned(), message.into())
+			.stream_publish("index".to_owned(), message)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 

@@ -29,14 +29,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Send the delete tag index message.
-		let message = crate::index::Message::DeleteTag(crate::index::DeleteTagMessage {
+		let message = crate::index::Message::DeleteTag(crate::index::message::DeleteTag {
 			tag: tag.to_string(),
 		});
-		let message = serde_json::to_vec(&message)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		let message = message.serialize()?;
 		let _published = self
 			.messenger
-			.stream_publish("index".to_owned(), message.into())
+			.stream_publish("index".to_owned(), message)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 

@@ -347,15 +347,14 @@ impl Server {
 			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			async move {
 				let message =
-					crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
+					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
 						id,
 						touched_at,
 					});
-				let message = serde_json::to_vec(&message)
-					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+				let message = message.serialize()?;
 				let _published = server
 					.messenger
-					.stream_publish("index".to_owned(), message.into())
+					.stream_publish("index".to_owned(), message)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 				Ok::<_, tg::Error>(())

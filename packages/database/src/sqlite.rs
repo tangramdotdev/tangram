@@ -723,7 +723,7 @@ fn handle_query_all_message(connection: &sqlite::Connection, message: QueryAllMe
 }
 
 impl sqlite::types::ToSql for Value {
-	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput> {
+	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
 		match self {
 			Value::Null => Ok(sqlite::types::ToSqlOutput::Borrowed(
 				sqlite::types::ValueRef::Null,
@@ -801,7 +801,7 @@ impl<T> sqlite::types::ToSql for Json<T>
 where
 	T: serde::Serialize,
 {
-	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput> {
+	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
 		let json = serde_json::to_string(&self.0)
 			.map_err(|error| sqlite::Error::ToSqlConversionFailure(error.into()))?;
 		Ok(sqlite::types::ToSqlOutput::Owned(

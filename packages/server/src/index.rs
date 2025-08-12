@@ -1,10 +1,9 @@
-use crate::{Server, util::iter::Ext as _};
+use crate::Server;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
-use std::{collections::BTreeSet, pin::pin, time::Duration};
-use tangram_client::{self as tg, util::serde::is_false};
+use std::{pin::pin, time::Duration};
+use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{self as messenger, Acker, prelude::*};
@@ -14,6 +13,10 @@ use tokio_util::task::AbortOnDropHandle;
 mod postgres;
 mod sqlite;
 
+pub use self::message::Message;
+
+pub mod message;
+
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
@@ -21,80 +24,6 @@ pub enum Index {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Database),
 	Sqlite(db::sqlite::Database),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum Message {
-	PutCacheEntry(PutCacheEntryMessage),
-	PutObject(PutObjectMessage),
-	TouchObject(TouchObjectMessage),
-	PutProcess(PutProcessMessage),
-	TouchProcess(TouchProcessMessage),
-	PutTag(PutTagMessage),
-	DeleteTag(DeleteTagMessage),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PutCacheEntryMessage {
-	pub id: tg::artifact::Id,
-	pub touched_at: i64,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PutObjectMessage {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cache_reference: Option<tg::artifact::Id>,
-	pub children: BTreeSet<tg::object::Id>,
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub complete: bool,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub depth: Option<u64>,
-	pub id: tg::object::Id,
-	pub size: u64,
-	pub touched_at: i64,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub weight: Option<u64>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct TouchObjectMessage {
-	pub id: tg::object::Id,
-	pub touched_at: i64,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PutProcessMessage {
-	pub children: Option<Vec<tg::Referent<tg::process::Id>>>,
-	pub id: tg::process::Id,
-	pub touched_at: i64,
-	pub objects: Vec<(tg::object::Id, ProcessObjectKind)>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct TouchProcessMessage {
-	pub id: tg::process::Id,
-	pub touched_at: i64,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct PutTagMessage {
-	pub tag: String,
-	pub item: Either<tg::process::Id, tg::object::Id>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct DeleteTagMessage {
-	pub tag: String,
-}
-
-#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
-pub enum ProcessObjectKind {
-	Command,
-	Error,
-	Output,
 }
 
 impl Server {
@@ -182,7 +111,7 @@ impl Server {
 	async fn indexer_task_create_message_stream(
 		&self,
 		config: &crate::config::Indexer,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, Acker)>>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Vec<Message>, Acker)>>>> {
 		let stream = self
 			.messenger
 			.get_stream("index".to_owned())
@@ -205,9 +134,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
 			.and_then(|message| async {
 				let (payload, acker) = message.split();
-				let message = serde_json::from_slice::<Message>(&payload)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-				Ok::<_, tg::Error>((message, acker))
+				let len = payload.len();
+				let mut position = 0usize;
+				let mut messages = Vec::new();
+				while position < len {
+					let message = Message::deserialize(&payload[position..])
+						.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
+					let serialized = message.serialize()?;
+					position += serialized.len();
+					messages.push(message);
+				}
+				Ok::<_, tg::Error>((messages, acker))
 			})
 			.inspect_err(|error| {
 				tracing::error!(?error);
@@ -225,25 +162,75 @@ impl Server {
 	async fn indexer_task_handle_messages(
 		&self,
 		config: &crate::config::Indexer,
-		messages: Vec<(Message, Acker)>,
+		messages: Vec<(Vec<Message>, Acker)>,
 	) -> tg::Result<()> {
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let batches = messages.into_iter().batches(config.insert_batch_size);
-		for messages in batches {
-			// Split the messages and ackers.
-			let (messages, ackers) = messages.into_iter().collect::<(Vec<_>, Vec<_>)>();
+		// Create the state.
+		let mut n = 0;
+		let mut put_cache_entry_messages = Vec::new();
+		let mut put_object_messages = Vec::new();
+		let mut touch_object_messages = Vec::new();
+		let mut put_process_messages = Vec::new();
+		let mut touch_process_messages = Vec::new();
+		let mut put_tag_messages = Vec::new();
+		let mut delete_tag_messages = Vec::new();
+		let mut ackers: Vec<Acker> = Vec::new();
 
-			// Group the messages by variant.
-			let mut put_cache_entry_messages = Vec::new();
-			let mut put_object_messages = Vec::new();
-			let mut touch_object_messages = Vec::new();
-			let mut put_process_messages = Vec::new();
-			let mut touch_process_messages = Vec::new();
-			let mut put_tag_messages = Vec::new();
-			let mut delete_tag_messages = Vec::new();
+		for (messages, acker) in messages {
 			for message in messages {
+				if n >= config.insert_batch_size {
+					// Handle the messages.
+					match &self.index {
+						#[cfg(feature = "postgres")]
+						Index::Postgres(index) => {
+							self.indexer_task_handle_messages_postgres(
+								index,
+								put_cache_entry_messages,
+								put_object_messages,
+								touch_object_messages,
+								put_process_messages,
+								touch_process_messages,
+								put_tag_messages,
+								delete_tag_messages,
+							)
+							.await?;
+						},
+						Index::Sqlite(index) => {
+							self.indexer_task_handle_messages_sqlite(
+								index,
+								put_cache_entry_messages,
+								put_object_messages,
+								touch_object_messages,
+								put_process_messages,
+								touch_process_messages,
+								put_tag_messages,
+								delete_tag_messages,
+							)
+							.await?;
+						},
+					}
+
+					// Acknowledge the messages.
+					future::try_join_all(ackers.drain(..).map(async |acker| {
+						acker.ack().await.map_err(|source| {
+							tg::error!(!source, "failed to acknowledge the message")
+						})?;
+						Ok::<_, tg::Error>(())
+					}))
+					.await?;
+
+					// Reset the state.
+					n = 0;
+					put_cache_entry_messages = Vec::new();
+					put_object_messages = Vec::new();
+					touch_object_messages = Vec::new();
+					put_process_messages = Vec::new();
+					touch_process_messages = Vec::new();
+					put_tag_messages = Vec::new();
+					delete_tag_messages = Vec::new();
+				}
+
+				// Add the message.
+				n += 1;
 				match message {
 					Message::PutCacheEntry(message) => {
 						put_cache_entry_messages.push(message);
@@ -269,47 +256,51 @@ impl Server {
 				}
 			}
 
-			// Handle the messages.
-			match &self.index {
-				#[cfg(feature = "postgres")]
-				Index::Postgres(index) => {
-					self.indexer_task_handle_messages_postgres(
-						index,
-						put_cache_entry_messages,
-						put_object_messages,
-						touch_object_messages,
-						put_process_messages,
-						touch_process_messages,
-						put_tag_messages,
-						delete_tag_messages,
-					)
-					.await?;
-				},
-				Index::Sqlite(index) => {
-					self.indexer_task_handle_messages_sqlite(
-						index,
-						put_cache_entry_messages,
-						put_object_messages,
-						touch_object_messages,
-						put_process_messages,
-						touch_process_messages,
-						put_tag_messages,
-						delete_tag_messages,
-					)
-					.await?;
-				},
-			}
-
-			// Acknowledge the messages.
-			future::try_join_all(ackers.into_iter().map(async |acker| {
-				acker
-					.ack()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to acknowledge the message"))?;
-				Ok::<_, tg::Error>(())
-			}))
-			.await?;
+			// Add the acker.
+			ackers.push(acker);
 		}
+
+		// Handle the messages.
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			Index::Postgres(index) => {
+				self.indexer_task_handle_messages_postgres(
+					index,
+					put_cache_entry_messages,
+					put_object_messages,
+					touch_object_messages,
+					put_process_messages,
+					touch_process_messages,
+					put_tag_messages,
+					delete_tag_messages,
+				)
+				.await?;
+			},
+			Index::Sqlite(index) => {
+				self.indexer_task_handle_messages_sqlite(
+					index,
+					put_cache_entry_messages,
+					put_object_messages,
+					touch_object_messages,
+					put_process_messages,
+					touch_process_messages,
+					put_tag_messages,
+					delete_tag_messages,
+				)
+				.await?;
+			},
+		}
+
+		// Acknowledge the messages.
+		future::try_join_all(ackers.drain(..).map(async |acker| {
+			acker
+				.ack()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to acknowledge the message"))?;
+			Ok::<_, tg::Error>(())
+		}))
+		.await?;
+
 		Ok(())
 	}
 
@@ -428,27 +419,4 @@ async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
 		})
 		.await?;
 	Ok(())
-}
-
-impl std::fmt::Display for ProcessObjectKind {
-	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Command => write!(formatter, "command"),
-			Self::Error => write!(formatter, "error"),
-			Self::Output => write!(formatter, "output"),
-		}
-	}
-}
-
-impl std::str::FromStr for ProcessObjectKind {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"command" => Ok(Self::Command),
-			"error" => Ok(Self::Error),
-			"output" => Ok(Self::Output),
-			_ => Err(tg::error!("invalid kind")),
-		}
-	}
 }

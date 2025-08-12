@@ -326,7 +326,7 @@ impl Server {
 				.unwrap_or_default();
 			let id = blob.id.clone().into();
 			let size = blob.size;
-			let message = crate::index::Message::PutObject(crate::index::PutObjectMessage {
+			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
 				cache_reference: cache_reference.clone(),
 				children,
 				complete: true,
@@ -337,11 +337,10 @@ impl Server {
 				touched_at,
 				weight: Some(blob.weight),
 			});
-			let message = serde_json::to_vec(&message)
-				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			let message = message.serialize()?;
 			let _published = self
 				.messenger
-				.stream_publish("index".to_owned(), message.into())
+				.stream_publish("index".to_owned(), message)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		}
@@ -349,15 +348,14 @@ impl Server {
 		// Publish a cache reference message if necessary.
 		if let Some(id) = cache_reference {
 			let message =
-				crate::index::Message::PutCacheEntry(crate::index::PutCacheEntryMessage {
+				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
 					id,
 					touched_at,
 				});
-			let message = serde_json::to_vec(&message)
-				.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+			let message = message.serialize()?;
 			let _published = self
 				.messenger
-				.stream_publish("index".to_owned(), message.into())
+				.stream_publish("index".to_owned(), message)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		}

@@ -61,20 +61,14 @@ impl Component {
 		if version.major != self.major {
 			return false;
 		}
-		let minor = match self.minor {
-			None => {
-				return true;
-			},
-			Some(minor) => minor,
+		let Some(minor) = self.minor else {
+			return true;
 		};
-		let patch = match self.patch {
-			None => {
-				if self.major > 0 {
-					return version.minor >= minor;
-				}
-				return version.minor == minor;
-			},
-			Some(patch) => patch,
+		let Some(patch) = self.patch else {
+			if self.major > 0 {
+				return version.minor >= minor;
+			}
+			return version.minor == minor;
 		};
 		if self.major > 0 {
 			if version.minor != minor {

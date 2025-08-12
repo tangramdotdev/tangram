@@ -229,6 +229,60 @@ where
 	}
 }
 
+impl<L, R> tangram_serialize::Serialize for Either<L, R>
+where
+	L: tangram_serialize::Serialize,
+	R: tangram_serialize::Serialize,
+{
+	fn serialize<W>(
+		&self,
+		serializer: &mut tangram_serialize::Serializer<W>,
+	) -> std::result::Result<(), std::io::Error>
+	where
+		W: std::io::Write,
+	{
+		serializer.write_kind(tangram_serialize::Kind::Enum)?;
+		match self {
+			Either::Left(left) => {
+				serializer.write_id(0)?;
+				serializer.serialize(left)?;
+			},
+			Either::Right(right) => {
+				serializer.write_id(1)?;
+				serializer.serialize(right)?;
+			},
+		}
+		Ok(())
+	}
+}
+
+impl<L, R> tangram_serialize::Deserialize for Either<L, R>
+where
+	L: tangram_serialize::Deserialize,
+	R: tangram_serialize::Deserialize,
+{
+	fn deserialize<R_>(
+		deserializer: &mut tangram_serialize::Deserializer<R_>,
+	) -> std::result::Result<Self, std::io::Error>
+	where
+		R_: std::io::Read,
+	{
+		deserializer.ensure_kind(tangram_serialize::Kind::Enum)?;
+		let id = deserializer.read_id()?;
+		match id {
+			0 => {
+				let left = deserializer.deserialize()?;
+				Ok(Either::Left(left))
+			},
+			1 => {
+				let right = deserializer.deserialize()?;
+				Ok(Either::Right(right))
+			},
+			_ => Err(std::io::Error::other("invalid variant")),
+		}
+	}
+}
+
 #[macro_export]
 macro_rules! for_both {
 	($value:expr, $pattern:pat => $result:expr) => {

@@ -169,14 +169,20 @@ impl Server {
 		let outputs_weight = row
 			.get::<_, Option<u64>>(6)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let commands = tg::object::Metadata {
+			count: commands_count,
+			depth: commands_depth,
+			weight: commands_weight,
+		};
+		let outputs = tg::object::Metadata {
+			count: outputs_count,
+			depth: outputs_depth,
+			weight: outputs_weight,
+		};
 		let metadata = tg::process::Metadata {
-			commands_count,
-			commands_depth,
-			commands_weight,
+			commands,
 			count,
-			outputs_count,
-			outputs_depth,
-			outputs_weight,
+			outputs,
 		};
 		Ok(Some(metadata))
 	}

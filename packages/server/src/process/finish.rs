@@ -2,7 +2,6 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{StreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
-use std::path::PathBuf;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
@@ -57,13 +56,11 @@ impl Server {
 		#[derive(Clone, serde::Deserialize)]
 		struct Row {
 			child: tg::process::Id,
-			path: Option<PathBuf>,
-			tag: Option<tg::Tag>,
 			token: Option<String>,
 		}
 		let statement = formatdoc!(
 			"
-				select child, path, tag, token
+				select child, token
 				from process_children
 				where process = {p}1
 				order by position;
@@ -206,7 +203,7 @@ impl Server {
 		// Publish the put process index message.
 		let objects = std::iter::once((
 			data.command.clone().into(),
-			crate::index::ProcessObjectKind::Command,
+			crate::index::message::ProcessObjectKind::Command,
 		))
 		.chain(
 			error
@@ -214,7 +211,7 @@ impl Server {
 				.map(tg::error::Data::children)
 				.into_iter()
 				.flatten()
-				.map(|object| (object, crate::index::ProcessObjectKind::Error)),
+				.map(|object| (object, crate::index::message::ProcessObjectKind::Error)),
 		)
 		.chain(
 			output
@@ -222,30 +219,20 @@ impl Server {
 				.map(tg::value::Data::children)
 				.into_iter()
 				.flatten()
-				.map(|object| (object, crate::index::ProcessObjectKind::Output)),
+				.map(|object| (object, crate::index::message::ProcessObjectKind::Output)),
 		)
 		.collect();
-		let children = children
-			.into_iter()
-			.map(|row| tg::Referent {
-				item: row.child,
-				options: tg::referent::Options {
-					path: row.path,
-					tag: row.tag,
-				},
-			})
-			.collect();
-		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
+		let children = children.into_iter().map(|row| row.child).collect();
+		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
 			id: id.clone(),
 			touched_at: now,
-			children: Some(children),
+			children,
 			objects,
 		});
-		let message = serde_json::to_vec(&message)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		let message = message.serialize()?;
 		let _published = self
 			.messenger
-			.stream_publish("index".to_owned(), message.into())
+			.stream_publish("index".to_owned(), message)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 

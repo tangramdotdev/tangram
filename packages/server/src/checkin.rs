@@ -535,33 +535,36 @@ impl Node {
 
 impl petgraph::visit::GraphBase for Graph {
 	type EdgeId = (usize, usize);
+
 	type NodeId = usize;
 }
 
-impl petgraph::visit::NodeIndexable for &Graph {
-	fn from_index(&self, i: usize) -> Self::NodeId {
-		i
+impl petgraph::visit::IntoNodeIdentifiers for &Graph {
+	type NodeIdentifiers = std::ops::Range<usize>;
+
+	fn node_identifiers(self) -> Self::NodeIdentifiers {
+		0..self.nodes.len()
+	}
+}
+
+impl petgraph::visit::NodeIndexable for Graph {
+	fn from_index(&self, index: usize) -> Self::NodeId {
+		index
 	}
 
 	fn node_bound(&self) -> usize {
 		self.nodes.len()
 	}
 
-	fn to_index(&self, a: Self::NodeId) -> usize {
-		a
+	fn to_index(&self, id: Self::NodeId) -> usize {
+		id
 	}
 }
 
 impl petgraph::visit::IntoNeighbors for &Graph {
 	type Neighbors = std::vec::IntoIter<usize>;
-	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
-		self.nodes[a].edges().into_iter()
-	}
-}
 
-impl petgraph::visit::IntoNodeIdentifiers for &Graph {
-	type NodeIdentifiers = std::ops::Range<usize>;
-	fn node_identifiers(self) -> Self::NodeIdentifiers {
-		0..self.nodes.len()
+	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
+		self.nodes[id].edges().into_iter()
 	}
 }

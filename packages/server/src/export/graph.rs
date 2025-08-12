@@ -8,13 +8,13 @@ pub struct Graph {
 	nodes: IndexMap<Id, Node, fnv::FnvBuildHasher>,
 }
 
+pub type Id = Either<tg::process::Id, tg::object::Id>;
+
 struct Node {
+	children: Vec<usize>,
 	complete: bool,
 	parents: SmallVec<[usize; 1]>,
-	children: Vec<usize>,
 }
-
-pub type Id = Either<tg::process::Id, tg::object::Id>;
 
 impl Graph {
 	pub fn new() -> Self {

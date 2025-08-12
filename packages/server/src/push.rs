@@ -84,13 +84,13 @@ impl Server {
 										let mut complete = metadata.count.is_some();
 										if arg.commands {
 											complete = complete
-												&& metadata.commands_count.is_some()
-												&& metadata.commands_weight.is_some();
+												&& metadata.commands.count.is_some()
+												&& metadata.commands.weight.is_some();
 										}
 										if arg.outputs {
 											complete = complete
-												&& metadata.outputs_count.is_some()
-												&& metadata.outputs_weight.is_some();
+												&& metadata.outputs.count.is_some()
+												&& metadata.outputs.weight.is_some();
 										}
 										if complete {
 											break Ok::<_, tg::Error>(Either::Left(metadata));
@@ -122,18 +122,18 @@ impl Server {
 								progress.set_total("processes", total_processes);
 							}
 							if arg.commands {
-								if let Some(commands_count) = metadata.commands_count {
+								if let Some(commands_count) = metadata.commands.count {
 									total_objects += commands_count;
 								}
-								if let Some(commands_weight) = metadata.commands_weight {
+								if let Some(commands_weight) = metadata.commands.weight {
 									total_bytes += commands_weight;
 								}
 							}
 							if arg.outputs {
-								if let Some(outputs_count) = metadata.outputs_count {
+								if let Some(outputs_count) = metadata.outputs.count {
 									total_objects += outputs_count;
 								}
-								if let Some(outputs_weight) = metadata.outputs_weight {
+								if let Some(outputs_weight) = metadata.outputs.weight {
 									total_bytes += outputs_weight;
 								}
 							}
@@ -238,32 +238,39 @@ impl Server {
 							},
 							Ok(tg::export::Event::Complete(complete)) => match complete {
 								tg::export::Complete::Process(process_complete) => {
-									if let Some(processes) = process_complete.count {
+									if let Some(processes) = process_complete.metadata.count {
 										progress.increment("processes", processes);
 									}
 									let mut objects = 0;
 									let mut bytes = 0;
-									if let Some(commands_count) = process_complete.commands_count {
+									if let Some(commands_count) =
+										process_complete.metadata.commands.count
+									{
 										objects += commands_count;
 									}
-									if let Some(commands_weight) = process_complete.commands_weight
+									if let Some(commands_weight) =
+										process_complete.metadata.commands.weight
 									{
 										bytes += commands_weight;
 									}
-									if let Some(outputs_count) = process_complete.outputs_count {
+									if let Some(outputs_count) =
+										process_complete.metadata.outputs.count
+									{
 										objects += outputs_count;
 									}
-									if let Some(outputs_weight) = process_complete.outputs_weight {
+									if let Some(outputs_weight) =
+										process_complete.metadata.outputs.weight
+									{
 										bytes += outputs_weight;
 									}
 									progress.increment("objects", objects);
 									progress.increment("bytes", bytes);
 								},
 								tg::export::Complete::Object(object_complete) => {
-									if let Some(count) = object_complete.count {
+									if let Some(count) = object_complete.metadata.count {
 										progress.increment("objects", count);
 									}
-									if let Some(weight) = object_complete.weight {
+									if let Some(weight) = object_complete.metadata.weight {
 										progress.increment("bytes", weight);
 									}
 								},

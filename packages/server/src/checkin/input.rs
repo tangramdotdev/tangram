@@ -119,8 +119,10 @@ impl Server {
 
 	fn checkin_visit_directory(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Read the entries.
-		let read_dir = std::fs::read_dir(state.graph.nodes[index].path())
-			.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
+		let path = state.graph.nodes[index].path();
+		let read_dir = std::fs::read_dir(path).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to read the directory"),
+		)?;
 		let mut names = Vec::new();
 		for result in read_dir {
 			let entry = result

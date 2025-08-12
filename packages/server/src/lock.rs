@@ -1288,17 +1288,25 @@ impl petgraph::visit::GraphBase for Petgraph<'_> {
 	type NodeId = usize;
 }
 
-impl petgraph::visit::NodeIndexable for &Petgraph<'_> {
-	fn from_index(&self, i: usize) -> Self::NodeId {
-		i
-	}
+impl petgraph::visit::IntoNodeIdentifiers for &Petgraph<'_> {
+	type NodeIdentifiers = std::ops::Range<usize>;
 
+	fn node_identifiers(self) -> Self::NodeIdentifiers {
+		0..self.nodes.len()
+	}
+}
+
+impl petgraph::visit::NodeIndexable for Petgraph<'_> {
 	fn node_bound(&self) -> usize {
 		self.nodes.len()
 	}
 
-	fn to_index(&self, a: Self::NodeId) -> usize {
-		a
+	fn to_index(&self, id: Self::NodeId) -> usize {
+		id
+	}
+
+	fn from_index(&self, index: usize) -> Self::NodeId {
+		index
 	}
 }
 
@@ -1336,13 +1344,5 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				})
 				.boxed(),
 		}
-	}
-}
-
-impl petgraph::visit::IntoNodeIdentifiers for &Petgraph<'_> {
-	type NodeIdentifiers = std::ops::Range<usize>;
-
-	fn node_identifiers(self) -> Self::NodeIdentifiers {
-		0..self.nodes.len()
 	}
 }

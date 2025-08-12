@@ -1,14 +1,3 @@
-pub trait Ext: Iterator {
-	fn batches(self, size: usize) -> Batches<Self>
-	where
-		Self: Sized,
-	{
-		Batches::new(self, size)
-	}
-}
-
-impl<I> Ext for I where I: Iterator {}
-
 pub struct Batches<I>
 where
 	I: Iterator,
@@ -21,7 +10,7 @@ impl<I> Batches<I>
 where
 	I: Iterator,
 {
-	fn new(iter: I, size: usize) -> Self {
+	pub fn new(iter: I, size: usize) -> Self {
 		assert!(size > 0, "batch size must be greater than 0");
 		Batches { iter, size }
 	}

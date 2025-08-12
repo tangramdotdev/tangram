@@ -4,7 +4,7 @@ use crate::{
 };
 use async_nats as nats;
 use bytes::Bytes;
-use futures::{FutureExt as _, TryFutureExt as _, prelude::*};
+use futures::{FutureExt as _, TryFutureExt as _, prelude::*, stream::FuturesOrdered};
 use num::ToPrimitive as _;
 use std::error::Error as _;
 
@@ -172,10 +172,19 @@ impl Messenger {
 
 	async fn stream_batch_publish(
 		&self,
-		_name: String,
-		_payloads: Vec<Bytes>,
+		name: String,
+		payloads: Vec<Bytes>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error> {
-		Err::<future::Ready<_>, _>(Error::other("unimplemented"))
+		let results = payloads
+			.into_iter()
+			.map(|payload| async { self.stream_publish(name.clone(), payload).await })
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(results
+			.into_iter()
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<_>())
 	}
 }
 

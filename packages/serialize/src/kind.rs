@@ -1,4 +1,5 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
+#[num_traits = "num"]
 pub enum Kind {
 	Unit = 0,
 

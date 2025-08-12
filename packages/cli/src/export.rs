@@ -76,8 +76,8 @@ impl Cli {
 		let mut stream = pin!(stream);
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		while let Some(event) = stream.try_next().await? {
-			if let tg::export::Event::Item(item) = event {
-				item.to_writer(&mut stdout).await?;
+			if event.is_item() {
+				event.to_writer(&mut stdout).await?;
 			}
 		}
 		stdout

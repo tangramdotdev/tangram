@@ -2,6 +2,7 @@ use self::{parse::parse, print::Printer};
 use crate as tg;
 use bytes::Bytes;
 use futures::{StreamExt as _, stream};
+use num::ToPrimitive as _;
 use std::collections::VecDeque;
 use std::{collections::BTreeMap, pin::pin, sync::Arc};
 use tangram_either::Either;
@@ -112,7 +113,8 @@ impl Value {
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
-				let item = tg::export::Item::Object(tg::export::ObjectItem { id, bytes });
+				let size = bytes.len().to_u64().unwrap();
+				let item = tg::export::Item::Object(tg::export::ObjectItem { id, data, size });
 				items.push(item);
 			}
 		}

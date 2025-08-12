@@ -1,6 +1,5 @@
-use super::{
-	DeleteTagMessage, PutCacheEntryMessage, PutObjectMessage, PutProcessMessage, PutTagMessage,
-	TouchObjectMessage, TouchProcessMessage,
+use super::message::{
+	DeleteTag, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject, TouchProcess,
 };
 use crate::Server;
 use indoc::indoc;
@@ -13,13 +12,13 @@ impl Server {
 	pub(super) async fn indexer_task_handle_messages_sqlite(
 		&self,
 		database: &db::sqlite::Database,
-		put_cache_entry_messages: Vec<PutCacheEntryMessage>,
-		put_object_messages: Vec<PutObjectMessage>,
-		touch_object_messages: Vec<TouchObjectMessage>,
-		put_process_messages: Vec<PutProcessMessage>,
-		touch_process_messages: Vec<TouchProcessMessage>,
+		put_cache_entry_messages: Vec<PutCacheEntry>,
+		put_object_messages: Vec<PutObject>,
+		touch_object_messages: Vec<TouchObject>,
+		put_process_messages: Vec<PutProcess>,
+		touch_process_messages: Vec<TouchProcess>,
 		put_tag_messages: Vec<PutTagMessage>,
-		delete_tag_messages: Vec<DeleteTagMessage>,
+		delete_tag_messages: Vec<DeleteTag>,
 	) -> tg::Result<()> {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
@@ -59,7 +58,7 @@ impl Server {
 	}
 
 	fn indexer_put_cache_entries_sqlite(
-		messages: Vec<PutCacheEntryMessage>,
+		messages: Vec<PutCacheEntry>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let statement = indoc!(
@@ -82,7 +81,7 @@ impl Server {
 	}
 
 	fn indexer_put_objects_sqlite(
-		messages: Vec<PutObjectMessage>,
+		messages: Vec<PutObject>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		// Prepare a statement for the object children
@@ -150,7 +149,7 @@ impl Server {
 	}
 
 	fn indexer_touch_objects_sqlite(
-		messages: Vec<TouchObjectMessage>,
+		messages: Vec<TouchObject>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let statement = indoc!(
@@ -174,7 +173,7 @@ impl Server {
 	}
 
 	fn indexer_put_processes_sqlite(
-		messages: Vec<PutProcessMessage>,
+		messages: Vec<PutProcess>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let object_statement = indoc!(
@@ -190,8 +189,8 @@ impl Server {
 
 		let child_statement = indoc!(
 			"
-				insert into process_children (process, position, child, path, tag)
-				values (?1, ?2, ?3, ?4, ?5)
+				insert into process_children (process, position, child)
+				values (?1, ?2, ?3)
 				on conflict (process, child) do nothing;
 			"
 		);
@@ -221,19 +220,11 @@ impl Server {
 			}
 
 			// Insert the children.
-			if let Some(children) = message.children {
-				for (position, child) in children.iter().enumerate() {
-					let params = sqlite::params![
-						message.id.to_string(),
-						position,
-						child.item.to_string(),
-						child.path().map(|path| path.display().to_string()),
-						child.tag().map(ToString::to_string),
-					];
-					child_statement
-						.execute(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				}
+			for (position, child) in message.children.iter().enumerate() {
+				let params = sqlite::params![message.id.to_string(), position, child.to_string(),];
+				child_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
 			// Insert the process.
@@ -247,7 +238,7 @@ impl Server {
 	}
 
 	fn indexer_touch_processes_sqlite(
-		messages: Vec<TouchProcessMessage>,
+		messages: Vec<TouchProcess>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let statement = indoc!(
@@ -294,7 +285,7 @@ impl Server {
 	}
 
 	fn indexer_delete_tags_sqlite(
-		messages: Vec<DeleteTagMessage>,
+		messages: Vec<DeleteTag>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let statement = indoc!(

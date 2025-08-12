@@ -1,8 +1,8 @@
 use crate::Server;
+use indoc::formatdoc;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::prelude::*;
 
 impl Server {
 	pub async fn touch_process(
@@ -18,23 +18,40 @@ impl Server {
 			return Ok(());
 		}
 
+		match &self.index {
+			crate::index::Index::Sqlite(database) => {
+				self.touch_process_sqlite(database, id).await?;
+			},
+
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.touch_process_postgres(database, id).await?;
+			},
+		}
+
+		Ok(())
+	}
+
+	async fn touch_process_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
+		// Get a connection.
+		let connection = database
+			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Update the status.
 		let p = connection.p();
-		let statement = format!(
+		let statement = formatdoc!(
 			"
 				update processes
-				set touched_at = {p}1
+				set touched_at = max(touched_at, {p}1)
 				where id = {p}2;
-			"
+			",
 		);
 		let params = db::params![touched_at, id];
 		let n = connection
@@ -45,21 +62,45 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		}
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
-		// Publish the touch process index message.
-		let message = crate::index::Message::TouchProcess(crate::index::TouchProcessMessage {
-			id: id.clone(),
-			touched_at,
-		});
-		let message = serde_json::to_vec(&message)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-		let _published = self
-			.messenger
-			.stream_publish("index".to_owned(), message.into())
+		Ok(())
+	}
+
+	#[cfg(feature = "postgres")]
+	async fn touch_process_postgres(
+		&self,
+		database: &db::postgres::Database,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
+		// Get a connection.
+		let connection = database
+			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set touched_at = greatest(touched_at, {p}1)
+				where id = {p}2;
+			",
+		);
+		let params = db::params![touched_at, id];
+		let n = connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if n == 0 {
+			return Err(tg::error!("failed to find the process"));
+		}
+
+		// Drop the connection.
+		drop(connection);
 
 		Ok(())
 	}

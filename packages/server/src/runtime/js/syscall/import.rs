@@ -1,5 +1,6 @@
 use super::State;
 use futures::{StreamExt as _, stream};
+use num::ToPrimitive as _;
 use std::{pin::pin, rc::Rc};
 use tangram_client as tg;
 use tangram_futures::stream::TryExt as _;
@@ -27,8 +28,9 @@ pub async fn import(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<(
 				};
 				let stream = items.into_iter().map(|item| {
 					let id = item.id;
-					let bytes = item.data.serialize()?;
-					let item = tg::export::Item::Object(tg::export::ObjectItem { id, bytes });
+					let data = item.data;
+					let size = data.serialize()?.len().to_u64().unwrap();
+					let item = tg::export::Item::Object(tg::export::ObjectItem { id, data, size });
 					let event = tg::export::Event::Item(item);
 					Ok::<_, tg::Error>(event)
 				});

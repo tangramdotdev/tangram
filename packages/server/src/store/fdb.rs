@@ -147,19 +147,6 @@ impl Fdb {
 		Ok(())
 	}
 
-	pub async fn touch(&self, id: &tg::object::Id, touched_at: i64) -> tg::Result<()> {
-		self.database
-			.run(|transaction, _| async move {
-				let key = (0, id.to_bytes(), 1);
-				let value = touched_at.to_le_bytes();
-				transaction.set(&key.pack_to_vec(), &value);
-				Ok(())
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
-		Ok(())
-	}
-
 	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
 		if arg.objects.is_empty() {
 			return Ok(());

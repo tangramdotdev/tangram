@@ -127,10 +127,6 @@ impl S3 {
 		Ok(())
 	}
 
-	pub async fn touch(&self, _id: &tg::object::Id, _touched_at: i64) -> tg::Result<()> {
-		Err(tg::error!("unimplemented"))
-	}
-
 	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
 		arg.objects
 			.into_iter()

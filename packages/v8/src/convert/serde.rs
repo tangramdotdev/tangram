@@ -4,11 +4,6 @@ use tangram_client as tg;
 
 pub struct Serde<T>(pub T);
 
-#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
-pub enum Error {
-	Other(Box<dyn std::error::Error + Send + Sync>),
-}
-
 impl<T> Deref for Serde<T> {
 	type Target = T;
 

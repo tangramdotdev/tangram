@@ -15,6 +15,14 @@ where
 		Deserializer(reader)
 	}
 
+	pub fn get(&self) -> &R {
+		&self.0
+	}
+
+	pub fn get_mut(&mut self) -> &mut R {
+		&mut self.0
+	}
+
 	pub fn into_inner(self) -> R {
 		self.0
 	}

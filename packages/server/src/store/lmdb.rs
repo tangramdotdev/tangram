@@ -21,7 +21,6 @@ type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 enum Request {
 	Delete(Delete),
 	Put(Put),
-	Touch(Touch),
 }
 
 struct Delete {
@@ -32,11 +31,6 @@ struct Delete {
 
 struct Put {
 	items: Vec<(tg::object::Id, Option<Bytes>, Option<CacheReference>)>,
-	touched_at: i64,
-}
-
-struct Touch {
-	ids: Vec<tg::object::Id>,
 	touched_at: i64,
 }
 
@@ -252,22 +246,6 @@ impl Lmdb {
 		Ok(())
 	}
 
-	pub async fn touch(&self, id: &tg::object::Id, touched_at: i64) -> tg::Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Touch(Touch {
-			ids: vec![id.clone()],
-			touched_at,
-		});
-		self.sender
-			.send((request, sender))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(())
-	}
-
 	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
 		if arg.objects.is_empty() {
 			return Ok(());
@@ -336,10 +314,6 @@ impl Lmdb {
 					},
 					Request::Put(request) => {
 						let result = Self::task_put(env, db, &mut transaction, request);
-						responses.push(result);
-					},
-					Request::Touch(request) => {
-						let result = Self::task_touch(env, db, &mut transaction, request);
 						responses.push(result);
 					},
 				}
@@ -420,21 +394,6 @@ impl Lmdb {
 				db.put(transaction, &key.pack_to_vec(), &value)
 					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 			}
-		}
-		Ok(())
-	}
-
-	fn task_touch(
-		_env: &lmdb::Env,
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		message: Touch,
-	) -> tg::Result<()> {
-		for id in message.ids {
-			let key = (0, id.to_bytes(), 1);
-			let touched_at = message.touched_at.to_le_bytes();
-			db.put(transaction, &key.pack_to_vec(), &touched_at)
-				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 		}
 		Ok(())
 	}

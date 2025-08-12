@@ -1,6 +1,6 @@
 use crate::{
 	self as tg,
-	util::serde::{CommaSeparatedString, is_false},
+	util::serde::{CommaSeparatedString, is_default, is_false},
 };
 use bytes::Bytes;
 use futures::{Stream, StreamExt as _, TryStreamExt as _, stream};
@@ -36,7 +36,7 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::IsVariant)]
 pub enum Event {
 	Complete(tg::export::Complete),
 	Item(tg::export::Item),
@@ -52,33 +52,18 @@ pub enum Complete {
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ProcessComplete {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub commands_count: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub commands_weight: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
-
 	pub id: tg::process::Id,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outputs_count: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outputs_weight: Option<u64>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub metadata: tg::process::Metadata,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ObjectComplete {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
-
 	pub id: tg::object::Id,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub weight: Option<u64>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub metadata: tg::object::Metadata,
 }
 
 #[derive(Debug, Clone)]
@@ -96,7 +81,8 @@ pub struct ProcessItem {
 #[derive(Debug, Clone)]
 pub struct ObjectItem {
 	pub id: tg::object::Id,
-	pub bytes: Bytes,
+	pub data: tg::object::Data,
+	pub size: u64,
 }
 
 impl tg::Client {
@@ -303,8 +289,8 @@ impl Item {
 
 	pub async fn to_writer(&self, mut writer: impl AsyncWrite + Unpin + Send) -> tg::Result<()> {
 		match self {
-			Item::Process(ProcessItem { id, data }) => {
-				let id = id.to_bytes();
+			Item::Process(item) => {
+				let id = item.id.to_bytes();
 				writer
 					.write_uvarint(id.len().to_u64().unwrap())
 					.await
@@ -313,7 +299,7 @@ impl Item {
 					.write_all(id.as_slice())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id"))?;
-				let data = serde_json::to_vec(data)
+				let data = serde_json::to_vec(&item.data)
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				writer
 					.write_uvarint(data.len().to_u64().unwrap())
@@ -325,8 +311,8 @@ impl Item {
 					.map_err(|source| tg::error!(!source, "failed to write the data"))?;
 			},
 
-			Item::Object(ObjectItem { id, bytes }) => {
-				let id = id.to_bytes();
+			Item::Object(item) => {
+				let id = item.id.to_bytes();
 				writer
 					.write_uvarint(id.len().to_u64().unwrap())
 					.await
@@ -335,12 +321,13 @@ impl Item {
 					.write_all(id.as_slice())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id"))?;
+				let bytes = item.data.serialize()?;
 				writer
-					.write_uvarint(bytes.len().to_u64().unwrap())
+					.write_uvarint(item.size)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the bytes length"))?;
 				writer
-					.write_all(bytes)
+					.write_all(&bytes)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the bytes"))?;
 			},
@@ -367,7 +354,7 @@ impl Item {
 			.map_err(|source| tg::error!(!source, "failed to read the id"))?;
 		let id = tg::Id::from_slice(&id)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the id"))?;
-		let id = match id.kind() {
+		let id: Either<tg::process::Id, tg::object::Id> = match id.kind() {
 			tg::id::Kind::Process => Either::Left(id.try_into().unwrap()),
 			tg::id::Kind::Blob
 			| tg::id::Kind::Directory
@@ -382,7 +369,6 @@ impl Item {
 
 		let item = match id {
 			Either::Left(id) => {
-				// Read the data.
 				let len = reader
 					.read_uvarint()
 					.await
@@ -396,11 +382,9 @@ impl Item {
 					.map_err(|source| tg::error!(!source, "failed to read the data"))?;
 				let data = serde_json::from_slice(&data)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-
 				Item::Process(ProcessItem { id, data })
 			},
 			Either::Right(id) => {
-				// Read the data.
 				let len = reader
 					.read_uvarint()
 					.await
@@ -413,8 +397,9 @@ impl Item {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to read the data"))?;
 				let bytes = Bytes::from(bytes);
-
-				Item::Object(ObjectItem { id, bytes })
+				let size = bytes.len().to_u64().unwrap();
+				let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+				Item::Object(ObjectItem { id, data, size })
 			},
 		};
 

@@ -29,30 +29,37 @@ impl Server {
 		}
 
 		// Publish the put process index message.
+		let children = arg
+			.data
+			.children
+			.as_ref()
+			.ok_or_else(|| tg::error!("expected the children to be set"))?
+			.iter()
+			.map(|referent| referent.item.clone())
+			.collect();
+		let command = std::iter::once((
+			arg.data.command.clone().into(),
+			crate::index::message::ProcessObjectKind::Command,
+		));
 		let output = arg
 			.data
 			.output
 			.as_ref()
-			.map(tg::value::data::Data::children)
+			.map(tg::value::Data::children)
 			.into_iter()
 			.flatten()
-			.map(|output| (output, crate::index::ProcessObjectKind::Output));
-		let command = std::iter::once((
-			arg.data.command.clone().into(),
-			crate::index::ProcessObjectKind::Command,
-		));
-		let objects = std::iter::empty().chain(output).chain(command).collect();
-		let message = crate::index::Message::PutProcess(crate::index::PutProcessMessage {
+			.map(|output| (output, crate::index::message::ProcessObjectKind::Output));
+		let objects = std::iter::empty().chain(command).chain(output).collect();
+		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
 			id: id.clone(),
 			touched_at: now,
-			children: arg.data.children.clone(),
+			children,
 			objects,
 		});
-		let message = serde_json::to_vec(&message)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		let message = message.serialize()?;
 		let _published = self
 			.messenger
-			.stream_publish("index".to_owned(), message.into())
+			.stream_publish("index".to_owned(), message)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 

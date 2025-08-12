@@ -7,12 +7,6 @@ pub struct Arg {
 	pub data: tg::process::Data,
 }
 
-impl Arg {
-	pub fn objects(&self) -> Vec<tg::object::Id> {
-		self.data.objects()
-	}
-}
-
 impl tg::Client {
 	pub async fn put_process(
 		&self,

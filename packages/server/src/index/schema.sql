@@ -195,12 +195,12 @@ end;
 
 create table processes (
 	id text primary key,
-	count integer,
+	children_complete integer not null default 0,
+	children_count integer,
 	commands_complete integer not null default 0,
 	commands_count integer,
 	commands_depth integer,
 	commands_weight integer,
-	complete integer not null default 0,
 	incomplete_children integer,
 	incomplete_children_commands integer,
 	incomplete_children_outputs integer,
@@ -216,17 +216,17 @@ create table processes (
 
 create trigger processes_insert_complete_trigger
 after insert on processes
-when new.complete = 0 and new.incomplete_children = 0
+when new.children_complete = 0 and new.incomplete_children = 0
 begin
 	update processes
 	set
-		complete = updates.complete,
-		count = updates.count
+		children_complete = updates.children_complete,
+		children_count = updates.children_count
 	from (
 		select
 			processes.id,
-			coalesce(min(child_processes.complete), 1) as complete,
-			1 + coalesce(sum(child_processes.count), 0) as count
+			coalesce(min(child_processes.children_complete), 1) as children_complete,
+			1 + coalesce(sum(child_processes.children_count), 0) as children_count
 		from processes
 		left join process_children on process_children.process = processes.id
 		left join processes as child_processes on child_processes.id = process_children.child
@@ -237,18 +237,18 @@ begin
 end;
 
 create trigger processes_update_complete_trigger
-after update of complete, incomplete_children on processes
-when new.complete = 0 and new.incomplete_children = 0
+after update of children_complete, incomplete_children on processes
+when new.children_complete = 0 and new.incomplete_children = 0
 begin
 	update processes
 	set
-		complete = updates.complete,
-		count = updates.count
+		children_complete = updates.children_complete,
+		children_count = updates.children_count
 	from (
 		select
 			processes.id,
-			coalesce(min(child_processes.complete), 1) as complete,
-			1 + coalesce(sum(child_processes.count), 0) as count
+			coalesce(min(child_processes.children_complete), 1) as children_complete,
+			1 + coalesce(sum(child_processes.children_count), 0) as children_count
 		from processes
 		left join process_children on process_children.process = processes.id
 		left join processes as child_processes on child_processes.id = process_children.child
@@ -324,12 +324,12 @@ begin
 		from process_children
 		left join processes child_processes on child_processes.id = process_children.child
 		where process_children.process = new.id
-		and (child_processes.complete is null or child_processes.complete = 0)
+		and (child_processes.children_complete is null or child_processes.children_complete = 0)
 	)
 	where id = new.id;
 end;
 
-create trigger processes_update_incomplete_children_trigger
+create trigger children_processes_update_incomplete_children_trigger
 after update of complete on processes
 when old.complete = 0 and new.complete = 1
 begin
@@ -441,7 +441,7 @@ begin
 		from process_children
 		left join processes child_processes on child_processes.id = process_children.child
 		where process_children.process = new.id
-		and (child_processes.complete is null or child_processes.commands_complete = 0)
+		and (child_processes.children_complete is null or child_processes.commands_complete = 0)
 	)
 	where id = new.id;
 end;
@@ -469,7 +469,7 @@ begin
 		from process_children
 		left join processes child_processes on child_processes.id = process_children.child
 		where process_children.process = new.id
-		and (child_processes.complete is null or child_processes.outputs_complete = 0)
+		and (child_processes.children_complete is null or child_processes.outputs_complete = 0)
 	)
 	where id = new.id;
 end;
@@ -501,9 +501,7 @@ end;
 create table process_children (
 	process text not null,
 	child text not null,
-	position integer not null,
-	path text,
-	tag text
+	position integer not null
 );
 
 create unique index process_children_process_child_index on process_children (process, child);

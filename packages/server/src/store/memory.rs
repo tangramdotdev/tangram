@@ -71,10 +71,4 @@ impl Memory {
 			});
 		}
 	}
-
-	pub fn touch(&self, id: &tg::object::Id, touched_at: i64) {
-		if let Some(mut entry) = self.0.get_mut(id) {
-			entry.touched_at = touched_at;
-		}
-	}
 }

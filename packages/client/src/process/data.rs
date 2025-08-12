@@ -76,23 +76,25 @@ pub struct Data {
 
 impl Data {
 	pub fn objects(&self) -> Vec<tg::object::Id> {
+		let command = std::iter::once(self.command.clone().into());
+		let error = self
+			.error
+			.as_ref()
+			.map(tg::error::Data::children)
+			.into_iter()
+			.flatten();
 		let logs = self.log.iter().cloned().map_into();
 		let output = self
 			.output
 			.as_ref()
-			.map(tg::value::data::Data::children)
+			.map(tg::value::Data::children)
 			.into_iter()
 			.flatten();
-		let command = std::iter::once(self.command.clone().into());
-		let mounts = self
-			.mounts
-			.iter()
-			.flat_map(tg::process::data::Mount::children);
 		std::iter::empty()
+			.chain(command)
+			.chain(error)
 			.chain(logs)
 			.chain(output)
-			.chain(command)
-			.chain(mounts)
 			.collect()
 	}
 }
@@ -105,12 +107,6 @@ pub struct Mount {
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub readonly: bool,
-}
-
-impl Mount {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		std::iter::empty()
-	}
 }
 
 fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>

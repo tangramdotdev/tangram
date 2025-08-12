@@ -169,23 +169,4 @@ impl Store {
 		}
 		Ok(())
 	}
-
-	pub async fn touch(&self, id: &tg::object::Id, touched_at: i64) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => {
-				fdb.touch(id, touched_at).await?;
-			},
-			Self::Lmdb(lmdb) => {
-				lmdb.touch(id, touched_at).await?;
-			},
-			Self::Memory(memory) => {
-				memory.touch(id, touched_at);
-			},
-			Self::S3(s3) => {
-				s3.touch(id, touched_at).await?;
-			},
-		}
-		Ok(())
-	}
 }

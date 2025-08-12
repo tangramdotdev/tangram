@@ -1,6 +1,6 @@
-use super::{
-	DeleteTagMessage, ProcessObjectKind, PutCacheEntryMessage, PutObjectMessage, PutProcessMessage,
-	PutTagMessage, TouchObjectMessage, TouchProcessMessage,
+use super::message::{
+	DeleteTag, ProcessObjectKind, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject,
+	TouchProcess,
 };
 use crate::Server;
 use indoc::indoc;
@@ -14,13 +14,13 @@ impl Server {
 	pub(super) async fn indexer_task_handle_messages_postgres(
 		&self,
 		database: &db::postgres::Database,
-		put_cache_entry_messages: Vec<PutCacheEntryMessage>,
-		put_object_messages: Vec<PutObjectMessage>,
-		touch_object_messages: Vec<TouchObjectMessage>,
-		put_process_messages: Vec<PutProcessMessage>,
-		touch_process_messages: Vec<TouchProcessMessage>,
+		put_cache_entry_messages: Vec<PutCacheEntry>,
+		put_object_messages: Vec<PutObject>,
+		touch_object_messages: Vec<TouchObject>,
+		put_process_messages: Vec<PutProcess>,
+		touch_process_messages: Vec<TouchProcess>,
 		put_tag_messages: Vec<PutTagMessage>,
-		delete_tag_messages: Vec<DeleteTagMessage>,
+		delete_tag_messages: Vec<DeleteTag>,
 	) -> tg::Result<()> {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
@@ -64,7 +64,7 @@ impl Server {
 
 	async fn indexer_put_cache_entries_postgres(
 		&self,
-		messages: Vec<PutCacheEntryMessage>,
+		messages: Vec<PutCacheEntry>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
@@ -86,15 +86,14 @@ impl Server {
 
 	async fn indexer_put_objects_postgres(
 		&self,
-		messages: Vec<PutObjectMessage>,
+		messages: Vec<PutObject>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		// Get the unique messages.
-		let unique_messages: HashMap<&tg::object::Id, &PutObjectMessage, fnv::FnvBuildHasher> =
-			messages
-				.iter()
-				.map(|message| (&message.id, message))
-				.collect();
+		let unique_messages: HashMap<&tg::object::Id, &PutObject, fnv::FnvBuildHasher> = messages
+			.iter()
+			.map(|message| (&message.id, message))
+			.collect();
 		// Insert into the objects and object_children tables.
 		let ids = unique_messages
 			.values()
@@ -174,13 +173,13 @@ impl Server {
 				],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the procedure"))?;
+			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
 		Ok(())
 	}
 
 	async fn indexer_touch_objects_postgres(
 		&self,
-		messages: Vec<TouchObjectMessage>,
+		messages: Vec<TouchObject>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
@@ -203,7 +202,7 @@ impl Server {
 
 	async fn indexer_put_processes_postgres(
 		&self,
-		messages: Vec<PutProcessMessage>,
+		messages: Vec<PutProcess>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
@@ -234,41 +233,30 @@ impl Server {
 			}
 
 			// Insert the children.
-			if let Some(children) = &message.children {
-				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
-				let statement = indoc!(
-					"
-						insert into process_children (process, position, child, path, tag)
-						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
-						on conflict (process, child) do nothing;
-					"
-				);
-				transaction
-					.inner()
-					.execute(
-						statement,
-						&[
-							&message.id.to_string(),
-							&positions.as_slice(),
-							&children
-								.iter()
-								.map(|referent| referent.item.to_string())
-								.collect::<Vec<_>>(),
-							&children
-								.iter()
-								.map(|referent| {
-									referent.path().map(|path| path.display().to_string())
-								})
-								.collect::<Vec<_>>(),
-							&children
-								.iter()
-								.map(|referent| referent.tag().map(ToString::to_string))
-								.collect::<Vec<_>>(),
-						],
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
+			let positions: Vec<i64> = (0..message.children.len().to_i64().unwrap()).collect();
+			let statement = indoc!(
+				"
+					insert into process_children (process, position, child)
+					select $1, unnest($2::int8[]), unnest($3::text[]))
+					on conflict (process, child) do nothing;
+				"
+			);
+			transaction
+				.inner()
+				.execute(
+					statement,
+					&[
+						&message.id.to_string(),
+						&positions.as_slice(),
+						&message
+							.children
+							.iter()
+							.map(ToString::to_string)
+							.collect::<Vec<_>>(),
+					],
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			// Insert the process.
 			let process_statement = indoc!(
@@ -294,7 +282,7 @@ impl Server {
 
 	async fn indexer_touch_processes_postgres(
 		&self,
-		messages: Vec<TouchProcessMessage>,
+		messages: Vec<TouchProcess>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {
@@ -341,7 +329,7 @@ impl Server {
 
 	async fn indexer_delete_tags_postgres(
 		&self,
-		messages: Vec<DeleteTagMessage>,
+		messages: Vec<DeleteTag>,
 		transaction: &db::postgres::Transaction<'_>,
 	) -> tg::Result<()> {
 		for message in messages {

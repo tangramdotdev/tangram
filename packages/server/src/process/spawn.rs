@@ -89,7 +89,14 @@ impl Server {
 			// Drop the connection.
 			drop(connection);
 
-			self.foo(&arg, &id, permit);
+			// If a permit was immediately available, then spawn the process task. Otherwise, spawn tasks to publish the created message and spawn the process task when the parent's permit is available.
+			if let Some(permit) = permit {
+				let process = tg::Process::new(id.clone(), None, None, None, None);
+				self.spawn_process_task(&process, permit);
+			} else {
+				self.spawn_process_created_message_task();
+				self.spawn_process_parent_permit_task(&arg, &id);
+			}
 
 			// Publish the child message.
 			if let Some(parent) = &arg.parent {
@@ -235,8 +242,14 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// TODO
-		self.foo(&arg, &local_id, local_permit);
+		// If a permit was immediately available, then spawn the process task. Otherwise, spawn tasks to publish the created message and spawn the process task when the parent's permit is available.
+		if let Some(permit) = local_permit {
+			let process = tg::Process::new(local_id.clone(), None, None, None, None);
+			self.spawn_process_task(&process, permit);
+		} else {
+			self.spawn_process_created_message_task();
+			self.spawn_process_parent_permit_task(&arg, &local_id);
+		}
 
 		// Create a future that will await the local process.
 		let local = async { self.wait_process(&local_id).await };
@@ -732,68 +745,6 @@ impl Server {
 		Ok((id, token, permit))
 	}
 
-	fn foo(
-		&self,
-		arg: &tg::process::spawn::Arg,
-		id: &tg::process::Id,
-		permit: Option<ProcessPermit>,
-	) {
-		// If a permit was immediately available, then spawn the process task and return.
-		if let Some(permit) = permit {
-			let process = tg::Process::new(id.clone(), None, None, None, None);
-			self.spawn_process_task(&process, permit);
-			return;
-		}
-
-		// Spawn a task to publish the created message.
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				server
-					.messenger
-					.publish("processes.created".to_owned(), Bytes::new())
-					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
-					.ok();
-			}
-		});
-
-		// Spawn a task to spawn the process task when the parent's permit is available.
-		tokio::spawn({
-			let server = self.clone();
-			let parent = arg.parent.clone();
-			let process = tg::Process::new(id.clone(), None, None, None, None);
-			async move {
-				// Acquire the parent's permit.
-				let Some(permit) = parent.as_ref().and_then(|parent| {
-					server
-						.process_permits
-						.get(parent)
-						.map(|permit| permit.clone())
-				}) else {
-					return;
-				};
-				let permit = permit
-					.lock_owned()
-					.map(|guard| ProcessPermit(Either::Right(guard)))
-					.await;
-
-				// Attempt to start the process.
-				let arg = tg::process::start::Arg {
-					remote: process.remote().cloned(),
-				};
-				let result = server.start_process(process.id(), arg.clone()).await;
-				if let Err(error) = result {
-					tracing::trace!(?error, "failed to start the process");
-					return;
-				}
-
-				// Spawn the process task.
-				server.spawn_process_task(&process, permit);
-			}
-		});
-	}
-
 	async fn try_get_cached_process_remote(
 		&self,
 		arg: &tg::process::spawn::Arg,
@@ -927,6 +878,20 @@ impl Server {
 		Ok(())
 	}
 
+	fn spawn_process_created_message_task(&self) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("processes.created".to_owned(), Bytes::new())
+					.await
+					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
+	}
+
 	fn spawn_publish_process_child_message_task(&self, parent: &tg::process::Id) {
 		tokio::spawn({
 			let server = self.clone();
@@ -940,6 +905,46 @@ impl Server {
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
 					.ok();
+			}
+		});
+	}
+
+	fn spawn_process_parent_permit_task(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		id: &tg::process::Id,
+	) {
+		tokio::spawn({
+			let server = self.clone();
+			let parent = arg.parent.clone();
+			let process = tg::Process::new(id.clone(), None, None, None, None);
+			async move {
+				// Acquire the parent's permit.
+				let Some(permit) = parent.as_ref().and_then(|parent| {
+					server
+						.process_permits
+						.get(parent)
+						.map(|permit| permit.clone())
+				}) else {
+					return;
+				};
+				let permit = permit
+					.lock_owned()
+					.map(|guard| ProcessPermit(Either::Right(guard)))
+					.await;
+
+				// Attempt to start the process.
+				let arg = tg::process::start::Arg {
+					remote: process.remote().cloned(),
+				};
+				let result = server.start_process(process.id(), arg.clone()).await;
+				if let Err(error) = result {
+					tracing::trace!(?error, "failed to start the process");
+					return;
+				}
+
+				// Spawn the process task.
+				server.spawn_process_task(&process, permit);
 			}
 		});
 	}

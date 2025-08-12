@@ -3,6 +3,7 @@ use crate::Server;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
 };
+use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::{
 	collections::VecDeque,
@@ -290,9 +291,9 @@ impl Server {
 					else {
 						return Ok(false);
 					};
-					Ok(output.complete
-						&& (!arg.commands || output.commands_complete)
-						&& (!arg.outputs || output.outputs_complete))
+					Ok(output.children
+						&& (!arg.commands || output.commands)
+						&& (!arg.outputs || output.outputs))
 				} else {
 					let Some(process) = self
 						.try_get_process_local(process)
@@ -691,11 +692,14 @@ impl Server {
 			};
 			let bytes = output.bytes;
 			let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
+			let children = data.children().collect::<Vec<_>>();
 
 			// Send the object.
+			let size = bytes.len().to_u64().unwrap();
 			let item = tg::export::Item::Object(tg::export::ObjectItem {
 				id: object.clone(),
-				bytes: bytes.clone(),
+				data,
+				size,
 			});
 			let event = tg::export::Event::Item(item);
 			state
@@ -705,7 +709,6 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 			// Enqueue the children.
-			let children = data.children().collect::<Vec<_>>();
 			state
 				.queue_counter
 				.fetch_add(children.len(), std::sync::atomic::Ordering::SeqCst);
@@ -761,11 +764,14 @@ impl Server {
 			.ok_or_else(|| tg::error!("failed to find the object"))?
 			.bytes;
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
+		let children = data.children().collect::<Vec<_>>();
 
 		// Send the object.
+		let size = bytes.len().to_u64().unwrap();
 		let item = tg::export::Item::Object(tg::export::ObjectItem {
 			id: object.clone(),
-			bytes: bytes.clone(),
+			data,
+			size,
 		});
 		let event = tg::export::Event::Item(item);
 		state
@@ -774,7 +780,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		// Enqueue the children.
-		for child in data.children() {
+		for child in children {
 			let item = QueueItem::Object(ObjectQueueItem {
 				parent: Some(Either::Right(object.clone())),
 				object: child,
@@ -794,12 +800,8 @@ impl Server {
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
 		let complete = tg::export::ProcessComplete {
-			commands_count: metadata.commands_count,
-			commands_weight: metadata.commands_weight,
-			count: metadata.count,
 			id: id.clone(),
-			outputs_count: metadata.outputs_count,
-			outputs_weight: metadata.outputs_weight,
+			metadata,
 		};
 		Ok(complete)
 	}
@@ -811,12 +813,8 @@ impl Server {
 		let metadata = Self::try_get_process_metadata_local_sync(&state.index, id)?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
 		let complete = tg::export::ProcessComplete {
-			commands_count: metadata.commands_count,
-			commands_weight: metadata.commands_weight,
-			count: metadata.count,
 			id: id.clone(),
-			outputs_count: metadata.outputs_count,
-			outputs_weight: metadata.outputs_weight,
+			metadata,
 		};
 		Ok(complete)
 	}
@@ -828,8 +826,7 @@ impl Server {
 		let metadata = self.try_get_object_metadata(id).await?;
 		let output = tg::export::ObjectComplete {
 			id: id.clone(),
-			count: metadata.as_ref().and_then(|metadata| metadata.count),
-			weight: metadata.as_ref().and_then(|metadata| metadata.weight),
+			metadata: metadata.unwrap_or_default(),
 		};
 		Ok(output)
 	}
@@ -840,9 +837,8 @@ impl Server {
 	) -> tg::Result<tg::export::ObjectComplete> {
 		let metadata = Self::try_get_object_metadata_local_sync(&state.index, id)?;
 		let complete = tg::export::ObjectComplete {
-			count: metadata.as_ref().and_then(|metadata| metadata.count),
 			id: id.clone(),
-			weight: metadata.as_ref().and_then(|metadata| metadata.weight),
+			metadata: metadata.unwrap_or_default(),
 		};
 		Ok(complete)
 	}
