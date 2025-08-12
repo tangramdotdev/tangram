@@ -14,11 +14,8 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-async-compression = { workspace = true }
-brotli = { workspace = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
-erased-serde = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -30,12 +27,8 @@ pin-project = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
-sync_wrapper = { workspace = true }
-tangram_futures = { workspace = true }
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true }

@@ -14,7 +14,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-futures = { workspace = true }
 serde_json = { workspace = true }
 tangram_client = { workspace = true }
 tangram_temp = { workspace = true }

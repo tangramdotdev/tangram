@@ -9,12 +9,12 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 bytes = { workspace = true }
 clap = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
-scopeguard = { workspace = true }
-[lints]
-workspace = true

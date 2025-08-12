@@ -30,14 +30,7 @@ data-encoding = { workspace = true }
 glob = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
-tar = { workspace = true }
 v8 = { workspace = true, optional = true }
-zstd = { workspace = true }
-
-[dev-dependencies]
-pretty_assertions = { workspace = true }
-insta = { workspace = true }
 
 [dependencies]
 astral-tokio-tar = { workspace = true }
@@ -51,12 +44,12 @@ biome_js_formatter = { workspace = true, optional = true }
 biome_js_parser = { workspace = true, optional = true }
 biome_js_syntax = { workspace = true, optional = true }
 byte-unit = { workspace = true }
+byteorder = { workspace = true }
 bytes = { workspace = true }
 crossterm = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
-derive_builder = { workspace = true }
 derive_more = { workspace = true }
 fastcdc = { workspace = true }
 filetime = { workspace = true }
@@ -64,7 +57,6 @@ fnv = { workspace = true }
 foundationdb = { workspace = true, optional = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
-globset = { workspace = true }
 heed = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
@@ -85,9 +77,7 @@ oauth2 = { workspace = true }
 octocrab = { workspace = true }
 petgraph = { workspace = true }
 radix_trie = { workspace = true }
-rayon = { workspace = true }
 reflink-copy = { workspace = true }
-regex = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 scopeguard = { workspace = true }
@@ -108,12 +98,10 @@ tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_itertools = { workspace = true }
 tangram_messenger = { workspace = true }
-tangram_temp = { workspace = true }
+tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }
-tangram_version = { workspace = true }
 tangram_vfs = { workspace = true }
-tar = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
@@ -129,4 +117,3 @@ urlencoding = { workspace = true }
 uuid = { workspace = true }
 v8 = { workspace = true }
 xattr = { workspace = true }
-zstd = { workspace = true }

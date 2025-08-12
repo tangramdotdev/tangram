@@ -18,11 +18,7 @@ tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 [lints]
 workspace = true
 
-[dev-dependencies]
-proptest = { workspace = true }
-
 [dependencies]
-async-compression = { workspace = true }
 blake3 = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
@@ -68,4 +64,3 @@ urlencoding = { workspace = true }
 uuid = { workspace = true }
 webpki-roots = { workspace = true, optional = true }
 winnow = { workspace = true }
-zstd = { workspace = true }

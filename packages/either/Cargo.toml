@@ -15,3 +15,4 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true }
+tangram_serialize = { workspace = true }

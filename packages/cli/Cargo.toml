@@ -32,7 +32,6 @@ tangram_cli_test = { workspace = true }
 
 [dependencies]
 anstream = { workspace = true }
-async-broadcast = { workspace = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
@@ -45,17 +44,14 @@ foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
-itertools = { workspace = true }
 libc = { workspace = true }
 miette = { workspace = true }
 num = { workspace = true }
 owo-colors = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
-serde-untagged = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
-syntect = { workspace = true }
 tangram_client = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }

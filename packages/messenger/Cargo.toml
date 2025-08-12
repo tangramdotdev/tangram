@@ -18,15 +18,10 @@ nats = ["dep:async-nats"]
 
 [dependencies]
 async-broadcast = { workspace = true }
-async-channel = { workspace = true }
-crossbeam = { workspace = true }
 async-nats = { workspace = true, optional = true }
 bytes = { workspace = true }
-dashmap = { workspace = true }
 derive_more = { workspace = true }
-fnv = { workspace = true }
 futures = { workspace = true }
 num = { workspace = true }
-uuid = { workspace = true }
 tangram_either = { workspace = true }
 tokio = { workspace = true }

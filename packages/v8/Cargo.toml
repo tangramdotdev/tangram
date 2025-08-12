@@ -24,5 +24,4 @@ num = { workspace = true }
 serde = { workspace = true }
 tangram_client = { workspace = true }
 tangram_either = { workspace = true }
-time = { workspace = true }
 v8 = { workspace = true, optional = true }
