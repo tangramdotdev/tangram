@@ -6,7 +6,7 @@ use tangram_client::{self as tg, prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1, default_value = ".")]
+	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
 }
 

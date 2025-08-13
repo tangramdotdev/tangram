@@ -7,14 +7,14 @@ use tangram_either::Either;
 #[group(skip)]
 pub struct Args {
 	/// The checksum algorithm to use.
-	#[arg(long, default_value = "sha256")]
+	#[arg(default_value = "sha256", long)]
 	pub algorithm: tg::checksum::Algorithm,
 
 	#[command(flatten)]
 	pub build: crate::build::Options,
 
 	/// The artifact, blob, or URL to checksum.
-	#[arg(index = 1, default_value = ".")]
+	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 }
 

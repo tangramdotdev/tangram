@@ -19,7 +19,7 @@ pub struct Args {
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
 
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub remote: Option<String>,
 }
 

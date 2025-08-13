@@ -7,7 +7,7 @@ use tangram_either::Either;
 #[group(skip)]
 pub struct Args {
 	/// The object or process.
-	#[arg(index = 1, default_value = ".")]
+	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 }
 

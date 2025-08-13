@@ -35,18 +35,18 @@ pub struct Options {
 	pub checkout_force: bool,
 
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub detach: bool,
 
-	/// Whether to recurse into blobs when printing.
+	/// Whether to print blobs.
 	#[arg(long)]
 	pub print_blobs: bool,
 
 	/// The depth with which to print the output.
-	#[arg(long, default_value = "0")]
+	#[arg(default_value = "0", long)]
 	pub print_depth: crate::object::get::Depth,
 
-	/// Whether to format the output as pretty.
+	/// Whether to pretty print the output.
 	#[arg(long)]
 	pub print_pretty: Option<bool>,
 
@@ -54,7 +54,7 @@ pub struct Options {
 	pub spawn: crate::process::spawn::Options,
 
 	/// The view to display if the process's stdio is not attached.
-	#[arg(default_value = "inline", short, long)]
+	#[arg(default_value = "inline", long, short)]
 	pub view: View,
 }
 
@@ -89,8 +89,10 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Spawn the process.
+		let sandbox =
+			crate::process::spawn::Sandbox::new(options.spawn.sandbox.get().or(Some(true)));
 		let spawn = crate::process::spawn::Options {
-			sandbox: true,
+			sandbox,
 			..options.spawn
 		};
 		let (referent, process) = self

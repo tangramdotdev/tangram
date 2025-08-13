@@ -6,7 +6,7 @@ use tangram_client::{self as tg, prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long)]
+	#[arg(long, short)]
 	force: bool,
 }
 

@@ -88,23 +88,23 @@ struct Args {
 	command: Command,
 
 	/// The path to the config file.
-	#[arg(short, long)]
+	#[arg(long, short)]
 	config: Option<PathBuf>,
 
 	/// Override the `directory` key in the config.
-	#[arg(short, long)]
+	#[arg(long, short)]
 	directory: Option<PathBuf>,
 
 	/// The mode.
-	#[arg(short, long)]
+	#[arg(long, short)]
 	mode: Option<Mode>,
 
 	/// Whether to show progress and other helpful information.
-	#[arg(short, long)]
+	#[arg(long, short)]
 	quiet: bool,
 
 	/// Override the `url` key in the config.
-	#[arg(short, long, env = "TANGRAM_URL")]
+	#[arg(env = "TANGRAM_URL", long, short)]
 	url: Option<Url>,
 }
 

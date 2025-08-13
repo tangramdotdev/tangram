@@ -29,13 +29,13 @@ pub struct Fuse {
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct Nfs {
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub host: String,
 
 	#[arg(index = 1)]
 	pub path: PathBuf,
 
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub port: u16,
 }
 

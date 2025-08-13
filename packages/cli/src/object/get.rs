@@ -19,10 +19,10 @@ pub struct Args {
 	pub print_blobs: bool,
 
 	/// The depth to print.
-	#[arg(short = 'd', long, default_value = "1")]
+	#[arg(default_value = "1", long, short = 'd')]
 	pub print_depth: Depth,
 
-	/// Whether to print pretty.
+	/// Whether to pretty print the output.
 	#[arg(long)]
 	pub print_pretty: Option<bool>,
 }

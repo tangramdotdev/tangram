@@ -20,19 +20,34 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
 	/// Set arguments as strings.
-	#[arg(short = 'a', long = "arg-string", num_args = 1, action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "arg-string",
+		num_args = 1,
+		short = 'a',
+	)]
 	pub arg_strings: Vec<String>,
 
 	/// Set arguments as values.
-	#[arg(short = 'A', long = "arg-value", num_args = 1, action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "arg-value",
+		num_args = 1,
+		short = 'A',
+	)]
 	pub arg_values: Vec<String>,
 
 	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created. Omit this flag to use a cached process if possible, and create a new process if not.
-	#[arg(long, action = clap::ArgAction::Set)]
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		require_equals = true,
+	)]
 	pub cached: Option<bool>,
 
 	/// Whether to check out the output. The output must be an artifact. A path to check out to may be provided.
@@ -40,15 +55,25 @@ pub struct Options {
 	pub checksum: Option<tg::Checksum>,
 
 	/// Set the working directory for the process.
-	#[arg(short = 'C', long)]
+	#[arg(long, short = 'C')]
 	pub cwd: Option<PathBuf>,
 
 	/// Set environment variables as strings.
-	#[arg(short = 'e', long = "env-string", num_args = 1, action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "env-string",
+		num_args = 1,
+		short = 'e',
+	)]
 	pub env_strings: Vec<String>,
 
 	/// Set environment variables as values.
-	#[arg(short = 'E', long = "env-value", num_args = 1, action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "env-value",
+		num_args = 1,
+		short = 'E',
+	)]
 	pub env_values: Vec<String>,
 
 	/// Set the host.
@@ -60,12 +85,22 @@ pub struct Options {
 	pub locked: bool,
 
 	/// Configure mounts.
-	#[arg(short, long = "mount", num_args = 1, action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "mount",
+		num_args = 1,
+		short,
+	)]
 	pub mounts: Vec<Either<tg::process::Mount, tg::command::Mount>>,
 
 	/// Enable network access.
-	#[arg(long)]
-	pub network: bool,
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		require_equals = true,
+	)]
+	pub network: Option<bool>,
 
 	/// The remote to use.
 	#[allow(clippy::option_option)]
@@ -76,17 +111,78 @@ pub struct Options {
 	#[arg(long)]
 	pub retry: bool,
 
-	/// Whether the process should be sandboxed.
-	#[arg(long)]
-	pub sandbox: bool,
+	#[command(flatten)]
+	pub sandbox: Sandbox,
 
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
 
-	/// Allocate a terminal when running the process.
-	#[arg(long, default_value = "true", action = clap::ArgAction::Set)]
-	pub tty: bool,
+	#[command(flatten)]
+	pub tty: Tty,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Sandbox {
+	/// Whether to sandbox the process.
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_sandbox",
+		require_equals = true,
+	)]
+	sandbox: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "sandbox",
+		require_equals = true,
+	)]
+	no_sandbox: Option<bool>,
+}
+
+impl Sandbox {
+	pub fn new(sandbox: Option<bool>) -> Self {
+		Self {
+			sandbox,
+			no_sandbox: None,
+		}
+	}
+
+	pub fn get(&self) -> Option<bool> {
+		self.sandbox.or(self.no_sandbox.map(|v| !v))
+	}
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Tty {
+	/// Whether to allocate a terminal.
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_tty",
+		require_equals = true,
+	)]
+	tty: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "tty",
+		require_equals = true,
+	)]
+	no_tty: Option<bool>,
+}
+
+impl Tty {
+	pub fn get(&self) -> bool {
+		self.tty.or(self.no_tty.map(|v| !v)).unwrap_or(true)
+	}
 }
 
 impl Cli {
@@ -118,7 +214,7 @@ impl Cli {
 			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
 
 		// Determine if the process is sandboxed.
-		let sandbox = options.sandbox || remote.is_some();
+		let sandbox = options.sandbox.get().unwrap_or_default() || remote.is_some();
 
 		// If the reference is a path to a directory and the path does not contain a root module, then init.
 		if let Ok(path) = reference.item().try_unwrap_path_ref() {
@@ -295,6 +391,7 @@ impl Cli {
 			command = command.cwd(cwd);
 		}
 		if let Some(cwd) = options.cwd {
+			dbg!(&cwd);
 			command = command.cwd(cwd);
 		}
 
@@ -358,7 +455,7 @@ impl Cli {
 		command.store(&handle).await?;
 
 		// Determine if the network is enabled.
-		let network = !sandbox;
+		let network = options.network.unwrap_or(!sandbox);
 
 		// Determine the retry.
 		let retry = options.retry;
@@ -430,28 +527,5 @@ impl Cli {
 		let referent = referent.map(|item| item.id());
 
 		Ok((referent, process))
-	}
-}
-
-impl Default for Options {
-	fn default() -> Self {
-		Self {
-			arg_strings: vec![],
-			arg_values: vec![],
-			cached: None,
-			checksum: None,
-			cwd: None,
-			env_strings: vec![],
-			env_values: vec![],
-			host: None,
-			locked: false,
-			mounts: vec![],
-			network: false,
-			remote: None,
-			retry: false,
-			sandbox: false,
-			tag: None,
-			tty: true,
-		}
 	}
 }

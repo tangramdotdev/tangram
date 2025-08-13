@@ -17,11 +17,16 @@ pub struct Command {
 	pub chroot: Option<PathBuf>,
 
 	/// Change the working directory prior to spawn.
-	#[arg(short = 'C', long)]
+	#[arg(long, short = 'C')]
 	pub cwd: Option<PathBuf>,
 
 	/// Define environment variables.
-	#[arg(short = 'e', num_args = 1, value_parser = parse_env, action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		num_args = 1,
+		short = 'e',
+		value_parser = parse_env,
+	)]
 	pub env: Vec<(String, String)>,
 
 	/// The executable path.
@@ -33,7 +38,13 @@ pub struct Command {
 	pub hostname: Option<String>,
 
 	/// File systems to be mounted.
-	#[arg(short, long = "mount", num_args = 1, value_parser = parse_mount, action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "mount",
+		num_args = 1,
+		short,
+		value_parser = parse_mount,
+	)]
 	pub mounts: Vec<Mount>,
 
 	/// Whether to enable network access.

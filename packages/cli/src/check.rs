@@ -9,7 +9,7 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	#[arg(index = 1, default_value = ".")]
+	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 
 	#[allow(clippy::option_option)]

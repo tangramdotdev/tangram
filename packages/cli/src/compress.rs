@@ -11,7 +11,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub build: crate::build::Options,
 
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub format: tg::CompressionFormat,
 }
 

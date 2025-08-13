@@ -6,10 +6,10 @@ use tangram_either::Either;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub force: bool,
 
-	#[arg(index = 2, default_value = ".")]
+	#[arg(default_value = ".", index = 2)]
 	pub reference: tg::Reference,
 
 	#[allow(clippy::option_option)]

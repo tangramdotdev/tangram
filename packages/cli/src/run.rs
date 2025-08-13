@@ -31,7 +31,7 @@ pub struct Args {
 #[group(skip)]
 pub struct Options {
 	/// If this flag is set, then build the specified target and run its output.
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub build: bool,
 
 	/// Whether to check out the output.
@@ -44,22 +44,22 @@ pub struct Options {
 	pub checkout_force: bool,
 
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub detach: bool,
 
 	/// Set the path to use for the executable.
-	#[arg(short = 'x', long)]
+	#[arg(long, short = 'x')]
 	pub executable_path: Option<PathBuf>,
 
-	/// Whether to recurse into blobs when printing.
+	/// Whether to print blobs.
 	#[arg(long)]
 	pub print_blobs: bool,
 
 	/// The depth with which to print the output.
-	#[arg(long, default_value = "0")]
+	#[arg(default_value = "0", long)]
 	pub print_depth: crate::object::get::Depth,
 
-	/// Whether to format the output as pretty.
+	/// Whether to pretty print the output.
 	#[arg(long)]
 	pub print_pretty: Option<bool>,
 

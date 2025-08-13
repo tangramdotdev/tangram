@@ -24,7 +24,7 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// If the process is detached or the the tty flag is false, then do not create a pty.
-		if options.detach || !options.spawn.tty {
+		if options.detach || !options.spawn.tty.get() {
 			let stdin = create(&handle, remote.clone(), None).await?;
 			let stdout = create(&handle, remote.clone(), None).await?;
 			let stderr = create(&handle, remote.clone(), None).await?;

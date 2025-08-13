@@ -10,7 +10,7 @@ pub struct Args {
 	#[arg(long)]
 	pub commands: bool,
 
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub force: bool,
 
 	#[arg(long)]
@@ -22,7 +22,7 @@ pub struct Args {
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
 
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub remote: Option<String>,
 }
 

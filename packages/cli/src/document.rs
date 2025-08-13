@@ -12,7 +12,7 @@ pub struct Args {
 	#[arg(long)]
 	pub pretty: Option<bool>,
 
-	#[arg(index = 1, default_value = ".")]
+	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 
 	#[allow(clippy::option_option)]

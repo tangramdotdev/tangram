@@ -12,7 +12,7 @@ pub struct Args {
 	pub depth: Option<u32>,
 
 	/// Choose the kind of view, either inline or fullscreen.
-	#[arg(long, default_value = "fullscreen")]
+	#[arg(default_value = "fullscreen", long)]
 	pub kind: Kind,
 
 	/// If this flag is set, the lock will not be updated.

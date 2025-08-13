@@ -12,7 +12,7 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub id: Option<Either<tg::process::Id, tg::object::Id>>,
 
-	#[arg(short, long)]
+	#[arg(long, short)]
 	pub kind: Option<tg::object::Kind>,
 }
 

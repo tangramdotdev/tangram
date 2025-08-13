@@ -6,10 +6,15 @@ use tangram_client::{self as tg, prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1, default_value = ".")]
+	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
 
-	#[arg(short, long, num_args = 1.., action = clap::ArgAction::Append)]
+	#[arg(
+		action = clap::ArgAction::Append,
+		long,
+		num_args = 1..,
+		short,
+	)]
 	pub patterns: Option<Vec<tg::tag::Pattern>>,
 }
 

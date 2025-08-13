@@ -481,6 +481,9 @@ where
 		if !object.args.is_empty() {
 			self.map_entry("args", |s| s.array(&object.args))?;
 		}
+		if let Some(cwd) = &object.cwd {
+			self.map_entry("cwd", |s| s.string(cwd.to_string_lossy().as_ref()))?;
+		}
 		if !object.env.is_empty() {
 			self.map_entry("env", |s| s.map(&object.env))?;
 		}
