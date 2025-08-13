@@ -250,8 +250,7 @@ async fn remote_put() {
 		.arg("put")
 		.arg(tag)
 		.arg(temp.path())
-		.arg("--remote")
-		.arg("default")
+		.arg("--remote=default")
 		.output()
 		.await
 		.unwrap();

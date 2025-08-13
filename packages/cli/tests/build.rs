@@ -1190,9 +1190,8 @@ async fn test_remote(
 		.tg()
 		.current_dir(temp.path())
 		.arg("build")
-		.arg("--remote")
-		.arg("default")
 		.arg("--detach")
+		.arg("--remote=default")
 		.arg(reference)
 		.output()
 		.await
