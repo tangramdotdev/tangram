@@ -1,5 +1,5 @@
 use anstream::eprintln;
-use clap::{CommandFactory as _, Parser as _};
+use clap::{CommandFactory as _, FromArgMatches as _};
 use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
@@ -249,8 +249,8 @@ enum Command {
 
 fn main() -> std::process::ExitCode {
 	// Parse the args.
-	let args = Args::parse();
 	let matches = Args::command().get_matches();
+	let args = Args::from_arg_matches(&matches).unwrap();
 
 	// Handle the sandbox command.
 	if let Command::Sandbox(args) = args.command {
@@ -290,14 +290,6 @@ fn main() -> std::process::ExitCode {
 		_ => args.mode.unwrap_or_default(),
 	};
 
-	// Initialize FoundationDB.
-	#[cfg(feature = "foundationdb")]
-	let _fdb = if matches!(mode, Mode::Server) {
-		Some(unsafe { foundationdb::boot() })
-	} else {
-		None
-	};
-
 	// Set the file descriptor limit.
 	if matches!(mode, Mode::Server) {
 		Cli::set_file_descriptor_limit()
@@ -311,6 +303,14 @@ fn main() -> std::process::ExitCode {
 			})
 			.ok();
 	}
+
+	// Initialize FoundationDB.
+	#[cfg(feature = "foundationdb")]
+	let _fdb = if matches!(mode, Mode::Server) {
+		Some(unsafe { foundationdb::boot() })
+	} else {
+		None
+	};
 
 	// Initialize miette.
 	Cli::initialize_miette();
