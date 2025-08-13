@@ -8,11 +8,11 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 
-	#[arg(long, short, default_value = "INT")]
+	#[arg(default_value = "INT", long, short)]
 	pub signal: tg::process::Signal,
 
 	#[allow(clippy::option_option)]
-	#[arg(short, long)]
+	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
 }
 

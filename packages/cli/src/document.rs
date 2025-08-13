@@ -16,7 +16,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 
 	#[allow(clippy::option_option)]
-	#[arg(short, long)]
+	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
 
 	/// Generate the documentation for the runtime.

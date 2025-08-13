@@ -9,7 +9,7 @@ use tokio::io::AsyncWriteExt as _;
 #[group(skip)]
 pub struct Args {
 	#[allow(clippy::option_option)]
-	#[arg(short, long)]
+	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
 }
 

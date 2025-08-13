@@ -27,7 +27,7 @@ pub struct Args {
 pub struct Options {
 	/// Whether to check out the output.
 	#[allow(clippy::option_option)]
-	#[arg(short, long)]
+	#[arg(long, require_equals = true, short)]
 	pub checkout: Option<Option<PathBuf>>,
 
 	/// Whether to overwrite an existing file system object at the path.
