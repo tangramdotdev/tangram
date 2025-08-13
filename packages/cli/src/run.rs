@@ -4,7 +4,7 @@ use anstream::eprintln;
 use crossterm::style::Stylize as _;
 use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
 use std::{path::PathBuf, pin::pin};
-use tangram_client as tg;
+use tangram_client::{self as tg, prelude::*};
 use tangram_futures::task::{Stop, Task};
 use tokio::io::{AsyncWrite, AsyncWriteExt as _};
 
@@ -33,6 +33,15 @@ pub struct Options {
 	/// If this flag is set, then build the specified target and run its output.
 	#[arg(short, long)]
 	pub build: bool,
+
+	/// Whether to check out the output.
+	#[allow(clippy::option_option)]
+	#[arg(short, long)]
+	pub checkout: Option<Option<PathBuf>>,
+
+	/// Whether to overwrite an existing file system object at the path.
+	#[arg(long, requires = "checkout")]
+	pub checkout_force: bool,
 
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
 	#[arg(short, long)]
@@ -85,6 +94,7 @@ impl Cli {
 			};
 			let options = crate::build::Options {
 				checkout: None,
+				checkout_force: false,
 				detach: false,
 				print_depth: crate::object::get::Depth::Finite(0),
 				print_pretty: None,
@@ -212,22 +222,61 @@ impl Cli {
 			self.print_error(error).await;
 		}
 
-		// Print the output.
-		if let Some(value) = wait.output {
-			if !value.is_null() {
-				Self::print_output(
-					&handle,
-					&value,
-					options.print_depth,
-					options.print_pretty,
-					options.print_blobs,
-				)
-				.await?;
-			}
-		}
-
 		// Set the exit.
 		self.exit.replace(wait.exit);
+
+		// Get the output.
+		let output = wait.output.unwrap_or(tg::Value::Null);
+
+		// Check out the output if requested.
+		if let Some(path) = options.checkout {
+			// Get the artifact.
+			let artifact: tg::Artifact = output
+				.clone()
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
+
+			// Get the path.
+			let path = if let Some(path) = path {
+				let path = std::path::absolute(path)
+					.map_err(|source| tg::error!(!source, "failed to get the path"))?;
+				Some(path)
+			} else {
+				None
+			};
+
+			// Check out the artifact.
+			let artifact = artifact.id();
+			let arg = tg::checkout::Arg {
+				artifact,
+				dependencies: path.is_some(),
+				force: options.checkout_force,
+				lock: false,
+				path,
+			};
+			let stream = handle.checkout(arg).await?;
+			let tg::checkout::Output { path, .. } = self
+				.render_progress_stream(stream)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
+
+			// Print the path.
+			println!("{}", path.display());
+
+			return Ok(());
+		}
+
+		// Print the output.
+		if !output.is_null() {
+			Self::print_output(
+				&handle,
+				&output,
+				options.print_depth,
+				options.print_pretty,
+				options.print_blobs,
+			)
+			.await?;
+		}
 
 		Ok(())
 	}

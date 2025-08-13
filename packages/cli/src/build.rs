@@ -30,6 +30,10 @@ pub struct Options {
 	#[arg(short, long)]
 	pub checkout: Option<Option<PathBuf>>,
 
+	/// Whether to overwrite an existing file system object at the path.
+	#[arg(long, requires = "checkout")]
+	pub checkout_force: bool,
+
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
 	#[arg(short, long)]
 	pub detach: bool,
@@ -216,9 +220,8 @@ impl Cli {
 		// Set the exit.
 		self.exit.replace(wait.exit);
 
-		let Some(output) = wait.output else {
-			return Ok(None);
-		};
+		// Get the output.
+		let output = wait.output.unwrap_or(tg::Value::Null);
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {
@@ -242,7 +245,7 @@ impl Cli {
 			let arg = tg::checkout::Arg {
 				artifact,
 				dependencies: path.is_some(),
-				force: false,
+				force: options.checkout_force,
 				lock: false,
 				path,
 			};

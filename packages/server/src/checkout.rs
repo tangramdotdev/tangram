@@ -234,6 +234,11 @@ impl Server {
 			));
 		}
 
+		// If an artifact exists, and this is a forced checkout, then return an error.
+		if exists && arg.force {
+			crate::util::fs::remove(&path).await.ok();
+		}
+
 		let task = tokio::task::spawn_blocking({
 			let server = self.clone();
 			let path = path.clone();
