@@ -517,7 +517,6 @@ fn strip_subpath(base: &Path, subpath: &Path) -> tg::Result<PathBuf> {
 
 impl Lock {
 	pub fn get_node_for_path(&self, node_path: &Path) -> tg::Result<usize> {
-		// Linear search, which should be faster than looking in a btreemap. Replace with a btreemap if this is too slow.
 		self.paths
 			.iter()
 			.position(|path| path.as_deref() == Some(node_path))
@@ -1313,8 +1312,8 @@ impl petgraph::visit::NodeIndexable for Petgraph<'_> {
 impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 
-	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
-		match &self.nodes[a] {
+	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
+		match &self.nodes[id] {
 			tg::graph::data::Node::Directory(directory) => directory
 				.entries
 				.values()

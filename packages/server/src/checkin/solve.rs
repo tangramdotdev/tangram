@@ -1,4 +1,4 @@
-use super::Graph;
+use super::state::{Blob, Directory, File, Graph, Node, Object, Symlink, Variant};
 use crate::{Server, lock::Lock};
 use std::{
 	collections::BTreeMap,
@@ -361,13 +361,13 @@ impl Server {
 			) {
 			let data = object.data(self).await?;
 			let bytes = data.serialize()?;
-			super::Object {
+			Object {
 				id: id.clone(),
 				bytes: Some(bytes),
 				data: Some(data),
 			}
 		} else {
-			super::Object {
+			Object {
 				id: id.clone(),
 				bytes: None,
 				data: None,
@@ -376,15 +376,15 @@ impl Server {
 
 		// Create the variant.
 		let variant = match &object {
-			tg::Object::Directory(_) if unify => super::Variant::Directory(super::Directory {
+			tg::Object::Directory(_) if unify => Variant::Directory(Directory {
 				entries: Vec::new(),
 			}),
 			tg::Object::File(file) if unify => {
 				let executable = file.executable(self).await?;
 				let blob = file.contents(self).await?.id();
-				super::Variant::File(super::File {
+				Variant::File(File {
 					executable,
-					blob: Some(super::Blob::Id(blob)),
+					blob: Some(Blob::Id(blob)),
 					dependencies: Vec::new(),
 				})
 			},
@@ -394,9 +394,9 @@ impl Server {
 					.await?
 					.map(|artifact| Either::Left(artifact.id()));
 				let path = symlink.path(self).await?;
-				super::Variant::Symlink(super::Symlink { artifact, path })
+				Variant::Symlink(Symlink { artifact, path })
 			},
-			_ => super::Variant::Object,
+			_ => Variant::Object,
 		};
 
 		// Check if we have this in the artifacts directory.
@@ -410,15 +410,15 @@ impl Server {
 		let id_ = (state.arg.locked && path.is_some()).then(|| id.clone());
 
 		// Create the node.
-		let node = super::Node {
+		let node = Node {
+			artifacts_entry: id_,
 			lock_index: lock_node,
-			id: id_,
 			metadata: None,
 			object: Some(object_),
-			tag: tag.clone(),
-			path: None,
 			parent: None,
+			path: None,
 			root,
+			tag: tag.clone(),
 			variant,
 		};
 
@@ -652,7 +652,7 @@ impl Server {
 	}
 }
 
-impl super::Graph {
+impl Graph {
 	fn fmt_node(&self, index: usize) -> String {
 		let node = &self.nodes[index];
 		if let Some(path) = node.path.as_deref() {
@@ -666,7 +666,7 @@ impl super::Graph {
 
 	fn unresolved(&self, node: usize) -> im::Vector<Unresolved> {
 		match &self.nodes[node].variant {
-			super::Variant::Directory(directory) => directory
+			Variant::Directory(directory) => directory
 				.entries
 				.iter()
 				.map(|(name, dst)| Unresolved {
@@ -675,7 +675,7 @@ impl super::Graph {
 					reference: tg::Reference::with_path(name),
 				})
 				.collect(),
-			super::Variant::File(file) => file
+			Variant::File(file) => file
 				.dependencies
 				.iter()
 				.map(|(reference, referent)| {
@@ -689,7 +689,7 @@ impl super::Graph {
 					}
 				})
 				.collect(),
-			super::Variant::Symlink(_) | super::Variant::Object => im::Vector::new(),
+			Variant::Symlink(_) | Variant::Object => im::Vector::new(),
 		}
 	}
 }

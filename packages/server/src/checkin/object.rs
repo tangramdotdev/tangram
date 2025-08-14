@@ -1,4 +1,4 @@
-use super::{Blob, GraphObject, Object, State, Variant};
+use super::state::{Blob, GraphObject, Object, State, Variant};
 use crate::Server;
 use futures::{StreamExt, TryStreamExt as _, stream};
 use std::collections::BTreeMap;
@@ -349,8 +349,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 		let id = tg::object::Id::new(kind, &bytes);
 
-		// Validate if this object came from the artifacts directory.
-		if let Some(expected) = &state.graph.nodes[index].id {
+		// If this node is an artifacts path entry, then ensure its ID matches.
+		if let Some(expected) = &state.graph.nodes[index].artifacts_entry {
 			if expected != &id {
 				return Err(tg::error!(%expected, %found = id, "artifacts directory is corrupted"));
 			}

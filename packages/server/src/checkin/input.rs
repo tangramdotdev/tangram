@@ -1,4 +1,4 @@
-use super::{Directory, File, Node, State, Symlink, Variant};
+use super::state::{Directory, File, Node, State, Symlink, Variant};
 use crate::Server;
 use std::{
 	os::unix::fs::PermissionsExt as _,
@@ -21,8 +21,22 @@ impl Server {
 			return Ok(Some(*index));
 		}
 
-		// Get the object ID if this is under the artifacts directory.
-		let id = path
+		// Get the metadata.
+		let metadata = std::fs::symlink_metadata(&path).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+		)?;
+
+		// Skip ignored files.
+		if state.ignorer.as_mut().is_some_and(|ignorer| {
+			ignorer
+				.matches(&path, Some(metadata.is_dir()))
+				.unwrap_or_default()
+		}) {
+			return Ok(None);
+		}
+
+		// Get the ID if this path is an entry in the artifacts directory.
+		let artifacts_entry = path
 			.strip_prefix(&state.artifacts_path)
 			.ok()
 			.map(|path| {
@@ -37,20 +51,6 @@ impl Server {
 				name.parse()
 			})
 			.transpose()?;
-
-		// Get the metadata.
-		let metadata = std::fs::symlink_metadata(&path).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
-		)?;
-
-		// Skip ignored files.
-		if state.ignorer.as_mut().is_some_and(|ignorer| {
-			ignorer
-				.matches(&path, Some(metadata.is_dir()))
-				.unwrap_or_default()
-		}) {
-			return Ok(None);
-		}
 
 		// Create the variant.
 		let variant = if metadata.is_dir() {
@@ -75,8 +75,8 @@ impl Server {
 		};
 
 		// Send the path to the fixup task.
-		if let Some(fixup_sender) = &state.fixup_sender {
-			fixup_sender.send((path.clone(), metadata.clone())).ok();
+		if let Some(sender) = &state.destructive_fixup_sender {
+			sender.send((path.clone(), metadata.clone())).ok();
 		}
 
 		// Get the node index.
@@ -93,15 +93,15 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
-			id,
+			artifacts_entry,
 			lock_index,
-			variant,
 			metadata: Some(metadata),
 			object: None,
-			path: Some(Arc::new(path)),
 			parent: None,
+			path: Some(Arc::new(path)),
 			root: None,
 			tag: None,
+			variant,
 		};
 		state.graph.nodes.push_back(node);
 
@@ -164,7 +164,7 @@ impl Server {
 
 		// Visit path dependencies.
 		let dependencies = self
-			.get_file_dependencies(state, &path)?
+			.checkin_visit_file_get_dependencies(state, &path)?
 			.into_iter()
 			.map(|(import, mut referent)| {
 				if let Some(reference) = import.reference.options().local.as_ref().or(import
@@ -214,7 +214,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn get_file_dependencies(
+	fn checkin_visit_file_get_dependencies(
 		&self,
 		state: &mut State,
 		path: &Path,
@@ -275,29 +275,29 @@ impl Server {
 		let dependencies = analysis
 			.imports
 			.into_iter()
-			.map(|import| {
-				// Pull tags.
-				if let Ok(pattern) = import.reference.item().try_unwrap_tag_ref() {
-					tokio::spawn({
-						let server = self.clone();
-						let pattern = pattern.clone();
-						let remote = import.reference.options().remote.clone();
-						async move {
-							server.pull_tag(pattern.clone(), remote.clone()).await.ok();
-						}
-					});
-				}
+			.map(|import| (import, None))
+			.collect::<Vec<_>>();
 
-				// Add the import.
-				(import, None)
-			})
-			.collect();
+		// Spawn tasks to pull the dependencies.
+		for (import, _) in &dependencies {
+			if let Ok(pattern) = import.reference.item().try_unwrap_tag_ref() {
+				tokio::spawn({
+					let server = self.clone();
+					let pattern = pattern.clone();
+					let remote = import.reference.options().remote.clone();
+					async move {
+						server.pull_tag(pattern.clone(), remote.clone()).await.ok();
+					}
+				});
+			}
+		}
 
 		Ok(dependencies)
 	}
 
 	#[allow(clippy::unnecessary_wraps)]
 	fn checkin_visit_symlink(&self, state: &mut State, index: usize) -> tg::Result<()> {
+		// Read the symlink.
 		let path = state.graph.nodes[index].path();
 		let target = std::fs::read_link(path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;

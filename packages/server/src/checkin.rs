@@ -1,6 +1,6 @@
-use crate::{Server, lock::Lock};
-use bytes::Bytes;
-use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _};
+use self::state::{Graph, State};
+use crate::Server;
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use indoc::indoc;
 use std::{
 	os::unix::fs::PermissionsExt as _,
@@ -10,7 +10,6 @@ use std::{
 	time::Instant,
 };
 use tangram_client as tg;
-use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
 use tangram_ignore as ignore;
@@ -21,87 +20,7 @@ mod lock;
 mod object;
 mod output;
 mod solve;
-
-struct State {
-	arg: tg::checkin::Arg,
-	artifacts_path: PathBuf,
-	fixup_sender: Option<std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>>,
-	graph: Graph,
-	graph_objects: Vec<GraphObject>,
-	lock: Option<Lock>,
-	ignorer: Option<ignore::Ignorer>,
-	progress: crate::progress::Handle<tg::checkin::Output>,
-}
-
-struct GraphObject {
-	id: tg::graph::Id,
-	data: tg::graph::Data,
-	bytes: Bytes,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Graph {
-	nodes: im::Vector<Node>,
-	paths: radix_trie::Trie<PathBuf, usize>,
-	roots: im::OrdMap<usize, Vec<usize>>,
-}
-
-#[derive(Clone, Debug)]
-struct Node {
-	id: Option<tg::object::Id>,
-	lock_index: Option<usize>,
-	metadata: Option<std::fs::Metadata>,
-	object: Option<Object>,
-	path: Option<Arc<PathBuf>>,
-	parent: Option<usize>,
-	root: Option<usize>,
-	tag: Option<tg::Tag>,
-	variant: Variant,
-}
-
-#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
-#[try_unwrap(ref, ref_mut)]
-#[unwrap(ref, ref_mut)]
-enum Variant {
-	Directory(Directory),
-	File(File),
-	Symlink(Symlink),
-	Object,
-}
-
-#[derive(Clone, Debug)]
-struct Directory {
-	entries: Vec<(String, usize)>,
-}
-
-#[derive(Clone, Debug)]
-struct File {
-	blob: Option<Blob>,
-	executable: bool,
-	dependencies: Vec<(
-		tg::Reference,
-		Option<tg::Referent<Either<tg::object::Id, usize>>>,
-	)>,
-}
-
-#[derive(Clone, Debug)]
-enum Blob {
-	Create(crate::blob::create::Blob),
-	Id(tg::blob::Id),
-}
-
-#[derive(Clone, Debug)]
-struct Symlink {
-	artifact: Option<Either<tg::artifact::Id, usize>>,
-	path: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug)]
-struct Object {
-	bytes: Option<Bytes>,
-	data: Option<tg::object::Data>,
-	id: tg::object::Id,
-}
+mod state;
 
 impl Server {
 	pub async fn checkin(
@@ -188,14 +107,6 @@ impl Server {
 			return Ok(output);
 		}
 
-		self.checkin_new(arg, progress).await
-	}
-
-	async fn checkin_new(
-		&self,
-		arg: tg::checkin::Arg,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
-	) -> tg::Result<tg::checkin::Output> {
 		// Create the ignorer if necessary.
 		let ignorer = if arg.ignore {
 			Some(Self::checkin_create_ignorer()?)
@@ -223,21 +134,15 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to read the lock"))?;
 
 		// Create the state.
-		let (fixup_sender, fixup_receiver) = if arg.destructive {
-			let (sender, receiver) = std::sync::mpsc::channel::<(PathBuf, std::fs::Metadata)>();
-			(Some(sender), Some(receiver))
-		} else {
-			(None, None)
-		};
 		let graph = Graph {
 			nodes: im::Vector::new(),
-			paths: radix_trie::Trie::default(),
+			paths: im::HashMap::default(),
 			roots: im::OrdMap::new(),
 		};
 		let mut state = State {
 			arg: arg.clone(),
 			artifacts_path,
-			fixup_sender,
+			destructive_fixup_sender: None,
 			graph,
 			graph_objects: Vec::new(),
 			lock,
@@ -245,10 +150,18 @@ impl Server {
 			progress: progress.clone(),
 		};
 
-		// Spawn the fixup task.
-		let fixup_task =
-			tokio::task::spawn_blocking(move || Self::checkin_fixup_task(fixup_receiver.as_ref()))
-				.map(|result| result.unwrap());
+		// Spawn the destructive fixup task.
+		let destructive_fixup_task = if arg.destructive {
+			let (sender, receiver) = std::sync::mpsc::channel::<(PathBuf, std::fs::Metadata)>();
+			state.destructive_fixup_sender = Some(sender);
+			let task = tokio::task::spawn_blocking(move || {
+				Self::checkin_destructive_fixup_task(&receiver)
+			})
+			.map(|result| result.unwrap());
+			Some(task)
+		} else {
+			None
+		};
 
 		// Collect input.
 		let start = Instant::now();
@@ -264,8 +177,8 @@ impl Server {
 		.unwrap()?;
 		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
-		// Remove the fixup sender.
-		state.fixup_sender.take();
+		// Remove the destructive fixup sender.
+		state.destructive_fixup_sender.take();
 
 		// Remove the ignorer.
 		state.ignorer.take();
@@ -292,66 +205,42 @@ impl Server {
 
 		let state = Arc::new(state);
 
-		let cache_and_store_future = tokio::spawn({
-			let server = self.clone();
-			let state = state.clone();
-			async move {
-				// Await the fixup task.
-				fixup_task.await?;
+		// Await the destructive fixup task.
+		if let Some(task) = destructive_fixup_task {
+			task.await?;
+		}
 
-				// Cache the objects.
-				let start = Instant::now();
-				server
-					.checkin_cache_task(state.clone(), touched_at)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to cache"))?;
-				tracing::trace!(elapsed = ?start.elapsed(), "cache");
+		// Cache.
+		let start = Instant::now();
+		self.checkin_cache_task(state.clone(), touched_at)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to cache"))?;
+		tracing::trace!(elapsed = ?start.elapsed(), "cache");
 
-				// Store the objects.
-				let start = Instant::now();
-				server
-					.checkin_store_task(&state, touched_at)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to write the objects to the store")
-					})?;
-				tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
+		// Store.
+		let start = Instant::now();
+		self.checkin_store_task(&state, touched_at)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
+		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
-				// Publish messages.
-				let start = Instant::now();
-				server
-					.checkin_messenger_task(&state, touched_at)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to write the objects to the messenger")
-					})?;
-				tracing::trace!(elapsed = ?start.elapsed(), "write objects to messenger");
-
-				Ok::<_, tg::Error>(())
-			}
-			.inspect_err(|error| tracing::error!(?error, "cache and store task failed"))
-		})
-		.map(|result| result.unwrap());
-
-		let lock_future = tokio::spawn({
-			let server = self.clone();
-			let state = state.clone();
-			async move {
-				let start = Instant::now();
-				server
-					.checkin_create_lock_task(&state)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
-				tracing::trace!(elapsed = ?start.elapsed(), "create lock");
-				Ok::<_, tg::Error>(())
-			}
-			.inspect_err(|error| tracing::error!(?error, "lock task failed"))
-		})
-		.map(|result| result.unwrap());
-
-		futures::try_join!(cache_and_store_future, lock_future)?;
+		// Publish.
+		let start = Instant::now();
+		self.checkin_messenger_task(&state, touched_at)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to write the objects to the messenger")
+			})?;
+		tracing::trace!(elapsed = ?start.elapsed(), "write objects to messenger");
 
 		let state = Arc::into_inner(state).unwrap();
+
+		// Create the lock.
+		let start = Instant::now();
+		self.checkin_create_lock_task(&state)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
 
 		// Find the item.
 		let node = state
@@ -398,15 +287,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 
-	fn checkin_fixup_task(
-		fixup_receiver: Option<&std::sync::mpsc::Receiver<(std::path::PathBuf, std::fs::Metadata)>>,
+	fn checkin_destructive_fixup_task(
+		receiver: &std::sync::mpsc::Receiver<(std::path::PathBuf, std::fs::Metadata)>,
 	) -> tg::Result<()> {
-		if let Some(fixup_receiver) = fixup_receiver {
-			while let Ok((path, metadata)) = fixup_receiver.recv() {
-				Self::set_permissions_and_times(&path, &metadata).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to set permissions"),
-				)?;
-			}
+		while let Ok((path, metadata)) = receiver.recv() {
+			Self::set_permissions_and_times(&path, &metadata).map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to set permissions"),
+			)?;
 		}
 		Ok::<_, tg::Error>(())
 	}
@@ -480,91 +367,5 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
-	}
-}
-
-impl Graph {
-	// Given a referrer and referent, find the "path" that corresponds to it.
-	fn referent_path(&self, referrer: usize, referent: usize) -> Option<PathBuf> {
-		// Get the path of the referrer.
-		let mut referrer_path = self.nodes[referrer].path.as_deref()?.as_ref();
-
-		// If the referrer is a module, use its parent.
-		if tg::package::is_module_path(referrer_path) {
-			referrer_path = referrer_path.parent()?;
-		}
-
-		// Get the path of the referent.
-		let referent_path = self.nodes[referent].path.as_deref()?.as_ref();
-
-		// Skip any imports of self.
-		if referent_path == referrer_path {
-			return None;
-		}
-
-		// Compute the relative path.
-		tg::util::path::diff(referrer_path, referent_path).ok()
-	}
-}
-
-impl Node {
-	fn path(&self) -> &Path {
-		self.path.as_deref().unwrap()
-	}
-
-	fn edges(&self) -> Vec<usize> {
-		match &self.variant {
-			Variant::Directory(directory) => {
-				directory.entries.iter().map(|(_, node)| *node).collect()
-			},
-			Variant::File(file) => file
-				.dependencies
-				.iter()
-				.filter_map(|(_, dependency)| dependency.as_ref()?.item.as_ref().right().copied())
-				.collect(),
-			Variant::Symlink(symlink) => symlink
-				.artifact
-				.as_ref()
-				.and_then(|either| either.as_ref().right().copied())
-				.into_iter()
-				.collect(),
-			Variant::Object => Vec::new(),
-		}
-	}
-}
-
-impl petgraph::visit::GraphBase for Graph {
-	type EdgeId = (usize, usize);
-
-	type NodeId = usize;
-}
-
-impl petgraph::visit::IntoNodeIdentifiers for &Graph {
-	type NodeIdentifiers = std::ops::Range<usize>;
-
-	fn node_identifiers(self) -> Self::NodeIdentifiers {
-		0..self.nodes.len()
-	}
-}
-
-impl petgraph::visit::NodeIndexable for Graph {
-	fn from_index(&self, index: usize) -> Self::NodeId {
-		index
-	}
-
-	fn node_bound(&self) -> usize {
-		self.nodes.len()
-	}
-
-	fn to_index(&self, id: Self::NodeId) -> usize {
-		id
-	}
-}
-
-impl petgraph::visit::IntoNeighbors for &Graph {
-	type Neighbors = std::vec::IntoIter<usize>;
-
-	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
-		self.nodes[id].edges().into_iter()
 	}
 }
