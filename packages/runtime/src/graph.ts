@@ -680,7 +680,7 @@ export namespace Graph {
 						break;
 					}
 					case "node": {
-						node = Number.parseInt(decodeURIComponent(value));
+						node = Number.parseInt(decodeURIComponent(value), 10);
 						break;
 					}
 					default: {

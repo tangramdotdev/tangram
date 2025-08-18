@@ -584,7 +584,6 @@ export class CommandBuilder<
 		return this;
 	}
 
-	// @ts-ignore
 	// biome-ignore lint/suspicious/noThenProperty: <reason>
 	then<TResult1 = tg.Command<A, R>, TResult2 = never>(
 		onfulfilled?:

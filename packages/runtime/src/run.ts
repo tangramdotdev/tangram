@@ -293,7 +293,6 @@ export class RunBuilder<
 		return this;
 	}
 
-	// @ts-ignore
 	// biome-ignore lint/suspicious/noThenProperty: <reason>
 	then<TResult1 = R, TResult2 = never>(
 		onfulfilled?:

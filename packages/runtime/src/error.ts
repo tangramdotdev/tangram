@@ -51,7 +51,7 @@ export function error(
 		}
 	}
 	if (!("stack" in arg)) {
-		// @ts-ignore
+		// @ts-expect-error
 		globalThis.Error.captureStackTrace(arg, tg.error);
 	}
 	return new tg.Error(arg);
