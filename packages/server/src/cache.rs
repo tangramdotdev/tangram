@@ -395,7 +395,6 @@ impl Server {
 		Ok(())
 	}
 
-	// Look up the underlying graph node of the artifact.
 	fn cache_get_node(
 		&self,
 		state: &mut State,
@@ -415,7 +414,24 @@ impl Server {
 					.ok_or_else(|| tg::error!("missing graph"))?;
 
 				// Ensure the graph is cached.
-				self.cache_ensure_graph_exists(state, graph)?;
+				if !state.graphs.contains_key(graph) {
+					#[allow(clippy::match_wildcard_for_single_variants)]
+					let data: tg::graph::Data = match &self.store {
+						crate::Store::Lmdb(store) => {
+							store.try_get_object_data_sync(&graph.clone().into())?
+						},
+						crate::Store::Memory(store) => {
+							store.try_get_object_data(&graph.clone().into())?
+						},
+						_ => {
+							return Err(tg::error!("unimplemented"));
+						},
+					}
+					.ok_or_else(|| tg::error!("expected the object to be stored"))?
+					.try_into()
+					.map_err(|_| tg::error!("expected a graph"))?;
+					state.graphs.insert(graph.clone(), data);
+				}
 
 				// Get the node.
 				let node = state
@@ -482,29 +498,6 @@ impl Server {
 				}
 			},
 		}
-	}
-
-	fn cache_ensure_graph_exists(
-		&self,
-		state: &mut State,
-		graph: &tg::graph::Id,
-	) -> tg::Result<()> {
-		if state.graphs.contains_key(graph) {
-			return Ok(());
-		}
-		#[allow(clippy::match_wildcard_for_single_variants)]
-		let data = match &self.store {
-			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
-			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
-		}
-		.ok_or_else(|| tg::error!("expected the object to be stored"))?
-		.try_into()
-		.map_err(|_| tg::error!("expected a graph"))?;
-		state.graphs.insert(graph.clone(), data);
-		Ok(())
 	}
 
 	#[allow(clippy::needless_pass_by_value)]
@@ -629,7 +622,7 @@ impl Server {
 		if !dependencies.is_empty() {
 			let dependencies = serde_json::to_vec(&dependencies)
 				.map_err(|source| tg::error!(!source, "failed to serialize the dependencies"))?;
-			xattr::set(dst, tg::file::XATTR_DEPENDENCIES_NAME, &dependencies)
+			xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
 				.map_err(|source| tg::error!(!source, "failed to write the dependencies attr"))?;
 		}
 

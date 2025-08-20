@@ -7,7 +7,6 @@ use indoc::{formatdoc, indoc};
 #[cfg(feature = "postgres")]
 use num::ToPrimitive as _;
 use rusqlite as sqlite;
-use std::path::PathBuf;
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, response::builder::Ext as _};
@@ -271,7 +270,7 @@ impl Server {
 		// Get the children.
 		let statement = indoc!(
 			"
-				select child, path, tag
+				select child, options
 				from process_children
 				where process = ?1;
 			"
@@ -291,17 +290,10 @@ impl Server {
 				.get::<_, String>(0)
 				.map_err(|source| tg::error!(!source, "expected a string"))?
 				.parse()?;
-			let path = row
-				.get::<_, Option<String>>(1)
-				.map_err(|source| tg::error!(!source, "expected a string"))?
-				.map(PathBuf::from);
-			let tag = row
-				.get::<_, Option<String>>(2)
-				.map_err(|source| tg::error!(!source, "expected a string"))?
-				.map(|tag| tag.parse())
-				.transpose()
-				.map_err(|source| tg::error!(!source, "expected a valid tag"))?;
-			let options = tg::referent::Options { path, tag };
+			let options = row
+				.get::<_, db::value::Json<tg::referent::Options>>(1)
+				.map_err(|source| tg::error!(!source, "expected options json"))?
+				.0;
 			let referent = tg::Referent { item, options };
 			children.push(referent);
 		}

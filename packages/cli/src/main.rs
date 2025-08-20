@@ -1265,7 +1265,8 @@ impl Cli {
 		let mut referent = self.render_progress_stream(stream).await?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
-		if referent.tag().is_none()
+		if referent.id().is_none()
+			&& referent.tag().is_none()
 			&& relative
 			&& let Some(path) = referent.path()
 		{
@@ -1361,6 +1362,7 @@ impl Cli {
 				return Err(tg::error!("expected an artifact"));
 			},
 		};
+
 		Ok(module)
 	}
 

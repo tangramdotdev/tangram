@@ -23,10 +23,10 @@ impl Server {
 			return Ok(output);
 		}
 
-		// List the tags locally.
+		// List the local tags.
 		let mut output = self.list_tags_local(arg.clone()).await?;
 
-		// List the tags remotely.
+		// List the remote tags.
 		let remote = self
 			.get_remote_clients()
 			.await?

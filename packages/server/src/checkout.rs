@@ -14,6 +14,9 @@ use tangram_futures::stream::{Ext as _, TryExt as _};
 use tangram_http::{Body, request::Ext as _};
 use tokio_util::{io::InspectReader, task::AbortOnDropHandle};
 
+mod lock;
+mod progress;
+
 struct State {
 	arg: tg::checkout::Arg,
 	artifact: tg::artifact::Id,
@@ -23,12 +26,6 @@ struct State {
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
 	visited: HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct Progress {
-	objects: u64,
-	bytes: u64,
 }
 
 impl Server {
@@ -336,7 +333,6 @@ impl Server {
 		Ok(())
 	}
 
-	// Look up the underlying graph node of the artifact.
 	fn checkout_get_node(
 		&self,
 		state: &mut State,
@@ -347,7 +343,7 @@ impl Server {
 		Option<tg::graph::Id>,
 	)> {
 		match edge {
-			// If this is a reference, load the graph and find it.
+			// If this is a reference, then load the graph and return the node.
 			tg::graph::data::Edge::Reference(reference) => {
 				// Get the graph.
 				let graph = reference
@@ -356,7 +352,24 @@ impl Server {
 					.ok_or_else(|| tg::error!("missing graph"))?;
 
 				// Ensure the graph is cached.
-				self.checkout_ensure_graph_exists(state, graph)?;
+				if !state.graphs.contains_key(graph) {
+					#[allow(clippy::match_wildcard_for_single_variants)]
+					let data: tg::graph::Data = match &self.store {
+						crate::Store::Lmdb(store) => {
+							store.try_get_object_data_sync(&graph.clone().into())?
+						},
+						crate::Store::Memory(store) => {
+							store.try_get_object_data(&graph.clone().into())?
+						},
+						_ => {
+							return Err(tg::error!("unimplemented"));
+						},
+					}
+					.ok_or_else(|| tg::error!("expected the object to be stored"))?
+					.try_into()
+					.map_err(|_| tg::error!("expected a graph"))?;
+					state.graphs.insert(graph.clone(), data);
+				}
 
 				// Get the node.
 				let node = state
@@ -368,7 +381,7 @@ impl Server {
 					.ok_or_else(|| tg::error!("invalid graph node"))?
 					.clone();
 
-				// Compute the id.
+				// Create the data.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
 						tg::directory::Data::Reference(reference.clone()).into()
@@ -378,12 +391,13 @@ impl Server {
 						tg::symlink::Data::Reference(reference.clone()).into()
 					},
 				};
+
+				// Create the ID.
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
 				Ok((id, node, Some(graph.clone())))
 			},
 			tg::graph::data::Edge::Object(id) => {
-				// Otherwise, lookup the artifact data by ID.
 				#[allow(clippy::match_wildcard_for_single_variants)]
 				let data = match &self.store {
 					crate::Store::Lmdb(store) => {
@@ -399,7 +413,6 @@ impl Server {
 				)?;
 				let data = tg::artifact::Data::try_from(data)?;
 				match data {
-					// Handle the case where this points into a graph.
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
 						reference,
 					))
@@ -425,31 +438,6 @@ impl Server {
 				}
 			},
 		}
-	}
-
-	fn checkout_ensure_graph_exists(
-		&self,
-		state: &mut State,
-		graph: &tg::graph::Id,
-	) -> tg::Result<()> {
-		if state.graphs.contains_key(graph) {
-			return Ok(());
-		}
-		#[allow(clippy::match_wildcard_for_single_variants)]
-		let data: tg::graph::Data = match &self.store {
-			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
-			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
-		}
-		.ok_or_else(|| tg::error!("expected the object to be stored"))?
-		.try_into()
-		.map_err(|_| tg::error!("expected a graph"))?;
-
-		state.graphs.insert(graph.clone(), data);
-
-		Ok(())
 	}
 
 	#[allow(clippy::needless_pass_by_value)]
@@ -491,7 +479,6 @@ impl Server {
 	) -> tg::Result<()> {
 		// Check out the dependencies.
 		for referent in node.dependencies.values() {
-			// Skip object edges.
 			let mut edge = match referent.item.clone() {
 				tg::graph::data::Edge::Reference(graph) => tg::graph::data::Edge::Reference(graph),
 				tg::graph::data::Edge::Object(id) => match id.try_into() {
@@ -499,17 +486,12 @@ impl Server {
 					Err(_) => continue,
 				},
 			};
-
-			// Update the graph if necessarsy.
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
 				if reference.graph.is_none() {
 					reference.graph = graph.cloned();
 				}
 			}
-
-			// Get the underlying node ID.
 			let (id, _, _) = self.checkout_get_node(state, &edge)?;
-
 			if id != state.artifact {
 				self.checkout_dependency(state, &id, &edge)?;
 			}
@@ -561,7 +543,7 @@ impl Server {
 		if !dependencies.is_empty() {
 			let dependencies = serde_json::to_vec(&dependencies)
 				.map_err(|source| tg::error!(!source, "failed to serialize the dependencies"))?;
-			xattr::set(dst, tg::file::XATTR_DEPENDENCIES_NAME, &dependencies)
+			xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
 				.map_err(|source| tg::error!(!source, "failed to write the dependencies attr"))?;
 		}
 
@@ -592,7 +574,7 @@ impl Server {
 		let target = if let Some(mut edge) = artifact.clone() {
 			let mut target = PathBuf::new();
 
-			// Update the graph if necessary.
+			// Set the graph if necessary.
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
 				if reference.graph.is_none() {
 					reference.graph = graph.cloned();
@@ -606,7 +588,7 @@ impl Server {
 				// If the symlink's artifact is the root artifact, then use the root path.
 				target.push(&state.path);
 			} else {
-				// If the symlink's artifact is another artifact, then cache it and use the artifact's path.
+				// If the symlink's artifact is another artifact, then check it out and use the artifact's path.
 				self.checkout_dependency(state, &id, &edge)?;
 
 				// Update the target.
@@ -637,36 +619,6 @@ impl Server {
 		// Create the symlink.
 		std::os::unix::fs::symlink(target, path)
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
-
-		Ok(())
-	}
-
-	fn checkout_write_lock(&self, id: tg::artifact::Id, state: &mut State) -> tg::Result<()> {
-		// Create the lock.
-		let lock = self
-			.create_lock(&id, state.arg.dependencies)
-			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
-
-		// Do not write the lock if it is empty.
-		if lock.nodes.is_empty() {
-			return Ok(());
-		}
-
-		// Write the lock.
-		let artifact = tg::Artifact::with_id(id);
-		if artifact.is_directory() {
-			let contents = serde_json::to_vec_pretty(&lock)
-				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
-			let lockfile_path = state.path.join(tg::package::LOCKFILE_FILE_NAME);
-			std::fs::write(&lockfile_path, &contents).map_err(
-				|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
-			)?;
-		} else if artifact.is_file() {
-			let contents = serde_json::to_vec(&lock)
-				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
-			xattr::set(&state.path, tg::file::XATTR_LOCK_NAME, &contents)
-				.map_err(|source| tg::error!(!source, "failed to write the lockattr"))?;
-		}
 
 		Ok(())
 	}
@@ -715,29 +667,5 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
-	}
-}
-
-impl std::ops::Add for Progress {
-	type Output = Self;
-
-	fn add(self, rhs: Self) -> Self::Output {
-		Self::Output {
-			objects: self.objects + rhs.objects,
-			bytes: self.bytes + rhs.bytes,
-		}
-	}
-}
-
-impl std::ops::AddAssign for Progress {
-	fn add_assign(&mut self, rhs: Self) {
-		self.objects += rhs.objects;
-		self.bytes += rhs.bytes;
-	}
-}
-
-impl std::iter::Sum for Progress {
-	fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-		iter.fold(Self::default(), |a, b| a + b)
 	}
 }

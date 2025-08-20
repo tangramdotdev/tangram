@@ -327,7 +327,7 @@ impl vfs::Provider for Provider {
 		if dependencies.is_empty() {
 			return Ok(Vec::new());
 		}
-		Ok(vec![tg::file::XATTR_DEPENDENCIES_NAME.to_owned()])
+		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
 	}
 
 	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
@@ -335,7 +335,7 @@ impl vfs::Provider for Provider {
 		let Some(tg::Artifact::File(file)) = node.artifact else {
 			return Ok(None);
 		};
-		if name != tg::file::XATTR_DEPENDENCIES_NAME {
+		if name != tg::file::DEPENDENCIES_XATTR_NAME {
 			return Ok(None);
 		}
 		let dependencies = file.dependencies(&self.server).await.map_err(|error| {

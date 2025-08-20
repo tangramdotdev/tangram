@@ -1,5 +1,5 @@
 use crate as tg;
-use std::{ops::Deref, path::PathBuf, sync::Arc};
+use std::{ops::Deref, sync::Arc};
 use tangram_http::Body;
 use url::Url;
 

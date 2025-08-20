@@ -1,4 +1,4 @@
-use super::CacheReference;
+use super::{CacheReference, DeleteArg, PutArg};
 use bytes::Bytes;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use num::ToPrimitive as _;
@@ -89,7 +89,7 @@ impl S3 {
 		Ok(None)
 	}
 
-	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
+	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::PUT;
 		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
@@ -127,23 +127,15 @@ impl S3 {
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
-		arg.objects
-			.into_iter()
-			.map(|(id, bytes, cache_reference)| {
-				self.put(super::PutArg {
-					id,
-					bytes,
-					touched_at: arg.touched_at,
-					cache_reference,
-				})
-			})
+	pub async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
+		args.into_iter()
+			.map(|arg| self.put(arg))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await
 	}
 
-	pub async fn delete(&self, arg: super::DeleteArg) -> tg::Result<()> {
+	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let _permit = self.semaphore.acquire().await;
 		let method = reqwest::Method::DELETE;
 		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
@@ -182,17 +174,9 @@ impl S3 {
 		Ok(())
 	}
 
-	pub async fn delete_batch(&self, arg: super::DeleteBatchArg) -> tg::Result<()> {
-		arg.ids
-			.iter()
-			.map(|id| {
-				let arg = super::DeleteArg {
-					id: id.clone(),
-					now: arg.now,
-					ttl: arg.ttl,
-				};
-				self.delete(arg)
-			})
+	pub async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+		args.into_iter()
+			.map(|arg| self.delete(arg))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await

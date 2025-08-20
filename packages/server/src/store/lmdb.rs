@@ -1,4 +1,4 @@
-use super::CacheReference;
+use super::{CacheReference, DeleteArg, PutArg};
 use bytes::Bytes;
 use foundationdb_tuple::TuplePack as _;
 use heed as lmdb;
@@ -19,19 +19,23 @@ type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
 type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 
 enum Request {
-	Delete(Delete),
 	Put(Put),
-}
-
-struct Delete {
-	ids: Vec<tg::object::Id>,
-	now: i64,
-	ttl: u64,
+	PutBatch(Vec<Put>),
+	Delete(Delete),
+	DeleteBatch(Vec<Delete>),
 }
 
 struct Put {
-	items: Vec<(tg::object::Id, Option<Bytes>, Option<CacheReference>)>,
+	bytes: Option<Bytes>,
+	cache_reference: Option<CacheReference>,
+	id: tg::object::Id,
 	touched_at: i64,
+}
+
+struct Delete {
+	id: tg::object::Id,
+	now: i64,
+	ttl: u64,
 }
 
 impl Lmdb {
@@ -198,7 +202,7 @@ impl Lmdb {
 				else {
 					return Ok(None);
 				};
-				let reference = serde_json::from_slice(bytes)
+				let reference = CacheReference::deserialize(bytes)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
 				Ok::<_, tg::Error>(Some(reference))
 			}
@@ -225,7 +229,7 @@ impl Lmdb {
 		else {
 			return Ok(None);
 		};
-		let reference = serde_json::from_slice(bytes)
+		let reference = CacheReference::deserialize(bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
 		Ok::<_, tg::Error>(Some(reference))
 	}
@@ -233,7 +237,9 @@ impl Lmdb {
 	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Put(Put {
-			items: vec![(arg.id, arg.bytes, arg.cache_reference)],
+			bytes: arg.bytes,
+			cache_reference: arg.cache_reference,
+			id: arg.id,
 			touched_at: arg.touched_at,
 		});
 		self.sender
@@ -246,15 +252,21 @@ impl Lmdb {
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
-		if arg.objects.is_empty() {
+	pub async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
+		if args.is_empty() {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Put(Put {
-			items: arg.objects.clone(),
-			touched_at: arg.touched_at,
-		});
+		let request = Request::PutBatch(
+			args.into_iter()
+				.map(|arg| Put {
+					bytes: arg.bytes,
+					cache_reference: arg.cache_reference,
+					id: arg.id,
+					touched_at: arg.touched_at,
+				})
+				.collect(),
+		);
 		self.sender
 			.send((request, sender))
 			.await
@@ -265,13 +277,34 @@ impl Lmdb {
 		Ok(())
 	}
 
-	pub async fn delete_batch(&self, arg: super::DeleteBatchArg) -> tg::Result<()> {
-		if arg.ids.is_empty() {
+	pub async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+		if args.is_empty() {
 			return Ok(());
 		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::DeleteBatch(
+			args.into_iter()
+				.map(|arg| Delete {
+					id: arg.id,
+					now: arg.now,
+					ttl: arg.ttl,
+				})
+				.collect(),
+		);
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		Ok(())
+	}
+
+	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Delete(Delete {
-			ids: arg.ids,
+			id: arg.id,
 			now: arg.now,
 			ttl: arg.ttl,
 		});
@@ -308,13 +341,25 @@ impl Lmdb {
 			let mut responses = vec![];
 			for request in requests {
 				match request {
+					Request::Put(request) => {
+						let result = Self::task_put(env, db, &mut transaction, request);
+						responses.push(result);
+					},
+					Request::PutBatch(requests) => {
+						for request in requests {
+							let result = Self::task_put(env, db, &mut transaction, request);
+							responses.push(result);
+						}
+					},
 					Request::Delete(request) => {
 						let result = Self::task_delete(env, db, &mut transaction, request);
 						responses.push(result);
 					},
-					Request::Put(request) => {
-						let result = Self::task_put(env, db, &mut transaction, request);
-						responses.push(result);
+					Request::DeleteBatch(requests) => {
+						for request in requests {
+							let result = Self::task_delete(env, db, &mut transaction, request);
+							responses.push(result);
+						}
 					},
 				}
 			}
@@ -333,67 +378,64 @@ impl Lmdb {
 		}
 	}
 
-	fn task_delete(
-		_env: &lmdb::Env,
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		message: Delete,
-	) -> tg::Result<()> {
-		for id in message.ids {
-			let key = (0, id.to_bytes(), 1);
-			let Some(touched_at) = db
-				.get(transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, "failed to get the touch time"))?
-			else {
-				continue;
-			};
-			let touched_at = touched_at
-				.try_into()
-				.map_err(|source| tg::error!(!source, "invalid touch time"))?;
-			let touched_at = i64::from_le_bytes(touched_at);
-			if message.now - touched_at >= message.ttl.to_i64().unwrap() {
-				let key = (0, id.to_bytes(), 0);
-				db.delete(transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
-				let key = (0, id.to_bytes(), 1);
-				db.delete(transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
-				let key = (0, id.to_bytes(), 2);
-				db.delete(transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
-			}
-		}
-		Ok(())
-	}
-
 	fn task_put(
 		_env: &lmdb::Env,
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		message: Put,
+		request: Put,
 	) -> tg::Result<()> {
-		for (id, bytes, reference) in message.items {
-			if let Some(bytes) = bytes {
-				let key = (0, id.to_bytes(), 0);
-				let flags = lmdb::PutFlags::NO_OVERWRITE;
-				let result = db.put_with_flags(transaction, flags, &key.pack_to_vec(), &bytes);
-				match result {
-					Ok(()) | Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
-					Err(error) => {
-						return Err(tg::error!(!error, "failed to put the value"));
-					},
-				}
+		if let Some(bytes) = request.bytes {
+			let key = (0, request.id.to_bytes(), 0);
+			let flags = lmdb::PutFlags::NO_OVERWRITE;
+			let result = db.put_with_flags(transaction, flags, &key.pack_to_vec(), &bytes);
+			match result {
+				Ok(()) | Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to put the value"));
+				},
 			}
-			let key = (0, id.to_bytes(), 1);
-			let touched_at = message.touched_at.to_le_bytes();
-			db.put(transaction, &key.pack_to_vec(), &touched_at)
+		}
+		let key = (0, request.id.to_bytes(), 1);
+		let touched_at = request.touched_at.to_le_bytes();
+		db.put(transaction, &key.pack_to_vec(), &touched_at)
+			.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+		if let Some(cache_reference) = request.cache_reference {
+			let key = (0, request.id.to_bytes(), 2);
+			let value = cache_reference.serialize().unwrap();
+			db.put(transaction, &key.pack_to_vec(), &value)
 				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
-			if let Some(reference) = reference {
-				let key = (0, id.to_bytes(), 2);
-				let value = serde_json::to_vec(&reference).unwrap();
-				db.put(transaction, &key.pack_to_vec(), &value)
-					.map_err(|source| tg::error!(!source, "failed to put the value"))?;
-			}
+		}
+		Ok(())
+	}
+
+	#[allow(clippy::needless_pass_by_value)]
+	fn task_delete(
+		_env: &lmdb::Env,
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		request: Delete,
+	) -> tg::Result<()> {
+		let key = (0, request.id.to_bytes(), 1);
+		let Some(touched_at) = db
+			.get(transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the touch time"))?
+		else {
+			return Ok(());
+		};
+		let touched_at = touched_at
+			.try_into()
+			.map_err(|source| tg::error!(!source, "invalid touch time"))?;
+		let touched_at = i64::from_le_bytes(touched_at);
+		if request.now - touched_at >= request.ttl.to_i64().unwrap() {
+			let key = (0, request.id.to_bytes(), 0);
+			db.delete(transaction, &key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
+			let key = (0, request.id.to_bytes(), 1);
+			db.delete(transaction, &key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
+			let key = (0, request.id.to_bytes(), 2);
+			db.delete(transaction, &key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
 		}
 		Ok(())
 	}

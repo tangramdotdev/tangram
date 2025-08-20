@@ -1,8 +1,10 @@
-use crate::lock::Lock;
+use crate::blob::create::Blob;
 use bytes::Bytes;
+use indexmap::IndexMap;
+use smallvec::SmallVec;
 use std::{
-	path::{Path, PathBuf},
-	sync::Arc,
+	collections::{BTreeMap, HashMap},
+	path::PathBuf,
 };
 use tangram_client as tg;
 use tangram_either::Either;
@@ -10,38 +12,36 @@ use tangram_ignore as ignore;
 
 pub struct State {
 	pub arg: tg::checkin::Arg,
-	pub artifacts_path: PathBuf,
-	pub destructive_fixup_sender: Option<std::sync::mpsc::Sender<(PathBuf, std::fs::Metadata)>>,
+	pub artifacts_path: Option<PathBuf>,
+	pub blobs: HashMap<tg::blob::Id, Blob, fnv::FnvBuildHasher>,
+	pub fixup_sender: Option<std::sync::mpsc::Sender<FixupMessage>>,
 	pub graph: Graph,
-	pub graph_objects: Vec<GraphObject>,
-	pub lock: Option<Lock>,
 	pub ignorer: Option<ignore::Ignorer>,
+	pub lock: Option<tg::graph::Data>,
+	pub objects: Option<IndexMap<tg::object::Id, Object>>,
 	pub progress: crate::progress::Handle<tg::checkin::Output>,
+	pub root_path: PathBuf,
 }
 
-pub struct GraphObject {
-	pub id: tg::graph::Id,
-	pub data: tg::graph::Data,
-	pub bytes: Bytes,
+pub struct FixupMessage {
+	pub path: PathBuf,
+	pub metadata: std::fs::Metadata,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
 	pub nodes: im::Vector<Node>,
 	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
-	pub roots: im::OrdMap<usize, Vec<usize>>,
 }
 
+#[allow(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
-	pub artifacts_entry: Option<tg::object::Id>,
-	pub lock_index: Option<usize>,
-	pub metadata: Option<std::fs::Metadata>,
-	pub object: Option<Object>,
-	pub parent: Option<usize>,
-	pub path: Option<Arc<PathBuf>>,
-	pub root: Option<usize>,
-	pub tag: Option<tg::Tag>,
+	pub lock_node: Option<usize>,
+	pub object_id: Option<tg::object::Id>,
+	pub parents: Option<SmallVec<[usize; 1]>>,
+	pub path: Option<PathBuf>,
+	pub path_metadata: Option<std::fs::Metadata>,
 	pub variant: Variant,
 }
 
@@ -52,48 +52,43 @@ pub enum Variant {
 	Directory(Directory),
 	File(File),
 	Symlink(Symlink),
-	Object,
 }
 
 #[derive(Clone, Debug)]
 pub struct Directory {
-	pub entries: Vec<(String, usize)>,
+	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct File {
-	pub blob: Option<Blob>,
+	pub contents: Option<Either<crate::blob::create::Blob, tg::blob::Id>>,
+	pub dependencies:
+		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 	pub executable: bool,
-	pub dependencies: Vec<(
-		tg::Reference,
-		Option<tg::Referent<Either<tg::object::Id, usize>>>,
-	)>,
-}
-
-#[derive(Clone, Debug)]
-pub enum Blob {
-	Create(crate::blob::create::Blob),
-	Id(tg::blob::Id),
 }
 
 #[derive(Clone, Debug)]
 pub struct Symlink {
-	pub artifact: Option<Either<tg::artifact::Id, usize>>,
+	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Object {
 	pub bytes: Option<Bytes>,
+	pub cache_reference: Option<crate::store::CacheReference>,
+	pub complete: bool,
 	pub data: Option<tg::object::Data>,
 	pub id: tg::object::Id,
+	pub metadata: Option<tg::object::Metadata>,
+	pub size: u64,
 }
 
 impl Graph {
 	// Given a referrer and referent, find the "path" that corresponds to it.
 	pub fn referent_path(&self, referrer: usize, referent: usize) -> Option<PathBuf> {
 		// Get the path of the referrer.
-		let mut referrer_path = self.nodes[referrer].path.as_deref()?.as_ref();
+		let mut referrer_path = self.nodes[referrer].path.as_deref()?;
 
 		// If the referrer is a module, use its parent.
 		if tg::package::is_module_path(referrer_path) {
@@ -101,7 +96,7 @@ impl Graph {
 		}
 
 		// Get the path of the referent.
-		let referent_path = self.nodes[referent].path.as_deref()?.as_ref();
+		let referent_path = self.nodes[referent].path.as_deref()?;
 
 		// Skip any imports of self.
 		if referent_path == referrer_path {
@@ -110,32 +105,6 @@ impl Graph {
 
 		// Compute the relative path.
 		tg::util::path::diff(referrer_path, referent_path).ok()
-	}
-}
-
-impl Node {
-	pub fn path(&self) -> &Path {
-		self.path.as_deref().unwrap()
-	}
-
-	pub fn edges(&self) -> Vec<usize> {
-		match &self.variant {
-			Variant::Directory(directory) => {
-				directory.entries.iter().map(|(_, node)| *node).collect()
-			},
-			Variant::File(file) => file
-				.dependencies
-				.iter()
-				.filter_map(|(_, dependency)| dependency.as_ref()?.item.as_ref().right().copied())
-				.collect(),
-			Variant::Symlink(symlink) => symlink
-				.artifact
-				.as_ref()
-				.and_then(|either| either.as_ref().right().copied())
-				.into_iter()
-				.collect(),
-			Variant::Object => Vec::new(),
-		}
 	}
 }
 
@@ -171,6 +140,42 @@ impl petgraph::visit::IntoNeighbors for &Graph {
 	type Neighbors = std::vec::IntoIter<usize>;
 
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
-		self.nodes[id].edges().into_iter()
+		match &self.nodes[id].variant {
+			Variant::Directory(directory) => directory
+				.entries
+				.values()
+				.filter_map(|edge| {
+					edge.try_unwrap_reference_ref()
+						.ok()
+						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
+				})
+				.collect::<Vec<_>>()
+				.into_iter(),
+			Variant::File(file) => file
+				.dependencies
+				.values()
+				.filter_map(|option| {
+					option
+						.as_ref()
+						.map(|referent| &referent.item)
+						.and_then(|edge| {
+							edge.try_unwrap_reference_ref().ok().and_then(|reference| {
+								reference.graph.is_none().then_some(reference.node)
+							})
+						})
+				})
+				.collect::<Vec<_>>()
+				.into_iter(),
+			Variant::Symlink(symlink) => symlink
+				.artifact
+				.iter()
+				.filter_map(|edge| {
+					edge.try_unwrap_reference_ref()
+						.ok()
+						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
+				})
+				.collect::<Vec<_>>()
+				.into_iter(),
+		}
 	}
 }

@@ -10,16 +10,14 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 #[tokio::test]
 async fn directory() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"hello.txt" => "Hello, world!",
-			"link" => temp::symlink!("hello.txt"),
-			"subdirectory" => temp::directory! {
-				"sublink" => temp::symlink!("../link"),
-			}
+		"hello.txt" => "Hello, world!",
+		"link" => temp::symlink!("hello.txt"),
+		"subdirectory" => temp::directory! {
+			"sublink" => temp::symlink!("../link"),
 		}
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -51,12 +49,10 @@ async fn directory() {
 #[tokio::test]
 async fn file() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"README.md" => "Hello, World!",
-		}
+		"README.md" => "Hello, World!",
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -80,12 +76,10 @@ async fn file() {
 #[tokio::test]
 async fn symlink() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"link" => temp::symlink!("."),
-		}
+		"link" => temp::symlink!("."),
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -109,13 +103,11 @@ async fn symlink() {
 #[tokio::test]
 async fn directory_with_duplicate_entries() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a.txt" => "Hello, World!",
-			"b.txt" => "Hello, World!",
-		}
+		"a.txt" => "Hello, World!",
+		"b.txt" => "Hello, World!",
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -421,23 +413,21 @@ async fn simple_path_dependency() {
 #[tokio::test]
 async fn package_with_nested_dependencies() {
 	let artifact = temp::directory! {
-		"foo" => temp::directory! {
-			"bar" => temp::directory! {
-				"tangram.ts" => indoc!(r#"
-					import * as baz from "../baz";
-				"#),
-			},
-			"baz" => temp::directory! {
-				"tangram.ts" => "",
-			},
+		"bar" => temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				import * as bar from "./bar";
-				import * as baz from "./baz";
+				import * as baz from "../baz";
 			"#),
 		},
+		"baz" => temp::directory! {
+			"tangram.ts" => "",
+		},
+		"tangram.ts" => indoc!(r#"
+			import * as bar from "./bar";
+			import * as baz from "./baz";
+		"#),
 	}
 	.into();
-	let path = Path::new("foo");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -502,12 +492,10 @@ async fn package_with_nested_dependencies() {
 #[tokio::test]
 async fn package() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"tangram.ts" => "export default () => {};",
-		}
+		"tangram.ts" => "export default () => {};",
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -556,14 +544,12 @@ async fn directory_with_nested_packages() {
 #[tokio::test]
 async fn import_directory_from_current() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory! {
-				"mod.tg.ts" => r#"import a from ".";"#
-			},
-		}
+		"a" => temp::directory! {
+			"mod.tg.ts" => r#"import a from ".";"#
+		},
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -604,15 +590,13 @@ async fn import_directory_from_current() {
 #[tokio::test]
 async fn import_package_from_current() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory! {
-				"mod.tg.ts" => r#"import * as a from ".";"#,
-				"tangram.ts" => ""
-			},
-		}
+		"a" => temp::directory! {
+			"mod.tg.ts" => r#"import * as a from ".";"#,
+			"tangram.ts" => ""
+		},
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -656,13 +640,11 @@ async fn import_package_from_current() {
 #[tokio::test]
 async fn import_directory_from_parent() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory! {},
-			"tangram.ts" => r#"import a from "./a";"#,
-		}
+		"a" => temp::directory! {},
+		"tangram.ts" => r#"import a from "./a";"#,
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -686,15 +668,13 @@ async fn import_directory_from_parent() {
 #[tokio::test]
 async fn import_package_with_type_directory_from_parent() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory!{
-				"tangram.ts" => "",
-			},
-			"tangram.ts" => r#"import a from "./a" with { type: "directory" };"#,
-		}
+		"a" => temp::directory!{
+			"tangram.ts" => "",
+		},
+		"tangram.ts" => r#"import a from "./a" with { type: "directory" };"#,
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -726,15 +706,13 @@ async fn import_package_with_type_directory_from_parent() {
 #[tokio::test]
 async fn import_package_from_parent() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory!{
-				"tangram.ts" => "",
-			},
-			"tangram.ts" => r#"import a from "./a";"#,
-		}
+		"a" => temp::directory!{
+			"tangram.ts" => "",
+		},
+		"tangram.ts" => r#"import a from "./a";"#,
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -766,13 +744,11 @@ async fn import_package_from_parent() {
 #[tokio::test]
 async fn package_with_cyclic_modules() {
 	let artifact = temp::directory! {
-		"package" => temp::directory! {
-			"tangram.ts" => r#"import * as foo from "./foo.tg.ts";"#,
-			"foo.tg.ts" => r#"import * as root from "./tangram.ts";"#,
-		}
+		"tangram.ts" => r#"import * as foo from "./foo.tg.ts";"#,
+		"foo.tg.ts" => r#"import * as root from "./tangram.ts";"#,
 	}
 	.into();
-	let path = Path::new("package");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -1106,12 +1082,18 @@ async fn tagged_object() {
 	      "kind": "file",
 	      "dependencies": {
 	        "hello": {
-	          "item": "fil_01b64fk2r3af0mp8wek1630m1k57bq8fqp0yvqjq7701b3tngbfyxg",
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
+	            "id": "fil_01b64fk2r3af0mp8wek1630m1k57bq8fqp0yvqjq7701b3tngbfyxg",
 	            "tag": "hello"
 	          }
 	        }
 	      }
+	    },
+	    {
+	      "kind": "file"
 	    }
 	  ]
 	}
@@ -1120,17 +1102,8 @@ async fn tagged_object() {
 
 #[tokio::test]
 async fn simple_tagged_package() {
-	let tags = vec![(
-		"a".into(),
-		temp::directory! {
-			"tangram.ts" => indoc::indoc!(r#"
-				export default () => "a";
-			"#),
-		}
-		.into(),
-	)];
 	let artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			import a from "a";
 			export default tg.command(async () => {
 				return await a();
@@ -1140,6 +1113,15 @@ async fn simple_tagged_package() {
 	.into();
 	let destructive = false;
 	let path = Path::new("");
+	let tags = vec![(
+		"a".into(),
+		temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				export default () => "a";
+			"#),
+		}
+		.into(),
+	)];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
@@ -1177,16 +1159,14 @@ async fn simple_tagged_package() {
 	            "node": 2
 	          },
 	          "options": {
+	            "id": "dir_014kqrajn0xbffgmn84k5crdtpfmw277zz9jcz7wm5jj1bks14spyg",
 	            "tag": "a"
 	          }
 	        }
 	      }
 	    },
 	    {
-	      "kind": "directory",
-	      "entries": {
-	        "tangram.ts": "fil_01wfv1nny15t09ts6estb4pw7qsz3j7bqq2wyfyhapnydarven8jng"
-	      }
+	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -1196,7 +1176,7 @@ async fn simple_tagged_package() {
 #[tokio::test]
 async fn tagged_package_with_cyclic_dependency() {
 	let artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			import a from "a";
 		"#),
 	}
@@ -1206,10 +1186,10 @@ async fn tagged_package_with_cyclic_dependency() {
 	let tags = vec![(
 		"a".into(),
 		temp::directory! {
-			"tangram.ts" => indoc::indoc!(r#"
+			"tangram.ts" => indoc!(r#"
 				import foo from "./foo.tg.ts";
 			"#),
-			"foo.tg.ts" => indoc::indoc!(r#"
+			"foo.tg.ts" => indoc!(r#"
 				import * as a from "./tangram.ts";
 			"#),
 		}
@@ -1311,49 +1291,14 @@ async fn tagged_package_with_cyclic_dependency() {
 	            "node": 2
 	          },
 	          "options": {
+	            "id": "dir_01fqcfzahm2jzq88vvp4zn8dcq7em2y6gfy9p6y7b2fmf50xve0ss0",
 	            "tag": "a"
 	          }
 	        }
 	      }
 	    },
 	    {
-	      "kind": "directory",
-	      "entries": {
-	        "foo.tg.ts": {
-	          "node": 3
-	        },
-	        "tangram.ts": {
-	          "node": 4
-	        }
-	      }
-	    },
-	    {
-	      "kind": "file",
-	      "contents": "blb_01ycqx996y57ta8qpg72zsn6g446x37htxw7v3se7xmaa5nwrwx2t0",
-	      "dependencies": {
-	        "./tangram.ts": {
-	          "item": {
-	            "node": 4
-	          },
-	          "options": {
-	            "path": "tangram.ts"
-	          }
-	        }
-	      }
-	    },
-	    {
-	      "kind": "file",
-	      "contents": "blb_018dz0kathbh9mktnftc933pd35gy651y1ppqe3tg2q0an0dt35zr0",
-	      "dependencies": {
-	        "./foo.tg.ts": {
-	          "item": {
-	            "node": 3
-	          },
-	          "options": {
-	            "path": "foo.tg.ts"
-	          }
-	        }
-	      }
+	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -1362,6 +1307,15 @@ async fn tagged_package_with_cyclic_dependency() {
 
 #[tokio::test]
 async fn tag_dependency_cycles() {
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as a from "a/*";
+			import * as b from "b/*";
+		"#),
+	}
+	.into();
+	let path = Path::new("");
+	let destructive = false;
 	let tags = vec![
 		(
 			"a/1.0.0".into(),
@@ -1373,12 +1327,12 @@ async fn tag_dependency_cycles() {
 		(
 			"b/1.0.0".into(),
 			temp::directory! {
+				"foo.tg.ts" => indoc!(r#"
+					import * as b from "./tangram.ts";
+				"#),
 				"tangram.ts" => indoc!(r#"
 					import * as a from "a/*";
 					import * as foo from "./foo.tg.ts";
-				"#),
-				"foo.tg.ts" => indoc!(r#"
-					import * as b from "./tangram.ts";
 				"#),
 			}
 			.into(),
@@ -1393,22 +1347,11 @@ async fn tag_dependency_cycles() {
 			.into(),
 		),
 	];
-
-	let artifact = temp::directory! {
-		"tangram.ts" => indoc!(r#"
-			import * as b from "b/*";
-			import * as a from "a/*";
-		"#),
-	}
-	.into();
-
-	let path = Path::new("");
-	let destructive = false;
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("import * as b from \"b/*\";\nimport * as a from \"a/*\";\n"),
+	    "contents": tg.blob("import * as a from \"a/*\";\nimport * as b from \"b/*\";\n"),
 	    "dependencies": {
 	      "a/*": {
 	        "item": tg.directory({
@@ -1417,11 +1360,31 @@ async fn tag_dependency_cycles() {
 	              {
 	                "kind": "directory",
 	                "entries": {
-	                  "foo.tg.ts": {
+	                  "tangram.ts": {
 	                    "node": 1,
 	                  },
+	                },
+	              },
+	              {
+	                "kind": "file",
+	                "contents": tg.blob("import * as b from \"b/*\";\n"),
+	                "dependencies": {
+	                  "b/*": {
+	                    "item": {
+	                      "node": 2,
+	                    },
+	                    "tag": "b/1.0.0",
+	                  },
+	                },
+	              },
+	              {
+	                "kind": "directory",
+	                "entries": {
+	                  "foo.tg.ts": {
+	                    "node": 3,
+	                  },
 	                  "tangram.ts": {
-	                    "node": 2,
+	                    "node": 4,
 	                  },
 	                },
 	              },
@@ -1431,7 +1394,7 @@ async fn tag_dependency_cycles() {
 	                "dependencies": {
 	                  "./tangram.ts": {
 	                    "item": {
-	                      "node": 2,
+	                      "node": 4,
 	                    },
 	                    "path": "tangram.ts",
 	                  },
@@ -1443,41 +1406,21 @@ async fn tag_dependency_cycles() {
 	                "dependencies": {
 	                  "./foo.tg.ts": {
 	                    "item": {
-	                      "node": 1,
+	                      "node": 3,
 	                    },
 	                    "path": "foo.tg.ts",
 	                  },
 	                  "a/*": {
 	                    "item": {
-	                      "node": 3,
+	                      "node": 0,
 	                    },
 	                    "tag": "a/1.1.0",
 	                  },
 	                },
 	              },
-	              {
-	                "kind": "directory",
-	                "entries": {
-	                  "tangram.ts": {
-	                    "node": 4,
-	                  },
-	                },
-	              },
-	              {
-	                "kind": "file",
-	                "contents": tg.blob("import * as b from \"b/*\";\n"),
-	                "dependencies": {
-	                  "b/*": {
-	                    "item": {
-	                      "node": 0,
-	                    },
-	                    "tag": "b/1.0.0",
-	                  },
-	                },
-	              },
 	            ],
 	          }),
-	          "node": 3,
+	          "node": 0,
 	        }),
 	        "tag": "a/1.1.0",
 	      },
@@ -1488,11 +1431,31 @@ async fn tag_dependency_cycles() {
 	              {
 	                "kind": "directory",
 	                "entries": {
-	                  "foo.tg.ts": {
+	                  "tangram.ts": {
 	                    "node": 1,
 	                  },
+	                },
+	              },
+	              {
+	                "kind": "file",
+	                "contents": tg.blob("import * as b from \"b/*\";\n"),
+	                "dependencies": {
+	                  "b/*": {
+	                    "item": {
+	                      "node": 2,
+	                    },
+	                    "tag": "b/1.0.0",
+	                  },
+	                },
+	              },
+	              {
+	                "kind": "directory",
+	                "entries": {
+	                  "foo.tg.ts": {
+	                    "node": 3,
+	                  },
 	                  "tangram.ts": {
-	                    "node": 2,
+	                    "node": 4,
 	                  },
 	                },
 	              },
@@ -1502,7 +1465,7 @@ async fn tag_dependency_cycles() {
 	                "dependencies": {
 	                  "./tangram.ts": {
 	                    "item": {
-	                      "node": 2,
+	                      "node": 4,
 	                    },
 	                    "path": "tangram.ts",
 	                  },
@@ -1514,41 +1477,21 @@ async fn tag_dependency_cycles() {
 	                "dependencies": {
 	                  "./foo.tg.ts": {
 	                    "item": {
-	                      "node": 1,
+	                      "node": 3,
 	                    },
 	                    "path": "foo.tg.ts",
 	                  },
 	                  "a/*": {
 	                    "item": {
-	                      "node": 3,
+	                      "node": 0,
 	                    },
 	                    "tag": "a/1.1.0",
 	                  },
 	                },
 	              },
-	              {
-	                "kind": "directory",
-	                "entries": {
-	                  "tangram.ts": {
-	                    "node": 4,
-	                  },
-	                },
-	              },
-	              {
-	                "kind": "file",
-	                "contents": tg.blob("import * as b from \"b/*\";\n"),
-	                "dependencies": {
-	                  "b/*": {
-	                    "item": {
-	                      "node": 0,
-	                    },
-	                    "tag": "b/1.0.0",
-	                  },
-	                },
-	              },
 	            ],
 	          }),
-	          "node": 0,
+	          "node": 2,
 	        }),
 	        "tag": "b/1.0.0",
 	      },
@@ -1575,14 +1518,16 @@ async fn tag_dependency_cycles() {
 	            "node": 2
 	          },
 	          "options": {
+	            "id": "dir_01eerynsg7zrjd01away3q6p4qwrbs1d5dtws2z0z4r668d3ze865g",
 	            "tag": "a/1.1.0"
 	          }
 	        },
 	        "b/*": {
 	          "item": {
-	            "node": 4
+	            "node": 3
 	          },
 	          "options": {
+	            "id": "dir_01b0t0ex5x326b7v5knmchytr5c58xwx09mgzprmz8ejfkartet9pg",
 	            "tag": "b/1.0.0"
 	          }
 	        }
@@ -1592,21 +1537,7 @@ async fn tag_dependency_cycles() {
 	      "kind": "directory",
 	      "entries": {
 	        "tangram.ts": {
-	          "node": 3
-	        }
-	      }
-	    },
-	    {
-	      "kind": "file",
-	      "contents": "blb_0158re2012fvbq8s0zxgsdmkmg7k05y79mnbeha500h9k973hk06k0",
-	      "dependencies": {
-	        "b/*": {
-	          "item": {
-	            "node": 4
-	          },
-	          "options": {
-	            "tag": "b/1.0.0"
-	          }
+	          "node": 4
 	        }
 	      }
 	    },
@@ -1623,7 +1554,20 @@ async fn tag_dependency_cycles() {
 	    },
 	    {
 	      "kind": "file",
-	      "contents": "blb_01mv4a5380n5nacg4cvgh1r1f0vcrk489j6rfsj031gxp9b8t9gxq0",
+	      "dependencies": {
+	        "b/*": {
+	          "item": {
+	            "node": 3
+	          },
+	          "options": {
+	            "id": "dir_01b0t0ex5x326b7v5knmchytr5c58xwx09mgzprmz8ejfkartet9pg",
+	            "tag": "b/1.0.0"
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "kind": "file",
 	      "dependencies": {
 	        "./tangram.ts": {
 	          "item": {
@@ -1637,7 +1581,6 @@ async fn tag_dependency_cycles() {
 	    },
 	    {
 	      "kind": "file",
-	      "contents": "blb_01ajr136dx93ph4zrx9eqbq5gz05gh530ew34qzh0dgh4jbvvx6m30",
 	      "dependencies": {
 	        "./foo.tg.ts": {
 	          "item": {
@@ -1652,6 +1595,7 @@ async fn tag_dependency_cycles() {
 	            "node": 2
 	          },
 	          "options": {
+	            "id": "dir_01eerynsg7zrjd01away3q6p4qwrbs1d5dtws2z0z4r668d3ze865g",
 	            "tag": "a/1.1.0"
 	          }
 	        }
@@ -1665,7 +1609,7 @@ async fn tag_dependency_cycles() {
 #[tokio::test]
 async fn tag_diamond_dependency() {
 	let artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			import b from "b";
 			import c from "c";
 		"#),
@@ -1675,19 +1619,19 @@ async fn tag_diamond_dependency() {
 	let destructive = false;
 	let tags = vec![
 		(
-			"a/1.0.0".into(),
+			"d/1.0.0".into(),
 			temp::directory! {
-				"tangram.ts" => indoc::indoc!(r#"
-					export default () => "a/1.0.0";
+				"tangram.ts" => indoc!(r#"
+					export default () => "d/1.0.0";
 				"#),
 			}
 			.into(),
 		),
 		(
-			"a/1.1.0".into(),
+			"d/1.1.0".into(),
 			temp::directory! {
-				"tangram.ts" => indoc::indoc!(r#"
-					export default () => "a/1.1.0";
+				"tangram.ts" => indoc!(r#"
+					export default () => "d/1.1.0";
 				"#),
 			}
 			.into(),
@@ -1695,8 +1639,8 @@ async fn tag_diamond_dependency() {
 		(
 			"b".into(),
 			temp::directory! {
-				"tangram.ts" => indoc::indoc!(r#"
-					import a from "a/^1";
+				"tangram.ts" => indoc!(r#"
+					import d from "d/^1";
 					export default () => "b";
 				"#),
 			}
@@ -1705,8 +1649,8 @@ async fn tag_diamond_dependency() {
 		(
 			"c".into(),
 			temp::directory! {
-				"tangram.ts" => indoc::indoc!(r#"
-					import a from "a/^1.0";
+				"tangram.ts" => indoc!(r#"
+					import d from "d/^1.0";
 					export default () => "c";
 				"#),
 			}
@@ -1722,15 +1666,15 @@ async fn tag_diamond_dependency() {
 	      "b": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import a from \"a/^1\";\nexport default () => \"b\";\n"),
+	            "contents": tg.blob("import d from \"d/^1\";\nexport default () => \"b\";\n"),
 	            "dependencies": {
-	              "a/^1": {
+	              "d/^1": {
 	                "item": tg.directory({
 	                  "tangram.ts": tg.file({
-	                    "contents": tg.blob("export default () => \"a/1.1.0\";\n"),
+	                    "contents": tg.blob("export default () => \"d/1.1.0\";\n"),
 	                  }),
 	                }),
-	                "tag": "a/1.1.0",
+	                "tag": "d/1.1.0",
 	              },
 	            },
 	          }),
@@ -1740,15 +1684,15 @@ async fn tag_diamond_dependency() {
 	      "c": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import a from \"a/^1.0\";\nexport default () => \"c\";\n"),
+	            "contents": tg.blob("import d from \"d/^1.0\";\nexport default () => \"c\";\n"),
 	            "dependencies": {
-	              "a/^1.0": {
+	              "d/^1.0": {
 	                "item": tg.directory({
 	                  "tangram.ts": tg.file({
-	                    "contents": tg.blob("export default () => \"a/1.1.0\";\n"),
+	                    "contents": tg.blob("export default () => \"d/1.1.0\";\n"),
 	                  }),
 	                }),
-	                "tag": "a/1.1.0",
+	                "tag": "d/1.1.0",
 	              },
 	            },
 	          }),
@@ -1778,14 +1722,16 @@ async fn tag_diamond_dependency() {
 	            "node": 2
 	          },
 	          "options": {
+	            "id": "dir_01k1db0n6pvqdgg45hsx3ye27kt0eq4ph0vqkm4vzjr68q3nhgr1z0",
 	            "tag": "b"
 	          }
 	        },
 	        "c": {
 	          "item": {
-	            "node": 5
+	            "node": 3
 	          },
 	          "options": {
+	            "id": "dir_01e0e0gq059zrsxbmpaby39px7650208ra9w97y42kvz1fmqx2vhsg",
 	            "tag": "c"
 	          }
 	        }
@@ -1795,51 +1741,48 @@ async fn tag_diamond_dependency() {
 	      "kind": "directory",
 	      "entries": {
 	        "tangram.ts": {
-	          "node": 3
+	          "node": 4
 	        }
-	      }
-	    },
-	    {
-	      "kind": "file",
-	      "contents": "blb_01dra984m32dp47yvrynmkcxzcxmgmptmgnyhb8xk6th2wk3wgkae0",
-	      "dependencies": {
-	        "a/^1": {
-	          "item": {
-	            "node": 4
-	          },
-	          "options": {
-	            "tag": "a/1.1.0"
-	          }
-	        }
-	      }
-	    },
-	    {
-	      "kind": "directory",
-	      "entries": {
-	        "tangram.ts": "fil_01es7rz5mgcv9zas8dnavagvd3j80nz8vzvgar41fw7xt2b66qa3j0"
 	      }
 	    },
 	    {
 	      "kind": "directory",
 	      "entries": {
 	        "tangram.ts": {
-	          "node": 6
+	          "node": 5
 	        }
 	      }
 	    },
 	    {
 	      "kind": "file",
-	      "contents": "blb_01xv04mkcazz11b2wsjy0kp279772f9wb2gbsn2maer3qxhbdvvppg",
 	      "dependencies": {
-	        "a/^1.0": {
+	        "d/^1": {
 	          "item": {
-	            "node": 4
+	            "node": 6
 	          },
 	          "options": {
-	            "tag": "a/1.1.0"
+	            "id": "dir_013abfbwwpgm1bnwsnqwq70x00zpq2kp7e5x2gmhdkbwnydzbtheb0",
+	            "tag": "d/1.1.0"
 	          }
 	        }
 	      }
+	    },
+	    {
+	      "kind": "file",
+	      "dependencies": {
+	        "d/^1.0": {
+	          "item": {
+	            "node": 6
+	          },
+	          "options": {
+	            "id": "dir_013abfbwwpgm1bnwsnqwq70x00zpq2kp7e5x2gmhdkbwnydzbtheb0",
+	            "tag": "d/1.1.0"
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -1894,7 +1837,7 @@ async fn tagged_package_reproducible_checkin() {
 
 	// Create an artifact.
 	let artifact: temp::Artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			import * as foo from "foo";
 		"#),
 	}
@@ -1937,7 +1880,7 @@ async fn tag_dependencies_after_clean() {
 
 	// Publish the referent to server 1.
 	let referent = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			export default () => "foo";
 		"#)
 	};
@@ -1957,7 +1900,7 @@ async fn tag_dependencies_after_clean() {
 
 	// Checkin the referrer to server 2.
 	let referrer: temp::Artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			import foo from "foo";
 			export default () => foo();
 		"#)
@@ -2000,7 +1943,7 @@ async fn update_tagged_package() {
 	let server = Server::new(TG).await.unwrap();
 
 	let old: temp::Artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			export default () => "a/1.0.0";
 		"#),
 	}
@@ -2019,7 +1962,7 @@ async fn update_tagged_package() {
 	assert_success!(output);
 
 	let local: temp::Artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			import a from "a/^1";
 			export default () => tg.run(a);
 		"#),
@@ -2079,7 +2022,7 @@ async fn update_tagged_package() {
 	"#);
 
 	let new: temp::Artifact = temp::directory! {
-		"tangram.ts" => indoc::indoc!(r#"
+		"tangram.ts" => indoc!(r#"
 			export default () => "a/1.1.0";
 		"#),
 	}

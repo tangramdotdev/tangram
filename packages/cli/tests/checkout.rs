@@ -80,12 +80,17 @@ async fn executable_file() {
 async fn file_with_tag_dependency() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default () => {
+			export default async () => {
+				let bar = await tg.file("bar");
 				return tg.file({
 					contents: "foo",
 					dependencies: {
 						"bar": {
-							item: tg.file("bar")
+							item: bar,
+							options: {
+								id: bar.id,
+								tag: "bar"
+							}
 						} 
 					}
 				})
@@ -101,7 +106,7 @@ async fn file_with_tag_dependency() {
 	  "contents": "foo",
 	  "xattrs": {
 	    "user.tangram.dependencies": "[\"bar\"]",
-	    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"}}}]}"
+	    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":{\"node\":1},\"options\":{\"id\":\"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\",\"tag\":\"bar\"}}}},{\"kind\":\"file\"}]}"
 	  }
 	}
 	"#);
@@ -211,13 +216,18 @@ async fn symlink_shared_target() {
 async fn directory_with_file_with_dependency() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
-			export default () => {
+			export default async () => {
+				let bar = await tg.file("bar");
 				return tg.directory({
 					"foo": tg.file({
-						contents: "foo", 
+						contents: "foo",
 						dependencies: {
 							"bar": {
-								item: tg.file("bar") 
+								item: bar,
+								options: {
+									id: bar.id,
+									tag: "bar"
+								}
 							}
 						}
 					}) 
@@ -255,7 +265,7 @@ async fn directory_with_file_with_dependency() {
 	    },
 	    "tangram.lock": {
 	      "kind": "file",
-	      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": {\n          \"node\": 1\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": \"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\"\n        }\n      }\n    }\n  ]\n}"
+	      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": {\n          \"node\": 1\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"bar\": {\n          \"item\": {\n            \"node\": 2\n          },\n          \"options\": {\n            \"id\": \"fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg\",\n            \"tag\": \"bar\"\n          }\n        }\n      }\n    },\n    {\n      \"kind\": \"file\"\n    }\n  ]\n}"
 	    }
 	  }
 	}
@@ -281,9 +291,18 @@ async fn directory_with_file_with_dependency() {
 	    {
 	      "dependencies": {
 	        "bar": {
-	          "item": "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg"
+	          "item": {
+	            "node": 2
+	          },
+	          "options": {
+	            "id": "fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg",
+	            "tag": "bar"
+	          }
 	        }
 	      },
+	      "kind": "file"
+	    },
+	    {
 	      "kind": "file"
 	    }
 	  ]
@@ -353,7 +372,12 @@ async fn directory_with_file_with_id_dependency_with_tag_dependency() {
 					"foo": tg.file({
 						contents: "foo", 
 						dependencies: {
-							[dependency.id]: dependency,
+							[dependency.id]: {
+								item: dependency,
+								options: {
+									id: dependency.id
+								}
+							},
 						},
 					}) 
 				})
@@ -394,52 +418,8 @@ async fn directory_with_file_with_id_dependency_with_tag_dependency() {
 	      "xattrs": {
 	        "user.tangram.dependencies": "[\"fil_015he7ezx34nn8v07bjhetjtd6d08wvtz12zdtzrjejea66fq2fwjg\"]"
 	      }
-	    },
-	    "tangram.lock": {
-	      "kind": "file",
-	      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": {\n          \"node\": 1\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"fil_015he7ezx34nn8v07bjhetjtd6d08wvtz12zdtzrjejea66fq2fwjg\": {\n          \"item\": {\n            \"node\": 2\n          }\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"contents\": \"blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg\",\n      \"dependencies\": {\n        \"baz\": {\n          \"item\": \"fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg\"\n        }\n      }\n    }\n  ]\n}"
 	    }
 	  }
-	}
-	"#);
-	let lock = artifact
-		.unwrap_directory_ref()
-		.entries
-		.get("tangram.lock")
-		.unwrap()
-		.unwrap_file_ref();
-	let lock = serde_json::from_str::<serde_json::Value>(&lock.contents).unwrap();
-	assert_json_snapshot!(lock, @r#"
-	{
-	  "nodes": [
-	    {
-	      "entries": {
-	        "foo": {
-	          "node": 1
-	        }
-	      },
-	      "kind": "directory"
-	    },
-	    {
-	      "dependencies": {
-	        "fil_015he7ezx34nn8v07bjhetjtd6d08wvtz12zdtzrjejea66fq2fwjg": {
-	          "item": {
-	            "node": 2
-	          }
-	        }
-	      },
-	      "kind": "file"
-	    },
-	    {
-	      "contents": "blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg",
-	      "dependencies": {
-	        "baz": {
-	          "item": "fil_01jbw9dcbd06t7zn44bgfvq6radajd68mpjqz2jf1xhypnakvs2tzg"
-	        }
-	      },
-	      "kind": "file"
-	    }
-	  ]
 	}
 	"#);
 }

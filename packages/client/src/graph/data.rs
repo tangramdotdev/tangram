@@ -124,8 +124,8 @@ pub struct Symlink {
 	tangram_serialize::Serialize,
 )]
 #[serde(untagged)]
-#[try_unwrap(ref)]
-#[unwrap(ref)]
+#[try_unwrap(ref, ref_mut)]
+#[unwrap(ref, ref_mut)]
 pub enum Edge<T> {
 	#[tangram_serialize(id = 0)]
 	Reference(Reference),

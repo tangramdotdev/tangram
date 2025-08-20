@@ -1359,6 +1359,7 @@ declare namespace tg {
 
 	export namespace Referent {
 		export type Options = {
+			id?: tg.Object.Id | undefined;
 			path?: string | undefined;
 			tag?: tg.Tag | undefined;
 		};

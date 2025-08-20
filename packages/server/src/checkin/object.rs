@@ -1,209 +1,280 @@
-use super::state::{Blob, GraphObject, Object, State, Variant};
-use crate::Server;
-use futures::{StreamExt, TryStreamExt as _, stream};
-use std::collections::BTreeMap;
-use tangram_client as tg;
-use tangram_either::Either;
+use {
+	super::state::{Object, State, Variant},
+	crate::Server,
+	indexmap::IndexMap,
+	num::ToPrimitive,
+	std::path::Path,
+	tangram_client as tg,
+	tangram_either::Either,
+};
 
 impl Server {
-	pub(super) async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {
-		let server = self.clone();
-		let nodes = state
-			.graph
-			.nodes
-			.iter()
-			.enumerate()
-			.filter_map(|(index, node)| {
-				if !node.variant.is_file() {
-					return None;
-				}
-				let path = node.path.clone()?;
-				Some((index, path))
-			})
-			.collect::<Vec<_>>();
-		let blobs = stream::iter(nodes)
-			.map(|(index, path)| {
-				let server = server.clone();
-				async move {
-					let mut file = tokio::fs::File::open(path.as_ref()).await.map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
-					)?;
-					let blob = server.create_blob_inner(&mut file, None).await.map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
-					)?;
-					Ok::<_, tg::Error>((index, blob))
-				}
-			})
-			.buffer_unordered(8)
-			.try_collect::<Vec<_>>()
-			.await?;
-		for (index, blob) in blobs {
-			state.graph.nodes[index]
-				.variant
-				.unwrap_file_mut()
-				.blob
-				.replace(Blob::Create(blob));
-		}
-		Ok(())
-	}
-
 	pub(super) fn checkin_create_objects(state: &mut State) -> tg::Result<()> {
-		// Separate into sccs.
-		let sccs = petgraph::algo::tarjan_scc(&state.graph);
-		for mut scc in sccs {
-			// Special case: no cycles.
-			if scc.len() == 1 {
-				Self::create_normal_object(state, scc[0])?;
-				continue;
+		// Create the objects.
+		state.objects = Some(IndexMap::new());
+
+		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
+		let mut sccs = petgraph::algo::tarjan_scc(&state.graph);
+		for scc in &mut sccs {
+			if scc.len() > 1 {
+				scc.reverse();
 			}
-			scc.reverse();
-
-			let graph_indices = scc
-				.iter()
-				.copied()
-				.enumerate()
-				.map(|(local, global)| (global, local))
-				.collect::<BTreeMap<_, _>>();
-
-			// Create the graph object.
-			let mut graph = tg::graph::Data {
-				nodes: Vec::with_capacity(scc.len()),
-			};
-			for index in &scc {
-				Self::add_graph_node(state, &graph_indices, &mut graph, *index)?;
-			}
-
-			// Create the graph obejct.
-			let data = graph.serialize().unwrap();
-			let id = tg::graph::Id::new(&data);
-			let object = GraphObject {
-				id,
-				data: graph,
-				bytes: data,
-			};
-
-			// Create the objects.
-			for (local, global) in scc.iter().copied().enumerate() {
-				let (kind, data) = match &state.graph.nodes[global].variant {
-					Variant::Directory(_) => {
-						let kind = tg::object::Kind::Directory;
-						let data =
-							tg::directory::data::Directory::Reference(tg::graph::data::Reference {
-								graph: Some(object.id.clone()),
-								node: local,
-							});
-						let data = tg::object::Data::from(data);
-						(kind, data)
-					},
-					Variant::File(_) => {
-						let kind = tg::object::Kind::File;
-						let data = tg::file::data::File::Reference(tg::graph::data::Reference {
-							graph: Some(object.id.clone()),
-							node: local,
-						});
-						let data = tg::object::Data::from(data);
-						(kind, data)
-					},
-					Variant::Symlink(_) => {
-						let kind = tg::object::Kind::Symlink;
-						let data =
-							tg::symlink::data::Symlink::Reference(tg::graph::data::Reference {
-								graph: Some(object.id.clone()),
-								node: local,
-							});
-						let data = tg::object::Data::from(data);
-						(kind, data)
-					},
-					Variant::Object => continue,
-				};
-
-				// Create the object.
-				let bytes = data
-					.serialize()
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-				let id = tg::object::Id::new(kind, &bytes);
-				let object = Object {
-					bytes: Some(bytes),
-					data: Some(data),
-					id,
-				};
-				state.graph.nodes[global].object.replace(object);
-			}
-
-			// Store the graph.
-			state.graph_objects.push(object);
 		}
+
+		// Create objects for each strongly connected component. If the strongly connected component has only one node, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
+		for scc in &sccs {
+			if scc.len() == 1 {
+				let index = scc[0];
+				Self::checkin_create_node_artifact(state, index)?;
+			} else {
+				Self::checkin_create_graph(state, scc)?;
+			}
+		}
+
+		// Create objects for the blobs.
+		let mut blobs = Self::checkin_create_blob_objects(state, &sccs);
+		blobs.extend(state.objects.take().unwrap());
+		state.objects.replace(blobs);
+
 		Ok(())
 	}
 
-	fn add_graph_node(
-		state: &mut State,
-		graph_indices: &BTreeMap<usize, usize>,
-		graph: &mut tg::graph::Data,
-		index: usize,
-	) -> tg::Result<()> {
-		let node = match &state.graph.nodes[index].variant {
+	fn checkin_create_node_artifact(state: &mut State, index: usize) -> tg::Result<()> {
+		// Get the node.
+		let node = &state.graph.nodes[index];
+
+		// Create the object.
+		let data = match &node.variant {
 			Variant::Directory(directory) => {
 				let entries = directory
 					.entries
 					.iter()
-					.map(|(name, index)| {
+					.map(|(name, edge)| {
 						let name = name.clone();
-						let item = graph_indices
-							.get(index)
-							.copied()
-							.map(|node| {
-								tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-									graph: None,
-									node,
-								})
-							})
-							.or_else(|| {
-								state.graph.nodes[*index].object.as_ref().map(|object| {
-									tg::graph::data::Edge::Object(
-										object.id.clone().try_into().unwrap(),
-									)
-								})
-							})
-							.unwrap();
-						(name, item)
+						let edge = match edge {
+							tg::graph::data::Edge::Reference(reference) => {
+								if reference.graph.is_none() {
+									let node = &state.graph.nodes[reference.node];
+									let id = node.object_id.as_ref().unwrap().clone();
+									let id = id
+										.try_into()
+										.map_err(|_| tg::error!("expected an artifact"))?;
+									tg::graph::data::Edge::Object(id)
+								} else {
+									let reference = reference.clone();
+									tg::graph::data::Edge::Reference(reference)
+								}
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
+						Ok::<_, tg::Error>((name, edge))
 					})
-					.collect();
-				let data = tg::graph::data::Directory { entries };
-				tg::graph::data::Node::Directory(data)
+					.collect::<tg::Result<_>>()?;
+				let data = tg::directory::data::Node { entries };
+				tg::directory::Data::Node(data).into()
 			},
 			Variant::File(file) => {
-				let contents = match file.blob.as_ref().unwrap() {
-					Blob::Create(blob) => blob.id.clone(),
-					Blob::Id(id) => id.clone(),
+				let contents = file
+					.contents
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected the blob to be set"))?;
+				let contents = match contents {
+					Either::Left(blob) => blob.id.clone(),
+					Either::Right(id) => id.clone(),
 				};
 				let dependencies = file
 					.dependencies
 					.iter()
 					.map(|(reference, referent)| {
-						let referent = referent
-							.as_ref()
-							.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
-						let item: tangram_client::graph::data::Edge<tangram_client::object::Id> =
-							match referent.item() {
-								Either::Left(id) => tg::graph::data::Edge::Object(id.clone()),
-								Either::Right(index) => graph_indices
-									.get(index)
-									.copied()
-									.map(|node| {
+						let reference = reference.clone();
+						let referent = referent.as_ref().ok_or_else(
+							|| tg::error!(%reference, "expected the referent to be set"),
+						)?;
+						let edge = referent.item();
+						let edge = match edge {
+							tg::graph::data::Edge::Reference(reference) => {
+								if reference.graph.is_none() {
+									let node = &state.graph.nodes[reference.node];
+									let id = node.object_id.as_ref().unwrap().clone();
+									tg::graph::data::Edge::Object(id)
+								} else {
+									let reference = reference.clone();
+									tg::graph::data::Edge::Reference(reference)
+								}
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
+						let referent = referent.clone().map(|_| edge);
+						Ok::<_, tg::Error>((reference, referent))
+					})
+					.collect::<tg::Result<_>>()?;
+				let executable = file.executable;
+				let data = tg::file::data::Node {
+					contents: Some(contents),
+					dependencies,
+					executable,
+				};
+				tg::file::Data::Node(data).into()
+			},
+			Variant::Symlink(symlink) => {
+				let artifact = match &symlink.artifact {
+					Some(edge) => {
+						let edge = match edge {
+							tg::graph::data::Edge::Reference(reference) => {
+								if reference.graph.is_none() {
+									let node = &state.graph.nodes[reference.node];
+									let id = node.object_id.as_ref().unwrap().clone();
+									let id = id
+										.try_into()
+										.map_err(|_| tg::error!("expected an artifact"))?;
+									tg::graph::data::Edge::Object(id)
+								} else {
+									let reference = reference.clone();
+									tg::graph::data::Edge::Reference(reference)
+								}
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
+						Some(edge)
+					},
+					None => None,
+				};
+				let path = symlink.path.clone();
+				let data = tg::symlink::data::Node { artifact, path };
+				tg::symlink::Data::Node(data).into()
+			},
+		};
+		let (id, object) = Self::checkin_create_object(state, data)?;
+
+		// Add the object.
+		state.objects.as_mut().unwrap().insert(id.clone(), object);
+
+		// Update the node.
+		state.graph.nodes[index].object_id.replace(id.clone());
+
+		Ok(())
+	}
+
+	fn checkin_create_graph(state: &mut State, scc: &[usize]) -> tg::Result<()> {
+		// Create the nodes.
+		let mut nodes = Vec::with_capacity(scc.len());
+		for index in scc {
+			Self::checkin_create_graph_node(state, scc, &mut nodes, *index)?;
+		}
+
+		// Create the graph object.
+		let data = tg::graph::Data { nodes }.into();
+		let (id, object) = Self::checkin_create_object(state, data)?;
+		state.objects.as_mut().unwrap().insert(id.clone(), object);
+
+		// Create reference artifacts.
+		let id = tg::graph::Id::try_from(id).unwrap();
+		for (local, global) in scc.iter().copied().enumerate() {
+			Self::checkin_create_reference_artifact(state, &id, local, global)?;
+		}
+
+		Ok(())
+	}
+
+	fn checkin_create_graph_node(
+		state: &mut State,
+		scc: &[usize],
+		nodes: &mut Vec<tg::graph::data::Node>,
+		index: usize,
+	) -> tg::Result<()> {
+		let node = &state.graph.nodes[index];
+		let node = match &node.variant {
+			Variant::Directory(directory) => {
+				let entries = directory
+					.entries
+					.iter()
+					.map(|(name, edge)| {
+						let name = name.clone();
+						let edge = match edge {
+							tg::graph::data::Edge::Reference(reference) => {
+								if reference.graph.is_none() {
+									if let Some(node) =
+										scc.iter().position(|node| node == &reference.node)
+									{
 										tg::graph::data::Edge::Reference(
 											tg::graph::data::Reference { graph: None, node },
 										)
-									})
-									.or_else(|| {
-										state.graph.nodes[*index].object.as_ref().map(|object| {
-											tg::graph::data::Edge::Object(object.id.clone())
-										})
-									})
-									.unwrap(),
-							};
+									} else {
+										let node = &state.graph.nodes[reference.node];
+										let id = node.object_id.as_ref().unwrap().clone();
+										let id = id
+											.try_into()
+											.map_err(|_| tg::error!("expected an artifact"))?;
+										tg::graph::data::Edge::Object(id)
+									}
+								} else {
+									let reference = reference.clone();
+									tg::graph::data::Edge::Reference(reference)
+								}
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
+						Ok::<_, tg::Error>((name, edge))
+					})
+					.collect::<tg::Result<_>>()?;
+				let data = tg::graph::data::Directory { entries };
+				tg::graph::data::Node::Directory(data)
+			},
+			Variant::File(file) => {
+				let contents = file
+					.contents
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected the blob to be set"))?;
+				let contents = match contents {
+					Either::Left(blob) => blob.id.clone(),
+					Either::Right(id) => id.clone(),
+				};
+				let dependencies = file
+					.dependencies
+					.iter()
+					.map(|(reference, referent)| {
+						let referent = referent.as_ref().ok_or_else(
+							|| tg::error!(%reference, "expected the referent to be set"),
+						)?;
+						let edge = referent.item();
+						let edge = match edge {
+							tg::graph::data::Edge::Reference(reference) => {
+								if reference.graph.is_none() {
+									if let Some(node) =
+										scc.iter().position(|node| node == &reference.node)
+									{
+										tg::graph::data::Edge::Reference(
+											tg::graph::data::Reference { graph: None, node },
+										)
+									} else {
+										let node = &state.graph.nodes[reference.node];
+										let id = node.object_id.as_ref().unwrap().clone();
+										tg::graph::data::Edge::Object(id)
+									}
+								} else {
+									let reference = reference.clone();
+									tg::graph::data::Edge::Reference(reference)
+								}
+							},
+							tg::graph::data::Edge::Object(id) => {
+								let id = id.clone();
+								tg::graph::data::Edge::Object(id)
+							},
+						};
 						let referent = tg::Referent {
-							item,
+							item: edge,
 							options: referent.options.clone(),
 						};
 						Ok::<_, tg::Error>((reference.clone(), referent))
@@ -218,150 +289,206 @@ impl Server {
 				tg::graph::data::Node::File(data)
 			},
 			Variant::Symlink(symlink) => {
-				let artifact = match &symlink.artifact {
-					Some(Either::Left(artifact)) => {
-						Some(tg::graph::data::Edge::Object(artifact.clone()))
-					},
-					Some(Either::Right(index)) => Some(
-						graph_indices
-							.get(index)
-							.copied()
-							.map(|node| {
-								tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-									graph: None,
-									node,
-								})
-							})
-							.or_else(|| {
-								state.graph.nodes[*index].object.as_ref().map(|object| {
-									tg::graph::data::Edge::Object(
-										object.id.clone().try_into().unwrap(),
-									)
-								})
-							})
-							.unwrap(),
-					),
-					None => None,
+				let artifact = if let Some(edge) = &symlink.artifact {
+					let edge = match edge {
+						tg::graph::data::Edge::Reference(reference) => {
+							if reference.graph.is_none() {
+								if let Some(node) =
+									scc.iter().position(|node| node == &reference.node)
+								{
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph: None,
+										node,
+									})
+								} else {
+									let node = &state.graph.nodes[reference.node];
+									let id = node.object_id.as_ref().unwrap().clone();
+									let id = id
+										.try_into()
+										.map_err(|_| tg::error!("expected an artifact"))?;
+									tg::graph::data::Edge::Object(id)
+								}
+							} else {
+								let reference = reference.clone();
+								tg::graph::data::Edge::Reference(reference)
+							}
+						},
+						tg::graph::data::Edge::Object(id) => {
+							let id = id.clone();
+							tg::graph::data::Edge::Object(id)
+						},
+					};
+					Some(edge)
+				} else {
+					None
 				};
 				let path = symlink.path.clone();
-				tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, path })
-			},
-			Variant::Object => {
-				return Ok(());
+				let data = tg::graph::data::Symlink { artifact, path };
+				tg::graph::data::Node::Symlink(data)
 			},
 		};
-		graph.nodes.push(node);
+		nodes.push(node);
 		Ok(())
 	}
 
-	fn create_normal_object(state: &mut State, index: usize) -> tg::Result<()> {
-		// Create an object for the node.
-		let (kind, data) = match &state.graph.nodes[index].variant {
-			Variant::Directory(directory) => {
-				let kind = tg::object::Kind::Directory;
-				let entries = directory
-					.entries
-					.iter()
-					.map(|(name, index)| {
-						let name = name.clone();
-						let id = state.graph.nodes[*index]
-							.object
-							.as_ref()
-							.unwrap()
-							.id
-							.clone()
-							.try_into()
-							.unwrap();
-						let edge = tg::graph::data::Edge::Object(id);
-						(name, edge)
-					})
-					.collect();
-				let data = tg::directory::Data::Node(tg::directory::data::Node { entries });
-				let data = tg::object::Data::from(data);
-				(kind, data)
-			},
-			Variant::File(file) => {
-				let kind = tg::object::Kind::File;
-				let contents = match file.blob.as_ref().unwrap() {
-					Blob::Create(blob) => blob.id.clone(),
-					Blob::Id(id) => id.clone(),
+	fn checkin_create_reference_artifact(
+		state: &mut State,
+		graph: &tg::graph::Id,
+		local: usize,
+		global: usize,
+	) -> tg::Result<()> {
+		let node = &state.graph.nodes[global];
+		let data = match &node.variant {
+			Variant::Directory(_) => {
+				let reference = tg::graph::data::Reference {
+					graph: Some(graph.clone()),
+					node: local,
 				};
-				let dependencies = file
-					.dependencies
-					.iter()
-					.map(|(reference, referent)| {
-						let referent = referent
-							.as_ref()
-							.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
-						let item = match referent.item() {
-							Either::Left(id) => id.clone(),
-							Either::Right(index) => state.graph.nodes[*index]
-								.object
-								.as_ref()
-								.unwrap()
-								.id
-								.clone(),
-						};
-						let item = tg::graph::data::Edge::Object(item);
-						let referent = referent.clone().map(|_| item);
-						Ok::<_, tg::Error>((reference.clone(), referent))
-					})
-					.collect::<tg::Result<_>>()?;
-				let executable = file.executable;
-				let data = tg::file::Data::Node(tg::file::data::Node {
-					contents: Some(contents),
-					dependencies,
-					executable,
-				});
-				let data = tg::object::Data::from(data);
-				(kind, data)
+				tg::directory::Data::Reference(reference).into()
 			},
-			Variant::Symlink(symlink) => {
-				let kind = tg::object::Kind::Symlink;
-				let artifact = match &symlink.artifact {
-					Some(Either::Left(artifact)) => Some(artifact.clone()),
-					Some(Either::Right(index)) => Some(
-						state.graph.nodes[*index]
-							.object
-							.as_ref()
-							.map(|object| object.id.clone())
-							.unwrap()
-							.try_into()
-							.unwrap(),
-					),
-					None => None,
+			Variant::File(_) => {
+				let reference = tg::graph::data::Reference {
+					graph: Some(graph.clone()),
+					node: local,
 				};
-				let artifact = artifact.map(tg::graph::data::Edge::Object);
-				let path = symlink.path.clone();
-				let data = tg::object::Data::from(tg::symlink::data::Symlink::Node(
-					tg::symlink::data::Node { artifact, path },
-				));
-				(kind, data)
+				tg::file::Data::Reference(reference).into()
 			},
-			Variant::Object => {
-				return Ok(());
+			Variant::Symlink(_) => {
+				let reference = tg::graph::data::Reference {
+					graph: Some(graph.clone()),
+					node: local,
+				};
+				tg::symlink::Data::Reference(reference).into()
 			},
 		};
+		let (id, object) = Self::checkin_create_object(state, data)?;
+		state.objects.as_mut().unwrap().insert(id.clone(), object);
+		state.graph.nodes[global].object_id.replace(id);
+		Ok(())
+	}
 
-		// Create the object.
+	fn checkin_create_object(
+		state: &State,
+		data: tg::object::Data,
+	) -> tg::Result<(tg::object::Id, Object)> {
+		let kind = data.kind();
 		let bytes = data
 			.serialize()
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 		let id = tg::object::Id::new(kind, &bytes);
+		let children = data.children().map(|id| {
+			if let Ok(id) = id.clone().try_unwrap_blob()
+				&& let Some(blob) = state.blobs.get(&id)
+				&& id == blob.id
+			{
+				let complete = true;
+				let metadata = Some(tg::object::Metadata {
+					count: Some(blob.count),
+					depth: Some(blob.depth),
+					weight: Some(blob.weight),
+				});
+				(complete, metadata)
+			} else if let Some(object) = state.objects.as_ref().unwrap().get(&id) {
+				let complete = object.complete;
+				let metadata = object.metadata.clone();
+				(complete, metadata)
+			} else {
+				(false, None)
+			}
+		});
+		let mut complete = true;
+		let mut metadata = tg::object::Metadata {
+			count: Some(1),
+			depth: Some(1),
+			weight: Some(bytes.len().to_u64().unwrap()),
+		};
+		for (child_complete, child_metadata) in children {
+			complete = complete && child_complete;
+			metadata.count = metadata
+				.count
+				.zip(child_metadata.as_ref().and_then(|metadata| metadata.count))
+				.map(|(a, b)| a + b);
+			metadata.depth = metadata
+				.depth
+				.zip(child_metadata.as_ref().and_then(|metadata| metadata.depth))
+				.map(|(a, b)| a.max(1 + b));
+			metadata.weight = metadata
+				.weight
+				.zip(child_metadata.as_ref().and_then(|metadata| metadata.weight))
+				.map(|(a, b)| a + b);
+		}
+		let object = Object {
+			bytes: Some(bytes.clone()),
+			cache_reference: None,
+			complete,
+			data: Some(data),
+			id: id.clone(),
+			metadata: Some(metadata),
+			size: bytes.len().to_u64().unwrap(),
+		};
+		Ok((id, object))
+	}
 
-		// If this node is an artifacts path entry, then ensure its ID matches.
-		if let Some(expected) = &state.graph.nodes[index].artifacts_entry {
-			if expected != &id {
-				return Err(tg::error!(%expected, %found = id, "artifacts directory is corrupted"));
+	fn checkin_create_blob_objects(
+		state: &mut State,
+		sccs: &Vec<Vec<usize>>,
+	) -> IndexMap<tg::object::Id, Object> {
+		let root = state.graph.nodes[0].object_id.as_ref().unwrap().clone();
+		let mut objects = IndexMap::default();
+		for scc in sccs {
+			for index in scc {
+				let node = &state.graph.nodes[*index];
+				let Variant::File(file) = &node.variant else {
+					continue;
+				};
+				let Some(Either::Left(blob)) = &file.contents else {
+					continue;
+				};
+				let mut stack = vec![blob];
+				while let Some(blob) = stack.pop() {
+					let (artifact, path) = if state.arg.destructive {
+						let path = node
+							.path
+							.as_ref()
+							.unwrap()
+							.strip_prefix(&state.root_path)
+							.unwrap()
+							.to_owned();
+						let path = if path == Path::new("") {
+							None
+						} else {
+							Some(path)
+						};
+						(root.clone().try_into().unwrap(), path)
+					} else {
+						let id = node.object_id.as_ref().unwrap().clone().try_into().unwrap();
+						(id, None)
+					};
+					let cache_reference = crate::store::CacheReference {
+						artifact,
+						path,
+						position: blob.position,
+						length: blob.length,
+					};
+					let metadata = tg::object::Metadata {
+						count: Some(blob.count),
+						depth: Some(blob.depth),
+						weight: Some(blob.weight),
+					};
+					let object = Object {
+						bytes: blob.bytes.clone(),
+						cache_reference: Some(cache_reference),
+						complete: true,
+						data: blob.data.clone().map(Into::into),
+						id: blob.id.clone().into(),
+						metadata: Some(metadata),
+						size: blob.size,
+					};
+					objects.insert(object.id.clone(), object);
+					stack.extend(&blob.children);
+				}
 			}
 		}
-
-		let object = Object {
-			bytes: Some(bytes),
-			data: Some(data),
-			id,
-		};
-		state.graph.nodes[index].object.replace(object);
-		Ok(())
+		objects
 	}
 }

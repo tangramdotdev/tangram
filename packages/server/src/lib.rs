@@ -46,7 +46,6 @@ mod health;
 mod http;
 mod import;
 mod index;
-mod lock;
 mod messenger;
 mod module;
 mod object;

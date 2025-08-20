@@ -13,11 +13,9 @@ pub struct Arg {
 	pub mounts: Vec<tg::command::Mount>,
 	pub network: bool,
 	pub parent: Option<tg::process::Id>,
-	pub path: Option<tg::PathBuf>,
 	pub remote: Option<String>,
 	pub retry: bool,
 	pub stdin: Option<tg::Blob>,
-	pub tag: Option<tg::Tag>,
 	pub user: Option<String>,
 }
 
@@ -40,11 +38,7 @@ where
 	builder = builder.user(arg.user);
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
-	let options = tg::referent::Options {
-		path: arg.path,
-		tag: arg.tag,
-	};
-	let command = Some(tg::Referent::new(command_id, options));
+	let command = Some(tg::Referent::with_item(command_id));
 	if arg.network && arg.checksum.is_none() {
 		return Err(tg::error!(
 			"a checksum is required to build with network enabled"

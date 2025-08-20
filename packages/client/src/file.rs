@@ -12,8 +12,8 @@ pub mod handle;
 pub mod id;
 pub mod object;
 
-/// The extended attribute name used to store the lock.
-pub const XATTR_LOCK_NAME: &str = "user.tangram.lock";
+/// The extended attribute name of a lockattr.
+pub const LOCKATTR_XATTR_NAME: &str = "user.tangram.lock";
 
-/// The extended attribute name used to store file dependencies.
-pub const XATTR_DEPENDENCIES_NAME: &str = "user.tangram.dependencies";
+/// The extended attribute name for dependencies.
+pub const DEPENDENCIES_XATTR_NAME: &str = "user.tangram.dependencies";

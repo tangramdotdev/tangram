@@ -1,4 +1,4 @@
-use super::CacheReference;
+use super::{CacheReference, DeleteArg, PutArg};
 use bytes::Bytes;
 use dashmap::DashMap;
 use num::ToPrimitive as _;
@@ -53,22 +53,22 @@ impl Memory {
 		self.0.insert(arg.id, entry);
 	}
 
-	pub fn put_batch(&self, arg: super::PutBatchArg) {
-		for (id, bytes, cache_reference) in arg.objects {
-			self.put(super::PutArg {
-				id,
-				bytes,
-				touched_at: arg.touched_at,
-				cache_reference,
-			});
+	pub fn put_batch(&self, args: Vec<PutArg>) {
+		for arg in args {
+			self.put(arg);
 		}
 	}
 
-	pub fn delete_batch(&self, arg: super::DeleteBatchArg) {
-		for id in arg.ids {
-			self.0.remove_if(&id, |_, entry| {
-				entry.touched_at >= arg.now - arg.ttl.to_i64().unwrap()
-			});
+	#[allow(clippy::needless_pass_by_value)]
+	pub fn delete(&self, arg: DeleteArg) {
+		self.0.remove_if(&arg.id, |_, entry| {
+			entry.touched_at >= arg.now - arg.ttl.to_i64().unwrap()
+		});
+	}
+
+	pub fn delete_batch(&self, args: Vec<DeleteArg>) {
+		for arg in args {
+			self.delete(arg);
 		}
 	}
 }

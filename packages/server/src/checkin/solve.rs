@@ -1,705 +1,665 @@
-use super::state::{Blob, Directory, File, Graph, Node, Object, Symlink, Variant};
-use crate::{Server, lock::Lock};
-use std::{
-	collections::BTreeMap,
-	path::{Path, PathBuf},
+use {
+	crate::{
+		Server,
+		checkin::state::{Directory, File, Graph, Node, State, Symlink, Variant},
+	},
+	tangram_client::{self as tg, prelude::*},
+	tangram_either::Either,
 };
-use tangram_client as tg;
-use tangram_either::Either;
 
-#[derive(Clone, Debug)]
-struct State<'a> {
-	arg: &'a tg::checkin::Arg,
-	artifacts_path: &'a Path,
-	lock: Option<&'a Lock>,
-	packages: im::HashMap<String, tg::Referent<usize>>,
-	errored: bool,
-	graph: Graph,
-	queue: im::Vector<Unresolved>,
+#[derive(Clone)]
+struct Checkpoint<'a> {
 	candidates: Option<im::Vector<Candidate>>,
-	visited: im::HashSet<Unresolved>,
+	graph: Graph,
+	graphs: im::HashMap<tg::graph::Id, usize, fnv::FnvBuildHasher>,
+	ids: im::HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
+	queue: im::Vector<Item>,
+	state: &'a State,
+	tags: im::HashMap<tg::Tag, tg::Referent<usize>, fnv::FnvBuildHasher>,
+	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Candidate {
-	lock_node: Option<usize>,
-	object: tg::Object,
-	path: Option<PathBuf>,
+	object: tg::object::Id,
 	tag: tg::Tag,
-	unify: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Unresolved {
-	reference: tg::Reference,
-	src: usize,
-	dst: Option<usize>,
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct Item {
+	node: usize,
+	variant: ItemVariant,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+enum ItemVariant {
+	DirectoryEntry(String),
+	FileDependency(tg::Reference),
+	SymlinkArtifact,
 }
 
 impl Server {
-	pub(super) async fn checkin_solve(&self, state: &mut super::State) -> tg::Result<()> {
-		// Copy the current state of the graph.
-		let graph = state.graph.clone();
-
-		// Queue up a list of edges to solve, from the root.
-		let queue = graph.unresolved(0);
-
-		// Create the current state.
-		let mut current = State {
-			arg: &state.arg,
-			artifacts_path: state.artifacts_path.as_ref(),
-			lock: state.lock.as_ref(),
-			packages: im::HashMap::new(),
-			errored: false,
-			graph,
-			queue,
-			candidates: None,
-			visited: im::HashSet::new(),
-		};
-
-		// Create the checkpoint history.
+	pub(super) async fn checkin_solve(&self, state: &mut State) -> tg::Result<()> {
+		// Create the checkpoints.
 		let mut checkpoints = Vec::new();
 
+		// Create the first checkpoint.
+		let graph = state.graph.clone();
+		let mut checkpoint = Checkpoint {
+			candidates: None,
+			graph,
+			graphs: im::HashMap::default(),
+			ids: im::HashMap::default(),
+			queue: im::Vector::new(),
+			state,
+			tags: im::HashMap::default(),
+			visited: im::HashSet::default(),
+		};
+		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, 0);
+
 		// Solve.
-		while let Some(unresolved) = current.queue.pop_front() {
-			self.walk_edge(&mut checkpoints, &mut current, &state.progress, unresolved)
-				.await;
-			current.candidates.take();
+		while let Some(item) = checkpoint.queue.pop_front() {
+			self.checkin_solve_visit_item(&mut checkpoints, &mut checkpoint, item)
+				.await?;
 		}
 
-		// Validate.
-		if current.errored {
-			return Err(tg::error!("failed to solve dependencies"));
-		}
-
-		// Update state.
-		state.graph = current.graph;
+		// Use the graph from the checkpoint.
+		state.graph = checkpoint.graph;
 
 		Ok(())
 	}
 
-	async fn walk_edge<'a>(
+	async fn checkin_solve_visit_item<'a>(
 		&self,
-		checkpoints: &mut Vec<State<'a>>,
-		current: &mut State<'a>,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
-		unresolved: Unresolved,
-	) {
-		// Check if this edge has been visited.
-		if current.visited.contains(&unresolved) {
-			return;
-		}
-		current.visited.insert(unresolved.clone());
-
-		// Add child edges and continue.
-		if let Some(referent) = unresolved.dst {
-			current.queue.append(current.graph.unresolved(referent));
-			return;
+		checkpoints: &mut Vec<Checkpoint<'a>>,
+		checkpoint: &mut Checkpoint<'a>,
+		item: Item,
+	) -> tg::Result<()> {
+		// If the item has been visited, then return.
+		if checkpoint.visited.insert(item.clone()).is_some() {
+			return Ok(());
 		}
 
-		// Attempt to resolve the reference.
-		match self
-			.resolve_reference(
-				checkpoints,
-				current,
-				unresolved.src,
-				&unresolved.reference,
-				progress,
-			)
-			.await
-		{
-			Ok(resolved) => {
-				// Add the new node's unresolved edges to the queue.
-				if let Either::Right(node) = &resolved.item {
-					current.queue.append(current.graph.unresolved(*node));
-				}
-				// Update the file's dependencies.
-				current.graph.nodes[unresolved.src]
+		// If the item is solved, then add its destination's items to the queue and return.
+		if let Some(destination) = Self::checkin_solve_get_destination_for_item(checkpoint, &item) {
+			let destination = match destination {
+				tg::graph::data::Edge::Reference(reference) => Some(reference.node),
+				tg::graph::data::Edge::Object(id) => {
+					if let Ok(id) = tg::artifact::Id::try_from(id) {
+						let index = self.checkin_solve_add_node(checkpoint, &item, &id).await?;
+						let node = &mut checkpoint.graph.nodes[item.node];
+						match &item.variant {
+							ItemVariant::DirectoryEntry(name) => {
+								let edge =
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph: None,
+										node: index,
+									});
+								*node
+									.variant
+									.unwrap_directory_mut()
+									.entries
+									.get_mut(name)
+									.unwrap() = edge;
+							},
+							ItemVariant::FileDependency(reference) => {
+								let edge =
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph: None,
+										node: index,
+									});
+								node.variant
+									.unwrap_file_mut()
+									.dependencies
+									.get_mut(reference)
+									.unwrap()
+									.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
+									.item = edge.clone();
+							},
+							ItemVariant::SymlinkArtifact => {
+								let edge =
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph: None,
+										node: index,
+									});
+								*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() =
+									edge;
+							},
+						}
+						Some(index)
+					} else {
+						None
+					}
+				},
+			};
+			if let Some(destination) = destination {
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, destination);
+			}
+			return Ok(());
+		}
+
+		// Get the reference.
+		let reference = item
+			.variant
+			.try_unwrap_file_dependency_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a file dependency"))?
+			.clone();
+
+		// Handle different reference item types.
+		match reference.item() {
+			tg::reference::Item::Object(id) => {
+				self.checkin_solve_visit_item_with_object(
+					checkpoint,
+					item,
+					reference.clone(),
+					id.clone(),
+				)
+				.await
+			},
+
+			tg::reference::Item::Tag(pattern) => {
+				self.checkin_solve_visit_item_with_tag(
+					checkpoints,
+					checkpoint,
+					item,
+					reference.clone(),
+					pattern.clone(),
+				)
+				.await
+			},
+
+			_ => Err(tg::error!("unsupported reference item type")),
+		}
+	}
+
+	async fn checkin_solve_visit_item_with_object(
+		&self,
+		checkpoint: &mut Checkpoint<'_>,
+		item: Item,
+		reference: tg::Reference,
+		id: tg::object::Id,
+	) -> tg::Result<()> {
+		let Ok(id) = tg::artifact::Id::try_from(id) else {
+			return Ok(());
+		};
+
+		// Check if there is already a node for the object.
+		let index = if let Some(index) = checkpoint.ids.get(&id).copied() {
+			index
+		} else {
+			let index = self.checkin_solve_add_node(checkpoint, &item, &id).await?;
+			checkpoint.ids.insert(id.clone(), index);
+			index
+		};
+
+		// Create the edge.
+		let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+			graph: None,
+			node: index,
+		});
+		checkpoint.graph.nodes[item.node]
+			.variant
+			.unwrap_file_mut()
+			.dependencies
+			.get_mut(&reference)
+			.unwrap()
+			.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
+			.item = edge.clone();
+
+		// Enqueue the node's items.
+		Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
+
+		Ok(())
+	}
+
+	async fn checkin_solve_visit_item_with_tag<'a>(
+		&self,
+		checkpoints: &mut Vec<Checkpoint<'a>>,
+		checkpoint: &mut Checkpoint<'a>,
+		item: Item,
+		reference: tg::Reference,
+		pattern: tg::tag::Pattern,
+	) -> tg::Result<()> {
+		// Validate the pattern.
+		let valid = Self::checkin_solve_validate_pattern(&pattern);
+		if !valid {
+			return Err(tg::error!("invalid tag"));
+		}
+
+		// Get the tag.
+		let tag = if matches!(
+			pattern.components().last(),
+			Some(tg::tag::pattern::Component::Version(_) | tg::tag::pattern::Component::Wildcard)
+		) {
+			pattern.parent().unwrap().try_into().unwrap()
+		} else {
+			pattern.clone().try_into().unwrap()
+		};
+
+		// Solve the item.
+		let result = self
+			.checkin_solve_visit_item_with_tag_inner(checkpoint, &item, &tag, &pattern)
+			.await?;
+
+		// Handle the result.
+		match result {
+			Ok(referent) => {
+				// Set the tag.
+				checkpoint.tags.insert(tag, referent.clone());
+
+				// Checkpoint.
+				checkpoints.push(checkpoint.clone());
+
+				// Create the edge.
+				checkpoint.graph.nodes[item.node]
 					.variant
 					.unwrap_file_mut()
 					.dependencies
 					.iter_mut()
-					.find_map(|(reference, referent)| {
-						(reference == &unresolved.reference).then_some(referent)
-					})
+					.find_map(|(r, referent)| (r == &reference).then_some(referent))
 					.unwrap()
-					.replace(resolved);
-			},
-			Err(error) => {
-				// If there was an error, attempt to backtrack.
-				if let Some(previous) = try_backtrack(checkpoints, &unresolved) {
-					*current = previous;
-					return;
-				}
-				// If backtracking failed, issue an error.
-				progress.diagnostic(tg::Diagnostic {
-					location: None,
-					severity: tg::diagnostic::Severity::Error,
-					message: format!(
-						"could not resolve dependency {} {}: {error}",
-						current.graph.fmt_node(unresolved.src),
-						unresolved.reference,
-					),
-				});
+					.replace(referent.clone().map(|item| {
+						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							graph: None,
+							node: item,
+						})
+					}));
 
-				current.errored = true;
+				// Enqueue the node's items.
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
+			},
+
+			Err(()) => {
+				// Backtrack.
+				*checkpoint = Self::checkin_solve_backtrack(checkpoints, &tag)
+					.ok_or_else(|| tg::error!("backtracking failed"))?;
 			},
 		}
+
+		// Remove the candidates.
+		checkpoint.candidates.take();
+
+		Ok(())
 	}
 
-	async fn resolve_reference<'a>(
+	async fn checkin_solve_visit_item_with_tag_inner(
 		&self,
-		checkpoints: &mut Vec<State<'a>>,
-		current: &mut State<'a>,
-		referrer: usize,
-		reference: &tg::Reference,
-		_progress: &crate::progress::Handle<tg::checkin::Output>,
-	) -> tg::Result<tg::Referent<Either<tg::object::Id, usize>>> {
-		// Bail if the item is a path.
-		if reference.item().try_unwrap_path_ref().is_ok() {
-			return Err(tg::error!(%reference, "unexpected path reference"));
+		checkpoint: &mut Checkpoint<'_>,
+		item: &Item,
+		tag: &tg::Tag,
+		pattern: &tg::tag::Pattern,
+	) -> tg::Result<Result<tg::Referent<usize>, ()>> {
+		// Check if the tag is already set.
+		if let Some(referent) = checkpoint.tags.get(tag) {
+			return Ok(Ok(referent.clone()));
 		}
 
-		// Resolve objects directly.
-		if reference.item().try_unwrap_object_ref().is_ok() {
-			// If the reference does not name a tag or path, try to resolve it directly.
-			let referent = reference.get(self).await?;
-			let object = referent
-				.item
-				.as_ref()
-				.right()
-				.ok_or_else(|| tg::error!("expected an object"))?;
-			let node = self
-				.checkin_solve_visit_object(current, object, None, None, false)
+		// Get the candidates if necessary.
+		if checkpoint.candidates.is_none() {
+			let candidates = self
+				.checkin_solve_get_candidates(checkpoint, item, pattern)
 				.await?;
-			return Ok(tg::Referent::with_item(Either::Right(node)));
+			checkpoint.candidates.replace(candidates);
 		}
 
-		// Get the pattern.
-		let pattern = reference
-			.item()
-			.try_unwrap_tag_ref()
-			.map_err(|_| tg::error!("expected a tag pattern"))?;
-
-		// Initialize the set of objects to use.
-		if current.candidates.is_none() {
-			// Check if there is already a result.
-			if let Some(referent) = current.packages.get(pattern.name()) {
-				let tag = referent.tag().unwrap();
-				if pattern.matches(tag) {
-					return Ok(referent.clone().map(Either::Right));
-				}
-				return Err(tg::error!(%tag, %pattern, "incompatible versions"));
-			}
-
-			let remote = reference.options().remote.clone();
-
-			// List tags that match the pattern, if not locked.
-			let mut candidates: im::Vector<_> = if current.arg.locked {
-				im::Vector::new()
-			} else {
-				self.list_tags(tg::tag::list::Arg {
-					length: None,
-					pattern: pattern.clone(),
-					remote,
-					reverse: false,
-				})
-				.await
-				.map_err(|source| tg::error!(!source, %pattern, "failed to get tags"))?
-				.data
-				.into_iter()
-				.filter_map(|output| {
-					let object = output.item.right()?;
-					Some(Candidate {
-						object: tg::Object::with_id(object),
-						lock_node: None,
-						tag: output.tag,
-						path: None,
-						unify: true,
-					})
-				})
-				.collect()
-			};
-
-			// If there is a solution in the lock already, but it doesn't match the list of updates, give it the highest precedence
-			if let Some(candidate) = current.graph.nodes[referrer]
-				.lock_index
-				.and_then(|node| {
-					current.lock.unwrap().nodes[node]
-						.try_unwrap_file_ref()
-						.ok()?
-						.dependencies
-						.get(reference)
-				})
-				.and_then(|referent| {
-					let lock_node = referent
-						.item
-						.try_unwrap_reference_ref()
-						.ok()
-						.map(|reference| reference.node);
-					let version = referent.tag().cloned()?;
-
-					// Skip the lock version if any updates have been requested.
-					if current
-						.arg
-						.updates
-						.iter()
-						.any(|pattern| pattern.matches(&version))
-					{
-						return None;
-					}
-
-					let (object, unify) = match referent.item() {
-						tg::graph::data::Edge::Reference(reference) => {
-							let object = current.lock.unwrap().objects[reference.node].clone()?;
-							(object, true)
-						},
-						tg::graph::data::Edge::Object(object) => {
-							// If the object is referred to by ID within the lock, do not attempt to unify it.
-							let object = tg::Object::with_id(object.clone());
-							(object, false)
-						},
-					};
-					Some(Candidate {
-						lock_node,
-						object,
-						tag: version,
-						path: referent.path().cloned(),
-						unify,
-					})
-				}) {
-				candidates.push_back(candidate);
-			}
-
-			current.candidates.replace(candidates);
-		}
-
-		// Pick the next object.
-		let candidate = current
-			.candidates
-			.as_mut()
-			.unwrap()
-			.pop_back()
-			.ok_or_else(|| tg::error!(%reference, "tag does not exist"))?;
-
-		// Create the node.
-		let node = self
-			.checkin_solve_visit_object(
-				current,
-				&candidate.object,
-				candidate.lock_node,
-				Some(candidate.tag.clone()),
-				candidate.unify,
-			)
-			.await?;
-
-		let referent = tg::Referent {
-			item: node,
-			options: tg::referent::Options {
-				path: candidate.path.clone(),
-				tag: Some(candidate.tag.clone()),
-			},
+		// Get the next candidate.
+		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_back() else {
+			return Ok(Err(()));
 		};
 
-		// Update the list of solved packages.
-		current
-			.packages
-			.insert(candidate.tag.name().to_owned(), referent.clone());
+		// Add the node.
+		let id = candidate
+			.object
+			.try_into()
+			.map_err(|_| tg::error!("expected an artifact"))?;
+		let node = self.checkin_solve_add_node(checkpoint, item, &id).await?;
 
-		// Checkpoint.
-		checkpoints.push(current.clone());
+		// Create the referent.
+		let item = node;
+		let options = tg::referent::Options {
+			id: Some(id.into()),
+			tag: Some(candidate.tag),
+			..Default::default()
+		};
+		let referent = tg::Referent::new(item, options);
 
-		Ok(referent.map(Either::Right))
+		Ok(Ok(referent))
 	}
 
-	async fn checkin_solve_visit_object(
+	async fn checkin_solve_get_candidates(
 		&self,
-		state: &mut State<'_>,
-		object: &tg::Object,
-		lock_node: Option<usize>,
-		tag: Option<tg::Tag>,
-		unify: bool,
-	) -> tg::Result<usize> {
-		let mut visited = BTreeMap::new();
-		self.checkin_solve_visit_object_inner(
-			state,
-			object,
-			lock_node,
-			None,
-			None,
-			tag,
-			unify,
-			&mut visited,
-		)
-		.await
-	}
-
-	#[allow(clippy::too_many_arguments)]
-	async fn checkin_solve_visit_object_inner(
-		&self,
-		state: &mut State<'_>,
-		object: &tg::Object,
-		lock_node: Option<usize>,
-		root: Option<usize>,
-		subpath: Option<PathBuf>,
-		tag: Option<tg::Tag>,
-		unify: bool,
-		visited: &mut BTreeMap<tg::object::Id, usize>,
-	) -> tg::Result<usize> {
-		let id = object.id();
-
-		// Skip if already visited.
-		if let Some(id) = visited.get(&id) {
-			return Ok(*id);
-		}
-
-		// Get the object data.
-		let object_ = if unify
-			&& matches!(
-				&object,
-				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_)
-			) {
-			let data = object.data(self).await?;
-			let bytes = data.serialize()?;
-			Object {
-				id: id.clone(),
-				bytes: Some(bytes),
-				data: Some(data),
-			}
-		} else {
-			Object {
-				id: id.clone(),
-				bytes: None,
-				data: None,
-			}
-		};
-
-		// Create the variant.
-		let variant = match &object {
-			tg::Object::Directory(_) if unify => Variant::Directory(Directory {
-				entries: Vec::new(),
-			}),
-			tg::Object::File(file) if unify => {
-				let executable = file.executable(self).await?;
-				let blob = file.contents(self).await?.id();
-				Variant::File(File {
-					executable,
-					blob: Some(Blob::Id(blob)),
-					dependencies: Vec::new(),
-				})
-			},
-			tg::Object::Symlink(symlink) if unify => {
-				let artifact = symlink
-					.artifact(self)
-					.await?
-					.map(|artifact| Either::Left(artifact.id()));
-				let path = symlink.path(self).await?;
-				Variant::Symlink(Symlink { artifact, path })
-			},
-			_ => Variant::Object,
-		};
-
-		// Check if we have this in the artifacts directory.
-		let path = state.artifacts_path.join(id.to_string());
-		let path = tokio::fs::try_exists(&path)
+		checkpoint: &Checkpoint<'_>,
+		item: &Item,
+		pattern: &tg::tag::Pattern,
+	) -> tg::Result<im::Vector<Candidate>> {
+		let output = self
+			.list_tags(tg::tag::list::Arg {
+				length: None,
+				pattern: pattern.clone(),
+				remote: None,
+				reverse: false,
+			})
 			.await
-			.is_ok_and(|exists| exists)
-			.then_some(path);
+			.map_err(|source| tg::error!(!source, %pattern, "failed to get tags"))?;
+		let mut candidates = output
+			.data
+			.into_iter()
+			.filter_map(|output| {
+				let object = output.item.right()?;
+				let tag = output.tag;
+				let candidate = Candidate { object, tag };
+				Some(candidate)
+			})
+			.collect::<im::Vector<_>>();
+		if let Some(lock_index) = checkpoint.graph.nodes[item.node].lock_node
+			&& let Some(candidate) =
+				Self::checkin_solve_get_candidate_from_lock(checkpoint, item, lock_index)
+		{
+			candidates.push_back(candidate);
+		}
+		Ok(candidates)
+	}
 
-		// Use the ID if the path exists and --locked is true, which will be used to later verify that the object we're checking in is not corrupted.
-		let id_ = (state.arg.locked && path.is_some()).then(|| id.clone());
+	fn checkin_solve_get_candidate_from_lock(
+		checkpoint: &Checkpoint<'_>,
+		item: &Item,
+		lock_index: usize,
+	) -> Option<Candidate> {
+		let lock_node = &checkpoint.state.lock.as_ref().unwrap().nodes[lock_index];
+		let options = if let ItemVariant::FileDependency(reference) = &item.variant {
+			lock_node
+				.try_unwrap_file_ref()
+				.ok()?
+				.dependencies
+				.get(reference)?
+				.options()
+		} else {
+			return None;
+		};
+		let object = options.id.clone()?;
+		let tag = options.tag.clone()?;
+		let candidate = Candidate { object, tag };
+		Some(candidate)
+	}
 
-		// Create the node.
+	async fn checkin_solve_add_node(
+		&self,
+		checkpoint: &mut Checkpoint<'_>,
+		item: &Item,
+		id: &tg::artifact::Id,
+	) -> tg::Result<usize> {
+		let output = self
+			.get_object(&id.clone().into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
+		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+		let variant = match data {
+			tg::artifact::Data::Directory(tg::directory::Data::Reference(reference))
+			| tg::artifact::Data::File(tg::file::Data::Reference(reference))
+			| tg::artifact::Data::Symlink(tg::symlink::Data::Reference(reference)) => {
+				let graph = reference
+					.graph
+					.ok_or_else(|| tg::error!("expected the graph to be set"))?;
+				let graph = self.checkin_solve_add_graph(checkpoint, &graph).await?;
+				let node = graph + reference.node;
+				return Ok(node);
+			},
+			tg::artifact::Data::Directory(tg::directory::Data::Node(directory)) => {
+				Variant::Directory(Directory {
+					entries: directory.entries,
+				})
+			},
+			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
+				let contents = file.contents.map(Either::Right);
+				let dependencies = file
+					.dependencies
+					.into_iter()
+					.map(|(reference, referent)| {
+						if referent.tag().is_some() {
+							(reference, None)
+						} else {
+							(reference, Some(referent))
+						}
+					})
+					.collect();
+				let executable = file.executable;
+				Variant::File(File {
+					contents,
+					dependencies,
+					executable,
+				})
+			},
+			tg::artifact::Data::Symlink(tg::symlink::Data::Node(symlink)) => {
+				Variant::Symlink(Symlink {
+					artifact: symlink.artifact,
+					path: symlink.path,
+				})
+			},
+		};
+		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
-			artifacts_entry: id_,
-			lock_index: lock_node,
-			metadata: None,
-			object: Some(object_),
-			parent: None,
+			lock_node,
+			object_id: None,
+			parents: None,
 			path: None,
-			root,
-			tag: tag.clone(),
+			path_metadata: None,
 			variant,
 		};
-
-		// Add the node to the graph.
-		let index = state.graph.nodes.len();
-		state.graph.nodes.push_back(node);
-		visited.insert(id.clone(), index);
-
-		if let Some(root) = root {
-			state.graph.roots.entry(root).or_default().push(index);
-		}
-		let root = root.unwrap_or(index);
-
-		// Recurse.
-		if unify {
-			match object {
-				tg::Object::Directory(directory) => {
-					self.checkin_solve_visit_directory(
-						state, lock_node, root, subpath, index, directory, visited,
-					)
-					.await?;
-				},
-				tg::Object::File(file) => {
-					self.checkin_solve_visit_file(state, lock_node, root, index, file, visited)
-						.await?;
-				},
-				tg::Object::Symlink(symlink) => {
-					self.checkin_solve_visit_symlink(
-						state, lock_node, root, index, symlink, visited,
-					)
-					.await?;
-				},
-				_ => (),
-			}
-		}
-
-		// Return the index.
+		let index = checkpoint.graph.nodes.len();
+		checkpoint.graph.nodes.push_back(node);
 		Ok(index)
 	}
 
-	#[allow(clippy::too_many_arguments)]
-	async fn checkin_solve_visit_directory(
+	async fn checkin_solve_add_graph(
 		&self,
-		state: &mut State<'_>,
-		lock_node: Option<usize>,
-		root: usize,
-		subpath: Option<PathBuf>,
-		index: usize,
-		directory: &tg::Directory,
-		visited: &mut BTreeMap<tg::object::Id, usize>,
-	) -> tg::Result<()> {
-		let mut entries = Vec::new();
-		for (name, object) in directory.entries(self).await? {
-			let subpath = subpath
-				.as_ref()
-				.map_or_else(|| name.as_str().into(), |subpath| subpath.join(&name));
-			let unify = lock_node.is_none_or(|node| {
-				let Ok(directory) = state.lock.unwrap().nodes[node].try_unwrap_directory_ref()
-				else {
-					return true;
-				};
-				let Some(edge) = directory.entries.get(&name) else {
-					return true;
-				};
-				edge.is_reference()
-			});
-			let lock_node = lock_node.and_then(|node| {
-				state.lock.unwrap().nodes[node]
+		checkpoint: &mut Checkpoint<'_>,
+		id: &tg::graph::Id,
+	) -> tg::Result<usize> {
+		if let Some(index) = checkpoint.graphs.get(id).copied() {
+			return Ok(index);
+		}
+		let index = checkpoint.graph.nodes.len();
+		let output = self
+			.get_object(&id.clone().into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
+		let data = tg::graph::Data::deserialize(output.bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+		for node in data.nodes {
+			let variant = match node {
+				tg::graph::data::Node::Directory(mut directory) => {
+					for mut edge in directory.entries.values_mut() {
+						if let tg::graph::data::Edge::Reference(reference) = &mut edge {
+							reference.node += index;
+						}
+					}
+					Variant::Directory(Directory {
+						entries: directory.entries,
+					})
+				},
+				tg::graph::data::Node::File(mut file) => {
+					for referent in file.dependencies.values_mut() {
+						if let tg::graph::data::Edge::Reference(reference) = &mut referent.item {
+							reference.node += index;
+						}
+					}
+					let contents = file.contents.map(Either::Right);
+					let dependencies = file
+						.dependencies
+						.into_iter()
+						.map(|(reference, referent)| {
+							if referent.tag().is_some() {
+								(reference, None)
+							} else {
+								(reference, Some(referent))
+							}
+						})
+						.collect();
+					let executable = file.executable;
+					Variant::File(File {
+						contents,
+						dependencies,
+						executable,
+					})
+				},
+				tg::graph::data::Node::Symlink(mut symlink) => {
+					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
+					{
+						reference.node += index;
+					}
+					Variant::Symlink(Symlink {
+						artifact: symlink.artifact,
+						path: symlink.path,
+					})
+				},
+			};
+			let node = Node {
+				lock_node: None,
+				object_id: None,
+				parents: None,
+				path: None,
+				path_metadata: None,
+				variant,
+			};
+			checkpoint.graph.nodes.push_back(node);
+		}
+		checkpoint.graphs.insert(id.clone(), index);
+		Ok(index)
+	}
+
+	fn checkin_solve_get_lock_node(checkpoint: &Checkpoint, item: &Item) -> Option<usize> {
+		let Some(lock) = &checkpoint.state.lock else {
+			return None;
+		};
+		let parent_index = checkpoint.graph.nodes[item.node].lock_node?;
+		let parent_node = &lock.nodes[parent_index];
+		match &item.variant {
+			ItemVariant::DirectoryEntry(name) => Some(
+				parent_node
 					.try_unwrap_directory_ref()
 					.ok()?
 					.entries
-					.get(&name)?
+					.get(name)?
 					.try_unwrap_reference_ref()
-					.ok()
-					.map(|reference| reference.node)
-			});
-			let child_index = Box::pin(self.checkin_solve_visit_object_inner(
-				state,
-				&object.into(),
-				lock_node,
-				Some(root),
-				Some(subpath),
-				None,
-				unify,
-				visited,
-			))
-			.await?;
-			state.graph.nodes[child_index].parent.replace(index);
-			entries.push((name, child_index));
-		}
-		state.graph.nodes[index]
-			.variant
-			.unwrap_directory_mut()
-			.entries = entries;
-		Ok(())
-	}
-
-	async fn checkin_solve_visit_file(
-		&self,
-		state: &mut State<'_>,
-		lock_node: Option<usize>,
-		root: usize,
-		index: usize,
-		file: &tg::File,
-		visited: &mut BTreeMap<tg::object::Id, usize>,
-	) -> tg::Result<()> {
-		let mut dependencies = Vec::new();
-		for (reference, referent) in file.dependencies(self).await? {
-			let unify = lock_node.is_none_or(|node| {
-				let Ok(file) = state.lock.unwrap().nodes[node].try_unwrap_file_ref() else {
-					return true;
-				};
-				let Some(referent) = file.dependencies.get(&reference) else {
-					return true;
-				};
-				referent.item.is_reference()
-			});
-			let lock_node = lock_node.and_then(|node| {
-				state.lock.unwrap().nodes[node]
+					.ok()?
+					.node,
+			),
+			ItemVariant::FileDependency(reference) => Some(
+				parent_node
 					.try_unwrap_file_ref()
 					.ok()?
 					.dependencies
-					.get(&reference)?
-					.item
+					.get(reference)?
+					.item()
 					.try_unwrap_reference_ref()
-					.ok()
-					.map(|reference| reference.node)
-			});
-
-			// Leave tag references as unresolved.
-			if reference.item().try_unwrap_tag_ref().is_ok() {
-				dependencies.push((reference, None));
-			} else {
-				let index = Box::pin(self.checkin_solve_visit_object_inner(
-					state,
-					referent.item(),
-					lock_node,
-					Some(root),
-					referent.path().cloned(),
-					None,
-					unify,
-					visited,
-				))
-				.await?;
-				let referent = tg::Referent {
-					item: Either::Right(index),
-					options: tg::referent::Options {
-						path: referent.path().cloned(),
-						tag: None,
-					},
-				};
-				dependencies.push((reference, Some(referent)));
-			}
-		}
-		state.graph.nodes[index]
-			.variant
-			.unwrap_file_mut()
-			.dependencies = dependencies;
-		Ok(())
-	}
-
-	async fn checkin_solve_visit_symlink(
-		&self,
-		state: &mut State<'_>,
-		lock_node: Option<usize>,
-		root: usize,
-		index: usize,
-		_symlink: &tg::Symlink,
-		visited: &mut BTreeMap<tg::object::Id, usize>,
-	) -> tg::Result<()> {
-		if let Some(artifact) = state.graph.nodes[index]
-			.variant
-			.try_unwrap_symlink_ref()
-			.unwrap()
-			.artifact
-			.as_ref()
-			.and_then(|artifact| artifact.as_ref().left())
-		{
-			let unify = lock_node.is_none_or(|node| {
-				let Ok(symlink) = state.lock.unwrap().nodes[node].try_unwrap_symlink_ref() else {
-					return true;
-				};
-				let tg::graph::data::Symlink {
-					artifact: Some(artifact),
-					..
-				} = symlink
-				else {
-					return true;
-				};
-				artifact.is_reference()
-			});
-			let lock_node = lock_node.and_then(|node| {
-				let symlink = state.lock.unwrap().nodes[node]
+					.ok()?
+					.node,
+			),
+			ItemVariant::SymlinkArtifact => Some(
+				parent_node
 					.try_unwrap_symlink_ref()
-					.ok()?;
-				let tg::graph::data::Symlink {
-					artifact:
-						Some(tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-							node, ..
-						})),
-					..
-				} = symlink
-				else {
-					return None;
-				};
-				Some(*node)
-			});
-			let path = state.graph.nodes[index]
-				.variant
-				.unwrap_symlink_ref()
-				.path
-				.clone();
-			let node = Box::pin(self.checkin_solve_visit_object_inner(
-				state,
-				&tg::Object::with_id(artifact.clone().into()),
-				lock_node,
-				Some(root),
-				path,
-				None,
-				unify,
-				visited,
-			))
-			.await?;
-			state.graph.nodes[index]
-				.variant
-				.unwrap_symlink_mut()
-				.artifact
-				.replace(Either::Right(node));
-		}
-		Ok(())
-	}
-}
-
-impl Graph {
-	fn fmt_node(&self, index: usize) -> String {
-		let node = &self.nodes[index];
-		if let Some(path) = node.path.as_deref() {
-			path.display().to_string()
-		} else if let Some(tag) = node.tag.as_ref() {
-			tag.to_string()
-		} else {
-			index.to_string()
+					.ok()?
+					.artifact
+					.as_ref()?
+					.try_unwrap_reference_ref()
+					.ok()?
+					.node,
+			),
 		}
 	}
 
-	fn unresolved(&self, node: usize) -> im::Vector<Unresolved> {
-		match &self.nodes[node].variant {
-			Variant::Directory(directory) => directory
-				.entries
-				.iter()
-				.map(|(name, dst)| Unresolved {
-					src: node,
-					dst: Some(*dst),
-					reference: tg::Reference::with_path(name),
+	fn checkin_solve_enqueue_items_for_node(checkpoint: &mut Checkpoint, node: usize) {
+		match &checkpoint.graph.nodes[node].variant {
+			Variant::Directory(directory) => {
+				let items = directory.entries.keys().map(|name| Item {
+					node,
+					variant: ItemVariant::DirectoryEntry(name.clone()),
+				});
+				checkpoint.queue.extend(items);
+			},
+			Variant::File(file) => {
+				let items = file.dependencies.keys().map(|reference| Item {
+					node,
+					variant: ItemVariant::FileDependency(reference.clone()),
+				});
+				checkpoint.queue.extend(items);
+			},
+			Variant::Symlink(symlink) => {
+				let items = symlink.artifact.iter().map(|_| Item {
+					node,
+					variant: ItemVariant::SymlinkArtifact,
+				});
+				checkpoint.queue.extend(items);
+			},
+		}
+	}
+
+	fn checkin_solve_get_destination_for_item(
+		checkpoint: &Checkpoint,
+		item: &Item,
+	) -> Option<tg::graph::data::Edge<tg::object::Id>> {
+		let node = &checkpoint.graph.nodes[item.node];
+		match &item.variant {
+			ItemVariant::DirectoryEntry(name) => {
+				let directory = node.variant.unwrap_directory_ref();
+				directory.entries.get(name).cloned().map(|edge| match edge {
+					tg::graph::data::Edge::Reference(reference) => {
+						tg::graph::data::Edge::Reference(reference)
+					},
+					tg::graph::data::Edge::Object(id) => tg::graph::data::Edge::Object(id.into()),
 				})
-				.collect(),
-			Variant::File(file) => file
-				.dependencies
-				.iter()
-				.map(|(reference, referent)| {
-					let dst = referent
-						.as_ref()
-						.and_then(|referent| referent.item.as_ref().right().copied());
-					Unresolved {
-						src: node,
-						dst,
-						reference: reference.clone(),
-					}
+			},
+			ItemVariant::FileDependency(reference) => {
+				let file = node.variant.unwrap_file_ref();
+				file.dependencies
+					.get(reference)
+					.cloned()
+					.unwrap()
+					.map(|referent| referent.item)
+			},
+			ItemVariant::SymlinkArtifact => {
+				let symlink = node.variant.unwrap_symlink_ref();
+				symlink.artifact.clone().map(|edge| match edge {
+					tg::graph::data::Edge::Reference(reference) => {
+						tg::graph::data::Edge::Reference(reference)
+					},
+					tg::graph::data::Edge::Object(id) => tg::graph::data::Edge::Object(id.into()),
 				})
-				.collect(),
-			Variant::Symlink(_) | Variant::Object => im::Vector::new(),
+			},
 		}
 	}
-}
 
-fn try_backtrack<'a>(state: &mut Vec<State<'a>>, edge: &Unresolved) -> Option<State<'a>> {
-	// Go back to where the reference was originally solved.
-	let package = edge.reference.name()?;
-	let position = state
-		.iter()
-		.position(|state| state.packages.contains_key(package))?;
-	state.truncate(position);
-	state.pop()
+	fn checkin_solve_backtrack<'a>(
+		checkpoints: &mut Vec<Checkpoint<'a>>,
+		tag: &tg::Tag,
+	) -> Option<Checkpoint<'a>> {
+		let position = checkpoints
+			.iter()
+			.position(|checkpoint| checkpoint.tags.contains_key(tag))?;
+		checkpoints.truncate(position + 1);
+		let mut checkpoint = checkpoints.pop()?;
+		checkpoint.tags.remove(tag);
+		Some(checkpoint)
+	}
+
+	fn checkin_solve_validate_pattern(pattern: &tg::tag::Pattern) -> bool {
+		let all_components_normal = pattern
+			.components()
+			.iter()
+			.all(tg::tag::pattern::Component::is_normal);
+		let mut components_reverse_iter = pattern.components().iter().rev();
+		let last_component_version_or_wildcard = matches!(
+			components_reverse_iter.next(),
+			Some(tg::tag::pattern::Component::Version(_) | tg::tag::pattern::Component::Wildcard)
+		);
+		let all_components_except_last_normal =
+			components_reverse_iter.all(tg::tag::pattern::Component::is_normal);
+		let all_components_normal_except_last =
+			last_component_version_or_wildcard && all_components_except_last_normal;
+		all_components_normal || all_components_normal_except_last
+	}
 }

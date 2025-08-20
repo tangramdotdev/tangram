@@ -7,6 +7,7 @@ export type Referent<T> = {
 
 export namespace Referent {
 	export type Options = {
+		id?: tg.Object.Id | undefined;
 		path?: string | undefined;
 		tag?: tg.Tag | undefined;
 	};
@@ -17,6 +18,9 @@ export namespace Referent {
 	): tg.Referent.Data<U> => {
 		let item = f(value.item);
 		let options: tg.Referent.Data.Options = {};
+		if (value.options?.id !== undefined) {
+			options.id = value.options.id;
+		}
 		if (value.options?.path !== undefined) {
 			options.path = value.options.path;
 		}
@@ -49,6 +53,9 @@ export namespace Referent {
 		let item = f(value.item);
 		let string = item.toString();
 		let params = [];
+		if (value.options?.id !== undefined) {
+			params.push(`id=${encodeURIComponent(value.options.id)}`);
+		}
 		if (value.options?.path !== undefined) {
 			params.push(`path=${encodeURIComponent(value.options.path)}`);
 		}
@@ -76,6 +83,10 @@ export namespace Referent {
 					throw new Error("missing value");
 				}
 				switch (key) {
+					case "id": {
+						options.id = decodeURIComponent(value);
+						break;
+					}
 					case "path": {
 						options.path = decodeURIComponent(value);
 						break;
@@ -106,6 +117,7 @@ export namespace Referent {
 
 	export namespace Data {
 		export type Options = {
+			id?: tg.Object.Id;
 			path?: string;
 			tag?: tg.Tag;
 		};

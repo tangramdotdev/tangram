@@ -93,9 +93,8 @@ end;
 create table process_children (
 	process text not null,
 	child text not null,
+	options text,
 	position integer not null,
-	path text,
-	tag text,
 	token text
 );
 

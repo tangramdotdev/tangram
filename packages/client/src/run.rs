@@ -14,13 +14,11 @@ pub struct Arg {
 	pub mounts: Option<Vec<Either<tg::process::Mount, tg::command::Mount>>>,
 	pub network: Option<bool>,
 	pub parent: Option<tg::process::Id>,
-	pub path: Option<PathBuf>,
 	pub remote: Option<String>,
 	pub retry: bool,
 	pub stderr: Option<Option<tg::process::Stdio>>,
 	pub stdin: Option<Option<Either<tg::process::Stdio, tg::Blob>>>,
 	pub stdout: Option<Option<tg::process::Stdio>>,
-	pub tag: Option<tg::Tag>,
 	pub user: Option<String>,
 }
 
@@ -96,11 +94,7 @@ where
 	}
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
-	let options = tg::referent::Options {
-		path: arg.path,
-		tag: arg.tag,
-	};
-	let command = Some(tg::Referent::new(command_id, options));
+	let command = Some(tg::Referent::with_item(command_id));
 	let checksum = arg.checksum;
 	let network = arg
 		.network

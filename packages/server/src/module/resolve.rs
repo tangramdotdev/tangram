@@ -116,80 +116,17 @@ impl Server {
 					tg::package::try_get_root_module_file_name(self, Either::Right(&path)).await?
 				{
 					let path = path.join(root_module_name);
-					return Ok(tg::Referent::with_item(tg::module::data::Item::Path(path)));
+					let item = tg::module::data::Item::Path(path);
+					let referent = tg::Referent::with_item(item);
+					return Ok(referent);
 				}
 			}
-			return Ok(tg::Referent::with_item(tg::module::data::Item::Path(path)));
+			let item = tg::module::data::Item::Path(path);
+			let referent = tg::Referent::with_item(item);
+			return Ok(referent);
 		}
 
-		// Get the lock and its path.
-		let (lock_path, lock) = 'a: {
-			// Search the ancestors for a lockfile, if it exists.
-			for ancestor in referrer.item.ancestors().skip(1) {
-				// Check if the lockfile exists.
-				let lockfile_path = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
-				let exists = tokio::fs::try_exists(&lockfile_path).await.map_err(
-					|source| tg::error!(!source, %package = ancestor.display(), "failed to check if the lockfile exists"),
-				)?;
-				if !exists {
-					continue;
-				}
-
-				// Parse the lockfile.
-				let contents = tokio::fs::read_to_string(&lockfile_path).await.map_err(
-					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to read the lockfile"),
-				)?;
-				let lockfile = serde_json::from_str::<tg::graph::Data>(&contents).map_err(
-					|source| tg::error!(!source, %path = lockfile_path.display(), "failed to deserialize the lockfile"),
-				)?;
-				break 'a (lockfile_path, lockfile);
-			}
-
-			// Error if no lockfile is found.
-			return Err(
-				tg::error!(%module = referrer.item.display(), "failed to find the lockfile"),
-			);
-		};
-
-		// Find the referrer in the lock.
-		let module_index = self
-			.find_node_in_lock(Either::Right(referrer.item), &lock_path, &lock)
-			.await?;
-
-		// The module within the lockfile must be a file for it to have imports.
-		let file = &lock.nodes[module_index]
-			.try_unwrap_file_ref()
-			.map_err(|_| tg::error!("expected a file node"))?;
-
-		// Try to resolve the dependency in the file.
-		let referent = file
-			.dependencies
-			.get(&import.reference)
-			.ok_or_else(|| tg::error!("failed to resolve reference"))?;
-		let referent = match referent.item() {
-			tg::graph::data::Edge::Reference(reference) => {
-				let item = crate::Server::create_object_from_lock_node(&lock.nodes, reference.node)
-					.map_err(|source| tg::error!(!source, "failed to resolve the dependency"))?;
-				referent.clone().map(|_| item)
-			},
-			tg::graph::data::Edge::Object(id) => {
-				let item = tg::Object::with_id(id.clone());
-				let path = referent
-					.path()
-					.cloned()
-					.or_else(|| referrer.path().cloned());
-				let tag = referent.tag().cloned();
-				let options = tg::referent::Options { path, tag };
-				tg::Referent { item, options }
-			},
-		};
-
-		let referent = self
-			.try_resolve_module_with_kind(import.kind, referent)
-			.await?
-			.map(|item| tg::module::data::Item::Object(item.id()));
-
-		Ok(referent)
+		Err(tg::error!("cannot resolve non-path dependency from path"))
 	}
 
 	async fn resolve_module_with_object_referrer(
@@ -202,11 +139,9 @@ impl Server {
 			referrer_object.clone().try_unwrap_file().ok().ok_or_else(
 				|| tg::error!(%referrer = referrer.item, "the referrer must be a file"),
 			)?;
+		let referent = file.get_dependency(self, &import.reference).await?;
 		let referent = self
-			.try_resolve_module_with_kind(
-				import.kind,
-				file.get_dependency(self, &import.reference).await?,
-			)
+			.try_resolve_module_with_kind(import.kind, referent)
 			.await?;
 		let mut referent = referent.map(|item| tg::module::data::Item::Object(item.id()));
 		referent.inherit(referrer);
@@ -244,6 +179,7 @@ impl Server {
 					.path()
 					.map_or_else(|| path.into(), |p| p.join(path));
 				let options = tg::referent::Options {
+					id: referent.id().cloned(),
 					path: Some(path),
 					tag: referent.tag().cloned(),
 				};

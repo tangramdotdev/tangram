@@ -47,6 +47,9 @@ export namespace Module {
 		let item = value.referent.item;
 		let string = item.toString();
 		let params = [];
+		if (value.referent.options?.id !== undefined) {
+			params.push(`id=${encodeURIComponent(value.referent.options.id)}`);
+		}
 		if (value.referent.options?.path !== undefined) {
 			params.push(`path=${encodeURIComponent(value.referent.options.path)}`);
 		}
@@ -71,6 +74,10 @@ export namespace Module {
 					throw new Error("missing value");
 				}
 				switch (key) {
+					case "id": {
+						options.id = decodeURIComponent(value);
+						break;
+					}
 					case "path": {
 						options.path = decodeURIComponent(value);
 						break;

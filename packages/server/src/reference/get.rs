@@ -74,6 +74,7 @@ impl Server {
 					referent: tg::Referent {
 						item,
 						options: tg::referent::Options {
+							id: None,
 							path: None,
 							tag: Some(tag),
 						},

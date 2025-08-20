@@ -2,7 +2,7 @@ use crate::{ProcessPermit, Server, database};
 use bytes::Bytes;
 use futures::{FutureExt as _, future};
 use indoc::formatdoc;
-use std::{path::PathBuf, pin::pin};
+use std::pin::pin;
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -70,8 +70,7 @@ impl Server {
 					&transaction,
 					parent,
 					&id,
-					command.options.path.as_ref(),
-					command.options.tag.as_ref(),
+					&command.options,
 					Some(&token),
 				)
 				.await
@@ -124,8 +123,7 @@ impl Server {
 					&transaction,
 					parent,
 					&id,
-					command.options.path.as_ref(),
-					command.options.tag.as_ref(),
+					&command.options,
 					token.as_ref(),
 				)
 				.await
@@ -169,8 +167,7 @@ impl Server {
 					&transaction,
 					parent,
 					&id,
-					command.options.path.as_ref(),
-					command.options.tag.as_ref(),
+					&command.options,
 					None,
 				)
 				.await
@@ -214,8 +211,7 @@ impl Server {
 					self.add_process_child(
 						parent,
 						&output.process,
-						command.options.path.as_ref(),
-						command.options.tag.as_ref(),
+						&command.options,
 						output.token.as_ref(),
 					)
 					.await
@@ -282,17 +278,11 @@ impl Server {
 		};
 
 		if let Some(parent) = &arg.parent {
-			self.add_process_child(
-				parent,
-				&id,
-				command.options.path.as_ref(),
-				command.options.tag.as_ref(),
-				token.as_ref(),
-			)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-			)?;
+			self.add_process_child(parent, &id, &command.options, token.as_ref())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+				)?;
 		}
 
 		// Create the output.
@@ -489,8 +479,8 @@ impl Server {
 		// Insert the process children.
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child, path, tag)
-				select process, position, child, path, tag from process_children where process = {p}1;
+				insert into process_children (process, position, child, options)
+				select process, position, child, options from process_children where process = {p}1;
 			"
 		);
 		let params = db::params![id];
@@ -785,8 +775,7 @@ impl Server {
 		&self,
 		parent: &tg::process::Id,
 		child: &tg::process::Id,
-		path: Option<&PathBuf>,
-		tag: Option<&tg::Tag>,
+		options: &tg::referent::Options,
 		token: Option<&String>,
 	) -> tg::Result<()> {
 		// Get a database connection.
@@ -803,7 +792,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Add the process as a child.
-		self.add_process_child_with_transaction(&transaction, parent, child, path, tag, token)
+		self.add_process_child_with_transaction(&transaction, parent, child, options, token)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %parent, %child, "failed to add the process as a child"),
@@ -829,8 +818,7 @@ impl Server {
 		transaction: &database::Transaction<'_>,
 		parent: &tg::process::Id,
 		child: &tg::process::Id,
-		path: Option<&PathBuf>,
-		tag: Option<&tg::Tag>,
+		options: &tg::referent::Options,
 		token: Option<&String>,
 	) -> tg::Result<()> {
 		let p = transaction.p();
@@ -864,12 +852,12 @@ impl Server {
 		// Add the child to the database.
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child, path, tag, token)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4, {p}5)
+				insert into process_children (process, position, child, options, token)
+				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4)
 				on conflict (process, child) do nothing;
 			"
 		);
-		let params = db::params![parent, child, path, tag, token];
+		let params = db::params![parent, child, db::value::Json(options), token];
 		transaction
 			.execute(statement.into(), params)
 			.await

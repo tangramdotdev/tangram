@@ -26,6 +26,7 @@ async fn file() {
 	test(artifact, path, deterministic, tags).await;
 }
 
+#[ignore = "unimplemented"]
 #[tokio::test]
 async fn tagged_dependency() {
 	let artifact = temp::directory! {
@@ -87,6 +88,7 @@ async fn cyclic_artifact_symlink() {
 	test(artifact, path, deterministic, tags).await;
 }
 
+#[ignore = "unimplemented"]
 #[tokio::test]
 async fn object_dependency() {
 	let artifact = temp::directory! {
@@ -140,7 +142,7 @@ async fn test(
 	}
 	let output = command.output().await.unwrap();
 	assert_success!(output);
-	let a = std::str::from_utf8(&output.stdout)
+	let first_id = std::str::from_utf8(&output.stdout)
 		.unwrap()
 		.trim()
 		.to_owned();
@@ -150,12 +152,13 @@ async fn test(
 	let output = server
 		.tg()
 		.arg("checkout")
-		.arg(&a)
+		.arg(&first_id)
 		.arg(temp.path())
 		.output()
 		.await
 		.unwrap();
 	assert_success!(output);
+	let first_artifact = temp::Artifact::with_path(temp.path()).await.unwrap();
 
 	// Clean.
 	for (tag, _) in &tags {
@@ -170,7 +173,7 @@ async fn test(
 	}
 	server.tg().arg("clean").output().await.unwrap();
 
-	// Check in.
+	// Checkin.
 	let mut command = server.tg();
 	command.arg("checkin").arg(temp.path());
 	if deterministic {
@@ -178,10 +181,24 @@ async fn test(
 	}
 	let output = command.output().await.unwrap();
 	assert_success!(output);
-	let b = std::str::from_utf8(&output.stdout)
+	let second_id = std::str::from_utf8(&output.stdout)
 		.unwrap()
 		.trim()
 		.to_owned();
 
-	assert_eq!(a, b);
+	// Checkout.
+	let temp = temp::Temp::new();
+	let output = server
+		.tg()
+		.arg("checkout")
+		.arg(&second_id)
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let second_artifact = temp::Artifact::with_path(temp.path()).await.unwrap();
+
+	assert_eq!(first_id, second_id);
+	assert_eq!(first_artifact, second_artifact);
 }

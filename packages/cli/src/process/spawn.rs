@@ -391,7 +391,6 @@ impl Cli {
 			command = command.cwd(cwd);
 		}
 		if let Some(cwd) = options.cwd {
-			dbg!(&cwd);
 			command = command.cwd(cwd);
 		}
 

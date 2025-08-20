@@ -2,7 +2,7 @@ use crate::Server;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream};
 use indoc::formatdoc;
 use num::ToPrimitive as _;
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 use tangram_client::{self as tg, prelude::*};
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
@@ -220,13 +220,12 @@ impl Server {
 		#[derive(serde::Deserialize)]
 		struct Row {
 			child: tg::process::Id,
-			path: Option<PathBuf>,
-			tag: Option<tg::Tag>,
+			options: db::value::Json<tg::referent::Options>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select child, path, tag
+				select child, options
 				from process_children
 				where process = {p}1
 				order by position
@@ -242,10 +241,7 @@ impl Server {
 			.into_iter()
 			.map(|row| tg::Referent {
 				item: row.child,
-				options: tg::referent::Options {
-					path: row.path,
-					tag: row.tag,
-				},
+				options: row.options.0,
 			})
 			.collect();
 

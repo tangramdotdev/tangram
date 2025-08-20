@@ -41,6 +41,10 @@ pub struct Referent<T> {
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::object::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,6 +70,10 @@ impl<T> Referent<T> {
 
 	pub fn options(&self) -> &Options {
 		&self.options
+	}
+
+	pub fn id(&self) -> Option<&tg::object::Id> {
+		self.options.id.as_ref()
 	}
 
 	pub fn path(&self) -> Option<&PathBuf> {
@@ -101,7 +109,8 @@ impl<T> Referent<T> {
 	}
 
 	pub fn inherit<U>(&mut self, parent: &tg::Referent<U>) {
-		if self.tag().is_none() {
+		if self.id().is_none() && self.tag().is_none() {
+			self.options.id = parent.options.id.clone();
 			self.options.tag = parent.options.tag.clone();
 			match (&self.options.path, &parent.options.path) {
 				(None, Some(parent_path)) => {
@@ -126,6 +135,12 @@ where
 	pub fn to_uri(&self) -> Uri {
 		let mut builder = Uri::builder().path(self.item.to_string());
 		let mut query = Vec::new();
+		if let Some(id) = &self.options.id {
+			let id = id.to_string();
+			let id = urlencoding::encode(&id);
+			let id = format!("id={id}");
+			query.push(id);
+		}
 		if let Some(path) = &self.options.path {
 			let path = path.to_string_lossy();
 			let path = urlencoding::encode(&path);
@@ -159,6 +174,15 @@ where
 			for param in query.split('&') {
 				if let Some((key, value)) = param.split_once('=') {
 					match key {
+						"id" => {
+							options.id.replace(
+								urlencoding::decode(value)
+									.map_err(|_| tg::error!("failed to decode the id"))?
+									.into_owned()
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the id"))?,
+							);
+						},
 						"path" => {
 							options.path.replace(
 								urlencoding::decode(value)
@@ -182,6 +206,16 @@ where
 			}
 		}
 		Ok(Self { item, options })
+	}
+}
+
+impl Options {
+	pub fn with_path(path: impl Into<PathBuf>) -> Self {
+		Self {
+			id: None,
+			path: Some(path.into()),
+			tag: None,
+		}
 	}
 }
 

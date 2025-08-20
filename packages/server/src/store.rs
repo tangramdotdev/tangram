@@ -1,3 +1,4 @@
+use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
 use std::path::PathBuf;
 use tangram_client as tg;
@@ -32,31 +33,29 @@ pub struct PutArg {
 }
 
 #[derive(Clone, Debug)]
-pub struct PutBatchArg {
-	pub objects: Vec<(tg::object::Id, Option<Bytes>, Option<CacheReference>)>,
-	pub touched_at: i64,
-}
-
-#[derive(Clone, Debug)]
 pub struct DeleteArg {
 	pub id: tg::object::Id,
 	pub now: i64,
 	pub ttl: u64,
 }
 
-#[derive(Clone, Debug)]
-pub struct DeleteBatchArg {
-	pub ids: Vec<tg::object::Id>,
-	pub now: i64,
-	pub ttl: u64,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Serialize,
+	serde::Deserialize,
+	tangram_serialize::Serialize,
+	tangram_serialize::Deserialize,
+)]
 pub struct CacheReference {
+	#[tangram_serialize(id = 0)]
 	pub artifact: tg::artifact::Id,
+	#[tangram_serialize(id = 1)]
 	pub length: u64,
+	#[tangram_serialize(id = 2)]
 	pub position: u64,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
@@ -132,41 +131,86 @@ impl Store {
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, arg: PutBatchArg) -> tg::Result<()> {
+	pub async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
-				fdb.put_batch(arg).await?;
+				fdb.put_batch(args).await?;
 			},
 			Self::Lmdb(lmdb) => {
-				lmdb.put_batch(arg).await?;
+				lmdb.put_batch(args).await?;
 			},
 			Self::Memory(memory) => {
-				memory.put_batch(arg);
+				memory.put_batch(args);
 			},
 			Self::S3(s3) => {
-				s3.put_batch(arg).await?;
+				s3.put_batch(args).await?;
 			},
 		}
 		Ok(())
 	}
 
-	pub async fn delete_batch(&self, arg: DeleteBatchArg) -> tg::Result<()> {
+	#[allow(dead_code)]
+	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => {
-				fdb.delete_batch(arg).await?;
+				fdb.delete(arg).await?;
 			},
 			Self::Lmdb(lmdb) => {
-				lmdb.delete_batch(arg).await?;
+				lmdb.delete(arg).await?;
 			},
 			Self::Memory(memory) => {
-				memory.delete_batch(arg);
+				memory.delete(arg);
 			},
 			Self::S3(s3) => {
-				s3.delete_batch(arg).await?;
+				s3.delete(arg).await?;
 			},
 		}
 		Ok(())
+	}
+
+	pub async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => {
+				fdb.delete_batch(args).await?;
+			},
+			Self::Lmdb(lmdb) => {
+				lmdb.delete_batch(args).await?;
+			},
+			Self::Memory(memory) => {
+				memory.delete_batch(args);
+			},
+			Self::S3(s3) => {
+				s3.delete_batch(args).await?;
+			},
+		}
+		Ok(())
+	}
+}
+
+impl CacheReference {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		bytes.push(0);
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize"))?;
+		Ok(bytes.into())
+	}
+
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		let bytes = bytes.into();
+		let mut reader = std::io::Cursor::new(bytes.as_ref());
+		let format = reader
+			.read_u8()
+			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+		match format {
+			0 => tangram_serialize::from_reader(&mut reader)
+				.map_err(|source| tg::error!(!source, "failed to deserialize")),
+			b'{' => serde_json::from_slice(&bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize")),
+			_ => Err(tg::error!("invalid format")),
+		}
 	}
 }
