@@ -14,6 +14,9 @@ pub struct Server {
 impl Server {
 	pub async fn new(tg: &'static str) -> tg::Result<Self> {
 		let config = json!({
+			"advanced": {
+				"internal_error_locations": true,
+			},
 			"remotes": [],
 		});
 		Self::with_config(tg, config).await

@@ -427,12 +427,13 @@ impl Server {
 		drop(connection);
 
 		// Delete objects.
-		let arg = crate::store::DeleteBatchArg {
-			ids: objects.clone(),
-			now,
-			ttl: ttl.as_secs(),
-		};
-		self.store.delete_batch(arg).await?;
+		let ttl = ttl.as_secs();
+		let args = objects
+			.iter()
+			.cloned()
+			.map(|id| crate::store::DeleteArg { id, now, ttl })
+			.collect();
+		self.store.delete_batch(args).await?;
 
 		// Get a database connection.
 		let connection = self
@@ -634,12 +635,13 @@ impl Server {
 		drop(connection);
 
 		// Delete objects.
-		let arg = crate::store::DeleteBatchArg {
-			ids: objects.clone(),
-			now,
-			ttl: ttl.as_secs(),
-		};
-		self.store.delete_batch(arg).await?;
+		let ttl = ttl.as_secs();
+		let args = objects
+			.iter()
+			.cloned()
+			.map(|id| crate::store::DeleteArg { id, now, ttl })
+			.collect();
+		self.store.delete_batch(args).await?;
 
 		// Get a database connection.
 		let connection = self

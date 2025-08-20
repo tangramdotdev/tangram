@@ -10,16 +10,14 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 #[tokio::test]
 async fn directory() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"hello.txt" => "Hello, world!",
-			"link" => temp::symlink!("hello.txt"),
-			"subdirectory" => temp::directory! {
-				"sublink" => temp::symlink!("../link"),
-			}
+		"hello.txt" => "Hello, world!",
+		"link" => temp::symlink!("hello.txt"),
+		"subdirectory" => temp::directory! {
+			"sublink" => temp::symlink!("../link"),
 		}
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -51,12 +49,10 @@ async fn directory() {
 #[tokio::test]
 async fn file() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"README.md" => "Hello, World!",
-		}
+		"README.md" => "Hello, World!",
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -80,12 +76,10 @@ async fn file() {
 #[tokio::test]
 async fn symlink() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"link" => temp::symlink!("."),
-		}
+		"link" => temp::symlink!("."),
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -109,13 +103,11 @@ async fn symlink() {
 #[tokio::test]
 async fn directory_with_duplicate_entries() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a.txt" => "Hello, World!",
-			"b.txt" => "Hello, World!",
-		}
+		"a.txt" => "Hello, World!",
+		"b.txt" => "Hello, World!",
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -421,23 +413,21 @@ async fn simple_path_dependency() {
 #[tokio::test]
 async fn package_with_nested_dependencies() {
 	let artifact = temp::directory! {
-		"foo" => temp::directory! {
-			"bar" => temp::directory! {
-				"tangram.ts" => indoc!(r#"
-					import * as baz from "../baz";
-				"#),
-			},
-			"baz" => temp::directory! {
-				"tangram.ts" => "",
-			},
+		"bar" => temp::directory! {
 			"tangram.ts" => indoc!(r#"
-				import * as bar from "./bar";
-				import * as baz from "./baz";
+				import * as baz from "../baz";
 			"#),
 		},
+		"baz" => temp::directory! {
+			"tangram.ts" => "",
+		},
+		"tangram.ts" => indoc!(r#"
+			import * as bar from "./bar";
+			import * as baz from "./baz";
+		"#),
 	}
 	.into();
-	let path = Path::new("foo");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -502,12 +492,10 @@ async fn package_with_nested_dependencies() {
 #[tokio::test]
 async fn package() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"tangram.ts" => "export default () => {};",
-		}
+		"tangram.ts" => "export default () => {};",
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -556,14 +544,12 @@ async fn directory_with_nested_packages() {
 #[tokio::test]
 async fn import_directory_from_current() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory! {
-				"mod.tg.ts" => r#"import a from ".";"#
-			},
-		}
+		"a" => temp::directory! {
+			"mod.tg.ts" => r#"import a from ".";"#
+		},
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -604,15 +590,13 @@ async fn import_directory_from_current() {
 #[tokio::test]
 async fn import_package_from_current() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory! {
-				"mod.tg.ts" => r#"import * as a from ".";"#,
-				"tangram.ts" => ""
-			},
-		}
+		"a" => temp::directory! {
+			"mod.tg.ts" => r#"import * as a from ".";"#,
+			"tangram.ts" => ""
+		},
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -656,13 +640,11 @@ async fn import_package_from_current() {
 #[tokio::test]
 async fn import_directory_from_parent() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory! {},
-			"tangram.ts" => r#"import a from "./a";"#,
-		}
+		"a" => temp::directory! {},
+		"tangram.ts" => r#"import a from "./a";"#,
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -686,15 +668,13 @@ async fn import_directory_from_parent() {
 #[tokio::test]
 async fn import_package_with_type_directory_from_parent() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory!{
-				"tangram.ts" => "",
-			},
-			"tangram.ts" => r#"import a from "./a" with { type: "directory" };"#,
-		}
+		"a" => temp::directory!{
+			"tangram.ts" => "",
+		},
+		"tangram.ts" => r#"import a from "./a" with { type: "directory" };"#,
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -726,15 +706,13 @@ async fn import_package_with_type_directory_from_parent() {
 #[tokio::test]
 async fn import_package_from_parent() {
 	let artifact = temp::directory! {
-		"directory" => temp::directory! {
-			"a" => temp::directory!{
-				"tangram.ts" => "",
-			},
-			"tangram.ts" => r#"import a from "./a";"#,
-		}
+		"a" => temp::directory!{
+			"tangram.ts" => "",
+		},
+		"tangram.ts" => r#"import a from "./a";"#,
 	}
 	.into();
-	let path = Path::new("directory");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
@@ -766,13 +744,11 @@ async fn import_package_from_parent() {
 #[tokio::test]
 async fn package_with_cyclic_modules() {
 	let artifact = temp::directory! {
-		"package" => temp::directory! {
-			"tangram.ts" => r#"import * as foo from "./foo.tg.ts";"#,
-			"foo.tg.ts" => r#"import * as root from "./tangram.ts";"#,
-		}
+		"tangram.ts" => r#"import * as foo from "./foo.tg.ts";"#,
+		"foo.tg.ts" => r#"import * as root from "./tangram.ts";"#,
 	}
 	.into();
-	let path = Path::new("package");
+	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;

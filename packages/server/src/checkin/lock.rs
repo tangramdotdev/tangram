@@ -1,252 +1,345 @@
-use crate::Server;
-use tangram_client as tg;
-use tangram_either::Either;
+use {
+	super::state::{State, Variant},
+	crate::Server,
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		path::{Path, PathBuf},
+	},
+	tangram_client as tg,
+	tangram_either::Either,
+};
 
 impl Server {
-	pub(super) fn checkin_create_lock(state: &super::State) -> tg::Result<tg::graph::Data> {
-		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
-		let mut objects = vec![None; state.graph.nodes.len()];
-		let mut visited = vec![None; state.graph.nodes.len()];
-		let root =
-			Self::checkin_create_lock_node(state, 0, &mut nodes, &mut objects, &mut visited)?
-				.unwrap_reference()
-				.node;
-		let nodes = nodes
-			.into_iter()
-			.map(|node| node.unwrap())
-			.collect::<Vec<_>>();
-		let nodes = crate::lock::strip(&nodes, &objects, root);
-		Ok(tg::graph::Data { nodes })
-	}
-
-	pub(super) fn checkin_create_lock_node(
-		state: &super::State,
-		node: usize,
-		nodes: &mut Vec<Option<tg::graph::data::Node>>,
-		objects: &mut Vec<Option<tg::object::Id>>,
-		visited: &mut [Option<tg::graph::data::Edge<tg::object::Id>>],
-	) -> tg::Result<tg::graph::data::Edge<tg::object::Id>> {
-		// Make sure parents are visited first.
-		if let Some(parent) = state.graph.nodes[node].parent {
-			Self::checkin_create_lock_node(state, parent, nodes, objects, visited)?;
-		}
-
-		// Check if this node is visited.
-		if let Some(visited) = visited[node].clone() {
-			return Ok(visited);
-		}
-
-		// If the object is not an artifact, return its ID.
-		let id = state.graph.nodes[node].object.as_ref().unwrap().id.clone();
-		if !(id.is_directory() || id.is_file() || id.is_symlink()) {
-			visited[node].replace(tg::graph::data::Edge::Object(id.clone()));
-			return Ok(tg::graph::data::Edge::Object(id));
-		}
-
-		// Get the artifact data.
-		let Some(data) = state.graph.nodes[node]
-			.object
-			.as_ref()
-			.unwrap()
-			.data
-			.clone()
-		else {
-			let id = state.graph.nodes[node].object.as_ref().unwrap().id.clone();
-			return Ok(tg::graph::data::Edge::Object(id));
+	pub(crate) fn checkin_try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::Data>> {
+		// Attempt to read a lockattr.
+		let contents = 'a: {
+			let Ok(Some(contents)) = xattr::get(path, tg::file::LOCKATTR_XATTR_NAME) else {
+				break 'a None;
+			};
+			Some(contents)
 		};
 
-		// Otherwise, create a slot for it.
-		let index = nodes.len();
-		visited[node].replace(tg::graph::data::Edge::Reference(
-			tg::graph::data::Reference {
-				graph: None,
-				node: index,
-			},
-		));
-		nodes.push(None);
-
-		// Update the object ID.
-		objects[index] = state.graph.nodes[node]
-			.path
-			.as_deref()
-			.is_none_or(|path| path.strip_prefix(&state.artifacts_path).is_ok())
-			.then(|| state.graph.nodes[node].object.as_ref().unwrap().id.clone());
-
-		// Create the node.
-		let data = data.try_into().unwrap();
-		let lock_node = match &data {
-			tg::artifact::Data::Directory(data) => {
-				Self::checkin_create_lock_directory(state, node, data, nodes, objects, visited)?
-			},
-			tg::artifact::Data::File(data) => {
-				Self::checkin_create_lock_file(state, node, data, nodes, objects, visited)?
-			},
-			tg::artifact::Data::Symlink(data) => {
-				Self::checkin_create_lock_symlink(state, node, data, nodes, objects, visited)?
-			},
+		// Attempt to read a lockfile.
+		let contents = 'a: {
+			if let Some(contents) = contents {
+				break 'a Some(contents);
+			}
+			let lock_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+			let contents = match std::fs::read(&lock_path) {
+				Ok(contents) => contents,
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+					) =>
+				{
+					break 'a None;
+				},
+				Err(source) => {
+					return Err(
+						tg::error!(!source, %path = lock_path.display(), "failed to read the lockfile"),
+					);
+				},
+			};
+			Some(contents)
 		};
 
-		nodes[index].replace(lock_node);
-		Ok(tg::graph::data::Edge::Reference(
-			tg::graph::data::Reference {
-				graph: None,
-				node: index,
-			},
-		))
-	}
-
-	pub(super) fn checkin_create_lock_directory(
-		state: &super::State,
-		node: usize,
-		_data: &tg::directory::Data,
-		nodes: &mut Vec<Option<tg::graph::data::Node>>,
-		objects: &mut Vec<Option<tg::object::Id>>,
-		visited: &mut [Option<tg::graph::data::Edge<tg::object::Id>>],
-	) -> tg::Result<tg::graph::data::Node> {
-		let entries = state.graph.nodes[node]
-			.variant
-			.unwrap_directory_ref()
-			.entries
-			.iter()
-			.map(|(name, node)| {
-				let edge = Self::checkin_create_lock_node(state, *node, nodes, objects, visited)?;
-				let edge = match edge {
-					tg::graph::data::Edge::Reference(reference) => {
-						tg::graph::data::Edge::Reference(reference)
-					},
-					tg::graph::data::Edge::Object(object) => {
-						tg::graph::data::Edge::Object(object.try_into()?)
-					},
-				};
-				Ok::<_, tg::Error>((name.clone(), edge))
-			})
-			.collect::<tg::Result<_>>()?;
-		let directory = tg::graph::data::Directory { entries };
-		Ok(tg::graph::data::Node::Directory(directory))
-	}
-
-	pub(super) fn checkin_create_lock_file(
-		state: &super::State,
-		index: usize,
-		data: &tg::file::Data,
-		nodes: &mut Vec<Option<tg::graph::data::Node>>,
-		objects: &mut Vec<Option<tg::object::Id>>,
-		visited: &mut [Option<tg::graph::data::Edge<tg::object::Id>>],
-	) -> tg::Result<tg::graph::data::Node> {
-		let (contents, executable) = match data {
-			tg::file::Data::Reference(data) => {
-				let graph = &state
-					.graph_objects
-					.iter()
-					.find(|object| object.id == data.graph.clone().unwrap())
-					.unwrap()
-					.data;
-				let file = graph.nodes[data.node].clone().try_unwrap_file().unwrap();
-				let contents = file
-					.contents
-					.ok_or_else(|| tg::error!("missing contents"))?;
-				let executable = file.executable;
-				(contents, executable)
-			},
-			tg::file::Data::Node(data) => (
-				data.contents
-					.clone()
-					.ok_or_else(|| tg::error!("missing contents"))?,
-				data.executable,
-			),
+		let Some(contents) = contents else {
+			return Ok(None);
 		};
-		let dependencies = state.graph.nodes[index]
-			.variant
-			.unwrap_file_ref()
-			.dependencies
-			.iter()
-			.cloned()
-			.map(|(reference, referent)| {
-				let referent =
-					referent.ok_or_else(|| tg::error!(%reference, "unresolved reference"))?;
-				match referent.item().clone() {
-					Either::Left(id) => {
-						let item = tg::graph::data::Edge::Object(id);
-						Ok((reference, referent.map(|_| item)))
-					},
-					Either::Right(node) => {
-						let item =
-							Self::checkin_create_lock_node(state, node, nodes, objects, visited)?;
-						let path = referent
-							.path()
-							.cloned()
-							.or_else(|| state.graph.referent_path(index, node));
-						let tag = referent
-							.tag()
-							.cloned()
-							.or_else(|| state.graph.nodes[node].tag.clone());
-						let options = tg::referent::Options { path, tag };
-						let referent = tg::Referent { item, options };
-						Ok::<_, tg::Error>((reference, referent))
-					},
+
+		// Deserialize the lock.
+		let lock = serde_json::from_slice::<tg::graph::Data>(&contents).map_err(
+			|source| tg::error!(!source, %path = path.display(), "failed to deserialize the lock"),
+		)?;
+
+		Ok(Some(lock))
+	}
+
+	pub(crate) fn checkin_get_lock_paths(
+		path: &std::path::Path,
+		lock: &tg::graph::Data,
+	) -> radix_trie::Trie<PathBuf, usize> {
+		let mut paths = radix_trie::Trie::new();
+		let mut queue = Vec::new();
+		if !lock.nodes.is_empty() {
+			queue.push((path.to_owned(), 0));
+		}
+		let mut visited = BTreeSet::new();
+		while let Some((path, index)) = queue.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+			paths.insert(path.clone(), index);
+			let node = &lock.nodes[index];
+			match node {
+				tg::graph::data::Node::Directory(directory) => {
+					for (name, edge) in &directory.entries {
+						if let Ok(reference) = edge.try_unwrap_reference_ref() {
+							let path = path.join(name);
+							queue.push((path, reference.node));
+						}
+					}
+				},
+				tg::graph::data::Node::File(file) => {
+					for referent in file.dependencies.values() {
+						if referent.tag().is_none()
+							&& let Some(referent_path) = referent.path()
+							&& let Ok(reference) = referent.item.try_unwrap_reference_ref()
+						{
+							let path = path.join(referent_path);
+							queue.push((path, reference.node));
+						}
+					}
+				},
+				tg::graph::data::Node::Symlink(_) => {},
+			}
+		}
+		paths
+	}
+
+	pub(super) async fn checkin_write_lock(&self, state: &State) -> tg::Result<()> {
+		// Do not create a lock if this is a destructive checkin or the user did not request one.
+		if state.arg.destructive || !state.arg.lock {
+			return Ok(());
+		}
+
+		// Create the lock.
+		let lock = Self::checkin_create_lock(state);
+
+		// If this is a locked checkin, then verify the lock is unchanged.
+		if state.arg.locked
+			&& state
+				.lock
+				.as_ref()
+				.is_some_and(|existing| existing.nodes != lock.nodes)
+		{
+			return Err(tg::error!("the lock is out of date"));
+		}
+
+		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
+		match state.graph.nodes[0].variant {
+			Some(Variant::Directory(_)) => {
+				// Determine the lockfile path.
+				let lockfile_path = state.arg.path.join(tg::package::LOCKFILE_FILE_NAME);
+
+				// Remove an existing lockfile.
+				crate::util::fs::remove(&lockfile_path).await.ok();
+
+				// Do nothing if the lock is empty.
+				if lock.nodes.is_empty() {
+					return Ok(());
 				}
-			})
-			.collect::<tg::Result<_>>()?;
-		let file = tg::graph::data::File {
-			contents: Some(contents),
-			dependencies,
-			executable,
-		};
-		Ok(tg::graph::data::Node::File(file))
+
+				// Serialize the lock.
+				let contents = serde_json::to_vec_pretty(&lock)
+					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+
+				// Write the lockfile.
+				tokio::fs::write(&lockfile_path, contents)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
+			},
+
+			Some(Variant::File(_)) => {
+				// Serialize the lock.
+				let contents = serde_json::to_vec(&lock)
+					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+
+				// Write the lockattr.
+				xattr::set(&state.arg.path, tg::file::LOCKATTR_XATTR_NAME, &contents)
+					.map_err(|source| tg::error!(!source, "failed to write the lockatttr"))?;
+			},
+
+			_ => {},
+		}
+
+		Ok(())
 	}
 
-	fn checkin_create_lock_symlink(
-		state: &super::State,
-		node: usize,
-		data: &tg::symlink::Data,
-		nodes: &mut Vec<Option<tg::graph::data::Node>>,
-		objects: &mut Vec<Option<tg::object::Id>>,
-		visited: &mut [Option<tg::graph::data::Edge<tg::object::Id>>],
-	) -> tg::Result<tg::graph::data::Node> {
-		// Get the artifact.
-		let variant = &state.graph.nodes[node].variant.unwrap_symlink_ref();
-		let artifact = variant
-			.artifact
-			.as_ref()
-			.map(|artifact| match artifact {
-				Either::Left(id) => Ok(tg::graph::data::Edge::Object(id.clone().into())),
-				Either::Right(index) => {
-					Self::checkin_create_lock_node(state, *index, nodes, objects, visited)
+	fn checkin_create_lock(state: &State) -> tg::graph::Data {
+		// Create the nodes.
+		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
+		for node in &state.graph.nodes {
+			let node = match &node.variant {
+				Some(Variant::Directory(directory)) => {
+					let mut entries = BTreeMap::new();
+					for (name, node) in directory.entries.clone() {
+						let reference = tg::graph::data::Reference { graph: None, node };
+						let edge = tg::graph::data::Edge::Reference(reference);
+						entries.insert(name, edge);
+					}
+					let data = tg::graph::data::Directory { entries };
+					tg::graph::data::Node::Directory(data)
 				},
-			})
-			.transpose()?;
-		let artifact = if let Some(artifact) = artifact {
-			Some(match artifact {
-				tg::graph::data::Edge::Reference(reference) => {
-					tg::graph::data::Edge::Reference(reference)
-				},
-				tg::graph::data::Edge::Object(object) => {
-					tg::graph::data::Edge::Object(object.try_into()?)
-				},
-			})
-		} else {
-			None
-		};
 
-		// Get the path.
-		let path = match data {
-			tg::symlink::Data::Reference(data) => {
-				let graph = &state
-					.graph_objects
-					.iter()
-					.find(|object| object.id == data.graph.clone().unwrap())
-					.unwrap()
-					.data;
-				let symlink = graph.nodes[data.node].clone().try_unwrap_symlink().unwrap();
-				symlink.path
+				Some(Variant::File(file)) => {
+					let contents = match &file.blob {
+						Some(Either::Right(id)) => Some(id.clone()),
+						_ => None,
+					};
+					let mut dependencies = BTreeMap::new();
+					for (reference, referent) in &file.dependencies {
+						if let Some(referent) = referent {
+							let item = match referent.item.clone() {
+								Either::Left(node) => {
+									let reference =
+										tg::graph::data::Reference { graph: None, node };
+									tg::graph::data::Edge::Reference(reference)
+								},
+								Either::Right(id) => tg::graph::data::Edge::Object(id),
+							};
+							let referent = referent.clone().map(|_| item);
+							dependencies.insert(reference.clone(), referent);
+						}
+					}
+					let executable = file.executable;
+					let data = tg::graph::data::File {
+						contents,
+						dependencies,
+						executable,
+					};
+					tg::graph::data::Node::File(data)
+				},
+
+				Some(Variant::Symlink(symlink)) => {
+					let artifact = symlink.artifact.clone().map(|artifact| match artifact {
+						Either::Left(node) => {
+							let reference = tg::graph::data::Reference { graph: None, node };
+							tg::graph::data::Edge::Reference(reference)
+						},
+						Either::Right(id) => tg::graph::data::Edge::Object(id),
+					});
+					let data = tg::graph::data::Symlink {
+						artifact,
+						path: symlink.path.clone(),
+					};
+					tg::graph::data::Node::Symlink(data)
+				},
+
+				None => tg::graph::data::Node::Directory(tg::graph::data::Directory {
+					entries: BTreeMap::new(),
+				}),
+			};
+
+			nodes.push(node);
+		}
+
+		// Create the lock.
+		let lock = tg::graph::Data { nodes };
+
+		// Strip the lock.
+		Self::strip_lock(lock)
+	}
+
+	fn strip_lock(lock: tg::graph::Data) -> tg::graph::Data {
+		// Mark.
+		let mut marks = vec![false; lock.nodes.len()];
+		let mut visited = BTreeSet::new();
+		Self::strip_lock_mark(&lock, &mut marks, &mut visited, 0, false);
+
+		// Create the nodes and map.
+		let mut nodes = Vec::new();
+		let mut map = BTreeMap::new();
+		for (index, (mark, node)) in std::iter::zip(&marks, lock.nodes).enumerate() {
+			if *mark {
+				map.insert(index, nodes.len());
+				nodes.push(node);
+			}
+		}
+
+		// Update indexes and remove unmarked edges.
+		for node in &mut nodes {
+			match node {
+				tg::graph::data::Node::Directory(directory) => {
+					directory.entries.retain(|_name, edge| {
+						edge.try_unwrap_reference_ref()
+							.is_ok_and(|reference| marks[reference.node])
+					});
+					for edge in directory.entries.values_mut() {
+						if let tg::graph::data::Edge::Reference(reference) = edge
+							&& reference.graph.is_none()
+						{
+							let node = map.get(&reference.node).copied().unwrap();
+							reference.node = node;
+						}
+					}
+				},
+				tg::graph::data::Node::File(file) => {
+					file.dependencies.retain(|_name, referent| {
+						referent
+							.item
+							.try_unwrap_reference_ref()
+							.is_ok_and(|reference| marks[reference.node])
+					});
+					for referent in file.dependencies.values_mut() {
+						if let tg::graph::data::Edge::Reference(reference) = &mut referent.item
+							&& reference.graph.is_none()
+						{
+							let node = map.get(&reference.node).copied().unwrap();
+							reference.node = node;
+						}
+					}
+				},
+				tg::graph::data::Node::Symlink(symlink) => {
+					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
+						&& reference.graph.is_none()
+					{
+						let node = map.get(&reference.node).copied().unwrap();
+						reference.node = node;
+					}
+				},
+			}
+		}
+
+		tg::graph::Data { nodes }
+	}
+
+	fn strip_lock_mark(
+		lock: &tg::graph::Data,
+		marks: &mut [bool],
+		visited: &mut BTreeSet<usize>,
+		index: usize,
+		tagged: bool,
+	) -> bool {
+		if !visited.insert(index) {
+			return marks[index];
+		}
+		let node = &lock.nodes[index];
+		let mut mark = tagged;
+		match node {
+			tg::graph::data::Node::Directory(directory) => {
+				for edge in directory.entries.values() {
+					if let Ok(reference) = edge.try_unwrap_reference_ref() {
+						mark = mark
+							|| Self::strip_lock_mark(lock, marks, visited, reference.node, false);
+					}
+				}
 			},
-			tg::symlink::Data::Node(data) => data.path.clone(),
-		};
-
-		// Create the lock node.
-		Ok(tg::graph::data::Node::Symlink(tg::graph::data::Symlink {
-			artifact,
-			path,
-		}))
+			tg::graph::data::Node::File(file) => {
+				for referent in file.dependencies.values() {
+					if let Ok(reference) = referent.item.try_unwrap_reference_ref() {
+						mark = mark
+							|| Self::strip_lock_mark(
+								lock,
+								marks,
+								visited,
+								reference.node,
+								referent.tag().is_some(),
+							);
+					}
+				}
+			},
+			tg::graph::data::Node::Symlink(symlink) => {
+				if let Some(edge) = &symlink.artifact {
+					if let Ok(reference) = edge.try_unwrap_reference_ref() {
+						mark = mark
+							|| Self::strip_lock_mark(lock, marks, visited, reference.node, false);
+					}
+				}
+			},
+		}
+		marks[index] = mark;
+		mark
 	}
 }

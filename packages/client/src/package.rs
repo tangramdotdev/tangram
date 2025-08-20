@@ -5,7 +5,7 @@ use tangram_either::Either;
 /// The possible file names for the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
 
-/// The file name of the lockfile in a package.
+/// The file name of a lockfile.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
 #[must_use]

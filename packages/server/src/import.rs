@@ -705,7 +705,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the items.
-		let objects = items
+		let args = items
 			.clone()
 			.into_iter()
 			.map(|item| {
@@ -713,14 +713,15 @@ impl Server {
 					.data
 					.serialize()
 					.map_err(|source| tg::error!(!source, "failed to serialize object data"))?;
-				Ok((item.id, Some(bytes), None))
+				Ok(crate::store::PutArg {
+					id: item.id,
+					bytes: Some(bytes),
+					cache_reference: None,
+					touched_at,
+				})
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
-		let arg = crate::store::PutBatchArg {
-			objects,
-			touched_at,
-		};
-		self.store.put_batch(arg).await?;
+			.collect::<tg::Result<_>>()?;
+		self.store.put_batch(args).await?;
 
 		// Update the progress.
 		let objects = items.len().to_u64().unwrap();

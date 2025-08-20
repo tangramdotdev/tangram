@@ -2,7 +2,7 @@ use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use futures::{StreamExt as _, TryStreamExt as _, stream};
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, pin::pin, sync::Arc};
+use std::{collections::BTreeMap, path::PathBuf, pin::pin, sync::Arc};
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
@@ -65,17 +65,17 @@ impl Server {
 				.map_err(|source| {
 					tg::error!(!source, "failed to rename the file to the blobs directory")
 				})?;
-			Some(id.into())
+			Some((id.into(), None))
 		} else {
 			None
 		};
 
 		// Store.
-		self.blob_create_store(&blob, cache_reference.clone(), touched_at)
+		self.create_blob_store(&blob, cache_reference.clone(), touched_at)
 			.await?;
 
 		// Publish index messages.
-		self.blob_create_index(&blob, cache_reference.clone(), touched_at)
+		self.create_blob_index(&blob, cache_reference.clone(), touched_at)
 			.await?;
 
 		// Create the output.
@@ -271,31 +271,13 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn blob_create_store(
+	async fn create_blob_store(
 		&self,
 		blob: &Blob,
-		referenced_cache_entry: Option<tg::artifact::Id>,
+		cache_reference: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let mut objects = Vec::new();
-		let mut stack = vec![blob];
-		while let Some(blob) = stack.pop() {
-			let cache_reference =
-				referenced_cache_entry
-					.as_ref()
-					.map(|artifact| crate::store::CacheReference {
-						artifact: artifact.clone(),
-						path: None,
-						position: blob.position,
-						length: blob.length,
-					});
-			objects.push((blob.id.clone().into(), blob.bytes.clone(), cache_reference));
-			stack.extend(&blob.children);
-		}
-		let arg = crate::store::PutBatchArg {
-			objects,
-			touched_at,
-		};
+		let arg = Self::create_blob_store_args(blob, cache_reference.as_ref(), touched_at);
 		self.store
 			.put_batch(arg)
 			.await
@@ -303,12 +285,58 @@ impl Server {
 		Ok(())
 	}
 
-	async fn blob_create_index(
+	pub(crate) fn create_blob_store_args(
+		blob: &Blob,
+		cache_reference: Option<&(tg::artifact::Id, Option<PathBuf>)>,
+		touched_at: i64,
+	) -> Vec<crate::store::PutArg> {
+		let mut args = Vec::new();
+		let mut stack = vec![blob];
+		while let Some(blob) = stack.pop() {
+			let cache_reference =
+				cache_reference
+					.as_ref()
+					.map(|(artifact, path)| crate::store::CacheReference {
+						artifact: artifact.clone(),
+						path: path.clone(),
+						position: blob.position,
+						length: blob.length,
+					});
+			args.push(crate::store::PutArg {
+				bytes: blob.bytes.clone(),
+				cache_reference,
+				id: blob.id.clone().into(),
+				touched_at,
+			});
+			stack.extend(&blob.children);
+		}
+		args
+	}
+
+	async fn create_blob_index(
 		&self,
 		blob: &Blob,
-		cache_reference: Option<tg::artifact::Id>,
+		cache_reference: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> tg::Result<()> {
+		let messages = Self::create_blob_index_messages(blob, cache_reference, touched_at);
+		let messages = messages
+			.into_iter()
+			.map(|message| message.serialize())
+			.collect::<tg::Result<_>>()?;
+		let _published = self
+			.messenger
+			.stream_batch_publish("index".to_owned(), messages)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
+		Ok(())
+	}
+
+	pub(crate) fn create_blob_index_messages(
+		blob: &Blob,
+		cache_reference: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		touched_at: i64,
+	) -> Vec<crate::index::Message> {
 		// Collect the blobs in topological order.
 		let mut blobs = Vec::new();
 		let mut stack = vec![blob];
@@ -317,7 +345,10 @@ impl Server {
 			stack.extend(&blob.children);
 		}
 
-		// Publish put object messages in reverse topological order.
+		// Create the messages.
+		let mut messages = Vec::with_capacity(blobs.len() + 1);
+
+		// Create put object messages in reverse topological order.
 		for blob in blobs.into_iter().rev() {
 			let children = blob
 				.data
@@ -327,7 +358,9 @@ impl Server {
 			let id = blob.id.clone().into();
 			let size = blob.size;
 			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
-				cache_reference: cache_reference.clone(),
+				cache_reference: cache_reference
+					.as_ref()
+					.map(|(artifact, _)| artifact.clone()),
 				children,
 				complete: true,
 				count: Some(blob.count),
@@ -337,30 +370,20 @@ impl Server {
 				touched_at,
 				weight: Some(blob.weight),
 			});
-			let message = message.serialize()?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			messages.push(message);
 		}
 
-		// Publish a cache reference message if necessary.
-		if let Some(id) = cache_reference {
+		// Create a cache entry message if necessary.
+		if let Some((artifact, _)) = cache_reference {
 			let message =
 				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-					id,
+					id: artifact,
 					touched_at,
 				});
-			let message = message.serialize()?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			messages.push(message);
 		}
 
-		Ok(())
+		messages
 	}
 
 	pub(crate) async fn handle_blob_request<H>(

@@ -1,4 +1,4 @@
-use super::CacheReference;
+use super::{CacheReference, DeleteArg, PutArg};
 use bytes::Bytes;
 use foundationdb::{self as fdb, FdbBindingError};
 use foundationdb_tuple::TuplePack as _;
@@ -105,7 +105,7 @@ impl Fdb {
 				let Some(bytes) = transaction.get(&key.pack_to_vec(), false).await? else {
 					return Ok(None);
 				};
-				let reference = serde_json::from_slice(&bytes).map_err(|_| {
+				let reference = CacheReference::deserialize(&*bytes).map_err(|_| {
 					FdbBindingError::new_custom_error("failed to deserialize the reference".into())
 				})?;
 				Ok(Some(reference))
@@ -137,7 +137,7 @@ impl Fdb {
 				transaction.set(&key.pack_to_vec(), &value);
 				if let Some(reference) = &arg.cache_reference {
 					let key = (0, arg.id.to_bytes(), 2);
-					let value = serde_json::to_vec(reference).unwrap();
+					let value = reference.serialize().unwrap();
 					transaction.set(&key.pack_to_vec(), &value);
 				}
 				Ok(())
@@ -147,16 +147,16 @@ impl Fdb {
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, arg: super::PutBatchArg) -> tg::Result<()> {
-		if arg.objects.is_empty() {
+	pub async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
+		if args.is_empty() {
 			return Ok(());
 		}
-		let arg = &arg;
+		let args = &args;
 		self.database
 			.run(|transaction, _| async move {
-				for (id, bytes, reference) in &arg.objects {
-					let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
-					if let Some(bytes) = bytes {
+				for arg in args {
+					let subspace = fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes(), 0));
+					if let Some(bytes) = &arg.bytes {
 						if bytes.is_empty() {
 							transaction.set(&subspace.pack(&0), &[]);
 						} else {
@@ -167,12 +167,12 @@ impl Fdb {
 							}
 						}
 					}
-					let key = (0, id.to_bytes(), 1);
+					let key = (0, arg.id.to_bytes(), 1);
 					let value = arg.touched_at.to_le_bytes();
 					transaction.set(&key.pack_to_vec(), &value);
-					if let Some(reference) = reference {
-						let key = (0, id.to_bytes(), 2);
-						let value = serde_json::to_vec(reference).unwrap();
+					if let Some(cache_reference) = &arg.cache_reference {
+						let key = (0, arg.id.to_bytes(), 2);
+						let value = cache_reference.serialize().unwrap();
 						transaction.set(&key.pack_to_vec(), &value);
 					}
 				}
@@ -183,16 +183,41 @@ impl Fdb {
 		Ok(())
 	}
 
-	pub async fn delete_batch(&self, arg: super::DeleteBatchArg) -> tg::Result<()> {
-		if arg.ids.is_empty() {
-			return Ok(());
-		}
+	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
-				future::try_join_all(arg.ids.iter().map(|id| async {
+				let Some(touched_at) = transaction
+					.get(&(0, arg.id.to_bytes(), 1).pack_to_vec(), false)
+					.await?
+				else {
+					return Ok::<_, fdb::FdbBindingError>(());
+				};
+				let touched_at = touched_at.as_ref().try_into().map_err(|_| {
+					fdb::FdbBindingError::new_custom_error("invalid touch time".into())
+				})?;
+				let touched_at = i64::from_le_bytes(touched_at);
+				if arg.now - touched_at >= arg.ttl.to_i64().unwrap() {
+					let subspace = fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes()));
+					transaction.clear_subspace_range(&subspace);
+				}
+				Ok(())
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+		Ok(())
+	}
+
+	pub async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let args = &args;
+		self.database
+			.run(|transaction, _| async move {
+				future::try_join_all(args.iter().map(|arg| async {
 					let Some(touched_at) = transaction
-						.get(&(0, id.to_bytes(), 1).pack_to_vec(), false)
+						.get(&(0, arg.id.to_bytes(), 1).pack_to_vec(), false)
 						.await?
 					else {
 						return Ok::<_, fdb::FdbBindingError>(());
@@ -202,7 +227,8 @@ impl Fdb {
 					})?;
 					let touched_at = i64::from_le_bytes(touched_at);
 					if arg.now - touched_at >= arg.ttl.to_i64().unwrap() {
-						let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes()));
+						let subspace =
+							fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes()));
 						transaction.clear_subspace_range(&subspace);
 					}
 					Ok(())

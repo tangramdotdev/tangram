@@ -1361,6 +1361,7 @@ impl Cli {
 				return Err(tg::error!("expected an artifact"));
 			},
 		};
+
 		Ok(module)
 	}
 

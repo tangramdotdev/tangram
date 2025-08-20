@@ -629,7 +629,7 @@ impl Server {
 		if !dependencies.is_empty() {
 			let dependencies = serde_json::to_vec(&dependencies)
 				.map_err(|source| tg::error!(!source, "failed to serialize the dependencies"))?;
-			xattr::set(dst, tg::file::XATTR_DEPENDENCIES_NAME, &dependencies)
+			xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
 				.map_err(|source| tg::error!(!source, "failed to write the dependencies attr"))?;
 		}
 
