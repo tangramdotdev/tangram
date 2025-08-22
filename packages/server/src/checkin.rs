@@ -150,7 +150,6 @@ impl Server {
 			lock_paths,
 			objects: None,
 			progress: progress.clone(),
-			sccs: None,
 		};
 
 		// Spawn the fixup task.
@@ -191,15 +190,6 @@ impl Server {
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
-		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
-		let mut sccs = petgraph::algo::tarjan_scc(&state.graph);
-		for scc in &mut sccs {
-			if scc.len() > 1 {
-				scc.reverse();
-			}
-		}
-		state.sccs.replace(sccs);
-
 		// Create blobs.
 		let start = Instant::now();
 		self.checkin_create_blobs(&mut state).await?;
@@ -222,7 +212,7 @@ impl Server {
 
 		// Cache.
 		let start = Instant::now();
-		self.checkin_cache(state.clone(), touched_at)
+		self.checkin_cache(state.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "cache");

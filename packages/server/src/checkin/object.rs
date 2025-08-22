@@ -13,8 +13,15 @@ impl Server {
 		// Create the objects.
 		state.objects = Some(IndexMap::new());
 
+		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
+		let mut sccs = petgraph::algo::tarjan_scc(&state.graph);
+		for scc in &mut sccs {
+			if scc.len() > 1 {
+				scc.reverse();
+			}
+		}
+
 		// Create objects for each strongly connected component. If the strongly connected component has only one node, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
-		let sccs = state.sccs.take().unwrap();
 		for scc in &sccs {
 			if scc.len() == 1 {
 				let index = scc[0];
@@ -28,8 +35,6 @@ impl Server {
 		let mut blobs = Self::checkin_create_blob_objects(state, &sccs);
 		blobs.extend(state.objects.take().unwrap());
 		state.objects.replace(blobs);
-
-		state.sccs.replace(sccs);
 
 		Ok(())
 	}

@@ -9,10 +9,9 @@ use {
 };
 
 impl Server {
-	pub(super) async fn checkin_cache(&self, state: Arc<State>, touched_at: i64) -> tg::Result<()> {
+	pub(super) async fn checkin_cache(&self, state: Arc<State>) -> tg::Result<()> {
 		if state.arg.destructive {
-			self.checkin_cache_task_destructive(state, touched_at)
-				.await?;
+			self.checkin_cache_task_destructive(state).await?;
 		} else {
 			tokio::task::spawn_blocking({
 				let server = self.clone();
@@ -26,12 +25,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn checkin_cache_task_destructive(
-		&self,
-		state: Arc<State>,
-		touched_at: i64,
-	) -> tg::Result<()> {
-		// Rename the root to the cache directory.
+	pub(super) async fn checkin_cache_task_destructive(&self, state: Arc<State>) -> tg::Result<()> {
 		let node = &state.graph.nodes[0];
 		let id = node.object_id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
@@ -70,20 +64,6 @@ impl Server {
 				|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
 			)?;
 		}
-
-		// Publish the cache entry index message.
-		let id = id.clone().try_into().unwrap();
-		let message = crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-			id,
-			touched_at,
-		});
-		let message = message.serialize()?;
-		let _published = self
-			.messenger
-			.stream_publish("index".to_owned(), message)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-
 		Ok(())
 	}
 
@@ -162,6 +142,47 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut messages: Vec<Bytes> = Vec::new();
 
+		// Create put cache entry messages.
+		if state.arg.destructive {
+			let id = state.graph.nodes[0]
+				.object_id
+				.as_ref()
+				.unwrap()
+				.clone()
+				.try_into()
+				.unwrap();
+			let message =
+				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
+					id,
+					touched_at,
+				});
+			let message = message.serialize()?;
+			let _published = self
+				.messenger
+				.stream_publish("index".to_owned(), message)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		} else {
+			for node in &state.graph.nodes {
+				let Some(variant) = &node.variant else {
+					continue;
+				};
+				let Variant::File(file) = variant else {
+					continue;
+				};
+				let Some(Either::Left(_)) = &file.blob else {
+					continue;
+				};
+				let message =
+					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
+						id: node.object_id.as_ref().unwrap().clone().try_into().unwrap(),
+						touched_at,
+					});
+				let message = message.serialize()?;
+				messages.push(message);
+			}
+		}
+
 		// Create put object messages.
 		for object in state.objects.as_ref().unwrap().values() {
 			let cache_reference = object
@@ -192,28 +213,6 @@ impl Server {
 			});
 			let message = message.serialize()?;
 			messages.push(message);
-		}
-
-		// Create put cache entry messages.
-		if !state.arg.destructive {
-			for node in &state.graph.nodes {
-				let Some(variant) = &node.variant else {
-					continue;
-				};
-				let Variant::File(file) = variant else {
-					continue;
-				};
-				let Some(Either::Left(_)) = &file.blob else {
-					continue;
-				};
-				let message =
-					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-						id: node.object_id.as_ref().unwrap().clone().try_into().unwrap(),
-						touched_at,
-					});
-				let message = message.serialize()?;
-				messages.push(message);
-			}
 		}
 
 		self.messenger

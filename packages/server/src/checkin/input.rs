@@ -83,7 +83,6 @@ impl Server {
 		let node = Node {
 			lock_node,
 			object_id: None,
-			object_metadata: None,
 			parents: SmallVec::new(),
 			path: Some(path),
 			path_metadata: Some(metadata),

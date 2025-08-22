@@ -21,7 +21,6 @@ pub struct State {
 	pub lock_paths: Option<radix_trie::Trie<PathBuf, usize>>,
 	pub objects: Option<IndexMap<tg::object::Id, Object>>,
 	pub progress: crate::progress::Handle<tg::checkin::Output>,
-	pub sccs: Option<Vec<Vec<usize>>>,
 }
 
 pub struct FixupMessage {
@@ -40,7 +39,6 @@ pub struct Graph {
 pub struct Node {
 	pub lock_node: Option<usize>,
 	pub object_id: Option<tg::object::Id>,
-	pub object_metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[usize; 1]>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
