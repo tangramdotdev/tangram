@@ -42,7 +42,7 @@ pub struct Node {
 	pub parents: SmallVec<[usize; 1]>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
-	pub variant: Option<Variant>,
+	pub variant: Variant,
 }
 
 #[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -110,14 +110,13 @@ impl Graph {
 impl Node {
 	pub fn edges(&self) -> Vec<usize> {
 		match &self.variant {
-			None => Vec::new(),
-			Some(Variant::Directory(directory)) => directory.entries.values().copied().collect(),
-			Some(Variant::File(file)) => file
+			Variant::Directory(directory) => directory.entries.values().copied().collect(),
+			Variant::File(file) => file
 				.dependencies
 				.values()
 				.filter_map(|dependency| Some(dependency.as_ref()?.item))
 				.collect(),
-			Some(Variant::Symlink(symlink)) => symlink.artifact.iter().copied().collect(),
+			Variant::Symlink(symlink) => symlink.artifact.iter().copied().collect(),
 		}
 	}
 }

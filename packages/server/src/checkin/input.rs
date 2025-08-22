@@ -86,22 +86,19 @@ impl Server {
 			parents: SmallVec::new(),
 			path: Some(path),
 			path_metadata: Some(metadata),
-			variant: Some(variant),
+			variant,
 		};
 		state.graph.nodes.push_back(node);
 
 		match &state.graph.nodes[index].variant {
-			Some(Variant::Directory(_)) => {
+			Variant::Directory(_) => {
 				self.checkin_visit_directory(state, index)?;
 			},
-			Some(Variant::File(_)) => {
+			Variant::File(_) => {
 				self.checkin_visit_file(state, index)?;
 			},
-			Some(Variant::Symlink(_)) => {
+			Variant::Symlink(_) => {
 				self.checkin_visit_symlink(state, index)?;
-			},
-			None => {
-				return Err(tg::error!("unreachable"));
 			},
 		}
 
@@ -141,8 +138,6 @@ impl Server {
 			state.graph.nodes[child_index].parents.push(index);
 			state.graph.nodes[index]
 				.variant
-				.as_mut()
-				.unwrap()
 				.unwrap_directory_mut()
 				.entries
 				.insert(name, child_index);
@@ -286,8 +281,6 @@ impl Server {
 		// Update the graph.
 		state.graph.nodes[index]
 			.variant
-			.as_mut()
-			.unwrap()
 			.unwrap_file_mut()
 			.dependencies = dependencies;
 
@@ -336,11 +329,7 @@ impl Server {
 			};
 
 			// Update the symlink.
-			let variant = state.graph.nodes[index]
-				.variant
-				.as_mut()
-				.unwrap()
-				.unwrap_symlink_mut();
+			let variant = state.graph.nodes[index].variant.unwrap_symlink_mut();
 			variant.artifact.replace(artifact);
 			variant.path = path;
 
@@ -348,12 +337,7 @@ impl Server {
 		}
 
 		// Update the symlink.
-		state.graph.nodes[index]
-			.variant
-			.as_mut()
-			.unwrap()
-			.unwrap_symlink_mut()
-			.path = Some(target);
+		state.graph.nodes[index].variant.unwrap_symlink_mut().path = Some(target);
 
 		Ok(())
 	}

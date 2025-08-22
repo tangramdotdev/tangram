@@ -119,7 +119,7 @@ impl Server {
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
 		match state.graph.nodes[0].variant {
-			Some(Variant::Directory(_)) => {
+			Variant::Directory(_) => {
 				// Determine the lockfile path.
 				let lockfile_path = state.arg.path.join(tg::package::LOCKFILE_FILE_NAME);
 
@@ -141,7 +141,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
 			},
 
-			Some(Variant::File(_)) => {
+			Variant::File(_) => {
 				// Serialize the lock.
 				let contents = serde_json::to_vec(&lock)
 					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
@@ -162,7 +162,7 @@ impl Server {
 		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
 		for node in &state.graph.nodes {
 			let node = match &node.variant {
-				Some(Variant::Directory(directory)) => {
+				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();
 					for (name, node) in directory.entries.clone() {
 						let reference = tg::graph::data::Reference { graph: None, node };
@@ -173,7 +173,7 @@ impl Server {
 					tg::graph::data::Node::Directory(data)
 				},
 
-				Some(Variant::File(file)) => {
+				Variant::File(file) => {
 					let contents = match &file.blob {
 						Some(Either::Right(id)) => Some(id.clone()),
 						_ => None,
@@ -199,7 +199,7 @@ impl Server {
 					tg::graph::data::Node::File(data)
 				},
 
-				Some(Variant::Symlink(symlink)) => {
+				Variant::Symlink(symlink) => {
 					let artifact = symlink.artifact.map(|artifact| {
 						let reference = tg::graph::data::Reference {
 							graph: None,
@@ -213,10 +213,6 @@ impl Server {
 					};
 					tg::graph::data::Node::Symlink(data)
 				},
-
-				None => tg::graph::data::Node::Directory(tg::graph::data::Directory {
-					entries: BTreeMap::new(),
-				}),
 			};
 
 			nodes.push(node);

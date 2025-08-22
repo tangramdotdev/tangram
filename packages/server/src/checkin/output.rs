@@ -164,10 +164,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		} else {
 			for node in &state.graph.nodes {
-				let Some(variant) = &node.variant else {
-					continue;
-				};
-				let Variant::File(file) = variant else {
+				let Variant::File(file) = &node.variant else {
 					continue;
 				};
 				let Some(Either::Left(_)) = &file.blob else {

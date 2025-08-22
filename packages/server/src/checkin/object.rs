@@ -43,13 +43,8 @@ impl Server {
 		// Get the node.
 		let node = &state.graph.nodes[index];
 
-		// Get the variant.
-		let Some(variant) = &node.variant else {
-			return Ok(());
-		};
-
 		// Create the object.
-		let data = match variant {
+		let data = match &node.variant {
 			Variant::Directory(directory) => {
 				let entries = directory
 					.entries
@@ -158,10 +153,7 @@ impl Server {
 		index: usize,
 	) -> tg::Result<()> {
 		let node = &state.graph.nodes[index];
-		let Some(variant) = &node.variant else {
-			return Ok(());
-		};
-		let node = match variant {
+		let node = match &node.variant {
 			Variant::Directory(directory) => {
 				let entries = directory
 					.entries
@@ -262,10 +254,7 @@ impl Server {
 		global: usize,
 	) -> tg::Result<()> {
 		let node = &state.graph.nodes[global];
-		let Some(variant) = &node.variant else {
-			return Ok(());
-		};
-		let data = match variant {
+		let data = match &node.variant {
 			Variant::Directory(_) => {
 				let reference = tg::graph::data::Reference {
 					graph: Some(graph.clone()),
@@ -365,10 +354,7 @@ impl Server {
 		for scc in sccs {
 			for index in scc {
 				let node = &state.graph.nodes[*index];
-				let Some(variant) = &node.variant else {
-					continue;
-				};
-				let Variant::File(file) = variant else {
+				let Variant::File(file) = &node.variant else {
 					continue;
 				};
 				let Some(Either::Left(blob)) = &file.blob else {

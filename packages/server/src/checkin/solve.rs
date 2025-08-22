@@ -206,41 +206,39 @@ impl Server {
 
 	fn checkin_solve_enqueue_edges_for_node(checkpoint: &mut Checkpoint, node: usize) {
 		match &checkpoint.graph.nodes[node].variant {
-			Some(Variant::Directory(directory)) => {
+			Variant::Directory(directory) => {
 				let edges = directory.entries.keys().map(|name| Edge {
 					node,
 					variant: EdgeVariant::DirectoryEntry(name.clone()),
 				});
 				checkpoint.queue.extend(edges);
 			},
-			Some(Variant::File(file)) => {
+			Variant::File(file) => {
 				let edges = file.dependencies.keys().map(|reference| Edge {
 					node,
 					variant: EdgeVariant::FileDependency(reference.clone()),
 				});
 				checkpoint.queue.extend(edges);
 			},
-			Some(Variant::Symlink(symlink)) => {
+			Variant::Symlink(symlink) => {
 				let edges = symlink.artifact.iter().map(|_| Edge {
 					node,
 					variant: EdgeVariant::SymlinkArtifact,
 				});
 				checkpoint.queue.extend(edges);
 			},
-			None => (),
 		}
 	}
 
 	fn checkin_solve_get_referent_for_edge(checkpoint: &Checkpoint, edge: &Edge) -> Option<usize> {
 		let node = &checkpoint.graph.nodes[edge.node];
-		let variant = node.variant.as_ref().unwrap();
 		match &edge.variant {
 			EdgeVariant::DirectoryEntry(name) => {
-				let directory = variant.unwrap_directory_ref();
+				let directory = node.variant.unwrap_directory_ref();
 				directory.entries.get(name).copied()
 			},
 			EdgeVariant::FileDependency(reference) => {
-				let file = variant.unwrap_file_ref();
+				let file = node.variant.unwrap_file_ref();
 				file.dependencies
 					.get(reference)
 					.cloned()
@@ -248,7 +246,7 @@ impl Server {
 					.map(|referent| referent.item)
 			},
 			EdgeVariant::SymlinkArtifact => {
-				let symlink = variant.unwrap_symlink_ref();
+				let symlink = node.variant.unwrap_symlink_ref();
 				symlink.artifact.clone()
 			},
 		}

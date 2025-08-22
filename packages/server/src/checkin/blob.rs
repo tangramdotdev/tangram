@@ -13,7 +13,7 @@ impl Server {
 			.iter()
 			.enumerate()
 			.filter_map(|(index, node)| {
-				let is_file = node.variant.as_ref().is_some_and(Variant::is_file);
+				let is_file = node.variant.is_file();
 				if !is_file {
 					return None;
 				}
@@ -41,8 +41,6 @@ impl Server {
 			state.blobs.insert(blob.id.clone(), blob.clone());
 			state.graph.nodes[index]
 				.variant
-				.as_mut()
-				.unwrap()
 				.unwrap_file_mut()
 				.blob
 				.replace(Either::Left(blob));
