@@ -80,13 +80,9 @@ impl Server {
 						let referent = referent.as_ref().ok_or_else(
 							|| tg::error!(%reference, "expected the referent to be set"),
 						)?;
-						let item = match referent.item() {
-							Either::Left(index) => {
-								let node = &state.graph.nodes[*index];
-								node.object_id.as_ref().unwrap().clone()
-							},
-							Either::Right(id) => id.clone(),
-						};
+						let index = *referent.item();
+						let node = &state.graph.nodes[index];
+						let item = node.object_id.as_ref().unwrap().clone();
 						let item = tg::graph::data::Edge::Object(item);
 						let referent = referent.clone().map(|_| item);
 						Ok::<_, tg::Error>((reference, referent))
@@ -102,7 +98,7 @@ impl Server {
 			},
 			Variant::Symlink(symlink) => {
 				let artifact = match &symlink.artifact {
-					Some(Either::Left(index)) => {
+					Some(index) => {
 						let node = &state.graph.nodes[*index];
 						let id = node.object_id.as_ref().unwrap().clone();
 						let id = id
@@ -110,7 +106,6 @@ impl Server {
 							.map_err(|source| tg::error!(!source, "expected an artifact"))?;
 						Some(id)
 					},
-					Some(Either::Right(artifact)) => Some(artifact.clone()),
 					None => None,
 				};
 				let artifact = artifact.map(tg::graph::data::Edge::Object);
@@ -196,34 +191,31 @@ impl Server {
 					Either::Left(blob) => blob.id.clone(),
 					Either::Right(id) => id.clone(),
 				};
-				let dependencies =
-					file.dependencies
-						.iter()
-						.map(|(reference, referent)| {
-							let referent = referent.as_ref().ok_or_else(
-								|| tg::error!(%reference, "expected the referent to be set"),
-							)?;
-							let item = match referent.item() {
-								Either::Left(index) => {
-									if let Ok(node) = scc.binary_search(index) {
-										tg::graph::data::Edge::Reference(
-											tg::graph::data::Reference { graph: None, node },
-										)
-									} else {
-										let node = &state.graph.nodes[*index];
-										let object = node.object_id.as_ref().unwrap().clone();
-										tg::graph::data::Edge::Object(object)
-									}
-								},
-								Either::Right(id) => tg::graph::data::Edge::Object(id.clone()),
-							};
-							let referent = tg::Referent {
-								item,
-								options: referent.options.clone(),
-							};
-							Ok::<_, tg::Error>((reference.clone(), referent))
-						})
-						.collect::<tg::Result<_>>()?;
+				let dependencies = file
+					.dependencies
+					.iter()
+					.map(|(reference, referent)| {
+						let referent = referent.as_ref().ok_or_else(
+							|| tg::error!(%reference, "expected the referent to be set"),
+						)?;
+						let index = *referent.item();
+						let item = if let Ok(node) = scc.binary_search(&index) {
+							tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+								graph: None,
+								node,
+							})
+						} else {
+							let node = &state.graph.nodes[index];
+							let object = node.object_id.as_ref().unwrap().clone();
+							tg::graph::data::Edge::Object(object)
+						};
+						let referent = tg::Referent {
+							item,
+							options: referent.options.clone(),
+						};
+						Ok::<_, tg::Error>((reference.clone(), referent))
+					})
+					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
 				let data = tg::graph::data::File {
 					contents: Some(contents),
@@ -234,7 +226,7 @@ impl Server {
 			},
 			Variant::Symlink(symlink) => {
 				let artifact = match &symlink.artifact {
-					Some(Either::Left(index)) => Some(if let Ok(node) = scc.binary_search(index) {
+					Some(index) => Some(if let Ok(node) = scc.binary_search(index) {
 						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 							graph: None,
 							node,
@@ -247,9 +239,6 @@ impl Server {
 							.map_err(|_| tg::error!("expected an artifact"))?;
 						tg::graph::data::Edge::Object(artifact)
 					}),
-					Some(Either::Right(artifact)) => {
-						Some(tg::graph::data::Edge::Object(artifact.clone()))
-					},
 					None => None,
 				};
 				let path = symlink.path.clone();

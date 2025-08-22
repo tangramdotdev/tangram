@@ -126,13 +126,6 @@ impl Reference {
 		&self.options
 	}
 
-	pub fn name(&self) -> Option<&str> {
-		self.item()
-			.try_unwrap_tag_ref()
-			.ok()
-			.map(tg::tag::Pattern::name)
-	}
-
 	pub async fn get<H>(
 		&self,
 		handle: &H,

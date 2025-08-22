@@ -333,7 +333,6 @@ impl Server {
 		Ok(())
 	}
 
-	// Look up the underlying graph node of the artifact.
 	fn checkout_get_node(
 		&self,
 		state: &mut State,

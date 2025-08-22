@@ -79,16 +79,11 @@ impl Tag {
 	}
 
 	#[must_use]
-	pub fn name(&self) -> &str {
-		if let Some(Component::Version(_)) = self.components().last() {
-			let index = self
-				.string
-				.match_indices('/')
-				.next_back()
-				.map_or(self.string.len(), |(index, _)| index);
-			return &self.string[0..index];
-		}
-		self.as_str()
+	pub fn parent(&self) -> Option<Self> {
+		let mut components = self.components.clone();
+		components.pop()?;
+		let parent = Self::with_components(components);
+		Some(parent)
 	}
 }
 

@@ -8,7 +8,6 @@ use {
 		path::{Path, PathBuf},
 	},
 	tangram_client as tg,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -88,7 +87,6 @@ impl Server {
 			parents: SmallVec::new(),
 			path: Some(path),
 			path_metadata: Some(metadata),
-			tag: None,
 			variant: Some(variant),
 		};
 		state.graph.nodes.push_back(node);
@@ -186,7 +184,7 @@ impl Server {
 						} else {
 							path
 						};
-						let item = Either::Left(index);
+						let item = index;
 						let options = tg::referent::Options {
 							path: Some(path),
 							tag: None,
@@ -255,7 +253,7 @@ impl Server {
 						} else {
 							path
 						};
-						let item = Either::Left(index);
+						let item = index;
 						let options = tg::referent::Options {
 							path: Some(path),
 							tag: None,
@@ -344,7 +342,7 @@ impl Server {
 				.as_mut()
 				.unwrap()
 				.unwrap_symlink_mut();
-			variant.artifact.replace(Either::Left(artifact));
+			variant.artifact.replace(artifact);
 			variant.path = path;
 
 			return Ok(());

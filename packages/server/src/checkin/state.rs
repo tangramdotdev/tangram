@@ -44,7 +44,6 @@ pub struct Node {
 	pub parents: SmallVec<[usize; 1]>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
-	pub tag: Option<tg::Tag>,
 	pub variant: Option<Variant>,
 }
 
@@ -66,12 +65,12 @@ pub struct Directory {
 pub struct File {
 	pub blob: Option<Either<crate::blob::create::Blob, tg::blob::Id>>,
 	pub executable: bool,
-	pub dependencies: BTreeMap<tg::Reference, Option<tg::Referent<Either<usize, tg::object::Id>>>>,
+	pub dependencies: BTreeMap<tg::Reference, Option<tg::Referent<usize>>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Symlink {
-	pub artifact: Option<Either<usize, tg::artifact::Id>>,
+	pub artifact: Option<usize>,
 	pub path: Option<PathBuf>,
 }
 
@@ -118,14 +117,9 @@ impl Node {
 			Some(Variant::File(file)) => file
 				.dependencies
 				.values()
-				.filter_map(|dependency| dependency.as_ref()?.item.as_ref().left().copied())
+				.filter_map(|dependency| Some(dependency.as_ref()?.item))
 				.collect(),
-			Some(Variant::Symlink(symlink)) => symlink
-				.artifact
-				.as_ref()
-				.and_then(|either| either.as_ref().left().copied())
-				.into_iter()
-				.collect(),
+			Some(Variant::Symlink(symlink)) => symlink.artifact.iter().copied().collect(),
 		}
 	}
 }

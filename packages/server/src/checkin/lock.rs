@@ -61,12 +61,12 @@ impl Server {
 		lock: &tg::graph::Data,
 	) -> radix_trie::Trie<PathBuf, usize> {
 		let mut paths = radix_trie::Trie::new();
-		let mut queue = Vec::new();
+		let mut stack = Vec::new();
 		if !lock.nodes.is_empty() {
-			queue.push((path.to_owned(), 0));
+			stack.push((path.to_owned(), 0));
 		}
 		let mut visited = BTreeSet::new();
-		while let Some((path, index)) = queue.pop() {
+		while let Some((path, index)) = stack.pop() {
 			if !visited.insert(index) {
 				continue;
 			}
@@ -77,7 +77,7 @@ impl Server {
 					for (name, edge) in &directory.entries {
 						if let Ok(reference) = edge.try_unwrap_reference_ref() {
 							let path = path.join(name);
-							queue.push((path, reference.node));
+							stack.push((path, reference.node));
 						}
 					}
 				},
@@ -88,7 +88,7 @@ impl Server {
 							&& let Ok(reference) = referent.item.try_unwrap_reference_ref()
 						{
 							let path = path.join(referent_path);
-							queue.push((path, reference.node));
+							stack.push((path, reference.node));
 						}
 					}
 				},
@@ -181,13 +181,10 @@ impl Server {
 					let mut dependencies = BTreeMap::new();
 					for (reference, referent) in &file.dependencies {
 						if let Some(referent) = referent {
-							let item = match referent.item.clone() {
-								Either::Left(node) => {
-									let reference =
-										tg::graph::data::Reference { graph: None, node };
-									tg::graph::data::Edge::Reference(reference)
-								},
-								Either::Right(id) => tg::graph::data::Edge::Object(id),
+							let item = {
+								let node = *referent.item();
+								let reference = tg::graph::data::Reference { graph: None, node };
+								tg::graph::data::Edge::Reference(reference)
 							};
 							let referent = referent.clone().map(|_| item);
 							dependencies.insert(reference.clone(), referent);
@@ -203,12 +200,12 @@ impl Server {
 				},
 
 				Some(Variant::Symlink(symlink)) => {
-					let artifact = symlink.artifact.clone().map(|artifact| match artifact {
-						Either::Left(node) => {
-							let reference = tg::graph::data::Reference { graph: None, node };
-							tg::graph::data::Edge::Reference(reference)
-						},
-						Either::Right(id) => tg::graph::data::Edge::Object(id),
+					let artifact = symlink.artifact.map(|artifact| {
+						let reference = tg::graph::data::Reference {
+							graph: None,
+							node: artifact,
+						};
+						tg::graph::data::Edge::Reference(reference)
 					});
 					let data = tg::graph::data::Symlink {
 						artifact,

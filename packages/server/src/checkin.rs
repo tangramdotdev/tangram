@@ -21,7 +21,7 @@ mod input;
 mod lock;
 mod object;
 mod output;
-// mod solve;
+mod solve;
 mod state;
 
 impl Server {
@@ -184,12 +184,12 @@ impl Server {
 		// Remove the ignorer.
 		state.ignorer.take();
 
-		// // Solve.
-		// if !(state.arg.deterministic || state.arg.locked) {
-		// 	let start = Instant::now();
-		// 	self.checkin_solve(&mut state).await?;
-		// 	tracing::trace!(elapsed = ?start.elapsed(), "solve");
-		// }
+		// Solve.
+		if !(state.arg.deterministic || state.arg.locked) {
+			let start = Instant::now();
+			self.checkin_solve(&mut state).await?;
+			tracing::trace!(elapsed = ?start.elapsed(), "solve");
+		}
 
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
 		let mut sccs = petgraph::algo::tarjan_scc(&state.graph);
