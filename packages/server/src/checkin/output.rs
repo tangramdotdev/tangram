@@ -167,7 +167,7 @@ impl Server {
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
-				let Some(Either::Left(_)) = &file.blob else {
+				let Some(Either::Left(_)) = &file.contents else {
 					continue;
 				};
 				let message =

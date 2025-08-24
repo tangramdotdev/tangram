@@ -1,4 +1,4 @@
-use super::state::{State, Variant};
+use super::state::State;
 use crate::Server;
 use futures::{StreamExt as _, TryStreamExt as _, stream};
 use tangram_client as tg;
@@ -42,7 +42,7 @@ impl Server {
 			state.graph.nodes[index]
 				.variant
 				.unwrap_file_mut()
-				.blob
+				.contents
 				.replace(Either::Left(blob));
 		}
 		Ok(())

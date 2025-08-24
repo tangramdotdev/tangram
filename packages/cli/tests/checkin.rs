@@ -1096,15 +1096,6 @@ async fn tagged_object() {
 
 #[tokio::test]
 async fn simple_tagged_package() {
-	let tags = vec![(
-		"a".into(),
-		temp::directory! {
-			"tangram.ts" => indoc::indoc!(r#"
-				export default () => "a";
-			"#),
-		}
-		.into(),
-	)];
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc::indoc!(r#"
 			import a from "a";
@@ -1116,6 +1107,15 @@ async fn simple_tagged_package() {
 	.into();
 	let destructive = false;
 	let path = Path::new("");
+	let tags = vec![(
+		"a".into(),
+		temp::directory! {
+			"tangram.ts" => indoc::indoc!(r#"
+				export default () => "a";
+			"#),
+		}
+		.into(),
+	)];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
@@ -1338,6 +1338,15 @@ async fn tagged_package_with_cyclic_dependency() {
 
 #[tokio::test]
 async fn tag_dependency_cycles() {
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as b from "b/*";
+			import * as a from "a/*";
+		"#),
+	}
+	.into();
+	let path = Path::new("");
+	let destructive = false;
 	let tags = vec![
 		(
 			"a/1.0.0".into(),
@@ -1369,17 +1378,6 @@ async fn tag_dependency_cycles() {
 			.into(),
 		),
 	];
-
-	let artifact = temp::directory! {
-		"tangram.ts" => indoc!(r#"
-			import * as b from "b/*";
-			import * as a from "a/*";
-		"#),
-	}
-	.into();
-
-	let path = Path::new("");
-	let destructive = false;
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({

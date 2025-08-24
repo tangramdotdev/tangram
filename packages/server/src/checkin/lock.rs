@@ -151,7 +151,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to write the lockatttr"))?;
 			},
 
-			_ => {},
+			Variant::Symlink(_) => {},
 		}
 
 		Ok(())
@@ -164,30 +164,22 @@ impl Server {
 			let node = match &node.variant {
 				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();
-					for (name, node) in directory.entries.clone() {
-						let reference = tg::graph::data::Reference { graph: None, node };
-						let edge = tg::graph::data::Edge::Reference(reference);
-						entries.insert(name, edge);
+					for (name, edge) in &directory.entries {
+						entries.insert(name.clone(), edge.clone());
 					}
 					let data = tg::graph::data::Directory { entries };
 					tg::graph::data::Node::Directory(data)
 				},
 
 				Variant::File(file) => {
-					let contents = match &file.blob {
+					let contents = match &file.contents {
 						Some(Either::Right(id)) => Some(id.clone()),
 						_ => None,
 					};
 					let mut dependencies = BTreeMap::new();
 					for (reference, referent) in &file.dependencies {
 						if let Some(referent) = referent {
-							let item = {
-								let node = *referent.item();
-								let reference = tg::graph::data::Reference { graph: None, node };
-								tg::graph::data::Edge::Reference(reference)
-							};
-							let referent = referent.clone().map(|_| item);
-							dependencies.insert(reference.clone(), referent);
+							dependencies.insert(reference.clone(), referent.clone());
 						}
 					}
 					let executable = file.executable;
@@ -200,15 +192,8 @@ impl Server {
 				},
 
 				Variant::Symlink(symlink) => {
-					let artifact = symlink.artifact.map(|artifact| {
-						let reference = tg::graph::data::Reference {
-							graph: None,
-							node: artifact,
-						};
-						tg::graph::data::Edge::Reference(reference)
-					});
 					let data = tg::graph::data::Symlink {
-						artifact,
+						artifact: symlink.artifact.clone(),
 						path: symlink.path.clone(),
 					};
 					tg::graph::data::Node::Symlink(data)

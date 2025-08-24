@@ -43,7 +43,7 @@ impl Server {
 			})
 		} else if metadata.is_file() {
 			Variant::File(File {
-				blob: None,
+				contents: None,
 				dependencies: BTreeMap::new(),
 				executable: metadata.permissions().mode() & 0o111 != 0,
 			})
@@ -136,11 +136,15 @@ impl Server {
 				continue;
 			};
 			state.graph.nodes[child_index].parents.push(index);
+			let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+				graph: None,
+				node: child_index,
+			});
 			state.graph.nodes[index]
 				.variant
 				.unwrap_directory_mut()
 				.entries
-				.insert(name, child_index);
+				.insert(name, edge);
 		}
 
 		Ok(())
@@ -178,7 +182,11 @@ impl Server {
 						} else {
 							path
 						};
-						let item = index;
+						let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							graph: None,
+							node: index,
+						});
+						let item = edge;
 						let options = tg::referent::Options {
 							path: Some(path),
 							tag: None,
@@ -247,7 +255,11 @@ impl Server {
 						} else {
 							path
 						};
-						let item = index;
+						let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							graph: None,
+							node: index,
+						});
+						let item = edge;
 						let options = tg::referent::Options {
 							path: Some(path),
 							tag: None,
@@ -329,8 +341,12 @@ impl Server {
 			};
 
 			// Update the symlink.
+			let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+				graph: None,
+				node: artifact,
+			});
 			let variant = state.graph.nodes[index].variant.unwrap_symlink_mut();
-			variant.artifact.replace(artifact);
+			variant.artifact.replace(edge);
 			variant.path = path;
 
 			return Ok(());

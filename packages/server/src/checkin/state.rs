@@ -56,19 +56,20 @@ pub enum Variant {
 
 #[derive(Clone, Debug)]
 pub struct Directory {
-	pub entries: BTreeMap<String, usize>,
+	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct File {
-	pub blob: Option<Either<crate::blob::create::Blob, tg::blob::Id>>,
+	pub contents: Option<Either<crate::blob::create::Blob, tg::blob::Id>>,
 	pub executable: bool,
-	pub dependencies: BTreeMap<tg::Reference, Option<tg::Referent<usize>>>,
+	pub dependencies:
+		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Symlink {
-	pub artifact: Option<usize>,
+	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 	pub path: Option<PathBuf>,
 }
 
@@ -107,20 +108,6 @@ impl Graph {
 	}
 }
 
-impl Node {
-	pub fn edges(&self) -> Vec<usize> {
-		match &self.variant {
-			Variant::Directory(directory) => directory.entries.values().copied().collect(),
-			Variant::File(file) => file
-				.dependencies
-				.values()
-				.filter_map(|dependency| Some(dependency.as_ref()?.item))
-				.collect(),
-			Variant::Symlink(symlink) => symlink.artifact.iter().copied().collect(),
-		}
-	}
-}
-
 impl petgraph::visit::GraphBase for Graph {
 	type EdgeId = (usize, usize);
 
@@ -153,6 +140,42 @@ impl petgraph::visit::IntoNeighbors for &Graph {
 	type Neighbors = std::vec::IntoIter<usize>;
 
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
-		self.nodes[id].edges().into_iter()
+		match &self.nodes[id].variant {
+			Variant::Directory(directory) => directory
+				.entries
+				.values()
+				.filter_map(|edge| {
+					edge.try_unwrap_reference_ref()
+						.ok()
+						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
+				})
+				.collect::<Vec<_>>()
+				.into_iter(),
+			Variant::File(file) => file
+				.dependencies
+				.values()
+				.filter_map(|option| {
+					option
+						.as_ref()
+						.map(|referent| &referent.item)
+						.and_then(|edge| {
+							edge.try_unwrap_reference_ref().ok().and_then(|reference| {
+								reference.graph.is_none().then_some(reference.node)
+							})
+						})
+				})
+				.collect::<Vec<_>>()
+				.into_iter(),
+			Variant::Symlink(symlink) => symlink
+				.artifact
+				.iter()
+				.filter_map(|edge| {
+					edge.try_unwrap_reference_ref()
+						.ok()
+						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
+				})
+				.collect::<Vec<_>>()
+				.into_iter(),
+		}
 	}
 }
