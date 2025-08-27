@@ -201,3 +201,6 @@ zstd = "0.13"
 [profile.dev.package.blake3]
 opt-level = 3
 overflow-checks = false
+
+[patch.crates-io]
+derive_more = { git = "https://github.com/jeltef/derive_more" }
