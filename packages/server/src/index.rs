@@ -1,17 +1,17 @@
 use crate::Server;
-use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
+use futures::{Stream, StreamExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
-use std::{pin::pin, time::Duration};
+use std::{pin::pin, task::Poll, time::Duration};
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use tangram_database as db;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
 use tangram_messenger::{self as messenger, Acker, prelude::*};
 use tokio_util::task::AbortOnDropHandle;
 
 #[cfg(feature = "postgres")]
-mod postgres;
-mod sqlite;
+pub mod postgres;
+pub mod sqlite;
 
 pub use self::message::Message;
 
@@ -42,35 +42,51 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
-				// Get the info.
+				// Wait for the index stream's first sequence to reach the current last sequence.
 				let info = stream
 					.info()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
-
-				// Start the progress indicator.
+				let mut first_sequence = info.first_sequence;
+				let last_sequence = info.last_sequence;
 				let total = info.last_sequence.saturating_sub(info.first_sequence);
 				progress.start(
-					"index".to_string(),
-					"items".to_owned(),
+					"messages".to_string(),
+					"messages".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
 					Some(total),
 				);
-
-				// Wait for the indexing task to catch up.
-				let mut first_sequence = info.first_sequence;
-				let last_sequence = info.last_sequence;
-				while first_sequence <= last_sequence {
+				while first_sequence < last_sequence {
 					let info = stream.info().await.map_err(|source| {
 						tg::error!(!source, "failed to get the index stream info")
 					})?;
-					progress.increment("index", info.first_sequence - first_sequence);
+					progress.increment("messages", info.first_sequence - first_sequence);
 					first_sequence = info.first_sequence;
 					tokio::time::sleep(Duration::from_millis(10)).await;
 				}
+				progress.finish("messages");
 
-				progress.finish_all();
+				// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
+				let transaction_id = server.indexer_get_transaction_id().await?;
+				let count = server.indexer_get_queue_size(transaction_id).await?;
+				progress.start(
+					"queue".to_string(),
+					"queue".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(count),
+					None,
+				);
+				loop {
+					let count = server.indexer_get_queue_size(transaction_id).await?;
+					progress.set("queue", count);
+					if count == 0 {
+						break;
+					}
+					tokio::time::sleep(Duration::from_millis(10)).await;
+				}
+				progress.finish("queue");
+
 				progress.output(());
 
 				Ok::<_, tg::Error>(())
@@ -82,14 +98,43 @@ impl Server {
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		// Get the messages stream.
-		let stream = self.indexer_task_create_message_stream(config).await?;
+		let stream = self.indexer_create_message_stream(config).await?;
 		let mut stream = pin!(stream);
 
+		let mut wait = false;
 		loop {
-			// Get a batch of messages.
-			let result = stream.try_next().await;
+			let result = if wait {
+				stream.try_next().await
+			} else {
+				match futures::poll!(stream.try_next()) {
+					Poll::Ready(result) => result,
+					Poll::Pending => {
+						let result = self.indexer_handle_queue(config).await;
+						let n = match result {
+							Ok(n) => n,
+							Err(error) => {
+								tracing::error!(
+									?error,
+									"failed to handle the reference count queue"
+								);
+								tokio::time::sleep(Duration::from_secs(1)).await;
+								continue;
+							},
+						};
+						if n == 0 {
+							wait = true;
+						}
+						continue;
+					},
+				}
+			};
+
+			// Single message handling path
 			let messages = match result {
-				Ok(Some(messages)) => messages,
+				Ok(Some(messages)) => {
+					wait = false;
+					messages
+				},
 				Ok(None) => {
 					panic!("the stream ended")
 				},
@@ -99,8 +144,9 @@ impl Server {
 					continue;
 				},
 			};
+
 			// Insert objects from the messages.
-			let result = self.indexer_task_handle_messages(config, messages).await;
+			let result = self.indexer_handle_messages(config, messages).await;
 			if let Err(error) = result {
 				tracing::error!(?error, "failed to handle the messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
@@ -108,7 +154,7 @@ impl Server {
 		}
 	}
 
-	async fn indexer_task_create_message_stream(
+	async fn indexer_create_message_stream(
 		&self,
 		config: &crate::config::Indexer,
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Vec<Message>, Acker)>>>> {
@@ -159,7 +205,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn indexer_task_handle_messages(
+	async fn indexer_handle_messages(
 		&self,
 		config: &crate::config::Indexer,
 		messages: Vec<(Vec<Message>, Acker)>,
@@ -304,6 +350,36 @@ impl Server {
 		Ok(())
 	}
 
+	async fn indexer_handle_queue(&self, config: &crate::config::Indexer) -> tg::Result<usize> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			Index::Postgres(database) => self.indexer_handle_queue_postgres(config, database).await,
+			Index::Sqlite(database) => self.indexer_handle_queue_sqlite(config, database).await,
+		}
+	}
+
+	async fn indexer_get_transaction_id(&self) -> tg::Result<u64> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			Index::Postgres(database) => self.indexer_get_transaction_id_postgres(database).await,
+			Index::Sqlite(database) => self.indexer_get_transaction_id_sqlite(database).await,
+		}
+	}
+
+	async fn indexer_get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			Index::Postgres(database) => {
+				self.indexer_get_queue_size_postgres(database, transaction_id)
+					.await
+			},
+			Index::Sqlite(database) => {
+				self.indexer_get_queue_size_sqlite(database, transaction_id)
+					.await
+			},
+		}
+	}
+
 	pub(crate) async fn handle_index_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
@@ -353,70 +429,4 @@ impl Server {
 
 		Ok(response)
 	}
-}
-
-pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
-	let migrations = vec![migration_0000(database).boxed()];
-
-	let connection = database
-		.connection()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-	let version =
-		connection
-			.with(|connection| {
-				connection
-					.pragma_query_value(None, "user_version", |row| {
-						Ok(row.get_unwrap::<_, usize>(0))
-					})
-					.map_err(|source| tg::error!(!source, "failed to get the version"))
-			})
-			.await?;
-	drop(connection);
-
-	// If this path is from a newer version of Tangram, then return an error.
-	if version > migrations.len() {
-		return Err(tg::error!(
-			r"The index has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
-		));
-	}
-
-	// Run all migrations and update the version.
-	let migrations = migrations.into_iter().enumerate().skip(version);
-	for (version, migration) in migrations {
-		// Run the migration.
-		migration.await?;
-
-		// Update the version.
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		connection
-			.with(move |connection| {
-				connection
-					.pragma_update(None, "user_version", version + 1)
-					.map_err(|source| tg::error!(!source, "failed to get the version"))
-			})
-			.await?;
-	}
-
-	Ok(())
-}
-
-async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
-	let sql = include_str!("index/schema.sql");
-	let connection = database
-		.write_connection()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-	connection
-		.with(move |connection| {
-			connection
-				.execute_batch(sql)
-				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
-			Ok::<_, tg::Error>(())
-		})
-		.await?;
-	Ok(())
 }

@@ -350,25 +350,29 @@ impl Server {
 
 		// Create put object messages in reverse topological order.
 		for blob in blobs.into_iter().rev() {
+			let cache_entry = cache_reference
+				.as_ref()
+				.map(|(artifact, _)| artifact.clone());
 			let children = blob
 				.data
 				.as_ref()
 				.map(|data| data.children().collect())
 				.unwrap_or_default();
 			let id = blob.id.clone().into();
-			let size = blob.size;
-			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
-				cache_reference: cache_reference
-					.as_ref()
-					.map(|(artifact, _)| artifact.clone()),
-				children,
-				complete: true,
+			let metadata = tg::object::Metadata {
 				count: Some(blob.count),
 				depth: Some(blob.depth),
+				weight: Some(blob.weight),
+			};
+			let size = blob.size;
+			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
+				cache_entry,
+				children,
+				complete: true,
 				id,
+				metadata,
 				size,
 				touched_at,
-				weight: Some(blob.weight),
 			});
 			messages.push(message);
 		}

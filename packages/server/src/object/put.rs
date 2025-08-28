@@ -23,15 +23,13 @@ impl Server {
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 		let size = arg.bytes.len().to_u64().unwrap();
 		let message = crate::index::Message::PutObject(crate::index::message::PutObject {
-			cache_reference: None,
+			cache_entry: None,
 			children: data.children().collect(),
 			complete: false,
-			count: None,
-			depth: None,
 			id: id.clone(),
+			metadata: tg::object::Metadata::default(),
 			size,
 			touched_at: now,
-			weight: None,
 		});
 		let message = message.serialize()?;
 		let _published = self

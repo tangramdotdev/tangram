@@ -449,7 +449,7 @@ impl Server {
 
 		// Migrate the index.
 		if let Ok(database) = server.index.try_unwrap_sqlite_ref() {
-			self::index::migrate(database)
+			self::index::sqlite::migrate(database)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
 		}

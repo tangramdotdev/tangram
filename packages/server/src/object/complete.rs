@@ -192,7 +192,7 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<String>>(0)?;
-				let complete = row.get::<_, i64>(1) != 0;
+				let complete = row.get::<_, bool>(1);
 				Some(complete)
 			})
 			.collect();
@@ -447,7 +447,7 @@ impl Server {
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<String>>(0)?;
-				let complete = row.get::<_, i64>(1) != 0;
+				let complete = row.get::<_, bool>(1);
 				let count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
 				let depth = row.get::<_, Option<i64>>(3).map(|v| v.to_u64().unwrap());
 				let weight = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());

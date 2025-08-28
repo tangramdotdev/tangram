@@ -98,9 +98,10 @@ pub struct SqliteIndex {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
+	pub insert_batch_size: usize,
 	pub message_batch_size: usize,
 	pub message_batch_timeout: Duration,
-	pub insert_batch_size: usize,
+	pub queue_batch_size: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -265,6 +266,7 @@ impl Default for Indexer {
 			insert_batch_size: 1024,
 			message_batch_size: 1024,
 			message_batch_timeout: Duration::from_millis(100),
+			queue_batch_size: 1024,
 		}
 	}
 }

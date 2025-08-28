@@ -13,17 +13,14 @@ use tokio_util::task::AbortOnDropHandle;
 struct InnerOutput {
 	cache_entries: Vec<tg::artifact::Id>,
 	objects: Vec<tg::object::Id>,
-	pipes: Vec<tg::pipe::Id>,
 	processes: Vec<tg::process::Id>,
-	ptys: Vec<tg::pty::Id>,
 }
 
+#[derive(Debug, serde::Deserialize)]
 struct Count {
 	cache_entries: u64,
 	objects: u64,
-	pipes: u64,
 	processes: u64,
-	ptys: u64,
 }
 
 impl Server {
@@ -47,9 +44,8 @@ impl Server {
 						tg::error!(source = error, "failed to recreate the temporary directory")
 					})?;
 
-				let count = server.count_items().await?;
+				let count = server.clean_count_items().await?;
 
-				// Clean until there are no more items to remove.
 				if count.cache_entries > 0 {
 					progress.start(
 						"cache".into(),
@@ -77,34 +73,16 @@ impl Server {
 						Some(count.processes),
 					);
 				}
-				if count.pipes > 0 {
-					progress.start(
-						"pipes".into(),
-						"pipes".into(),
-						tg::progress::IndicatorFormat::Normal,
-						Some(0),
-						Some(count.pipes),
-					);
-				}
-				if count.ptys > 0 {
-					progress.start(
-						"ptys".into(),
-						"ptys".into(),
-						tg::progress::IndicatorFormat::Normal,
-						Some(0),
-						Some(count.ptys),
-					);
-				}
 
 				loop {
 					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					let ttl = Duration::from_secs(0);
-					let batch_size = server
+					let n = server
 						.config
 						.cleaner
 						.as_ref()
 						.map_or(1024, |config| config.batch_size);
-					let output = match server.cleaner_task_inner(now, ttl, batch_size).await {
+					let output = match server.cleaner_task_inner(now, ttl, n).await {
 						Ok(output) => output,
 						Err(error) => {
 							progress.error(error);
@@ -114,15 +92,15 @@ impl Server {
 					progress.increment("cache", output.cache_entries.len().to_u64().unwrap());
 					progress.increment("objects", output.objects.len().to_u64().unwrap());
 					progress.increment("processes", output.processes.len().to_u64().unwrap());
-					progress.increment("pipes", output.pipes.len().to_u64().unwrap());
-					progress.increment("ptys", output.ptys.len().to_u64().unwrap());
 					let n =
-						output.processes.len() + output.objects.len() + output.cache_entries.len();
+						output.cache_entries.len() + output.objects.len() + output.processes.len();
 					if n == 0 {
 						break;
 					}
 				}
+
 				progress.output(());
+
 				Ok::<_, tg::Error>(())
 			}
 		}));
@@ -134,15 +112,12 @@ impl Server {
 		loop {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let ttl = config.ttl;
-			let batch_size = config.batch_size;
-			let result = self.cleaner_task_inner(now, ttl, batch_size).await;
+			let n = config.batch_size;
+			let result = self.cleaner_task_inner(now, ttl, n).await;
 			match result {
 				Ok(output) => {
-					let n = output.processes.len()
-						+ output.objects.len()
-						+ output.cache_entries.len()
-						+ output.pipes.len()
-						+ output.ptys.len();
+					let n =
+						output.cache_entries.len() + output.objects.len() + output.processes.len();
 					if n == 0 {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
@@ -155,197 +130,75 @@ impl Server {
 		}
 	}
 
-	async fn count_items(&self) -> tg::Result<Count> {
+	async fn clean_count_items(&self) -> tg::Result<Count> {
 		match &self.index {
-			crate::index::Index::Sqlite(database) => self.count_items_sqlite(database).await,
+			crate::index::Index::Sqlite(database) => self.clean_count_items_sqlite(database).await,
 			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => self.count_items_postgres(database).await,
+			crate::index::Index::Postgres(database) => self.clean_count_items_postgres(database).await,
 		}
 	}
 
-	async fn count_items_sqlite(&self, database: &db::sqlite::Database) -> tg::Result<Count> {
-		// Get an index connection.
+	async fn clean_count_items_sqlite(&self, database: &db::sqlite::Database) -> tg::Result<Count> {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Count cache entries.
+			.map_err(|source| tg::error!(!source, "failed to get an index connection"))?;
 		let statement = indoc!(
 			"
-				select count(*) from cache_entries;
+				select
+					(select count(*) from cache_entries) as cache_entries,
+					(select count(*) from objects) as objects,
+					(select count(*) from processes) as processes;
+				;
 			"
 		);
 		let params = db::params![];
-		let cache_entries = connection
-			.query_one_value_into::<u64>(statement.into(), params)
+		let count = connection
+			.query_one_into::<Count>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
-
-		// Count processes.
-		let statement = indoc!(
-			"
-				select count(*) from processes;
-			"
-		);
-		let params = db::params![];
-		let processes = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
-
-		// Count objects
-		let statement = indoc!(
-			"
-				select count(*) from objects;
-			"
-		);
-		let params = db::params![];
-		let objects = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Count pipes and ptys.
-		let statement = indoc!(
-			"
-				select count(*) from pipes;
-			"
-		);
-		let params = db::params![];
-		let pipes = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
-
-		let statement = indoc!(
-			"
-				select count(*) from ptys;
-			"
-		);
-		let params = db::params![];
-		let ptys = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
-
-		drop(connection);
-
-		Ok(Count {
-			cache_entries,
-			objects,
-			pipes,
-			processes,
-			ptys,
-		})
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(count)
 	}
 
 	#[cfg(feature = "postgres")]
-	async fn count_items_postgres(&self, database: &db::postgres::Database) -> tg::Result<Count> {
-		// Get an index connection.
+	async fn clean_count_items_postgres(
+		&self,
+		database: &db::postgres::Database,
+	) -> tg::Result<Count> {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Count cache entries.
+			.map_err(|source| tg::error!(!source, "failed to get an index connection"))?;
 		let statement = indoc!(
 			"
-				select count(*) from cache_entries;
+				select
+					(select count(*) from cache_entries) as cache_entries,
+					(select count(*) from objects) as objects,
+					(select count(*) from processes) as processes;
+				;
 			"
 		);
 		let params = db::params![];
-		let cache_entries = connection
-			.query_one_value_into::<u64>(statement.into(), params)
+		let count = connection
+			.query_one_into::<Count>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
-
-		// Count processes.
-		let statement = indoc!(
-			"
-				select count(*) from processes;
-			"
-		);
-		let params = db::params![];
-		let processes = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
-
-		// Count objects
-		let statement = indoc!(
-			"
-				select count(*) from objects;
-			"
-		);
-		let params = db::params![];
-		let objects = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Count pipes and ptys.
-		let statement = indoc!(
-			"
-				select count(*) from pipes;
-			"
-		);
-		let params = db::params![];
-		let pipes = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
-
-		let statement = indoc!(
-			"
-				select count(*) from ptys;
-			"
-		);
-		let params = db::params![];
-		let ptys = connection
-			.query_one_value_into::<u64>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the ptys"))?;
-
-		drop(connection);
-
-		Ok(Count {
-			cache_entries,
-			objects,
-			pipes,
-			processes,
-			ptys,
-		})
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(count)
 	}
 
 	async fn cleaner_task_inner(
 		&self,
 		now: i64,
 		ttl: std::time::Duration,
-		batch_size: usize,
+		n: usize,
 	) -> tg::Result<InnerOutput> {
 		match &self.index {
 			crate::index::Index::Sqlite(database) => {
-				self.cleaner_task_inner_sqlite(database, now, ttl, batch_size)
-					.await
+				self.cleaner_task_inner_sqlite(database, now, ttl, n).await
 			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
-				self.cleaner_task_inner_postgres(database, now, ttl, batch_size)
+				self.cleaner_task_inner_postgres(database, now, ttl, n)
 					.await
 			},
 		}
@@ -356,75 +209,283 @@ impl Server {
 		database: &db::sqlite::Database,
 		now: i64,
 		ttl: std::time::Duration,
-		batch_size: usize,
+		mut n: usize,
 	) -> tg::Result<InnerOutput> {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
-		// Get an index connection.
 		let connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Delete processes from the index.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				delete from processes
-				where id in (
-					select id from processes
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
+				select id from cache_entries
+				where reference_count = 0 and touched_at <= {p}1
+				limit {p}2;
 			"
 		);
-		let params = db::params![max_touched_at, batch_size];
-		let processes = connection
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
-
-		// Delete objects from the index.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from objects
-				where id in (
-					select id from objects
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_touched_at, batch_size];
-		let objects = connection
-			.query_all_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
-
-		// Delete cache entries.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from cache_entries
-				where id in (
-					select id from cache_entries
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_touched_at, batch_size];
-		let cache_entries = connection
+		let params = db::params![max_touched_at, n];
+		let cache_entries_ = connection
 			.query_all_value_into::<tg::artifact::Id>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		let mut cache_entries = Vec::new();
+		for id in cache_entries_ {
+			let statement = formatdoc!(
+				"
+					update cache_entries
+						set reference_count = (
+							select count(*) from objects where cache_entry = ?1
+						),
+						reference_count_transaction_id = (
+							select id from transaction_id
+						)
+					where id = ?1
+					returning reference_count;
+				"
+			);
+			let params = db::params![id];
+			let reference_count = connection
+				.query_one_value_into::<u64>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			if reference_count == 0 {
+				let statement = formatdoc!(
+					"
+						delete from cache_entries
+						where id = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				cache_entries.push(id);
+			}
+		}
+		n -= cache_entries.len();
+
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id from objects
+				where reference_count = 0 and touched_at <= {p}1
+				limit {p}2;
+			"
+		);
+		let params = db::params![max_touched_at, n];
+		let objects_ = connection
+			.query_all_value_into::<tg::object::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		let mut objects = Vec::new();
+		for id in objects_ {
+			let statement = formatdoc!(
+				"
+					update objects
+						set reference_count = (
+							(select count(*) from object_children where child = ?1) +
+							(select count(*) from process_objects where object = ?1) +
+							(select count(*) from tags where item = ?1)
+						),
+						reference_count_transaction_id = (
+							select id from transaction_id
+						)
+					where id = ?1
+					returning reference_count;
+				"
+			);
+			let params = db::params![id];
+			let reference_count = connection
+				.query_one_value_into::<u64>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			if reference_count == 0 {
+				let statement = formatdoc!(
+					"
+						update objects
+						set reference_count = reference_count - 1
+						where id in (
+							select child from object_children where object = ?1
+						);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						update cache_entries
+						set reference_count = reference_count - 1
+						where id in (
+							select cache_entry from objects where id = ?1
+						);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from objects
+						where id = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from object_children
+						where object = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				objects.push(id);
+			}
+		}
+		n -= objects.len();
+
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select id from processes
+				where reference_count = 0 and touched_at <= {p}1
+				limit {p}2;
+			"
+		);
+		let params = db::params![max_touched_at, n];
+		let processes_ = connection
+			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		let mut processes = Vec::new();
+		for id in processes_ {
+			let statement = formatdoc!(
+				"
+					update processes
+						set reference_count = (
+							(select count(*) from process_children where child = ?1) +
+							(select count(*) from tags where item = ?1)
+						),
+						reference_count_transaction_id = (
+							select id from transaction_id
+						)
+					where id = ?1
+					returning reference_count;
+				"
+			);
+			let params = db::params![id];
+			let reference_count = connection
+				.query_one_value_into::<u64>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			if reference_count == 0 {
+				let statement = formatdoc!(
+					"
+						update processes
+							set reference_count = reference_count - 1
+						where id in (
+							select child from process_children
+							where process = ?1
+						);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						update objects
+							set reference_count = reference_count - 1
+						where id in (
+							select object from process_objects
+							where process = ?1
+						);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from process_children
+						where process = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from process_objects
+						where process = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from processes
+						where id = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				processes.push(id);
+			}
+		}
 
 		// Drop the connection.
 		drop(connection);
+
+		// Delete cache entries.
+		tokio::task::spawn_blocking({
+			let server = self.clone();
+			let cache_entries = cache_entries.clone();
+			move || {
+				for artifact in &cache_entries {
+					let path = server.cache_path().join(artifact.to_string());
+					crate::util::fs::remove_sync(&path).map_err(
+						|source| tg::error!(!source, %path = path.display(), "failed to remove the file"),
+					)?;
+				}
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.await
+		.unwrap()?;
 
 		// Delete objects.
 		let ttl = ttl.as_secs();
@@ -467,78 +528,17 @@ impl Server {
 			tokio::fs::remove_file(path).await.ok();
 		}
 
-		// Delete cache entries.
-		tokio::task::spawn_blocking({
-			let server = self.clone();
-			let cache_entries = cache_entries.clone();
-			move || {
-				for artifact in &cache_entries {
-					let path = server.cache_path().join(artifact.to_string());
-					crate::util::fs::remove_sync(&path).map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to remove the file"),
-					)?;
-				}
-				Ok::<_, tg::Error>(())
-			}
-		})
-		.await
-		.unwrap()?;
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Delete pipes and ptys.
-		let max_created_at = now.saturating_sub(24 * 60 * 60);
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from pipes
-				where id in (
-					select id from pipes
-					where created_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_created_at, batch_size];
-		let pipes = connection
-			.query_all_value_into::<tg::pipe::Id>(statement.clone().into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the pipes"))?;
-
-		let statement = formatdoc!(
-			"
-				delete from ptys
-				where id in (
-					select id from ptys
-					where created_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_created_at, batch_size];
-		let ptys = connection
-			.query_all_value_into::<tg::pty::Id>(statement.clone().into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the ptys"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		for id in &pipes {
+		// Delete pipes.
+		for id in self.pipes.iter().map(|entry| entry.key().clone()) {
 			self.messenger
 				.delete_stream(id.to_string())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
 		}
+		self.pipes.clear();
 
-		for id in &ptys {
+		// Delete ptys.
+		for id in self.ptys.iter().map(|entry| entry.key().clone()) {
 			for name in ["master_writer", "master_reader"] {
 				self.messenger
 					.delete_stream(format!("{id}_{name}"))
@@ -546,13 +546,12 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
 			}
 		}
+		self.ptys.clear();
 
 		let output = InnerOutput {
 			cache_entries,
 			objects,
-			pipes,
 			processes,
-			ptys,
 		};
 
 		Ok(output)
@@ -564,74 +563,61 @@ impl Server {
 		database: &db::postgres::Database,
 		now: i64,
 		ttl: std::time::Duration,
-		batch_size: usize,
+		mut n: usize,
 	) -> tg::Result<InnerOutput> {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
-		// Get an index connection.
 		let connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Delete processes from the index.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from processes
-				where id in (
-					select id from processes
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_touched_at, batch_size];
-		let processes = connection
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+		// Clean cache entries.
+		let statement = "call clean_cache_entries($1, $2, null);";
+		let row = connection
+			.inner()
+			.query_one(statement, &[&max_touched_at, &n.to_i64().unwrap()])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+			.map_err(|source| {
+				tg::error!(!source, "failed to call clean_cache_entries procedure")
+			})?;
+		let cache_entries: Vec<tg::artifact::Id> = row
+			.get::<_, Vec<String>>(0)
+			.into_iter()
+			.map(|s| s.parse())
+			.collect::<Result<Vec<_>, _>>()
+			.map_err(|source| tg::error!(!source, "failed to parse artifact IDs"))?;
+		n -= cache_entries.len();
 
-		// Delete objects from the index.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from objects
-				where id in (
-					select id from objects
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_touched_at, batch_size];
-		let objects = connection
-			.query_all_value_into(statement.into(), params)
+		// Clean objects.
+		let statement = "call clean_objects($1, $2, null);";
+		let row = connection
+			.inner()
+			.query_one(statement, &[&max_touched_at, &n.to_i64().unwrap()])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+			.map_err(|source| tg::error!(!source, "failed to call clean_objects procedure"))?;
+		let objects: Vec<tg::object::Id> = row
+			.get::<_, Vec<String>>(0)
+			.into_iter()
+			.map(|s| s.parse())
+			.collect::<Result<Vec<_>, _>>()
+			.map_err(|source| tg::error!(!source, "failed to parse object IDs"))?;
+		n -= objects.len();
 
-		// Delete cache entries.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from cache_entries
-				where id in (
-					select id from cache_entries
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_touched_at, batch_size];
-		let cache_entries = connection
-			.query_all_value_into::<tg::artifact::Id>(statement.into(), params)
+		// Clean processes.
+		let statement = "call clean_processes($1, $2, null);";
+		let row = connection
+			.inner()
+			.query_one(statement, &[&max_touched_at, &n.to_i64().unwrap()])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+			.map_err(|source| tg::error!(!source, "failed to call clean_processes procedure"))?;
+		let processes: Vec<tg::process::Id> = row
+			.get::<_, Vec<String>>(0)
+			.into_iter()
+			.map(|s| s.parse())
+			.collect::<Result<Vec<_>, _>>()
+			.map_err(|source| tg::error!(!source, "failed to parse process IDs"))?;
 
-		// Drop the connection.
 		drop(connection);
 
 		// Delete objects.
@@ -651,22 +637,21 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Delete processes.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from processes
-				where id = {p}1 and touched_at <= {p}2;
-			"
-		);
 		for id in &processes {
+			let statement = formatdoc!(
+				"
+					delete from processes
+					where id = $1 and touched_at <= $2;
+				"
+			);
 			let params = db::params![&id, max_touched_at];
 			connection
-				.execute(statement.clone().into(), params)
+				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 		}
 
-		// Drop the connection.
+		// Drop the database connection.
 		drop(connection);
 
 		// Delete process logs.
@@ -675,78 +660,17 @@ impl Server {
 			tokio::fs::remove_file(path).await.ok();
 		}
 
-		// Delete cache entries.
-		tokio::task::spawn_blocking({
-			let server = self.clone();
-			let cache_entries = cache_entries.clone();
-			move || {
-				for artifact in &cache_entries {
-					let path = server.cache_path().join(artifact.to_string());
-					crate::util::fs::remove_sync(&path).map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to remove the file"),
-					)?;
-				}
-				Ok::<_, tg::Error>(())
-			}
-		})
-		.await
-		.unwrap()?;
-
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Delete pipes and ptys.
-		let max_created_at = now.saturating_sub(24 * 60 * 60);
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from pipes
-				where id in (
-					select id from pipes
-					where created_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_created_at, batch_size];
-		let pipes = connection
-			.query_all_value_into::<tg::pipe::Id>(statement.clone().into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the pipes"))?;
-
-		let statement = formatdoc!(
-			"
-				delete from ptys
-				where id in (
-					select id from ptys
-					where created_at <= {p}1
-					limit {p}2
-				)
-				returning id;
-			"
-		);
-		let params = db::params![max_created_at, batch_size];
-		let ptys = connection
-			.query_all_value_into::<tg::pty::Id>(statement.clone().into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the ptys"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		for id in &pipes {
+		// Delete pipes.
+		for id in self.pipes.iter().map(|entry| entry.key().clone()) {
 			self.messenger
 				.delete_stream(id.to_string())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
 		}
+		self.pipes.clear();
 
-		for id in &ptys {
+		// Delete ptys.
+		for id in self.ptys.iter().map(|entry| entry.key().clone()) {
 			for name in ["master_writer", "master_reader"] {
 				self.messenger
 					.delete_stream(format!("{id}_{name}"))
@@ -754,13 +678,12 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
 			}
 		}
+		self.ptys.clear();
 
 		let output = InnerOutput {
 			cache_entries,
 			objects,
-			pipes,
 			processes,
-			ptys,
 		};
 
 		Ok(output)

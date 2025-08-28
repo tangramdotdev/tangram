@@ -6,7 +6,7 @@ use futures::{
 use num::ToPrimitive as _;
 use rusqlite as sqlite;
 use std::{
-	collections::VecDeque,
+	collections::{BTreeSet, VecDeque},
 	panic::AssertUnwindSafe,
 	path::PathBuf,
 	pin::{Pin, pin},
@@ -692,7 +692,7 @@ impl Server {
 			};
 			let bytes = output.bytes;
 			let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
-			let children = data.children().collect::<Vec<_>>();
+			let children = data.children().collect::<BTreeSet<_>>();
 
 			// Send the object.
 			let size = bytes.len().to_u64().unwrap();
@@ -764,7 +764,7 @@ impl Server {
 			.ok_or_else(|| tg::error!("failed to find the object"))?
 			.bytes;
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
-		let children = data.children().collect::<Vec<_>>();
+		let children = data.children().collect::<BTreeSet<_>>();
 
 		// Send the object.
 		let size = bytes.len().to_u64().unwrap();

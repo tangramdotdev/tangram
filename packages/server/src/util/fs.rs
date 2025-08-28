@@ -75,7 +75,7 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 			let mut mode = metadata.permissions().mode();
 			mode |= 0o200;
 			let permissions = std::fs::Permissions::from_mode(mode);
-			std::fs::set_permissions(path, permissions).ok();
+			std::fs::set_permissions(path, permissions)?;
 		}
 		if metadata.is_dir() {
 			for entry in std::fs::read_dir(path)? {

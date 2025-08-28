@@ -16,11 +16,17 @@ impl Cli {
 			self.command_clean_force().await?;
 			return Ok(());
 		}
+
 		let handle = self.handle().await?;
+
+		// Index.
 		let stream = handle.index().await?;
 		self.render_progress_stream(stream).await?;
+
+		// Clean.
 		let stream = handle.clean().await?;
 		self.render_progress_stream(stream).await?;
+
 		Ok(())
 	}
 

@@ -2,11 +2,27 @@ use crate as tg;
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(
-	Clone, Debug, Default, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize,
+	Clone,
+	Debug,
+	Default,
+	PartialEq,
+	PartialOrd,
+	Eq,
+	Hash,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 pub struct Metadata {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub depth: Option<u64>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub weight: Option<u64>,
 }
 

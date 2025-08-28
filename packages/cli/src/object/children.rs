@@ -1,4 +1,5 @@
 use crate::Cli;
+use std::collections::BTreeSet;
 use tangram_client as tg;
 
 /// Get an object's children.
@@ -16,7 +17,8 @@ impl Cli {
 		// Print the children.
 		let object = tg::Object::with_id(args.object);
 		let data = object.data(&handle).await?;
-		for child in data.children() {
+		let children = data.children().collect::<BTreeSet<_>>();
+		for child in children {
 			println!("{child}");
 		}
 
