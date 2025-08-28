@@ -182,7 +182,7 @@ impl Server {
 
 		// Create put object messages.
 		for object in state.objects.as_ref().unwrap().values() {
-			let cache_reference = object
+			let cache_entry = object
 				.cache_reference
 				.as_ref()
 				.map(|cache_reference| cache_reference.artifact.clone());
@@ -191,6 +191,7 @@ impl Server {
 				.as_ref()
 				.map(|data| data.children().collect())
 				.unwrap_or_default();
+			let complete = object.complete;
 			let count = object.metadata.as_ref().and_then(|metadata| metadata.count);
 			let depth = object.metadata.as_ref().and_then(|metadata| metadata.depth);
 			let weight = object
@@ -198,9 +199,9 @@ impl Server {
 				.as_ref()
 				.and_then(|metadata| metadata.weight);
 			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
-				cache_reference,
+				cache_entry,
 				children,
-				complete: false,
+				complete,
 				count,
 				depth,
 				id: object.id.clone(),

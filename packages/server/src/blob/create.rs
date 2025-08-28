@@ -358,7 +358,7 @@ impl Server {
 			let id = blob.id.clone().into();
 			let size = blob.size;
 			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
-				cache_reference: cache_reference
+				cache_entry: cache_reference
 					.as_ref()
 					.map(|(artifact, _)| artifact.clone()),
 				children,

@@ -70,8 +70,9 @@ impl Server {
 		for message in messages {
 			let statement = indoc!(
 				"
-					insert or replace into cache_entries (id, touched_at)
-					values ($1, $2);
+					insert into cache_entries (id, touched_at)
+					values ($1, $2)
+					on conflict (id) do update set touched_at = $2;
 				"
 			);
 			let params = db::params![message.id.to_string(), message.touched_at];
@@ -134,9 +135,9 @@ impl Server {
 				std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 			})
 			.collect::<Vec<_>>();
-		let cache_references = unique_messages
+		let cache_entries = unique_messages
 			.values()
-			.filter_map(|message| message.cache_reference.as_ref())
+			.filter_map(|message| message.cache_entry.as_ref())
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
 		let statement = indoc!(
@@ -161,7 +162,7 @@ impl Server {
 				statement,
 				&[
 					&ids.as_slice(),
-					&cache_references.as_slice(),
+					&cache_entries.as_slice(),
 					&size.as_slice(),
 					&touched_ats.as_slice(),
 					&counts.as_slice(),

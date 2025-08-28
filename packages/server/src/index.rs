@@ -1,7 +1,7 @@
 use crate::Server;
 use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
 use num::ToPrimitive as _;
-use std::{pin::pin, time::Duration};
+use std::{pin::pin, task::Poll, time::Duration};
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_futures::{stream::Ext as _, task::Stop};
@@ -85,11 +85,40 @@ impl Server {
 		let stream = self.indexer_task_create_message_stream(config).await?;
 		let mut stream = pin!(stream);
 
+		let mut wait = false;
 		loop {
-			// Get a batch of messages.
-			let result = stream.try_next().await;
+			let result = if wait {
+				stream.try_next().await
+			} else {
+				match futures::poll!(stream.try_next()) {
+					Poll::Ready(result) => result,
+					Poll::Pending => {
+						let result = self.indexer_handle_queue(config).await;
+						let n = match result {
+							Ok(n) => n,
+							Err(error) => {
+								tracing::error!(
+									?error,
+									"failed to handle the reference count queue"
+								);
+								tokio::time::sleep(Duration::from_secs(1)).await;
+								continue;
+							},
+						};
+						if n == 0 {
+							wait = true;
+						}
+						continue;
+					},
+				}
+			};
+
+			// Single message handling path
 			let messages = match result {
-				Ok(Some(messages)) => messages,
+				Ok(Some(messages)) => {
+					wait = false;
+					messages
+				},
 				Ok(None) => {
 					panic!("the stream ended")
 				},
@@ -99,6 +128,7 @@ impl Server {
 					continue;
 				},
 			};
+
 			// Insert objects from the messages.
 			let result = self.indexer_task_handle_messages(config, messages).await;
 			if let Err(error) = result {
@@ -302,6 +332,14 @@ impl Server {
 		.await?;
 
 		Ok(())
+	}
+
+	async fn indexer_handle_queue(&self, config: &crate::config::Indexer) -> tg::Result<usize> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			Index::Postgres(_) => todo!(),
+			Index::Sqlite(database) => self.indexer_handle_queue_sqlite(config, database).await,
+		}
 	}
 
 	pub(crate) async fn handle_index_request<H>(

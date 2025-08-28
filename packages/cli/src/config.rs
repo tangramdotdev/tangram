@@ -213,6 +213,9 @@ pub struct SqliteIndex {
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub insert_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_batch_size: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -220,7 +223,7 @@ pub struct Indexer {
 	pub message_batch_timeout: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub insert_batch_size: Option<usize>,
+	pub queue_batch_size: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

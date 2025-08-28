@@ -44,6 +44,7 @@ impl Server {
 				Self::indexer_touch_processes_sqlite(touch_process_messages, &transaction)?;
 				Self::indexer_put_tags_sqlite(put_tag_messages, &transaction)?;
 				Self::indexer_delete_tags_sqlite(delete_tag_messages, &transaction)?;
+				Self::indexer_increment_insert_id_sqlite(&transaction)?;
 
 				// Commit the transaction.
 				transaction
@@ -63,8 +64,9 @@ impl Server {
 	) -> tg::Result<()> {
 		let statement = indoc!(
 			"
-				insert or replace into cache_entries (id, touched_at)
-				values (?1, ?2);
+				insert into cache_entries (id, touched_at)
+				values (?1, ?2)
+				on conflict (id) do update set touched_at = ?2;
 			"
 		);
 		let mut statement = transaction
@@ -84,6 +86,18 @@ impl Server {
 		messages: Vec<PutObject>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
+		// Prepare a statement for the objects.
+		let objects_statement = indoc!(
+			"
+				insert into objects (id, cache_entry, complete, count, depth, insert_id, size, touched_at, weight)
+				values (?1, ?2, ?3, ?4, ?5, (select id from insert_id), ?6, ?7, ?8)
+				on conflict (id) do update set touched_at = ?7;
+			"
+		);
+		let mut objects_statement = transaction
+			.prepare_cached(objects_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		// Prepare a statement for the object children
 		let children_statement = indoc!(
 			"
@@ -96,22 +110,10 @@ impl Server {
 			.prepare_cached(children_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
-		// Prepare a statement for the objects.
-		let objects_statement = indoc!(
-			"
-				insert into objects (id, cache_reference, complete, count, depth, size, touched_at, weight)
-				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-				on conflict (id) do update set touched_at = ?7;
-			"
-		);
-		let mut objects_statement = transaction
-			.prepare_cached(objects_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
 		for message in messages {
 			// Execute inserts for each object in the batch.
 			let id = message.id;
-			let cache_reference = message.cache_reference.as_ref().map(ToString::to_string);
+			let cache_entry = message.cache_entry.as_ref().map(ToString::to_string);
 			let children = message.children;
 			let complete = message.complete;
 			let count = message.count;
@@ -123,16 +125,16 @@ impl Server {
 			// Insert the children.
 			for child in children {
 				let child = child.to_string();
-				let params = rusqlite::params![&id.to_string(), &child];
+				let params = sqlite::params![&id.to_string(), &child];
 				children_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
 			// Insert the object.
-			let params = rusqlite::params![
+			let params = sqlite::params![
 				&id.to_string(),
-				cache_reference,
+				cache_entry,
 				complete,
 				count,
 				depth,
@@ -176,6 +178,17 @@ impl Server {
 		messages: Vec<PutProcess>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
+		let process_statement = indoc!(
+			"
+				insert into processes (id, insert_id, touched_at)
+				values (?1, (select id from insert_id), ?2)
+				on conflict (id) do update set touched_at = ?2;
+			"
+		);
+		let mut process_statement = transaction
+			.prepare_cached(process_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let object_statement = indoc!(
 			"
 				insert into process_objects (process, object, kind)
@@ -198,26 +211,12 @@ impl Server {
 			.prepare_cached(child_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
-		let process_statement = indoc!(
-			"
-				insert into processes (id, touched_at)
-				values (?1, ?2)
-				on conflict (id) do update set touched_at = ?2;
-			"
-		);
-		let mut process_statement = transaction
-			.prepare_cached(process_statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-
 		for message in messages {
-			// Insert the objects.
-			for (object, kind) in message.objects {
-				let params =
-					sqlite::params![message.id.to_string(), object.to_string(), kind.to_string()];
-				object_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
+			// Insert the process.
+			let params = sqlite::params![message.id.to_string(), message.touched_at];
+			process_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			// Insert the children.
 			for (position, child) in message.children.iter().enumerate() {
@@ -227,11 +226,14 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Insert the process.
-			let params = sqlite::params![message.id.to_string(), message.touched_at];
-			process_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			// Insert the objects.
+			for (object, kind) in message.objects {
+				let params =
+					sqlite::params![message.id.to_string(), object.to_string(), kind.to_string()];
+				object_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 		}
 
 		Ok(())
@@ -305,5 +307,554 @@ impl Server {
 		}
 
 		Ok(())
+	}
+
+	fn indexer_increment_insert_id_sqlite(transaction: &sqlite::Transaction<'_>) -> tg::Result<()> {
+		let statement = indoc!(
+			"
+				update insert_id set id = id + 1;
+			"
+		);
+		let mut statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		statement
+			.execute([])
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(())
+	}
+
+	pub(super) async fn indexer_handle_queue_sqlite(
+		&self,
+		config: &crate::config::Indexer,
+		database: &db::sqlite::Database,
+	) -> tg::Result<usize> {
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			priority: db::Priority::Low,
+		};
+		let connection = database
+			.connection_with_options(options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		let batch_size = config.queue_batch_size;
+		let n = connection
+			.with(move |connection| {
+				// Begin a transaction.
+				let transaction = connection
+					.transaction()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+				let mut n = batch_size;
+				n -= Self::indexer_handle_complete_object_sqlite(&transaction, n)?;
+				n -= Self::indexer_handle_complete_process_sqlite(&transaction, n)?;
+				n -= Self::indexer_handle_reference_count_cache_entry_sqlite(&transaction, n)?;
+				n -= Self::indexer_handle_reference_count_object_sqlite(&transaction, n)?;
+				n -= Self::indexer_handle_reference_count_process_sqlite(&transaction, n)?;
+
+				// Commit the transaction.
+				transaction
+					.commit()
+					.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+				Ok::<_, tg::Error>(batch_size - n)
+			})
+			.await?;
+
+		Ok(n)
+	}
+
+	fn indexer_handle_complete_object_sqlite(
+		transaction: &sqlite::Transaction<'_>,
+		n: usize,
+	) -> tg::Result<usize> {
+		let statement = indoc!(
+			"
+				delete from object_queue
+				where object in (
+					select object
+					from object_queue
+					where kind = 0
+					order by id
+					limit ?1
+				)
+				and kind = 0
+				returning object, insert_id;
+			"
+		);
+		let mut statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
+		let mut rows = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
+
+		struct Item {
+			object: tg::object::Id,
+			insert_id: u64,
+		}
+		let mut items = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+		{
+			let object = row
+				.get::<_, String>(0)
+				.map_err(|source| tg::error!(!source, "failed to get the object from the row"))?
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the object"))?;
+			let insert_id = row.get(1).map_err(|source| {
+				tg::error!(!source, "failed to get the insert id from the row")
+			})?;
+			let item = Item { object, insert_id };
+			items.push(item);
+		}
+		if items.is_empty() {
+			return Ok(0);
+		}
+
+		let statement = indoc!(
+			"
+				select complete
+				from objects
+				where id = ?1;
+			"
+		);
+		let mut complete_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the complete statement"))?;
+
+		let statement = indoc!(
+			"
+				insert into object_queue (object, insert_id, kind)
+				select object, ?2, 0
+				from object_children
+				join objects on objects.id = object_children.object
+				where object_children.child = ?1 and objects.complete = 0;
+			"
+		);
+		let mut enqueue_incomplete_parents_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to prepare the enqueue incomplete children statement"
+				)
+			})?;
+
+		let statement = indoc!(
+			"
+				update objects
+				set
+					complete = updates.complete,
+					count = coalesce(objects.count, updates.count),
+					depth = coalesce(objects.depth, updates.depth),
+					weight = coalesce(objects.weight, updates.weight)
+				from (
+					select
+						objects.id,
+						coalesce(min(child_objects.complete), 1) as complete,
+						1 + coalesce(sum(child_objects.count), 0) as count,
+						1 + coalesce(max(child_objects.depth), 0) as depth,
+						objects.size + coalesce(sum(child_objects.weight), 0) as weight
+					from objects
+					left join object_children on object_children.object = objects.id
+					left join objects as child_objects on child_objects.id = object_children.child
+					where objects.id = ?1
+					group by objects.id, objects.size
+					having coalesce(min(child_objects.complete), 1) = 1
+				) as updates
+				where objects.id = updates.id
+				returning objects.complete;
+			"
+		);
+		let mut update_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update complete statement")
+			})?;
+
+		for item in &items {
+			// Get the object's complete flag.
+			let params = [item.object.to_string()];
+			let mut rows = complete_statement.query(params).map_err(|source| {
+				tg::error!(!source, "failed to execute the complete statement")
+			})?;
+			let row = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to execute the complete statement"))?
+				.ok_or_else(|| tg::error!("expected a row"))?;
+			let mut complete = row
+				.get::<_, bool>(0)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the complete flag"))?;
+
+			if !complete {
+				// Update the object's complete flag.
+				let params = [item.object.to_string()];
+				let mut rows = update_complete_statement.query(params).map_err(|source| {
+					tg::error!(!source, "failed to execute the update complete statement")
+				})?;
+				let row = rows
+					.next()
+					.map_err(|source| {
+						tg::error!(!source, "failed to execute the update complete statement")
+					})?
+					.ok_or_else(|| tg::error!("expected a row"))?;
+				complete = row.get::<_, bool>(0).map_err(|source| {
+					tg::error!(!source, "failed to deserialize the complete flag")
+				})?;
+			}
+
+			// If the object is complete, then enqueue incomplete parents.
+			if complete {
+				let params = sqlite::params![item.object.to_string(), item.insert_id];
+				enqueue_incomplete_parents_statement
+					.execute(params)
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to execute the enqueue incomplete children statement"
+						)
+					})?;
+			}
+		}
+
+		Ok(items.len())
+	}
+
+	fn indexer_handle_complete_process_sqlite(
+		transaction: &sqlite::Transaction<'_>,
+		n: usize,
+	) -> tg::Result<usize> {
+		Ok(0)
+	}
+
+	fn indexer_handle_reference_count_cache_entry_sqlite(
+		transaction: &sqlite::Transaction<'_>,
+		n: usize,
+	) -> tg::Result<usize> {
+		let statement = indoc!(
+			"
+				delete from cache_entry_queue
+				where cache_entry in (
+					select cache_entry
+					from cache_entry_queue
+					order by id
+					limit ?1
+				)
+				returning cache_entry;
+			"
+		);
+		let mut statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
+		let mut rows = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
+
+		let mut ids = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+		{
+			let id: String = row
+				.get(0)
+				.map_err(|source| tg::error!(!source, "failed to get the ID from the row"))?;
+			ids.push(id);
+		}
+		if ids.is_empty() {
+			return Ok(0);
+		}
+
+		let statement = indoc!(
+			"
+				update cache_entries
+				set
+					reference_count = (
+						select count(*)
+						from objects
+						where cache_entry = ?1
+					),
+					reference_count_insert_id = (
+						select id from insert_id
+					)
+				where id = ?1;
+			"
+		);
+		let mut reference_count_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the refence count statement")
+			})?;
+
+		for id in &ids {
+			reference_count_statement.execute([id]).map_err(|source| {
+				tg::error!(!source, "failed to execute the reference count statement")
+			})?;
+		}
+
+		Ok(ids.len())
+	}
+
+	fn indexer_handle_reference_count_object_sqlite(
+		transaction: &sqlite::Transaction<'_>,
+		n: usize,
+	) -> tg::Result<usize> {
+		let statement = indoc!(
+			"
+				delete from object_queue
+				where object in (
+					select object
+					from object_queue
+					where kind = 1
+					order by id
+					limit ?1
+				)
+				and kind = 1
+				returning object;
+			"
+		);
+		let mut statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
+		let mut rows = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
+
+		#[derive(Debug)]
+		struct Item {
+			object: tg::object::Id,
+		}
+		let mut items = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+		{
+			let object = row
+				.get::<_, String>(0)
+				.map_err(|source| tg::error!(!source, "failed to get the object from the row"))?
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the object"))?;
+			let item = Item { object };
+			items.push(item);
+		}
+		dbg!(n, &items);
+		if items.is_empty() {
+			return Ok(0);
+		}
+
+		let statement = indoc!(
+			"
+				update objects
+				set
+					reference_count = (
+						(select count(*) from object_children where child = ?1) +
+						(select count(*) from process_objects where object = ?1) +
+						(select count(*) from tags where item = ?1)
+					),
+					reference_count_insert_id = (
+						select id from insert_id
+					)
+				where id = ?1;
+			"
+		);
+		let mut reference_count_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the reference count statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				update objects
+				set reference_count = reference_count + 1
+				where
+					id in (
+						select child
+						from object_children
+						where object = ?1
+					)
+					and reference_count is not null
+					and reference_count_insert_id < (
+						select insert_id
+						from objects
+						where id = ?1
+					);
+			"
+		);
+		let mut children_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the children statement"))?;
+
+		let statement = indoc!(
+			"
+				update cache_entries
+				set reference_count = reference_count + 1
+				where
+					id = (
+						select cache_entry
+						from objects
+						where id = ?1
+					)
+					and reference_count is not null
+					and reference_count_insert_id < (
+						select insert_id
+						from objects
+						where id = ?1
+					);
+			"
+		);
+		let mut cache_entries_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the cache entries statement")
+			})?;
+
+		for item in &items {
+			// Update the object's reference count.
+			let params = [item.object.to_string()];
+			reference_count_statement
+				.execute(params)
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute the reference count statement")
+				})?;
+
+			// Increment the children's reference counts.
+			let params = [item.object.to_string()];
+			children_statement.execute(params).map_err(|source| {
+				tg::error!(!source, "failed to execute the children statement")
+			})?;
+
+			// Update the cache entries' reference counts.
+			let params = [item.object.to_string()];
+			cache_entries_statement.execute(params).map_err(|source| {
+				tg::error!(!source, "failed to execute the cache entries statement")
+			})?;
+		}
+
+		Ok(items.len())
+	}
+
+	fn indexer_handle_reference_count_process_sqlite(
+		transaction: &sqlite::Transaction<'_>,
+		n: usize,
+	) -> tg::Result<usize> {
+		let statement = indoc!(
+			"
+				delete from process_queue
+				where process in (
+					select process
+					from process_queue
+					where kind = 1
+					order by id
+					limit ?1
+				)
+				and kind = 1
+				returning process;
+			"
+		);
+		let mut statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
+		let mut rows = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
+
+		struct Item {
+			process: tg::process::Id,
+		}
+		let mut items = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+		{
+			let process = row
+				.get::<_, String>(0)
+				.map_err(|source| tg::error!(!source, "failed to get the process from the row"))?
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the process"))?;
+			let item = Item { process };
+			items.push(item);
+		}
+		if items.is_empty() {
+			return Ok(0);
+		}
+
+		let statement = indoc!(
+			"
+				update processes
+				set
+					reference_count = (
+						(select count(*) from process_children where child = ?1) +
+						(select count(*) from tags where item = ?1)
+					),
+					reference_count_insert_id = (
+						select id from insert_id
+					)
+				where id = ?1;
+			"
+		);
+		let mut reference_count_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the reference count statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				update process
+				set reference_count = reference_count + 1
+				where
+					id in (
+						select child
+						from process_children
+						where process = ?1
+					)
+					and reference_count is not null
+					and reference_count_insert_id < (
+						select insert_id
+						from processes
+						where id = ?1
+					);
+			"
+		);
+		let mut children_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the children statement"))?;
+
+		let statement = indoc!(
+			"
+				update objects
+				set reference_count = reference_count + 1
+				where
+					id in (
+						select object
+						from process_objects
+						where process = ?1
+					)
+					and reference_count is not null
+					and reference_count_insert_id < (
+						select insert_id
+						from processes
+						where id = ?1
+					);
+			"
+		);
+		let mut objects_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the objects statement"))?;
+
+		for item in &items {
+			reference_count_statement
+				.execute([item.process.to_string()])
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute the reference count statement")
+				})?;
+			children_statement
+				.execute([item.process.to_string()])
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute the children statement")
+				})?;
+			objects_statement
+				.execute([item.process.to_string()])
+				.map_err(|source| tg::error!(!source, "failed to execute the objects statement"))?;
+		}
+
+		Ok(items.len())
 	}
 }

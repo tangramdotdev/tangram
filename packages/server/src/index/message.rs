@@ -87,7 +87,7 @@ pub struct PutCacheEntry {
 pub struct PutObject {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
-	pub cache_reference: Option<tg::artifact::Id>,
+	pub cache_entry: Option<tg::artifact::Id>,
 
 	#[tangram_serialize(id = 1)]
 	pub children: BTreeSet<tg::object::Id>,

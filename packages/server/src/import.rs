@@ -488,7 +488,7 @@ impl Server {
 						.collect();
 					let message =
 						crate::index::Message::PutObject(crate::index::message::PutObject {
-							cache_reference: None,
+							cache_entry: None,
 							children,
 							complete: node.complete,
 							count: node.metadata.count,

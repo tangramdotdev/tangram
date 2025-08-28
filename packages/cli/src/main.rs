@@ -799,14 +799,17 @@ impl Cli {
 			},
 			Some(Either::Right(indexer)) => {
 				let mut new = config.indexer.unwrap_or_default();
+				if let Some(insert_batch_size) = indexer.insert_batch_size {
+					new.insert_batch_size = insert_batch_size;
+				}
 				if let Some(message_batch_size) = indexer.message_batch_size {
 					new.message_batch_size = message_batch_size;
 				}
 				if let Some(message_batch_timeout) = indexer.message_batch_timeout {
 					new.message_batch_timeout = message_batch_timeout;
 				}
-				if let Some(insert_batch_size) = indexer.insert_batch_size {
-					new.insert_batch_size = insert_batch_size;
+				if let Some(queue_batch_size) = indexer.queue_batch_size {
+					new.queue_batch_size = queue_batch_size;
 				}
 				config.indexer = Some(new);
 			},

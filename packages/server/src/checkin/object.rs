@@ -377,9 +377,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 		let id = tg::object::Id::new(kind, &bytes);
 		let children = data.children().map(|id| {
-			if let Ok(id) = id.clone().try_unwrap_blob()
-				&& let Some(blob) = state.blobs.get(&id)
-				&& id == blob.id
+			if let Ok(id) = id.try_unwrap_blob_ref()
+				&& let Some(blob) = state.blobs.get(id)
+				&& id == &blob.id
 			{
 				let complete = true;
 				let metadata = Some(tg::object::Metadata {
