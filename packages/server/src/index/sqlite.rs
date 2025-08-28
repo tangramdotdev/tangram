@@ -619,7 +619,6 @@ impl Server {
 			.query([n])
 			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
 
-		#[derive(Debug)]
 		struct Item {
 			object: tg::object::Id,
 		}
@@ -636,7 +635,6 @@ impl Server {
 			let item = Item { object };
 			items.push(item);
 		}
-		dbg!(n, &items);
 		if items.is_empty() {
 			return Ok(0);
 		}
@@ -672,7 +670,7 @@ impl Server {
 						where object = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id < (
+					and reference_count_insert_id <= (
 						select insert_id
 						from objects
 						where id = ?1
@@ -694,7 +692,7 @@ impl Server {
 						where id = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id < (
+					and reference_count_insert_id <= (
 						select insert_id
 						from objects
 						where id = ?1
@@ -806,7 +804,7 @@ impl Server {
 						where process = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id < (
+					and reference_count_insert_id <= (
 						select insert_id
 						from processes
 						where id = ?1
@@ -828,7 +826,7 @@ impl Server {
 						where process = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id < (
+					and reference_count_insert_id <= (
 						select insert_id
 						from processes
 						where id = ?1
