@@ -360,68 +360,257 @@ impl Server {
 	) -> tg::Result<InnerOutput> {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
-		// Get an index connection.
 		let connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Delete processes from the index.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				delete from processes
-				where id in (
-					select id from processes
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
+				select id from processes
+				where reference_count = 0 and touched_at <= {p}1
+				limit {p}2;
 			"
 		);
 		let params = db::params![max_touched_at, batch_size];
-		let processes = connection
+		let processes_ = connection
 			.query_all_value_into::<tg::process::Id>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Delete objects from the index.
+		let mut processes = Vec::new();
+		for id in processes_ {
+			let statement = formatdoc!(
+				"
+					update processes
+						set reference_count = (
+							(select count(*) from process_children where child = ?1) +
+							(select count(*) from tags where item = ?1)
+						),
+						reference_count_transaction_id = (
+							select id from transaction_id
+						)
+					where id = ?1
+					returning reference_count;
+				"
+			);
+			let params = db::params![id];
+			let reference_count = connection
+				.query_one_value_into::<u64>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			if reference_count == 0 {
+				let statement = formatdoc!(
+					"
+				   update processes
+							set reference_count = reference_count - 1
+					 where id in (
+						select child from process_children
+						where process = ?1
+					);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+				   update objects
+							set reference_count = reference_count - 1
+					 where id in (
+						select object from process_objects
+						where process = ?1
+					);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from process_children
+						where process = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from process_objects
+						where process = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from processes
+						where id = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				processes.push(id);
+			}
+		}
+
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				delete from objects
-				where id in (
-					select id from objects
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
+				select id from objects
+				where reference_count = 0 and touched_at <= {p}1
+				limit {p}2;
 			"
 		);
 		let params = db::params![max_touched_at, batch_size];
-		let objects = connection
-			.query_all_value_into(statement.into(), params)
+		let objects_ = connection
+			.query_all_value_into::<tg::object::Id>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Delete cache entries.
+		let mut objects = Vec::new();
+		for id in objects_ {
+			let statement = formatdoc!(
+				"
+					update objects
+						set reference_count = (
+							(select count(*) from object_children where child = ?1) +
+							(select count(*) from process_objects where object = ?1) +
+							(select count(*) from tags where item = ?1)
+						),
+						reference_count_transaction_id = (
+							select id from transaction_id
+						)
+					where id = ?1
+					returning reference_count;
+				"
+			);
+			let params = db::params![id];
+			let reference_count = connection
+				.query_one_value_into::<u64>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			if reference_count == 0 {
+				let statement = formatdoc!(
+					"
+						update objects
+						set reference_count = reference_count - 1
+						where id in (
+							select child from object_children where object = ?1
+						);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						update cache_entries
+						set reference_count = reference_count - 1
+						where id in (
+							select cache_entry from objects where id = ?1
+						);
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from objects
+						where id = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let statement = formatdoc!(
+					"
+						delete from object_children
+						where object = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				objects.push(id);
+			}
+		}
+
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				delete from cache_entries
-				where id in (
-					select id from cache_entries
-					where reference_count = 0 and touched_at <= {p}1
-					limit {p}2
-				)
-				returning id;
+				select id from cache_entries
+				where reference_count = 0 and touched_at <= {p}1
+				limit {p}2;
 			"
 		);
 		let params = db::params![max_touched_at, batch_size];
-		let cache_entries = connection
+		let cache_entries_ = connection
 			.query_all_value_into::<tg::artifact::Id>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		let mut cache_entries = Vec::new();
+		for id in cache_entries_ {
+			let statement = formatdoc!(
+				"
+					update cache_entries
+						set reference_count = (
+							select count(*) from objects where cache_entry = ?1
+						),
+						reference_count_transaction_id = (
+							select id from transaction_id
+						)
+					where id = ?1
+					returning reference_count;
+				"
+			);
+			let params = db::params![id];
+			let reference_count = connection
+				.query_one_value_into::<u64>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			if reference_count == 0 {
+				let statement = formatdoc!(
+					"
+						delete from cache_entries
+						where id = ?1;
+					"
+				);
+				let params = db::params![id];
+				connection
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				cache_entries.push(id);
+			}
+		}
 
 		// Drop the connection.
 		drop(connection);

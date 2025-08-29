@@ -1,11 +1,10 @@
+use crate::index::message::ProcessObjectKind;
 use indexmap::IndexMap;
 use num::ToPrimitive;
 use petgraph::visit::IntoNeighbors as _;
 use smallvec::SmallVec;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use tangram_client as tg;
-
-use crate::index::message::ProcessObjectKind;
 
 #[derive(Default)]
 pub struct Graph {
@@ -167,8 +166,9 @@ impl Graph {
 			parents: SmallVec::new(),
 			inner: None,
 		});
-		let children = data.children().map(Into::into);
+		let children = data.children().map(Into::into).collect::<BTreeSet<_>>();
 		let children_indices = children
+			.into_iter()
 			.map(|child| {
 				let child_entry = self.nodes.entry(child);
 				let child_index = child_entry.index();

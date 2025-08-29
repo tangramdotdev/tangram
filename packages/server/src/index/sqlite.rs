@@ -338,7 +338,27 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut reference_count_statement = transaction
+		let mut objects_reference_count_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update processes
+				set reference_count = reference_count + 1
+				where id = ?1
+			"
+		);
+		let mut processes_reference_count_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update cache_entries
+				set reference_count = reference_count + 1
+				where id = ?1
+			"
+		);
+		let mut cache_entries_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
@@ -347,7 +367,13 @@ impl Server {
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			let params = sqlite::params![message.item.to_string()];
-			reference_count_statement
+			objects_reference_count_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			processes_reference_count_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			cache_entries_reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
@@ -376,7 +402,27 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut reference_count_statement = transaction
+		let mut update_object_reference_count_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update processes
+				set reference_count = reference_count - 1
+				where id = ?1
+			"
+		);
+		let mut update_process_reference_count_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update cache_entries
+				set reference_count = reference_count - 1
+				where id = ?1
+			"
+		);
+		let mut update_cache_entry_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
@@ -385,7 +431,13 @@ impl Server {
 				.query_one(params, |row| row.get::<_, String>(0))
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			let params = sqlite::params![id];
-			reference_count_statement
+			update_object_reference_count_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			update_process_reference_count_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			update_cache_entry_reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}

@@ -3,7 +3,7 @@ use {
 	crate::Server,
 	indexmap::IndexMap,
 	num::ToPrimitive,
-	std::path::Path,
+	std::{collections::BTreeSet, path::Path},
 	tangram_client as tg,
 	tangram_either::Either,
 };
@@ -376,7 +376,8 @@ impl Server {
 			.serialize()
 			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 		let id = tg::object::Id::new(kind, &bytes);
-		let children = data.children().map(|id| {
+		let children = data.children().collect::<BTreeSet<_>>();
+		let children = children.into_iter().map(|id| {
 			if let Ok(id) = id.try_unwrap_blob_ref()
 				&& let Some(blob) = state.blobs.get(id)
 				&& id == &blob.id
