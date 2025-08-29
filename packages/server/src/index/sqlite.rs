@@ -92,7 +92,7 @@ impl Server {
 				insert into objects (id, cache_entry, complete, count, depth, size, touched_at, transaction_id, weight)
 				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, (select id from transaction_id), ?8)
 				on conflict (id) do update set
-					complete = coalesce(complete, ?3),
+					complete = complete or ?3,
 					count = coalesce(count, ?4),
 					depth = coalesce(depth, ?5),
 					touched_at = coalesce(touched_at, ?7),
@@ -183,9 +183,48 @@ impl Server {
 	) -> tg::Result<()> {
 		let process_statement = indoc!(
 			"
-				insert into processes (id, touched_at, transaction_id)
-				values (?1, ?2, (select id from transaction_id))
-				on conflict (id) do update set touched_at = ?2;
+				insert into processes (
+					id,
+					children_complete,
+					children_count,
+					commands_complete,
+					commands_count,
+					commands_depth,
+					commands_weight,
+					outputs_complete,
+					outputs_count,
+					outputs_depth,
+					outputs_weight,
+					touched_at,
+					transaction_id
+				)
+				values (
+					?1,
+					?2,
+					?3,
+					?4,
+					?5,
+					?6,
+					?7,
+					?8,
+					?9,
+					?10,
+					?11,
+					?12,
+					(select id from transaction_id)
+				)
+				on conflict (id) do update set
+					children_complete = children_complete or ?2,
+					children_count = coalesce(children_count, ?3),
+					commands_complete = commands_complete or ?4,
+					commands_count = coalesce(commands_count, ?5),
+					commands_depth = coalesce(commands_depth, ?6),
+					commands_weight = coalesce(commands_weight, ?7),
+					outputs_complete = outputs_complete or ?8,
+					outputs_count = coalesce(outputs_count, ?9),
+					outputs_depth = coalesce(outputs_depth, ?10),
+					outputs_weight = coalesce(outputs_weight, ?11),
+					touched_at = ?12;
 			"
 		);
 		let mut process_statement = transaction
@@ -216,7 +255,20 @@ impl Server {
 
 		for message in messages {
 			// Insert the process.
-			let params = sqlite::params![message.id.to_string(), message.touched_at];
+			let params = sqlite::params![
+				message.id.to_string(),
+				message.complete.children,
+				message.metadata.count,
+				message.complete.commands,
+				message.metadata.commands.count,
+				message.metadata.commands.depth,
+				message.metadata.commands.weight,
+				message.complete.outputs,
+				message.metadata.outputs.count,
+				message.metadata.outputs.depth,
+				message.metadata.outputs.weight,
+				message.touched_at
+			];
 			process_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -1359,5 +1411,63 @@ impl Server {
 		}
 
 		Ok(items.len())
+	}
+
+	pub(super) async fn indexer_get_transaction_id_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+	) -> tg::Result<u64> {
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Read,
+			priority: db::Priority::Low,
+		};
+		let connection = database
+			.connection_with_options(options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		let statement = indoc!(
+			"
+				select id from transaction_id;
+			"
+		);
+		let params = db::params![];
+		let id = connection
+			.query_one_value_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		Ok(id)
+	}
+
+	pub(super) async fn indexer_get_queue_size_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		transaction_id: u64,
+	) -> tg::Result<u64> {
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Read,
+			priority: db::Priority::Low,
+		};
+		let connection = database
+			.connection_with_options(options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		let statement = indoc!(
+			"
+				select
+					(select count(*) from cache_entry_queue where transaction_id <= ?1) +
+					(select count(*) from object_queue where transaction_id <= ?1) +
+					(select count(*) from process_queue where transaction_id <= ?1);
+			"
+		);
+		let params = db::params![transaction_id];
+		let count = connection
+			.query_one_value_into(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		Ok(count)
 	}
 }

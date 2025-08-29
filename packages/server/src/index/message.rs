@@ -1,7 +1,10 @@
 use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
 use std::collections::BTreeSet;
-use tangram_client::{self as tg, util::serde::is_false};
+use tangram_client::{
+	self as tg,
+	util::serde::{is_default, is_false},
+};
 use tangram_either::Either;
 
 #[derive(
@@ -99,7 +102,8 @@ pub struct PutObject {
 	#[tangram_serialize(id = 3)]
 	pub id: tg::object::Id,
 
-	#[tangram_serialize(id = 4)]
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
 	pub metadata: tg::object::Metadata,
 
 	#[tangram_serialize(id = 5)]
@@ -134,17 +138,27 @@ pub struct TouchObject {
 	tangram_serialize::Serialize,
 )]
 pub struct PutProcess {
-	#[tangram_serialize(id = 0)]
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Vec::is_empty")]
 	pub children: Vec<tg::process::Id>,
 
-	#[tangram_serialize(id = 1)]
-	pub id: tg::process::Id,
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	pub complete: crate::process::complete::Output,
 
 	#[tangram_serialize(id = 2)]
-	pub touched_at: i64,
+	pub id: tg::process::Id,
 
-	#[tangram_serialize(id = 3)]
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
+	pub metadata: tg::process::Metadata,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "Vec::is_empty")]
 	pub objects: Vec<(tg::object::Id, ProcessObjectKind)>,
+
+	#[tangram_serialize(id = 5)]
+	pub touched_at: i64,
 }
 
 #[derive(

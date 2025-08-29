@@ -42,25 +42,21 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
-				// Get the info.
+				// Wait for the index stream's first sequence to reach the current last sequence.
 				let info = stream
 					.info()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
-
-				// Start the progress indicator.
+				let mut first_sequence = info.first_sequence;
+				let last_sequence = info.last_sequence;
 				let total = info.last_sequence.saturating_sub(info.first_sequence);
 				progress.start(
-					"index".to_string(),
-					"items".to_owned(),
+					"messages".to_string(),
+					"messages".to_owned(),
 					tg::progress::IndicatorFormat::Normal,
 					Some(0),
 					Some(total),
 				);
-
-				// Wait for index stream's first sequence to reach the current last sequence.
-				let mut first_sequence = info.first_sequence;
-				let last_sequence = info.last_sequence;
 				while first_sequence <= last_sequence {
 					let info = stream.info().await.map_err(|source| {
 						tg::error!(!source, "failed to get the index stream info")
@@ -69,8 +65,28 @@ impl Server {
 					first_sequence = info.first_sequence;
 					tokio::time::sleep(Duration::from_millis(10)).await;
 				}
+				progress.finish("messages");
 
-				progress.finish_all();
+				// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
+				let transaction_id = server.indexer_get_transaction_id().await?;
+				let count = server.indexer_get_queue_size(transaction_id).await?;
+				progress.start(
+					"queue".to_string(),
+					"queue".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(count),
+					None,
+				);
+				loop {
+					let count = server.indexer_get_queue_size(transaction_id).await?;
+					progress.set("queue", count);
+					if count == 0 {
+						break;
+					}
+					tokio::time::sleep(Duration::from_millis(10)).await;
+				}
+				progress.finish("queue");
+
 				progress.output(());
 
 				Ok::<_, tg::Error>(())
@@ -339,6 +355,25 @@ impl Server {
 			#[cfg(feature = "postgres")]
 			Index::Postgres(_) => todo!(),
 			Index::Sqlite(database) => self.indexer_handle_queue_sqlite(config, database).await,
+		}
+	}
+
+	async fn indexer_get_transaction_id(&self) -> tg::Result<u64> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			Index::Postgres(_) => todo!(),
+			Index::Sqlite(database) => self.indexer_get_transaction_id_sqlite(database).await,
+		}
+	}
+
+	async fn indexer_get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			Index::Postgres(_) => todo!(),
+			Index::Sqlite(database) => {
+				self.indexer_get_queue_size_sqlite(database, transaction_id)
+					.await
+			},
 		}
 	}
 

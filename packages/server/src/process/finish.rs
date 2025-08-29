@@ -224,10 +224,12 @@ impl Server {
 		.collect();
 		let children = children.into_iter().map(|row| row.child).collect();
 		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
-			id: id.clone(),
-			touched_at: now,
 			children,
+			complete: crate::process::complete::Output::default(),
+			id: id.clone(),
+			metadata: tg::process::Metadata::default(),
 			objects,
+			touched_at: now,
 		});
 		let message = message.serialize()?;
 		let _published = self

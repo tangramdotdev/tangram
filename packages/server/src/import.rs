@@ -446,6 +446,8 @@ impl Server {
 								.unwrap_process()
 						})
 						.collect();
+					let complete = node.complete.clone();
+					let metadata = node.metadata.clone();
 					let objects = node
 						.objects
 						.iter()
@@ -464,9 +466,11 @@ impl Server {
 					let message =
 						crate::index::Message::PutProcess(crate::index::message::PutProcess {
 							children,
+							complete,
 							id,
-							touched_at,
+							metadata,
 							objects,
+							touched_at,
 						});
 					messages.entry(level).or_insert(Vec::new()).push(message);
 					stack.extend(node.children.iter().map(|index| (*index, level + 1)));

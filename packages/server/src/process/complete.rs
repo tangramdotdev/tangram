@@ -1,13 +1,31 @@
 use crate::Server;
 use indoc::{formatdoc, indoc};
 use rusqlite as sqlite;
-use tangram_client as tg;
+use tangram_client::{self as tg, util::serde::is_false};
 use tangram_database::{self as db, prelude::*};
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_false")]
 	pub children: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
 	pub commands: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 }
 
