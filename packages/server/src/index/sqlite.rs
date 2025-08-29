@@ -44,7 +44,7 @@ impl Server {
 				Self::indexer_touch_processes_sqlite(touch_process_messages, &transaction)?;
 				Self::indexer_put_tags_sqlite(put_tag_messages, &transaction)?;
 				Self::indexer_delete_tags_sqlite(delete_tag_messages, &transaction)?;
-				Self::indexer_increment_insert_id_sqlite(&transaction)?;
+				Self::indexer_increment_transaction_id_sqlite(&transaction)?;
 
 				// Commit the transaction.
 				transaction
@@ -89,9 +89,14 @@ impl Server {
 		// Prepare a statement for the objects.
 		let objects_statement = indoc!(
 			"
-				insert into objects (id, cache_entry, complete, count, depth, insert_id, size, touched_at, weight)
-				values (?1, ?2, ?3, ?4, ?5, (select id from insert_id), ?6, ?7, ?8)
-				on conflict (id) do update set touched_at = ?7;
+				insert into objects (id, cache_entry, complete, count, depth, size, touched_at, transaction_id, weight)
+				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, (select id from transaction_id), ?8)
+				on conflict (id) do update set
+					complete = coalesce(complete, ?3),
+					count = coalesce(count, ?4),
+					depth = coalesce(depth, ?5),
+					touched_at = coalesce(touched_at, ?7),
+					weight = coalesce(weight, ?8);
 			"
 		);
 		let mut objects_statement = transaction
@@ -116,11 +121,9 @@ impl Server {
 			let cache_entry = message.cache_entry.as_ref().map(ToString::to_string);
 			let children = message.children;
 			let complete = message.complete;
-			let count = message.count;
-			let depth = message.depth;
+			let metadata = message.metadata;
 			let size = message.size;
 			let touched_at = message.touched_at;
-			let weight = message.weight;
 
 			// Insert the children.
 			for child in children {
@@ -136,11 +139,11 @@ impl Server {
 				&id.to_string(),
 				cache_entry,
 				complete,
-				count,
-				depth,
+				metadata.count,
+				metadata.depth,
 				size,
 				touched_at,
-				weight
+				metadata.weight
 			];
 			objects_statement
 				.execute(params)
@@ -180,8 +183,8 @@ impl Server {
 	) -> tg::Result<()> {
 		let process_statement = indoc!(
 			"
-				insert into processes (id, insert_id, touched_at)
-				values (?1, (select id from insert_id), ?2)
+				insert into processes (id, touched_at, transaction_id)
+				values (?1, ?2, (select id from transaction_id))
 				on conflict (id) do update set touched_at = ?2;
 			"
 		);
@@ -273,12 +276,26 @@ impl Server {
 				values (?1, ?2);
 			"
 		);
-		let mut statement = transaction
+		let mut insert_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update objects
+				set reference_count = reference_count + 1
+				where id = ?1
+			"
+		);
+		let mut reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
 			let params = sqlite::params![message.tag, message.item.to_string()];
-			statement
+			insert_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let params = sqlite::params![message.item.to_string()];
+			reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
@@ -293,15 +310,30 @@ impl Server {
 		let statement = indoc!(
 			"
 				delete from tags
-				where tag = ?1;
+				where tag = ?1
+				returning item;
 			"
 		);
-		let mut statement = transaction
+		let mut delete_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update objects
+				set reference_count = reference_count - 1
+				where id = ?1
+			"
+		);
+		let mut reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
 			let params = sqlite::params![message.tag];
-			statement
+			let id = delete_statement
+				.query_one(params, |row| row.get::<_, String>(0))
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let params = sqlite::params![id];
+			reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
@@ -309,10 +341,12 @@ impl Server {
 		Ok(())
 	}
 
-	fn indexer_increment_insert_id_sqlite(transaction: &sqlite::Transaction<'_>) -> tg::Result<()> {
+	fn indexer_increment_transaction_id_sqlite(
+		transaction: &sqlite::Transaction<'_>,
+	) -> tg::Result<()> {
 		let statement = indoc!(
 			"
-				update insert_id set id = id + 1;
+				update transaction_id set id = id + 1;
 			"
 		);
 		let mut statement = transaction
@@ -352,13 +386,17 @@ impl Server {
 				n -= Self::indexer_handle_reference_count_cache_entry_sqlite(&transaction, n)?;
 				n -= Self::indexer_handle_reference_count_object_sqlite(&transaction, n)?;
 				n -= Self::indexer_handle_reference_count_process_sqlite(&transaction, n)?;
+				let n = batch_size - n;
 
 				// Commit the transaction.
-				transaction
-					.commit()
-					.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+				if n > 0 {
+					Self::indexer_increment_transaction_id_sqlite(&transaction)?;
+					transaction.commit().map_err(|source| {
+						tg::error!(!source, "failed to commit the transaction")
+					})?;
+				}
 
-				Ok::<_, tg::Error>(batch_size - n)
+				Ok::<_, tg::Error>(n)
 			})
 			.await?;
 
@@ -375,12 +413,12 @@ impl Server {
 				where object in (
 					select object
 					from object_queue
-					where kind = 0
+					where kind = 1
 					order by id
 					limit ?1
 				)
-				and kind = 0
-				returning object, insert_id;
+				and kind = 1
+				returning object, transaction_id;
 			"
 		);
 		let mut statement = transaction
@@ -392,7 +430,7 @@ impl Server {
 
 		struct Item {
 			object: tg::object::Id,
-			insert_id: u64,
+			transaction_id: u64,
 		}
 		let mut items = Vec::new();
 		while let Some(row) = rows
@@ -404,10 +442,13 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to get the object from the row"))?
 				.parse()
 				.map_err(|source| tg::error!(!source, "failed to parse the object"))?;
-			let insert_id = row.get(1).map_err(|source| {
-				tg::error!(!source, "failed to get the insert id from the row")
+			let transaction_id = row.get(1).map_err(|source| {
+				tg::error!(!source, "failed to get the transaction id from the row")
 			})?;
-			let item = Item { object, insert_id };
+			let item = Item {
+				object,
+				transaction_id,
+			};
 			items.push(item);
 		}
 		if items.is_empty() {
@@ -427,8 +468,8 @@ impl Server {
 
 		let statement = indoc!(
 			"
-				insert into object_queue (object, insert_id, kind)
-				select object, ?2, 0
+				insert into object_queue (object, kind, transaction_id)
+				select object, 1, ?2
 				from object_children
 				join objects on objects.id = object_children.object
 				where object_children.child = ?1 and objects.complete = 0;
@@ -438,7 +479,41 @@ impl Server {
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(
 					!source,
-					"failed to prepare the enqueue incomplete children statement"
+					"failed to prepare the enqueue incomplete parents statement"
+				)
+			})?;
+
+		let statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
+				select process, 2, ?2
+				from process_objects
+				join processes on processes.id = process_objects.process
+				where process_objects.object = ?1 and processes.commands_complete = 0;
+			"
+		);
+		let mut enqueue_incomplete_commands_processes_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to prepare the enqueue incomplete processes statement"
+				)
+			})?;
+
+		let statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
+				select process, 3, ?2
+				from process_objects
+				join processes on processes.id = process_objects.process
+				where process_objects.object = ?1 and processes.outputs_complete = 0;
+			"
+		);
+		let mut enqueue_incomplete_outputs_processes_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to prepare the enqueue incomplete processes statement"
 				)
 			})?;
 
@@ -504,15 +579,34 @@ impl Server {
 				})?;
 			}
 
-			// If the object is complete, then enqueue incomplete parents.
+			// If the object is complete, then enqueue incomplete parents and processes.
 			if complete {
-				let params = sqlite::params![item.object.to_string(), item.insert_id];
+				let params = sqlite::params![item.object.to_string(), item.transaction_id];
 				enqueue_incomplete_parents_statement
 					.execute(params)
 					.map_err(|source| {
 						tg::error!(
 							!source,
-							"failed to execute the enqueue incomplete children statement"
+							"failed to execute the enqueue incomplete parents statement"
+						)
+					})?;
+
+				let params = sqlite::params![item.object.to_string(), item.transaction_id];
+				enqueue_incomplete_commands_processes_statement
+					.execute(params)
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to execute the enqueue incomplete processes statement"
+						)
+					})?;
+				let params = sqlite::params![item.object.to_string(), item.transaction_id];
+				enqueue_incomplete_outputs_processes_statement
+					.execute(params)
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to execute the enqueue incomplete processes statement"
 						)
 					})?;
 			}
@@ -525,7 +619,418 @@ impl Server {
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
-		Ok(0)
+		let statement = indoc!(
+			"
+				delete from process_queue
+				where process in (
+					select process
+					from process_queue
+					where kind >= 1
+					order by id
+					limit ?1
+				)
+				and kind >= 1
+				returning process, kind, transaction_id;
+			"
+		);
+		let mut statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
+		let mut rows = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
+
+		enum Kind {
+			Children = 1,
+			Commands = 2,
+			Outputs = 3,
+		}
+		struct Item {
+			process: tg::process::Id,
+			kind: Kind,
+			transaction_id: u64,
+		}
+		let mut items = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+		{
+			let process = row
+				.get::<_, String>(0)
+				.map_err(|source| tg::error!(!source, "failed to get the process from the row"))?
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the process"))?;
+			let kind = row
+				.get::<_, u64>(1)
+				.map_err(|source| tg::error!(!source, "failed to get the kind from the row"))?;
+			let kind = match kind {
+				1 => Kind::Children,
+				2 => Kind::Commands,
+				3 => Kind::Outputs,
+				_ => return Err(tg::error!("invalid kind")),
+			};
+			let transaction_id = row.get(2).map_err(|source| {
+				tg::error!(!source, "failed to get the transaction id from the row")
+			})?;
+			let item = Item {
+				process,
+				kind,
+				transaction_id,
+			};
+			items.push(item);
+		}
+		if items.is_empty() {
+			return Ok(0);
+		}
+
+		let statement = indoc!(
+			"
+				select children_complete
+				from processes
+				where id = ?1;
+			"
+		);
+		let mut children_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the children complete statement")
+			})?;
+		let statement = indoc!(
+			"
+				select commands_complete
+				from processes
+				where id = ?1;
+			"
+		);
+		let mut commands_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the commands complete statement")
+			})?;
+		let statement = indoc!(
+			"
+				select outputs_complete
+				from processes
+				where id = ?1;
+			"
+		);
+		let mut outputs_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the outputs complete statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
+				select process, 1, ?2
+				from process_children
+				join processes on processes.id = process_children.process
+				where
+					process_children.child = ?1
+					and processes.children_complete = 0;
+			"
+		);
+		let mut enqueue_incomplete_children_parents_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to prepare the enqueue incomplete parents statement"
+				)
+			})?;
+
+		let statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
+				select process, 2, ?2
+				from process_children
+				join processes on processes.id = process_children.process
+				where
+					process_children.child = ?1
+					and processes.commands_complete = 0;
+			"
+		);
+		let mut enqueue_incomplete_commands_parents_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to prepare the enqueue incomplete parents statement"
+				)
+			})?;
+
+		let statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
+				select process, 3, ?2
+				from process_children
+				join processes on processes.id = process_children.process
+				where
+					process_children.child = ?1
+					and processes.outputs_complete = 0;
+			"
+		);
+		let mut enqueue_incomplete_outputs_parents_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to prepare the enqueue incomplete parents statement"
+				)
+			})?;
+
+		let statement = indoc!(
+			"
+			update processes
+			set
+				children_complete = updates.children_complete,
+				children_count = updates.children_count
+			from (
+				select
+					processes.id,
+					coalesce(min(child_processes.children_complete), 1) as children_complete,
+					1 + coalesce(sum(child_processes.children_count), 0) as children_count
+				from processes
+				left join process_children on process_children.process = processes.id
+				left join processes as child_processes on child_processes.id = process_children.child
+				where processes.id = ?1
+				group by processes.id
+				having coalesce(min(child_processes.children_complete), 1) = 1
+			) as updates
+			where processes.id = updates.id
+			returning children_complete;
+		"
+		);
+		let mut update_children_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update complete statement")
+			})?;
+
+		let statement = indoc!(
+			"
+			update processes
+				set
+					commands_complete = updates.commands_complete,
+					commands_count = updates.commands_count,
+					commands_depth = updates.commands_depth,
+					commands_weight = updates.commands_weight
+				from (
+					select
+						processes.id,
+						min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) as commands_complete,
+						coalesce(sum(command_objects.count), 0) + coalesce(sum(child_processes.commands_count), 0) as commands_count,
+						max(coalesce(max(command_objects.depth), 0), coalesce(max(child_processes.commands_depth), 0)) as commands_depth,
+						coalesce(sum(command_objects.weight), 0) + coalesce(sum(child_processes.commands_weight), 0) as commands_weight
+					from processes
+					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
+					left join objects command_objects on command_objects.id = process_objects_commands.object
+					left join process_children process_children_commands on process_children_commands.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_commands.child
+					where processes.id = ?1
+					group by processes.id
+					having min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) = 1
+				) as updates
+				where processes.id = updates.id
+				returning commands_complete;
+			");
+		let mut update_commands_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update complete statement")
+			})?;
+
+		let statement = indoc!(
+			"
+			update processes
+			set
+				outputs_complete = updates.outputs_complete,
+				outputs_count = updates.outputs_count,
+				outputs_depth = updates.outputs_depth,
+				outputs_weight = updates.outputs_weight
+				from (
+					select
+						processes.id,
+						min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) as outputs_complete,
+						coalesce(sum(output_objects.count), 0) + coalesce(sum(child_processes.outputs_count), 0) as outputs_count,
+						max(coalesce(max(output_objects.depth), 0), coalesce(max(child_processes.outputs_depth), 0)) as outputs_depth,
+						coalesce(sum(output_objects.weight), 0) + coalesce(sum(child_processes.outputs_weight), 0) as outputs_weight
+					from processes
+					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
+					left join objects output_objects on output_objects.id = process_objects_outputs.object
+					left join process_children process_children_outputs on process_children_outputs.process = processes.id
+					left join processes child_processes on child_processes.id = process_children_outputs.child
+					where processes.id = ?1
+					group by processes.id
+					having min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) = 1
+				) as updates
+				where processes.id = updates.id
+				returning outputs_complete;
+			");
+		let mut update_outputs_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update complete statement")
+			})?;
+
+		for item in &items {
+			match item.kind {
+				Kind::Children => {
+					let params = [item.process.to_string()];
+					let mut rows = children_complete_statement
+						.query(params)
+						.map_err(|source| {
+							tg::error!(!source, "failed to execute the complete statement")
+						})?;
+					let row = rows
+						.next()
+						.map_err(|source| {
+							tg::error!(!source, "failed to execute the complete statement")
+						})?
+						.ok_or_else(|| tg::error!("expected a row"))?;
+					let mut children_complete = row.get::<_, bool>(0).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the children complete flag")
+					})?;
+
+					if !children_complete {
+						let params = [item.process.to_string()];
+						let mut rows =
+							update_children_complete_statement
+								.query(params)
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to execute the update complete statement"
+									)
+								})?;
+						let row = rows
+							.next()
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the update complete statement"
+								)
+							})?
+							.ok_or_else(|| tg::error!("expected a row"))?;
+						children_complete = row.get::<_, bool>(0).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the children complete flag")
+						})?;
+					}
+
+					if children_complete {
+						let params = sqlite::params![item.process.to_string(), item.transaction_id];
+						enqueue_incomplete_children_parents_statement
+							.execute(params)
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the enqueue incomplete parents statement"
+								)
+							})?;
+					}
+				},
+				Kind::Commands => {
+					let params = [item.process.to_string()];
+					let mut rows = commands_complete_statement
+						.query(params)
+						.map_err(|source| {
+							tg::error!(!source, "failed to execute the complete statement")
+						})?;
+					let row = rows
+						.next()
+						.map_err(|source| {
+							tg::error!(!source, "failed to execute the complete statement")
+						})?
+						.ok_or_else(|| tg::error!("expected a row"))?;
+					let mut commands_complete = row.get::<_, bool>(0).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the commands complete flag")
+					})?;
+
+					if !commands_complete {
+						let params = [item.process.to_string()];
+						let mut rows =
+							update_commands_complete_statement
+								.query(params)
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to execute the update complete statement"
+									)
+								})?;
+						let row = rows
+							.next()
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the update complete statement"
+								)
+							})?
+							.ok_or_else(|| tg::error!("expected a row"))?;
+						commands_complete = row.get::<_, bool>(0).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the children complete flag")
+						})?;
+					}
+
+					if commands_complete {
+						let params = sqlite::params![item.process.to_string(), item.transaction_id];
+						enqueue_incomplete_commands_parents_statement
+							.execute(params)
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the enqueue incomplete parents statement"
+								)
+							})?;
+					}
+				},
+				Kind::Outputs => {
+					let params = [item.process.to_string()];
+					let mut rows = outputs_complete_statement.query(params).map_err(|source| {
+						tg::error!(!source, "failed to execute the complete statement")
+					})?;
+					let row = rows
+						.next()
+						.map_err(|source| {
+							tg::error!(!source, "failed to execute the complete statement")
+						})?
+						.ok_or_else(|| tg::error!("expected a row"))?;
+					let mut outputs_complete = row.get::<_, bool>(0).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the commands complete flag")
+					})?;
+
+					if !outputs_complete {
+						let params = [item.process.to_string()];
+						let mut rows =
+							update_outputs_complete_statement
+								.query(params)
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to execute the update complete statement"
+									)
+								})?;
+						let row = rows
+							.next()
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the update complete statement"
+								)
+							})?
+							.ok_or_else(|| tg::error!("expected a row"))?;
+						outputs_complete = row.get::<_, bool>(0).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the children complete flag")
+						})?;
+					}
+
+					if outputs_complete {
+						let params = sqlite::params![item.process.to_string(), item.transaction_id];
+						enqueue_incomplete_outputs_parents_statement
+							.execute(params)
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the enqueue incomplete parents statement"
+								)
+							})?;
+					}
+				},
+			}
+		}
+
+		Ok(items.len())
 	}
 
 	fn indexer_handle_reference_count_cache_entry_sqlite(
@@ -574,8 +1079,8 @@ impl Server {
 						from objects
 						where cache_entry = ?1
 					),
-					reference_count_insert_id = (
-						select id from insert_id
+					reference_count_transaction_id = (
+						select id from transaction_id
 					)
 				where id = ?1;
 			"
@@ -604,11 +1109,11 @@ impl Server {
 				where object in (
 					select object
 					from object_queue
-					where kind = 1
+					where kind = 0
 					order by id
 					limit ?1
 				)
-				and kind = 1
+				and kind = 0
 				returning object;
 			"
 		);
@@ -648,8 +1153,8 @@ impl Server {
 						(select count(*) from process_objects where object = ?1) +
 						(select count(*) from tags where item = ?1)
 					),
-					reference_count_insert_id = (
-						select id from insert_id
+					reference_count_transaction_id = (
+						select id from transaction_id
 					)
 				where id = ?1;
 			"
@@ -670,8 +1175,8 @@ impl Server {
 						where object = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id <= (
-						select insert_id
+					and reference_count_transaction_id < (
+						select transaction_id
 						from objects
 						where id = ?1
 					);
@@ -692,8 +1197,8 @@ impl Server {
 						where id = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id <= (
-						select insert_id
+					and reference_count_transaction_id < (
+						select transaction_id
 						from objects
 						where id = ?1
 					);
@@ -739,11 +1244,11 @@ impl Server {
 				where process in (
 					select process
 					from process_queue
-					where kind = 1
+					where kind = 0
 					order by id
 					limit ?1
 				)
-				and kind = 1
+				and kind = 0
 				returning process;
 			"
 		);
@@ -782,8 +1287,8 @@ impl Server {
 						(select count(*) from process_children where child = ?1) +
 						(select count(*) from tags where item = ?1)
 					),
-					reference_count_insert_id = (
-						select id from insert_id
+					reference_count_transaction_id = (
+						select id from transaction_id
 					)
 				where id = ?1;
 			"
@@ -795,7 +1300,7 @@ impl Server {
 
 		let statement = indoc!(
 			"
-				update process
+				update processes
 				set reference_count = reference_count + 1
 				where
 					id in (
@@ -804,8 +1309,8 @@ impl Server {
 						where process = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id <= (
-						select insert_id
+					and reference_count_transaction_id < (
+						select transaction_id
 						from processes
 						where id = ?1
 					);
@@ -826,8 +1331,8 @@ impl Server {
 						where process = ?1
 					)
 					and reference_count is not null
-					and reference_count_insert_id <= (
-						select insert_id
+					and reference_count_transaction_id < (
+						select transaction_id
 						from processes
 						where id = ?1
 					);

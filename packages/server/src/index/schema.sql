@@ -1,13 +1,13 @@
-create table insert_id (
+create table transaction_id (
 	id integer
 );
 
-insert into insert_id (id) values (0);
+insert into transaction_id (id) values (0);
 
 create table cache_entries (
 	id text primary key,
 	reference_count integer,
-	reference_count_insert_id integer,
+	reference_count_transaction_id integer,
 	touched_at integer
 );
 
@@ -16,15 +16,15 @@ create index cache_entries_reference_count_zero_index on cache_entries (touched_
 create table cache_entry_queue (
 	id integer primary key autoincrement,
 	cache_entry text not null,
-	insert_id integer not null
+	transaction_id integer not null
 );
 
-create index cache_entry_queue_insert_id_index on cache_entry_queue (insert_id);
+create index cache_entry_queue_insert_id_index on cache_entry_queue (transaction_id);
 
 create trigger cache_entry_insert_trigger
 after insert on cache_entries
 begin
-	insert into cache_entry_queue (cache_entry, insert_id) values (new.id, (select id from insert_id));
+	insert into cache_entry_queue (cache_entry, transaction_id) values (new.id, (select id from transaction_id));
 end;
 
 create table objects (
@@ -33,9 +33,9 @@ create table objects (
 	complete integer not null default 0,
 	count integer,
 	depth integer,
-	insert_id integer not null,
+	transaction_id integer not null,
 	reference_count integer,
-	reference_count_insert_id integer,
+	reference_count_transaction_id integer,
 	size integer not null,
 	touched_at integer,
 	weight integer
@@ -57,19 +57,19 @@ create index object_children_child_index on object_children (child);
 create table object_queue (
 	id integer primary key autoincrement,
 	object text not null,
-	insert_id integer not null,
+	transaction_id integer not null,
 	kind integer not null
 );
 
-create index object_queue_insert_id_index on object_queue (insert_id);
+create index object_queue_insert_id_index on object_queue (transaction_id);
 
 create index object_queue_kind_index on object_queue (kind, id);
 
 create trigger object_queue_trigger
 after insert on objects
 begin
-	insert into object_queue (object, insert_id, kind) values (new.id, (select id from insert_id), 0);
-	insert into object_queue (object, insert_id, kind) values (new.id, (select id from insert_id), 1);
+	insert into object_queue (object, kind, transaction_id) values (new.id, 0, (select id from transaction_id));
+	insert into object_queue (object, kind, transaction_id) values (new.id, 1, (select id from transaction_id));
 end;
 
 create table processes (
@@ -80,14 +80,14 @@ create table processes (
 	commands_count integer,
 	commands_depth integer,
 	commands_weight integer,
-	insert_id integer not null,
 	outputs_complete integer not null default 0,
 	outputs_count integer,
 	outputs_depth integer,
 	outputs_weight integer,
 	reference_count integer,
-	reference_count_insert_id integer,
-	touched_at integer
+	reference_count_transaction_id integer,
+	touched_at integer,
+	transaction_id integer not null
 );
 
 create index processes_reference_count_zero_index on processes (touched_at) where reference_count = 0;
@@ -117,19 +117,21 @@ create index process_objects_object_index on process_objects (object);
 create table process_queue (
 	id integer primary key autoincrement,
 	process text not null,
-	insert_id integer not null,
-	kind integer not null
+	kind integer not null,
+	transaction_id integer not null
 );
 
-create index process_queue_insert_id_index on process_queue (insert_id);
+create index process_queue_insert_id_index on process_queue (transaction_id);
 
 create index process_queue_kind_index on process_queue (kind, id);
 
 create trigger process_queue_trigger
 after insert on processes
 begin
-	insert into process_queue (process, insert_id, kind) values (new.id, (select id from insert_id), 0);
-	insert into process_queue (process, insert_id, kind) values (new.id, (select id from insert_id), 1);
+	insert into process_queue (process, kind, transaction_id) values (new.id, 0, (select id from transaction_id));
+	insert into process_queue (process, kind, transaction_id) values (new.id, 1, (select id from transaction_id));
+	insert into process_queue (process, kind, transaction_id) values (new.id, 2, (select id from transaction_id));
+	insert into process_queue (process, kind, transaction_id) values (new.id, 3, (select id from transaction_id));
 end;
 
 create table tags (

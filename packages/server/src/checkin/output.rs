@@ -192,22 +192,15 @@ impl Server {
 				.map(|data| data.children().collect())
 				.unwrap_or_default();
 			let complete = object.complete;
-			let count = object.metadata.as_ref().and_then(|metadata| metadata.count);
-			let depth = object.metadata.as_ref().and_then(|metadata| metadata.depth);
-			let weight = object
-				.metadata
-				.as_ref()
-				.and_then(|metadata| metadata.weight);
+			let metadata = object.metadata.clone().unwrap_or_default();
 			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
 				cache_entry,
 				children,
 				complete,
-				count,
-				depth,
 				id: object.id.clone(),
+				metadata,
 				size: object.size,
 				touched_at,
-				weight,
 			});
 			let message = message.serialize()?;
 			messages.push(message);

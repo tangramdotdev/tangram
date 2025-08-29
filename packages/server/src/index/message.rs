@@ -96,26 +96,17 @@ pub struct PutObject {
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub complete: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
-	pub depth: Option<u64>,
-
-	#[tangram_serialize(id = 5)]
+	#[tangram_serialize(id = 3)]
 	pub id: tg::object::Id,
 
-	#[tangram_serialize(id = 6)]
+	#[tangram_serialize(id = 4)]
+	pub metadata: tg::object::Metadata,
+
+	#[tangram_serialize(id = 5)]
 	pub size: u64,
 
-	#[tangram_serialize(id = 7)]
+	#[tangram_serialize(id = 6)]
 	pub touched_at: i64,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 8, default, skip_serializing_if = "Option::is_none")]
-	pub weight: Option<u64>,
 }
 
 #[derive(

@@ -110,15 +110,20 @@ impl Server {
 			.collect::<Vec<_>>();
 		let counts = unique_messages
 			.values()
-			.map(|message| message.count.map(|count| count.to_i64().unwrap()))
+			.map(|message| message.metadata.count.map(|count| count.to_i64().unwrap()))
 			.collect::<Vec<_>>();
 		let depths = unique_messages
 			.values()
-			.map(|message| message.depth.map(|depth| depth.to_i64().unwrap()))
+			.map(|message| message.metadata.depth.map(|depth| depth.to_i64().unwrap()))
 			.collect::<Vec<_>>();
 		let weights = unique_messages
 			.values()
-			.map(|message| message.weight.map(|weight| weight.to_i64().unwrap()))
+			.map(|message| {
+				message
+					.metadata
+					.weight
+					.map(|weight| weight.to_i64().unwrap())
+			})
 			.collect::<Vec<_>>();
 		let completes = unique_messages
 			.values()

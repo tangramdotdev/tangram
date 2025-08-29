@@ -58,7 +58,7 @@ impl Server {
 					Some(total),
 				);
 
-				// Wait for the indexing task to catch up.
+				// Wait for index stream's first sequence to reach the current last sequence.
 				let mut first_sequence = info.first_sequence;
 				let last_sequence = info.last_sequence;
 				while first_sequence <= last_sequence {

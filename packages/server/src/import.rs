@@ -491,12 +491,10 @@ impl Server {
 							cache_entry: None,
 							children,
 							complete: node.complete,
-							count: node.metadata.count,
-							depth: node.metadata.depth,
 							id,
+							metadata: node.metadata.clone(),
 							size: node.size,
 							touched_at,
-							weight: node.metadata.weight,
 						});
 					messages.entry(level).or_insert(Vec::new()).push(message);
 					stack.extend(node.children.iter().map(|index| (*index, level + 1)));
