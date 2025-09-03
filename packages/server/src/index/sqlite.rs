@@ -516,14 +516,13 @@ impl Server {
 		let statement = indoc!(
 			"
 				delete from object_queue
-				where object in (
-					select object
+				where id in (
+					select id
 					from object_queue
 					where kind = 1
 					order by id
 					limit ?1
 				)
-				and kind = 1
 				returning object, transaction_id;
 			"
 		);
@@ -728,14 +727,13 @@ impl Server {
 		let statement = indoc!(
 			"
 				delete from process_queue
-				where process in (
-					select process
+				where id in (
+					select id
 					from process_queue
 					where kind >= 1
 					order by id
 					limit ?1
 				)
-				and kind >= 1
 				returning process, kind, transaction_id;
 			"
 		);
@@ -1146,8 +1144,8 @@ impl Server {
 		let statement = indoc!(
 			"
 				delete from cache_entry_queue
-				where cache_entry in (
-					select cache_entry
+				where id in (
+					select id
 					from cache_entry_queue
 					order by id
 					limit ?1
@@ -1212,14 +1210,13 @@ impl Server {
 		let statement = indoc!(
 			"
 				delete from object_queue
-				where object in (
-					select object
+				where id in (
+					select id
 					from object_queue
 					where kind = 0
 					order by id
 					limit ?1
 				)
-				and kind = 0
 				returning object;
 			"
 		);
@@ -1347,14 +1344,13 @@ impl Server {
 		let statement = indoc!(
 			"
 				delete from process_queue
-				where process in (
-					select process
+				where id in (
+					select id
 					from process_queue
 					where kind = 0
 					order by id
 					limit ?1
 				)
-				and kind = 0
 				returning process;
 			"
 		);
