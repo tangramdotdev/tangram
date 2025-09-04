@@ -676,6 +676,8 @@ impl Server {
 			Store::Lmdb(_) => (1, 1_000, 1_000_000),
 			Store::Memory(_) => (1, 1, u64::MAX),
 			Store::S3(_) => (256, 1, u64::MAX),
+			#[cfg(feature = "scylla")]
+			Store::Scylla(_) => (64, 1_000, 1_000_000),
 		};
 
 		// Create a stream of batches.

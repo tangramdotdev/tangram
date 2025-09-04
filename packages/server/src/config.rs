@@ -147,6 +147,7 @@ pub enum Store {
 	Lmdb(LmdbStore),
 	Memory,
 	S3(S3Store),
+	Scylla(ScyllaStore),
 }
 
 #[derive(Clone, Debug)]
@@ -166,6 +167,14 @@ pub struct S3Store {
 	pub region: Option<String>,
 	pub secret_key: Option<String>,
 	pub url: Url,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScyllaStore {
+	pub addr: String,
+	pub keyspace: String,
+	pub password: Option<String>,
+	pub username: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
