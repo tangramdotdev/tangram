@@ -20,7 +20,7 @@ impl Server {
 				do update set url = {p}2;
 			",
 		);
-		let params = db::params![&name, &arg.url];
+		let params = db::params![&name, &arg.url.to_string()];
 		connection
 			.execute(statement.into(), params)
 			.await

@@ -4,7 +4,6 @@ use super::{Promise, State};
 use futures::FutureExt as _;
 use std::rc::Rc;
 use tangram_client as tg;
-use tangram_v8::convert::{FromV8, ToV8};
 
 mod blob;
 mod checksum;
@@ -23,7 +22,7 @@ pub fn syscall<'s>(
 	mut return_value: v8::ReturnValue,
 ) {
 	// Get the syscall name.
-	let name = String::from_v8(scope, args.get(0)).unwrap();
+	let name = <String as tangram_v8::Deserialize>::deserialize(scope, args.get(0)).unwrap();
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
@@ -77,8 +76,8 @@ fn sync<'s, A, T, F>(
 	f: F,
 ) -> tg::Result<v8::Local<'s, v8::Value>>
 where
-	A: FromV8,
-	T: ToV8,
+	A: tangram_v8::Deserialize,
+	T: tangram_v8::Serialize,
 	F: FnOnce(Rc<State>, &mut v8::HandleScope<'s>, A) -> tg::Result<T>,
 {
 	// Get the context.
@@ -92,15 +91,15 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = A::from_v8(scope, args.into())
+	let args = A::deserialize(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Call the function.
 	let value = f(state, scope, args)?;
 
-	// Move the value to v8.
+	// Serialize the value to v8.
 	let value = value
-		.to_v8(scope)
+		.serialize(scope)
 		.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
 
 	Ok(value)
@@ -112,8 +111,8 @@ fn async_<'s, A, T, F, Fut>(
 	f: F,
 ) -> tg::Result<v8::Local<'s, v8::Value>>
 where
-	A: FromV8 + 'static,
-	T: ToV8 + 'static,
+	A: tangram_v8::Deserialize + 'static,
+	T: tangram_v8::Serialize + 'static,
 	F: FnOnce(Rc<State>, A) -> Fut + 'static,
 	Fut: Future<Output = tg::Result<T>>,
 {
@@ -128,7 +127,7 @@ where
 	let args = v8::Array::new_with_elements(scope, args.as_slice());
 
 	// Deserialize the args.
-	let args = A::from_v8(scope, args.into())
+	let args = A::deserialize(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
 	// Create the promise.
@@ -144,7 +143,7 @@ where
 		async move {
 			let result = f(state, args)
 				.await
-				.map(|value| Box::new(value) as Box<dyn ToV8>);
+				.map(|value| Box::new(value) as Box<dyn tangram_v8::Serialize>);
 			Promise { resolver, result }
 		}
 		.boxed_local()

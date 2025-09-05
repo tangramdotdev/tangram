@@ -37,98 +37,48 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		// Handle the messages.
-		self.indexer_put_cache_entries_postgres(put_cache_entry_messages, &transaction)
-			.await?;
-		self.indexer_put_objects_postgres(put_object_messages, &transaction)
-			.await?;
-		self.indexer_touch_objects_postgres(touch_object_messages, &transaction)
-			.await?;
-		self.indexer_put_processes_postgres(put_process_messages, &transaction)
-			.await?;
-		self.indexer_touch_processes_postgres(touch_process_messages, &transaction)
-			.await?;
-		self.indexer_put_tags_postgres(put_tag_messages, &transaction)
-			.await?;
-		self.indexer_delete_tags_postgres(delete_tag_messages, &transaction)
-			.await?;
-		self.indexer_increment_transaction_id_postgres(&transaction)
-			.await?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-		Ok(())
-	}
-
-	async fn indexer_put_cache_entries_postgres(
-		&self,
-		messages: Vec<PutCacheEntry>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let cache_entry_ids = messages
+		// Prepare cache entry parameters.
+		let cache_entry_ids = put_cache_entry_messages
 			.iter()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes().to_vec())
 			.collect::<Vec<_>>();
-		let touched_ats = messages
+		let cache_entry_touched_ats = put_cache_entry_messages
 			.iter()
 			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
-		let statement = indoc!(
-			"
-				insert into cache_entries (id, touched_at)
-				select id, touched_at
-				from unnest($1::text[], $2::int8[]) as t (id, touched_at)
-				on conflict (id) do update set touched_at = excluded.touched_at;
-			"
-		);
-		let params = db::params![cache_entry_ids.as_slice(), touched_ats.as_slice()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(())
-	}
 
-	async fn indexer_put_objects_postgres(
-		&self,
-		messages: Vec<PutObject>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		let messages: HashMap<&tg::object::Id, &PutObject, fnv::FnvBuildHasher> = messages
-			.iter()
-			.map(|message| (&message.id, message))
-			.collect();
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let ids = messages
+		// Prepare put object parameters.
+		let put_object_messages: HashMap<&tg::object::Id, &PutObject, fnv::FnvBuildHasher> =
+			put_object_messages
+				.iter()
+				.map(|message| (&message.id, message))
+				.collect();
+		let object_ids = put_object_messages
 			.values()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes().to_vec())
 			.collect::<Vec<_>>();
-		let size = messages
+		let object_cache_entries = put_object_messages
+			.values()
+			.filter_map(|message| message.cache_entry.as_ref())
+			.map(|entry| entry.to_bytes().to_vec())
+			.collect::<Vec<_>>();
+		let object_sizes = put_object_messages
 			.values()
 			.map(|message| message.size.to_i64().unwrap())
 			.collect::<Vec<_>>();
-		let touched_ats = messages
+		let object_touched_ats = put_object_messages
 			.values()
 			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
-		let counts = messages
+		let object_counts = put_object_messages
 			.values()
 			.map(|message| message.metadata.count.map(|count| count.to_i64().unwrap()))
 			.collect::<Vec<_>>();
-		let depths = messages
+		let object_depths = put_object_messages
 			.values()
 			.map(|message| message.metadata.depth.map(|depth| depth.to_i64().unwrap()))
 			.collect::<Vec<_>>();
-		let weights = messages
+		let object_weights = put_object_messages
 			.values()
 			.map(|message| {
 				message
@@ -137,129 +87,70 @@ impl Server {
 					.map(|weight| weight.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let completes = messages
+		let object_completes = put_object_messages
 			.values()
 			.map(|message| message.complete)
 			.collect::<Vec<_>>();
-		let children = messages
+		let object_children = put_object_messages
 			.values()
-			.flat_map(|message| message.children.iter().map(ToString::to_string))
+			.flat_map(|message| {
+				message
+					.children
+					.iter()
+					.map(|child| child.to_bytes().to_vec())
+			})
 			.collect::<Vec<_>>();
-		let parent_indices = messages
+		let object_parent_indices = put_object_messages
 			.values()
 			.enumerate()
 			.flat_map(|(index, message)| {
 				std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 			})
 			.collect::<Vec<_>>();
-		let cache_entries = messages
-			.values()
-			.filter_map(|message| message.cache_entry.as_ref())
-			.map(ToString::to_string)
-			.collect::<Vec<_>>();
-		let statement = indoc!(
-			"
-				call insert_objects(
-					$1::text[],
-					$2::text[],
-					$3::int8[],
-					$4::int8[],
-					$5::int8[],
-					$6::int8[],
-					$7::int8[],
-					$8::bool[],
-					$9::text[],
-					$10::int8[]
-				);
-			"
-		);
-		transaction
-			.inner()
-			.execute(
-				statement,
-				&[
-					&ids.as_slice(),
-					&cache_entries.as_slice(),
-					&size.as_slice(),
-					&touched_ats.as_slice(),
-					&counts.as_slice(),
-					&depths.as_slice(),
-					&weights.as_slice(),
-					&completes.as_slice(),
-					&children.as_slice(),
-					&parent_indices.as_slice(),
-				],
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
-		Ok(())
-	}
 
-	async fn indexer_touch_objects_postgres(
-		&self,
-		messages: Vec<TouchObject>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let touched_ats = messages
+		// Prepare touch object parameters.
+		let touch_object_touched_ats = touch_object_messages
 			.iter()
 			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
-		let object_ids = messages
+		let touch_object_ids = touch_object_messages
 			.iter()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes().to_vec())
 			.collect::<Vec<_>>();
-		let statement = indoc!(
-			"
-				update objects
-				set touched_at = t.touched_at
-				from unnest($1::int8[], $2::text[]) as t (touched_at, id)
-				where objects.id = t.id;
-			"
-		);
-		let params = db::params![touched_ats.as_slice(), object_ids.as_slice()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(())
-	}
 
-	async fn indexer_put_processes_postgres(
-		&self,
-		messages: Vec<PutProcess>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		let messages: HashMap<&tg::process::Id, &PutProcess, fnv::FnvBuildHasher> = messages
-			.iter()
-			.map(|message| (&message.id, message))
-			.collect();
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let process_ids = messages
+		// Prepare put process parameters.
+		let put_process_messages: HashMap<&tg::process::Id, &PutProcess, fnv::FnvBuildHasher> =
+			put_process_messages
+				.iter()
+				.map(|message| (&message.id, message))
+				.collect();
+		let process_ids = put_process_messages
 			.values()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes().to_vec())
 			.collect::<Vec<_>>();
-		let touched_ats = messages
+		let process_touched_ats = put_process_messages
 			.values()
 			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
-		let children_complete = messages
+		let process_children_completes = put_process_messages
 			.values()
 			.map(|message| message.complete.children)
 			.collect::<Vec<_>>();
-		let children_counts = messages
+		let process_children_counts = put_process_messages
 			.values()
-			.map(|message| message.metadata.count.map(|value| value.to_i64().unwrap()))
+			.map(|message| {
+				message
+					.metadata
+					.children
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
 			.collect::<Vec<_>>();
-		let commands_complete = messages
+		let process_commands_completes = put_process_messages
 			.values()
 			.map(|message| message.complete.commands)
 			.collect::<Vec<_>>();
-		let commands_counts = messages
+		let process_commands_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
@@ -269,7 +160,7 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let commands_depths = messages
+		let process_commands_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
@@ -279,7 +170,7 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let commands_weights = messages
+		let process_commands_weights = put_process_messages
 			.values()
 			.map(|message| {
 				message
@@ -289,11 +180,11 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let outputs_complete = messages
+		let process_outputs_completes = put_process_messages
 			.values()
 			.map(|message| message.complete.outputs)
 			.collect::<Vec<_>>();
-		let outputs_counts = messages
+		let process_outputs_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
@@ -303,7 +194,7 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let outputs_depths = messages
+		let process_outputs_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
@@ -313,7 +204,7 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let outputs_weights = messages
+		let process_outputs_weights = put_process_messages
 			.values()
 			.map(|message| {
 				message
@@ -323,246 +214,170 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let children = messages
+		let process_children = put_process_messages
 			.values()
-			.flat_map(|message| message.children.iter().map(ToString::to_string))
+			.flat_map(|message| {
+				message
+					.children
+					.iter()
+					.map(|child| child.to_bytes().to_vec())
+			})
 			.collect::<Vec<_>>();
-		let child_process_indices = messages
+		let process_child_process_indices = put_process_messages
 			.values()
 			.enumerate()
 			.flat_map(|(index, message)| {
 				std::iter::repeat_n((index + 1).to_i64().unwrap(), message.children.len())
 			})
 			.collect::<Vec<_>>();
-		let child_positions = messages
+		let process_child_positions = put_process_messages
 			.values()
 			.flat_map(|message| (0..message.children.len().to_i64().unwrap()).collect::<Vec<_>>())
 			.collect::<Vec<_>>();
-		let objects = messages
+		let process_objects = put_process_messages
 			.values()
-			.flat_map(|message| message.objects.iter().map(|(id, _)| id.to_string()))
+			.flat_map(|message| message.objects.iter().map(|(id, _)| id.to_bytes().to_vec()))
 			.collect::<Vec<_>>();
-		let object_kinds = messages
+		let process_object_kinds = put_process_messages
 			.values()
 			.flat_map(|message| message.objects.iter().map(|(_, kind)| kind.to_string()))
 			.collect::<Vec<_>>();
-		let object_process_indices = messages
+		let process_object_process_indices = put_process_messages
 			.values()
 			.enumerate()
 			.flat_map(|(index, message)| {
 				std::iter::repeat_n((index + 1).to_i64().unwrap(), message.objects.len())
 			})
 			.collect::<Vec<_>>();
+
+		// Prepare touch process parameters.
+		let touch_process_touched_ats = touch_process_messages
+			.iter()
+			.map(|message| message.touched_at)
+			.collect::<Vec<_>>();
+		let touch_process_ids = touch_process_messages
+			.iter()
+			.map(|message| message.id.to_bytes().to_vec())
+			.collect::<Vec<_>>();
+
+		// Prepare put tag parameters.
+		let put_tag_tags = put_tag_messages
+			.iter()
+			.map(|message| message.tag.clone())
+			.collect::<Vec<_>>();
+		let put_tag_items = put_tag_messages
+			.iter()
+			.map(|message| match &message.item {
+				Either::Left(process_id) => process_id.to_bytes().to_vec(),
+				Either::Right(object_id) => object_id.to_bytes().to_vec(),
+			})
+			.collect::<Vec<_>>();
+
+		// Prepare delete tag parameters.
+		let delete_tags = delete_tag_messages
+			.iter()
+			.map(|message| message.tag.clone())
+			.collect::<Vec<_>>();
+
+		// Call the procedure.
 		let statement = indoc!(
 			"
-				call insert_processes(
-					$1::text[],
+				call handle_messages(
+					$1::bytea[],
 					$2::int8[],
-					$3::bool[],
-					$4::int8[],
-					$5::bool[],
+					$3::bytea[],
+					$4::bytea[],
+					$5::int8[],
 					$6::int8[],
 					$7::int8[],
 					$8::int8[],
-					$9::bool[],
-					$10::int8[],
-					$11::int8[],
+					$9::int8[],
+					$10::bool[],
+					$11::bytea[],
 					$12::int8[],
-					$13::text[],
-					$14::int8[],
-					$15::int8[],
-					$16::text[],
-					$17::text[],
-					$18::int8[]
+					$13::int8[],
+					$14::bytea[],
+					$15::bytea[],
+					$16::int8[],
+					$17::bool[],
+					$18::int8[],
+					$19::bool[],
+					$20::int8[],
+					$21::int8[],
+					$22::int8[],
+					$23::bool[],
+					$24::int8[],
+					$25::int8[],
+					$26::int8[],
+					$27::bytea[],
+					$28::int8[],
+					$29::int8[],
+					$30::bytea[],
+					$31::text[],
+					$32::int8[],
+					$33::int8[],
+					$34::bytea[],
+					$35::text[],
+					$36::bytea[],
+					$37::text[]
 				);
 			"
 		);
+
 		transaction
 			.inner()
 			.execute(
 				statement,
 				&[
+					&cache_entry_ids.as_slice(),
+					&cache_entry_touched_ats.as_slice(),
+					&object_ids.as_slice(),
+					&object_cache_entries.as_slice(),
+					&object_sizes.as_slice(),
+					&object_touched_ats.as_slice(),
+					&object_counts.as_slice(),
+					&object_depths.as_slice(),
+					&object_weights.as_slice(),
+					&object_completes.as_slice(),
+					&object_children.as_slice(),
+					&object_parent_indices.as_slice(),
+					&touch_object_touched_ats.as_slice(),
+					&touch_object_ids.as_slice(),
 					&process_ids.as_slice(),
-					&touched_ats.as_slice(),
-					&children_complete.as_slice(),
-					&children_counts.as_slice(),
-					&commands_complete.as_slice(),
-					&commands_counts.as_slice(),
-					&commands_depths.as_slice(),
-					&commands_weights.as_slice(),
-					&outputs_complete.as_slice(),
-					&outputs_counts.as_slice(),
-					&outputs_depths.as_slice(),
-					&outputs_weights.as_slice(),
-					&children.as_slice(),
-					&child_process_indices.as_slice(),
-					&child_positions.as_slice(),
-					&objects.as_slice(),
-					&object_kinds.as_slice(),
-					&object_process_indices.as_slice(),
+					&process_touched_ats.as_slice(),
+					&process_children_completes.as_slice(),
+					&process_children_counts.as_slice(),
+					&process_commands_completes.as_slice(),
+					&process_commands_counts.as_slice(),
+					&process_commands_depths.as_slice(),
+					&process_commands_weights.as_slice(),
+					&process_outputs_completes.as_slice(),
+					&process_outputs_counts.as_slice(),
+					&process_outputs_depths.as_slice(),
+					&process_outputs_weights.as_slice(),
+					&process_children.as_slice(),
+					&process_child_process_indices.as_slice(),
+					&process_child_positions.as_slice(),
+					&process_objects.as_slice(),
+					&process_object_kinds.as_slice(),
+					&process_object_process_indices.as_slice(),
+					&touch_process_touched_ats.as_slice(),
+					&touch_process_ids.as_slice(),
+					&put_tag_tags.as_slice(),
+					&put_tag_items.as_slice(),
+					&delete_tags.as_slice(),
 				],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
-		Ok(())
-	}
+			.map_err(|source| {
+				tg::error!(!source, "failed to call the handle_messages procedure")
+			})?;
 
-	async fn indexer_touch_processes_postgres(
-		&self,
-		messages: Vec<TouchProcess>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let touched_ats = messages
-			.iter()
-			.map(|message| message.touched_at)
-			.collect::<Vec<_>>();
-		let process_ids = messages
-			.iter()
-			.map(|message| message.id.to_string())
-			.collect::<Vec<_>>();
-		let statement = indoc!(
-			"
-				update processes
-				set touched_at = t.touched_at
-				from unnest($1::int8[], $2::text[]) as t (touched_at, id)
-				where processes.id = t.id;
-			"
-		);
-		let params = db::params![touched_ats.as_slice(), process_ids.as_slice()];
+		// Commit the transaction.
 		transaction
-			.execute(statement.into(), params)
+			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(())
-	}
-
-	async fn indexer_put_tags_postgres(
-		&self,
-		messages: Vec<PutTagMessage>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let tags = messages
-			.iter()
-			.map(|message| message.tag.clone())
-			.collect::<Vec<_>>();
-		let items = messages
-			.iter()
-			.map(|message| message.item.clone())
-			.collect::<Vec<_>>();
-		let statement = indoc!(
-			"
-				insert into tags (tag, item)
-				select tag, item
-				from unnest($1::text[], $2::text[]) as t (tag, item)
-				on conflict (tag) do update
-				set tag = excluded.tag, item = excluded.item;
-			"
-		);
-		let params = db::params![tags.as_slice(), items.as_slice()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let statement = indoc!(
-			"
-				update objects
-				set reference_count = reference_count + 1
-				from unnest($1::text[]) as t (id)
-				where objects.id = t.id;
-			"
-		);
-		let params = db::params![items.as_slice()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let statement = indoc!(
-			"
-				update processes
-				set reference_count = reference_count + 1
-				from unnest($1::text[]) as t (id)
-				where processes.id = t.id;
-			"
-		);
-		let params = db::params![items.as_slice()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let statement = indoc!(
-			"
-				update cache_entries
-				set reference_count = reference_count + 1
-				from unnest($1::text[]) as t (i  d)
-				where cache_entries.id = t.id;
-			"
-		);
-		let params = db::params![items.as_slice()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(())
-	}
-
-	async fn indexer_delete_tags_postgres(
-		&self,
-		messages: Vec<DeleteTag>,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		if messages.is_empty() {
-			return Ok(());
-		}
-		let tags = messages
-			.iter()
-			.map(|message| message.tag.clone())
-			.collect::<Vec<_>>();
-		let statement = indoc!(
-			"
-				delete from tags
-				where tag = ANY($1)
-				returning item;
-			"
-		);
-		let params = db::params![tags.as_slice()];
-		let deleted: Vec<Either<tg::process::Id, tg::object::Id>> = transaction
-			.query_all_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if !deleted.is_empty() {
-			let statement = indoc!(
-				"
-					update processes
-					set reference_count = reference_count - 1
-					from unnest($1::text[]) as t (id)
-					where processes.id = t.id;
-				"
-			);
-			let params = db::params![deleted.as_slice()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let statement = indoc!(
-				"
-					update objects
-					set reference_count = reference_count - 1
-					from unnest($1::text[]) as t (id)
-					where objects.id = t.id;
-				"
-			);
-			let params = db::params![deleted.as_slice()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		}
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}
@@ -583,141 +398,30 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		let mut n = batch_size;
-		n -= self
-			.indexer_handle_complete_object_postgres(&transaction, n)
-			.await?;
-		n -= self
-			.indexer_handle_complete_process_postgres(&transaction, n)
-			.await?;
-		n -= self
-			.indexer_handle_reference_count_cache_entry_postgres(&transaction, n)
-			.await?;
-		n -= self
-			.indexer_handle_reference_count_object_postgres(&transaction, n)
-			.await?;
-		n -= self
-			.indexer_handle_reference_count_process_postgres(&transaction, n)
-			.await?;
-		let n = batch_size - n;
-
-		if n > 0 {
-			self.indexer_increment_transaction_id_postgres(&transaction)
-				.await?;
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-		}
-
-		Ok(n)
-	}
-
-	async fn indexer_handle_complete_object_postgres(
-		&self,
-		transaction: &db::postgres::Transaction<'_>,
-		n: usize,
-	) -> tg::Result<usize> {
 		let statement = indoc!(
 			"
-				call handle_complete_object($1);
+				call handle_queue($1, $2);
 			"
 		);
-		let params = db::params![n.to_i64().unwrap()];
+		let params = db::params![batch_size.to_i64().unwrap(), 0i64];
 		let n = transaction
 			.query_one_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
-		Ok(n)
-	}
 
-	async fn indexer_handle_complete_process_postgres(
-		&self,
-		transaction: &db::postgres::Transaction<'_>,
-		n: usize,
-	) -> tg::Result<usize> {
-		let statement = indoc!(
-			"
-				call handle_complete_process($1);
-			"
-		);
-		let params = db::params![n.to_i64().unwrap()];
-		let n = transaction
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
-		Ok(n)
-	}
-
-	async fn indexer_handle_reference_count_cache_entry_postgres(
-		&self,
-		transaction: &db::postgres::Transaction<'_>,
-		n: usize,
-	) -> tg::Result<usize> {
-		let statement = indoc!(
-			"
-				call handle_reference_count_cache_entry($1);
-			"
-		);
-		let params = db::params![n.to_i64().unwrap()];
-		let n = transaction
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
-		Ok(n)
-	}
-
-	async fn indexer_handle_reference_count_object_postgres(
-		&self,
-		transaction: &db::postgres::Transaction<'_>,
-		n: usize,
-	) -> tg::Result<usize> {
-		let statement = indoc!(
-			"
-				call handle_reference_count_object($1);
-			"
-		);
-		let params = db::params![n.to_i64().unwrap()];
-		let n = transaction
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
-		Ok(n)
-	}
-
-	async fn indexer_handle_reference_count_process_postgres(
-		&self,
-		transaction: &db::postgres::Transaction<'_>,
-		n: usize,
-	) -> tg::Result<usize> {
-		let statement = indoc!(
-			"
-				call handle_reference_count_process($1);
-			"
-		);
-		let params = db::params![n.to_i64().unwrap()];
-		let n = transaction
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to call the procedure"))?;
-		Ok(n)
-	}
-
-	async fn indexer_increment_transaction_id_postgres(
-		&self,
-		transaction: &db::postgres::Transaction<'_>,
-	) -> tg::Result<()> {
-		let statement = "update transaction_id set id = id + 1;";
+		// Commit the transaction.
 		transaction
-			.execute(statement.into(), db::params![])
+			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(())
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		Ok(n)
 	}
 
 	pub(super) async fn indexer_get_transaction_id_postgres(

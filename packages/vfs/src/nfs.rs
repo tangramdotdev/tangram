@@ -333,7 +333,7 @@ where
 				Some(reply)
 			},
 			rpc::MessageBody::Reply(reply) => {
-				tracing::warn!(?reply, "Ignoring reply");
+				tracing::warn!(?reply, "ignoring reply");
 				None
 			},
 		}

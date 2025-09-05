@@ -83,7 +83,8 @@ impl Lmdb {
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let key = (0, id.to_bytes(), 0);
+				let id = id.to_bytes();
+				let key = (0, id.as_ref(), 0);
 				let Some(bytes) = db
 					.get(&transaction, &key.pack_to_vec())
 					.map_err(|source| tg::error!(!source, "failed to get the value"))?
@@ -114,7 +115,8 @@ impl Lmdb {
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let mut output = Vec::with_capacity(ids.len());
 				for id in ids {
-					let key = (0, id.to_bytes(), 0);
+					let id = id.to_bytes();
+					let key = (0, id.as_ref(), 0);
 					let bytes = db
 						.get(&transaction, &key.pack_to_vec())
 						.map_err(|source| tg::error!(!source, "failed to get the value"))?
@@ -135,7 +137,8 @@ impl Lmdb {
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let key = (0, id.to_bytes(), 0);
+		let id = id.to_bytes();
+		let key = (0, id.as_ref(), 0);
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
@@ -155,7 +158,8 @@ impl Lmdb {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
-			let key = (0, id.to_bytes(), 0);
+			let id = id.to_bytes();
+			let key = (0, id.as_ref(), 0);
 			let bytes = self
 				.db
 				.get(&transaction, &key.pack_to_vec())
@@ -171,7 +175,9 @@ impl Lmdb {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Data>> {
 		let transaction = self.env.read_txn().unwrap();
-		let key = (0, id.to_bytes(), 0);
+		let kind = id.kind();
+		let id = id.to_bytes();
+		let key = (0, id.as_ref(), 0);
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
@@ -179,7 +185,7 @@ impl Lmdb {
 		else {
 			return Ok(None);
 		};
-		let data = tg::object::Data::deserialize(id.kind(), bytes)?;
+		let data = tg::object::Data::deserialize(kind, bytes)?;
 		Ok(Some(data))
 	}
 
@@ -195,7 +201,8 @@ impl Lmdb {
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let key = (0, id.to_bytes(), 2);
+				let id = id.to_bytes();
+				let key = (0, id.as_ref(), 2);
 				let Some(bytes) = db
 					.get(&transaction, &key.pack_to_vec())
 					.map_err(|source| tg::error!(!source, "failed to get the value"))?
@@ -221,7 +228,8 @@ impl Lmdb {
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let key = (0, id.to_bytes(), 2);
+		let id = id.to_bytes();
+		let key = (0, id.as_ref(), 2);
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
@@ -385,7 +393,8 @@ impl Lmdb {
 		request: Put,
 	) -> tg::Result<()> {
 		if let Some(bytes) = request.bytes {
-			let key = (0, request.id.to_bytes(), 0);
+			let id = request.id.to_bytes();
+			let key = (0, id.as_ref(), 0);
 			let flags = lmdb::PutFlags::NO_OVERWRITE;
 			let result = db.put_with_flags(transaction, flags, &key.pack_to_vec(), &bytes);
 			match result {
@@ -395,12 +404,14 @@ impl Lmdb {
 				},
 			}
 		}
-		let key = (0, request.id.to_bytes(), 1);
+		let id = request.id.to_bytes();
+		let key = (0, id.as_ref(), 1);
 		let touched_at = request.touched_at.to_le_bytes();
 		db.put(transaction, &key.pack_to_vec(), &touched_at)
 			.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 		if let Some(cache_reference) = request.cache_reference {
-			let key = (0, request.id.to_bytes(), 2);
+			let id = request.id.to_bytes();
+			let key = (0, id.as_ref(), 2);
 			let value = cache_reference.serialize().unwrap();
 			db.put(transaction, &key.pack_to_vec(), &value)
 				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
@@ -415,7 +426,8 @@ impl Lmdb {
 		transaction: &mut lmdb::RwTxn<'_>,
 		request: Delete,
 	) -> tg::Result<()> {
-		let key = (0, request.id.to_bytes(), 1);
+		let id = request.id.to_bytes();
+		let key = (0, id.as_ref(), 1);
 		let Some(touched_at) = db
 			.get(transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, "failed to get the touch time"))?
@@ -427,13 +439,16 @@ impl Lmdb {
 			.map_err(|source| tg::error!(!source, "invalid touch time"))?;
 		let touched_at = i64::from_le_bytes(touched_at);
 		if request.now - touched_at >= request.ttl.to_i64().unwrap() {
-			let key = (0, request.id.to_bytes(), 0);
+			let id = request.id.to_bytes();
+			let key = (0, id.as_ref(), 0);
 			db.delete(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
-			let key = (0, request.id.to_bytes(), 1);
+			let id = request.id.to_bytes();
+			let key = (0, id.as_ref(), 1);
 			db.delete(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
-			let key = (0, request.id.to_bytes(), 2);
+			let id = request.id.to_bytes();
+			let key = (0, id.as_ref(), 2);
 			db.delete(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
 		}

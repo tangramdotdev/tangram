@@ -25,9 +25,10 @@ impl Server {
 		);
 		let params = db::params![token];
 		let user = connection
-			.query_optional_into(statement.into(), params)
+			.query_optional_into::<db::row::Serde<_>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|user| user.0);
 
 		// Drop the database connection.
 		drop(connection);

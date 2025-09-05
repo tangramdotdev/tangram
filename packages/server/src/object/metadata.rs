@@ -25,48 +25,16 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		match &self.index {
-			crate::index::Index::Sqlite(database) => {
-				self.try_get_object_metadata_local_sqlite(database, id)
-					.await
-			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_get_object_metadata_local_postgres(database, id)
 					.await
 			},
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_object_metadata_local_sqlite(database, id)
+					.await
+			},
 		}
-	}
-
-	async fn try_get_object_metadata_local_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Metadata>> {
-		// Get an index connection.
-		let connection = database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the object metadata.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select count, depth, weight
-				from objects
-				where id = {p}1;
-			",
-		);
-		let params = db::params![id];
-		let output = connection
-			.query_optional_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(output)
 	}
 
 	#[cfg(feature = "postgres")]
@@ -90,11 +58,12 @@ impl Server {
 				where id = {p}1;
 			",
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_bytes()];
 		let output = connection
-			.query_optional_into(statement.into(), params)
+			.query_optional_into::<db::row::Serde<tg::object::Metadata>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0);
 
 		// Drop the database connection.
 		drop(connection);
@@ -102,7 +71,40 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_object_metadata_local_sync(
+	async fn try_get_object_metadata_local_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		// Get an index connection.
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the object metadata.
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select count, depth, weight
+				from objects
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id.to_bytes()];
+		let output = connection
+			.query_optional_into::<db::row::Serde<tg::object::Metadata>>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0);
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_object_metadata_sqlite_sync(
 		index: &sqlite::Connection,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
@@ -117,7 +119,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
-			.query([id.to_string()])
+			.query([id.to_bytes().to_vec()])
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
@@ -146,7 +148,6 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		// Attempt to get the object metadata from the remotes.
 		let futures = self
 			.get_remote_clients()
 			.await?
@@ -159,7 +160,6 @@ impl Server {
 		let Ok((metadata, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
-
 		Ok(Some(metadata))
 	}
 

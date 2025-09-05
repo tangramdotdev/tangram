@@ -296,7 +296,7 @@ impl Item {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id length"))?;
 				writer
-					.write_all(id.as_slice())
+					.write_all(&id)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id"))?;
 				let data = serde_json::to_vec(&item.data)
@@ -318,7 +318,7 @@ impl Item {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id length"))?;
 				writer
-					.write_all(id.as_slice())
+					.write_all(&id)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the id"))?;
 				let bytes = item.data.serialize()?;

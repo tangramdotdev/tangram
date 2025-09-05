@@ -58,9 +58,10 @@ impl Server {
 			let time = now - timeout.as_secs().to_i64().unwrap();
 			let params = db::params![now, time];
 			let Some(id) = connection
-				.query_optional_value_into(statement.into(), params)
+				.query_optional_value_into::<db::value::Serde<tg::process::Id>>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.map(|value| value.0)
 			else {
 				continue;
 			};

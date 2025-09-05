@@ -1,7 +1,7 @@
 use crate::runtime::js::State;
 use std::rc::Rc;
 use tangram_client as tg;
-use tangram_v8::{Serde, ToV8 as _};
+use tangram_v8::{Serde, Serialize as _};
 
 pub fn magic<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -41,7 +41,7 @@ pub fn magic<'s>(
 		export,
 	});
 
-	let value = Serde(executable).to_v8(scope)?;
+	let value = Serde(executable).serialize(scope)?;
 
 	Ok(value)
 }

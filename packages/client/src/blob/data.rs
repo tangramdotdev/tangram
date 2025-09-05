@@ -64,17 +64,25 @@ impl Blob {
 			},
 			Self::Branch(branch) => {
 				bytes.write_u8(1).unwrap();
-				#[cfg(not(feature = "serialize"))]
-				{
-					serde_json::to_writer(&mut bytes, branch)
-						.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-				}
-				#[cfg(feature = "serialize")]
-				{
-					bytes.push(0);
-					tangram_serialize::to_writer(&mut bytes, branch)
-						.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-				}
+				bytes.push(0);
+				tangram_serialize::to_writer(&mut bytes, branch)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			},
+		}
+		Ok(bytes.into())
+	}
+
+	pub fn serialize_json(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		match self {
+			Self::Leaf(leaf) => {
+				bytes.write_u8(0).unwrap();
+				bytes.write_all(&leaf.bytes).unwrap();
+			},
+			Self::Branch(branch) => {
+				bytes.write_u8(1).unwrap();
+				serde_json::to_writer(&mut bytes, branch)
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 			},
 		}
 		Ok(bytes.into())

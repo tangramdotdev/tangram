@@ -1,5 +1,6 @@
 use crate as tg;
 use byteorder::{ReadBytesExt as _, WriteBytesExt as _};
+use bytes::Bytes;
 
 /// An ID.
 #[derive(
@@ -69,10 +70,10 @@ impl Id {
 	}
 
 	#[must_use]
-	pub fn to_bytes(&self) -> Vec<u8> {
+	pub fn to_bytes(&self) -> Bytes {
 		let mut bytes = Vec::new();
 		self.to_writer(&mut bytes).unwrap();
-		bytes
+		bytes.into()
 	}
 
 	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {

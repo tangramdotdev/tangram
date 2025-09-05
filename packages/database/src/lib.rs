@@ -9,6 +9,7 @@ pub mod pool;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod row;
+#[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod value;
 
@@ -122,7 +123,7 @@ pub trait Query {
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>> + Send, Self::Error>>
 	+ Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		self.query(statement, params).map_ok(|rows| {
 			rows.map(|result| {
@@ -137,7 +138,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>>, Self::Error>> + Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		self.query_value(statement, params).map_ok(|rows| {
 			rows.map(|result| {
@@ -179,7 +180,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>> + Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		self.query_optional(statement, params).map(|result| {
 			result.and_then(|option| {
@@ -196,7 +197,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>> + Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		self.query_optional_value(statement, params).map(|result| {
 			result.and_then(|option| {
@@ -237,7 +238,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>> + Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		self.query_one(statement, params)
 			.map(|result| result.and_then(|row| T::deserialize(row).map_err(Self::Error::other)))
@@ -249,7 +250,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>> + Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		self.query_one_value(statement, params).map(|result| {
 			result.and_then(|value| T::deserialize(value).map_err(Self::Error::other))
@@ -289,7 +290,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>> + Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		self.query_all(statement, params).map(|result| {
 			result.and_then(|rows| {
@@ -306,7 +307,7 @@ pub trait Query {
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>> + Send
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		self.query_all_value(statement, params).map(|result| {
 			result.and_then(|rows| {
@@ -321,6 +322,6 @@ pub trait Query {
 #[macro_export]
 macro_rules! params {
 	($($v:expr),* $(,)?) => {
-		vec![$(::serde::Serialize::serialize(&$v, $crate::value::ser::Serializer).unwrap(),)*]
+		vec![$($crate::value::Serialize::serialize(&$v).unwrap(),)*]
 	};
 }

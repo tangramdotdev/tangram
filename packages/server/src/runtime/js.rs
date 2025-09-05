@@ -13,7 +13,7 @@ use futures::{
 use sourcemap::SourceMap;
 use std::{cell::RefCell, future::poll_fn, pin::pin, rc::Rc, task::Poll};
 use tangram_client as tg;
-use tangram_v8::{FromV8 as _, Serde, ToV8};
+use tangram_v8::{Deserialize as _, Serde, Serialize};
 
 mod error;
 mod module;
@@ -42,7 +42,7 @@ struct State {
 
 struct Promise {
 	resolver: v8::Global<v8::PromiseResolver>,
-	result: tg::Result<Box<dyn ToV8>>,
+	result: tg::Result<Box<dyn Serialize>>,
 }
 
 #[allow(clippy::struct_field_names)]
@@ -236,13 +236,13 @@ impl Runtime {
 
 			// Set the id.
 			let key = v8::String::new_external_onebyte_static(scope, b"id").unwrap();
-			let value = Serde(process.id()).to_v8(scope)?;
+			let value = Serde(process.id()).serialize(scope)?;
 			arg.set(scope, key.into(), value);
 
 			// Set the remote.
 			if let Some(remote) = process.remote() {
 				let key = v8::String::new_external_onebyte_static(scope, b"remote").unwrap();
-				let value = remote.to_v8(scope)?;
+				let value = remote.serialize(scope)?;
 				arg.set(scope, key.into(), value);
 			}
 
@@ -327,7 +327,7 @@ impl Runtime {
 
 							// Resolve or reject the promise.
 							let promise_resolver = v8::Local::new(scope, promise_resolver);
-							match result.and_then(|value| value.to_v8(scope)) {
+							match result.and_then(|value| value.serialize(scope)) {
 								Ok(value) => {
 									// Resolve the promise.
 									promise_resolver.resolve(scope, value).unwrap();
@@ -391,14 +391,14 @@ impl Runtime {
 					// Get the result.
 					match v8::Local::<v8::Promise>::try_from(value) {
 						Err(_) => {
-							<Serde<tg::value::Data>>::from_v8(scope, value).map(|value| value.0)
+							<Serde<tg::value::Data>>::deserialize(scope, value).map(|value| value.0)
 						},
 						Ok(promise) => {
 							match promise.state() {
 								// If the promise is fulfilled, then return the result.
 								v8::PromiseState::Fulfilled => {
 									let value = promise.result(scope);
-									<Serde<tg::value::Data>>::from_v8(scope, value)
+									<Serde<tg::value::Data>>::deserialize(scope, value)
 										.map(|value| value.0)
 								},
 

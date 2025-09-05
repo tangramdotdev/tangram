@@ -29,7 +29,9 @@ impl Fdb {
 		let bytes = self
 			.database
 			.run(|transaction, _| async move {
-				let subspace = fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
+				let id = id.to_bytes();
+				let subspace = (0, id.as_ref(), 0);
+				let subspace = fdb::tuple::Subspace::all().subspace(&subspace);
 				let mut range = fdb::RangeOption::from(subspace.range());
 				range.mode = fdb::options::StreamingMode::WantAll;
 				let stream = transaction.get_ranges(range, false);
@@ -64,8 +66,9 @@ impl Fdb {
 					.map(|id| {
 						let transaction = transaction.clone();
 						async move {
-							let subspace =
-								fdb::tuple::Subspace::all().subspace(&(0, id.to_bytes(), 0));
+							let id = id.to_bytes();
+							let subspace = (0, id.as_ref(), 0);
+							let subspace = fdb::tuple::Subspace::all().subspace(&subspace);
 							let mut range = fdb::RangeOption::from(subspace.range());
 							range.mode = fdb::options::StreamingMode::WantAll;
 							let stream = transaction.get_ranges(range, false);
@@ -101,7 +104,8 @@ impl Fdb {
 		let reference = self
 			.database
 			.run(|transaction, _| async move {
-				let key = (0, id.to_bytes(), 2);
+				let id = id.to_bytes();
+				let key = (0, id.as_ref(), 2);
 				let Some(bytes) = transaction.get(&key.pack_to_vec(), false).await? else {
 					return Ok(None);
 				};
@@ -119,7 +123,9 @@ impl Fdb {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
-				let subspace = fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes(), 0));
+				let id = arg.id.to_bytes();
+				let subspace = (0, id.as_ref(), 0);
+				let subspace = fdb::tuple::Subspace::all().subspace(&subspace);
 				if let Some(bytes) = &arg.bytes {
 					if bytes.is_empty() {
 						transaction.set(&subspace.pack(&0), &[]);
@@ -132,11 +138,13 @@ impl Fdb {
 						}
 					}
 				}
-				let key = (0, arg.id.to_bytes(), 1);
+				let id = arg.id.to_bytes();
+				let key = (0, id.as_ref(), 1);
 				let value = arg.touched_at.to_le_bytes();
 				transaction.set(&key.pack_to_vec(), &value);
 				if let Some(reference) = &arg.cache_reference {
-					let key = (0, arg.id.to_bytes(), 2);
+					let id = arg.id.to_bytes();
+					let key = (0, id.as_ref(), 2);
 					let value = reference.serialize().unwrap();
 					transaction.set(&key.pack_to_vec(), &value);
 				}
@@ -155,7 +163,9 @@ impl Fdb {
 		self.database
 			.run(|transaction, _| async move {
 				for arg in args {
-					let subspace = fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes(), 0));
+					let id = arg.id.to_bytes();
+					let subspace = (0, id.as_ref(), 0);
+					let subspace = fdb::tuple::Subspace::all().subspace(&subspace);
 					if let Some(bytes) = &arg.bytes {
 						if bytes.is_empty() {
 							transaction.set(&subspace.pack(&0), &[]);
@@ -167,11 +177,13 @@ impl Fdb {
 							}
 						}
 					}
-					let key = (0, arg.id.to_bytes(), 1);
+					let id = arg.id.to_bytes();
+					let key = (0, id.as_ref(), 1);
 					let value = arg.touched_at.to_le_bytes();
 					transaction.set(&key.pack_to_vec(), &value);
 					if let Some(cache_reference) = &arg.cache_reference {
-						let key = (0, arg.id.to_bytes(), 2);
+						let id = arg.id.to_bytes();
+						let key = (0, id.as_ref(), 2);
 						let value = cache_reference.serialize().unwrap();
 						transaction.set(&key.pack_to_vec(), &value);
 					}
@@ -187,10 +199,9 @@ impl Fdb {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
-				let Some(touched_at) = transaction
-					.get(&(0, arg.id.to_bytes(), 1).pack_to_vec(), false)
-					.await?
-				else {
+				let id = arg.id.to_bytes();
+				let key = (0, id.as_ref(), 1);
+				let Some(touched_at) = transaction.get(&key.pack_to_vec(), false).await? else {
 					return Ok::<_, fdb::FdbBindingError>(());
 				};
 				let touched_at = touched_at.as_ref().try_into().map_err(|_| {
@@ -198,7 +209,9 @@ impl Fdb {
 				})?;
 				let touched_at = i64::from_le_bytes(touched_at);
 				if arg.now - touched_at >= arg.ttl.to_i64().unwrap() {
-					let subspace = fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes()));
+					let id = arg.id.to_bytes();
+					let subspace = (0, id.as_ref());
+					let subspace = fdb::tuple::Subspace::all().subspace(&subspace);
 					transaction.clear_subspace_range(&subspace);
 				}
 				Ok(())
@@ -216,8 +229,9 @@ impl Fdb {
 		self.database
 			.run(|transaction, _| async move {
 				future::try_join_all(args.iter().map(|arg| async {
+					let id = arg.id.to_bytes();
 					let Some(touched_at) = transaction
-						.get(&(0, arg.id.to_bytes(), 1).pack_to_vec(), false)
+						.get(&(0, id.as_ref(), 1).pack_to_vec(), false)
 						.await?
 					else {
 						return Ok::<_, fdb::FdbBindingError>(());
@@ -227,8 +241,9 @@ impl Fdb {
 					})?;
 					let touched_at = i64::from_le_bytes(touched_at);
 					if arg.now - touched_at >= arg.ttl.to_i64().unwrap() {
-						let subspace =
-							fdb::tuple::Subspace::all().subspace(&(0, arg.id.to_bytes()));
+						let id = arg.id.to_bytes();
+						let subspace = (0, id.as_ref());
+						let subspace = fdb::tuple::Subspace::all().subspace(&subspace);
 						transaction.clear_subspace_range(&subspace);
 					}
 					Ok(())

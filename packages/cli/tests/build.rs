@@ -96,7 +96,7 @@ async fn host_command_hello_world() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
+	assert_snapshot!(stdout, @"fil_01rrfg6pn5b8ve55qe70rrdx4tbwy57rrpbe8ebhe27cg0vc43dz4g");
 }
 
 #[tokio::test]
@@ -112,9 +112,9 @@ async fn host_command_hello_world_remote() {
 	let reference = ".";
 	let (local, remote) = test_remote(artifact, reference).await;
 	let stdout = std::str::from_utf8(&local.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
+	assert_snapshot!(stdout, @"fil_01rrfg6pn5b8ve55qe70rrdx4tbwy57rrpbe8ebhe27cg0vc43dz4g");
 	let stdout = std::str::from_utf8(&remote.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_01d399v34jw3wztpzsnqycbk64mc06tgg6jfeaeh57cgcrcg0swvag");
+	assert_snapshot!(stdout, @"fil_01rrfg6pn5b8ve55qe70rrdx4tbwy57rrpbe8ebhe27cg0vc43dz4g");
 }
 
 #[tokio::test]
@@ -301,7 +301,7 @@ async fn template_single_line() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"tg.template(["cat ",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60])"#);
+	assert_snapshot!(stdout, @r#"tg.template(["cat ",fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00])"#);
 }
 
 #[tokio::test]
@@ -327,7 +327,7 @@ async fn template_with_quote() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60," \"$@\"' >> script.sh\n"])"#);
+	assert_snapshot!(stdout, @r#"tg.template(["other_command\n\nother_command\n\nother_command\n\necho 'exec ",fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00," \"$@\"' >> script.sh\n"])"#);
 }
 
 #[tokio::test]
@@ -347,7 +347,7 @@ async fn template_single_line_two_artifacts() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"tg.template([fil_01rjnfkrgx5j33g04j2htzk0yrtc3bk9k5259msv5b47w909cwp8y0," ",fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg])"#);
+	assert_snapshot!(stdout, @r#"tg.template([fil_0167z9jdx71jkf1paq2b43shcezqrz4m19qhr8nec8zwnwgdjt89z0," ",fil_014fr29kstq7da0d7q658r9ahm279znng5fhxfzph8bhdr40g71agg])"#);
 }
 
 #[tokio::test]
@@ -388,7 +388,7 @@ async fn template_only_placeholders_on_a_line() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"tg.template([fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\n"])"#);
+	assert_snapshot!(stdout, @r#"tg.template([fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00,fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00,"\n"])"#);
 }
 
 #[tokio::test]
@@ -408,7 +408,7 @@ async fn template_single_line_explicit_newline() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"tg.template([fil_01rjnfkrgx5j33g04j2htzk0yrtc3bk9k5259msv5b47w909cwp8y0,"\n",fil_019xazfm02zwbr13avkcdhmdqkvrb770e6m97r7681jp9a3c57agyg])"#);
+	assert_snapshot!(stdout, @r#"tg.template([fil_0167z9jdx71jkf1paq2b43shcezqrz4m19qhr8nec8zwnwgdjt89z0,"\n",fil_014fr29kstq7da0d7q658r9ahm279znng5fhxfzph8bhdr40g71agg])"#);
 }
 
 #[tokio::test]
@@ -430,7 +430,7 @@ async fn template_multiple_placeholders() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"tg.template(["cat\t",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\t",fil_012aeh2qchn5np70n340y7fn1jecczp8f8bff7jneb8ecbvyyrrq60,"\n"])"#);
+	assert_snapshot!(stdout, @r#"tg.template(["cat\t",fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00,"\t",fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00,"\n"])"#);
 }
 
 #[tokio::test]
@@ -698,7 +698,7 @@ async fn builtin_download_checksum() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_01cvc6nxd5cmqrp4v6jq08735m6r4e08kk9wxz3fs17b5cvqs50n00");
+	assert_snapshot!(stdout, @"fil_01raxbsz7jdc6ys4r5ajg9zgb4jhm04zyh360ahp9n5rpn5nnmmvr0");
 }
 
 #[tokio::test]
@@ -716,7 +716,7 @@ async fn builtin_download_exact_checksum() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_01cvc6nxd5cmqrp4v6jq08735m6r4e08kk9wxz3fs17b5cvqs50n00");
+	assert_snapshot!(stdout, @"fil_01raxbsz7jdc6ys4r5ajg9zgb4jhm04zyh360ahp9n5rpn5nnmmvr0");
 }
 
 #[tokio::test]

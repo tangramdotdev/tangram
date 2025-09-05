@@ -29,9 +29,12 @@ impl Server {
 		);
 		let params = db::params![];
 		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
+			.query_all_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?
+			.into_iter()
+			.map(|row| row.0)
+			.collect::<Vec<_>>();
 		let data = rows
 			.into_iter()
 			.map(|row| tg::remote::get::Output {

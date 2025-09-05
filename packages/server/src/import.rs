@@ -296,12 +296,12 @@ impl Server {
 						outputs: true,
 					};
 					let mut metadata = tg::process::Metadata {
+						children: tg::process::metadata::Children { count: Some(1) },
 						commands: tg::object::Metadata {
 							count: Some(0),
 							depth: Some(0),
 							weight: Some(0),
 						},
-						count: Some(1),
 						outputs: tg::object::Metadata {
 							count: Some(0),
 							depth: Some(0),
@@ -318,9 +318,10 @@ impl Server {
 								tg::error!("all children of processes must be processes")
 							})?;
 						complete.children = complete.children && child_inner.complete.children;
-						metadata.count = metadata
+						metadata.children.count = metadata
+							.children
 							.count
-							.zip(child_inner.metadata.count)
+							.zip(child_inner.metadata.children.count)
 							.map(|(a, b)| a + b);
 					}
 					for (object_index, object_kind) in &node.objects {

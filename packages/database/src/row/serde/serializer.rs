@@ -1,4 +1,4 @@
-use super::Value;
+use crate::Row;
 use serde::ser::Error as _;
 
 pub struct Serializer;
@@ -9,7 +9,7 @@ pub enum Error {
 }
 
 impl serde::Serializer for Serializer {
-	type Ok = Value;
+	type Ok = Row;
 
 	type Error = Error;
 
@@ -27,78 +27,75 @@ impl serde::Serializer for Serializer {
 
 	type SerializeStructVariant = serde::ser::Impossible<Self::Ok, Self::Error>;
 
-	fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Integer(v.into()))
+	fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-		self.serialize_i64(v.into())
+	fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
-		self.serialize_i64(v.into())
+	fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-		self.serialize_i64(v.into())
+	fn serialize_i32(self, _v: i32) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Integer(v))
+	fn serialize_i64(self, _v: i64) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-		self.serialize_i64(v.into())
+	fn serialize_u8(self, _v: u8) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
-		self.serialize_i64(v.into())
+	fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
-		self.serialize_i64(v.into())
+	fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-		self.serialize_i64(
-			v.try_into()
-				.map_err(|_| Error::custom("failed to serialize u64"))?,
-		)
+	fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
-		self.serialize_f64(v.into())
+	fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Real(v))
+	fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Text(v.into()))
+	fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Text(v.into()))
+	fn serialize_str(self, _v: &str) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Blob(v.into()))
+	fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
+		Err(Error::custom("invalid type"))
 	}
 
 	fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Null)
+		Err(Error::custom("invalid type"))
 	}
 
-	fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
+	fn serialize_some<T>(self, _value: &T) -> Result<Self::Ok, Self::Error>
 	where
 		T: serde::Serialize + ?Sized,
 	{
-		value.serialize(self)
+		Err(Error::custom("invalid type"))
 	}
 
 	fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-		Ok(Value::Null)
+		Err(Error::custom("invalid type"))
 	}
 
 	fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {

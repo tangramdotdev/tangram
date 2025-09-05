@@ -191,7 +191,7 @@ impl Server {
 				where process = {p}1;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_string()];
 		let position = connection
 			.query_one_value_into(statement.into(), params)
 			.await
@@ -233,15 +233,15 @@ impl Server {
 				offset {p}3;
 			"
 		);
-		let params = db::params![id, length, position];
+		let params = db::params![id.to_string(), length, position];
 		let children = connection
-			.query_all_into::<Row>(statement.into(), params)
+			.query_all_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| tg::Referent {
-				item: row.child,
-				options: row.options.0,
+				item: row.0.child,
+				options: row.0.options.0,
 			})
 			.collect();
 

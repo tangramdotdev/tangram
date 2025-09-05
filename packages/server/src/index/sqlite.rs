@@ -7,6 +7,7 @@ use indoc::indoc;
 use rusqlite as sqlite;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
+use tangram_either::Either;
 
 impl Server {
 	#[allow(clippy::too_many_arguments)]
@@ -74,7 +75,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			let params = sqlite::params![message.id.to_string(), message.touched_at];
+			let params = sqlite::params![message.id.to_bytes().to_vec(), message.touched_at];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -119,7 +120,10 @@ impl Server {
 		for message in messages {
 			// Execute inserts for each object in the batch.
 			let id = message.id;
-			let cache_entry = message.cache_entry.as_ref().map(ToString::to_string);
+			let cache_entry = message
+				.cache_entry
+				.as_ref()
+				.map(|entry| entry.to_bytes().to_vec());
 			let children = message.children;
 			let complete = message.complete;
 			let metadata = message.metadata;
@@ -128,8 +132,8 @@ impl Server {
 
 			// Insert the children.
 			for child in children {
-				let child = child.to_string();
-				let params = sqlite::params![&id.to_string(), &child];
+				let child = child.to_bytes().to_vec();
+				let params = sqlite::params![&id.to_bytes().to_vec(), &child];
 				children_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -137,7 +141,7 @@ impl Server {
 
 			// Insert the object.
 			let params = sqlite::params![
-				&id.to_string(),
+				&id.to_bytes().to_vec(),
 				cache_entry,
 				complete,
 				metadata.count,
@@ -169,7 +173,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			let params = sqlite::params![message.touched_at, message.id.to_string()];
+			let params = sqlite::params![message.touched_at, message.id.to_bytes().to_vec()];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -257,9 +261,9 @@ impl Server {
 		for message in messages {
 			// Insert the process.
 			let params = sqlite::params![
-				message.id.to_string(),
+				message.id.to_bytes().to_vec(),
 				message.complete.children,
-				message.metadata.count,
+				message.metadata.children.count,
 				message.complete.commands,
 				message.metadata.commands.count,
 				message.metadata.commands.depth,
@@ -276,7 +280,11 @@ impl Server {
 
 			// Insert the children.
 			for (position, child) in message.children.iter().enumerate() {
-				let params = sqlite::params![message.id.to_string(), position, child.to_string(),];
+				let params = sqlite::params![
+					message.id.to_bytes().to_vec(),
+					position,
+					child.to_bytes().to_vec(),
+				];
 				child_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -284,8 +292,11 @@ impl Server {
 
 			// Insert the objects.
 			for (object, kind) in message.objects {
-				let params =
-					sqlite::params![message.id.to_string(), object.to_string(), kind.to_string()];
+				let params = sqlite::params![
+					message.id.to_bytes().to_vec(),
+					object.to_bytes().to_vec(),
+					kind.to_string()
+				];
 				object_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -310,7 +321,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			let params = sqlite::params![message.touched_at, message.id.to_string()];
+			let params = sqlite::params![message.touched_at, message.id.to_bytes().to_vec()];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -363,11 +374,19 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			let params = sqlite::params![message.tag, message.item.to_string()];
+			let item = match &message.item {
+				Either::Left(item) => item.to_bytes().to_vec(),
+				Either::Right(item) => item.to_bytes().to_vec(),
+			};
+			let params = sqlite::params![message.tag, item];
 			insert_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let params = sqlite::params![message.item.to_string()];
+			let item = match &message.item {
+				Either::Left(item) => item.to_bytes().to_vec(),
+				Either::Right(item) => item.to_bytes().to_vec(),
+			};
+			let params = sqlite::params![item];
 			objects_reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -400,7 +419,7 @@ impl Server {
 			"
 				update objects
 				set reference_count = reference_count - 1
-				where id = ?1
+				where id = ?1;
 			"
 		);
 		let mut update_object_reference_count_statement = transaction
@@ -410,7 +429,7 @@ impl Server {
 			"
 				update processes
 				set reference_count = reference_count - 1
-				where id = ?1
+				where id = ?1;
 			"
 		);
 		let mut update_process_reference_count_statement = transaction
@@ -420,7 +439,7 @@ impl Server {
 			"
 				update cache_entries
 				set reference_count = reference_count - 1
-				where id = ?1
+				where id = ?1;
 			"
 		);
 		let mut update_cache_entry_reference_count_statement = transaction
@@ -543,10 +562,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 		{
 			let object = row
-				.get::<_, String>(0)
+				.get_ref(0)
 				.map_err(|source| tg::error!(!source, "failed to get the object from the row"))?
-				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the object"))?;
+				.as_blob()
+				.map_err(|_| tg::error!("expected a blob"))?;
+			let object = tg::object::Id::from_slice(object)
+				.map_err(|source| tg::error!(!source, "invalid object id"))?;
 			let transaction_id = row.get(1).map_err(|source| {
 				tg::error!(!source, "failed to get the transaction id from the row")
 			})?;
@@ -655,7 +676,7 @@ impl Server {
 
 		for item in &items {
 			// Get the object's complete flag.
-			let params = [item.object.to_string()];
+			let params = [item.object.to_bytes().to_vec()];
 			let mut rows = complete_statement.query(params).map_err(|source| {
 				tg::error!(!source, "failed to execute the complete statement")
 			})?;
@@ -669,7 +690,7 @@ impl Server {
 
 			if !complete {
 				// Update the object's complete flag.
-				let params = [item.object.to_string()];
+				let params = [item.object.to_bytes().to_vec()];
 				let mut rows = update_complete_statement.query(params).map_err(|source| {
 					tg::error!(!source, "failed to execute the update complete statement")
 				})?;
@@ -686,7 +707,7 @@ impl Server {
 
 			// If the object is complete, then enqueue incomplete parents and processes.
 			if complete {
-				let params = sqlite::params![item.object.to_string(), item.transaction_id];
+				let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
 				enqueue_incomplete_parents_statement
 					.execute(params)
 					.map_err(|source| {
@@ -696,7 +717,7 @@ impl Server {
 						)
 					})?;
 
-				let params = sqlite::params![item.object.to_string(), item.transaction_id];
+				let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
 				enqueue_incomplete_commands_processes_statement
 					.execute(params)
 					.map_err(|source| {
@@ -705,7 +726,7 @@ impl Server {
 							"failed to execute the enqueue incomplete processes statement"
 						)
 					})?;
-				let params = sqlite::params![item.object.to_string(), item.transaction_id];
+				let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
 				enqueue_incomplete_outputs_processes_statement
 					.execute(params)
 					.map_err(|source| {
@@ -760,10 +781,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 		{
 			let process = row
-				.get::<_, String>(0)
+				.get_ref(0)
 				.map_err(|source| tg::error!(!source, "failed to get the process from the row"))?
-				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the process"))?;
+				.as_blob()
+				.map_err(|_| tg::error!("expected a blob"))?;
+			let process = tg::process::Id::from_slice(process)
+				.map_err(|source| tg::error!(!source, "invalid process id"))?;
 			let kind = row
 				.get::<_, u64>(1)
 				.map_err(|source| tg::error!(!source, "failed to get the kind from the row"))?;
@@ -972,7 +995,7 @@ impl Server {
 		for item in &items {
 			match item.kind {
 				Kind::Children => {
-					let params = [item.process.to_string()];
+					let params = [item.process.to_bytes().to_vec()];
 					let mut rows = children_complete_statement
 						.query(params)
 						.map_err(|source| {
@@ -989,7 +1012,7 @@ impl Server {
 					})?;
 
 					if !children_complete {
-						let params = [item.process.to_string()];
+						let params = [item.process.to_bytes().to_vec()];
 						let mut rows =
 							update_children_complete_statement
 								.query(params)
@@ -1014,7 +1037,8 @@ impl Server {
 					}
 
 					if children_complete {
-						let params = sqlite::params![item.process.to_string(), item.transaction_id];
+						let params =
+							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
 						enqueue_incomplete_children_parents_statement
 							.execute(params)
 							.map_err(|source| {
@@ -1026,7 +1050,7 @@ impl Server {
 					}
 				},
 				Kind::Commands => {
-					let params = [item.process.to_string()];
+					let params = [item.process.to_bytes().to_vec()];
 					let mut rows = commands_complete_statement
 						.query(params)
 						.map_err(|source| {
@@ -1043,7 +1067,7 @@ impl Server {
 					})?;
 
 					if !commands_complete {
-						let params = [item.process.to_string()];
+						let params = [item.process.to_bytes().to_vec()];
 						let mut rows =
 							update_commands_complete_statement
 								.query(params)
@@ -1068,7 +1092,8 @@ impl Server {
 					}
 
 					if commands_complete {
-						let params = sqlite::params![item.process.to_string(), item.transaction_id];
+						let params =
+							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
 						enqueue_incomplete_commands_parents_statement
 							.execute(params)
 							.map_err(|source| {
@@ -1080,7 +1105,7 @@ impl Server {
 					}
 				},
 				Kind::Outputs => {
-					let params = [item.process.to_string()];
+					let params = [item.process.to_bytes().to_vec()];
 					let mut rows = outputs_complete_statement.query(params).map_err(|source| {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
@@ -1095,7 +1120,7 @@ impl Server {
 					})?;
 
 					if !outputs_complete {
-						let params = [item.process.to_string()];
+						let params = [item.process.to_bytes().to_vec()];
 						let mut rows =
 							update_outputs_complete_statement
 								.query(params)
@@ -1120,7 +1145,8 @@ impl Server {
 					}
 
 					if outputs_complete {
-						let params = sqlite::params![item.process.to_string(), item.transaction_id];
+						let params =
+							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
 						enqueue_incomplete_outputs_parents_statement
 							.execute(params)
 							.map_err(|source| {
@@ -1165,9 +1191,12 @@ impl Server {
 			.next()
 			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 		{
-			let id: String = row
-				.get(0)
-				.map_err(|source| tg::error!(!source, "failed to get the ID from the row"))?;
+			let id = row
+				.get_ref(0)
+				.map_err(|source| tg::error!(!source, "failed to get the ID from the row"))?
+				.as_blob()
+				.map_err(|_| tg::error!("expected a blob"))?;
+			let id = tg::artifact::Id::from_slice(id)?;
 			ids.push(id);
 		}
 		if ids.is_empty() {
@@ -1195,9 +1224,11 @@ impl Server {
 			})?;
 
 		for id in &ids {
-			reference_count_statement.execute([id]).map_err(|source| {
-				tg::error!(!source, "failed to execute the reference count statement")
-			})?;
+			reference_count_statement
+				.execute([id.to_bytes().to_vec()])
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute the reference count statement")
+				})?;
 		}
 
 		Ok(ids.len())
@@ -1236,10 +1267,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 		{
 			let object = row
-				.get::<_, String>(0)
+				.get_ref(0)
 				.map_err(|source| tg::error!(!source, "failed to get the object from the row"))?
-				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the object"))?;
+				.as_blob()
+				.map_err(|_| tg::error!("expected a blob"))?;
+			let object = tg::object::Id::from_slice(object)
+				.map_err(|source| tg::error!(!source, "invalid object id"))?;
 			let item = Item { object };
 			items.push(item);
 		}
@@ -1314,7 +1347,7 @@ impl Server {
 
 		for item in &items {
 			// Update the object's reference count.
-			let params = [item.object.to_string()];
+			let params = [item.object.to_bytes().to_vec()];
 			reference_count_statement
 				.execute(params)
 				.map_err(|source| {
@@ -1322,13 +1355,13 @@ impl Server {
 				})?;
 
 			// Increment the children's reference counts.
-			let params = [item.object.to_string()];
+			let params = [item.object.to_bytes().to_vec()];
 			children_statement.execute(params).map_err(|source| {
 				tg::error!(!source, "failed to execute the children statement")
 			})?;
 
 			// Update the cache entries' reference counts.
-			let params = [item.object.to_string()];
+			let params = [item.object.to_bytes().to_vec()];
 			cache_entries_statement.execute(params).map_err(|source| {
 				tg::error!(!source, "failed to execute the cache entries statement")
 			})?;
@@ -1370,10 +1403,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 		{
 			let process = row
-				.get::<_, String>(0)
+				.get_ref(0)
 				.map_err(|source| tg::error!(!source, "failed to get the process from the row"))?
-				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the process"))?;
+				.as_blob()
+				.map_err(|_| tg::error!("expected a blob"))?;
+			let process = tg::process::Id::from_slice(process)
+				.map_err(|source| tg::error!(!source, "invalid process id"))?;
 			let item = Item { process };
 			items.push(item);
 		}
@@ -1446,17 +1481,17 @@ impl Server {
 
 		for item in &items {
 			reference_count_statement
-				.execute([item.process.to_string()])
+				.execute([item.process.to_bytes().to_vec()])
 				.map_err(|source| {
 					tg::error!(!source, "failed to execute the reference count statement")
 				})?;
 			children_statement
-				.execute([item.process.to_string()])
+				.execute([item.process.to_bytes().to_vec()])
 				.map_err(|source| {
 					tg::error!(!source, "failed to execute the children statement")
 				})?;
 			objects_statement
-				.execute([item.process.to_string()])
+				.execute([item.process.to_bytes().to_vec()])
 				.map_err(|source| tg::error!(!source, "failed to execute the objects statement"))?;
 		}
 

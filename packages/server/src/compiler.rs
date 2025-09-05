@@ -13,7 +13,7 @@ use std::{
 use tangram_client as tg;
 use tangram_futures::task::{Stop, Task};
 use tangram_http::{Body, response::builder::Ext as _};
-use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
+use tangram_v8::{Deserialize as _, Serde, Serialize as _};
 use tokio::io::{
 	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 };
@@ -684,7 +684,7 @@ impl Compiler {
 
 			// Serialize the request.
 			let result = Serde(request)
-				.to_v8(scope)
+				.serialize(scope)
 				.map_err(|source| tg::error!(!source, "failed to serialize the request"));
 			let request = match result {
 				Ok(request) => request,
@@ -707,7 +707,7 @@ impl Compiler {
 			let response = response.unwrap();
 
 			// Deserialize the response.
-			let result = Serde::from_v8(scope, response)
+			let result = Serde::deserialize(scope, response)
 				.map(|output| output.0)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the response"));
 			let response = match result {

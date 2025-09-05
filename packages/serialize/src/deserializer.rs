@@ -37,16 +37,16 @@ where
 	pub fn read_kind(&mut self) -> Result<Kind> {
 		let value = self.0.read_u8()?;
 		let kind = num::FromPrimitive::from_u8(value)
-			.ok_or_else(|| Error::other("Invalid value kind."))?;
+			.ok_or_else(|| Error::other("invalid value kind"))?;
 		Ok(kind)
 	}
 
 	pub fn ensure_kind(&mut self, kind: Kind) -> Result<Kind> {
 		let value = self.0.read_u8()?;
 		let read = num::FromPrimitive::from_u8(value)
-			.ok_or_else(|| Error::other("Invalid value kind."))?;
+			.ok_or_else(|| Error::other("invalid value kind"))?;
 		if read != kind {
-			return Err(Error::other("Incorrect kind."));
+			return Err(Error::other("incorrect kind"));
 		}
 		Ok(read)
 	}
@@ -60,7 +60,7 @@ where
 		let len = self.read_uvarint()?;
 		let len = len
 			.to_usize()
-			.ok_or_else(|| Error::other("The length is too long for this architecture."))?;
+			.ok_or_else(|| Error::other("invalid length"))?;
 		Ok(len)
 	}
 
@@ -107,7 +107,7 @@ where
 			}
 		}
 		if !success {
-			return Err(Error::other("Invalid varint."));
+			return Err(Error::other("invalid varint"));
 		}
 		Ok(value)
 	}

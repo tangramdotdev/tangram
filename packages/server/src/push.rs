@@ -81,7 +81,7 @@ impl Server {
 										else {
 											return Err(tg::error!("failed to get the process"));
 										};
-										let mut complete = metadata.count.is_some();
+										let mut complete = metadata.children.count.is_some();
 										if arg.commands {
 											complete = complete
 												&& metadata.commands.count.is_some()
@@ -117,7 +117,7 @@ impl Server {
 				while let Some(Ok(metadata)) = metadata_futures.next().await {
 					match metadata {
 						Either::Left(metadata) => {
-							if let Some(count) = metadata.count {
+							if let Some(count) = metadata.children.count {
 								total_processes += count;
 								progress.set_total("processes", total_processes);
 							}
@@ -238,7 +238,9 @@ impl Server {
 							},
 							Ok(tg::export::Event::Complete(complete)) => match complete {
 								tg::export::Complete::Process(process_complete) => {
-									if let Some(processes) = process_complete.metadata.count {
+									if let Some(processes) =
+										process_complete.metadata.children.count
+									{
 										progress.increment("processes", processes);
 									}
 									let mut objects = 0;

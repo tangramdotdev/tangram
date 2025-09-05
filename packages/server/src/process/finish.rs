@@ -66,11 +66,14 @@ impl Server {
 				order by position;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_string()];
 		let children = connection
-			.query_all_into::<Row>(statement.into(), params)
+			.query_all_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.into_iter()
+			.map(|row| row.0)
+			.collect::<Vec<_>>();
 		drop(connection);
 
 		// Cancel the children.
@@ -167,15 +170,17 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![
-			arg.checksum,
+			arg.checksum.as_ref().map(ToString::to_string),
 			error.clone().map(db::value::Json),
-			error.as_ref().and_then(|error| error.code),
+			error
+				.as_ref()
+				.and_then(|error| error.code.map(|code| code.to_string())),
 			now,
 			output.clone().map(db::value::Json),
 			exit,
-			tg::process::Status::Finished,
+			tg::process::Status::Finished.to_string(),
 			now,
-			id,
+			id.to_string(),
 		];
 		let n = connection
 			.execute(statement.into(), params)
@@ -191,7 +196,7 @@ impl Server {
 				delete from process_tokens where process = {p}1;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_string()];
 		connection
 			.execute(statement.into(), params)
 			.await

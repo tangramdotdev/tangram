@@ -90,11 +90,12 @@ impl Server {
 				where id = {p}1;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_string()];
 		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0);
 		let output = row.map(|row| {
 			let data = tg::process::Data {
 				actual_checksum: row.actual_checksum,
@@ -129,7 +130,7 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_process_local_sync(
+	pub(crate) fn try_get_process_sqlite_sync(
 		database: &sqlite::Connection,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Data>> {
@@ -350,16 +351,13 @@ impl Server {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		match &self.database {
-			Database::Sqlite(_) => self.try_get_process_batch_local_sqlite(ids).await,
+			Database::Sqlite(_) => self.try_get_process_batch_sqlite(ids).await,
 			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => {
-				self.try_get_process_batch_local_postgres(database, ids)
-					.await
-			},
+			Database::Postgres(database) => self.try_get_process_batch_postgres(database, ids).await,
 		}
 	}
 
-	pub(crate) async fn try_get_process_batch_local_sqlite(
+	pub(crate) async fn try_get_process_batch_sqlite(
 		&self,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
@@ -373,7 +371,7 @@ impl Server {
 	}
 
 	#[cfg(feature = "postgres")]
-	pub(crate) async fn try_get_process_batch_local_postgres(
+	pub(crate) async fn try_get_process_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::process::Id],

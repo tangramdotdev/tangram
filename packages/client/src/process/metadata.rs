@@ -15,15 +15,32 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 pub struct Metadata {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
-	pub commands: tg::object::Metadata,
+	pub children: Children,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	pub commands: tg::object::Metadata,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
 	pub outputs: tg::object::Metadata,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Children {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u64>,
 }
 
 impl tg::Client {

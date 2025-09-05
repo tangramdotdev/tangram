@@ -123,9 +123,12 @@ impl Server {
 		);
 		let params = db::params![pty.to_string()];
 		let processes = connection
-			.query_all_value_into::<tg::process::Id>(statement.into(), params)
+			.query_all_value_into::<db::value::Serde<tg::process::Id>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the query"))?
+			.into_iter()
+			.map(|value| value.0)
+			.collect::<Vec<_>>();
 		drop(connection);
 
 		// Signal all of the processes concurrently.

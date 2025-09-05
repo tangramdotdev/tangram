@@ -116,11 +116,15 @@ impl Server {
 				where id = {p}1;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_string()];
 		let Some(status) = connection
-			.query_optional_value_into(statement.into(), params)
+			.query_optional_value_into::<db::value::Serde<tg::process::Status>>(
+				statement.into(),
+				params,
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|value| value.0)
 		else {
 			return Ok(None);
 		};
@@ -128,7 +132,7 @@ impl Server {
 		// Drop the database connection.
 		drop(connection);
 
-		Ok(status)
+		Ok(Some(status))
 	}
 
 	async fn try_get_process_status_remote(

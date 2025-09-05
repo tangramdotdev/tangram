@@ -34,7 +34,7 @@ impl Server {
 				where process = {p}1 and token = {p}2;
 			"
 		);
-		let params = db::params![id, arg.token];
+		let params = db::params![id.to_bytes(), arg.token];
 		connection
 			.execute(statement.into(), params)
 			.await

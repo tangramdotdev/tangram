@@ -4,7 +4,7 @@ use num::ToPrimitive as _;
 use sourcemap::SourceMap;
 use std::{collections::BTreeMap, rc::Rc};
 use tangram_client as tg;
-use tangram_v8::{Serde, ToV8 as _};
+use tangram_v8::{Serde, Serialize as _};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ImportKind {
@@ -410,7 +410,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 	let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
 
 	// Call fromData with the module data.
-	let data = Serde(module).to_v8(scope).unwrap();
+	let data = Serde(module).serialize(scope).unwrap();
 	let undefined = v8::undefined(scope);
 	let Some(value) = from_data.call(scope, undefined.into(), &[data]) else {
 		return;

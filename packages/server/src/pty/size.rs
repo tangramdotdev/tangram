@@ -33,9 +33,10 @@ impl Server {
 		);
 		let params = db::params![id.to_string()];
 		let Some(row) = connection
-			.query_optional_into::<Row>(statement.into(), params)
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?
+			.map(|row| row.0)
 		else {
 			return Ok(None);
 		};

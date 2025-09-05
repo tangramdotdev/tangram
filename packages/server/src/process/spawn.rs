@@ -346,16 +346,20 @@ impl Server {
 				limit 1;
 			"
 		);
-		let params = db::params![command.item, arg.checksum];
+		let params = db::params![
+			command.item.to_string(),
+			arg.checksum.as_ref().map(ToString::to_string),
+		];
 		let Some(Row {
 			id,
 			error,
 			exit,
 			status,
 		}) = transaction
-			.query_optional_into::<Row>(statement.into(), params)
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0)
 		else {
 			return Ok(None);
 		};
@@ -377,7 +381,7 @@ impl Server {
 					values ({p}1, {p}2);
 				"
 			);
-			let params = db::params![id, token];
+			let params = db::params![id.to_string(), token];
 			transaction
 				.execute(statement.into(), params)
 				.await
@@ -440,15 +444,16 @@ impl Server {
 				limit 1;
 			"
 		);
-		let params = db::params![command.item, expected_checksum];
+		let params = db::params![command.item.to_string(), expected_checksum.to_string()];
 		let Some(Row {
 			id: existing_id,
 			actual_checksum,
 			output,
 		}) = transaction
-			.query_optional_into::<Row>(statement.into(), params)
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0)
 		else {
 			return Ok(None);
 		};
@@ -483,7 +488,7 @@ impl Server {
 				select process, position, child, options from process_children where process = {p}1;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_string()];
 		transaction
 			.execute(statement.into(), params)
 			.await
@@ -554,22 +559,24 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![
-			id,
-			actual_checksum,
+			id.to_string(),
+			actual_checksum.to_string(),
 			true,
-			command.item,
+			command.item.to_string(),
 			now,
 			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
-			error.as_ref().and_then(|error| error.code),
+			error
+				.as_ref()
+				.and_then(|error| error.code.map(|code| code.to_string())),
 			exit,
-			expected_checksum,
+			expected_checksum.to_string(),
 			now,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			output,
 			arg.retry,
-			tg::process::Status::Finished,
+			tg::process::Status::Finished.to_string(),
 			0,
 			now,
 		];
@@ -695,22 +702,22 @@ impl Server {
 		let heartbeat_at = if permit.is_some() { Some(now) } else { None };
 		let started_at = if permit.is_some() { Some(now) } else { None };
 		let params = db::params![
-			id,
+			id.to_string(),
 			cacheable,
-			command.item,
+			command.item.to_string(),
 			now,
 			now,
-			arg.checksum,
+			arg.checksum.as_ref().map(ToString::to_string),
 			heartbeat_at,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			arg.retry,
 			started_at,
-			status,
-			arg.stderr,
-			arg.stdin,
-			arg.stdout,
+			status.to_string(),
+			arg.stderr.as_ref().map(ToString::to_string),
+			arg.stdin.as_ref().map(ToString::to_string),
+			arg.stdout.as_ref().map(ToString::to_string),
 			0,
 			now,
 		];
@@ -726,7 +733,7 @@ impl Server {
 				values ({p}1, {p}2);
 			"
 		);
-		let params = db::params![id, token];
+		let params = db::params![id.to_string(), token];
 		transaction
 			.execute(statement.into(), params)
 			.await
@@ -838,7 +845,7 @@ impl Server {
 				);
 			"
 		);
-		let params = db::params![parent, child];
+		let params = db::params![parent.to_string(), child.to_string()];
 		let cycle = transaction
 			.query_one_value_into::<bool>(statement.into(), params)
 			.await
@@ -857,7 +864,12 @@ impl Server {
 				on conflict (process, child) do nothing;
 			"
 		);
-		let params = db::params![parent, child, db::value::Json(options), token];
+		let params = db::params![
+			parent.to_string(),
+			child.to_string(),
+			db::value::Json(options),
+			token
+		];
 		transaction
 			.execute(statement.into(), params)
 			.await

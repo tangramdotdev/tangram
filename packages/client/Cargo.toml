@@ -12,7 +12,6 @@ version = { workspace = true }
 
 [features]
 default = ["tls"]
-serialize = []
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
 [lints]

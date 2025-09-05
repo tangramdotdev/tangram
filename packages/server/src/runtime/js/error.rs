@@ -2,7 +2,7 @@ use super::State;
 use num::ToPrimitive as _;
 use std::{collections::BTreeMap, rc::Rc};
 use tangram_client as tg;
-use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
+use tangram_v8::{Deserialize as _, Serde, Serialize as _};
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
@@ -22,7 +22,7 @@ pub(super) fn to_exception<'s>(
 	let from_data = error_constructor.get(scope, from_data.into()).unwrap();
 	let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
 
-	let data = Serde(error.to_data()).to_v8(scope).unwrap();
+	let data = Serde(error.to_data()).serialize(scope).unwrap();
 	let undefined = v8::undefined(scope);
 	let exception = from_data.call(scope, undefined.into(), &[data])?;
 
@@ -52,7 +52,7 @@ pub(super) fn from_exception<'s>(
 		let undefined = v8::undefined(scope);
 		let data = to_data.call(scope, undefined.into(), &[exception])?;
 
-		let error = Serde::<tg::error::Data>::from_v8(scope, data)
+		let error = Serde::<tg::error::Data>::deserialize(scope, data)
 			.and_then(|data| data.0.try_into())
 			.unwrap();
 
@@ -125,7 +125,7 @@ pub(super) fn from_exception<'s>(
 			let value = value.get_index(scope, i.to_u32().unwrap()).unwrap();
 			let undefined = v8::undefined(scope);
 			let data = to_data.call(scope, undefined.into(), &[value])?;
-			let data = Serde::<tg::error::data::Location>::from_v8(scope, data).unwrap();
+			let data = Serde::<tg::error::data::Location>::deserialize(scope, data).unwrap();
 			let data = data.0.try_into().unwrap();
 			output.push(data);
 		}
@@ -254,7 +254,7 @@ pub fn prepare_stack_trace_callback<'s>(
 			column_number,
 			column_number,
 		) {
-			let data = Serde(location).to_v8(scope).unwrap();
+			let data = Serde(location).serialize(scope).unwrap();
 			let undefined = v8::undefined(scope);
 			let Some(location) = location_from_data.call(scope, undefined.into(), &[data]) else {
 				return v8::undefined(scope).into();

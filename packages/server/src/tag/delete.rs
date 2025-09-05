@@ -22,7 +22,7 @@ impl Server {
 				where tag = {p}1;
 			"
 		);
-		let params = db::params![tag];
+		let params = db::params![tag.to_string()];
 		connection
 			.execute(statement.into(), params)
 			.await

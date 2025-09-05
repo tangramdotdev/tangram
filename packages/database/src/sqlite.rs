@@ -2,6 +2,7 @@ use crate::{
 	Error as _, Row, Value,
 	pool::{self, Pool},
 };
+use bytes::Bytes;
 use futures::{Stream, stream};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
@@ -103,8 +104,6 @@ struct QueryAllMessage {
 	params: Vec<Value>,
 	sender: tokio::sync::oneshot::Sender<Result<Vec<Row>, Error>>,
 }
-
-pub struct Json<T>(pub T);
 
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
@@ -754,70 +753,7 @@ impl sqlite::types::FromSql for Value {
 				String::from_utf8(value.to_owned())
 					.map_err(|error| sqlite::types::FromSqlError::Other(error.into()))?,
 			)),
-			sqlite::types::ValueRef::Blob(value) => Ok(Self::Blob(value.to_owned())),
+			sqlite::types::ValueRef::Blob(value) => Ok(Self::Blob(Bytes::copy_from_slice(value))),
 		}
-	}
-}
-
-impl From<sqlite::types::Value> for Value {
-	fn from(value: sqlite::types::Value) -> Self {
-		match value {
-			sqlite::types::Value::Null => Self::Null,
-			sqlite::types::Value::Integer(value) => Self::Integer(value),
-			sqlite::types::Value::Real(value) => Self::Real(value),
-			sqlite::types::Value::Text(value) => Self::Text(value),
-			sqlite::types::Value::Blob(value) => Self::Blob(value),
-		}
-	}
-}
-
-impl<'a> From<sqlite::types::ValueRef<'a>> for Value {
-	fn from(value: sqlite::types::ValueRef<'a>) -> Self {
-		match value {
-			sqlite::types::ValueRef::Null => Self::Null,
-			sqlite::types::ValueRef::Integer(value) => Self::Integer(value),
-			sqlite::types::ValueRef::Real(value) => Self::Real(value),
-			sqlite::types::ValueRef::Text(value) => {
-				Self::Text(String::from_utf8(value.to_owned()).unwrap())
-			},
-			sqlite::types::ValueRef::Blob(value) => Self::Blob(value.to_owned()),
-		}
-	}
-}
-
-impl From<Value> for sqlite::types::Value {
-	fn from(value: Value) -> Self {
-		match value {
-			Value::Null => Self::Null,
-			Value::Integer(value) => Self::Integer(value),
-			Value::Real(value) => Self::Real(value),
-			Value::Text(value) => Self::Text(value),
-			Value::Blob(value) => Self::Blob(value),
-		}
-	}
-}
-
-impl<T> sqlite::types::ToSql for Json<T>
-where
-	T: serde::Serialize,
-{
-	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
-		let json = serde_json::to_string(&self.0)
-			.map_err(|error| sqlite::Error::ToSqlConversionFailure(error.into()))?;
-		Ok(sqlite::types::ToSqlOutput::Owned(
-			sqlite::types::Value::Text(json),
-		))
-	}
-}
-
-impl<T> sqlite::types::FromSql for Json<T>
-where
-	T: serde::de::DeserializeOwned,
-{
-	fn column_result(value: sqlite::types::ValueRef) -> sqlite::types::FromSqlResult<Self> {
-		let json = value.as_str()?;
-		let value = serde_json::from_str(json)
-			.map_err(|error| sqlite::types::FromSqlError::Other(error.into()))?;
-		Ok(Self(value))
 	}
 }

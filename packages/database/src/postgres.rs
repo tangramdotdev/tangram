@@ -338,7 +338,7 @@ impl postgres::types::ToSql for Value {
 			Value::Integer(value) => value.to_sql(ty, out),
 			Value::Real(value) => value.to_sql(ty, out),
 			Value::Text(value) => value.to_sql(ty, out),
-			Value::Blob(value) => value.to_sql(ty, out),
+			Value::Blob(value) => value.as_ref().to_sql(ty, out),
 		}
 	}
 
@@ -357,7 +357,7 @@ impl<'a> postgres::types::FromSql<'a> for Value {
 			postgres::types::Type::INT8 => Ok(Self::Integer(i64::from_sql(ty, raw)?)),
 			postgres::types::Type::FLOAT8 => Ok(Self::Real(f64::from_sql(ty, raw)?)),
 			postgres::types::Type::TEXT => Ok(Self::Text(String::from_sql(ty, raw)?)),
-			postgres::types::Type::BYTEA => Ok(Self::Blob(<Vec<u8>>::from_sql(ty, raw)?)),
+			postgres::types::Type::BYTEA => Ok(Self::Blob(Vec::<u8>::from_sql(ty, raw)?.into())),
 			_ => Err("invalid type".into()),
 		}
 	}

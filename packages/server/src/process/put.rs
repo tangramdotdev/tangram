@@ -172,29 +172,32 @@ impl Server {
 			"
 		);
 		let params = db::params![
-			id,
-			arg.data.actual_checksum,
+			id.to_bytes(),
+			arg.data.actual_checksum.as_ref().map(ToString::to_string),
 			arg.data.cacheable,
-			arg.data.command,
+			arg.data.command.to_bytes(),
 			arg.data.created_at,
 			arg.data.dequeued_at,
 			arg.data.enqueued_at,
 			arg.data.error.as_ref().map(db::value::Json),
-			arg.data.error.as_ref().and_then(|error| error.code),
+			arg.data
+				.error
+				.as_ref()
+				.and_then(|error| error.code.map(|code| code.to_string())),
 			arg.data.exit,
-			arg.data.expected_checksum,
+			arg.data.expected_checksum.as_ref().map(ToString::to_string),
 			arg.data.finished_at,
 			arg.data.host,
-			arg.data.log,
+			arg.data.log.as_ref().map(|log| log.to_bytes()),
 			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts.clone())),
 			arg.data.network,
 			arg.data.output.as_ref().map(db::value::Json),
 			arg.data.retry,
 			arg.data.started_at,
-			arg.data.status,
-			arg.data.stderr,
-			arg.data.stdin,
-			arg.data.stdout,
+			arg.data.status.to_string(),
+			arg.data.stderr.as_ref().map(ToString::to_string),
+			arg.data.stdin.as_ref().map(ToString::to_string),
+			arg.data.stdout.as_ref().map(ToString::to_string),
 			0,
 			touched_at
 		];
@@ -218,8 +221,20 @@ impl Server {
 				.map(|(position, child)| {
 					let transaction = transaction.clone();
 					async move {
-						let params =
-							db::params![id, position, child.item, child.path(), child.tag()];
+						let path = child
+							.path()
+							.map(|path| {
+								path.to_str()
+									.ok_or_else(|| tg::error!("path contains invalid UTF-8"))
+							})
+							.transpose()?;
+						let params = db::params![
+							id.to_bytes(),
+							position,
+							child.item.to_bytes(),
+							path,
+							child.tag().map(ToString::to_string)
+						];
 						transaction
 							.execute(statement.into(), params)
 							.await

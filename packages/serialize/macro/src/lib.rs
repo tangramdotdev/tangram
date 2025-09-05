@@ -1,8 +1,6 @@
-use self::input::Input;
-
-mod enum_;
-mod input;
-mod struct_;
+mod deserialize;
+mod parse;
+mod serialize;
 
 #[proc_macro_derive(Serialize, attributes(tangram_serialize))]
 pub fn serialize(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -13,8 +11,8 @@ pub fn serialize(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn serialize_inner(input: proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
 	let input: syn::DeriveInput = syn::parse2(input)?;
-	let input = Input::parse(&input)?;
-	let code = input.serialize();
+	let item = Item::parse(&input)?;
+	let code = item.serialize();
 	Ok(code)
 }
 
@@ -27,7 +25,65 @@ pub fn deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn deserialize_inner(input: proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
 	let input: syn::DeriveInput = syn::parse2(input)?;
-	let input = Input::parse(&input)?;
-	let code = input.deserialize();
+	let item = Item::parse(&input)?;
+	let code = item.deserialize();
 	Ok(code)
+}
+
+enum Item<'a> {
+	Struct(Struct<'a>),
+	Enum(Enum<'a>),
+}
+
+struct Struct<'a> {
+	display: bool,
+	fields: Vec<Field<'a>>,
+	from_str: bool,
+	generics: &'a syn::Generics,
+	ident: &'a syn::Ident,
+	into: Option<syn::Type>,
+	transparent: bool,
+	try_from: Option<syn::Type>,
+}
+
+struct Field<'a> {
+	default: bool,
+	deserialize_with: Option<String>,
+	display: bool,
+	from_str: bool,
+	id: Option<u8>,
+	ident: Option<&'a syn::Ident>,
+	serialize_with: Option<String>,
+	skip: bool,
+	skip_serializing_if: Option<String>,
+}
+
+struct Enum<'a> {
+	display: bool,
+	from_str: bool,
+	generics: &'a syn::Generics,
+	ident: &'a syn::Ident,
+	into: Option<syn::Type>,
+	try_from: Option<syn::Type>,
+	variants: Vec<Variant<'a>>,
+}
+
+struct Variant<'a> {
+	id: Option<u8>,
+	ident: &'a syn::Ident,
+	kind: VariantKind<'a>,
+}
+
+#[derive(Clone)]
+enum VariantKind<'a> {
+	Unit,
+	Tuple(Vec<&'a syn::Type>),
+	Struct(Vec<StructVariantField<'a>>),
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct StructVariantField<'a> {
+	ident: &'a syn::Ident,
+	ty: &'a syn::Type,
 }

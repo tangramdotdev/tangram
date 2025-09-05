@@ -205,6 +205,7 @@ impl Server {
 		scopeguard::defer! {
 			import_complete_task.abort();
 		}
+
 		// Enqueue the items.
 		state
 			.queue_counter
@@ -594,15 +595,15 @@ impl Server {
 		}
 
 		// Get the process
-		let data = Self::try_get_process_local_sync(&state.database, &process)?
+		let data = Self::try_get_process_sqlite_sync(&state.database, &process)?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
 
 		// Enqueue the children.
 		if state.arg.recursive {
-			for child in data.children.into_iter().flatten() {
+			for child in data.children.iter().flatten() {
 				let item = QueueItem::Process(ProcessQueueItem {
 					parent: Some(process.clone()),
-					process: child.item,
+					process: child.item.clone(),
 				});
 				state.queue.push_back(item);
 			}
@@ -625,6 +626,17 @@ impl Server {
 			});
 			state.queue.push_back(item);
 		}
+
+		// Send the process.
+		let item = tg::export::Item::Process(tg::export::ProcessItem {
+			id: process.clone(),
+			data,
+		});
+		let event = tg::export::Event::Item(item);
+		state
+			.event_sender
+			.blocking_send(Ok(event))
+			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		Ok(())
 	}
@@ -764,7 +776,16 @@ impl Server {
 			.ok_or_else(|| tg::error!("failed to find the object"))?
 			.bytes;
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
+
+		// Enqueue the children.
 		let children = data.children().collect::<BTreeSet<_>>();
+		for child in children {
+			let item = QueueItem::Object(ObjectQueueItem {
+				parent: Some(Either::Right(object.clone())),
+				object: child,
+			});
+			state.queue.push_back(item);
+		}
 
 		// Send the object.
 		let size = bytes.len().to_u64().unwrap();
@@ -778,15 +799,6 @@ impl Server {
 			.event_sender
 			.blocking_send(Ok(event))
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
-
-		// Enqueue the children.
-		for child in children {
-			let item = QueueItem::Object(ObjectQueueItem {
-				parent: Some(Either::Right(object.clone())),
-				object: child,
-			});
-			state.queue.push_back(item);
-		}
 
 		Ok(())
 	}
@@ -810,7 +822,7 @@ impl Server {
 		state: &mut StateSync,
 		id: &tg::process::Id,
 	) -> tg::Result<tg::export::ProcessComplete> {
-		let metadata = Self::try_get_process_metadata_local_sync(&state.index, id)?
+		let metadata = Self::try_get_process_metadata_sqlite_sync(&state.index, id)?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
 		let complete = tg::export::ProcessComplete {
 			id: id.clone(),
@@ -835,7 +847,7 @@ impl Server {
 		state: &mut StateSync,
 		id: &tg::object::Id,
 	) -> tg::Result<tg::export::ObjectComplete> {
-		let metadata = Self::try_get_object_metadata_local_sync(&state.index, id)?;
+		let metadata = Self::try_get_object_metadata_sqlite_sync(&state.index, id)?;
 		let complete = tg::export::ObjectComplete {
 			id: id.clone(),
 			metadata: metadata.unwrap_or_default(),

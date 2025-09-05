@@ -54,11 +54,12 @@ impl Server {
 			),
 		};
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, id];
+		let params = db::params![now, id.to_string()];
 		let Some(status) = connection
-			.query_optional_value_into::<tg::process::Status>(statement.into(), params)
+			.query_optional_value_into::<db::value::Serde<tg::process::Status>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|status| status.0)
 		else {
 			return Err(tg::error!("failed to find the process"));
 		};

@@ -38,7 +38,7 @@ impl Server {
 				where id = {p}1;
 			"
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_string()];
 		let exists = connection
 			.query_one_value_into(statement.into(), params)
 			.await

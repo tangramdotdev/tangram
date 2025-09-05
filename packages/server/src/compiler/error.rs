@@ -4,13 +4,13 @@ use num::ToPrimitive as _;
 use sourcemap::SourceMap;
 use std::collections::BTreeMap;
 use tangram_client as tg;
-use tangram_v8::{FromV8 as _, Serde, ToV8 as _};
+use tangram_v8::{Deserialize as _, Serde, Serialize as _};
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	error: &tg::Error,
 ) -> v8::Local<'s, v8::Value> {
-	Serde(error.to_data()).to_v8(scope).unwrap()
+	Serde(error.to_data()).serialize(scope).unwrap()
 }
 
 pub(super) fn from_exception<'s>(
@@ -18,7 +18,7 @@ pub(super) fn from_exception<'s>(
 	exception: v8::Local<'s, v8::Value>,
 ) -> tg::Error {
 	if exception.is_object() && !exception.is_native_error() {
-		return Serde::from_v8(scope, exception).unwrap().0;
+		return Serde::deserialize(scope, exception).unwrap().0;
 	}
 
 	// Get the message.
@@ -48,7 +48,7 @@ pub(super) fn from_exception<'s>(
 		.is_native_error()
 		.then(|| exception.to_object(scope).unwrap())
 		.and_then(|exception| exception.get(scope, stack.into()))
-		.and_then(|value| Serde::<Vec<tg::error::data::Location>>::from_v8(scope, value).ok())
+		.and_then(|value| Serde::<Vec<tg::error::data::Location>>::deserialize(scope, value).ok())
 		.and_then(|stack| {
 			stack
 				.0
@@ -118,7 +118,7 @@ pub fn prepare_stack_trace_callback<'s>(
 	}
 
 	// Return the stack as a serialized value.
-	Serde(stack).to_v8(scope).unwrap()
+	Serde(stack).serialize(scope).unwrap()
 }
 
 fn get_location(

@@ -97,7 +97,7 @@ async fn directory_containing_file_with_file_dependency() {
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "fil_01veqdpfrvtngmf1vqfq1r602m0hwvey6a3xhg42xpknpybvfk3020": {
+	            "fil_01hszfh8hddz0ms87xkcb0f13cyn8j8ctt6gqbf47b33sskyw003eg": {
 	              "kind": "file",
 	              "contents": "dependency"
 	            }
@@ -154,7 +154,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "dir_01em9s61ngmg0sbxebh8z0ajbe45rmcbbd3p2ss6yc8cpamsy5a3bg": {
+	            "dir_01pxd4f2rnmdtn1j4z9geze45wbxqg8sj919ay68ja88g0cvncbwn0": {
 	              "kind": "directory",
 	              "entries": {
 	                "dep": {
@@ -230,7 +230,16 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "dir_01m96hv5dzrzyjr66ktvxxr3shkj2vhn5h612zqz5vbabq83fpa6mg": {
+	            "dir_012kp3nfs247xpzkq36sgnatz15rw7acjqr6jgr03etxxn9ayy28q0": {
+	              "kind": "directory",
+	              "entries": {
+	                "a": {
+	                  "kind": "file",
+	                  "contents": "a"
+	                }
+	              }
+	            },
+	            "dir_01rfyc4mfh0qzgmqyza9tw6jye72nqzw689rm9cn2ttweqy7arvhe0": {
 	              "kind": "directory",
 	              "entries": {
 	                "dep": {
@@ -239,16 +248,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 	                },
 	                "link": {
 	                  "kind": "symlink",
-	                  "path": "../../../.tangram/artifacts/dir_01myaw4t7h2nw6mmr7jgm0acznf0bg070h4amd79x6n7n7m3xp7eh0/a"
-	                }
-	              }
-	            },
-	            "dir_01myaw4t7h2nw6mmr7jgm0acznf0bg070h4amd79x6n7n7m3xp7eh0": {
-	              "kind": "directory",
-	              "entries": {
-	                "a": {
-	                  "kind": "file",
-	                  "contents": "a"
+	                  "path": "../../../.tangram/artifacts/dir_012kp3nfs247xpzkq36sgnatz15rw7acjqr6jgr03etxxn9ayy28q0/a"
 	                }
 	              }
 	            }

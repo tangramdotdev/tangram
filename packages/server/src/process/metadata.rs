@@ -25,60 +25,18 @@ impl Server {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		match &self.index {
-			crate::index::Index::Sqlite(database) => {
-				self.try_get_process_metadata_local_sqlite(database, id)
-					.await
-			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
-				self.try_get_process_metadata_local_postgres(database, id)
-					.await
+				self.try_get_process_metadata_postgres(database, id).await
+			},
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_process_metadata_sqlite(database, id).await
 			},
 		}
 	}
 
-	async fn try_get_process_metadata_local_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::process::Metadata>> {
-		// Get a database connection.
-		let connection = database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Get the process metadata.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select
-					commands_count,
-					commands_depth,
-					commands_weight,
-					complete,
-					count,
-					outputs_count,
-					outputs_depth,
-					outputs_weight
-				from processes
-				where id = {p}1;
-			",
-		);
-		let params = db::params![id];
-		let output = connection
-			.query_optional_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(output)
-	}
-
 	#[cfg(feature = "postgres")]
-	async fn try_get_process_metadata_local_postgres(
+	async fn try_get_process_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::process::Id,
@@ -91,14 +49,23 @@ impl Server {
 
 		// Get the process metadata.
 		let p = connection.p();
+		#[derive(serde::Deserialize)]
+		struct Row {
+			children_count: Option<u64>,
+			commands_count: Option<u64>,
+			commands_depth: Option<u64>,
+			commands_weight: Option<u64>,
+			outputs_count: Option<u64>,
+			outputs_depth: Option<u64>,
+			outputs_weight: Option<u64>,
+		}
 		let statement = formatdoc!(
 			"
 				select
+					children_count,
 					commands_count,
 					commands_depth,
 					commands_weight,
-					complete,
-					count,
 					outputs_count,
 					outputs_depth,
 					outputs_weight
@@ -106,11 +73,32 @@ impl Server {
 				where id = {p}1;
 			",
 		);
-		let params = db::params![id];
+		let params = db::params![id.to_bytes()];
 		let output = connection
-			.query_optional_into(statement.into(), params)
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0)
+			.map(|row| {
+				let children = tg::process::metadata::Children {
+					count: row.children_count,
+				};
+				let commands = tg::object::Metadata {
+					count: row.commands_count,
+					depth: row.commands_depth,
+					weight: row.commands_weight,
+				};
+				let outputs = tg::object::Metadata {
+					count: row.outputs_count,
+					depth: row.outputs_depth,
+					weight: row.outputs_weight,
+				};
+				tg::process::Metadata {
+					children,
+					commands,
+					outputs,
+				}
+			});
 
 		// Drop the database connection.
 		drop(connection);
@@ -118,17 +106,87 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_process_metadata_local_sync(
+	async fn try_get_process_metadata_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		// Get a database connection.
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Get the process metadata.
+		let p = connection.p();
+		#[derive(serde::Deserialize)]
+		struct Row {
+			children_count: Option<u64>,
+			commands_count: Option<u64>,
+			commands_depth: Option<u64>,
+			commands_weight: Option<u64>,
+			outputs_count: Option<u64>,
+			outputs_depth: Option<u64>,
+			outputs_weight: Option<u64>,
+		}
+		let statement = formatdoc!(
+			"
+				select
+					children_count,
+					commands_count,
+					commands_depth,
+					commands_weight,
+					outputs_count,
+					outputs_depth,
+					outputs_weight
+				from processes
+				where id = {p}1;
+			",
+		);
+		let params = db::params![id.to_bytes()];
+		let output = connection
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0)
+			.map(|row| {
+				let children = tg::process::metadata::Children {
+					count: row.children_count,
+				};
+				let commands = tg::object::Metadata {
+					count: row.commands_count,
+					depth: row.commands_depth,
+					weight: row.commands_weight,
+				};
+				let outputs = tg::object::Metadata {
+					count: row.outputs_count,
+					depth: row.outputs_depth,
+					weight: row.outputs_weight,
+				};
+				tg::process::Metadata {
+					children,
+					commands,
+					outputs,
+				}
+			});
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_process_metadata_sqlite_sync(
 		index: &sqlite::Connection,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		let statement = indoc!(
 			"
 				select
+					children_count,
 					commands_count,
 					commands_depth,
 					commands_weight,
-					count,
 					outputs_count,
 					outputs_depth,
 					outputs_weight
@@ -140,7 +198,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
-			.query([id.to_string()])
+			.query([id.to_bytes().to_vec()])
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
@@ -148,16 +206,16 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let commands_count = row
+		let children_count = row
 			.get::<_, Option<u64>>(0)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_depth = row
+		let commands_count = row
 			.get::<_, Option<u64>>(1)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_weight = row
+		let commands_depth = row
 			.get::<_, Option<u64>>(2)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let count = row
+		let commands_weight = row
 			.get::<_, Option<u64>>(3)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let outputs_count = row
@@ -169,6 +227,9 @@ impl Server {
 		let outputs_weight = row
 			.get::<_, Option<u64>>(6)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let children = tg::process::metadata::Children {
+			count: children_count,
+		};
 		let commands = tg::object::Metadata {
 			count: commands_count,
 			depth: commands_depth,
@@ -180,8 +241,8 @@ impl Server {
 			weight: outputs_weight,
 		};
 		let metadata = tg::process::Metadata {
+			children,
 			commands,
-			count,
 			outputs,
 		};
 		Ok(Some(metadata))
@@ -191,7 +252,6 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		// Attempt to get the process metadata from the remotes.
 		let futures = self
 			.get_remote_clients()
 			.await?
@@ -204,7 +264,6 @@ impl Server {
 		let Ok((metadata, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
-
 		Ok(Some(metadata))
 	}
 

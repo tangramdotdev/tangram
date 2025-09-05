@@ -27,9 +27,10 @@ impl Server {
 		);
 		let params = db::params![&name];
 		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?
+			.map(|row| row.0);
 		let output = row.map(|row| tg::remote::get::Output {
 			name: row.name,
 			url: row.url,

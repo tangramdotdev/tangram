@@ -81,9 +81,12 @@ impl Server {
 		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
 		let params = db::params![max_depth, max_heartbeat_at, config.batch_size];
 		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
+			.query_all_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.into_iter()
+			.map(|row| row.0)
+			.collect::<Vec<_>>();
 
 		// Drop the database connection.
 		drop(connection);

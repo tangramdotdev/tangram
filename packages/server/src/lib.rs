@@ -479,7 +479,7 @@ impl Server {
 						values ({p}1, {p}2);
 					",
 				);
-				let params = db::params![&remote.name, &remote.url];
+				let params = db::params![&remote.name, &remote.url.to_string()];
 				connection
 					.execute(statement.into(), params)
 					.await

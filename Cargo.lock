@@ -5823,11 +5823,22 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tangram_database_macro",
  "tangram_either",
  "tokio",
  "tokio-postgres",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "tangram_database_macro"
+version = "0.0.0"
+dependencies = [
+ "itertools 0.14.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
 ]
 
 [[package]]

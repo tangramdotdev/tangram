@@ -1,6 +1,12 @@
+#[cfg(feature = "sqlite")]
 use rusqlite as sqlite;
 #[cfg(feature = "postgres")]
 use tokio_postgres as postgres;
+
+use crate::{
+	Value,
+	value::{Deserialize, Serialize},
+};
 
 #[derive(Debug, Default)]
 pub struct Json<T>(pub T);
@@ -28,10 +34,34 @@ where
 	{
 		let json = String::deserialize(deserializer)?;
 		let value = serde_json::from_str(&json).map_err(serde::de::Error::custom)?;
-		Ok(Json(value))
+		Ok(Self(value))
 	}
 }
 
+impl<T> Serialize for Json<T>
+where
+	T: serde::Serialize,
+{
+	fn serialize(&self) -> Result<Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
+		let json = serde_json::to_string(&self.0)?;
+		Ok(Value::Text(json))
+	}
+}
+
+impl<T> Deserialize for Json<T>
+where
+	T: serde::de::DeserializeOwned,
+{
+	fn deserialize(
+		value: Value,
+	) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
+		let json = value.try_unwrap_text()?;
+		let value = serde_json::from_str(&json)?;
+		Ok(Self(value))
+	}
+}
+
+#[cfg(feature = "sqlite")]
 impl<T> sqlite::types::ToSql for Json<T>
 where
 	T: serde::Serialize,
@@ -45,6 +75,7 @@ where
 	}
 }
 
+#[cfg(feature = "sqlite")]
 impl<T> sqlite::types::FromSql for Json<T>
 where
 	T: serde::de::DeserializeOwned,

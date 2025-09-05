@@ -60,9 +60,7 @@ where
 	}
 
 	pub fn write_len(&mut self, len: usize) -> Result<()> {
-		let len = len
-			.to_u64()
-			.ok_or_else(|| Error::other("The length is too long for this architecture."))?;
+		let len = len.to_u64().ok_or_else(|| Error::other("invalid length"))?;
 		self.write_uvarint(len)?;
 		Ok(())
 	}
@@ -145,7 +143,7 @@ where
 		for _ in 0..len {
 			let value = value
 				.next()
-				.ok_or_else(|| Error::other("Incorrect length."))?;
+				.ok_or_else(|| Error::other("incorrect length"))?;
 			self.serialize(value)?;
 		}
 		Ok(())
@@ -166,7 +164,7 @@ where
 		for _ in 0..len {
 			let (key, value) = value
 				.next()
-				.ok_or_else(|| Error::other("Incorrect length."))?;
+				.ok_or_else(|| Error::other("incorrect length"))?;
 			self.serialize(key)?;
 			self.serialize(value)?;
 		}

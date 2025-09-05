@@ -39,7 +39,7 @@ impl Server {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, id];
+		let params = db::params![now, id.to_string()];
 		let n = connection
 			.execute(statement.into(), params)
 			.await

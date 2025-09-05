@@ -1,4 +1,4 @@
-use super::Value;
+use crate::Value;
 use serde::de::Error as _;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
@@ -26,7 +26,7 @@ impl<'de> serde::Deserializer<'de> for Value {
 			Self::Integer(value) => visitor.visit_i64(value),
 			Self::Real(value) => visitor.visit_f64(value),
 			Self::Text(value) => visitor.visit_string(value),
-			Self::Blob(value) => visitor.visit_byte_buf(value),
+			Self::Blob(value) => visitor.visit_bytes(value.as_ref()),
 		}
 	}
 

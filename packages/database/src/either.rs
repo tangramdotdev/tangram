@@ -209,7 +209,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>> + Send, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s
@@ -239,7 +239,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<impl Stream<Item = Result<T, Self::Error>>, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s
@@ -303,7 +303,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s
@@ -323,7 +323,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Option<T>, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s
@@ -377,7 +377,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s
@@ -397,7 +397,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<T, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s
@@ -451,7 +451,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::row::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s
@@ -471,7 +471,7 @@ where
 		params: Vec<Value>,
 	) -> impl Future<Output = Result<Vec<T>, Self::Error>>
 	where
-		T: serde::de::DeserializeOwned,
+		T: crate::value::Deserialize,
 	{
 		match self {
 			Either::Left(s) => s

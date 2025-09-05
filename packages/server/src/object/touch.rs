@@ -19,13 +19,12 @@ impl Server {
 		}
 
 		match &self.index {
-			crate::index::Index::Sqlite(database) => {
-				self.touch_object_sqlite(database, id).await?;
-			},
-
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.touch_object_postgres(database, id).await?;
+			},
+			crate::index::Index::Sqlite(database) => {
+				self.touch_object_sqlite(database, id).await?;
 			},
 		}
 
@@ -53,7 +52,7 @@ impl Server {
 				where id = {p}2;
 			",
 		);
-		let params = db::params![touched_at, id];
+		let params = db::params![touched_at, id.to_bytes()];
 		let n = connection
 			.execute(statement.into(), params)
 			.await
@@ -90,7 +89,7 @@ impl Server {
 				where id = {p}2;
 			",
 		);
-		let params = db::params![touched_at, id];
+		let params = db::params![touched_at, id.to_bytes()];
 		let n = connection
 			.execute(statement.into(), params)
 			.await

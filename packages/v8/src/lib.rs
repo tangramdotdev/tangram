@@ -1,3 +1,5 @@
-pub use self::convert::{FromV8, Serde, ToV8};
+pub use self::{deserialize::Deserialize, serde::Serde, serialize::Serialize};
 
-pub mod convert;
+pub mod deserialize;
+pub mod serde;
+pub mod serialize;

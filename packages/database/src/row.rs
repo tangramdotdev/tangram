@@ -2,6 +2,12 @@ use crate::Value;
 use indexmap::IndexMap;
 use tangram_either::Either;
 
+pub use self::{deserialize::Deserialize, serde::Serde, serialize::Serialize};
+
+pub mod deserialize;
+pub mod serde;
+pub mod serialize;
+
 #[derive(Clone, Debug)]
 pub struct Row {
 	entries: IndexMap<String, Value>,
@@ -21,6 +27,18 @@ impl Row {
 		self.entries.into_iter()
 	}
 
+	pub fn keys(&self) -> impl Iterator<Item = &String> {
+		self.entries.keys()
+	}
+
+	pub fn into_keys(self) -> impl Iterator<Item = String> {
+		self.entries.into_keys()
+	}
+
+	pub fn values(&self) -> impl Iterator<Item = &Value> {
+		self.entries.values()
+	}
+
 	pub fn into_values(self) -> impl Iterator<Item = Value> {
 		self.entries.into_values()
 	}
@@ -31,19 +49,4 @@ impl Row {
 			Either::Right(index) => self.entries.get(index),
 		}
 	}
-}
-
-impl<'de> serde::Deserializer<'de> for Row {
-	type Error = crate::value::de::Error;
-
-	fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-	where
-		V: serde::de::Visitor<'de>,
-	{
-		visitor.visit_map(serde::de::value::MapDeserializer::new(
-			self.entries.into_iter(),
-		))
-	}
-
-	serde::forward_to_deserialize_any!(bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf option unit unit_struct newtype_struct seq tuple tuple_struct map struct enum identifier ignored_any);
 }

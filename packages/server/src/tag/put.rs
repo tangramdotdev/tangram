@@ -33,7 +33,7 @@ impl Server {
 				on conflict (tag) do update set item = {p}2;
 			"
 		);
-		let params = db::params![tag, arg.item];
+		let params = db::params![tag.to_string(), arg.item.to_string()];
 		connection
 			.execute(statement.into(), params)
 			.await

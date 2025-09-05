@@ -58,17 +58,16 @@ pub type Map = BTreeMap<String, Data>;
 impl Data {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
-		#[cfg(not(feature = "serialize"))]
-		{
-			serde_json::to_writer(&mut bytes, self)
-				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-		}
-		#[cfg(feature = "serialize")]
-		{
-			bytes.push(0);
-			tangram_serialize::to_writer(&mut bytes, self)
-				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-		}
+		bytes.push(0);
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		Ok(bytes.into())
+	}
+
+	pub fn serialize_json(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		serde_json::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 

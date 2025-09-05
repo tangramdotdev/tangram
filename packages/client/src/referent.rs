@@ -44,11 +44,11 @@ pub struct Options {
 	pub id: Option<tg::object::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Tag>,
 }
 

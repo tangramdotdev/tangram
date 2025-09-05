@@ -2144,7 +2144,7 @@ let convertLiteralTypeNode = (
 			kind: "null",
 		};
 	} else {
-		throw new Error("Unknown");
+		throw new Error();
 	}
 };
 

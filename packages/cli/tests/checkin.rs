@@ -40,7 +40,7 @@ async fn directory() {
 	{
 	  "count": 6,
 	  "depth": 3,
-	  "weight": 439
+	  "weight": 312
 	}
 	"#);
 	assert!(lock.is_none());
@@ -67,7 +67,7 @@ async fn file() {
 	{
 	  "count": 3,
 	  "depth": 3,
-	  "weight": 173
+	  "weight": 119
 	}
 	"#);
 	assert!(lock.is_none());
@@ -94,7 +94,7 @@ async fn symlink() {
 	{
 	  "count": 2,
 	  "depth": 2,
-	  "weight": 93
+	  "weight": 65
 	}
 	"#);
 	assert!(lock.is_none());
@@ -125,7 +125,7 @@ async fn directory_with_duplicate_entries() {
 	{
 	  "count": 3,
 	  "depth": 3,
-	  "weight": 238
+	  "weight": 162
 	}
 	"#);
 	assert!(lock.is_none());
@@ -168,7 +168,7 @@ async fn file_through_symlink() {
 	{
 	  "count": 5,
 	  "depth": 4,
-	  "weight": 394
+	  "weight": 257
 	}
 	"#);
 	assert!(lock.is_none());
@@ -215,7 +215,7 @@ async fn file_with_symlink_no_kind() {
 	{
 	  "count": 8,
 	  "depth": 4,
-	  "weight": 694
+	  "weight": 485
 	}
 	"#);
 	assert!(lock.is_none());
@@ -262,7 +262,7 @@ async fn file_with_symlink() {
 	{
 	  "count": 7,
 	  "depth": 3,
-	  "weight": 637
+	  "weight": 454
 	}
 	"#);
 	assert!(lock.is_none());
@@ -307,7 +307,7 @@ async fn artifact_symlink() {
 	{
 	  "count": 6,
 	  "depth": 5,
-	  "weight": 466
+	  "weight": 302
 	}
 	"#);
 	assert!(lock.is_none());
@@ -369,7 +369,7 @@ async fn lock_out_of_date() {
 	{
 	  "count": 7,
 	  "depth": 4,
-	  "weight": 527
+	  "weight": 341
 	}
 	"#);
 	assert!(lock.is_none());
@@ -1086,7 +1086,7 @@ async fn tagged_object() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "fil_01b64fk2r3af0mp8wek1630m1k57bq8fqp0yvqjq7701b3tngbfyxg",
+	            "id": "fil_01et9ybtrp0pbdg39zyjxpcnae1agnd95xw701x55pkrr93xbdz600",
 	            "tag": "hello"
 	          }
 	        }
@@ -1159,7 +1159,7 @@ async fn simple_tagged_package() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_014kqrajn0xbffgmn84k5crdtpfmw277zz9jcz7wm5jj1bks14spyg",
+	            "id": "dir_01dcx7na83jpbhbtsww7x1vt4p1vksns5t7zch5wysteb4qadcx4a0",
 	            "tag": "a"
 	          }
 	        }
@@ -1291,7 +1291,7 @@ async fn tagged_package_with_cyclic_dependency() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01fqcfzahm2jzq88vvp4zn8dcq7em2y6gfy9p6y7b2fmf50xve0ss0",
+	            "id": "dir_01ss176dccna4m1nfycm0yefpvhh7gr3c0s9sgvxdn1e95rd4tvybg",
 	            "tag": "a"
 	          }
 	        }
@@ -1518,7 +1518,7 @@ async fn tag_dependency_cycles() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01eerynsg7zrjd01away3q6p4qwrbs1d5dtws2z0z4r668d3ze865g",
+	            "id": "dir_015c2ejdbqrc8rhpnkkwgfpc7m3de977arpd6hhdba4ps8qrdkg7jg",
 	            "tag": "a/1.1.0"
 	          }
 	        },
@@ -1527,7 +1527,7 @@ async fn tag_dependency_cycles() {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_01b0t0ex5x326b7v5knmchytr5c58xwx09mgzprmz8ejfkartet9pg",
+	            "id": "dir_01frtb704qb44m4sfnmn6q9837y2v2g1wvz4xyq8d54xeeymxsee40",
 	            "tag": "b/1.0.0"
 	          }
 	        }
@@ -1560,7 +1560,7 @@ async fn tag_dependency_cycles() {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_01b0t0ex5x326b7v5knmchytr5c58xwx09mgzprmz8ejfkartet9pg",
+	            "id": "dir_01frtb704qb44m4sfnmn6q9837y2v2g1wvz4xyq8d54xeeymxsee40",
 	            "tag": "b/1.0.0"
 	          }
 	        }
@@ -1595,7 +1595,7 @@ async fn tag_dependency_cycles() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01eerynsg7zrjd01away3q6p4qwrbs1d5dtws2z0z4r668d3ze865g",
+	            "id": "dir_015c2ejdbqrc8rhpnkkwgfpc7m3de977arpd6hhdba4ps8qrdkg7jg",
 	            "tag": "a/1.1.0"
 	          }
 	        }
@@ -1722,7 +1722,7 @@ async fn tag_diamond_dependency() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01k1db0n6pvqdgg45hsx3ye27kt0eq4ph0vqkm4vzjr68q3nhgr1z0",
+	            "id": "dir_014kkj24g1we14gfea46q4s2cx7jfbxchsd10n0epqp12crs2jdj6g",
 	            "tag": "b"
 	          }
 	        },
@@ -1731,7 +1731,7 @@ async fn tag_diamond_dependency() {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_01e0e0gq059zrsxbmpaby39px7650208ra9w97y42kvz1fmqx2vhsg",
+	            "id": "dir_01cwsakz889jv3s75qc4seq6c5a6vw77xr8z9jxn36dx9rf7jdr8e0",
 	            "tag": "c"
 	          }
 	        }
@@ -1761,7 +1761,7 @@ async fn tag_diamond_dependency() {
 	            "node": 6
 	          },
 	          "options": {
-	            "id": "dir_013abfbwwpgm1bnwsnqwq70x00zpq2kp7e5x2gmhdkbwnydzbtheb0",
+	            "id": "dir_01wj2kcd708mae50kdjaaqyfjynxj6cxzwx791g1yy449a60y1czvg",
 	            "tag": "d/1.1.0"
 	          }
 	        }
@@ -1775,7 +1775,7 @@ async fn tag_diamond_dependency() {
 	            "node": 6
 	          },
 	          "options": {
-	            "id": "dir_013abfbwwpgm1bnwsnqwq70x00zpq2kp7e5x2gmhdkbwnydzbtheb0",
+	            "id": "dir_01wj2kcd708mae50kdjaaqyfjynxj6cxzwx791g1yy449a60y1czvg",
 	            "tag": "d/1.1.0"
 	          }
 	        }
