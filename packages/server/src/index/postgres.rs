@@ -4,6 +4,7 @@ use super::message::{
 use crate::Server;
 use indoc::indoc;
 use num::ToPrimitive as _;
+use tangram_either::Either;
 use std::collections::HashMap;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -60,7 +61,7 @@ impl Server {
 		// Prepare cache entry parameters.
 		let cache_entry_ids = put_cache_entry_messages
 			.iter()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes())
 			.collect::<Vec<_>>();
 		let cache_entry_touched_ats = put_cache_entry_messages
 			.iter()
@@ -75,12 +76,12 @@ impl Server {
 				.collect();
 		let object_ids = put_object_messages
 			.values()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes())
 			.collect::<Vec<_>>();
 		let object_cache_entries = put_object_messages
 			.values()
 			.filter_map(|message| message.cache_entry.as_ref())
-			.map(ToString::to_string)
+			.map(|entry| entry.to_bytes())
 			.collect::<Vec<_>>();
 		let object_sizes = put_object_messages
 			.values()
@@ -113,7 +114,9 @@ impl Server {
 			.collect::<Vec<_>>();
 		let object_children = put_object_messages
 			.values()
-			.flat_map(|message| message.children.iter().map(ToString::to_string))
+			.flat_map(|message| message.children.iter().map(
+				|child| child.to_bytes()
+			))
 			.collect::<Vec<_>>();
 		let object_parent_indices = put_object_messages
 			.values()
@@ -130,7 +133,7 @@ impl Server {
 			.collect::<Vec<_>>();
 		let touch_object_ids = touch_object_messages
 			.iter()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes())
 			.collect::<Vec<_>>();
 
 		// Prepare put process parameters.
@@ -141,7 +144,7 @@ impl Server {
 				.collect();
 		let process_ids = put_process_messages
 			.values()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes())
 			.collect::<Vec<_>>();
 		let process_touched_ats = put_process_messages
 			.values()
@@ -225,7 +228,7 @@ impl Server {
 			.collect::<Vec<_>>();
 		let process_children = put_process_messages
 			.values()
-			.flat_map(|message| message.children.iter().map(ToString::to_string))
+			.flat_map(|message| message.children.iter().map(|child| child.to_bytes()))
 			.collect::<Vec<_>>();
 		let process_child_process_indices = put_process_messages
 			.values()
@@ -240,7 +243,7 @@ impl Server {
 			.collect::<Vec<_>>();
 		let process_objects = put_process_messages
 			.values()
-			.flat_map(|message| message.objects.iter().map(|(id, _)| id.to_string()))
+			.flat_map(|message| message.objects.iter().map(|(id, _)| id.to_bytes()))
 			.collect::<Vec<_>>();
 		let process_object_kinds = put_process_messages
 			.values()
@@ -261,7 +264,7 @@ impl Server {
 			.collect::<Vec<_>>();
 		let touch_process_ids = touch_process_messages
 			.iter()
-			.map(|message| message.id.to_string())
+			.map(|message| message.id.to_bytes())
 			.collect::<Vec<_>>();
 
 		// Prepare put tag parameters.
@@ -271,7 +274,10 @@ impl Server {
 			.collect::<Vec<_>>();
 		let put_tag_items = put_tag_messages
 			.iter()
-			.map(|message| message.item.to_string())
+			.map(|message| match &message.item {
+				Either::Left(process_id) => process_id.to_bytes(),
+				Either::Right(object_id) => object_id.to_bytes()
+			})
 			.collect::<Vec<_>>();
 
 		// Prepare delete tag parameters.
@@ -361,7 +367,7 @@ impl Server {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
 		};
-		let mut connection = database
+		let connection = database
 			.connection_with_options(options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

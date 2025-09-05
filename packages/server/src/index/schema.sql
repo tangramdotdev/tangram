@@ -5,7 +5,7 @@ create table transaction_id (
 insert into transaction_id (id) values (0);
 
 create table cache_entries (
-	id text primary key,
+	id blob primary key,
 	reference_count integer,
 	reference_count_transaction_id integer,
 	touched_at integer
@@ -15,7 +15,7 @@ create index cache_entries_reference_count_zero_index on cache_entries (touched_
 
 create table cache_entry_queue (
 	id integer primary key autoincrement,
-	cache_entry text not null,
+	cache_entry blob not null,
 	transaction_id integer not null
 );
 
@@ -28,8 +28,8 @@ begin
 end;
 
 create table objects (
-	id text primary key,
-	cache_entry text,
+	id blob primary key,
+	cache_entry blob,
 	complete integer not null default 0,
 	count integer,
 	depth integer,
@@ -46,8 +46,8 @@ create index objects_reference_count_zero_index on objects (touched_at) where re
 create index objects_cache_entry_index on objects (cache_entry) where cache_entry is not null;
 
 create table object_children (
-	object text not null,
-	child text not null
+	object blob not null,
+	child blob not null
 );
 
 create unique index object_children_index on object_children (object, child);
@@ -57,7 +57,7 @@ create index object_children_child_index on object_children (child);
 create table object_queue (
 	id integer primary key autoincrement,
 	kind integer not null,
-	object text not null,
+	object blob not null,
 	transaction_id integer not null
 );
 
@@ -73,7 +73,7 @@ begin
 end;
 
 create table processes (
-	id text primary key,
+	id blob primary key,
 	children_complete integer not null default 0,
 	children_count integer,
 	commands_complete integer not null default 0,
@@ -93,8 +93,8 @@ create table processes (
 create index processes_reference_count_zero_index on processes (touched_at) where reference_count = 0;
 
 create table process_children (
-	process text not null,
-	child text not null,
+	process blob not null,
+	child blob not null,
 	position integer not null
 );
 
@@ -105,8 +105,8 @@ create unique index process_children_index on process_children (process, positio
 create index process_children_child_process_index on process_children (child, process);
 
 create table process_objects (
-	process text not null,
-	object text not null,
+	process blob not null,
+	object blob not null,
 	kind text not null
 );
 
@@ -116,7 +116,7 @@ create index process_objects_object_index on process_objects (object);
 
 create table process_queue (
 	id integer primary key autoincrement,
-	process text not null,
+	process blob not null,
 	kind integer not null,
 	transaction_id integer not null
 );
@@ -136,7 +136,7 @@ end;
 
 create table tags (
 	tag text primary key,
-	item text not null
+	item blob not null
 );
 
 create index tags_item_index on tags (item);
