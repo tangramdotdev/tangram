@@ -92,7 +92,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				update objects
-				set touched_at = max($1, touched_at)
+				set touched_at = greatest($1::int8, touched_at)
 				where id = $2
 				returning complete, count, depth, weight;
 			",
@@ -142,7 +142,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				update objects
-				set touched_at = max($1, touched_at)
+				set touched_at = greatest($1::int8, touched_at)
 				from unnest($2::bytea[]) as ids (id)
 				where objects.id = ids.id
 				returning objects.id, complete, count, depth, weight;

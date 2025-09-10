@@ -129,7 +129,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				update processes
-				set touched_at = max($1, touched_at)
+				set touched_at = greatest($1::int8, touched_at)
 				where id = $2
 				returning
 					children_complete,
@@ -200,7 +200,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				update processes
-				set touched_at = max($1, touched_at)
+				set touched_at = greatest($1::int8, touched_at)
 				from unnest($2::bytea[]) as ids (id)
 				where processes.id = ids.id
 				returning
