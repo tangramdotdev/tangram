@@ -386,7 +386,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				select
-					ids.id,
+					processes.id,
 					actual_checksum,
 					cacheable,
 					command,

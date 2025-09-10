@@ -9,7 +9,6 @@ use async_nats as nats;
 use dashmap::{DashMap, DashSet};
 use futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered};
 use indoc::{formatdoc, indoc};
-use rusqlite as sqlite;
 use std::{
 	collections::HashMap,
 	ops::Deref,
@@ -236,18 +235,6 @@ impl Server {
 
 		// Create the database.
 		let database = match &config.database {
-			self::config::Database::Sqlite(config) => {
-				let initialize = Arc::new(self::database::initialize);
-				let options = db::sqlite::DatabaseOptions {
-					connections: config.connections,
-					initialize,
-					path: config.path.clone(),
-				};
-				let database = db::sqlite::Database::new(options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
-				Database::Sqlite(database)
-			},
 			self::config::Database::Postgres(options) => {
 				#[cfg(not(feature = "postgres"))]
 				{
@@ -267,6 +254,18 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to create the database"))?;
 					Database::Postgres(database)
 				}
+			},
+			self::config::Database::Sqlite(config) => {
+				let initialize = Arc::new(self::database::sqlite::initialize);
+				let options = db::sqlite::DatabaseOptions {
+					connections: config.connections,
+					initialize,
+					path: config.path.clone(),
+				};
+				let database = db::sqlite::Database::new(options)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+				Database::Sqlite(database)
 			},
 		};
 
@@ -296,18 +295,7 @@ impl Server {
 				}
 			},
 			self::config::Index::Sqlite(options) => {
-				let initialize = Arc::new(|connection: &sqlite::Connection| {
-					connection.pragma_update(None, "auto_vaccum", "incremental")?;
-					connection.pragma_update(None, "busy_timeout", "5000")?;
-					connection.pragma_update(None, "cache_size", "-20000")?;
-					connection.pragma_update(None, "foreign_keys", "on")?;
-					connection.pragma_update(None, "journal_mode", "wal")?;
-					connection.pragma_update(None, "mmap_size", "2147483648")?;
-					connection.pragma_update(None, "recursive_triggers", "on")?;
-					connection.pragma_update(None, "synchronous", "normal")?;
-					connection.pragma_update(None, "temp_store", "memory")?;
-					Ok(())
-				});
+				let initialize = Arc::new(self::index::sqlite::initialize);
 				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
@@ -443,7 +431,7 @@ impl Server {
 		}));
 
 		// Migrate the database.
-		self::database::migrate(&server.database)
+		self::database::sqlite::migrate(&server.database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
 

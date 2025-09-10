@@ -1,7 +1,8 @@
 use super::Output;
 use crate::Server;
-use indoc::{formatdoc, indoc};
+use indoc::indoc;
 use num::ToPrimitive as _;
+use std::collections::HashMap;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
@@ -24,12 +25,11 @@ impl Server {
 			pub commands_complete: bool,
 			pub outputs_complete: bool,
 		}
-		let p = connection.p();
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select children_complete, commands_complete, outputs_complete
 				from processes
-				where id = {p}1;
+				where id = $1;
 			",
 		);
 		let params = db::params![id.to_bytes()];
@@ -101,14 +101,15 @@ impl Server {
 		Ok(outputs)
 	}
 
-	pub(crate) async fn try_get_process_complete_and_metadata_postgres(
+	pub(crate) async fn try_touch_process_and_get_complete_and_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::process::Id,
+		touched_at: i64,
 	) -> tg::Result<Option<(Output, tg::process::Metadata)>> {
 		// Get a database connection.
 		let connection = database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
@@ -125,10 +126,12 @@ impl Server {
 			pub outputs_depth: Option<u64>,
 			pub outputs_weight: Option<u64>,
 		}
-		let p = connection.p();
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
-				select
+				update processes
+				set touched_at = max($1, touched_at)
+				where id = $2
+				returning
 					children_complete,
 					children_count,
 					commands_complete,
@@ -138,12 +141,10 @@ impl Server {
 					outputs_complete,
 					outputs_count,
 					outputs_depth,
-					outputs_weight
-				from processes
-				where id = {p}1;
+					outputs_weight;
 			",
 		);
-		let params = db::params![id.to_bytes()];
+		let params = db::params![touched_at, id.to_bytes()];
 		let output = connection
 			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
@@ -183,50 +184,55 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn try_get_process_complete_and_metadata_batch_postgres(
+	pub(crate) async fn try_touch_process_and_get_complete_and_metadata_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::process::Id],
+		touched_at: i64,
 	) -> tg::Result<Vec<Option<(Output, tg::process::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let connection = database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let statement = indoc!(
 			"
-				select
-					processes.id,
+				update processes
+				set touched_at = max($1, touched_at)
+				from unnest($2::bytea[]) as ids (id)
+				where processes.id = ids.id
+				returning
 					children_complete,
 					children_count,
+					commands_complete,
 					commands_count,
 					commands_depth,
 					commands_weight,
-					commands_complete,
 					outputs_complete,
 					outputs_count,
 					outputs_depth,
-					outputs_weight
-				from unnest($1::bytea[]) as ids (id)
-				left join processes on processes.id = ids.id;
+					outputs_weight;
 			",
 		);
-		let outputs = connection
+		let output = connection
 			.inner()
 			.query(
 				statement,
-				&[&ids
-					.iter()
-					.map(|id| id.to_bytes().to_vec())
-					.collect::<Vec<_>>()],
+				&[
+					&touched_at,
+					&ids.iter()
+						.map(|id| id.to_bytes().to_vec())
+						.collect::<Vec<_>>(),
+				],
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to query the database"))?
 			.into_iter()
 			.map(|row| {
-				row.get::<_, Option<Vec<u8>>>(0)?;
+				let id = row.get::<_, Vec<u8>>(0);
+				let id = tg::process::Id::from_slice(&id).unwrap();
 				let children_complete = row.get::<_, bool>(1);
 				let children_count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
 				let commands_complete = row.get::<_, bool>(3);
@@ -260,9 +266,10 @@ impl Server {
 					commands,
 					outputs,
 				};
-				Some((complete, metadata))
+				(id, (complete, metadata))
 			})
-			.collect();
-		Ok(outputs)
+			.collect::<HashMap<_, _, fnv::FnvBuildHasher>>();
+		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
+		Ok(output)
 	}
 }

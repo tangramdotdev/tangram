@@ -1,12 +1,11 @@
-#[cfg(feature = "sqlite")]
-use rusqlite as sqlite;
-#[cfg(feature = "postgres")]
-use tokio_postgres as postgres;
-
 use crate::{
 	Value,
 	value::{Deserialize, Serialize},
 };
+#[cfg(feature = "sqlite")]
+use rusqlite as sqlite;
+#[cfg(feature = "postgres")]
+use tokio_postgres as postgres;
 
 #[derive(Debug, Default)]
 pub struct Json<T>(pub T);

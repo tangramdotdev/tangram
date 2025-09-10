@@ -1,6 +1,7 @@
 use crate::Server;
-use indoc::{formatdoc, indoc};
+use indoc::indoc;
 use num::ToPrimitive as _;
+use std::collections::HashMap;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
@@ -17,12 +18,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the object metadata.
-		let p = connection.p();
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select complete
 				from objects
-				where id = {p}1;
+				where id = $1;
 			",
 		);
 		let params = db::params![id.to_bytes()];
@@ -77,23 +77,24 @@ impl Server {
 		Ok(outputs)
 	}
 
-	pub(crate) async fn try_get_object_complete_and_metadata_postgres(
+	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::object::Id,
+		touched_at: i64,
 	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
 		// Get an index connection.
 		let connection = database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		let p = connection.p();
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
-				select complete, count, depth, weight
-				from objects
-				where id = {p}1;
+				update objects
+				set touched_at = max($1, touched_at)
+				where id = $2
+				returning complete, count, depth, weight;
 			",
 		);
 		#[derive(serde::Deserialize)]
@@ -103,8 +104,8 @@ impl Server {
 			depth: Option<u64>,
 			weight: Option<u64>,
 		}
-		let params = db::params![id.to_bytes()];
-		let output: Option<Row> = connection
+		let params = db::params![touched_at, id.to_bytes()];
+		let output = connection
 			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -125,44 +126,45 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn try_get_object_complete_and_metadata_batch_postgres(
+	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::object::Id],
+		touched_at: i64,
 	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let connection = database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let statement = indoc!(
 			"
-				select
-					objects.id,
-					complete,
-					count,
-					depth,
-					weight
-				from unnest($1::bytea[]) as ids (id)
-				left join objects on objects.id = ids.id;
+				update objects
+				set touched_at = max($1, touched_at)
+				from unnest($2::bytea[]) as ids (id)
+				where objects.id = ids.id
+				returning objects.id, complete, count, depth, weight;
 			",
 		);
-		let outputs = connection
+		let output = connection
 			.inner()
 			.query(
 				statement,
-				&[&ids
-					.iter()
-					.map(|id| id.to_bytes().to_vec())
-					.collect::<Vec<_>>()],
+				&[
+					&touched_at,
+					&ids.iter()
+						.map(|id| id.to_bytes().to_vec())
+						.collect::<Vec<_>>(),
+				],
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to query the database"))?
 			.into_iter()
 			.map(|row| {
-				row.get::<_, Option<Vec<u8>>>(0)?;
+				let id = row.get::<_, Vec<u8>>(0);
+				let id = tg::object::Id::from_slice(&id).unwrap();
 				let complete = row.get::<_, bool>(1);
 				let count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
 				let depth = row.get::<_, Option<i64>>(3).map(|v| v.to_u64().unwrap());
@@ -172,9 +174,10 @@ impl Server {
 					depth,
 					weight,
 				};
-				Some((complete, metadata))
+				(id, (complete, metadata))
 			})
-			.collect();
-		Ok(outputs)
+			.collect::<HashMap<_, _, fnv::FnvBuildHasher>>();
+		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
+		Ok(output)
 	}
 }

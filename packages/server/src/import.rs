@@ -205,18 +205,19 @@ impl Server {
 			.iter()
 			.filter_map(|item| item.clone().right())
 			.collect::<Vec<_>>();
-		let (process_completes, object_completes) = futures::try_join!(
-			self.try_get_process_complete_batch(&processes),
-			self.try_get_object_complete_batch(&objects),
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let (process_outputs, object_outputs) = futures::try_join!(
+			self.try_touch_process_and_get_complete_and_metadata_batch(&processes, touched_at),
+			self.try_touch_object_and_get_complete_and_metadata_batch(&objects, touched_at),
 		)?;
-		let processes_complete = process_completes.iter().all(|option| {
-			option.as_ref().is_some_and(|process_complete| {
-				process_complete.children && process_complete.commands && process_complete.outputs
+		let processes_complete = process_outputs.iter().all(|option| {
+			option.as_ref().is_some_and(|(complete, _)| {
+				complete.children && complete.commands && complete.outputs
 			})
 		});
-		let objects_complete = object_completes
+		let objects_complete = object_outputs
 			.iter()
-			.all(|option| option.is_some_and(|object_complete| object_complete));
+			.all(|option| option.as_ref().is_some_and(|(complete, _)| *complete));
 		let complete = processes_complete && objects_complete;
 		Ok(complete)
 	}
@@ -310,64 +311,71 @@ impl Server {
 					};
 					for child_index in &node.children {
 						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let Some(child_inner) = &child_node.inner else {
-							continue;
+						let child_inner = if let Some(child_inner) = &child_node.inner {
+							let child_inner =
+								child_inner.try_unwrap_process_ref().ok().ok_or_else(|| {
+									tg::error!("all children of processes must be processes")
+								})?;
+							Some(child_inner)
+						} else {
+							None
 						};
-						let child_inner =
-							child_inner.try_unwrap_process_ref().ok().ok_or_else(|| {
-								tg::error!("all children of processes must be processes")
-							})?;
-						complete.children = complete.children && child_inner.complete.children;
+						complete.children = complete.children
+							&& child_inner.is_some_and(|inner| inner.complete.children);
 						metadata.children.count = metadata
 							.children
 							.count
-							.zip(child_inner.metadata.children.count)
+							.zip(child_inner.and_then(|inner| inner.metadata.children.count))
 							.map(|(a, b)| a + b);
 					}
 					for (object_index, object_kind) in &node.objects {
 						let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
-						let Some(object_inner) = &object_node.inner else {
-							continue;
+						let object_inner = if let Some(object_inner) = &object_node.inner {
+							let object_inner = object_inner
+								.try_unwrap_object_ref()
+								.ok()
+								.ok_or_else(|| tg::error!("expected an object"))?;
+							Some(object_inner)
+						} else {
+							None
 						};
-						let object_inner = object_inner
-							.try_unwrap_object_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected an object"))?;
 						match object_kind {
 							ProcessObjectKind::Command => {
-								complete.commands = complete.commands && object_inner.complete;
+								complete.commands = complete.commands
+									&& object_inner.is_some_and(|inner| inner.complete);
 								metadata.commands.count = metadata
 									.commands
 									.count
-									.zip(object_inner.metadata.count)
+									.zip(object_inner.and_then(|inner| inner.metadata.count))
 									.map(|(a, b)| a + b);
 								metadata.commands.depth = metadata
 									.commands
 									.depth
-									.zip(object_inner.metadata.depth)
+									.zip(object_inner.and_then(|inner| inner.metadata.depth))
 									.map(|(a, b)| a.max(b));
 								metadata.commands.weight = metadata
 									.commands
 									.weight
-									.zip(object_inner.metadata.weight)
+									.zip(object_inner.and_then(|inner| inner.metadata.weight))
 									.map(|(a, b)| a + b);
 							},
 							ProcessObjectKind::Output => {
-								complete.outputs = complete.outputs && object_inner.complete;
+								complete.outputs = complete.outputs
+									&& object_inner.is_some_and(|inner| inner.complete);
 								metadata.outputs.count = metadata
 									.outputs
 									.count
-									.zip(object_inner.metadata.count)
+									.zip(object_inner.and_then(|inner| inner.metadata.count))
 									.map(|(a, b)| a + b);
 								metadata.outputs.depth = metadata
 									.outputs
 									.depth
-									.zip(object_inner.metadata.depth)
+									.zip(object_inner.and_then(|inner| inner.metadata.depth))
 									.map(|(a, b)| a.max(b));
 								metadata.outputs.weight = metadata
 									.outputs
 									.weight
-									.zip(object_inner.metadata.weight)
+									.zip(object_inner.and_then(|inner| inner.metadata.weight))
 									.map(|(a, b)| a + b);
 							},
 							_ => {},
@@ -387,25 +395,27 @@ impl Server {
 					};
 					for child_index in &node.children {
 						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let Some(child_inner) = &child_node.inner else {
-							continue;
+						let child_inner = if let Some(child_inner) = &child_node.inner {
+							let child_inner = child_inner
+								.try_unwrap_object_ref()
+								.ok()
+								.ok_or_else(|| tg::error!("expected an object"))?;
+							Some(child_inner)
+						} else {
+							None
 						};
-						let child_inner = child_inner
-							.try_unwrap_object_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("all children of objects must be objects"))?;
-						complete = complete && child_inner.complete;
+						complete = complete && child_inner.is_some_and(|inner| inner.complete);
 						metadata.count = metadata
 							.count
-							.zip(child_inner.metadata.count)
+							.zip(child_inner.and_then(|inner| inner.metadata.count))
 							.map(|(a, b)| a + b);
 						metadata.depth = metadata
 							.depth
-							.zip(child_inner.metadata.depth)
+							.zip(child_inner.and_then(|inner| inner.metadata.depth))
 							.map(|(a, b)| a.max(1 + b));
 						metadata.weight = metadata
 							.weight
-							.zip(child_inner.metadata.weight)
+							.zip(child_inner.and_then(|inner| inner.metadata.weight))
 							.map(|(a, b)| a + b);
 					}
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
@@ -549,9 +559,14 @@ impl Server {
 		graph: Arc<Mutex<Graph>>,
 		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) {
-		// Get the completes and metadata.
+		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
-		let result = self.try_get_process_complete_and_metadata_batch(&ids).await;
+
+		// Touch the processes and get completes and metadata.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let result = self
+			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
+			.await;
 		let outputs = match result {
 			Ok(outputs) => outputs,
 			Err(error) => {
@@ -593,13 +608,21 @@ impl Server {
 		graph: Arc<Mutex<Graph>>,
 		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
 	) {
-		// Get the completes and metadata.
+		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
-		let result = self.try_get_object_complete_and_metadata_batch(&ids).await;
+
+		// Touch the objects and get completes and metadata.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let result = self
+			.try_touch_object_and_get_complete_and_metadata_batch(&ids, touched_at)
+			.await;
 		let outputs = match result {
 			Ok(outputs) => outputs,
 			Err(error) => {
-				tracing::error!(?error, "failed to get the object complete batch");
+				tracing::error!(
+					?error,
+					"failed to touch the objects and get completes and metadata"
+				);
 				return;
 			},
 		};

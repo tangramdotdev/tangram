@@ -113,10 +113,7 @@ impl Server {
 						let n = match result {
 							Ok(n) => n,
 							Err(error) => {
-								tracing::error!(
-									?error,
-									"failed to handle the reference count queue"
-								);
+								tracing::error!(?error, "failed to handle the index queue");
 								tokio::time::sleep(Duration::from_secs(1)).await;
 								continue;
 							},

@@ -5,6 +5,7 @@ use crate::Server;
 use futures::FutureExt as _;
 use indoc::indoc;
 use rusqlite as sqlite;
+use std::str::FromStr as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_either::Either;
@@ -654,16 +655,16 @@ impl Server {
 				from (
 					select
 						objects.id,
-						coalesce(min(child_objects.complete), 1) as complete,
-						1 + coalesce(sum(child_objects.count), 0) as count,
-						1 + coalesce(max(child_objects.depth), 0) as depth,
-						objects.size + coalesce(sum(child_objects.weight), 0) as weight
+						min(child_objects.complete) as complete,
+						1 + sum(child_objects.count) as count,
+						1 + max(child_objects.depth) as depth,
+						objects.size + sum(child_objects.weight) as weight
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
 					where objects.id = ?1
 					group by objects.id, objects.size
-					having coalesce(min(child_objects.complete), 1) = 1
+					having min(child_objects.complete) = 1
 				) as updates
 				where objects.id = updates.id
 				returning objects.complete;
@@ -694,15 +695,16 @@ impl Server {
 				let mut rows = update_complete_statement.query(params).map_err(|source| {
 					tg::error!(!source, "failed to execute the update complete statement")
 				})?;
-				let row = rows
-					.next()
-					.map_err(|source| {
-						tg::error!(!source, "failed to execute the update complete statement")
-					})?
-					.ok_or_else(|| tg::error!("expected a row"))?;
-				complete = row.get::<_, bool>(0).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the complete flag")
+				let row = rows.next().map_err(|source| {
+					tg::error!(!source, "failed to execute the update complete statement")
 				})?;
+				complete = if let Some(row) = row {
+					row.get::<_, bool>(0).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the complete flag")
+					})?
+				} else {
+					false
+				};
 			}
 
 			// If the object is complete, then enqueue incomplete parents and processes.
@@ -903,25 +905,25 @@ impl Server {
 
 		let statement = indoc!(
 			"
-			update processes
-			set
-				children_complete = updates.children_complete,
-				children_count = updates.children_count
-			from (
-				select
-					processes.id,
-					coalesce(min(child_processes.children_complete), 1) as children_complete,
-					1 + coalesce(sum(child_processes.children_count), 0) as children_count
-				from processes
-				left join process_children on process_children.process = processes.id
-				left join processes as child_processes on child_processes.id = process_children.child
-				where processes.id = ?1
-				group by processes.id
-				having coalesce(min(child_processes.children_complete), 1) = 1
-			) as updates
-			where processes.id = updates.id
-			returning children_complete;
-		"
+				update processes
+				set
+					children_complete = updates.children_complete,
+					children_count = updates.children_count
+				from (
+					select
+						processes.id,
+						coalesce(min(child_processes.children_complete), 0) as children_complete,
+						1 + sum(child_processes.children_count) as children_count
+					from processes
+					left join process_children on process_children.process = processes.id
+					left join processes as child_processes on child_processes.id = process_children.child
+					where processes.id = ?1
+					group by processes.id
+					having min(child_processes.children_complete) = 1
+				) as updates
+				where processes.id = updates.id
+				returning children_complete;
+			"
 		);
 		let mut update_children_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
@@ -930,19 +932,19 @@ impl Server {
 
 		let statement = indoc!(
 			"
-			update processes
-				set
-					commands_complete = updates.commands_complete,
-					commands_count = updates.commands_count,
-					commands_depth = updates.commands_depth,
-					commands_weight = updates.commands_weight
+				update processes
+					set
+						commands_complete = updates.commands_complete,
+						commands_count = updates.commands_count,
+						commands_depth = updates.commands_depth,
+						commands_weight = updates.commands_weight
 				from (
 					select
 						processes.id,
-						min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) as commands_complete,
-						coalesce(sum(command_objects.count), 0) + coalesce(sum(child_processes.commands_count), 0) as commands_count,
-						max(coalesce(max(command_objects.depth), 0), coalesce(max(child_processes.commands_depth), 0)) as commands_depth,
-						coalesce(sum(command_objects.weight), 0) + coalesce(sum(child_processes.commands_weight), 0) as commands_weight
+						min(coalesce(min(command_objects.complete), 0), coalesce(min(child_processes.commands_complete), 0)) as commands_complete,
+						sum(command_objects.count) + sum(child_processes.commands_count) as commands_count,
+						max(max(command_objects.depth), max(child_processes.commands_depth)) as commands_depth,
+						sum(command_objects.weight) + sum(child_processes.commands_weight) as commands_weight
 					from processes
 					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
 					left join objects command_objects on command_objects.id = process_objects_commands.object
@@ -950,11 +952,12 @@ impl Server {
 					left join processes child_processes on child_processes.id = process_children_commands.child
 					where processes.id = ?1
 					group by processes.id
-					having min(coalesce(min(command_objects.complete), 1), coalesce(min(child_processes.commands_complete), 1)) = 1
+					having min(min(command_objects.complete), min(child_processes.commands_complete)) = 1
 				) as updates
 				where processes.id = updates.id
 				returning commands_complete;
-			");
+			"
+		);
 		let mut update_commands_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update complete statement")
@@ -962,19 +965,19 @@ impl Server {
 
 		let statement = indoc!(
 			"
-			update processes
-			set
-				outputs_complete = updates.outputs_complete,
-				outputs_count = updates.outputs_count,
-				outputs_depth = updates.outputs_depth,
-				outputs_weight = updates.outputs_weight
+				update processes
+				set
+					outputs_complete = updates.outputs_complete,
+					outputs_count = updates.outputs_count,
+					outputs_depth = updates.outputs_depth,
+					outputs_weight = updates.outputs_weight
 				from (
 					select
 						processes.id,
 						min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) as outputs_complete,
-						coalesce(sum(output_objects.count), 0) + coalesce(sum(child_processes.outputs_count), 0) as outputs_count,
-						max(coalesce(max(output_objects.depth), 0), coalesce(max(child_processes.outputs_depth), 0)) as outputs_depth,
-						coalesce(sum(output_objects.weight), 0) + coalesce(sum(child_processes.outputs_weight), 0) as outputs_weight
+						sum(output_objects.count) + sum(child_processes.outputs_count) as outputs_count,
+						max(max(output_objects.depth), max(child_processes.outputs_depth)) as outputs_depth,
+						sum(output_objects.weight) + sum(child_processes.outputs_weight) as outputs_weight
 					from processes
 					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
 					left join objects output_objects on output_objects.id = process_objects_outputs.object
@@ -982,11 +985,12 @@ impl Server {
 					left join processes child_processes on child_processes.id = process_children_outputs.child
 					where processes.id = ?1
 					group by processes.id
-					having min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) = 1
+					having min(min(output_objects.complete), min(child_processes.outputs_complete)) = 1
 				) as updates
 				where processes.id = updates.id
 				returning outputs_complete;
-			");
+			"
+		);
 		let mut update_outputs_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update complete statement")
@@ -1001,15 +1005,16 @@ impl Server {
 						.map_err(|source| {
 							tg::error!(!source, "failed to execute the complete statement")
 						})?;
-					let row = rows
-						.next()
-						.map_err(|source| {
-							tg::error!(!source, "failed to execute the complete statement")
-						})?
-						.ok_or_else(|| tg::error!("expected a row"))?;
-					let mut children_complete = row.get::<_, bool>(0).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the children complete flag")
+					let row = rows.next().map_err(|source| {
+						tg::error!(!source, "failed to execute the complete statement")
 					})?;
+					let mut children_complete = if let Some(row) = row {
+						row.get::<_, bool>(0).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the children complete flag")
+						})?
+					} else {
+						false
+					};
 
 					if !children_complete {
 						let params = [item.process.to_bytes().to_vec()];
@@ -1022,18 +1027,19 @@ impl Server {
 										"failed to execute the update complete statement"
 									)
 								})?;
-						let row = rows
-							.next()
-							.map_err(|source| {
+						let row = rows.next().map_err(|source| {
+							tg::error!(!source, "failed to execute the update complete statement")
+						})?;
+						children_complete = if let Some(row) = row {
+							row.get::<_, bool>(0).map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the update complete statement"
+									"failed to deserialize the children complete flag"
 								)
 							})?
-							.ok_or_else(|| tg::error!("expected a row"))?;
-						children_complete = row.get::<_, bool>(0).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the children complete flag")
-						})?;
+						} else {
+							false
+						}
 					}
 
 					if children_complete {
@@ -1056,15 +1062,16 @@ impl Server {
 						.map_err(|source| {
 							tg::error!(!source, "failed to execute the complete statement")
 						})?;
-					let row = rows
-						.next()
-						.map_err(|source| {
-							tg::error!(!source, "failed to execute the complete statement")
-						})?
-						.ok_or_else(|| tg::error!("expected a row"))?;
-					let mut commands_complete = row.get::<_, bool>(0).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the commands complete flag")
+					let row = rows.next().map_err(|source| {
+						tg::error!(!source, "failed to execute the complete statement")
 					})?;
+					let mut commands_complete = if let Some(row) = row {
+						row.get::<_, bool>(0).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the commands complete flag")
+						})?
+					} else {
+						false
+					};
 
 					if !commands_complete {
 						let params = [item.process.to_bytes().to_vec()];
@@ -1077,18 +1084,19 @@ impl Server {
 										"failed to execute the update complete statement"
 									)
 								})?;
-						let row = rows
-							.next()
-							.map_err(|source| {
+						let row = rows.next().map_err(|source| {
+							tg::error!(!source, "failed to execute the update complete statement")
+						})?;
+						commands_complete = if let Some(row) = row {
+							row.get::<_, bool>(0).map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the update complete statement"
+									"failed to deserialize the children complete flag"
 								)
 							})?
-							.ok_or_else(|| tg::error!("expected a row"))?;
-						commands_complete = row.get::<_, bool>(0).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the children complete flag")
-						})?;
+						} else {
+							false
+						};
 					}
 
 					if commands_complete {
@@ -1109,15 +1117,16 @@ impl Server {
 					let mut rows = outputs_complete_statement.query(params).map_err(|source| {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
-					let row = rows
-						.next()
-						.map_err(|source| {
-							tg::error!(!source, "failed to execute the complete statement")
-						})?
-						.ok_or_else(|| tg::error!("expected a row"))?;
-					let mut outputs_complete = row.get::<_, bool>(0).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the commands complete flag")
+					let row = rows.next().map_err(|source| {
+						tg::error!(!source, "failed to execute the complete statement")
 					})?;
+					let mut outputs_complete = if let Some(row) = row {
+						row.get::<_, bool>(0).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the commands complete flag")
+						})?
+					} else {
+						false
+					};
 
 					if !outputs_complete {
 						let params = [item.process.to_bytes().to_vec()];
@@ -1130,18 +1139,19 @@ impl Server {
 										"failed to execute the update complete statement"
 									)
 								})?;
-						let row = rows
-							.next()
-							.map_err(|source| {
+						let row = rows.next().map_err(|source| {
+							tg::error!(!source, "failed to execute the update complete statement")
+						})?;
+						outputs_complete = if let Some(row) = row {
+							row.get::<_, bool>(0).map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the update complete statement"
+									"failed to deserialize the children complete flag"
 								)
 							})?
-							.ok_or_else(|| tg::error!("expected a row"))?;
-						outputs_complete = row.get::<_, bool>(0).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the children complete flag")
-						})?;
+						} else {
+							false
+						};
 					}
 
 					if outputs_complete {
@@ -1555,6 +1565,42 @@ impl Server {
 
 		Ok(count)
 	}
+}
+
+pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
+	connection.pragma_update(None, "auto_vaccum", "incremental")?;
+	connection.pragma_update(None, "busy_timeout", "5000")?;
+	connection.pragma_update(None, "cache_size", "-20000")?;
+	connection.pragma_update(None, "foreign_keys", "on")?;
+	connection.pragma_update(None, "journal_mode", "wal")?;
+	connection.pragma_update(None, "mmap_size", "2147483648")?;
+	connection.pragma_update(None, "recursive_triggers", "on")?;
+	connection.pragma_update(None, "synchronous", "normal")?;
+	connection.pragma_update(None, "temp_store", "memory")?;
+
+	let function = |context: &sqlite::functions::Context| -> sqlite::Result<sqlite::types::Value> {
+		let blob = context.get::<Vec<u8>>(0)?;
+		let id = tg::Id::from_slice(&blob)
+			.map_err(|source| sqlite::Error::UserFunctionError(source.into()))?;
+		let text = sqlite::types::Value::Text(id.to_string());
+		Ok(text)
+	};
+	let flags = sqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC
+		| sqlite::functions::FunctionFlags::SQLITE_UTF8;
+	connection.create_scalar_function("id_blob_to_text", 1, flags, function)?;
+
+	let function = |context: &sqlite::functions::Context| -> sqlite::Result<sqlite::types::Value> {
+		let text = context.get::<String>(0)?;
+		let id = tg::Id::from_str(&text)
+			.map_err(|source| sqlite::Error::UserFunctionError(source.into()))?;
+		let blob = sqlite::types::Value::Blob(id.to_bytes().to_vec());
+		Ok(blob)
+	};
+	let flags = sqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC
+		| sqlite::functions::FunctionFlags::SQLITE_UTF8;
+	connection.create_scalar_function("id_text_to_blob", 1, flags, function)?;
+
+	Ok(())
 }
 
 pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {

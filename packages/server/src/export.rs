@@ -182,8 +182,8 @@ impl Server {
 			let state = state.clone();
 			async move {
 				let mut stream = pin!(stream);
-				while let Some(complete) = stream.try_next().await? {
-					match complete {
+				while let Some(event) = stream.try_next().await? {
+					match event {
 						tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
 							let id = Either::Left(complete.id.clone());
 							let complete = complete.complete

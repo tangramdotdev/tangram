@@ -1,6 +1,6 @@
 use super::Output;
 use crate::Server;
-use indoc::{formatdoc, indoc};
+use indoc::indoc;
 use rusqlite as sqlite;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
@@ -24,12 +24,11 @@ impl Server {
 			pub commands_complete: bool,
 			pub outputs_complete: bool,
 		}
-		let p = connection.p();
-		let statement = formatdoc!(
+		let statement = indoc!(
 			"
 				select children_complete, commands_complete, outputs_complete
 				from processes
-				where id = {p}1;
+				where id = ?1;
 			",
 		);
 		let params = db::params![id.to_bytes()];
@@ -117,33 +116,40 @@ impl Server {
 		Ok(completes)
 	}
 
-	pub(crate) async fn try_get_process_complete_and_metadata_sqlite(
+	pub(crate) async fn try_touch_process_and_get_complete_and_metadata_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		id: &tg::process::Id,
+		touched_at: i64,
 	) -> tg::Result<Option<(Output, tg::process::Metadata)>> {
 		let connection = database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let output = connection
 			.with({
 				let id = id.to_owned();
 				move |connection| {
-					Self::try_get_process_complete_and_metadata_sqlite_sync(connection, &id)
+					Self::try_touch_process_and_get_complete_and_metadata_sqlite_sync(
+						connection, &id, touched_at,
+					)
 				}
 			})
 			.await?;
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_process_complete_and_metadata_sqlite_sync(
+	pub(crate) fn try_touch_process_and_get_complete_and_metadata_sqlite_sync(
 		index: &sqlite::Connection,
 		id: &tg::process::Id,
+		touched_at: i64,
 	) -> tg::Result<Option<(Output, tg::process::Metadata)>> {
 		let statement = indoc!(
 			"
-				select
+				update processes
+				set touched_at = max(?1, touched_at)
+				where id = ?2
+				returning
 					children_complete,
 					children_count,
 					commands_complete,
@@ -153,16 +159,15 @@ impl Server {
 					outputs_complete,
 					outputs_count,
 					outputs_depth,
-					outputs_weight
-				from processes
-				where id = ?1;
+					outputs_weight;
 			"
 		);
 		let mut statement = index
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let params = sqlite::params![touched_at, id.to_bytes().to_vec()];
 		let mut rows = statement
-			.query([id.to_string()])
+			.query(params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
@@ -229,23 +234,26 @@ impl Server {
 		Ok(Some((complete, metadata)))
 	}
 
-	pub(crate) async fn try_get_process_complete_and_metadata_batch_sqlite(
+	pub(crate) async fn try_touch_process_and_get_complete_and_metadata_batch_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		ids: &[tg::process::Id],
+		touched_at: i64,
 	) -> tg::Result<Vec<Option<(Output, tg::process::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let connection = database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let output = connection
 			.with({
 				let ids = ids.to_owned();
 				move |connection| {
-					Self::try_get_process_complete_and_metadata_batch_sqlite_sync(connection, &ids)
+					Self::try_get_process_complete_and_metadata_batch_sqlite_sync(
+						connection, &ids, touched_at,
+					)
 				}
 			})
 			.await?;
@@ -255,13 +263,17 @@ impl Server {
 	pub(crate) fn try_get_process_complete_and_metadata_batch_sqlite_sync(
 		connection: &sqlite::Connection,
 		ids: &[tg::process::Id],
+		touched_at: i64,
 	) -> tg::Result<Vec<Option<(Output, tg::process::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let statement = indoc!(
 			"
-				select
+				update processes
+				set touched_at = max(?1, touched_at)
+				where id = ?2
+				returning
 					children_complete,
 					children_count,
 					commands_complete,
@@ -271,17 +283,15 @@ impl Server {
 					outputs_complete,
 					outputs_count,
 					outputs_depth,
-					outputs_weight
-				from processes
-				where id = ?1;
+					outputs_weight;
 			"
 		);
 		let mut statement = connection
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let mut process_metadata = Vec::new();
+		let mut output = Vec::new();
 		for id in ids {
-			let params = sqlite::params![id.to_string()];
+			let params = sqlite::params![touched_at, id.to_bytes().to_vec()];
 			let mut rows = statement
 				.query(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -289,19 +299,19 @@ impl Server {
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			else {
-				process_metadata.push(None);
+				output.push(None);
 				continue;
 			};
 			let children_complete = row.get_unwrap::<_, u64>(0) != 0;
-			let children_count: Option<u64> = row.get_unwrap(1);
+			let children_count = row.get_unwrap(1);
 			let commands_complete = row.get_unwrap::<_, u64>(2) != 0;
-			let commands_count: Option<u64> = row.get_unwrap(3);
-			let commands_depth: Option<u64> = row.get_unwrap(4);
-			let commands_weight: Option<u64> = row.get_unwrap(5);
+			let commands_count = row.get_unwrap(3);
+			let commands_depth = row.get_unwrap(4);
+			let commands_weight = row.get_unwrap(5);
 			let outputs_complete = row.get_unwrap::<_, u64>(6) != 0;
-			let outputs_count: Option<u64> = row.get_unwrap(7);
-			let outputs_depth: Option<u64> = row.get_unwrap(8);
-			let outputs_weight: Option<u64> = row.get_unwrap(9);
+			let outputs_count = row.get_unwrap(7);
+			let outputs_depth = row.get_unwrap(8);
+			let outputs_weight = row.get_unwrap(9);
 			let complete = Output {
 				children: children_complete,
 				commands: commands_complete,
@@ -325,8 +335,8 @@ impl Server {
 				commands,
 				outputs,
 			};
-			process_metadata.push(Some((complete, metadata)));
+			output.push(Some((complete, metadata)));
 		}
-		Ok(process_metadata)
+		Ok(output)
 	}
 }
