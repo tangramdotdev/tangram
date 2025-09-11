@@ -105,4 +105,30 @@ async fn test(artifact: temp::Artifact) {
 	let local_object = std::str::from_utf8(&local_object_output.stdout).unwrap();
 	let remote_object = std::str::from_utf8(&remote_object_output.stdout).unwrap();
 	assert_eq!(local_object, remote_object);
+
+	// Get the metadata.
+	let local_metadata_output = local_server
+		.tg()
+		.arg("object")
+		.arg("metadata")
+		.arg(id)
+		.arg("--pretty")
+		.arg("true")
+		.output()
+		.await
+		.unwrap();
+	let _ = remote_server
+	.tg()
+	.arg("index").output().await;
+	let remote_metadata_output = remote_server
+		.tg()
+		.arg("object")
+		.arg("metadata")
+		.arg(id)
+		.arg("--pretty")
+		.arg("true")
+		.output()
+		.await
+		.unwrap();
+	assert_eq!(local_metadata_output, remote_metadata_output);
 }
