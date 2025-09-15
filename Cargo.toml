@@ -108,7 +108,7 @@ notify = "8"
 num = "0.4"
 num-derive = "0.4"
 oauth2 = "5.0.0"
-octocrab = "0.44"
+octocrab = "0.45"
 owo-colors = "4"
 petgraph = "0.8"
 pin-project = "1"
@@ -130,7 +130,7 @@ rusqlite = { version = "0.37", features = ["blob", "bundled", "functions"] }
 rustls = "0.23"
 scopeguard = "1"
 scylla = "1"
-serde = { version = "1", features = ["rc", "derive"] }
+serde = { version = "=1.0.219", features = ["rc", "derive"] }
 serde_json = "1"
 serde_repr = "0.1"
 serde_urlencoded = "0.7"
@@ -139,7 +139,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "39", features = [
+swc_core = { version = "42", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
