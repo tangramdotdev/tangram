@@ -658,7 +658,7 @@ impl Server {
 						case
 							when count(object_children.child) = 0
 								then 1
-							when bool_and(child_objects.complete)
+							when min(child_objects.complete)
 								then 1
 							else 0
 						end as complete,
@@ -672,7 +672,7 @@ impl Server {
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id
-				and updates.complete = true
+				and updates.complete = 1
 				returning objects.complete;
 			"
 		);
@@ -927,7 +927,7 @@ impl Server {
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.children_complete = true
+				and updates.children_complete = 1
 				returning children_complete;
 			"
 		);
@@ -948,10 +948,11 @@ impl Server {
 					select
 						processes.id,
 						case
-							when bool_and(coalesce(command_objects.complete, false))
+							when
+								min(coalesce(command_objects.complete, 0))
 								and (count(process_children_commands.child) = 0
-								  or bool_and(coalesce(child_processes.commands_complete, false)))
-							then 1
+								or min(coalesce(child_processes.commands_complete, 0)))
+								then 1
 							else 0
 						end as commands_complete,
 						sum(command_objects.count) + sum(child_processes.commands_count) as commands_count,
@@ -966,7 +967,7 @@ impl Server {
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.commands_complete = true
+				and updates.commands_complete = 1
 				returning commands_complete;
 			"
 		);
@@ -987,11 +988,12 @@ impl Server {
 					select
 						processes.id,
 						case
-							when bool_and(coalesce(output_objects.complete, false))
+							when
+								min(coalesce(output_objects.complete, 0))
 								and (count(process_children_outputs.child) = 0
-								or bool_and(coalesce(child_processes.outputs_complete, false)))
-							then true
-							else false
+								or min(coalesce(child_processes.outputs_complete, 0)))
+								then 1
+							else 0
 						end as outputs_complete,
 						sum(output_objects.count) + sum(child_processes.outputs_count) as outputs_count,
 						max(max(output_objects.depth), max(child_processes.outputs_depth)) as outputs_depth,
@@ -1005,7 +1007,7 @@ impl Server {
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.outputs_complete = true
+				and updates.outputs_complete = 1
 				returning outputs_complete;
 			"
 		);
