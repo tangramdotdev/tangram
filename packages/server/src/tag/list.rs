@@ -73,11 +73,16 @@ impl Server {
 			.find(|(_, c)| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | '/')))
 			.map_or(arg.pattern.as_str().len(), |(i, _)| i);
 		let prefix = &arg.pattern.as_str()[..prefix];
+		let ff = match connection {
+			#[cfg(feature = "postgres")]
+			crate::database::Connection::Postgres(_) => "chr(255)",
+			crate::database::Connection::Sqlite(_) => "x'ff'",
+		};
 		let statement = formatdoc!(
 			"
 				select tag, item
 				from tags
-				where tag >= {p}1 and tag < {p}1 || x'ff';
+				where tag >= {p}1 and tag < {p}1 || {ff};
 			"
 		);
 		let params = db::params![prefix];
