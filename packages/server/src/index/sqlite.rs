@@ -662,9 +662,9 @@ impl Server {
 								then 1
 							else 0
 						end as complete,
-						1 + sum(child_objects.count) as count,
-						1 + max(child_objects.depth) as depth,
-						objects.size + sum(child_objects.weight) as weight
+					1 + coalesce(sum(coalesce(child_objects.count, 0)), 0) as count,
+					1 + coalesce(max(coalesce(child_objects.depth, 0)), 0) as depth,
+					objects.size + coalesce(sum(coalesce(child_objects.weight, 0)), 0) as weight
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
@@ -918,8 +918,14 @@ impl Server {
 				from (
 					select
 						processes.id,
-						coalesce(min(child_processes.children_complete), 0) as children_complete,
-						1 + sum(child_processes.children_count) as children_count
+					case
+						when count(child_processes.id) = 0
+							then 1
+						when min(coalesce(child_processes.children_complete, 0)) = 1
+							then 1
+						else 0
+					end as children_complete,
+					1 + coalesce(sum(coalesce(child_processes.children_count, 0)), 0) as children_count
 					from processes
 					left join process_children on process_children.process = processes.id
 					left join processes as child_processes on child_processes.id = process_children.child
@@ -955,9 +961,12 @@ impl Server {
 								then 1
 							else 0
 						end as commands_complete,
-						sum(command_objects.count) + sum(child_processes.commands_count) as commands_count,
-						max(max(command_objects.depth), max(child_processes.commands_depth)) as commands_depth,
-						sum(command_objects.weight) + sum(child_processes.commands_weight) as commands_weight
+					coalesce(sum(coalesce(command_objects.count, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.commands_count, 0)), 0) as commands_count,
+					max(coalesce(command_objects.depth, 0),
+					coalesce(child_processes.commands_depth, 0)) as commands_depth,
+					coalesce(sum(coalesce(command_objects.weight, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.commands_weight, 0)), 0) as commands_weight
 					from processes
 					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
 					left join objects command_objects on command_objects.id = process_objects_commands.object
@@ -995,9 +1004,12 @@ impl Server {
 								then 1
 							else 0
 						end as outputs_complete,
-						sum(output_objects.count) + sum(child_processes.outputs_count) as outputs_count,
-						max(max(output_objects.depth), max(child_processes.outputs_depth)) as outputs_depth,
-						sum(output_objects.weight) + sum(child_processes.outputs_weight) as outputs_weight
+					coalesce(sum(coalesce(output_objects.count, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.outputs_count, 0)), 0) as outputs_count,
+					max(coalesce(output_objects.depth, 0),
+					coalesce(child_processes.outputs_depth, 0)) as outputs_depth,
+					coalesce(sum(coalesce(output_objects.weight, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.outputs_weight, 0)), 0) as outputs_weight
 					from processes
 					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
 					left join objects output_objects on output_objects.id = process_objects_outputs.object
