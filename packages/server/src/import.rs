@@ -1,25 +1,26 @@
-use self::{graph::Graph, progress::Progress};
-use crate::{Server, index::message::ProcessObjectKind, store::Store};
+use self::{
+	graph::{Graph, NodeInner},
+	progress::Progress,
+};
+use crate::Server;
 use futures::{
 	FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
 };
-use graph::NodeInner;
-use num::ToPrimitive as _;
 use std::{
-	collections::BTreeMap,
-	pin::{Pin, pin},
+	pin::Pin,
 	sync::{Arc, Mutex},
 };
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::{stream::Ext as _, task::Stop};
 use tangram_http::{Body, request::Ext as _};
-use tangram_messenger::prelude::*;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
 
 mod graph;
+mod index;
 mod progress;
+mod store;
 
 const PROCESS_COMPLETE_BATCH_SIZE: usize = 8;
 const PROCESS_COMPLETE_CONCURRENCY: usize = 8;
@@ -59,12 +60,15 @@ impl Server {
 			tokio::sync::mpsc::channel::<tg::export::ProcessItem>(256);
 		let (object_index_sender, object_index_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::ObjectItem>(256);
-		let (process_sender, process_receiver) =
+		let (process_store_sender, process_store_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::ProcessItem>(256);
-		let (object_sender, object_receiver) =
+		let (object_store_sender, object_store_receiver) =
 			tokio::sync::mpsc::channel::<tg::export::ObjectItem>(256);
 
-		// Spawn the import index task.
+		// Create the graph.
+		let graph = Arc::new(Mutex::new(Graph::new()));
+
+		// Spawn the index task.
 		self.import_index_tasks
 			.lock()
 			.unwrap()
@@ -72,44 +76,46 @@ impl Server {
 			.unwrap()
 			.spawn({
 				let server = self.clone();
+				let graph = graph.clone();
 				let event_sender = event_sender.clone();
 				async move {
-					if let Err(error) = server
+					let result = server
 						.import_index_task(
+							graph,
 							process_index_receiver,
 							object_index_receiver,
 							event_sender,
 						)
-						.await
-					{
-						tracing::error!(?error, "the import index task failed");
+						.await;
+					if let Err(error) = result {
+						tracing::error!(?error, "the index task failed");
 					}
 				}
 			});
 
-		// Spawn the processes task.
-		let processes_task = AbortOnDropHandle::new(tokio::spawn({
+		// Spawn the store task.
+		let store_task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
+			let graph = graph.clone();
 			let progress = progress.clone();
 			async move {
 				server
-					.import_processes_task(process_receiver, &progress)
+					.import_store_task(
+						graph,
+						process_store_receiver,
+						object_store_receiver,
+						progress,
+					)
 					.await
 			}
 		}));
 
-		// Spawn the objects task.
-		let objects_task = AbortOnDropHandle::new(tokio::spawn({
-			let server = self.clone();
-			let progress = progress.clone();
-			async move { server.import_objects_task(object_receiver, &progress).await }
-		}));
-
-		// Spawn a task that sends items from the stream to the other tasks.
+		// Spawn a task that sends items from the stream to the index and store tasks.
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let event_sender = event_sender.clone();
 			async move {
 				// Read the items from the stream and send them to the tasks.
+				let mut success = true;
 				loop {
 					let event = match stream.try_next().await {
 						Ok(Some(event)) => event,
@@ -134,12 +140,18 @@ impl Server {
 					};
 					let (process_send_future, object_send_future) = match item {
 						tg::export::Item::Process(item) => (
-							process_sender.send(item).map_err(|_| ()).left_future(),
+							process_store_sender
+								.send(item)
+								.map_err(|_| ())
+								.left_future(),
 							future::ok(()).left_future(),
 						),
 						tg::export::Item::Object(item) => (
 							future::ok(()).right_future(),
-							object_sender.send(item).map_err(|_| ()).right_future(),
+							object_store_sender
+								.send(item)
+								.map_err(|_| ())
+								.right_future(),
 						),
 					};
 					let result = futures::try_join!(
@@ -148,29 +160,34 @@ impl Server {
 						object_send_future
 					);
 					if result.is_err() {
-						event_sender
-							.send(Err(tg::error!(?result, "failed to send the item")))
-							.await
-							.ok();
-						return;
+						success = false;
 					}
 				}
 
-				// Close the channels
+				// Close the store channels.
+				drop(process_store_sender);
+				drop(object_store_sender);
+
+				// Await the store task.
+				let result = store_task.await;
+
+				// Close the index channels.
 				drop(process_index_sender);
 				drop(object_index_sender);
-				drop(process_sender);
-				drop(object_sender);
-
-				// Join the processes and objects tasks.
-				let result = futures::try_join!(processes_task, objects_task);
 
 				match result {
-					Ok((Ok(()), Ok(()))) => {
+					Ok(Ok(())) => {
+						if !success {
+							event_sender
+								.send(Err(tg::error!(?result, "failed to send the item")))
+								.await
+								.ok();
+							return;
+						}
 						let event = tg::import::Event::End;
 						event_sender.send(Ok(event)).await.ok();
 					},
-					Ok((_, Err(error)) | (Err(error), _)) => {
+					Ok(Err(error)) => {
 						event_sender.send(Err(error)).await.ok();
 					},
 					Err(error) => {
@@ -222,542 +239,6 @@ impl Server {
 		Ok(complete)
 	}
 
-	async fn import_index_task(
-		&self,
-		process_complete_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
-		object_complete_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
-		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
-	) -> tg::Result<()> {
-		// Create the graph.
-		let graph = Arc::new(Mutex::new(Graph::new()));
-
-		// Create the process future.
-		let process_stream = ReceiverStream::new(process_complete_receiver);
-		let process_stream = pin!(process_stream);
-		let process_future = process_stream
-			.ready_chunks(PROCESS_COMPLETE_BATCH_SIZE)
-			.for_each_concurrent(PROCESS_COMPLETE_CONCURRENCY, {
-				let server = self.clone();
-				let graph = graph.clone();
-				let event_sender = event_sender.clone();
-				move |items| {
-					let server = server.clone();
-					let graph = graph.clone();
-					let event_sender = event_sender.clone();
-					async move {
-						server
-							.import_index_task_process_batch(items, graph, event_sender)
-							.await;
-					}
-				}
-			});
-
-		// Create the object future.
-		let object_stream = ReceiverStream::new(object_complete_receiver);
-		let object_stream = pin!(object_stream);
-		let object_future = object_stream
-			.ready_chunks(OBJECT_COMPLETE_BATCH_SIZE)
-			.for_each_concurrent(OBJECT_COMPLETE_CONCURRENCY, {
-				let server = self.clone();
-				let graph = graph.clone();
-				let event_sender = event_sender.clone();
-				move |ids| {
-					let server = server.clone();
-					let graph = graph.clone();
-					let event_sender = event_sender.clone();
-					async move {
-						server
-							.import_index_task_object_batch(ids, graph, event_sender)
-							.await;
-					}
-				}
-			});
-
-		// Join the futures.
-		futures::join!(process_future, object_future);
-
-		// Get the graph.
-		let mut graph = Arc::into_inner(graph).unwrap().into_inner().unwrap();
-
-		// Get a topological ordering.
-		let toposort = petgraph::algo::toposort(&graph, None)
-			.map_err(|_| tg::error!("failed to toposort the graph"))?;
-
-		// Set the items' complete and metadata.
-		for index in toposort.into_iter().rev() {
-			let (_, node) = graph.nodes.get_index(index).unwrap();
-			let Some(node_inner) = &node.inner else {
-				continue;
-			};
-			match node_inner {
-				NodeInner::Process(node) => {
-					let mut complete = crate::process::complete::Output {
-						children: true,
-						commands: true,
-						outputs: true,
-					};
-					let mut metadata = tg::process::Metadata {
-						children: tg::process::metadata::Children { count: Some(1) },
-						commands: tg::object::Metadata {
-							count: Some(0),
-							depth: Some(0),
-							weight: Some(0),
-						},
-						outputs: tg::object::Metadata {
-							count: Some(0),
-							depth: Some(0),
-							weight: Some(0),
-						},
-					};
-					for child_index in &node.children {
-						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let child_inner = if let Some(child_inner) = &child_node.inner {
-							let child_inner =
-								child_inner.try_unwrap_process_ref().ok().ok_or_else(|| {
-									tg::error!("all children of processes must be processes")
-								})?;
-							Some(child_inner)
-						} else {
-							None
-						};
-						complete.children = complete.children
-							&& child_inner.is_some_and(|inner| inner.complete.children);
-						metadata.children.count = metadata
-							.children
-							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.children.count))
-							.map(|(a, b)| a + b);
-					}
-					for (object_index, object_kind) in &node.objects {
-						let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
-						let object_inner = if let Some(object_inner) = &object_node.inner {
-							let object_inner = object_inner
-								.try_unwrap_object_ref()
-								.ok()
-								.ok_or_else(|| tg::error!("expected an object"))?;
-							Some(object_inner)
-						} else {
-							None
-						};
-						match object_kind {
-							ProcessObjectKind::Command => {
-								complete.commands = complete.commands
-									&& object_inner.is_some_and(|inner| inner.complete);
-								metadata.commands.count = metadata
-									.commands
-									.count
-									.zip(object_inner.and_then(|inner| inner.metadata.count))
-									.map(|(a, b)| a + b);
-								metadata.commands.depth = metadata
-									.commands
-									.depth
-									.zip(object_inner.and_then(|inner| inner.metadata.depth))
-									.map(|(a, b)| a.max(b));
-								metadata.commands.weight = metadata
-									.commands
-									.weight
-									.zip(object_inner.and_then(|inner| inner.metadata.weight))
-									.map(|(a, b)| a + b);
-							},
-							ProcessObjectKind::Output => {
-								complete.outputs = complete.outputs
-									&& object_inner.is_some_and(|inner| inner.complete);
-								metadata.outputs.count = metadata
-									.outputs
-									.count
-									.zip(object_inner.and_then(|inner| inner.metadata.count))
-									.map(|(a, b)| a + b);
-								metadata.outputs.depth = metadata
-									.outputs
-									.depth
-									.zip(object_inner.and_then(|inner| inner.metadata.depth))
-									.map(|(a, b)| a.max(b));
-								metadata.outputs.weight = metadata
-									.outputs
-									.weight
-									.zip(object_inner.and_then(|inner| inner.metadata.weight))
-									.map(|(a, b)| a + b);
-							},
-							_ => {},
-						}
-					}
-					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
-					let node_inner = node.inner.as_mut().unwrap().unwrap_process_mut();
-					node_inner.complete = complete;
-					node_inner.metadata = metadata;
-				},
-				NodeInner::Object(node) => {
-					let mut complete = true;
-					let mut metadata = tg::object::Metadata {
-						count: Some(1),
-						depth: Some(1),
-						weight: Some(node.size),
-					};
-					for child_index in &node.children {
-						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let child_inner = if let Some(child_inner) = &child_node.inner {
-							let child_inner = child_inner
-								.try_unwrap_object_ref()
-								.ok()
-								.ok_or_else(|| tg::error!("expected an object"))?;
-							Some(child_inner)
-						} else {
-							None
-						};
-						complete = complete && child_inner.is_some_and(|inner| inner.complete);
-						metadata.count = metadata
-							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.count))
-							.map(|(a, b)| a + b);
-						metadata.depth = metadata
-							.depth
-							.zip(child_inner.and_then(|inner| inner.metadata.depth))
-							.map(|(a, b)| a.max(1 + b));
-						metadata.weight = metadata
-							.weight
-							.zip(child_inner.and_then(|inner| inner.metadata.weight))
-							.map(|(a, b)| a + b);
-					}
-					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
-					let node_inner = node.inner.as_mut().unwrap().unwrap_object_mut();
-					node_inner.complete = complete;
-					node_inner.metadata = metadata;
-				},
-			}
-		}
-
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-
-		// Create the messages.
-		let mut messages = BTreeMap::new();
-		let mut stack = graph
-			.nodes
-			.iter()
-			.enumerate()
-			.filter_map(|(index, (_, node))| node.parents.is_empty().then_some((index, 0)))
-			.collect::<Vec<_>>();
-		while let Some((index, level)) = stack.pop() {
-			let (id, node) = graph.nodes.get_index(index).unwrap();
-			let Some(node_inner) = &node.inner else {
-				continue;
-			};
-			match node_inner {
-				NodeInner::Process(node) => {
-					let id = id.unwrap_process_ref().clone();
-					let children = node
-						.children
-						.iter()
-						.map(|index| {
-							graph
-								.nodes
-								.get_index(*index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_process()
-						})
-						.collect();
-					let complete = node.complete.clone();
-					let metadata = node.metadata.clone();
-					let objects = node
-						.objects
-						.iter()
-						.copied()
-						.map(|(index, kind)| {
-							let id = graph
-								.nodes
-								.get_index(index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_object();
-							(id, kind)
-						})
-						.collect();
-					let message =
-						crate::index::Message::PutProcess(crate::index::message::PutProcess {
-							children,
-							complete,
-							id,
-							metadata,
-							objects,
-							touched_at,
-						});
-					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(node.children.iter().map(|index| (*index, level + 1)));
-				},
-				NodeInner::Object(node) => {
-					let id = id.unwrap_object_ref().clone();
-					let children = node
-						.children
-						.iter()
-						.map(|index| {
-							graph
-								.nodes
-								.get_index(*index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_object()
-						})
-						.collect();
-					let message =
-						crate::index::Message::PutObject(crate::index::message::PutObject {
-							cache_entry: None,
-							children,
-							complete: node.complete,
-							id,
-							metadata: node.metadata.clone(),
-							size: node.size,
-							touched_at,
-						});
-					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(node.children.iter().map(|index| (*index, level + 1)));
-				},
-			}
-		}
-
-		// Batch and serialize the messages.
-		let mut batched = BTreeMap::new();
-		for (level, messages) in messages {
-			let mut batches = Vec::new();
-			let mut messages = messages.into_iter().peekable();
-			while let Some(message) = messages.next() {
-				let message = message.serialize()?;
-				let mut batch = message.to_vec();
-				while let Some(message) = messages.peek() {
-					let message = message.serialize()?;
-					if batch.len() + message.len() <= INDEX_MESSAGE_MAX_BYTES {
-						messages.next().unwrap();
-						batch.extend_from_slice(&message);
-					} else {
-						break;
-					}
-				}
-				batches.push(batch.into());
-			}
-			batched.insert(level, batches);
-		}
-		let messages = batched;
-
-		// Publish the messages.
-		for messages in messages.into_values().rev() {
-			self.messenger
-				.stream_batch_publish("index".to_owned(), messages)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
-		}
-
-		Ok(())
-	}
-
-	async fn import_index_task_process_batch(
-		&self,
-		items: Vec<tg::export::ProcessItem>,
-		graph: Arc<Mutex<Graph>>,
-		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
-	) {
-		// Get the ids.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
-
-		// Touch the processes and get completes and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let result = self
-			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
-			.await;
-		let outputs = match result {
-			Ok(outputs) => outputs,
-			Err(error) => {
-				tracing::error!(?error, "failed to get the process complete batch");
-				return;
-			},
-		};
-
-		// Handle each item.
-		for (item, output) in std::iter::zip(items, outputs) {
-			let (complete, metadata) = output.unwrap_or((
-				crate::process::complete::Output::default(),
-				tg::process::Metadata::default(),
-			));
-
-			// Update the graph.
-			graph
-				.lock()
-				.unwrap()
-				.update_process(&item.id, &item.data, complete.clone(), metadata);
-
-			// If the process is complete, then send the complete event.
-			if complete.children || complete.commands || complete.outputs {
-				let complete = tg::import::Complete::Process(tg::import::ProcessComplete {
-					commands_complete: complete.commands,
-					complete: complete.children,
-					id: item.id,
-					outputs_complete: complete.outputs,
-				});
-				let event = tg::import::Event::Complete(complete);
-				event_sender.send(Ok(event)).await.ok();
-			}
-		}
-	}
-
-	async fn import_index_task_object_batch(
-		&self,
-		items: Vec<tg::export::ObjectItem>,
-		graph: Arc<Mutex<Graph>>,
-		event_sender: tokio::sync::mpsc::Sender<tg::Result<tg::import::Event>>,
-	) {
-		// Get the ids.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
-
-		// Touch the objects and get completes and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let result = self
-			.try_touch_object_and_get_complete_and_metadata_batch(&ids, touched_at)
-			.await;
-		let outputs = match result {
-			Ok(outputs) => outputs,
-			Err(error) => {
-				tracing::error!(
-					?error,
-					"failed to touch the objects and get completes and metadata"
-				);
-				return;
-			},
-		};
-
-		// Handle each item.
-		for (item, output) in std::iter::zip(items, outputs) {
-			let (complete, metadata) = output.unwrap_or((false, tg::object::Metadata::default()));
-
-			// Update the graph.
-			graph
-				.lock()
-				.unwrap()
-				.update_object(&item.id, &item.data, complete, metadata);
-
-			// If the object is complete, then send the complete event.
-			if complete {
-				let complete =
-					tg::import::Complete::Object(tg::import::ObjectComplete { id: item.id });
-				let event = tg::import::Event::Complete(complete);
-				event_sender.send(Ok(event)).await.ok();
-			}
-		}
-	}
-
-	async fn import_processes_task(
-		&self,
-		process_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
-		progress: &Progress,
-	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(process_receiver);
-		let mut stream = pin!(stream);
-		while let Some(item) = stream.next().await {
-			let arg = tg::process::put::Arg { data: item.data };
-			self.put_process(&item.id, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
-			progress.increment_processes();
-		}
-		Ok(())
-	}
-
-	async fn import_objects_task(
-		&self,
-		object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
-		progress: &Arc<Progress>,
-	) -> tg::Result<()> {
-		// Choose the batch parameters.
-		let (concurrency, max_objects_per_batch, max_bytes_per_batch) = match &self.store {
-			#[cfg(feature = "foundationdb")]
-			Store::Fdb(_) => (64, 1_000, 1_000_000),
-			Store::Lmdb(_) => (1, 1_000, 1_000_000),
-			Store::Memory(_) => (1, 1, u64::MAX),
-			Store::S3(_) => (256, 1, u64::MAX),
-		};
-
-		// Create a stream of batches.
-		struct State {
-			item: Option<tg::export::ObjectItem>,
-			object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
-		}
-		let state = State {
-			item: None,
-			object_receiver,
-		};
-		let stream = stream::unfold(state, |mut state| async {
-			let mut batch_bytes = state
-				.item
-				.as_ref()
-				.map(|item| item.size)
-				.unwrap_or_default();
-			let mut batch = state.item.take().map(|item| vec![item]).unwrap_or_default();
-			while let Some(item) = state.object_receiver.recv().await {
-				let size = item.size;
-				if !batch.is_empty()
-					&& (batch.len() + 1 >= max_objects_per_batch
-						|| batch_bytes + size >= max_bytes_per_batch)
-				{
-					state.item.replace(item);
-					return Some((batch, state));
-				}
-				batch_bytes += 100 + size;
-				batch.push(item);
-			}
-			if batch.is_empty() {
-				return None;
-			}
-			Some((batch, state))
-		});
-
-		// Write the batches.
-		stream
-			.map(Ok)
-			.try_for_each_concurrent(concurrency, |batch| {
-				self.import_objects_task_inner(batch, progress)
-			})
-			.await?;
-
-		Ok(())
-	}
-
-	async fn import_objects_task_inner(
-		&self,
-		items: Vec<tg::export::ObjectItem>,
-		progress: &Arc<Progress>,
-	) -> tg::Result<()> {
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-
-		// Store the items.
-		let args = items
-			.clone()
-			.into_iter()
-			.map(|item| {
-				let bytes = item
-					.data
-					.serialize()
-					.map_err(|source| tg::error!(!source, "failed to serialize object data"))?;
-				Ok(crate::store::PutArg {
-					id: item.id,
-					bytes: Some(bytes),
-					cache_reference: None,
-					touched_at,
-				})
-			})
-			.collect::<tg::Result<_>>()?;
-		self.store.put_batch(args).await?;
-
-		// Update the progress.
-		let objects = items.len().to_u64().unwrap();
-		let bytes = items.iter().map(|item| item.size).sum();
-		progress.increment_objects(objects);
-		progress.increment_bytes(bytes);
-
-		Ok(())
-	}
-
 	pub(crate) async fn handle_import_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
@@ -766,10 +247,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		// Parse the arg.
-		let arg = request
-			.query_params()
-			.transpose()?
-			.ok_or_else(|| tg::error!("query parameters required"))?;
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the accept header.
 		let accept = request

@@ -901,6 +901,14 @@ impl Cli {
 						url: s3.url,
 					})
 				},
+				config::Store::Scylla(scylla) => {
+					tangram_server::config::Store::Scylla(tangram_server::config::ScyllaStore {
+						addr: scylla.addr,
+						keyspace: scylla.keyspace,
+						password: scylla.password,
+						username: scylla.username,
+					})
+				},
 			};
 		}
 

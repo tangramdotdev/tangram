@@ -1,7 +1,6 @@
 use crate::Cli;
 use futures::future;
 use tangram_client::{self as tg, prelude::*};
-use tangram_either::Either;
 
 /// Pull processes and objects.
 #[derive(Clone, Debug, clap::Args)]
@@ -34,9 +33,11 @@ impl Cli {
 		let referents = self.get_references(&args.references).await?;
 		let items = referents
 			.into_iter()
-			.map(|referent| match referent.item {
-				Either::Left(process) => Either::Left(process.id().clone()),
-				Either::Right(object) => Either::Right(object.id().clone()),
+			.map(|referent| {
+				referent
+					.item
+					.map_left(|process| process.id().clone())
+					.map_right(|object| object.id().clone())
 			})
 			.collect::<Vec<_>>();
 

@@ -2,7 +2,6 @@ use crate::Cli;
 use futures::{StreamExt as _, TryStreamExt as _, future};
 use std::pin::pin;
 use tangram_client::{self as tg, prelude::*};
-use tangram_either::Either;
 use tokio::io::AsyncWriteExt as _;
 
 /// Export processes and objects.
@@ -40,10 +39,10 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item {
-			Either::Left(process) => Either::Left(process.id().clone()),
-			Either::Right(object) => Either::Right(object.id()),
-		};
+		let item = referent
+			.item
+			.map_left(|process| process.id().clone())
+			.map_right(|object| object.id().clone());
 
 		// Create the import stream.
 		let stdin = crate::util::stdio::stdin();

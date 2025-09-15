@@ -30,9 +30,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
 		let referent = self.get_reference(&args.reference).await?;
-		let referent = referent.map(|item| match item {
-			Either::Left(process) => Either::Left(process.id().clone()),
-			Either::Right(object) => Either::Right(object.id().clone()),
+		let referent = referent.map(|item| {
+			item.map_left(|process| process.id().clone())
+				.map_right(|object| object.id().clone())
 		});
 		eprintln!("{} {referent}", "info".blue().bold());
 		match referent.item {

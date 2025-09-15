@@ -20,6 +20,7 @@ format = ["tangram_server/format"]
 foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
+scylla = ["tangram_server/scylla"]
 v8 = ["dep:v8", "tangram_server/v8"]
 
 [lints]

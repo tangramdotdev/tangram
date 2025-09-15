@@ -7,6 +7,7 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
 	pub master: bool,
 }
 

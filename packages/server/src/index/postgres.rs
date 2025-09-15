@@ -323,7 +323,6 @@ impl Server {
 				);
 			"
 		);
-
 		transaction
 			.inner()
 			.execute(
