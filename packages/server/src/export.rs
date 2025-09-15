@@ -595,8 +595,9 @@ impl Server {
 		}
 
 		// Get the process
-		let data = Self::try_get_process_sqlite_sync(&state.database, &process)?
-			.ok_or_else(|| tg::error!("failed to find the process"))?;
+		let tg::process::get::Output { data } =
+			Self::try_get_process_sqlite_sync(&state.database, &process)?
+				.ok_or_else(|| tg::error!("failed to find the process"))?;
 
 		// Enqueue the children.
 		if state.arg.recursive {
@@ -863,10 +864,7 @@ impl Server {
 		H: tg::Handle,
 	{
 		// Parse the arg.
-		let arg = request
-			.query_params()
-			.transpose()?
-			.unwrap_or_default();
+		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the accept header.
 		let accept = request
