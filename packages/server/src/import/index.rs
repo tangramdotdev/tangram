@@ -285,6 +285,7 @@ impl Server {
 						});
 					messages.entry(level).or_insert(Vec::new()).push(message);
 					stack.extend(node.children.iter().map(|index| (*index, level + 1)));
+					stack.extend(node.objects.iter().map(|(index, _)| (*index, level + 1)));
 				},
 				NodeInner::Object(node) => {
 					let id = id.unwrap_object_ref().clone();
