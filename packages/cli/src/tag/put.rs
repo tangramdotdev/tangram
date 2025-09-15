@@ -16,7 +16,7 @@ pub struct Args {
 	pub remote: Option<Option<String>>,
 
 	#[arg(index = 1)]
-	pub tag: tg::Tag,
+	pub tag: Option<tg::Tag>,
 }
 
 impl Cli {
@@ -41,7 +41,7 @@ impl Cli {
 			item,
 			remote,
 		};
-		handle.put_tag(&args.tag, arg).await?;
+		handle.put_tag(&args.tag.unwrap(), arg).await?;
 
 		Ok(())
 	}
