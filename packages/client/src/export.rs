@@ -18,7 +18,7 @@ use tokio_util::{io::StreamReader, task::AbortOnDropHandle};
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.export";
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub commands: bool,

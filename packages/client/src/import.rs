@@ -11,7 +11,7 @@ use tangram_http::{Body, response::Ext as _};
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.import";
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]

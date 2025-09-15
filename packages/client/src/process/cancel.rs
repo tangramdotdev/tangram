@@ -3,7 +3,9 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
 	pub token: String,
 }
 

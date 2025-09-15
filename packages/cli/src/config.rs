@@ -274,6 +274,7 @@ pub enum Store {
 	#[default]
 	Memory,
 	S3(S3Store),
+	Scylla(ScyllaStore),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -297,6 +298,15 @@ pub struct S3Store {
 	pub region: Option<String>,
 	pub secret_key: Option<String>,
 	pub url: Url,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaStore {
+	pub addr: String,
+	pub keyspace: String,
+	pub password: Option<String>,
+	pub username: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

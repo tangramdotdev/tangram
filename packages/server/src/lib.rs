@@ -382,6 +382,19 @@ impl Server {
 			},
 			config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
 			config::Store::S3(s3) => Store::new_s3(s3),
+			config::Store::Scylla(scylla) => {
+				#[cfg(not(feature = "scylla"))]
+				{
+					let _ = scylla;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with scylla support"
+					));
+				}
+				#[cfg(feature = "scylla")]
+				{
+					Store::new_scylla(scylla).await?
+				}
+			},
 		};
 
 		// Create the task.
@@ -793,7 +806,7 @@ impl Server {
 						}
 					}
 				}
-				tracing::trace!("shutdown artifact cache tasks");
+				tracing::trace!("shutdown cache tasks");
 
 				// Await the import index tasks.
 				let import_index_tasks = server.import_index_tasks.lock().unwrap().take();

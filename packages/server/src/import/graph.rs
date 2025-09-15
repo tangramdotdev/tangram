@@ -33,9 +33,11 @@ pub enum Id {
 	Object(tg::object::Id),
 }
 
+#[derive(Default)]
 pub struct Node {
 	pub parents: SmallVec<[usize; 1]>,
 	pub inner: Option<NodeInner>,
+	pub stored: bool,
 }
 
 #[derive(derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -65,14 +67,6 @@ impl Graph {
 		Self::default()
 	}
 
-	pub fn update_object_with_parent(&mut self, id: tg::object::Id, parent: usize) {
-		let entry = self.nodes.entry(id.into()).or_insert_with(|| Node {
-			parents: SmallVec::from([parent]),
-			inner: None,
-		});
-		entry.parents.push(parent);
-	}
-
 	pub fn update_process(
 		&mut self,
 		id: &tg::process::Id,
@@ -82,10 +76,7 @@ impl Graph {
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
-		entry.or_insert_with(|| Node {
-			parents: SmallVec::new(),
-			inner: None,
-		});
+		entry.or_default();
 		let children = data
 			.children
 			.as_ref()
@@ -96,10 +87,7 @@ impl Graph {
 			.map(|child| {
 				let child_entry = self.nodes.entry(child);
 				let child_index = child_entry.index();
-				let child_entry = child_entry.or_insert_with(|| Node {
-					parents: SmallVec::new(),
-					inner: None,
-				});
+				let child_entry = child_entry.or_default();
 				child_entry.parents.push(index);
 				child_index
 			})
@@ -135,10 +123,7 @@ impl Graph {
 			.map(|(object, kind)| {
 				let object_entry = self.nodes.entry(object.into());
 				let object_index = object_entry.index();
-				let object_entry = object_entry.or_insert_with(|| Node {
-					parents: SmallVec::new(),
-					inner: None,
-				});
+				let object_entry = object_entry.or_default();
 				object_entry.parents.push(index);
 				(object_index, kind)
 			})
@@ -153,6 +138,10 @@ impl Graph {
 		});
 	}
 
+	pub fn set_process_stored(&mut self, id: &tg::process::Id) {
+		self.nodes.entry(id.clone().into()).or_default().stored = true;
+	}
+
 	pub fn update_object(
 		&mut self,
 		id: &tg::object::Id,
@@ -162,20 +151,14 @@ impl Graph {
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
-		entry.or_insert_with(|| Node {
-			parents: SmallVec::new(),
-			inner: None,
-		});
+		entry.or_default();
 		let children = data.children().map(Into::into).collect::<BTreeSet<_>>();
 		let children_indices = children
 			.into_iter()
 			.map(|child| {
 				let child_entry = self.nodes.entry(child);
 				let child_index = child_entry.index();
-				let child_entry = child_entry.or_insert_with(|| Node {
-					parents: SmallVec::new(),
-					inner: None,
-				});
+				let child_entry = child_entry.or_default();
 				child_entry.parents.push(index);
 				child_index
 			})
@@ -189,6 +172,10 @@ impl Graph {
 				size,
 			}));
 		});
+	}
+
+	pub fn set_object_stored(&mut self, id: &tg::object::Id) {
+		self.nodes.entry(id.clone().into()).or_default().stored = true;
 	}
 }
 

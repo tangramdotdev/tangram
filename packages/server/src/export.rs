@@ -866,7 +866,7 @@ impl Server {
 		let arg = request
 			.query_params()
 			.transpose()?
-			.ok_or_else(|| tg::error!("query parameters required"))?;
+			.unwrap_or_default();
 
 		// Get the accept header.
 		let accept = request

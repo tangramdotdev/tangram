@@ -1,6 +1,6 @@
 {
 	"dependencies": {
-		"@biomejs/biome": "^2.2.2",
+		"@biomejs/biome": "^2.2.4",
 		"@types/bun": "^1.2.21",
 		"esbuild": "^0.25.9",
 		"typescript": "^5.9.2"

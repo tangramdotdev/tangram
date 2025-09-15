@@ -129,6 +129,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 rusqlite = { version = "0.37", features = ["blob", "bundled", "functions"] }
 rustls = "0.23"
 scopeguard = "1"
+scylla = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_repr = "0.1"
@@ -138,7 +139,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "38", features = [
+swc_core = { version = "39", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",

@@ -23,6 +23,7 @@ format = [
 foundationdb = ["dep:foundationdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
+scylla = ["dep:scylla"]
 v8 = ["dep:v8", "dep:tangram_v8"]
 
 [build-dependencies]
@@ -81,6 +82,7 @@ reflink-copy = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 scopeguard = { workspace = true }
+scylla = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }

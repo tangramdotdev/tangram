@@ -8,9 +8,13 @@ mod fdb;
 mod lmdb;
 mod memory;
 mod s3;
+#[cfg(feature = "scylla")]
+mod scylla;
 
 #[cfg(feature = "foundationdb")]
 pub use self::fdb::Fdb;
+#[cfg(feature = "scylla")]
+pub use self::scylla::Scylla;
 pub use self::{lmdb::Lmdb, memory::Memory, s3::S3};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -22,6 +26,8 @@ pub enum Store {
 	Lmdb(Lmdb),
 	Memory(Memory),
 	S3(S3),
+	#[cfg(feature = "scylla")]
+	Scylla(Scylla),
 }
 
 #[derive(Clone, Debug)]
@@ -50,10 +56,13 @@ pub struct DeleteArg {
 pub struct CacheReference {
 	#[tangram_serialize(id = 0)]
 	pub artifact: tg::artifact::Id,
+
 	#[tangram_serialize(id = 1)]
 	pub length: u64,
+
 	#[tangram_serialize(id = 2)]
 	pub position: u64,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -79,6 +88,12 @@ impl Store {
 		Self::S3(S3::new(config))
 	}
 
+	#[cfg(feature = "scylla")]
+	pub async fn new_scylla(config: &crate::config::ScyllaStore) -> tg::Result<Self> {
+		let scylla = Scylla::new(config).await?;
+		Ok(Self::Scylla(scylla))
+	}
+
 	pub async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -86,6 +101,8 @@ impl Store {
 			Self::Lmdb(lmdb) => lmdb.try_get(id).await,
 			Self::Memory(memory) => Ok(memory.try_get(id)),
 			Self::S3(s3) => s3.try_get(id).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get(id).await,
 		}
 	}
 
@@ -96,6 +113,8 @@ impl Store {
 			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await,
 			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
 			Self::S3(s3) => s3.try_get_batch(ids).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_batch(ids).await,
 		}
 	}
 
@@ -109,6 +128,8 @@ impl Store {
 			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference(id).await,
 			Self::Memory(memory) => Ok(memory.try_get_cache_reference(id)),
 			Self::S3(s3) => s3.try_get_cache_reference(id).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_cache_reference(id).await,
 		}
 	}
 
@@ -126,6 +147,10 @@ impl Store {
 			},
 			Self::S3(s3) => {
 				s3.put(arg).await?;
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => {
+				scylla.put(arg).await?;
 			},
 		}
 		Ok(())
@@ -145,6 +170,10 @@ impl Store {
 			},
 			Self::S3(s3) => {
 				s3.put_batch(args).await?;
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => {
+				scylla.put_batch(args).await?;
 			},
 		}
 		Ok(())
@@ -166,6 +195,10 @@ impl Store {
 			Self::S3(s3) => {
 				s3.delete(arg).await?;
 			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => {
+				scylla.delete(arg).await?;
+			},
 		}
 		Ok(())
 	}
@@ -184,6 +217,10 @@ impl Store {
 			},
 			Self::S3(s3) => {
 				s3.delete_batch(args).await?;
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => {
+				scylla.delete_batch(args).await?;
 			},
 		}
 		Ok(())

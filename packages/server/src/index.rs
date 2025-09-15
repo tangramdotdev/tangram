@@ -126,7 +126,7 @@ impl Server {
 				}
 			};
 
-			// Single message handling path
+			// Handle the result.
 			let messages = match result {
 				Ok(Some(messages)) => {
 					wait = false;
@@ -142,7 +142,7 @@ impl Server {
 				},
 			};
 
-			// Insert objects from the messages.
+			// Handle the messages.
 			let result = self.indexer_handle_messages(config, messages).await;
 			if let Err(error) = result {
 				tracing::error!(?error, "failed to handle the messages");
@@ -301,6 +301,10 @@ impl Server {
 
 			// Add the acker.
 			ackers.push(acker);
+		}
+
+		if n == 0 {
+			return Ok(());
 		}
 
 		// Handle the messages.

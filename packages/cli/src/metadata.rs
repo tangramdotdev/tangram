@@ -17,10 +17,10 @@ impl Cli {
 	pub async fn command_metadata(&mut self, args: Args) -> tg::Result<()> {
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item {
-			Either::Left(process) => Either::Left(process.id().clone()),
-			Either::Right(object) => Either::Right(object.id().clone()),
-		};
+		let item = referent
+			.item
+			.map_left(|process| process.id().clone())
+			.map_right(|object| object.id().clone());
 
 		match item {
 			Either::Left(process) => {

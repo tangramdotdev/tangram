@@ -1,6 +1,5 @@
 use crate::Cli;
 use tangram_client::{self as tg, prelude::*};
-use tangram_either::Either;
 
 /// Put a tag.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,7 +16,7 @@ pub struct Args {
 	pub remote: Option<Option<String>>,
 
 	#[arg(index = 1)]
-	pub tag: Option<tg::Tag>,
+	pub tag: tg::Tag,
 }
 
 impl Cli {
@@ -31,10 +30,10 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item {
-			Either::Left(process) => Either::Left(process.id().clone()),
-			Either::Right(object) => Either::Right(object.id().clone()),
-		};
+		let item = referent
+			.item
+			.map_left(|process| process.id().clone())
+			.map_right(|object| object.id().clone());
 
 		// Put the tag.
 		let arg = tg::tag::put::Arg {
@@ -42,7 +41,7 @@ impl Cli {
 			item,
 			remote,
 		};
-		handle.put_tag(&args.tag.unwrap(), arg).await?;
+		handle.put_tag(&args.tag, arg).await?;
 
 		Ok(())
 	}
