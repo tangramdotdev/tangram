@@ -655,7 +655,13 @@ impl Server {
 				from (
 					select
 						objects.id,
-						min(child_objects.complete) as complete,
+						case
+							when count(object_children.child) = 0
+								then 1
+							when bool_and(child_objects.complete)
+								then 1
+							else 0
+						end as complete,
 						1 + sum(child_objects.count) as count,
 						1 + max(child_objects.depth) as depth,
 						objects.size + sum(child_objects.weight) as weight
@@ -664,9 +670,9 @@ impl Server {
 					left join objects as child_objects on child_objects.id = object_children.child
 					where objects.id = ?1
 					group by objects.id, objects.size
-					having min(child_objects.complete) = 1
 				) as updates
 				where objects.id = updates.id
+				and updates.complete = true
 				returning objects.complete;
 			"
 		);
@@ -919,9 +925,9 @@ impl Server {
 					left join processes as child_processes on child_processes.id = process_children.child
 					where processes.id = ?1
 					group by processes.id
-					having min(child_processes.children_complete) = 1
 				) as updates
 				where processes.id = updates.id
+				and updates.children_complete = true
 				returning children_complete;
 			"
 		);
@@ -941,7 +947,13 @@ impl Server {
 				from (
 					select
 						processes.id,
-						min(coalesce(min(command_objects.complete), 0), coalesce(min(child_processes.commands_complete), 0)) as commands_complete,
+						case
+							when bool_and(coalesce(command_objects.complete, false))
+								and (count(process_children_commands.child) = 0
+								  or bool_and(coalesce(child_processes.commands_complete, false)))
+							then 1
+							else 0
+						end as commands_complete,
 						sum(command_objects.count) + sum(child_processes.commands_count) as commands_count,
 						max(max(command_objects.depth), max(child_processes.commands_depth)) as commands_depth,
 						sum(command_objects.weight) + sum(child_processes.commands_weight) as commands_weight
@@ -952,9 +964,9 @@ impl Server {
 					left join processes child_processes on child_processes.id = process_children_commands.child
 					where processes.id = ?1
 					group by processes.id
-					having min(min(command_objects.complete), min(child_processes.commands_complete)) = 1
 				) as updates
 				where processes.id = updates.id
+				and updates.commands_complete = true
 				returning commands_complete;
 			"
 		);
@@ -974,7 +986,13 @@ impl Server {
 				from (
 					select
 						processes.id,
-						min(coalesce(min(output_objects.complete), 1), coalesce(min(child_processes.outputs_complete), 1)) as outputs_complete,
+						case
+							when bool_and(coalesce(output_objects.complete, false))
+								and (count(process_children_outputs.child) = 0
+								or bool_and(coalesce(child_processes.outputs_complete, false)))
+							then true
+							else false
+						end as outputs_complete,
 						sum(output_objects.count) + sum(child_processes.outputs_count) as outputs_count,
 						max(max(output_objects.depth), max(child_processes.outputs_depth)) as outputs_depth,
 						sum(output_objects.weight) + sum(child_processes.outputs_weight) as outputs_weight
@@ -985,9 +1003,9 @@ impl Server {
 					left join processes child_processes on child_processes.id = process_children_outputs.child
 					where processes.id = ?1
 					group by processes.id
-					having min(min(output_objects.complete), min(child_processes.outputs_complete)) = 1
 				) as updates
 				where processes.id = updates.id
+				and updates.outputs_complete = true
 				returning outputs_complete;
 			"
 		);
