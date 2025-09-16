@@ -1,5 +1,5 @@
 use super::{Graph, Progress};
-use crate::{Server, store::Store};
+use crate::{Server, database::Database, store::Store};
 use futures::{StreamExt as _, TryStreamExt as _, stream};
 use num::ToPrimitive as _;
 use std::{
@@ -55,10 +55,22 @@ impl Server {
 		let stream = ReceiverStream::new(process_receiver);
 		let mut stream = pin!(stream);
 		while let Some(item) = stream.next().await {
+			let id = &item.id;
 			let arg = tg::process::put::Arg { data: item.data };
-			self.put_process(&item.id, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			match &self.database {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(database) => {
+					Self::put_process_postgres(id, &arg, database, now)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+				},
+				Database::Sqlite(database) => {
+					Self::put_process_sqlite(id, &arg, database, now)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+				},
+			}
 			graph.lock().unwrap().set_process_stored(&item.id);
 			progress.increment_processes();
 		}
