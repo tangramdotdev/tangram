@@ -499,7 +499,7 @@ pub trait Ext: tg::Handle {
 								});
 								crate::progress::Event::Output(referent)
 							})
-							.ok_or_else(|| tg::error!(%reference, "failed to get reference")),
+							.ok_or_else(|| tg::error!(%reference, "failed to get the reference")),
 					})
 				})
 			})

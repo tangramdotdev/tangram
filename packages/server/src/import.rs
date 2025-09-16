@@ -96,7 +96,6 @@ impl Server {
 		// Spawn the store task.
 		let store_task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
-			let graph = graph.clone();
 			let progress = progress.clone();
 			async move {
 				server

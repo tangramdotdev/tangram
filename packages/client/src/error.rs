@@ -35,6 +35,7 @@ pub struct Error {
 pub enum Code {
 	Cancellation,
 	ChecksumMismatch,
+	HeartbeatExpiration,
 }
 
 /// An error location.

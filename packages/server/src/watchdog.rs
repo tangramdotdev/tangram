@@ -69,7 +69,7 @@ impl Server {
 
 				union all
 
-				select id, null as code, 'heartbeat expired' as message
+				select id, 'heartbeat_expiration' as code, 'heartbeat expired' as message
 				from processes
 				where status = 'started' and heartbeat_at <= {p}2
 

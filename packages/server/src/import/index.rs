@@ -3,6 +3,7 @@ use super::{
 	OBJECT_COMPLETE_CONCURRENCY, PROCESS_COMPLETE_BATCH_SIZE, PROCESS_COMPLETE_CONCURRENCY,
 };
 use crate::{Server, index::message::ProcessObjectKind};
+use bytes::Bytes;
 use futures::StreamExt as _;
 use std::{
 	collections::BTreeMap,
@@ -66,18 +67,18 @@ impl Server {
 		// Join the futures.
 		futures::join!(process_future, object_future);
 
-		// Get the graph.
-		let graph = Arc::into_inner(graph).unwrap().into_inner().unwrap();
+		// Create the messages.
+		let messages = Self::import_index_create_messages(&mut graph.lock().unwrap())?;
 
-		// Publish the index messages.
-		self.import_index_publish(graph).await?;
+		// Publish the messages.
+		self.import_index_publish_messages(messages).await?;
 
 		Ok(())
 	}
 
-	async fn import_index_publish(&self, mut graph: Graph) -> tg::Result<()> {
+	fn import_index_create_messages(graph: &mut Graph) -> tg::Result<Vec<Vec<Bytes>>> {
 		// Get a topological ordering.
-		let toposort = petgraph::algo::toposort(&graph, None)
+		let toposort = petgraph::algo::toposort(&*graph, None)
 			.map_err(|_| tg::error!("failed to toposort the graph"))?;
 
 		// Set the items' complete and metadata.
@@ -339,10 +340,14 @@ impl Server {
 			}
 			batched.insert(level, batches);
 		}
-		let messages = batched;
+		let messages = batched.into_values().rev().collect();
 
+		Ok(messages)
+	}
+
+	async fn import_index_publish_messages(&self, messages: Vec<Vec<Bytes>>) -> tg::Result<()> {
 		// Publish the messages.
-		for messages in messages.into_values().rev() {
+		for messages in messages {
 			self.messenger
 				.stream_batch_publish("index".to_owned(), messages)
 				.await

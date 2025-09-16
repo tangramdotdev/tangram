@@ -341,7 +341,8 @@ impl Server {
 					processes.command = params.command and
 					processes.cacheable = 1 and
 					processes.expected_checksum {is} params.checksum and
-					processes.error_code {isnt} 'cancellation'
+					processes.error_code {isnt} 'cancellation' and
+					processes.error_code {isnt} 'heartbeat_expiration'
 				order by processes.created_at desc
 				limit 1;
 			"
