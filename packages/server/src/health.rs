@@ -80,6 +80,9 @@ impl Server {
 	}
 
 	pub(crate) async fn diagnostics_task(&self) -> tg::Result<()> {
+		if self.config.advanced.disable_version_check {
+			return Ok(());
+		}
 		loop {
 			let mut diagnostics = Vec::new();
 			if let Some(latest) = self.try_get_latest_version().await {

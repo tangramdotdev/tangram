@@ -23,6 +23,7 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub struct Advanced {
+	pub disable_version_check: bool,
 	pub internal_error_locations: bool,
 	pub preserve_temp_directories: bool,
 	pub process_dequeue_timeout: Duration,
@@ -242,6 +243,7 @@ impl Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
+			disable_version_check: false,
 			internal_error_locations: false,
 			process_dequeue_timeout: Duration::from_secs(3600),
 			preserve_temp_directories: false,

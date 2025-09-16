@@ -514,15 +514,8 @@ impl Cli {
 		// Create the client.
 		let client = tg::Client::new(url, Some(version()));
 
-		// Try to connect for up to one second. If the client is still not connected, then return an error.
-		let mut connected = false;
-		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			connected = client.connect().await.is_ok();
-			if connected {
-				break;
-			}
-			tokio::time::sleep(Duration::from_millis(duration)).await;
-		}
+		// Try to connect. If the client is not connected, then return an error.
+		let connected = client.connect().await.is_ok();
 		if !connected {
 			return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
 		}
@@ -628,6 +621,7 @@ impl Cli {
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
 		{
+			config.advanced.disable_version_check = advanced.disable_version_check;
 			config.advanced.internal_error_locations = advanced.internal_error_locations;
 			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
 				config.advanced.process_dequeue_timeout = process_dequeue_timeout;

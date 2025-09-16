@@ -72,6 +72,10 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Advanced {
+	/// Whether to disable automatic version checking.
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub disable_version_check: bool,
+
 	/// The path to the preferred autobuild package for `tangram init`.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub init_autobuild_reference: Option<tg::Reference>,
