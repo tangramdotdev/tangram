@@ -38,20 +38,20 @@ pub struct Arg {
 
 #[derive(Debug, Clone, derive_more::IsVariant)]
 pub enum Event {
-	Complete(tg::export::Complete),
+	Skip(tg::export::Skip),
 	Item(tg::export::Item),
 	End,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
-pub enum Complete {
-	Process(ProcessComplete),
-	Object(ObjectComplete),
+pub enum Skip {
+	Process(ProcessSkip),
+	Object(ObjectSkip),
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct ProcessComplete {
+pub struct ProcessSkip {
 	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "is_default")]
@@ -59,7 +59,7 @@ pub struct ProcessComplete {
 }
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct ObjectComplete {
+pub struct ObjectSkip {
 	pub id: tg::object::Id,
 
 	#[serde(default, skip_serializing_if = "is_default")]
@@ -196,7 +196,7 @@ impl Event {
 
 	pub async fn to_writer(&self, mut writer: impl AsyncWrite + Unpin + Send) -> tg::Result<()> {
 		match self {
-			Event::Complete(complete) => {
+			Event::Skip(complete) => {
 				writer
 					.write_uvarint(0)
 					.await
@@ -259,7 +259,7 @@ impl Event {
 					.map_err(|source| tg::error!(!source, "failed to read the event"))?;
 				let event = serde_json::from_slice(&bytes)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Event::Complete(event)
+				Event::Skip(event)
 			},
 
 			1 => {

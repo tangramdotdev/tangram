@@ -38,10 +38,10 @@ pub enum Complete {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ProcessComplete {
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub commands_complete: bool,
+	pub children_complete: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub complete: bool,
+	pub commands_complete: bool,
 
 	pub id: tg::process::Id,
 

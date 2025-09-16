@@ -89,7 +89,7 @@ impl Server {
 							.send(Ok(tg::export::Event::End))
 							.await
 							.inspect_err(|error| {
-								tracing::error!(?error, "failed to send the export end event");
+								tracing::error!(?error, "failed to send the end event");
 							})
 							.ok();
 					},
@@ -98,7 +98,7 @@ impl Server {
 							.send(Err(error))
 							.await
 							.inspect_err(|error| {
-								tracing::error!(?error, "failed to send the export error");
+								tracing::error!(?error, "failed to send the error");
 							})
 							.ok();
 					},
@@ -111,7 +111,7 @@ impl Server {
 							.send(Err(tg::error!(?message, "the task panicked")))
 							.await
 							.inspect_err(|error| {
-								tracing::error!(?error, "failed to send the export panic");
+								tracing::error!(?error, "failed to send the panic");
 							})
 							.ok();
 					},
@@ -186,7 +186,7 @@ impl Server {
 					match event {
 						tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
 							let id = Either::Left(complete.id.clone());
-							let complete = complete.complete
+							let complete = complete.children_complete
 								&& (!state.arg.commands || complete.commands_complete)
 								&& (!state.arg.outputs || complete.outputs_complete);
 							state.graph.lock().unwrap().update(None, id, complete);
@@ -412,7 +412,7 @@ impl Server {
 				match complete {
 					tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
 						let id = Either::Left(complete.id.clone());
-						let complete = complete.complete
+						let complete = complete.children_complete
 							&& (!state.arg.commands || complete.commands_complete)
 							&& (!state.arg.outputs || complete.outputs_complete);
 						state.graph.update(None, id, complete);
@@ -455,17 +455,21 @@ impl Server {
 				Either::Left(item.process.clone()),
 				false,
 			);
-			if complete {
-				let process_complete = self
-					.export_get_process_complete(&item.process)
+			if !inserted || complete {
+				let metadata = self
+					.try_get_process_metadata_local(&item.process)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the process"))?;
+				let event =
+					tg::export::Event::Skip(tg::export::Skip::Process(tg::export::ProcessSkip {
+						id: item.process.clone(),
+						metadata,
+					}));
+				state
+					.event_sender
+					.send(Ok(event))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the process complete"))?;
-				let event = tg::export::Event::Complete(tg::export::Complete::Process(
-					process_complete.clone(),
-				));
-				state.event_sender.send(Ok(event)).await.map_err(|source| {
-					tg::error!(!source, "failed to send the process complete event")
-				})?;
+					.map_err(|source| tg::error!(!source, "failed to send the skip event"))?;
 			}
 			if !inserted || complete {
 				items.remove(i);
@@ -577,18 +581,18 @@ impl Server {
 			Either::Left(process.clone()),
 			false,
 		);
-		if complete {
-			let process_complete = Self::export_sync_get_process_complete(state, &process)
-				.map_err(|source| tg::error!(!source, "failed to get the process complete"))?;
-			let event = tg::export::Event::Complete(tg::export::Complete::Process(
-				process_complete.clone(),
-			));
+		if !inserted || complete {
+			let metadata = Self::try_get_process_metadata_sqlite_sync(&state.index, &process)?
+				.ok_or_else(|| tg::error!("failed to find the process"))?;
+			let event =
+				tg::export::Event::Skip(tg::export::Skip::Process(tg::export::ProcessSkip {
+					id: process.clone(),
+					metadata,
+				}));
 			state
 				.event_sender
 				.blocking_send(Ok(event))
-				.map_err(|source| {
-					tg::error!(!source, "failed to send the process complete event")
-				})?;
+				.map_err(|source| tg::error!(!source, "failed to send the skip event"))?;
 		}
 		if !inserted || complete {
 			return Ok(());
@@ -657,17 +661,18 @@ impl Server {
 				Either::Right(item.object.clone()),
 				false,
 			);
-			if complete {
-				let object_complete = self
-					.export_get_object_complete(&item.object)
+			if !inserted || complete {
+				let metadata = self.try_get_object_metadata(&item.object).await?;
+				let event =
+					tg::export::Event::Skip(tg::export::Skip::Object(tg::export::ObjectSkip {
+						id: item.object.clone(),
+						metadata: metadata.unwrap_or_default(),
+					}));
+				state
+					.event_sender
+					.send(Ok(event))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the object complete"))?;
-				let event = tg::export::Event::Complete(tg::export::Complete::Object(
-					object_complete.clone(),
-				));
-				state.event_sender.send(Ok(event)).await.map_err(|source| {
-					tg::error!(!source, "failed to send export object complete event")
-				})?;
+					.map_err(|source| tg::error!(!source, "failed to send the skip event"))?;
 			}
 			if !inserted || complete {
 				items.remove(i);
@@ -758,10 +763,12 @@ impl Server {
 		let (inserted, complete) = state
 			.graph
 			.update(parent, Either::Right(object.clone()), false);
-		if complete {
-			let object_complete = Self::export_sync_get_object_complete(state, &object)?;
-			let event =
-				tg::export::Event::Complete(tg::export::Complete::Object(object_complete.clone()));
+		if !inserted || complete {
+			let metadata = Self::try_get_object_metadata_sqlite_sync(&state.index, &object)?;
+			let event = tg::export::Event::Skip(tg::export::Skip::Object(tg::export::ObjectSkip {
+				id: object.clone(),
+				metadata: metadata.unwrap_or_default(),
+			}));
 			state
 				.event_sender
 				.blocking_send(Ok(event))
@@ -802,58 +809,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to send"))?;
 
 		Ok(())
-	}
-
-	async fn export_get_process_complete(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<tg::export::ProcessComplete> {
-		let metadata = self
-			.try_get_process_metadata_local(id)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the process"))?;
-		let complete = tg::export::ProcessComplete {
-			id: id.clone(),
-			metadata,
-		};
-		Ok(complete)
-	}
-
-	fn export_sync_get_process_complete(
-		state: &mut StateSync,
-		id: &tg::process::Id,
-	) -> tg::Result<tg::export::ProcessComplete> {
-		let metadata = Self::try_get_process_metadata_sqlite_sync(&state.index, id)?
-			.ok_or_else(|| tg::error!("failed to find the process"))?;
-		let complete = tg::export::ProcessComplete {
-			id: id.clone(),
-			metadata,
-		};
-		Ok(complete)
-	}
-
-	async fn export_get_object_complete(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<tg::export::ObjectComplete> {
-		let metadata = self.try_get_object_metadata(id).await?;
-		let output = tg::export::ObjectComplete {
-			id: id.clone(),
-			metadata: metadata.unwrap_or_default(),
-		};
-		Ok(output)
-	}
-
-	fn export_sync_get_object_complete(
-		state: &mut StateSync,
-		id: &tg::object::Id,
-	) -> tg::Result<tg::export::ObjectComplete> {
-		let metadata = Self::try_get_object_metadata_sqlite_sync(&state.index, id)?;
-		let complete = tg::export::ObjectComplete {
-			id: id.clone(),
-			metadata: metadata.unwrap_or_default(),
-		};
-		Ok(complete)
 	}
 
 	pub(crate) async fn handle_export_request<H>(

@@ -398,7 +398,7 @@ impl Server {
 			if complete.children || complete.commands || complete.outputs {
 				let complete = tg::import::Complete::Process(tg::import::ProcessComplete {
 					commands_complete: complete.commands,
-					complete: complete.children,
+					children_complete: complete.children,
 					id: item.id,
 					outputs_complete: complete.outputs,
 				});

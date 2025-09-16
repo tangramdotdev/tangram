@@ -236,8 +236,8 @@ impl Server {
 									break;
 								}
 							},
-							Ok(tg::export::Event::Complete(complete)) => match complete {
-								tg::export::Complete::Process(process_complete) => {
+							Ok(tg::export::Event::Skip(complete)) => match complete {
+								tg::export::Skip::Process(process_complete) => {
 									if let Some(processes) =
 										process_complete.metadata.children.count
 									{
@@ -268,7 +268,7 @@ impl Server {
 									progress.increment("objects", objects);
 									progress.increment("bytes", bytes);
 								},
-								tg::export::Complete::Object(object_complete) => {
+								tg::export::Skip::Object(object_complete) => {
 									if let Some(count) = object_complete.metadata.count {
 										progress.increment("objects", count);
 									}
