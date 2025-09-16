@@ -1,9 +1,9 @@
 use crate::Server;
-use futures::{Stream, StreamExt as _, TryFutureExt as _, stream::FuturesUnordered};
+use futures::{Stream, StreamExt as _, stream::FuturesUnordered};
 use std::{pin::pin, time::Duration};
 use tangram_client as tg;
 use tangram_either::Either;
-use tangram_futures::{future::Ext as _, stream::Ext as _};
+use tangram_futures::stream::Ext as _;
 use tangram_http::{Body, request::Ext as _};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::task::AbortOnDropHandle;
@@ -161,15 +161,16 @@ impl Server {
 			let arg = arg.clone();
 			let src = src.clone();
 			let dst = dst.clone();
-			Self::push_or_pull_task(arg, progress, src, dst)
-				.attach(indicator_total_task)
-				.inspect_err(|error| {
-					tracing::error!(?error, "the push or pull task failed");
-				})
+			async move {
+				let result = Self::push_or_pull_task(arg, progress.clone(), src, dst).await;
+				if let Err(error) = result {
+					progress.error(error);
+				}
+			}
 		}));
 
 		// Create the stream.
-		let stream = progress.stream().attach(task);
+		let stream = progress.stream().attach(indicator_total_task).attach(task);
 
 		Ok(stream)
 	}

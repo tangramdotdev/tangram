@@ -204,6 +204,7 @@ impl Server {
 				from unnest($2::bytea[]) as ids (id)
 				where processes.id = ids.id
 				returning
+					processes.id,
 					children_complete,
 					children_count,
 					commands_complete,

@@ -43,12 +43,12 @@ impl Cli {
 
 		// Pull the item.
 		let arg = tg::pull::Arg {
+			commands: args.commands,
 			items: items.clone(),
 			logs: args.logs,
 			outputs: true,
 			recursive: args.recursive,
 			remote: Some(remote.clone()),
-			commands: args.commands,
 		};
 		let stream = handle.pull(arg).await?;
 		self.render_progress_stream(stream).await?;
