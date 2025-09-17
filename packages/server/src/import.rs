@@ -227,8 +227,25 @@ impl Server {
 			self.try_touch_object_and_get_complete_and_metadata_batch(&objects, touched_at),
 		)?;
 		let processes_complete = process_outputs.iter().all(|option| {
-			option.as_ref().is_some_and(|(complete, _)| {
-				complete.children && complete.commands && complete.outputs
+			option.as_ref().is_some_and(|(output, _)| {
+				let mut complete = true;
+				if arg.recursive {
+					complete = output.children;
+					if arg.commands {
+						complete = complete && output.commands;
+					}
+					if arg.outputs {
+						complete = complete && output.outputs;
+					}
+				} else {
+					if arg.commands {
+						complete = complete && output.command;
+					}
+					if arg.outputs {
+						complete = complete && output.output;
+					}
+				}
+				complete
 			})
 		});
 		let objects_complete = object_outputs

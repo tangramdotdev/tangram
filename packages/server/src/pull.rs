@@ -7,7 +7,9 @@ impl Server {
 	pub async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
+	> {
 		let remote = arg
 			.remote
 			.as_ref()

@@ -2,10 +2,19 @@ use crate as tg;
 use futures::{Stream, TryStreamExt as _, future};
 use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub cache: u64,
+	pub objects: u64,
+	pub processes: u64,
+}
+
 impl tg::Client {
 	pub async fn clean(
 		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
+	> {
 		let method = http::Method::POST;
 		let uri = "/clean";
 		let request = http::request::Builder::default()

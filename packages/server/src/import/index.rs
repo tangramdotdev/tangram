@@ -91,12 +91,24 @@ impl Server {
 				NodeInner::Process(node) => {
 					let mut complete = crate::process::complete::Output {
 						children: true,
+						command: true,
 						commands: true,
+						output: true,
 						outputs: true,
 					};
 					let mut metadata = tg::process::Metadata {
 						children: tg::process::metadata::Children { count: Some(1) },
+						command: tg::object::Metadata {
+							count: None,
+							depth: None,
+							weight: None,
+						},
 						commands: tg::object::Metadata {
+							count: Some(0),
+							depth: Some(0),
+							weight: Some(0),
+						},
+						output: tg::object::Metadata {
 							count: Some(0),
 							depth: Some(0),
 							weight: Some(0),
@@ -125,6 +137,38 @@ impl Server {
 							.count
 							.zip(child_inner.and_then(|inner| inner.metadata.children.count))
 							.map(|(a, b)| a + b);
+						complete.commands = complete.commands
+							&& child_inner.is_some_and(|inner| inner.complete.commands);
+						metadata.commands.count = metadata
+							.commands
+							.count
+							.zip(child_inner.and_then(|inner| inner.metadata.commands.count))
+							.map(|(a, b)| a + b);
+						metadata.commands.depth = metadata
+							.commands
+							.depth
+							.zip(child_inner.and_then(|inner| inner.metadata.commands.depth))
+							.map(|(a, b)| a.max(b));
+						metadata.commands.weight = metadata
+							.commands
+							.weight
+							.zip(child_inner.and_then(|inner| inner.metadata.commands.weight))
+							.map(|(a, b)| a + b);
+						metadata.outputs.count = metadata
+							.outputs
+							.count
+							.zip(child_inner.and_then(|inner| inner.metadata.outputs.count))
+							.map(|(a, b)| a + b);
+						metadata.outputs.depth = metadata
+							.outputs
+							.depth
+							.zip(child_inner.and_then(|inner| inner.metadata.outputs.depth))
+							.map(|(a, b)| a.max(b));
+						metadata.outputs.weight = metadata
+							.outputs
+							.weight
+							.zip(child_inner.and_then(|inner| inner.metadata.outputs.weight))
+							.map(|(a, b)| a + b);
 					}
 					for (object_index, object_kind) in &node.objects {
 						let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
@@ -139,6 +183,14 @@ impl Server {
 						};
 						match object_kind {
 							ProcessObjectKind::Command => {
+								complete.command = object_inner.is_some_and(|inner| inner.complete);
+								metadata.command.count =
+									object_inner.and_then(|inner| inner.metadata.count);
+								metadata.command.depth =
+									object_inner.and_then(|inner| inner.metadata.depth);
+								metadata.command.weight =
+									object_inner.and_then(|inner| inner.metadata.weight);
+
 								complete.commands = complete.commands
 									&& object_inner.is_some_and(|inner| inner.complete);
 								metadata.commands.count = metadata
@@ -158,6 +210,24 @@ impl Server {
 									.map(|(a, b)| a + b);
 							},
 							ProcessObjectKind::Output => {
+								complete.output = complete.output
+									&& object_inner.is_some_and(|inner| inner.complete);
+								metadata.output.count = metadata
+									.output
+									.count
+									.zip(object_inner.and_then(|inner| inner.metadata.count))
+									.map(|(a, b)| a + b);
+								metadata.output.depth = metadata
+									.output
+									.depth
+									.zip(object_inner.and_then(|inner| inner.metadata.depth))
+									.map(|(a, b)| a.max(b));
+								metadata.output.weight = metadata
+									.output
+									.weight
+									.zip(object_inner.and_then(|inner| inner.metadata.weight))
+									.map(|(a, b)| a + b);
+
 								complete.outputs = complete.outputs
 									&& object_inner.is_some_and(|inner| inner.complete);
 								metadata.outputs.count = metadata
@@ -397,9 +467,11 @@ impl Server {
 			// If the process is complete, then send the complete event.
 			if complete.children || complete.commands || complete.outputs {
 				let complete = tg::import::Complete::Process(tg::import::ProcessComplete {
+					command_complete: complete.command,
 					commands_complete: complete.commands,
 					children_complete: complete.children,
 					id: item.id,
+					output_complete: complete.output,
 					outputs_complete: complete.outputs,
 				});
 				let event = tg::import::Event::Complete(complete);

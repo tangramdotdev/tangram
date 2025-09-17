@@ -1,4 +1,5 @@
 use crate::Cli;
+use crossterm::style::Stylize as _;
 use std::os::unix::fs::PermissionsExt as _;
 use tangram_client::{self as tg, prelude::*};
 
@@ -25,7 +26,13 @@ impl Cli {
 
 		// Clean.
 		let stream = handle.clean().await?;
-		self.render_progress_stream(stream).await?;
+		let output = self.render_progress_stream(stream).await?;
+		eprintln!(
+			"{} cleaned {} processes, {} objects",
+			"info".blue().bold(),
+			output.processes,
+			output.objects,
+		);
 
 		Ok(())
 	}

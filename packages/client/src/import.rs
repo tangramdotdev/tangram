@@ -13,9 +13,18 @@ pub const CONTENT_TYPE: &str = "application/vnd.tangram.import";
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub items: Option<Vec<Either<tg::process::Id, tg::object::Id>>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub outputs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
@@ -41,9 +50,15 @@ pub struct ProcessComplete {
 	pub children_complete: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub command_complete: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub commands_complete: bool,
 
 	pub id: tg::process::Id,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub output_complete: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs_complete: bool,

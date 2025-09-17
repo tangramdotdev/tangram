@@ -163,8 +163,8 @@ impl Server {
 				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
 				let statement = indoc!(
 					"
-						insert into process_children (process, position, child, path, tag)
-						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
+						insert into process_children (process, position, child, options)
+						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[])
 						on conflict (process, child) do nothing;
 					"
 				);
@@ -180,13 +180,7 @@ impl Server {
 								.collect::<Vec<_>>(),
 							&children
 								.iter()
-								.map(|referent| {
-									referent.path().map(|path| path.display().to_string())
-								})
-								.collect::<Vec<_>>(),
-							&children
-								.iter()
-								.map(|referent| referent.tag().map(ToString::to_string))
+								.map(|referent| serde_json::to_string(referent.options()).unwrap())
 								.collect::<Vec<_>>(),
 						],
 					)

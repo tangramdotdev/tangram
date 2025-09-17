@@ -12,9 +12,6 @@ pub struct Args {
 	pub commands: bool,
 
 	#[arg(long)]
-	pub logs: bool,
-
-	#[arg(long)]
 	pub outputs: bool,
 
 	#[arg(long)]

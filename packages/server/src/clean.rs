@@ -30,7 +30,9 @@ struct Count {
 impl Server {
 	pub async fn clean(
 		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
+	> {
 		let progress = crate::progress::Handle::new();
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let progress = progress.clone();
@@ -48,8 +50,21 @@ impl Server {
 						tg::error!(source = error, "failed to recreate the temporary directory")
 					})?;
 
-				let count = server.clean_count_items().await?;
+				let mut output = tg::clean::Output {
+					cache: 0,
+					objects: 0,
+					processes: 0,
+				};
+				let batch_size = server
+					.config
+					.cleaner
+					.as_ref()
+					.map_or(1024, |config| config.batch_size);
+				let now = time::OffsetDateTime::now_utc().unix_timestamp();
+				let ttl = Duration::from_secs(0);
+				let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
+				let count = server.clean_count_items(max_touched_at).await?;
 				if count.cache_entries > 0 {
 					progress.start(
 						"cache".into(),
@@ -79,37 +94,53 @@ impl Server {
 				}
 
 				loop {
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
-					let ttl = Duration::from_secs(0);
-					let n = server
-						.config
-						.cleaner
-						.as_ref()
-						.map_or(1024, |config| config.batch_size);
-					let output = match server.cleaner_task_inner(now, ttl, n).await {
-						Ok(output) => output,
+					let count = server.clean_count_items(max_touched_at).await?;
+					progress.set_total("cache", count.cache_entries);
+					progress.set_total("objects", count.objects);
+					progress.set_total("processes", count.processes);
+					let inner_output = match server.cleaner_task_inner(now, ttl, batch_size).await {
+						Ok(inner_output) => inner_output,
 						Err(error) => {
 							progress.error(error);
 							break;
 						},
 					};
-					progress.increment("cache", output.cache_entries.len().to_u64().unwrap());
-					progress.increment("objects", output.objects.len().to_u64().unwrap());
-					progress.increment("processes", output.processes.len().to_u64().unwrap());
-					let n =
-						output.cache_entries.len() + output.objects.len() + output.processes.len();
+					let cache = inner_output.cache_entries.len().to_u64().unwrap();
+					let objects = inner_output.objects.len().to_u64().unwrap();
+					let processes = inner_output.processes.len().to_u64().unwrap();
+					output.cache += cache;
+					output.objects += objects;
+					output.processes += processes;
+					progress.increment("cache", cache);
+					progress.increment("objects", objects);
+					progress.increment("processes", processes);
+					let n = cache + objects + processes;
 					if n == 0 {
 						break;
 					}
 				}
 
-				progress.output(());
+				progress.output(output);
 
 				Ok::<_, tg::Error>(())
 			}
 		}));
 		let stream = progress.stream().attach(task);
 		Ok(stream)
+	}
+
+	async fn clean_count_items(&self, max_touched_at: i64) -> tg::Result<Count> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.clean_count_items_postgres(database, max_touched_at)
+					.await
+			},
+			crate::index::Index::Sqlite(database) => {
+				self.clean_count_items_sqlite(database, max_touched_at)
+					.await
+			},
+		}
 	}
 
 	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
@@ -134,18 +165,10 @@ impl Server {
 		}
 	}
 
-	async fn clean_count_items(&self) -> tg::Result<Count> {
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => self.clean_count_items_postgres(database).await,
-			crate::index::Index::Sqlite(database) => self.clean_count_items_sqlite(database).await,
-		}
-	}
-
 	async fn cleaner_task_inner(
 		&self,
 		now: i64,
-		ttl: std::time::Duration,
+		ttl: Duration,
 		n: usize,
 	) -> tg::Result<InnerOutput> {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
@@ -153,11 +176,11 @@ impl Server {
 		let output = match &self.index {
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
-				self.cleaner_task_inner_postgres(database, now, ttl, n)
+				self.cleaner_task_inner_postgres(database, max_touched_at, n)
 					.await?
 			},
 			crate::index::Index::Sqlite(database) => {
-				self.cleaner_task_inner_sqlite(database, now, ttl, n)
+				self.cleaner_task_inner_sqlite(database, max_touched_at, n)
 					.await?
 			},
 		};

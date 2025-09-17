@@ -8,6 +8,15 @@ use tokio::io::AsyncWriteExt as _;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub commands: bool,
+
+	#[arg(long)]
+	pub outputs: bool,
+
+	#[arg(long)]
+	pub recursive: bool,
+
 	#[allow(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
@@ -34,7 +43,10 @@ impl Cli {
 
 		// Import.
 		let arg = tg::import::Arg {
+			commands: args.commands,
 			items: None,
+			outputs: args.outputs,
+			recursive: args.recursive,
 			remote,
 		};
 		let stream = handle.import(arg, stream).await?;

@@ -1,26 +1,9 @@
 use crate::Cli;
+use crossterm::style::Stylize as _;
 use futures::future;
 use tangram_client::{self as tg, prelude::*};
 
-/// Pull processes and objects.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
-pub struct Args {
-	#[arg(long)]
-	pub commands: bool,
-
-	#[arg(long)]
-	pub logs: bool,
-
-	#[arg(long)]
-	pub recursive: bool,
-
-	#[arg(required = true)]
-	pub references: Vec<tg::Reference>,
-
-	#[arg(long, short)]
-	pub remote: Option<String>,
-}
+pub type Args = crate::push::Args;
 
 impl Cli {
 	pub async fn command_pull(&mut self, args: Args) -> tg::Result<()> {
@@ -41,7 +24,7 @@ impl Cli {
 			})
 			.collect::<Vec<_>>();
 
-		// Pull the item.
+		// Pull the items.
 		let arg = tg::pull::Arg {
 			commands: args.commands,
 			items: items.clone(),
@@ -51,7 +34,14 @@ impl Cli {
 			remote: Some(remote.clone()),
 		};
 		let stream = handle.pull(arg).await?;
-		self.render_progress_stream(stream).await?;
+		let output = self.render_progress_stream(stream).await?;
+		eprintln!(
+			"{} pulled {} processes, {} objects, {} bytes",
+			"info".blue().bold(),
+			output.processes,
+			output.objects,
+			output.bytes,
+		);
 
 		// If any reference has a tag, then put it.
 		future::try_join_all(

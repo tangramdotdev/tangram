@@ -148,8 +148,8 @@ impl Server {
 		if let Some(children) = &arg.data.children {
 			let statement = indoc!(
 				"
-					insert into process_children (process, position, child, path, tag)
-					values (?1, ?2, ?3, ?4, ?5)
+					insert into process_children (process, position, child, options)
+					values (?1, ?2, ?3, ?4)
 					on conflict (process, child) do nothing;
 				"
 			);
@@ -159,19 +159,11 @@ impl Server {
 				.map(|(position, child)| {
 					let transaction = transaction.clone();
 					async move {
-						let path = child
-							.path()
-							.map(|path| {
-								path.to_str()
-									.ok_or_else(|| tg::error!("path contains invalid UTF-8"))
-							})
-							.transpose()?;
 						let params = db::params![
 							id.to_bytes(),
 							position,
 							child.item.to_bytes(),
-							path,
-							child.tag().map(ToString::to_string)
+							serde_json::to_string(child.options()).unwrap(),
 						];
 						transaction
 							.execute(statement.into(), params)

@@ -102,7 +102,9 @@ impl tg::Handle for Proxy {
 
 	async fn clean(
 		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
+	> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
 	}
 
@@ -179,18 +181,22 @@ impl tg::Handle for Proxy {
 		self.server.export(arg, stream).await
 	}
 
-	async fn push(
-		&self,
-		arg: tg::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.server.push(arg).await
-	}
-
 	async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
+	> {
 		self.server.pull(arg).await
+	}
+
+	async fn push(
+		&self,
+		arg: tg::push::Arg,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
+	> {
+		self.server.push(arg).await
 	}
 
 	async fn lsp(

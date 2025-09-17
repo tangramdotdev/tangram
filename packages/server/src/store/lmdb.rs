@@ -113,7 +113,7 @@ impl Lmdb {
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let mut output = Vec::with_capacity(ids.len());
+				let mut outputs = Vec::with_capacity(ids.len());
 				for id in ids {
 					let id = id.to_bytes();
 					let key = (0, id.as_ref(), 0);
@@ -121,9 +121,9 @@ impl Lmdb {
 						.get(&transaction, &key.pack_to_vec())
 						.map_err(|source| tg::error!(!source, "failed to get the value"))?
 						.map(Bytes::copy_from_slice);
-					output.push(bytes);
+					outputs.push(bytes);
 				}
-				Ok::<_, tg::Error>(output)
+				Ok::<_, tg::Error>(outputs)
 			}
 		})
 		.await
@@ -156,7 +156,7 @@ impl Lmdb {
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let mut output = Vec::with_capacity(ids.len());
+		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
 			let id = id.to_bytes();
 			let key = (0, id.as_ref(), 0);
@@ -165,9 +165,9 @@ impl Lmdb {
 				.get(&transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the value"))?
 				.map(Bytes::copy_from_slice);
-			output.push(bytes);
+			outputs.push(bytes);
 		}
-		Ok::<_, tg::Error>(output)
+		Ok::<_, tg::Error>(outputs)
 	}
 
 	pub fn try_get_object_data_sync(

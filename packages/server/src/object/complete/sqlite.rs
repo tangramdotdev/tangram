@@ -14,7 +14,7 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the object metadata.
 		let statement = indoc!(
@@ -30,7 +30,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
 		Ok(output)
@@ -47,7 +47,7 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let output = connection
 			.with({
 				let ids = ids.to_owned();
@@ -74,7 +74,7 @@ impl Server {
 		let mut statement = connection
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let mut output = Vec::new();
+		let mut outputs = Vec::new();
 		for id in ids {
 			let params = sqlite::params![id.to_bytes().to_vec()];
 			let mut rows = statement
@@ -84,13 +84,13 @@ impl Server {
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			else {
-				output.push(None);
+				outputs.push(None);
 				continue;
 			};
 			let complete = row.get_unwrap(0);
-			output.push(Some(complete));
+			outputs.push(Some(complete));
 		}
-		Ok(output)
+		Ok(outputs)
 	}
 
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_sqlite(
@@ -102,7 +102,7 @@ impl Server {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let output = connection
 			.with({
 				let id = id.to_owned();
@@ -166,7 +166,7 @@ impl Server {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let output = connection
 			.with({
 				let ids = ids.to_owned();
@@ -209,7 +209,7 @@ impl Server {
 		let mut statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let mut output = Vec::new();
+		let mut outputs = Vec::new();
 		for id in ids {
 			let params = sqlite::params![touched_at, id.to_bytes().to_vec()];
 			let mut rows = statement
@@ -219,7 +219,7 @@ impl Server {
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			else {
-				output.push(None);
+				outputs.push(None);
 				continue;
 			};
 			let complete = row.get_unwrap::<_, u64>(0) != 0;
@@ -231,8 +231,8 @@ impl Server {
 				depth,
 				weight,
 			};
-			output.push(Some((complete, metadata)));
+			outputs.push(Some((complete, metadata)));
 		}
-		Ok(output)
+		Ok(outputs)
 	}
 }

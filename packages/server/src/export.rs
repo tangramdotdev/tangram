@@ -43,12 +43,8 @@ struct StateSync {
 	graph: Graph,
 	import_complete_receiver: tokio::sync::mpsc::Receiver<tg::import::Event>,
 	index: sqlite::Connection,
-	queue: VecDeque<QueueItem>,
-}
-
-enum QueueItem {
-	Process(ProcessQueueItem),
-	Object(ObjectQueueItem),
+	process_queue: VecDeque<ProcessQueueItem>,
+	object_queue: VecDeque<ObjectQueueItem>,
 }
 
 struct ProcessQueueItem {
@@ -186,9 +182,14 @@ impl Server {
 					match event {
 						tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
 							let id = Either::Left(complete.id.clone());
-							let complete = complete.children_complete
-								&& (!state.arg.commands || complete.commands_complete)
-								&& (!state.arg.outputs || complete.outputs_complete);
+							let complete = if state.arg.recursive {
+								complete.children_complete
+									&& (!state.arg.commands || complete.commands_complete)
+									&& (!state.arg.outputs || complete.outputs_complete)
+							} else {
+								(!state.arg.commands || complete.command_complete)
+									&& (!state.arg.outputs || complete.output_complete)
+							};
 							state.graph.lock().unwrap().update(None, id, complete);
 						},
 						tg::import::Event::Complete(tg::import::Complete::Object(complete)) => {
@@ -387,53 +388,73 @@ impl Server {
 			graph: Graph::new(),
 			import_complete_receiver,
 			index,
-			queue: VecDeque::new(),
+			process_queue: VecDeque::new(),
+			object_queue: VecDeque::new(),
 		};
 
 		// Enqueue the items.
 		for item in state.arg.items.iter().cloned() {
-			let item = match item {
-				Either::Left(process) => QueueItem::Process(ProcessQueueItem {
+			match item {
+				Either::Left(process) => state.process_queue.push_back(ProcessQueueItem {
 					parent: None,
 					process,
 				}),
-				Either::Right(object) => QueueItem::Object(ObjectQueueItem {
+				Either::Right(object) => state.object_queue.push_back(ObjectQueueItem {
 					parent: None,
 					object,
 				}),
-			};
-			state.queue.push_back(item);
+			}
 		}
 
-		// Export each item.
-		while let Some(item) = state.queue.pop_front() {
-			// Update the graph.
-			while let Ok(complete) = state.import_complete_receiver.try_recv() {
-				match complete {
-					tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
-						let id = Either::Left(complete.id.clone());
-						let complete = complete.children_complete
-							&& (!state.arg.commands || complete.commands_complete)
-							&& (!state.arg.outputs || complete.outputs_complete);
-						state.graph.update(None, id, complete);
-					},
-					tg::import::Event::Complete(tg::import::Complete::Object(complete)) => {
-						let id = Either::Right(complete.id.clone());
-						let complete = true;
-						state.graph.update(None, id, complete);
-					},
-					_ => (),
+		while !state.process_queue.is_empty() || !state.object_queue.is_empty() {
+			if let Some(item) = state.object_queue.pop_front() {
+				while let Ok(complete) = state.import_complete_receiver.try_recv() {
+					match complete {
+						tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
+							let id = Either::Left(complete.id.clone());
+							let complete = if state.arg.recursive {
+								complete.children_complete
+									&& (!state.arg.commands || complete.commands_complete)
+									&& (!state.arg.outputs || complete.outputs_complete)
+							} else {
+								(!state.arg.commands || complete.command_complete)
+									&& (!state.arg.outputs || complete.output_complete)
+							};
+							state.graph.update(None, id, complete);
+						},
+						tg::import::Event::Complete(tg::import::Complete::Object(complete)) => {
+							let id = Either::Right(complete.id.clone());
+							let complete = true;
+							state.graph.update(None, id, complete);
+						},
+						_ => (),
+					}
 				}
-			}
-
-			// Export the item.
-			match item {
-				QueueItem::Process(item) => {
-					Self::export_sync_inner_process(&mut state, item)?;
-				},
-				QueueItem::Object(item) => {
-					self.export_sync_inner_object(&mut state, item)?;
-				},
+				self.export_sync_inner_object(&mut state, item)?;
+			} else if let Some(item) = state.process_queue.pop_front() {
+				while let Ok(complete) = state.import_complete_receiver.try_recv() {
+					match complete {
+						tg::import::Event::Complete(tg::import::Complete::Process(complete)) => {
+							let id = Either::Left(complete.id.clone());
+							let complete = if state.arg.recursive {
+								complete.children_complete
+									&& (!state.arg.commands || complete.commands_complete)
+									&& (!state.arg.outputs || complete.outputs_complete)
+							} else {
+								(!state.arg.commands || complete.command_complete)
+									&& (!state.arg.outputs || complete.output_complete)
+							};
+							state.graph.update(None, id, complete);
+						},
+						tg::import::Event::Complete(tg::import::Complete::Object(complete)) => {
+							let id = Either::Right(complete.id.clone());
+							let complete = true;
+							state.graph.update(None, id, complete);
+						},
+						_ => (),
+					}
+				}
+				Self::export_sync_inner_process(&mut state, item)?;
 			}
 		}
 
@@ -606,11 +627,11 @@ impl Server {
 		// Enqueue the children.
 		if state.arg.recursive {
 			for child in data.children.iter().flatten() {
-				let item = QueueItem::Process(ProcessQueueItem {
+				let item = ProcessQueueItem {
 					parent: Some(process.clone()),
 					process: child.item.clone(),
-				});
-				state.queue.push_back(item);
+				};
+				state.process_queue.push_back(item);
 			}
 		}
 
@@ -625,11 +646,11 @@ impl Server {
 			}
 		}
 		for child in objects {
-			let item = QueueItem::Object(ObjectQueueItem {
+			let item = ObjectQueueItem {
 				parent: Some(Either::Left(process.clone())),
 				object: child,
-			});
-			state.queue.push_back(item);
+			};
+			state.object_queue.push_back(item);
 		}
 
 		// Send the process.
@@ -788,11 +809,11 @@ impl Server {
 		// Enqueue the children.
 		let children = data.children().collect::<BTreeSet<_>>();
 		for child in children {
-			let item = QueueItem::Object(ObjectQueueItem {
+			let item = ObjectQueueItem {
 				parent: Some(Either::Right(object.clone())),
 				object: child,
-			});
-			state.queue.push_back(item);
+			};
+			state.object_queue.push_back(item);
 		}
 
 		// Send the object.

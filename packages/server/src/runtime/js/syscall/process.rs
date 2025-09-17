@@ -62,7 +62,7 @@ pub async fn spawn(
 									.await;
 								}
 							},
-							tg::progress::Event::Output(()) => {
+							tg::progress::Event::Output(_) => {
 								break;
 							},
 							_ => {},

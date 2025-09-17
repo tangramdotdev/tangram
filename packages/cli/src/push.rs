@@ -1,4 +1,5 @@
 use crate::Cli;
+use crossterm::style::Stylize as _;
 use futures::future;
 use tangram_client::{self as tg, prelude::*};
 
@@ -6,13 +7,13 @@ use tangram_client::{self as tg, prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
+	#[arg(alias = "command", long)]
 	pub commands: bool,
 
 	#[arg(long, short)]
 	pub force: bool,
 
-	#[arg(long)]
+	#[arg(alias = "log", long)]
 	pub logs: bool,
 
 	#[arg(long)]
@@ -43,7 +44,7 @@ impl Cli {
 		}))
 		.await?;
 
-		// Push the item.
+		// Push the items.
 		let arg = tg::push::Arg {
 			commands: args.commands,
 			items: items.clone(),
@@ -53,7 +54,14 @@ impl Cli {
 			remote: Some(remote.clone()),
 		};
 		let stream = handle.push(arg).await?;
-		self.render_progress_stream(stream).await?;
+		let output = self.render_progress_stream(stream).await?;
+		eprintln!(
+			"{} pushed {} processes, {} objects, {} bytes",
+			"info".blue().bold(),
+			output.processes,
+			output.objects,
+			output.bytes,
+		);
 
 		// If any reference has a tag, then put it.
 		future::try_join_all(

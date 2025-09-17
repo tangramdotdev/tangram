@@ -5,6 +5,7 @@ use tangram_client::{self as tg, util::serde::is_false};
 mod postgres;
 mod sqlite;
 
+#[allow(clippy::struct_field_names)]
 #[derive(
 	Clone,
 	Debug,
@@ -23,10 +24,18 @@ pub struct Output {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
-	pub commands: bool,
+	pub command: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
+	pub commands: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
+	pub output: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 }
 

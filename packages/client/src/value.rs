@@ -125,7 +125,7 @@ impl Value {
 					.map(|object| Either::Right(object.id()))
 					.collect(),
 			),
-			remote: None,
+			..Default::default()
 		};
 		let events = items
 			.into_iter()

@@ -16,18 +16,25 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the metadata.
 		#[derive(serde::Deserialize)]
 		struct Row {
 			pub children_complete: bool,
+			pub command_complete: bool,
 			pub commands_complete: bool,
+			pub output_complete: bool,
 			pub outputs_complete: bool,
 		}
 		let statement = indoc!(
 			"
-				select children_complete, commands_complete, outputs_complete
+				select
+					children_complete,
+					command_complete,
+					commands_complete,
+					output_complete,
+					outputs_complete
 				from processes
 				where id = $1;
 			",
@@ -40,11 +47,13 @@ impl Server {
 			.map(|row| row.0)
 			.map(|row| Output {
 				children: row.children_complete,
+				command: row.command_complete,
 				commands: row.commands_complete,
+				output: row.output_complete,
 				outputs: row.outputs_complete,
 			});
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
 		Ok(output)
@@ -61,13 +70,15 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let statement = indoc!(
 			"
 				select
 					processes.id,
 					children_complete,
+					command_complete,
 					commands_complete,
+					output_complete,
 					outputs_complete
 				from unnest($1::bytea[]) as ids (id)
 				left join processes on processes.id = ids.id;
@@ -83,16 +94,20 @@ impl Server {
 					.collect::<Vec<_>>()],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to query the database"))?
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<Vec<u8>>>(0)?;
 				let children_complete = row.get::<_, bool>(1);
-				let commands_complete = row.get::<_, bool>(2);
-				let outputs_complete = row.get::<_, bool>(3);
+				let command_complete = row.get::<_, bool>(2);
+				let commands_complete = row.get::<_, bool>(3);
+				let output_complete = row.get::<_, bool>(4);
+				let outputs_complete = row.get::<_, bool>(5);
 				let output = Output {
 					children: children_complete,
+					command: command_complete,
 					commands: commands_complete,
+					output: output_complete,
 					outputs: outputs_complete,
 				};
 				Some(output)
@@ -111,16 +126,24 @@ impl Server {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		#[derive(serde::Deserialize)]
 		struct Row {
 			pub children_complete: bool,
 			pub children_count: Option<u64>,
+			pub command_complete: bool,
+			pub command_count: Option<u64>,
+			pub command_depth: Option<u64>,
+			pub command_weight: Option<u64>,
 			pub commands_complete: bool,
 			pub commands_count: Option<u64>,
 			pub commands_depth: Option<u64>,
 			pub commands_weight: Option<u64>,
+			pub output_complete: bool,
+			pub output_count: Option<u64>,
+			pub output_depth: Option<u64>,
+			pub output_weight: Option<u64>,
 			pub outputs_complete: bool,
 			pub outputs_count: Option<u64>,
 			pub outputs_depth: Option<u64>,
@@ -134,10 +157,18 @@ impl Server {
 				returning
 					children_complete,
 					children_count,
+					command_complete,
+					command_count,
+					command_depth,
+					command_weight,
 					commands_complete,
 					commands_count,
 					commands_depth,
 					commands_weight,
+					output_complete,
+					output_count,
+					output_depth,
+					output_weight,
 					outputs_complete,
 					outputs_count,
 					outputs_depth,
@@ -145,38 +176,52 @@ impl Server {
 			",
 		);
 		let params = db::params![touched_at, id.to_bytes()];
-		let output = connection
+		let row = connection
 			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| row.0);
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
-		let output = output.map(|output| {
+		let output = row.map(|row| {
+			let complete = Output {
+				children: row.children_complete,
+				command: row.command_complete,
+				commands: row.commands_complete,
+				output: row.output_complete,
+				outputs: row.outputs_complete,
+			};
 			let children = tg::process::metadata::Children {
-				count: output.children_count,
+				count: row.children_count,
+			};
+			let command = tg::object::Metadata {
+				count: row.command_count,
+				depth: row.command_depth,
+				weight: row.command_weight,
 			};
 			let commands = tg::object::Metadata {
-				count: output.commands_count,
-				depth: output.commands_depth,
-				weight: output.commands_weight,
+				count: row.commands_count,
+				depth: row.commands_depth,
+				weight: row.commands_weight,
+			};
+			let output = tg::object::Metadata {
+				count: row.output_count,
+				depth: row.output_depth,
+				weight: row.output_weight,
 			};
 			let outputs = tg::object::Metadata {
-				count: output.outputs_count,
-				depth: output.outputs_depth,
-				weight: output.outputs_weight,
+				count: row.outputs_count,
+				depth: row.outputs_depth,
+				weight: row.outputs_weight,
 			};
 			let metadata = tg::process::Metadata {
 				children,
+				command,
 				commands,
+				output,
 				outputs,
-			};
-			let complete = Output {
-				children: output.children_complete,
-				commands: output.commands_complete,
-				outputs: output.outputs_complete,
 			};
 			(complete, metadata)
 		});
@@ -196,7 +241,7 @@ impl Server {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let statement = indoc!(
 			"
 				update processes
@@ -207,10 +252,18 @@ impl Server {
 					processes.id,
 					children_complete,
 					children_count,
+					command_complete,
+					command_count,
+					command_depth,
+					command_weight,
 					commands_complete,
 					commands_count,
 					commands_depth,
 					commands_weight,
+					output_complete,
+					output_count,
+					output_depth,
+					output_weight,
 					outputs_complete,
 					outputs_count,
 					outputs_depth,
@@ -229,33 +282,53 @@ impl Server {
 				],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to query the database"))?
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| {
 				let id = row.get::<_, Vec<u8>>(0);
 				let id = tg::process::Id::from_slice(&id).unwrap();
 				let children_complete = row.get::<_, bool>(1);
 				let children_count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
-				let commands_complete = row.get::<_, bool>(3);
-				let commands_count = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
-				let commands_depth = row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
-				let commands_weight = row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
-				let outputs_complete = row.get::<_, bool>(7);
-				let outputs_count = row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
-				let outputs_depth = row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
-				let outputs_weight = row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
+				let command_complete = row.get::<_, bool>(3);
+				let command_count = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
+				let command_depth = row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
+				let command_weight = row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
+				let commands_complete = row.get::<_, bool>(7);
+				let commands_count = row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
+				let commands_depth = row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
+				let commands_weight = row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
+				let output_complete = row.get::<_, bool>(11);
+				let output_count = row.get::<_, Option<i64>>(12).map(|v| v.to_u64().unwrap());
+				let output_depth = row.get::<_, Option<i64>>(13).map(|v| v.to_u64().unwrap());
+				let output_weight = row.get::<_, Option<i64>>(14).map(|v| v.to_u64().unwrap());
+				let outputs_complete = row.get::<_, bool>(15);
+				let outputs_count = row.get::<_, Option<i64>>(16).map(|v| v.to_u64().unwrap());
+				let outputs_depth = row.get::<_, Option<i64>>(17).map(|v| v.to_u64().unwrap());
+				let outputs_weight = row.get::<_, Option<i64>>(18).map(|v| v.to_u64().unwrap());
 				let complete = Output {
 					children: children_complete,
+					command: command_complete,
 					commands: commands_complete,
+					output: output_complete,
 					outputs: outputs_complete,
 				};
 				let children = tg::process::metadata::Children {
 					count: children_count,
 				};
+				let command = tg::object::Metadata {
+					count: command_count,
+					depth: command_depth,
+					weight: command_weight,
+				};
 				let commands = tg::object::Metadata {
 					count: commands_count,
 					depth: commands_depth,
 					weight: commands_weight,
+				};
+				let output = tg::object::Metadata {
+					count: output_count,
+					depth: output_depth,
+					weight: output_weight,
 				};
 				let outputs = tg::object::Metadata {
 					count: outputs_count,
@@ -264,7 +337,9 @@ impl Server {
 				};
 				let metadata = tg::process::Metadata {
 					children,
+					command,
 					commands,
+					output,
 					outputs,
 				};
 				(id, (complete, metadata))

@@ -56,7 +56,7 @@ impl tg::Handle for Server {
 		&self,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 		>,
 	> + Send {
 		self.clean()
@@ -151,7 +151,7 @@ impl tg::Handle for Server {
 		arg: tg::pull::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
 		>,
 	> {
 		self.pull(arg)
@@ -162,7 +162,7 @@ impl tg::Handle for Server {
 		arg: tg::push::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
 		>,
 	> {
 		self.push(arg)

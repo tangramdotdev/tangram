@@ -27,18 +27,16 @@ impl Server {
 		match &self.index {
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
-				self.try_get_object_metadata_local_postgres(database, id)
-					.await
+				self.try_get_object_metadata_postgres(database, id).await
 			},
 			crate::index::Index::Sqlite(database) => {
-				self.try_get_object_metadata_local_sqlite(database, id)
-					.await
+				self.try_get_object_metadata_sqlite(database, id).await
 			},
 		}
 	}
 
 	#[cfg(feature = "postgres")]
-	async fn try_get_object_metadata_local_postgres(
+	async fn try_get_object_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::object::Id,
@@ -47,7 +45,7 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the object metadata.
 		let p = connection.p();
@@ -65,13 +63,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| row.0);
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
 		Ok(output)
 	}
 
-	async fn try_get_object_metadata_local_sqlite(
+	async fn try_get_object_metadata_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		id: &tg::object::Id,
@@ -80,7 +78,7 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the object metadata.
 		let p = connection.p();
@@ -98,14 +96,14 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| row.0);
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
 		Ok(output)
 	}
 
 	pub(crate) fn try_get_object_metadata_sqlite_sync(
-		index: &sqlite::Connection,
+		connection: &sqlite::Connection,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let statement = indoc!(
@@ -115,7 +113,7 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut statement = index
+		let mut statement = connection
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement

@@ -1,7 +1,6 @@
 use super::{Count, InnerOutput, Server};
 use bytes::Bytes;
 use indoc::{formatdoc, indoc};
-use num::ToPrimitive as _;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 
@@ -9,6 +8,7 @@ impl Server {
 	pub(super) async fn clean_count_items_sqlite(
 		&self,
 		database: &db::sqlite::Database,
+		max_touched_at: i64,
 	) -> tg::Result<Count> {
 		let connection = database
 			.connection()
@@ -17,13 +17,13 @@ impl Server {
 		let statement = indoc!(
 			"
 				select
-					(select count(*) from cache_entries) as cache_entries,
-					(select count(*) from objects) as objects,
-					(select count(*) from processes) as processes;
+					(select count(*) from cache_entries where reference_count = 0 and touched_at < ?1) as cache_entries,
+					(select count(*) from objects where reference_count = 0 and touched_at < ?1) as objects,
+					(select count(*) from processes where reference_count = 0 and touched_at < ?1) as processes;
 				;
 			"
 		);
-		let params = db::params![];
+		let params = db::params![max_touched_at];
 		let count = connection
 			.query_one_into::<db::row::Serde<Count>>(statement.into(), params)
 			.await
@@ -35,12 +35,9 @@ impl Server {
 	pub(super) async fn cleaner_task_inner_sqlite(
 		&self,
 		database: &db::sqlite::Database,
-		now: i64,
-		ttl: std::time::Duration,
+		max_touched_at: i64,
 		mut n: usize,
 	) -> tg::Result<InnerOutput> {
-		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
-
 		let connection = database
 			.write_connection()
 			.await

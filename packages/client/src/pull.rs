@@ -4,11 +4,15 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 
 pub type Arg = tg::push::Arg;
 
+pub type Output = tg::push::Output;
+
 impl tg::Client {
 	pub async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
+	> {
 		let method = http::Method::POST;
 		let uri = "/pull";
 		let request = http::request::Builder::default()

@@ -319,8 +319,8 @@ fn main() -> std::process::ExitCode {
 	Cli::initialize_tracing(config.as_ref());
 
 	// Initialize V8.
+	#[cfg(feature = "v8")]
 	if matches!(mode, Mode::Server) {
-		#[cfg(feature = "v8")]
 		Cli::initialize_v8();
 	}
 

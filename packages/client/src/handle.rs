@@ -47,7 +47,7 @@ pub trait Handle:
 		&self,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 		>,
 	> + Send;
 
@@ -95,7 +95,7 @@ pub trait Handle:
 		arg: tg::pull::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
 		>,
 	> + Send;
 
@@ -104,7 +104,7 @@ pub trait Handle:
 		arg: tg::push::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
 		>,
 	> + Send;
 
@@ -431,7 +431,7 @@ impl tg::Handle for tg::Client {
 		&self,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 		>,
 	> + Send {
 		self.clean()
@@ -495,7 +495,7 @@ impl tg::Handle for tg::Client {
 		arg: tg::pull::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
 		>,
 	> {
 		self.pull(arg)
@@ -506,7 +506,7 @@ impl tg::Handle for tg::Client {
 		arg: tg::push::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
 		>,
 	> {
 		self.push(arg)

@@ -22,10 +22,7 @@ pub async fn import(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<(
 		.main_runtime_handle
 		.spawn({
 			async move {
-				let arg = tg::import::Arg {
-					items: None,
-					remote: None,
-				};
+				let arg = tg::import::Arg::default();
 				let stream = items.into_iter().map(|item| {
 					let id = item.id;
 					let data = item.data;

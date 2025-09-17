@@ -83,7 +83,7 @@ where
 		&self,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 		>,
 	> + Send {
 		match self {
@@ -195,7 +195,7 @@ where
 		arg: tg::pull::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
 		>,
 	> {
 		match self {
@@ -215,7 +215,7 @@ where
 		arg: tg::push::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
 		>,
 	> {
 		match self {

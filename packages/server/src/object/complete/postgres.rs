@@ -15,7 +15,7 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the object metadata.
 		let statement = indoc!(
@@ -31,7 +31,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
 		Ok(output)
@@ -48,7 +48,7 @@ impl Server {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let statement = indoc!(
 			"
 				select
@@ -66,7 +66,7 @@ impl Server {
 			.inner()
 			.query(statement, &[&ids])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to query the database"))?
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| {
 				row.get::<_, Option<Vec<u8>>>(0)?;
@@ -87,7 +87,7 @@ impl Server {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		let statement = indoc!(
 			"
@@ -111,7 +111,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| row.0);
 
-		// Drop the database connection.
+		// Drop the connection.
 		drop(connection);
 
 		let output = output.map(|output| {
@@ -138,7 +138,7 @@ impl Server {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let statement = indoc!(
 			"
 				update objects
@@ -160,7 +160,7 @@ impl Server {
 				],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to query the database"))?
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| {
 				let id = row.get::<_, Vec<u8>>(0);

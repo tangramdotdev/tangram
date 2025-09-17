@@ -23,11 +23,20 @@ pub struct Arg {
 	pub remote: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub processes: u64,
+	pub objects: u64,
+	pub bytes: u64,
+}
+
 impl tg::Client {
 	pub async fn push(
 		&self,
 		arg: tg::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
+	> {
 		let method = http::Method::POST;
 		let uri = "/push";
 		let request = http::request::Builder::default()

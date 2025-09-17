@@ -146,6 +146,40 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
+		let process_command_completes = put_process_messages
+			.values()
+			.map(|message| message.complete.command)
+			.collect::<Vec<_>>();
+		let process_command_counts = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.command
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_command_depths = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.command
+					.depth
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_command_weights = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.command
+					.weight
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
 		let process_commands_completes = put_process_messages
 			.values()
 			.map(|message| message.complete.commands)
@@ -176,6 +210,40 @@ impl Server {
 				message
 					.metadata
 					.commands
+					.weight
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_output_completes = put_process_messages
+			.values()
+			.map(|message| message.complete.output)
+			.collect::<Vec<_>>();
+		let process_output_counts = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.output
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_output_depths = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.output
+					.depth
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_output_weights = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.output
 					.weight
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -309,17 +377,25 @@ impl Server {
 					$24::int8[],
 					$25::int8[],
 					$26::int8[],
-					$27::bytea[],
+					$27::bool[],
 					$28::int8[],
 					$29::int8[],
-					$30::bytea[],
-					$31::text[],
+					$30::int8[],
+					$31::bool[],
 					$32::int8[],
 					$33::int8[],
-					$34::bytea[],
-					$35::text[],
-					$36::bytea[],
-					$37::text[]
+					$34::int8[],
+					$35::bytea[],
+					$36::int8[],
+					$37::int8[],
+					$38::bytea[],
+					$39::text[],
+					$40::int8[],
+					$41::int8[],
+					$42::bytea[],
+					$43::text[],
+					$44::bytea[],
+					$45::text[]
 				);
 			"
 		);
@@ -346,10 +422,18 @@ impl Server {
 					&process_touched_ats.as_slice(),
 					&process_children_completes.as_slice(),
 					&process_children_counts.as_slice(),
+					&process_command_completes.as_slice(),
+					&process_command_counts.as_slice(),
+					&process_command_depths.as_slice(),
+					&process_command_weights.as_slice(),
 					&process_commands_completes.as_slice(),
 					&process_commands_counts.as_slice(),
 					&process_commands_depths.as_slice(),
 					&process_commands_weights.as_slice(),
+					&process_output_completes.as_slice(),
+					&process_output_counts.as_slice(),
+					&process_output_depths.as_slice(),
+					&process_output_weights.as_slice(),
 					&process_outputs_completes.as_slice(),
 					&process_outputs_counts.as_slice(),
 					&process_outputs_depths.as_slice(),
@@ -467,9 +551,9 @@ impl Server {
 		let statement = indoc!(
 			"
 				select
-					(select count(*) from cache_entry_queue where transaction_id <= ?1) +
-					(select count(*) from object_queue where transaction_id <= ?1) +
-					(select count(*) from process_queue where transaction_id <= ?1);
+					(select count(*) from cache_entry_queue where transaction_id <= $1) +
+					(select count(*) from object_queue where transaction_id <= $1) +
+					(select count(*) from process_queue where transaction_id <= $1);
 			"
 		);
 		let params = db::params![transaction_id];

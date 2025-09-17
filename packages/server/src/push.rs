@@ -1,6 +1,10 @@
 use crate::Server;
 use futures::{Stream, StreamExt as _, stream::FuturesUnordered};
-use std::{pin::pin, time::Duration};
+use std::{
+	pin::pin,
+	sync::{Arc, Mutex},
+	time::Duration,
+};
 use tangram_client as tg;
 use tangram_either::Either;
 use tangram_futures::stream::Ext as _;
@@ -12,7 +16,9 @@ impl Server {
 	pub async fn push(
 		&self,
 		arg: tg::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
+	> {
 		let remote = arg
 			.remote
 			.as_ref()
@@ -26,7 +32,9 @@ impl Server {
 		src: &S,
 		dst: &D,
 		arg: &tg::push::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<S, D>>
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<S, D>,
+	>
 	where
 		S: tg::Handle,
 		D: tg::Handle,
@@ -81,16 +89,31 @@ impl Server {
 										else {
 											return Err(tg::error!("failed to get the process"));
 										};
-										let mut complete = metadata.children.count.is_some();
-										if arg.commands {
-											complete = complete
-												&& metadata.commands.count.is_some()
-												&& metadata.commands.weight.is_some();
-										}
-										if arg.outputs {
-											complete = complete
-												&& metadata.outputs.count.is_some()
-												&& metadata.outputs.weight.is_some();
+										let mut complete = true;
+										if arg.recursive {
+											complete =
+												complete && metadata.children.count.is_some();
+											if arg.commands {
+												complete = complete
+													&& metadata.commands.count.is_some()
+													&& metadata.commands.weight.is_some();
+											}
+											if arg.outputs {
+												complete = complete
+													&& metadata.outputs.count.is_some()
+													&& metadata.outputs.weight.is_some();
+											}
+										} else {
+											if arg.commands {
+												complete = complete
+													&& metadata.command.count.is_some()
+													&& metadata.command.weight.is_some();
+											}
+											if arg.outputs {
+												complete = complete
+													&& metadata.output.count.is_some()
+													&& metadata.output.weight.is_some();
+											}
 										}
 										if complete {
 											break Ok::<_, tg::Error>(Either::Left(metadata));
@@ -111,46 +134,63 @@ impl Server {
 						}
 					})
 					.collect::<FuturesUnordered<_>>();
-				let mut total_processes: u64 = 0;
-				let mut total_objects: u64 = 0;
-				let mut total_bytes: u64 = 0;
+				let mut processes: Option<u64> = None;
+				let mut objects: Option<u64> = None;
+				let mut bytes: Option<u64> = None;
 				while let Some(Ok(metadata)) = metadata_futures.next().await {
 					match metadata {
 						Either::Left(metadata) => {
-							if let Some(count) = metadata.children.count {
-								total_processes += count;
-								progress.set_total("processes", total_processes);
+							if arg.recursive {
+								if let Some(children_count) = metadata.children.count {
+									*processes.get_or_insert(0) += children_count;
+								}
+								if arg.commands {
+									if let Some(commands_count) = metadata.commands.count {
+										*objects.get_or_insert(0) += commands_count;
+									}
+									if let Some(commands_weight) = metadata.commands.weight {
+										*bytes.get_or_insert(0) += commands_weight;
+									}
+								}
+								if arg.outputs {
+									if let Some(outputs_count) = metadata.outputs.count {
+										*objects.get_or_insert(0) += outputs_count;
+									}
+									if let Some(outputs_weight) = metadata.outputs.weight {
+										*bytes.get_or_insert(0) += outputs_weight;
+									}
+								}
+							} else {
+								if arg.commands {
+									if let Some(command_count) = metadata.command.count {
+										*objects.get_or_insert(0) += command_count;
+									}
+									if let Some(command_weight) = metadata.command.weight {
+										*bytes.get_or_insert(0) += command_weight;
+									}
+								}
+								if arg.outputs {
+									if let Some(output_count) = metadata.output.count {
+										*objects.get_or_insert(0) += output_count;
+									}
+									if let Some(output_weight) = metadata.output.weight {
+										*bytes.get_or_insert(0) += output_weight;
+									}
+								}
 							}
-							if arg.commands {
-								if let Some(commands_count) = metadata.commands.count {
-									total_objects += commands_count;
-								}
-								if let Some(commands_weight) = metadata.commands.weight {
-									total_bytes += commands_weight;
-								}
-							}
-							if arg.outputs {
-								if let Some(outputs_count) = metadata.outputs.count {
-									total_objects += outputs_count;
-								}
-								if let Some(outputs_weight) = metadata.outputs.weight {
-									total_bytes += outputs_weight;
-								}
-							}
-							progress.set_total("objects", total_objects);
-							progress.set_total("bytes", total_bytes);
 						},
 						Either::Right(metadata) => {
 							if let Some(count) = metadata.count {
-								total_objects += count;
-								progress.set_total("objects", total_objects);
+								*objects.get_or_insert(0) += count;
 							}
 							if let Some(weight) = metadata.weight {
-								total_bytes += weight;
-								progress.set_total("bytes", total_bytes);
+								*bytes.get_or_insert(0) += weight;
 							}
 						},
 					}
+					progress.set_total("processes", processes);
+					progress.set_total("objects", objects);
+					progress.set_total("bytes", bytes);
 				}
 			}
 		}));
@@ -177,7 +217,7 @@ impl Server {
 
 	async fn push_or_pull_task<S, D>(
 		arg: tg::push::Arg,
-		progress: crate::progress::Handle<()>,
+		progress: crate::progress::Handle<tg::push::Output>,
 		src: S,
 		dst: D,
 	) -> tg::Result<()>
@@ -185,6 +225,12 @@ impl Server {
 		S: tg::Handle,
 		D: tg::Handle,
 	{
+		let output = Arc::new(Mutex::new(tg::push::Output {
+			processes: 0,
+			objects: 0,
+			bytes: 0,
+		}));
+
 		'a: loop {
 			// Set the progress to zero.
 			progress.set("processes", 0);
@@ -212,7 +258,10 @@ impl Server {
 
 			// Start the import.
 			let import_arg = tg::import::Arg {
+				commands: arg.commands,
 				items: Some(arg.items.clone()),
+				outputs: arg.outputs,
+				recursive: arg.recursive,
 				remote: None,
 			};
 			let export_item_stream = ReceiverStream::new(export_item_receiver);
@@ -223,12 +272,24 @@ impl Server {
 
 			// Spawn the export.
 			let export_task = tokio::spawn({
+				let output = output.clone();
 				let progress = progress.clone();
 				async move {
 					let mut export_event_stream = pin!(export_event_stream);
 					while let Some(result) = export_event_stream.next().await {
 						match result {
 							Ok(tg::export::Event::Item(item)) => {
+								match &item {
+									tg::export::Item::Process(_) => {
+										let mut output = output.lock().unwrap();
+										output.processes += 1;
+									},
+									tg::export::Item::Object(item) => {
+										let mut output = output.lock().unwrap();
+										output.objects += 1;
+										output.bytes += item.size;
+									},
+								}
 								let event = tg::export::Event::Item(item);
 								let result = export_item_sender.send(Ok(event)).await;
 								if let Err(error) = result {
@@ -239,33 +300,67 @@ impl Server {
 							},
 							Ok(tg::export::Event::Skip(complete)) => match complete {
 								tg::export::Skip::Process(process_complete) => {
-									if let Some(processes) =
-										process_complete.metadata.children.count
-									{
-										progress.increment("processes", processes);
-									}
+									let mut processes = 0;
 									let mut objects = 0;
 									let mut bytes = 0;
-									if let Some(commands_count) =
-										process_complete.metadata.commands.count
-									{
-										objects += commands_count;
+									if arg.recursive {
+										if let Some(children_count) =
+											process_complete.metadata.children.count
+										{
+											processes += children_count;
+										}
+										if arg.commands {
+											if let Some(commands_count) =
+												process_complete.metadata.commands.count
+											{
+												objects += commands_count;
+											}
+											if let Some(commands_weight) =
+												process_complete.metadata.commands.weight
+											{
+												bytes += commands_weight;
+											}
+										}
+										if arg.outputs {
+											if let Some(outputs_count) =
+												process_complete.metadata.outputs.count
+											{
+												objects += outputs_count;
+											}
+											if let Some(outputs_weight) =
+												process_complete.metadata.outputs.weight
+											{
+												bytes += outputs_weight;
+											}
+										}
+									} else {
+										processes += 1;
+										if arg.commands {
+											if let Some(commands_count) =
+												process_complete.metadata.command.count
+											{
+												objects += commands_count;
+											}
+											if let Some(commands_weight) =
+												process_complete.metadata.command.weight
+											{
+												bytes += commands_weight;
+											}
+										}
+										if arg.outputs {
+											if let Some(outputs_count) =
+												process_complete.metadata.output.count
+											{
+												objects += outputs_count;
+											}
+											if let Some(outputs_weight) =
+												process_complete.metadata.output.weight
+											{
+												bytes += outputs_weight;
+											}
+										}
 									}
-									if let Some(commands_weight) =
-										process_complete.metadata.commands.weight
-									{
-										bytes += commands_weight;
-									}
-									if let Some(outputs_count) =
-										process_complete.metadata.outputs.count
-									{
-										objects += outputs_count;
-									}
-									if let Some(outputs_weight) =
-										process_complete.metadata.outputs.weight
-									{
-										bytes += outputs_weight;
-									}
+									progress.increment("processes", processes);
 									progress.increment("objects", objects);
 									progress.increment("bytes", bytes);
 								},
@@ -321,7 +416,7 @@ impl Server {
 		progress.finish("processes");
 		progress.finish("objects");
 		progress.finish("bytes");
-		progress.output(());
+		progress.output(output.lock().unwrap().clone());
 
 		Ok(())
 	}

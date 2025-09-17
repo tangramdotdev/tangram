@@ -193,10 +193,18 @@ impl Server {
 					id,
 					children_complete,
 					children_count,
+					command_complete,
+					command_count,
+					command_depth,
+					command_weight,
 					commands_complete,
 					commands_count,
 					commands_depth,
 					commands_weight,
+					output_complete,
+					output_count,
+					output_depth,
+					output_weight,
 					outputs_complete,
 					outputs_count,
 					outputs_depth,
@@ -217,20 +225,36 @@ impl Server {
 					?10,
 					?11,
 					?12,
+					?13,
+					?14,
+					?15,
+					?16,
+					?17,
+					?18,
+					?19,
+					?20,
 					(select id from transaction_id)
 				)
 				on conflict (id) do update set
 					children_complete = children_complete or ?2,
 					children_count = coalesce(children_count, ?3),
-					commands_complete = commands_complete or ?4,
-					commands_count = coalesce(commands_count, ?5),
-					commands_depth = coalesce(commands_depth, ?6),
-					commands_weight = coalesce(commands_weight, ?7),
-					outputs_complete = outputs_complete or ?8,
-					outputs_count = coalesce(outputs_count, ?9),
-					outputs_depth = coalesce(outputs_depth, ?10),
-					outputs_weight = coalesce(outputs_weight, ?11),
-					touched_at = ?12;
+					command_complete = command_complete or ?4,
+					command_count = coalesce(command_count, ?5),
+					command_depth = coalesce(command_depth, ?6),
+					command_weight = coalesce(command_weight, ?7),
+					commands_complete = commands_complete or ?8,
+					commands_count = coalesce(commands_count, ?9),
+					commands_depth = coalesce(commands_depth, ?10),
+					commands_weight = coalesce(commands_weight, ?11),
+					output_complete = output_complete or ?12,
+					output_count = coalesce(output_count, ?13),
+					output_depth = coalesce(output_depth, ?14),
+					output_weight = coalesce(output_weight, ?15),
+					outputs_complete = outputs_complete or ?16,
+					outputs_count = coalesce(outputs_count, ?17),
+					outputs_depth = coalesce(outputs_depth, ?18),
+					outputs_weight = coalesce(outputs_weight, ?19),
+					touched_at = ?20;
 			"
 		);
 		let mut process_statement = transaction
@@ -265,10 +289,18 @@ impl Server {
 				message.id.to_bytes().to_vec(),
 				message.complete.children,
 				message.metadata.children.count,
+				message.complete.command,
+				message.metadata.command.count,
+				message.metadata.command.depth,
+				message.metadata.command.weight,
 				message.complete.commands,
 				message.metadata.commands.count,
 				message.metadata.commands.depth,
 				message.metadata.commands.weight,
+				message.complete.output,
+				message.metadata.output.count,
+				message.metadata.output.depth,
+				message.metadata.output.weight,
 				message.complete.outputs,
 				message.metadata.outputs.count,
 				message.metadata.outputs.depth,
@@ -989,6 +1021,27 @@ impl Server {
 			"
 				update processes
 				set
+					command_complete = objects.complete,
+					command_count = objects.count,
+					command_depth = objects.depth,
+					command_weight = objects.weight
+				from process_objects
+				left join objects on process_objects.object = objects.id
+				where processes.id = process_objects.process
+					and process_objects.kind = 'command'
+					and process_objects.process = ?1
+					and objects.complete = 1;
+			"
+		);
+		let mut update_command_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update complete statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				update processes
+				set
 					outputs_complete = updates.outputs_complete,
 					outputs_count = updates.outputs_count,
 					outputs_depth = updates.outputs_depth,
@@ -1024,6 +1077,40 @@ impl Server {
 			"
 		);
 		let mut update_outputs_complete_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update complete statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				update processes
+				set
+					output_complete = updates.output_complete,
+					output_count = updates.output_count,
+					output_depth = updates.output_depth,
+					output_weight = updates.output_weight
+				from (
+					select
+						process_objects.process as id,
+						case
+							when count(objects.id) = 0 then 1
+							when min(objects.complete) = 1 then 1
+							else 0
+						end as output_complete,
+						coalesce(sum(objects.count), 0) as output_count,
+						coalesce(max(objects.depth), 0) as output_depth,
+						coalesce(sum(objects.weight), 0) as output_weight
+					from process_objects
+					left join objects on process_objects.object = objects.id
+					where process_objects.kind = 'output'
+					and process_objects.process = ?1
+					group by process_objects.process
+				) updates
+				where processes.id = updates.id
+				and updates.output_complete = 1;
+			"
+		);
+		let mut update_output_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update complete statement")
 			})?;
@@ -1129,6 +1216,17 @@ impl Server {
 						} else {
 							false
 						};
+
+						// Update command complete.
+						let params = [item.process.to_bytes().to_vec()];
+						update_command_complete_statement
+							.execute(params)
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the update command complete statement"
+								)
+							})?;
 					}
 
 					if commands_complete {
@@ -1184,6 +1282,17 @@ impl Server {
 						} else {
 							false
 						};
+
+						// Update output complete.
+						let params = [item.process.to_bytes().to_vec()];
+						update_output_complete_statement
+							.execute(params)
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the update output complete statement"
+								)
+							})?;
 					}
 
 					if outputs_complete {
