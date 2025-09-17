@@ -1,6 +1,6 @@
 use futures::FutureExt as _;
 use std::{
-	os::unix::fs::PermissionsExt as _,
+	os::unix::fs::{MetadataExt, PermissionsExt as _},
 	path::{Path, PathBuf},
 };
 
@@ -70,13 +70,15 @@ pub async fn remove(path: impl AsRef<Path>) -> std::io::Result<()> {
 
 pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 	fn inner(path: &Path) -> std::io::Result<()> {
+		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(path)?;
-		if metadata.permissions().readonly() {
-			let mut mode = metadata.permissions().mode();
-			mode |= 0o200;
-			let permissions = std::fs::Permissions::from_mode(mode);
-			std::fs::set_permissions(path, permissions)?;
-		}
+		
+		// Unconditionally set permissions +rw.
+		let mode = metadata.mode();
+		let permissions = std::fs::Permissions::from_mode(mode | 0o666);
+		std::fs::set_permissions(path, permissions)?;
+
+		// Recurse if necessary.
 		if metadata.is_dir() {
 			for entry in std::fs::read_dir(path)? {
 				inner(&entry?.path())?;
@@ -85,6 +87,7 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 		} else {
 			std::fs::remove_file(path)?;
 		}
+
 		Ok(())
 	}
 	inner(path.as_ref())
