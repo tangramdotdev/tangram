@@ -34,7 +34,7 @@ impl Server {
 
 		// Get the host.
 		let command_ = tg::Command::with_id(command.item.clone());
-		let host = command_.host(self).await?;
+		let host = command_.host(self).await.ok();
 
 		// Get a database connection.
 		let mut connection = self
@@ -59,6 +59,8 @@ impl Server {
 
 		// If the process is not cacheable or cached is false, then spawn a local process, add it as a child of the parent, and return it.
 		if !cacheable || matches!(arg.cached, Some(false)) {
+			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
+
 			// Spawn the process.
 			let (id, token, permit) = self
 				.spawn_local_process(&transaction, &arg, cacheable, &host)
@@ -157,9 +159,10 @@ impl Server {
 		}
 
 		// Return a cached local process with mismatched checksum if possible.
-		if let Some(id) = self
-			.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, &host)
-			.await?
+		if let Some(host) = &host
+			&& let Some(id) = self
+				.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, host)
+				.await?
 		{
 			// Add the process as a child.
 			if let Some(parent) = &arg.parent {
@@ -205,7 +208,6 @@ impl Server {
 			// Drop the transaction and connection.
 			drop(transaction);
 			drop(connection);
-
 			if let Some(output) = self.try_get_cached_process_remote(&arg).await? {
 				if let Some(parent) = &arg.parent {
 					self.add_process_child(
@@ -223,6 +225,8 @@ impl Server {
 			}
 			return Ok(None);
 		}
+
+		let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 
 		// Spawn a local process.
 		let (local_id, local_token, local_permit) = self
