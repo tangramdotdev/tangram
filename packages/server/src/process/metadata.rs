@@ -55,8 +55,8 @@ impl Server {
 		struct Row {
 			children_count: Option<u64>,
 			command_count: Option<u64>,
-			command_weight: Option<u64>,
 			command_depth: Option<u64>,
+			command_weight: Option<u64>,
 			commands_count: Option<u64>,
 			commands_depth: Option<u64>,
 			commands_weight: Option<u64>,
@@ -79,7 +79,7 @@ impl Server {
 					commands_weight,
 					output_count,
 					output_depth,
-					output_weight
+					output_weight,
 					outputs_count,
 					outputs_depth,
 					outputs_weight
