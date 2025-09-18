@@ -86,12 +86,14 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
 
 			// Set its permissions.
-			let executable = metadata.permissions().mode() & 0o111 != 0;
-			let mode = if executable { 0o555 } else { 0o444 };
-			let permissions = std::fs::Permissions::from_mode(mode);
-			std::fs::set_permissions(dst, permissions).map_err(
-				|source| tg::error!(!source, %path = dst.display(), "failed to set permissions"),
-			)?;
+			if !metadata.is_symlink() {
+				let executable = metadata.permissions().mode() & 0o111 != 0;
+				let mode = if executable { 0o555 } else { 0o444 };
+				let permissions = std::fs::Permissions::from_mode(mode);
+				std::fs::set_permissions(dst, permissions).map_err(
+					|source| tg::error!(!source, %path = dst.display(), "failed to set permissions"),
+				)?;
+			}
 
 			// Rename the temp to the cache directory.
 			let src = temp.path();
