@@ -1,7 +1,7 @@
 import type { Module } from "./module.ts";
 
 declare global {
-	function syscall(name: "document_list"): Array<Module>;
+	function syscall(syscall: "document_list"): Array<Module>;
 
 	function syscall(
 		syscall: "encoding_base64_decode",
@@ -37,19 +37,22 @@ declare global {
 	function syscall(syscall: "log", value: string): void;
 
 	/** Load a module. */
-	function syscall(name: "module_load", module: Module): string;
+	function syscall(syscall: "module_load", module: Module): string;
 
 	/** Resolve a module. */
 	function syscall(
-		name: "module_resolve",
+		syscall: "module_resolve",
 		module: Module,
 		specifier: string,
 		attributes: { [key: string]: string } | undefined,
 	): Module;
 
 	/** Get the version of a module. */
-	function syscall(name: "module_version", module: Module): string;
+	function syscall(syscall: "module_version", module: Module): string;
 
 	/** Return if a module's resolutions are out of date */
-	function syscall(name: "has_invalidated_resolutions", mode: Module): boolean;
+	function syscall(
+		syscall: "has_invalidated_resolutions",
+		mode: Module,
+	): boolean;
 }

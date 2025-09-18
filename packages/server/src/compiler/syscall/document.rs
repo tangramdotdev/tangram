@@ -5,7 +5,7 @@ use tangram_v8::Serde;
 pub fn list(
 	compiler: &Compiler,
 	_scope: &mut v8::HandleScope,
-	_args: (),
+	_args: v8::Local<'_, v8::Value>,
 ) -> tg::Result<Serde<Vec<tg::module::Data>>> {
 	let modules = compiler
 		.main_runtime_handle

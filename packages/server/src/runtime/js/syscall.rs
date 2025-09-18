@@ -76,7 +76,7 @@ fn sync<'s, A, T, F>(
 	f: F,
 ) -> tg::Result<v8::Local<'s, v8::Value>>
 where
-	A: tangram_v8::Deserialize,
+	A: tangram_v8::Deserialize<'s>,
 	T: tangram_v8::Serialize,
 	F: FnOnce(Rc<State>, &mut v8::HandleScope<'s>, A) -> tg::Result<T>,
 {
@@ -111,7 +111,7 @@ fn async_<'s, A, T, F, Fut>(
 	f: F,
 ) -> tg::Result<v8::Local<'s, v8::Value>>
 where
-	A: tangram_v8::Deserialize + 'static,
+	A: tangram_v8::Deserialize<'s> + 'static,
 	T: tangram_v8::Serialize + 'static,
 	F: FnOnce(Rc<State>, A) -> Fut + 'static,
 	Fut: Future<Output = tg::Result<T>>,

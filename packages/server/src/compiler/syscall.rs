@@ -62,7 +62,7 @@ fn sync<'s, A, T, F>(
 	f: F,
 ) -> tg::Result<v8::Local<'s, v8::Value>>
 where
-	A: tangram_v8::Deserialize,
+	A: tangram_v8::Deserialize<'s>,
 	T: tangram_v8::Serialize,
 	F: FnOnce(&Compiler, &mut v8::HandleScope<'s>, A) -> tg::Result<T>,
 {

@@ -4,15 +4,24 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tangram_client as tg;
 use tangram_either::Either;
 
-pub trait Deserialize: Sized {
-	fn deserialize<'a>(
+pub trait Deserialize<'a>: 'a + Sized {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self>;
 }
 
-impl Deserialize for () {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for v8::Local<'a, v8::Value> {
+	fn deserialize(
+		_scope: &mut v8::HandleScope<'a>,
+		value: v8::Local<'a, v8::Value>,
+	) -> tangram_client::Result<Self> {
+		Ok(value)
+	}
+}
+
+impl<'a> Deserialize<'a> for () {
+	fn deserialize(
 		_scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -23,8 +32,8 @@ impl Deserialize for () {
 	}
 }
 
-impl Deserialize for bool {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for bool {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -35,8 +44,8 @@ impl Deserialize for bool {
 	}
 }
 
-impl Deserialize for u8 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for u8 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -49,8 +58,8 @@ impl Deserialize for u8 {
 	}
 }
 
-impl Deserialize for u16 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for u16 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -63,8 +72,8 @@ impl Deserialize for u16 {
 	}
 }
 
-impl Deserialize for u32 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for u32 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -77,8 +86,8 @@ impl Deserialize for u32 {
 	}
 }
 
-impl Deserialize for u64 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for u64 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -91,8 +100,8 @@ impl Deserialize for u64 {
 	}
 }
 
-impl Deserialize for usize {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for usize {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -105,8 +114,8 @@ impl Deserialize for usize {
 	}
 }
 
-impl Deserialize for i8 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for i8 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -119,8 +128,8 @@ impl Deserialize for i8 {
 	}
 }
 
-impl Deserialize for i16 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for i16 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -133,8 +142,8 @@ impl Deserialize for i16 {
 	}
 }
 
-impl Deserialize for i32 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for i32 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -147,8 +156,8 @@ impl Deserialize for i32 {
 	}
 }
 
-impl Deserialize for i64 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for i64 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -161,8 +170,8 @@ impl Deserialize for i64 {
 	}
 }
 
-impl Deserialize for isize {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for isize {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -175,8 +184,8 @@ impl Deserialize for isize {
 	}
 }
 
-impl Deserialize for f32 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for f32 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -189,8 +198,8 @@ impl Deserialize for f32 {
 	}
 }
 
-impl Deserialize for f64 {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for f64 {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -201,11 +210,11 @@ impl Deserialize for f64 {
 	}
 }
 
-impl<T> Deserialize for Box<T>
+impl<'a, T> Deserialize<'a> for Box<T>
 where
-	T: Deserialize,
+	T: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -213,11 +222,11 @@ where
 	}
 }
 
-impl<T> Deserialize for Arc<T>
+impl<'a, T> Deserialize<'a> for Arc<T>
 where
-	T: Deserialize,
+	T: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -225,12 +234,12 @@ where
 	}
 }
 
-impl<L, R> Deserialize for Either<L, R>
+impl<'a, L, R> Deserialize<'a> for Either<L, R>
 where
-	L: Deserialize,
-	R: Deserialize,
+	L: Deserialize<'a>,
+	R: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -240,11 +249,11 @@ where
 	}
 }
 
-impl<T> Deserialize for Option<T>
+impl<'a, T> Deserialize<'a> for Option<T>
 where
-	T: Deserialize,
+	T: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -256,11 +265,11 @@ where
 	}
 }
 
-impl<T1> Deserialize for (T1,)
+impl<'a, T1> Deserialize<'a> for (T1,)
 where
-	T1: Deserialize,
+	T1: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -275,12 +284,12 @@ where
 	}
 }
 
-impl<T1, T2> Deserialize for (T1, T2)
+impl<'a, T1, T2> Deserialize<'a> for (T1, T2)
 where
-	T1: Deserialize,
-	T2: Deserialize,
+	T1: Deserialize<'a>,
+	T2: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -300,13 +309,13 @@ where
 	}
 }
 
-impl<T1, T2, T3> Deserialize for (T1, T2, T3)
+impl<'a, T1, T2, T3> Deserialize<'a> for (T1, T2, T3)
 where
-	T1: Deserialize,
-	T2: Deserialize,
-	T3: Deserialize,
+	T1: Deserialize<'a>,
+	T2: Deserialize<'a>,
+	T3: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -331,14 +340,14 @@ where
 	}
 }
 
-impl<T1, T2, T3, T4> Deserialize for (T1, T2, T3, T4)
+impl<'a, T1, T2, T3, T4> Deserialize<'a> for (T1, T2, T3, T4)
 where
-	T1: Deserialize,
-	T2: Deserialize,
-	T3: Deserialize,
-	T4: Deserialize,
+	T1: Deserialize<'a>,
+	T2: Deserialize<'a>,
+	T3: Deserialize<'a>,
+	T4: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -368,11 +377,11 @@ where
 	}
 }
 
-impl<T> Deserialize for Vec<T>
+impl<'a, T> Deserialize<'a> for Vec<T>
 where
-	T: Deserialize,
+	T: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -392,12 +401,12 @@ where
 	}
 }
 
-impl<K, V> Deserialize for BTreeMap<K, V>
+impl<'a, K, V> Deserialize<'a> for BTreeMap<K, V>
 where
-	K: Deserialize + Ord,
-	V: Deserialize,
+	K: Deserialize<'a> + Ord,
+	V: Deserialize<'a>,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -421,8 +430,8 @@ where
 	}
 }
 
-impl Deserialize for String {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for String {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -433,8 +442,8 @@ impl Deserialize for String {
 	}
 }
 
-impl Deserialize for PathBuf {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for PathBuf {
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
@@ -447,8 +456,8 @@ impl Deserialize for PathBuf {
 	}
 }
 
-impl Deserialize for Bytes {
-	fn deserialize<'a>(
+impl<'a> Deserialize<'a> for Bytes {
+	fn deserialize(
 		_scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {

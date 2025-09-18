@@ -33,11 +33,11 @@ where
 	}
 }
 
-impl<T> Deserialize for Serde<T>
+impl<'a, T> Deserialize<'a> for Serde<T>
 where
-	T: serde::de::DeserializeOwned,
+	T: serde::de::DeserializeOwned + 'a,
 {
-	fn deserialize<'a>(
+	fn deserialize(
 		scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
