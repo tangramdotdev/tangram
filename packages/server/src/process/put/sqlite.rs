@@ -110,10 +110,10 @@ impl Server {
 			"
 		);
 		let params = db::params![
-			id.to_bytes(),
+			id.to_string(),
 			arg.data.actual_checksum.as_ref().map(ToString::to_string),
 			arg.data.cacheable,
-			arg.data.command.to_bytes(),
+			arg.data.command.to_string(),
 			arg.data.created_at,
 			arg.data.dequeued_at,
 			arg.data.enqueued_at,
@@ -126,7 +126,7 @@ impl Server {
 			arg.data.expected_checksum.as_ref().map(ToString::to_string),
 			arg.data.finished_at,
 			arg.data.host,
-			arg.data.log.as_ref().map(|log| log.to_bytes()),
+			arg.data.log.as_ref().map(ToString::to_string),
 			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts.clone())),
 			arg.data.network,
 			arg.data.output.as_ref().map(db::value::Json),
@@ -160,9 +160,9 @@ impl Server {
 					let transaction = transaction.clone();
 					async move {
 						let params = db::params![
-							id.to_bytes(),
+							id.to_string(),
 							position,
-							child.item.to_bytes(),
+							child.item.to_string(),
 							serde_json::to_string(child.options()).unwrap(),
 						];
 						transaction

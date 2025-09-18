@@ -952,7 +952,7 @@ impl Server {
 					select
 						processes.id,
 					case
-						when count(child_processes.id) = 0
+						when count(process_children.child) = 0
 							then 1
 						when min(coalesce(child_processes.children_complete, 0)) = 1
 							then 1
