@@ -268,7 +268,7 @@ impl Server {
 						let token = local_token.clone();
 						async move {
 							let arg = tg::process::cancel::Arg {
-								remote: output.remote,
+								remote: None,
 								token,
 							};
 							server.cancel_process(&id, arg).boxed().await.ok();

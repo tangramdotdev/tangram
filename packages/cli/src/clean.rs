@@ -38,47 +38,50 @@ impl Cli {
 	}
 
 	pub async fn command_clean_force(&mut self) -> tg::Result<()> {
-		if !self.directory_path().exists() {
-			return Ok(());
-		}
-		let mut stack = vec![self.directory_path()];
-		while let Some(path) = stack.pop() {
-			let metadata = tokio::fs::metadata(&path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-			let mut perms = metadata.permissions();
-			#[cfg(unix)]
-			{
-				let mode = perms.mode();
+		let path = self.directory_path();
+		tokio::task::spawn_blocking(move || {
+			if !path.exists() {
+				return Ok(());
+			}
+			let mut stack = vec![path.clone()];
+			while let Some(path) = stack.pop() {
+				let metadata = std::fs::symlink_metadata(&path)
+					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+				if !metadata.is_symlink() {
+					let mut perms = metadata.permissions();
+					#[cfg(unix)]
+					{
+						let mode = perms.mode();
+						if metadata.is_dir() {
+							perms.set_mode(mode | 0o300);
+						} else {
+							perms.set_mode(mode | 0o200);
+						}
+					}
+					#[cfg(not(unix))]
+					{
+						perms.set_readonly(false);
+					}
+					std::fs::set_permissions(&path, perms)
+						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+				}
 				if metadata.is_dir() {
-					perms.set_mode(mode | 0o300);
-				} else {
-					perms.set_mode(mode | 0o200);
+					let entries = std::fs::read_dir(&path)
+						.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
+					for entry in entries {
+						let entry = entry.map_err(|source| {
+							tg::error!(!source, "failed to read the directory")
+						})?;
+						stack.push(entry.path());
+					}
 				}
 			}
-			#[cfg(not(unix))]
-			{
-				perms.set_readonly(false);
-			}
-			tokio::fs::set_permissions(&path, perms)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
-			if metadata.is_dir() {
-				let mut entries = tokio::fs::read_dir(&path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
-				while let Some(entry) = entries
-					.next_entry()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to read the directory"))?
-				{
-					stack.push(entry.path());
-				}
-			}
-		}
-		tokio::fs::remove_dir_all(self.directory_path())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to remove the directory"))?;
+			std::fs::remove_dir_all(&path)
+				.map_err(|source| tg::error!(!source, "failed to remove the directory"))?;
+			Ok::<_, tg::Error>(())
+		})
+		.await
+		.unwrap()?;
 		Ok(())
 	}
 }
