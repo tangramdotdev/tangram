@@ -72,11 +72,13 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 	fn inner(path: &Path) -> std::io::Result<()> {
 		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(path)?;
-		
-		// Unconditionally set permissions +rw.
-		let mode = metadata.mode();
-		let permissions = std::fs::Permissions::from_mode(mode | 0o666);
-		std::fs::set_permissions(path, permissions)?;
+
+		if !metadata.is_symlink() {
+			// Set permissions +rw.
+			let mode = metadata.mode();
+			let permissions = std::fs::Permissions::from_mode(mode | 0o666);
+			std::fs::set_permissions(path, permissions)?;
+		}
 
 		// Recurse if necessary.
 		if metadata.is_dir() {
