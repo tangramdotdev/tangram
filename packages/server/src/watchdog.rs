@@ -71,7 +71,7 @@ impl Server {
 
 				select id, 'heartbeat_expiration' as code, 'heartbeat expired' as message
 				from processes
-				where status = 'started' and heartbeat_at <= {p}2
+				where status = 'started' and heartbeat_at < {p}2
 
 				limit {p}3;
 			"

@@ -34,7 +34,7 @@ impl Server {
 				where process = {p}1 and token = {p}2;
 			"
 		);
-		let params = db::params![id.to_bytes(), arg.token];
+		let params = db::params![id.to_string(), arg.token];
 		connection
 			.execute(statement.into(), params)
 			.await
@@ -49,7 +49,7 @@ impl Server {
 					.publish("watchdog".into(), Bytes::new())
 					.await
 					.inspect_err(|error| {
-						tracing::error!(?error, "failed to publish cancellation message");
+						tracing::error!(?error, "failed to publish the watchdog message");
 					})
 					.ok();
 			}
