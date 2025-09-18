@@ -2,8 +2,7 @@ use crate::{self as tg, util::serde::BytesBase64};
 use byteorder::{ReadBytesExt as _, WriteBytesExt as _};
 use bytes::Bytes;
 use serde_with::serde_as;
-use std::io::Write as _;
-use tangram_itertools::IteratorExt as _;
+use std::{collections::BTreeSet, io::Write as _};
 
 #[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
@@ -124,14 +123,14 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		match self {
-			Self::Branch(branch) => branch
-				.children
-				.iter()
-				.map(|child| child.blob.clone().into())
-				.left_iterator(),
-			Self::Leaf(_) => std::iter::empty().right_iterator(),
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Self::Branch(branch) = self {
+			children.extend(
+				branch
+					.children
+					.iter()
+					.map(|child| child.blob.clone().into()),
+			);
 		}
 	}
 }

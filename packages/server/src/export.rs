@@ -318,8 +318,10 @@ impl Server {
 					}
 					if arg.outputs {
 						if let Some(output) = process.data.output {
-							let output_complete = output
-								.children()
+							let mut children = BTreeSet::new();
+							output.children(&mut children);
+							let output_complete = children
+								.into_iter()
 								.map(|child| async move {
 									Ok::<_, tg::Error>(
 										self.try_get_object_complete(&child)
@@ -565,7 +567,9 @@ impl Server {
 			}
 			if state.arg.outputs {
 				if let Some(output) = &data.output {
-					objects.extend(output.children());
+					let mut children = BTreeSet::new();
+					output.children(&mut children);
+					objects.extend(children);
 				}
 			}
 			state
@@ -642,7 +646,9 @@ impl Server {
 		}
 		if state.arg.outputs {
 			if let Some(output) = &data.output {
-				objects.extend(output.children());
+				let mut children = BTreeSet::new();
+				output.children(&mut children);
+				objects.extend(children);
 			}
 		}
 		for child in objects {
@@ -731,7 +737,8 @@ impl Server {
 			};
 			let bytes = output.bytes;
 			let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
-			let children = data.children().collect::<BTreeSet<_>>();
+			let mut children = BTreeSet::new();
+			data.children(&mut children);
 
 			// Send the object.
 			let size = bytes.len().to_u64().unwrap();
@@ -807,7 +814,8 @@ impl Server {
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
 
 		// Enqueue the children.
-		let children = data.children().collect::<BTreeSet<_>>();
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
 		for child in children {
 			let item = ObjectQueueItem {
 				parent: Some(Either::Right(object.clone())),

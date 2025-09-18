@@ -2,7 +2,6 @@ use crate::{
 	self as tg,
 	util::serde::{is_false, is_true, return_true},
 };
-use itertools::Itertools as _;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -72,31 +71,6 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stdout: Option<tg::process::Stdio>,
-}
-
-impl Data {
-	pub fn objects(&self) -> Vec<tg::object::Id> {
-		let command = std::iter::once(self.command.clone().into());
-		let error = self
-			.error
-			.as_ref()
-			.map(tg::error::Data::children)
-			.into_iter()
-			.flatten();
-		let logs = self.log.iter().cloned().map_into();
-		let output = self
-			.output
-			.as_ref()
-			.map(tg::value::Data::children)
-			.into_iter()
-			.flatten();
-		std::iter::empty()
-			.chain(command)
-			.chain(error)
-			.chain(logs)
-			.chain(output)
-			.collect()
-	}
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

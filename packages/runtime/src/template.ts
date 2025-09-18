@@ -119,7 +119,7 @@ export class Template {
 		);
 	}
 
-	children(): Array<tg.Object> {
+	objects(): Array<tg.Object> {
 		return this.#components.flatMap((component) => {
 			if (typeof component === "string") {
 				return [];

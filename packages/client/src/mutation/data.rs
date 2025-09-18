@@ -1,6 +1,6 @@
 use crate as tg;
 use itertools::Itertools as _;
-use tangram_itertools::IteratorExt as _;
+use std::collections::BTreeSet;
 
 #[derive(
 	Clone,
@@ -47,17 +47,25 @@ pub enum Data {
 }
 
 impl Data {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Unset => std::iter::empty().boxed(),
-			Self::Set { value } | Self::SetIfUnset { value } => value.children().boxed(),
+			Self::Unset => (),
+			Self::Set { value } | Self::SetIfUnset { value } => {
+				value.children(children);
+			},
 			Self::Prepend { values } | Self::Append { values } => {
-				values.iter().flat_map(tg::value::Data::children).boxed()
+				for value in values {
+					value.children(children);
+				}
 			},
 			Self::Prefix { template, .. } | Self::Suffix { template, .. } => {
-				template.children().boxed()
+				template.children(children);
 			},
-			Self::Merge { value } => value.iter().flat_map(|(_key, val)| val.children()).boxed(),
+			Self::Merge { value } => {
+				for value in value.values() {
+					value.children(children);
+				}
+			},
 		}
 	}
 

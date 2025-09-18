@@ -2,7 +2,7 @@ use {
 	super::state::{State, Variant},
 	crate::{Server, temp::Temp},
 	bytes::Bytes,
-	std::{os::unix::fs::PermissionsExt as _, sync::Arc},
+	std::{collections::BTreeSet, os::unix::fs::PermissionsExt as _, sync::Arc},
 	tangram_client as tg,
 	tangram_either::Either,
 	tangram_messenger::Messenger as _,
@@ -186,11 +186,10 @@ impl Server {
 				.cache_reference
 				.as_ref()
 				.map(|cache_reference| cache_reference.artifact.clone());
-			let children = object
-				.data
-				.as_ref()
-				.map(|data| data.children().collect())
-				.unwrap_or_default();
+			let mut children = BTreeSet::new();
+			if let Some(data) = &object.data {
+				data.children(&mut children);
+			}
 			let complete = object.complete;
 			let metadata = object.metadata.clone().unwrap_or_default();
 			let message = crate::index::Message::PutObject(crate::index::message::PutObject {

@@ -94,31 +94,14 @@ impl Graph {
 			.collect();
 		let command =
 			std::iter::once(data.command.clone().into()).map(|id| (id, ProcessObjectKind::Command));
-		let error = data
-			.error
-			.as_ref()
-			.map(tg::error::Data::children)
+		let mut outputs = BTreeSet::new();
+		if let Some(output) = &data.output {
+			output.children(&mut outputs);
+		}
+		let outputs = outputs
 			.into_iter()
-			.flatten()
-			.map(|id| (id, ProcessObjectKind::Error));
-		let logs = data
-			.log
-			.iter()
-			.cloned()
-			.map(Into::into)
-			.map(|id| (id, ProcessObjectKind::Log));
-		let output = data
-			.output
-			.as_ref()
-			.map(tg::value::Data::children)
-			.into_iter()
-			.flatten()
-			.map(|id| (id, ProcessObjectKind::Output));
-		let objects = std::iter::empty()
-			.chain(command)
-			.chain(error)
-			.chain(logs)
-			.chain(output);
+			.map(|object| (object, ProcessObjectKind::Output));
+		let objects = std::iter::empty().chain(command).chain(outputs);
 		let object_indices = objects
 			.map(|(object, kind)| {
 				let object_entry = self.nodes.entry(object.into());
@@ -152,11 +135,12 @@ impl Graph {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		entry.or_default();
-		let children = data.children().map(Into::into).collect::<BTreeSet<_>>();
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
 		let children_indices = children
 			.into_iter()
 			.map(|child| {
-				let child_entry = self.nodes.entry(child);
+				let child_entry = self.nodes.entry(child.into());
 				let child_index = child_entry.index();
 				let child_entry = child_entry.or_default();
 				child_entry.parents.push(index);

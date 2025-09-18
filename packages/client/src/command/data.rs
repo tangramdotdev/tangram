@@ -1,8 +1,10 @@
 use crate as tg;
 use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
-use std::{collections::BTreeMap, path::PathBuf};
-use tangram_itertools::IteratorExt as _;
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::PathBuf,
+};
 
 #[derive(
 	Clone,
@@ -156,51 +158,46 @@ impl Command {
 		}
 	}
 
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		let executable = self.executable.children();
-		let args = self.args.iter().flat_map(tg::value::Data::children);
-		let env = self.env.values().flat_map(tg::value::Data::children);
-		let mounts = self
-			.mounts
-			.iter()
-			.flat_map(tg::command::data::Mount::children);
-		std::iter::empty()
-			.chain(executable)
-			.chain(args)
-			.chain(env)
-			.chain(mounts)
-			.boxed()
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		self.executable.children(children);
+		for value in &self.args {
+			value.children(children);
+		}
+		for value in self.env.values() {
+			value.children(children);
+		}
+		for mount in &self.mounts {
+			mount.children(children);
+		}
 	}
 }
 
 impl Executable {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Artifact(artifact) => artifact.children().boxed(),
-			Self::Module(module) => module.children().boxed(),
-			Self::Path(_) => std::iter::empty().boxed(),
+			Self::Artifact(artifact) => artifact.children(children),
+			Self::Module(module) => module.children(children),
+			Self::Path(_) => (),
 		}
 	}
 }
 
 impl ArtifactExecutable {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		std::iter::once(self.artifact.clone().into())
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		children.insert(self.artifact.clone().into());
 	}
 }
 
 impl ModuleExecutable {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		if let tg::module::data::Item::Object(object) = &self.module.referent.item {
-			std::iter::once(object.clone()).left_iterator()
-		} else {
-			std::iter::empty().right_iterator()
+			children.insert(object.clone());
 		}
 	}
 }
 
 impl Mount {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		std::iter::once(self.source.clone().into())
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		children.insert(self.source.clone().into());
 	}
 }

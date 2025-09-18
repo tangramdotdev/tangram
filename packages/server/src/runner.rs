@@ -1,6 +1,6 @@
 use crate::{ProcessPermit, Server, runtime};
 use futures::{FutureExt as _, TryFutureExt as _, future};
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tangram_client::{self as tg, prelude::*};
 use tangram_either::Either;
 use tangram_futures::task::Task;
@@ -113,7 +113,8 @@ impl Server {
 		// If the process is remote, then push the output.
 		if let Some(remote) = process.remote() {
 			if let Some(output) = &output {
-				let objects = output.children();
+				let mut objects = BTreeSet::new();
+				output.children(&mut objects);
 				let arg = tg::push::Arg {
 					items: objects.into_iter().map(Either::Right).collect(),
 					remote: Some(remote.to_owned()),

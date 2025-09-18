@@ -1,6 +1,6 @@
 use crate as tg;
 use futures::{TryStreamExt as _, stream::FuturesOrdered};
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeSet};
 
 pub use self::data::Template as Data;
 
@@ -48,7 +48,7 @@ impl Template {
 	}
 
 	#[must_use]
-	pub fn children(&self) -> Vec<tg::object::Handle> {
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
 		self.artifacts()
 			.map(|artifact| artifact.clone().into())
 			.collect()
@@ -93,8 +93,10 @@ impl Template {
 	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
 		let data = Data::unrender(prefix, string)?;
 		let components = data.components.into_iter().map(|data| match data {
-			data::Component::Artifact(id) => Component::Artifact(tg::Artifact::with_id(id)),
-			data::Component::String(string) => Component::String(string),
+			tg::template::data::Component::Artifact(id) => {
+				Component::Artifact(tg::Artifact::with_id(id))
+			},
+			tg::template::data::Component::String(string) => Component::String(string),
 		});
 		Ok(Self::with_components(components))
 	}
@@ -102,28 +104,29 @@ impl Template {
 
 impl Data {
 	#[must_use]
-	pub fn with_components(components: impl IntoIterator<Item = data::Component>) -> Self {
+	pub fn with_components(
+		components: impl IntoIterator<Item = tg::template::data::Component>,
+	) -> Self {
 		let components = components.into_iter().collect();
 		Self { components }
 	}
 
 	#[must_use]
-	pub fn components(&self) -> &[data::Component] {
+	pub fn components(&self) -> &[tg::template::data::Component] {
 		&self.components
 	}
 
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> + '_ {
-		self.components
-			.iter()
-			.filter_map(|component| match component {
-				data::Component::String(_) => None,
-				data::Component::Artifact(id) => Some(id.clone().into()),
-			})
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		for component in &self.components {
+			if let tg::template::data::Component::Artifact(id) = component {
+				children.insert(id.clone().into());
+			}
+		}
 	}
 
 	pub fn try_render<'a, F>(&'a self, mut f: F) -> tg::Result<String>
 	where
-		F: (FnMut(&'a self::data::Component) -> tg::Result<Cow<'a, str>>) + 'a,
+		F: (FnMut(&'a tg::template::data::Component) -> tg::Result<Cow<'a, str>>) + 'a,
 	{
 		let mut string = String::new();
 		for component in &self.components {
@@ -135,7 +138,7 @@ impl Data {
 
 	pub fn render<'a, F>(&'a self, mut f: F) -> String
 	where
-		F: (FnMut(&'a self::data::Component) -> Cow<'a, str>) + 'a,
+		F: (FnMut(&'a tg::template::data::Component) -> Cow<'a, str>) + 'a,
 	{
 		let mut string = String::new();
 		for component in &self.components {
@@ -158,7 +161,7 @@ impl Data {
 			// Add the text leading up to the capture as a string component.
 			let match_ = captures.get(0).unwrap();
 			if match_.start() > i {
-				components.push(data::Component::String(
+				components.push(tg::template::data::Component::String(
 					string[i..match_.start()].to_owned(),
 				));
 			}
@@ -168,7 +171,7 @@ impl Data {
 			let id = id.as_str().parse().unwrap();
 
 			// Add an artifact component.
-			components.push(data::Component::Artifact(id));
+			components.push(tg::template::data::Component::Artifact(id));
 
 			// Advance the cursor to the end of the match.
 			i = match_.end();
@@ -176,7 +179,9 @@ impl Data {
 
 		// Add the remaining text as a string component.
 		if i < string.len() {
-			components.push(data::Component::String(string[i..].to_owned()));
+			components.push(tg::template::data::Component::String(
+				string[i..].to_owned(),
+			));
 		}
 
 		// Create the template.
@@ -186,10 +191,10 @@ impl Data {
 
 impl Component {
 	#[must_use]
-	pub fn to_data(&self) -> data::Component {
+	pub fn to_data(&self) -> tg::template::data::Component {
 		match self {
-			Self::String(string) => data::Component::String(string.clone()),
-			Self::Artifact(artifact) => data::Component::Artifact(artifact.id()),
+			Self::String(string) => tg::template::data::Component::String(string.clone()),
+			Self::Artifact(artifact) => tg::template::data::Component::Artifact(artifact.id()),
 		}
 	}
 }

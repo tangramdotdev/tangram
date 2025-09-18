@@ -34,14 +34,14 @@ pub enum Mutation {
 }
 
 impl Mutation {
-	pub fn children(&self) -> Vec<tg::Object> {
+	pub fn objects(&self) -> Vec<tg::Object> {
 		match self {
 			Self::Unset => vec![],
 			Self::Set { value } | Self::SetIfUnset { value } => value.objects(),
 			Self::Prepend { values } | Self::Append { values } => {
 				values.iter().flat_map(tg::Value::objects).collect()
 			},
-			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.children(),
+			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.objects(),
 			Self::Merge { value } => value.iter().flat_map(|(_key, val)| val.objects()).collect(),
 		}
 	}

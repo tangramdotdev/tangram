@@ -2,6 +2,7 @@ use crate::Server;
 use bytes::Bytes;
 use futures::{StreamExt as _, stream::FuturesUnordered};
 use indoc::formatdoc;
+use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
@@ -206,27 +207,18 @@ impl Server {
 		drop(connection);
 
 		// Publish the put process index message.
-		let objects = std::iter::once((
+		let command = (
 			data.command.clone().into(),
 			crate::index::message::ProcessObjectKind::Command,
-		))
-		.chain(
-			error
-				.as_ref()
-				.map(tg::error::Data::children)
-				.into_iter()
-				.flatten()
-				.map(|object| (object, crate::index::message::ProcessObjectKind::Error)),
-		)
-		.chain(
-			output
-				.as_ref()
-				.map(tg::value::Data::children)
-				.into_iter()
-				.flatten()
-				.map(|object| (object, crate::index::message::ProcessObjectKind::Output)),
-		)
-		.collect();
+		);
+		let mut outputs = BTreeSet::new();
+		if let Some(output) = &output {
+			output.children(&mut outputs);
+		}
+		let outputs = outputs
+			.into_iter()
+			.map(|object| (object, crate::index::message::ProcessObjectKind::Output));
+		let objects = std::iter::once(command).chain(outputs).collect();
 		let children = children.into_iter().map(|row| row.child).collect();
 		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
 			children,

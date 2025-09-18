@@ -1,7 +1,6 @@
 use super::Kind;
 use crate as tg;
-use std::path::PathBuf;
-use tangram_itertools::IteratorExt as _;
+use std::{collections::BTreeSet, path::PathBuf};
 use tangram_uri::Uri;
 
 #[derive(
@@ -50,10 +49,9 @@ pub enum Item {
 }
 
 impl Module {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		match &self.referent.item {
-			Item::Path(_) => std::iter::empty().left_iterator(),
-			Item::Object(id) => std::iter::once(id.clone()).right_iterator(),
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Item::Object(id) = &self.referent.item {
+			children.insert(id.clone());
 		}
 	}
 }

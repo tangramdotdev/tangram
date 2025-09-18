@@ -1,7 +1,7 @@
 use super::Kind;
 use crate as tg;
 use bytes::Bytes;
-use tangram_itertools::IteratorExt as _;
+use std::collections::BTreeSet;
 
 #[derive(
 	Clone,
@@ -58,14 +58,14 @@ impl Object {
 		}
 	}
 
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Blob(blob) => blob.children().boxed(),
-			Self::Directory(directory) => directory.children().boxed(),
-			Self::File(file) => file.children().boxed(),
-			Self::Symlink(symlink) => symlink.children().boxed(),
-			Self::Graph(graph) => graph.children().boxed(),
-			Self::Command(command) => command.children().boxed(),
+			Self::Blob(blob) => blob.children(children),
+			Self::Directory(directory) => directory.children(children),
+			Self::File(file) => file.children(children),
+			Self::Symlink(symlink) => symlink.children(children),
+			Self::Graph(graph) => graph.children(children),
+			Self::Command(command) => command.children(children),
 		}
 	}
 }

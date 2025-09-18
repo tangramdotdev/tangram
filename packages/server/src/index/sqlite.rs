@@ -701,6 +701,7 @@ impl Server {
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
 					where objects.id = ?1
+					and objects.complete = 0
 					group by objects.id, objects.size
 				) as updates
 				where objects.id = updates.id
@@ -962,6 +963,7 @@ impl Server {
 					left join process_children on process_children.process = processes.id
 					left join processes as child_processes on child_processes.id = process_children.child
 					where processes.id = ?1
+					and processes.children_complete = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
@@ -1005,6 +1007,7 @@ impl Server {
 					left join process_children process_children_commands on process_children_commands.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_commands.child
 					where processes.id = ?1
+					and processes.commands_complete = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
@@ -1030,7 +1033,8 @@ impl Server {
 				where processes.id = process_objects.process
 					and process_objects.kind = 'command'
 					and process_objects.process = ?1
-					and objects.complete = 1;
+					and objects.complete = 1
+					and processes.command_complete = 0;
 			"
 		);
 		let mut update_command_complete_statement =
@@ -1069,6 +1073,7 @@ impl Server {
 					left join process_children process_children_outputs on process_children_outputs.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_outputs.child
 					where processes.id = ?1
+					and processes.outputs_complete = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
@@ -1093,17 +1098,19 @@ impl Server {
 					select
 						process_objects.process as id,
 						case
-							when count(objects.id) = 0 then 1
+							when count(process_objects.object) = 0 then 1
 							when min(objects.complete) = 1 then 1
 							else 0
 						end as output_complete,
 						coalesce(sum(objects.count), 0) as output_count,
 						coalesce(max(objects.depth), 0) as output_depth,
 						coalesce(sum(objects.weight), 0) as output_weight
-					from process_objects
+					from processes
+					join process_objects on processes.id = process_objects.process
 					left join objects on process_objects.object = objects.id
 					where process_objects.kind = 'output'
 					and process_objects.process = ?1
+					and processes.output_complete = 0
 					group by process_objects.process
 				) updates
 				where processes.id = updates.id

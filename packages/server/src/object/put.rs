@@ -1,5 +1,6 @@
 use crate::Server;
 use num::ToPrimitive as _;
+use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
@@ -21,10 +22,12 @@ impl Server {
 		self.store.put(put_arg).await?;
 
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
 		let size = arg.bytes.len().to_u64().unwrap();
 		let message = crate::index::Message::PutObject(crate::index::message::PutObject {
 			cache_entry: None,
-			children: data.children().collect(),
+			children,
 			complete: false,
 			id: id.clone(),
 			metadata: tg::object::Metadata::default(),

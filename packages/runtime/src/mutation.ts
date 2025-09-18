@@ -226,7 +226,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		return this.#inner;
 	}
 
-	children(): Array<tg.Object> {
+	objects(): Array<tg.Object> {
 		if (this.#inner.kind === "set") {
 			return tg.Value.objects(this.#inner.value);
 		} else if (this.#inner.kind === "set_if_unset") {
@@ -237,7 +237,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		) {
 			return tg.Value.objects(this.#inner.values);
 		} else if (this.#inner.kind === "prefix" || this.#inner.kind === "suffix") {
-			return this.#inner.template.children();
+			return this.#inner.template.objects();
 		} else {
 			return [];
 		}

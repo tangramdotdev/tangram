@@ -72,8 +72,8 @@ impl Value {
 			Self::Array(array) => array.iter().flat_map(Self::objects).collect(),
 			Self::Map(map) => map.values().flat_map(Self::objects).collect(),
 			Self::Object(object) => vec![object.clone()],
-			Self::Template(template) => template.children(),
-			Self::Mutation(mutation) => mutation.children(),
+			Self::Template(template) => template.objects(),
+			Self::Mutation(mutation) => mutation.objects(),
 			_ => vec![],
 		}
 	}
@@ -191,12 +191,12 @@ impl Value {
 				}
 			},
 			Self::Template(template) => {
-				for object in template.children() {
+				for object in template.objects() {
 					children.push(tg::Value::Object(object));
 				}
 			},
 			Self::Mutation(mutation) => {
-				for object in mutation.children() {
+				for object in mutation.objects() {
 					children.push(tg::Value::Object(object));
 				}
 			},

@@ -17,7 +17,8 @@ impl Cli {
 		// Print the children.
 		let object = tg::Object::with_id(args.object);
 		let data = object.data(&handle).await?;
-		let children = data.children().collect::<BTreeSet<_>>();
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
 		for child in children {
 			println!("{child}");
 		}

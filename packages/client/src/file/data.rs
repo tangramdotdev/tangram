@@ -1,7 +1,7 @@
 use crate::tg;
 use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
-use tangram_itertools::IteratorExt as _;
+use std::collections::BTreeSet;
 
 #[derive(
 	Clone,
@@ -53,10 +53,10 @@ impl File {
 		}
 	}
 
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Reference(reference) => reference.children().left_iterator(),
-			Self::Node(node) => node.children().right_iterator(),
+			Self::Reference(reference) => reference.children(children),
+			Self::Node(node) => node.children(children),
 		}
 	}
 }

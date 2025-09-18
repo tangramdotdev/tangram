@@ -1,8 +1,14 @@
 use crate::{Server, temp::Temp};
 use bytes::Bytes;
 use futures::{StreamExt as _, TryStreamExt as _, stream};
+use itertools::Itertools;
 use num::ToPrimitive as _;
-use std::{collections::BTreeMap, path::PathBuf, pin::pin, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::PathBuf,
+	pin::pin,
+	sync::Arc,
+};
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
@@ -244,16 +250,16 @@ impl Server {
 		let bytes = data.serialize()?;
 		let size = bytes.len().to_u64().unwrap();
 		let id = tg::blob::Id::new(&bytes);
-		let (count, depth, weight) =
-			children
-				.iter()
-				.fold((1, 1, size), |(count, depth, weight), child| {
-					(
-						count + child.count,
-						depth.max(child.depth),
-						weight + child.weight,
-					)
-				});
+		let (count, depth, weight) = children.iter().unique_by(|blob| &blob.id).fold(
+			(1, 1, size),
+			|(count, depth, weight), child| {
+				(
+					count + child.count,
+					depth.max(1 + child.depth),
+					weight + child.weight,
+				)
+			},
+		);
 		let position = children.first().unwrap().position;
 		let length = children.iter().map(|child| child.length).sum();
 		let output = Blob {
@@ -353,11 +359,10 @@ impl Server {
 			let cache_entry = cache_reference
 				.as_ref()
 				.map(|(artifact, _)| artifact.clone());
-			let children = blob
-				.data
-				.as_ref()
-				.map(|data| data.children().collect())
-				.unwrap_or_default();
+			let mut children = BTreeSet::new();
+			if let Some(data) = &blob.data {
+				data.children(&mut children);
+			}
 			let id = blob.id.clone().into();
 			let metadata = tg::object::Metadata {
 				count: Some(blob.count),

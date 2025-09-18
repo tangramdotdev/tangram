@@ -126,9 +126,9 @@ export namespace Value {
 		} else if (tg.Object.is(value)) {
 			return [value];
 		} else if (value instanceof tg.Mutation) {
-			return value.children();
+			return value.objects();
 		} else if (value instanceof tg.Template) {
-			return value.children();
+			return value.objects();
 		} else {
 			return [];
 		}

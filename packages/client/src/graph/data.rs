@@ -2,8 +2,10 @@ use crate::{self as tg, util::serde::is_false};
 use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
-use std::{collections::BTreeMap, path::PathBuf};
-use tangram_itertools::IteratorExt as _;
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::PathBuf,
+};
 
 #[derive(
 	Clone,
@@ -184,12 +186,14 @@ impl Graph {
 		}
 	}
 
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		self.nodes.iter().flat_map(|node| match node {
-			tg::graph::data::Node::Directory(node) => node.children().boxed(),
-			tg::graph::data::Node::File(file) => file.children().boxed(),
-			tg::graph::data::Node::Symlink(symlink) => symlink.children().boxed(),
-		})
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		for node in &self.nodes {
+			match node {
+				tg::graph::data::Node::Directory(node) => node.children(children),
+				tg::graph::data::Node::File(file) => file.children(children),
+				tg::graph::data::Node::Symlink(symlink) => symlink.children(children),
+			}
+		}
 	}
 }
 
@@ -205,25 +209,29 @@ impl Node {
 }
 
 impl Directory {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		self.entries.values().flat_map(Edge::children)
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		for edge in self.entries.values() {
+			edge.children(children);
+		}
 	}
 }
 
 impl File {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		let contents = self.contents.clone().map(Into::into);
-		let dependencies = self
-			.dependencies
-			.values()
-			.flat_map(|referent| referent.item.children());
-		std::iter::empty().chain(contents).chain(dependencies)
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Some(contents) = &self.contents {
+			children.insert(contents.clone().into());
+		}
+		for referent in self.dependencies.values() {
+			referent.item.children(children);
+		}
 	}
 }
 
 impl Symlink {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		self.artifact.iter().flat_map(Edge::children)
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Some(edge) = &self.artifact {
+			edge.children(children);
+		}
 	}
 }
 
@@ -231,17 +239,23 @@ impl<T> Edge<T>
 where
 	T: Into<tg::object::Id> + Clone,
 {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Reference(reference) => reference.children().left_iterator(),
-			Self::Object(object) => std::iter::once(object.clone().into()).right_iterator(),
+			Self::Reference(reference) => {
+				reference.children(children);
+			},
+			Self::Object(object) => {
+				children.insert(object.clone().into());
+			},
 		}
 	}
 }
 
 impl Reference {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		self.graph.clone().into_iter().map(Into::into)
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Some(graph) = &self.graph {
+			children.insert(graph.clone().into());
+		}
 	}
 }
 

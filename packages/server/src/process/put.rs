@@ -1,4 +1,5 @@
 use crate::{Server, database::Database};
+use std::collections::BTreeSet;
 use tangram_client as tg;
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
@@ -39,13 +40,12 @@ impl Server {
 			arg.data.command.clone().into(),
 			crate::index::message::ProcessObjectKind::Command,
 		));
-		let output = arg
-			.data
-			.output
-			.as_ref()
-			.map(tg::value::Data::children)
+		let mut output = BTreeSet::new();
+		if let Some(data) = &arg.data.output {
+			data.children(&mut output);
+		}
+		let output = output
 			.into_iter()
-			.flatten()
 			.map(|output| (output, crate::index::message::ProcessObjectKind::Output));
 		let objects = std::iter::empty().chain(command).chain(output).collect();
 		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {

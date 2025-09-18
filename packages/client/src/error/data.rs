@@ -1,5 +1,8 @@
 use crate as tg;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	path::PathBuf,
+};
 
 /// An error.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -48,31 +51,22 @@ pub enum File {
 }
 
 impl Error {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		std::iter::empty()
-			.chain(
-				self.location
-					.as_ref()
-					.map(Location::children)
-					.into_iter()
-					.flatten(),
-			)
-			.chain(
-				self.stack
-					.iter()
-					.flat_map(|stack| stack.iter().map(Location::children))
-					.flatten(),
-			)
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Some(location) = &self.location {
+			location.children(children);
+		}
+		if let Some(stack) = &self.stack {
+			for location in stack {
+				location.children(children);
+			}
+		}
 	}
 }
 
 impl Location {
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
-		self.file
-			.try_unwrap_module_ref()
-			.ok()
-			.map(tg::module::Data::children)
-			.into_iter()
-			.flatten()
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let tg::error::data::File::Module(module) = &self.file {
+			module.children(children);
+		}
 	}
 }

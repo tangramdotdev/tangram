@@ -2,8 +2,7 @@ use crate as tg;
 use byteorder::ReadBytesExt as _;
 use bytes::Bytes;
 use num::ToPrimitive as _;
-use std::collections::BTreeMap;
-use tangram_itertools::IteratorExt as _;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Value data.
 #[derive(
@@ -86,16 +85,24 @@ impl Data {
 		}
 	}
 
-	pub fn children(&self) -> impl Iterator<Item = tg::object::Id> {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => {
-				std::iter::empty().boxed()
+			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => (),
+			Self::Array(array) => {
+				for value in array {
+					value.children(children);
+				}
 			},
-			Self::Array(array) => array.iter().flat_map(Self::children).boxed(),
-			Self::Map(map) => map.values().flat_map(Self::children).boxed(),
-			Self::Object(object) => std::iter::once(object.clone()).boxed(),
-			Self::Mutation(mutation) => mutation.children().boxed(),
-			Self::Template(template) => template.children().boxed(),
+			Self::Map(map) => {
+				for value in map.values() {
+					value.children(children);
+				}
+			},
+			Self::Object(object) => {
+				children.insert(object.clone());
+			},
+			Self::Mutation(mutation) => mutation.children(children),
+			Self::Template(template) => template.children(children),
 		}
 	}
 }
