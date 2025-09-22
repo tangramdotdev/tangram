@@ -20,7 +20,7 @@ impl Server {
 			.data;
 		list.into_iter()
 			.filter_map(|output| {
-				let directory = output.item.right()?.try_unwrap_directory().ok()?;
+				let directory = output.item?.right()?.try_unwrap_directory().ok()?;
 				let server = self.clone();
 				let remote = remote.clone().unwrap_or_else(|| "default".to_owned());
 				Some(async move {

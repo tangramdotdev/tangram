@@ -42,9 +42,9 @@ impl Cli {
 			.and_then(|config| config.advanced.as_ref())
 			.and_then(|advanced| advanced.init_autobuild_reference.as_ref())
 		{
-			autobuild_reference.as_str()
+			autobuild_reference.to_string()
 		} else {
-			"autobuild"
+			"autobuild".to_owned()
 		};
 
 		// Define the files to generate.

@@ -5,7 +5,7 @@ use tangram_client::{self as tg, prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
+	#[arg(index = 1, default_value = "*")]
 	pub pattern: tg::tag::Pattern,
 
 	#[allow(clippy::option_option)]

@@ -129,7 +129,7 @@ impl Component {
 				}
 			},
 		}
-		true
+		false
 	}
 
 	fn matches_less(&self, version: &Version) -> bool {
@@ -156,7 +156,7 @@ impl Component {
 				}
 			},
 		}
-		true
+		false
 	}
 
 	fn matches_tilde(&self, version: &Version) -> bool {

@@ -69,17 +69,6 @@ impl Uri {
 	pub fn fragment(&self) -> Option<&str> {
 		self.fragment.clone().map(|range| &self.string[range])
 	}
-
-	#[must_use]
-	pub fn as_str(&self) -> &str {
-		self.string.as_str()
-	}
-}
-
-impl AsRef<str> for Uri {
-	fn as_ref(&self) -> &str {
-		self.string.as_str()
-	}
 }
 
 impl std::fmt::Display for Uri {
@@ -109,31 +98,5 @@ impl std::str::FromStr for Uri {
 			query,
 			fragment,
 		})
-	}
-}
-
-impl std::cmp::Eq for Uri {}
-
-impl std::hash::Hash for Uri {
-	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-		self.string.hash(state);
-	}
-}
-
-impl std::cmp::Ord for Uri {
-	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.string.cmp(&other.string)
-	}
-}
-
-impl std::cmp::PartialEq for Uri {
-	fn eq(&self, other: &Self) -> bool {
-		self.string.eq(&other.string)
-	}
-}
-
-impl std::cmp::PartialOrd for Uri {
-	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		Some(self.cmp(other))
 	}
 }

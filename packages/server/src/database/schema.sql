@@ -133,9 +133,13 @@ create table remotes (
 );
 
 create table tags (
-	tag text primary key,
-	item text not null
+	id integer primary key autoincrement,
+	parent integer not null default 0,
+	component text not null,
+	item text
 );
+
+create unique index tags_parent_component_index on tags (parent, component);
 
 create table users (
 	id text primary key,

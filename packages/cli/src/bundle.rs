@@ -18,7 +18,7 @@ impl Cli {
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let command = tg::builtin::bundle_command(&artifact);
 		let command = command.store(&handle).await?;
-		let reference = tg::Reference::with_object(&command.into());
+		let reference = tg::Reference::with_object(command.into());
 		self.build(args.build, reference, vec![], true).await?;
 		Ok(())
 	}

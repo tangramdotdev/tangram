@@ -320,14 +320,14 @@ where
 			self.map_entry("dependencies", |s| {
 				s.start_map()?;
 				for (reference, referent) in &file.dependencies {
-					s.map_entry(reference.as_str(), |s| {
+					s.map_entry(&reference.to_string(), |s| {
 						s.start_map()?;
 						s.map_entry("item", |s| s.graph_edge_object(referent.item()))?;
 						if let Some(path) = referent.path() {
 							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 						}
 						if let Some(tag) = referent.tag() {
-							s.map_entry("tag", |s| s.string(tag.as_str()))?;
+							s.map_entry("tag", |s| s.string(&tag.to_string()))?;
 						}
 						s.finish_map()?;
 						Ok(())
@@ -553,7 +553,7 @@ where
 				s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 			}
 			if let Some(tag) = &value.referent.tag() {
-				s.map_entry("tag", |s| s.string(tag.as_str()))?;
+				s.map_entry("tag", |s| s.string(&tag.to_string()))?;
 			}
 			s.finish_map()?;
 			Ok(())

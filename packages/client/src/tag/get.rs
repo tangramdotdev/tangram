@@ -6,7 +6,7 @@ use tangram_http::{request::builder::Ext as _, response::Ext as _};
 pub struct Output {
 	pub tag: tg::Tag,
 
-	pub item: Either<tg::process::Id, tg::object::Id>,
+	pub item: Option<Either<tg::process::Id, tg::object::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,

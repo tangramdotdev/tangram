@@ -38,10 +38,7 @@ impl Import {
 				let local = attributes.local.or(reference.options().local.clone());
 				let remote = attributes.remote.or(reference.options().remote.clone());
 				let options = tg::reference::Options { local, remote };
-				let query = serde_urlencoded::to_string(options)
-					.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
-				let uri = reference.uri().to_builder().query(query).build().unwrap();
-				tg::Reference::with_uri(uri)?
+				tg::Reference::with_item_and_options(reference.item().clone(), options)
 			}
 		} else {
 			reference

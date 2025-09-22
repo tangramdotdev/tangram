@@ -1,10 +1,5 @@
 use crate::{self as tg, prelude::*};
-use itertools::Itertools as _;
-use std::{
-	os::unix::ffi::OsStrExt as _,
-	path::{Path, PathBuf},
-	pin::pin,
-};
+use std::{os::unix::ffi::OsStrExt as _, path::PathBuf, pin::pin};
 use tangram_either::Either;
 use tangram_futures::stream::TryExt as _;
 use tangram_uri::Uri;
@@ -12,6 +7,11 @@ use tangram_uri::Uri;
 #[derive(
 	Clone,
 	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
@@ -19,7 +19,6 @@ use tangram_uri::Uri;
 )]
 #[tangram_serialize(display, from_str)]
 pub struct Reference {
-	uri: Uri,
 	item: Item,
 	options: Options,
 }
@@ -27,6 +26,11 @@ pub struct Reference {
 #[derive(
 	Clone,
 	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
 	derive_more::From,
 	derive_more::IsVariant,
 	derive_more::TryInto,
@@ -42,7 +46,18 @@ pub enum Item {
 	Tag(tg::tag::Pattern),
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<PathBuf>,
@@ -52,7 +67,50 @@ pub struct Options {
 }
 
 impl Reference {
-	pub fn with_uri(uri: Uri) -> tg::Result<Self> {
+	#[must_use]
+	pub fn with_item(item: Item) -> Self {
+		Self {
+			item,
+			options: Options::default(),
+		}
+	}
+
+	#[must_use]
+	pub fn with_item_and_options(item: Item, options: Options) -> Self {
+		Self { item, options }
+	}
+
+	#[must_use]
+	pub fn with_object(object: tg::object::Id) -> Self {
+		Self::with_item(Item::Object(object))
+	}
+
+	#[must_use]
+	pub fn with_path(path: PathBuf) -> Self {
+		Self::with_item(Item::Path(path))
+	}
+
+	#[must_use]
+	pub fn with_process(process: tg::process::Id) -> Self {
+		Self::with_item(Item::Process(process))
+	}
+
+	#[must_use]
+	pub fn with_tag(tag: tg::tag::Pattern) -> Self {
+		Self::with_item(Item::Tag(tag))
+	}
+
+	#[must_use]
+	pub fn item(&self) -> &Item {
+		&self.item
+	}
+
+	#[must_use]
+	pub fn options(&self) -> &Options {
+		&self.options
+	}
+
+	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let path = uri.path();
 		let path =
 			urlencoding::decode(path).map_err(|source| tg::error!(!source, "invalid path"))?;
@@ -65,65 +123,19 @@ impl Reference {
 			})
 			.transpose()?
 			.unwrap_or_default();
-		Ok(Self { uri, item, options })
+		Ok(Self { item, options })
 	}
 
 	#[must_use]
-	pub fn with_item_and_options(item: Item, options: Options) -> Self {
-		let path = item.to_string();
-		let query = serde_urlencoded::to_string(&options).unwrap();
-		let uri = Uri::builder().path(path).query(query).build().unwrap();
-		Self { uri, item, options }
-	}
-
-	#[must_use]
-	pub fn with_process(process: &tg::process::Id) -> Self {
-		Self::with_uri(process.to_string().parse().unwrap()).unwrap()
-	}
-
-	#[must_use]
-	pub fn with_object(object: &tg::object::Id) -> Self {
-		Self::with_uri(object.to_string().parse().unwrap()).unwrap()
-	}
-
-	#[must_use]
-	pub fn with_path(path: impl AsRef<Path>) -> Self {
-		let mut string = path
-			.as_ref()
-			.components()
-			.map(|component| urlencoding::encode_binary(component.as_os_str().as_bytes()))
-			.join("/");
-		if !(string.starts_with('.') || string.starts_with('/')) {
-			string.insert_str(0, "./");
+	pub fn to_uri(&self) -> Uri {
+		let path = self.item.to_string();
+		let query = serde_urlencoded::to_string(&self.options).unwrap();
+		let mut builder = Uri::builder();
+		builder = builder.path(path);
+		if !query.is_empty() {
+			builder = builder.query(query);
 		}
-		let uri = string.parse().unwrap();
-		Self::with_uri(uri).unwrap()
-	}
-
-	#[must_use]
-	pub fn with_tag(tag: &tg::tag::Pattern) -> Self {
-		let uri = urlencoding::encode(tag.as_str()).parse().unwrap();
-		Self::with_uri(uri).unwrap()
-	}
-
-	#[must_use]
-	pub fn uri(&self) -> &Uri {
-		&self.uri
-	}
-
-	#[must_use]
-	pub fn as_str(&self) -> &str {
-		self.uri.as_str()
-	}
-
-	#[must_use]
-	pub fn item(&self) -> &Item {
-		&self.item
-	}
-
-	#[must_use]
-	pub fn options(&self) -> &Options {
-		&self.options
+		builder.build().unwrap()
 	}
 
 	pub async fn get<H>(
@@ -151,7 +163,7 @@ impl Reference {
 
 impl std::fmt::Display for Reference {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.uri)
+		write!(f, "{}", self.to_uri())
 	}
 }
 
@@ -160,7 +172,7 @@ impl std::str::FromStr for Reference {
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
 		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
-		let reference = Self::with_uri(uri)?;
+		let reference = Self::with_uri(&uri)?;
 		Ok(reference)
 	}
 }
@@ -179,13 +191,52 @@ impl std::fmt::Display for Item {
 				{
 					write!(f, "./")?;
 				}
-				write!(f, "{}", path.display())?;
+				for (i, component) in path.components().enumerate() {
+					if i > 0 {
+						write!(f, "/")?;
+					}
+					match component {
+						std::path::Component::Prefix(_) => {
+							unreachable!()
+						},
+						std::path::Component::RootDir => (),
+						std::path::Component::CurDir => {
+							write!(f, ".")?;
+						},
+						std::path::Component::ParentDir => {
+							write!(f, "..")?;
+						},
+						std::path::Component::Normal(name) => {
+							write!(f, "{}", urlencoding::encode_binary(name.as_bytes()))?;
+						},
+					}
+				}
 			},
 			Item::Process(process) => {
 				write!(f, "{process}")?;
 			},
 			Item::Tag(tag) => {
-				write!(f, "{tag}")?;
+				for (i, component) in tag.components().iter().enumerate() {
+					if i > 0 {
+						write!(f, "/")?;
+					}
+					match component {
+						tg::tag::pattern::Component::Normal(tg::tag::Component::String(name)) => {
+							write!(f, "{}", urlencoding::encode(name))?;
+						},
+						tg::tag::pattern::Component::Normal(tg::tag::Component::Version(
+							version,
+						)) => {
+							write!(f, "{}", urlencoding::encode(&version.to_string()))?;
+						},
+						tg::tag::pattern::Component::Version(version) => {
+							write!(f, "{}", urlencoding::encode(&version.to_string()))?;
+						},
+						tg::tag::pattern::Component::Wildcard => {
+							write!(f, "%2A")?;
+						},
+					}
+				}
 			},
 		}
 		Ok(())
@@ -209,32 +260,30 @@ impl std::str::FromStr for Item {
 		if let Ok(tag) = s.parse() {
 			return Ok(Self::Tag(tag));
 		}
-		Err(tg::error!(%s, "invalid path"))
+		Err(tg::error!(%s, "invalid item"))
 	}
 }
 
-impl std::cmp::Eq for Reference {}
+#[cfg(test)]
+mod tests {
+	use crate as tg;
+	use insta::assert_snapshot;
+	use std::path::PathBuf;
 
-impl std::hash::Hash for Reference {
-	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-		self.uri.hash(state);
-	}
-}
+	#[test]
+	fn test() {
+		let id = "dir_010000000000000000000000000000000000000000000000000000"
+			.parse()
+			.unwrap();
+		let reference = tg::Reference::with_object(id).to_string();
+		assert_snapshot!(reference, @"dir_010000000000000000000000000000000000000000000000000000");
 
-impl std::cmp::Ord for Reference {
-	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.uri.cmp(&other.uri)
-	}
-}
+		let path = PathBuf::from("/foo/bar");
+		let reference = tg::Reference::with_path(path).to_string();
+		assert_snapshot!(reference, @"/foo/bar");
 
-impl std::cmp::PartialEq for Reference {
-	fn eq(&self, other: &Self) -> bool {
-		self.uri.eq(&other.uri)
-	}
-}
-
-impl std::cmp::PartialOrd for Reference {
-	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		Some(self.cmp(other))
+		let tag = "std/<0.0.1".parse().unwrap();
+		let reference = tg::Reference::with_tag(tag).to_string();
+		assert_snapshot!(reference, @"std/%3C0.0.1");
 	}
 }

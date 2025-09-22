@@ -17,6 +17,9 @@ tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 [lints]
 workspace = true
 
+[dev-dependencies]
+insta = { workspace = true }
+
 [dependencies]
 blake3 = { workspace = true }
 byte-unit = { workspace = true }

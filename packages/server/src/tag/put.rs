@@ -1,9 +1,12 @@
 use crate::Server;
-use indoc::formatdoc;
+use crate::database::Database;
 use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
 use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
 use tangram_messenger::prelude::*;
+
+#[cfg(feature = "postgres")]
+mod postgres;
+mod sqlite;
 
 impl Server {
 	pub async fn put_tag(&self, tag: &tg::Tag, mut arg: tg::tag::put::Arg) -> tg::Result<()> {
@@ -17,27 +20,16 @@ impl Server {
 			remote.put_tag(tag, arg).await?;
 		}
 
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Insert the tag.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into tags (tag, item)
-				values ({p}1, {p}2)
-				on conflict (tag) do update set item = {p}2;
-			"
-		);
-		let params = db::params![tag.to_string(), arg.item.to_string()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		// Insert the tag into the database.
+		match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
+				Self::put_tag_postgres(database, tag, &arg).await?;
+			},
+			Database::Sqlite(database) => {
+				Self::put_tag_sqlite(database, tag, &arg).await?;
+			},
+		}
 
 		// Publish the put tag index message.
 		let message = crate::index::Message::PutTag(crate::index::message::PutTagMessage {

@@ -31,42 +31,6 @@ impl Server {
 		Ok(())
 	}
 
-	async fn touch_object_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		id: &tg::object::Id,
-	) -> tg::Result<()> {
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-
-		// Get a connection.
-		let connection = database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update objects
-				set touched_at = max(touched_at, {p}1)
-				where id = {p}2;
-			",
-		);
-		let params = db::params![touched_at, id.to_bytes()];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if n == 0 {
-			return Err(tg::error!("failed to find the object"));
-		}
-
-		// Drop the connection.
-		drop(connection);
-
-		Ok(())
-	}
-
 	#[cfg(feature = "postgres")]
 	async fn touch_object_postgres(
 		&self,
@@ -86,6 +50,42 @@ impl Server {
 			"
 				update objects
 				set touched_at = greatest(touched_at, {p}1)
+				where id = {p}2;
+			",
+		);
+		let params = db::params![touched_at, id.to_bytes()];
+		let n = connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if n == 0 {
+			return Err(tg::error!("failed to find the object"));
+		}
+
+		// Drop the connection.
+		drop(connection);
+
+		Ok(())
+	}
+
+	async fn touch_object_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::object::Id,
+	) -> tg::Result<()> {
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
+		// Get a connection.
+		let connection = database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update objects
+				set touched_at = max(touched_at, {p}1)
 				where id = {p}2;
 			",
 		);

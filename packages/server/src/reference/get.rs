@@ -70,6 +70,7 @@ impl Server {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());
 				};
+				let item = item.ok_or_else(|| tg::error!("expected the tag to have an item"))?;
 				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,

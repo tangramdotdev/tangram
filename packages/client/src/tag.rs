@@ -1,5 +1,4 @@
 use crate as tg;
-use itertools::Itertools as _;
 use tangram_version::Version;
 use winnow::{
 	ascii::{alphanumeric1, dec_uint},
@@ -19,6 +18,7 @@ pub use self::pattern::Pattern;
 #[derive(
 	Clone,
 	Debug,
+	Default,
 	Eq,
 	Hash,
 	PartialEq,
@@ -29,7 +29,6 @@ pub use self::pattern::Pattern;
 )]
 #[tangram_serialize(display, from_str)]
 pub struct Tag {
-	string: String,
 	components: Vec<Component>,
 }
 
@@ -58,14 +57,18 @@ pub struct ParseError;
 
 impl Tag {
 	#[must_use]
+	pub fn empty() -> Self {
+		Self::default()
+	}
+
+	#[must_use]
 	pub fn with_components(components: Vec<Component>) -> Self {
-		let string = components.iter().map(ToString::to_string).join("/");
-		Self { string, components }
+		Self { components }
 	}
 
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self.string.is_empty()
+		self.components.is_empty()
 	}
 
 	#[must_use]
@@ -74,8 +77,8 @@ impl Tag {
 	}
 
 	#[must_use]
-	pub fn as_str(&self) -> &str {
-		self.string.as_str()
+	pub fn into_components(self) -> Vec<Component> {
+		self.components
 	}
 
 	#[must_use]
@@ -87,15 +90,15 @@ impl Tag {
 	}
 }
 
-impl AsRef<str> for Tag {
-	fn as_ref(&self) -> &str {
-		self.string.as_str()
-	}
-}
-
 impl std::fmt::Display for Tag {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.string)
+		for (i, component) in self.components.iter().enumerate() {
+			if i > 0 {
+				write!(f, "/")?;
+			}
+			write!(f, "{component}")?;
+		}
+		Ok(())
 	}
 }
 
@@ -104,32 +107,6 @@ impl std::str::FromStr for Tag {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		tag.parse(s).ok().ok_or(ParseError)
-	}
-}
-
-impl TryFrom<Pattern> for Tag {
-	type Error = tg::Error;
-
-	fn try_from(value: Pattern) -> Result<Self, Self::Error> {
-		let (string, components) = value.into_string_and_components();
-		let components = components
-			.into_iter()
-			.map(|component| match component {
-				self::pattern::Component::Normal(Component::String(string)) => {
-					Ok(Component::String(string))
-				},
-				self::pattern::Component::Normal(Component::Version(version)) => {
-					Ok(Component::Version(version))
-				},
-				self::pattern::Component::Version(_) => Err(tg::error!(
-					"pattern is not a tag if it has a version component"
-				)),
-				self::pattern::Component::Wildcard => Err(tg::error!(
-					"pattern is not a tag if it has a wildcard component"
-				)),
-			})
-			.collect::<tg::Result<_>>()?;
-		Ok(Self { string, components })
 	}
 }
 
@@ -151,9 +128,8 @@ impl std::str::FromStr for Component {
 }
 
 fn tag(input: &mut &str) -> ModalResult<Tag> {
-	let string = input.to_owned();
 	let components: Vec<_> = separated(1.., component, "/").parse_next(input)?;
-	Ok(Tag { string, components })
+	Ok(Tag { components })
 }
 
 fn component(input: &mut &str) -> ModalResult<Component> {
@@ -231,10 +207,36 @@ impl std::cmp::Ord for Component {
 	}
 }
 
+impl TryFrom<tg::tag::Pattern> for Tag {
+	type Error = tg::Error;
+
+	fn try_from(value: tg::tag::Pattern) -> Result<Self, Self::Error> {
+		let components = value.into_components();
+		let components = components
+			.into_iter()
+			.map(|component| match component {
+				self::pattern::Component::Normal(Component::String(string)) => {
+					Ok(Component::String(string))
+				},
+				self::pattern::Component::Normal(Component::Version(version)) => {
+					Ok(Component::Version(version))
+				},
+				self::pattern::Component::Version(_) => Err(tg::error!(
+					"pattern is not a tag if it has a version component"
+				)),
+				self::pattern::Component::Wildcard => Err(tg::error!(
+					"pattern is not a tag if it has a wildcard component"
+				)),
+			})
+			.collect::<tg::Result<_>>()?;
+		Ok(Self { components })
+	}
+}
+
 #[cfg(test)]
 mod tests {
-	use crate::tg;
 
+	use crate::tg;
 	#[test]
 	fn tag() {
 		let tag = "tag".parse::<tg::Tag>().unwrap();

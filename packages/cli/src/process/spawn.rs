@@ -295,7 +295,7 @@ impl Cli {
 				let referent = tg::Referent::with_item(item);
 				let module = tg::Module { kind, referent };
 				let export = reference
-					.uri()
+					.to_uri()
 					.fragment()
 					.map_or("default", |fragment| fragment)
 					.to_owned();
@@ -327,7 +327,7 @@ impl Cli {
 					let referent = tg::Referent::with_item(item);
 					let module = tg::Module { kind, referent };
 					let export = reference
-						.uri()
+						.to_uri()
 						.fragment()
 						.map_or("default", |fragment| fragment)
 						.to_owned();

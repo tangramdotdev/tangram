@@ -50,7 +50,11 @@ impl S3 {
 			.path(format!("/{id}"))
 			.build()
 			.unwrap();
-		let request = self.reqwest.request(method, url.as_str()).build().unwrap();
+		let request = self
+			.reqwest
+			.request(method, url.to_string())
+			.build()
+			.unwrap();
 		let request = self.sign_request(request)?;
 		let response = self
 			.reqwest
@@ -103,7 +107,7 @@ impl S3 {
 			.unwrap();
 		let request = self
 			.reqwest
-			.request(method, url.as_str())
+			.request(method, url.to_string())
 			.header(
 				http::header::CONTENT_LENGTH,
 				arg.bytes.as_ref().unwrap().len().to_string(),
@@ -154,7 +158,7 @@ impl S3 {
 				.unwrap();
 		let request = self
 			.reqwest
-			.request(method, url.as_str())
+			.request(method, url.to_string())
 			.header(http::header::IF_UNMODIFIED_SINCE, if_unmodified_since)
 			.build()
 			.unwrap();

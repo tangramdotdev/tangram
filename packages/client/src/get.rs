@@ -16,12 +16,17 @@ impl tg::Client {
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		let method = http::Method::GET;
-		let path = reference.uri().path();
-		let query = reference.uri().query().unwrap_or_default();
-		let uri = format!("/_/{path}?{query}");
+		let uri = reference.to_uri();
+		let path = uri.path();
+		let path = if path.starts_with('/') {
+			format!("/_{path}")
+		} else {
+			format!("/_/{path}")
+		};
+		let uri = uri.to_builder().path(path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
-			.uri(uri)
+			.uri(uri.to_string())
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();

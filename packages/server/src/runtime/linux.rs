@@ -224,11 +224,10 @@ impl Runtime {
 
 			// Create the proxy server guest URL.
 			let socket = Path::new("/.tangram/socket");
-			let socket = urlencoding::encode(
-				socket
-					.to_str()
-					.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?,
-			);
+			let socket = socket
+				.to_str()
+				.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?;
+			let socket = urlencoding::encode(socket);
 			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
 
 			// Create the proxy server host URL.

@@ -26,6 +26,7 @@ pub struct Args {
 pub enum Command {
 	Delete(self::delete::Args),
 	Get(self::get::Args),
+	#[command(alias = "ls")]
 	List(self::list::Args),
 	Put(self::put::Args),
 }

@@ -348,7 +348,7 @@ impl Server {
 			.data
 			.into_iter()
 			.filter_map(|output| {
-				let object = output.item.right()?;
+				let object = output.item?.right()?;
 				let tag = output.tag;
 				let candidate = Candidate { object, tag };
 				Some(candidate)

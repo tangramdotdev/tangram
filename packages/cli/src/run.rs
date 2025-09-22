@@ -110,7 +110,7 @@ impl Cli {
 				.ok()
 				.ok_or_else(|| tg::error!("expected the build to output an object"))?;
 			let id = object.id();
-			tg::Reference::with_object(&id)
+			tg::Reference::with_object(id)
 		} else {
 			reference
 		};
@@ -126,7 +126,7 @@ impl Cli {
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
 			let artifact = directory.get(&handle, path).await?;
-			tg::Reference::with_object(&artifact.id().into())
+			tg::Reference::with_object(artifact.id().into())
 		} else {
 			reference
 		};

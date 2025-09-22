@@ -53,8 +53,7 @@ where
 	T: std::fmt::Display,
 	W: Write,
 {
-	let display_string = value.to_string();
-	serializer.serialize(&display_string)
+	serializer.serialize(&value.to_string())
 }
 
 pub fn deserialize_from_str<T, R>(deserializer: &mut Deserializer<R>) -> Result<T>
@@ -63,8 +62,8 @@ where
 	T::Err: std::fmt::Display,
 	R: Read,
 {
-	let display_string: String = deserializer.deserialize()?;
-	display_string
+	deserializer
+		.deserialize::<String>()?
 		.parse()
 		.map_err(|error| std::io::Error::other(format!("{error}")))
 }
