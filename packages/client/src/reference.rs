@@ -21,6 +21,7 @@ use tangram_uri::Uri;
 pub struct Reference {
 	item: Item,
 	options: Options,
+	export: Option<String>,
 }
 
 #[derive(
@@ -72,12 +73,17 @@ impl Reference {
 		Self {
 			item,
 			options: Options::default(),
+			export: None,
 		}
 	}
 
 	#[must_use]
 	pub fn with_item_and_options(item: Item, options: Options) -> Self {
-		Self { item, options }
+		Self {
+			item,
+			options,
+			export: None,
+		}
 	}
 
 	#[must_use]
@@ -110,6 +116,11 @@ impl Reference {
 		&self.options
 	}
 
+	#[must_use]
+	pub fn export(&self) -> Option<&str> {
+		self.export.as_deref()
+	}
+
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let path = uri.path();
 		let path =
@@ -123,7 +134,12 @@ impl Reference {
 			})
 			.transpose()?
 			.unwrap_or_default();
-		Ok(Self { item, options })
+		let export = uri.fragment().map(ToOwned::to_owned);
+		Ok(Self {
+			item,
+			options,
+			export,
+		})
 	}
 
 	#[must_use]
@@ -278,9 +294,9 @@ mod tests {
 		let reference = tg::Reference::with_object(id).to_string();
 		assert_snapshot!(reference, @"dir_010000000000000000000000000000000000000000000000000000");
 
-		let path = PathBuf::from("/foo/bar");
+		let path = PathBuf::from("/foo/bar/../baz");
 		let reference = tg::Reference::with_path(path).to_string();
-		assert_snapshot!(reference, @"/foo/bar");
+		assert_snapshot!(reference, @"/foo/bar/../baz");
 
 		let tag = "std/<0.0.1".parse().unwrap();
 		let reference = tg::Reference::with_tag(tag).to_string();

@@ -18,11 +18,7 @@ impl tg::Client {
 		let method = http::Method::GET;
 		let uri = reference.to_uri();
 		let path = uri.path();
-		let path = if path.starts_with('/') {
-			format!("/_{path}")
-		} else {
-			format!("/_/{path}")
-		};
+		let path = format!("/_/{path}");
 		let uri = uri.to_builder().path(path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)

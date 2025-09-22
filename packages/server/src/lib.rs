@@ -40,6 +40,7 @@ mod document;
 mod export;
 #[cfg(feature = "v8")]
 mod format;
+mod get;
 mod handle;
 mod health;
 mod http;
@@ -54,7 +55,6 @@ mod progress;
 mod pty;
 mod pull;
 mod push;
-mod reference;
 mod remote;
 mod runner;
 mod runtime;

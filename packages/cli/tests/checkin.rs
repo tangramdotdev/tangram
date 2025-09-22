@@ -1353,7 +1353,7 @@ async fn tag_dependency_cycles() {
 	  "tangram.ts": tg.file({
 	    "contents": tg.blob("import * as a from \"a/*\";\nimport * as b from \"b/*\";\n"),
 	    "dependencies": {
-	      "a/*": {
+	      "a/%2A": {
 	        "item": tg.directory({
 	          "graph": tg.graph({
 	            "nodes": [
@@ -1369,7 +1369,7 @@ async fn tag_dependency_cycles() {
 	                "kind": "file",
 	                "contents": tg.blob("import * as b from \"b/*\";\n"),
 	                "dependencies": {
-	                  "b/*": {
+	                  "b/%2A": {
 	                    "item": {
 	                      "node": 2,
 	                    },
@@ -1410,7 +1410,7 @@ async fn tag_dependency_cycles() {
 	                    },
 	                    "path": "foo.tg.ts",
 	                  },
-	                  "a/*": {
+	                  "a/%2A": {
 	                    "item": {
 	                      "node": 0,
 	                    },
@@ -1424,7 +1424,7 @@ async fn tag_dependency_cycles() {
 	        }),
 	        "tag": "a/1.1.0",
 	      },
-	      "b/*": {
+	      "b/%2A": {
 	        "item": tg.directory({
 	          "graph": tg.graph({
 	            "nodes": [
@@ -1440,7 +1440,7 @@ async fn tag_dependency_cycles() {
 	                "kind": "file",
 	                "contents": tg.blob("import * as b from \"b/*\";\n"),
 	                "dependencies": {
-	                  "b/*": {
+	                  "b/%2A": {
 	                    "item": {
 	                      "node": 2,
 	                    },
@@ -1481,7 +1481,7 @@ async fn tag_dependency_cycles() {
 	                    },
 	                    "path": "foo.tg.ts",
 	                  },
-	                  "a/*": {
+	                  "a/%2A": {
 	                    "item": {
 	                      "node": 0,
 	                    },
@@ -1513,21 +1513,21 @@ async fn tag_dependency_cycles() {
 	    {
 	      "kind": "file",
 	      "dependencies": {
-	        "a/*": {
+	        "a/%2A": {
 	          "item": {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_015c2ejdbqrc8rhpnkkwgfpc7m3de977arpd6hhdba4ps8qrdkg7jg",
+	            "id": "dir_01zfz62014mqt374hxtr6xq92h7ndtv6spn06wg0ks67g5pwykxvfg",
 	            "tag": "a/1.1.0"
 	          }
 	        },
-	        "b/*": {
+	        "b/%2A": {
 	          "item": {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_01frtb704qb44m4sfnmn6q9837y2v2g1wvz4xyq8d54xeeymxsee40",
+	            "id": "dir_01dy5czxq24mm7c9nhm832w40ez6se5hyh061j323ttcmj8jr587d0",
 	            "tag": "b/1.0.0"
 	          }
 	        }
@@ -1555,12 +1555,12 @@ async fn tag_dependency_cycles() {
 	    {
 	      "kind": "file",
 	      "dependencies": {
-	        "b/*": {
+	        "b/%2A": {
 	          "item": {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_01frtb704qb44m4sfnmn6q9837y2v2g1wvz4xyq8d54xeeymxsee40",
+	            "id": "dir_01dy5czxq24mm7c9nhm832w40ez6se5hyh061j323ttcmj8jr587d0",
 	            "tag": "b/1.0.0"
 	          }
 	        }
@@ -1590,12 +1590,12 @@ async fn tag_dependency_cycles() {
 	            "path": "foo.tg.ts"
 	          }
 	        },
-	        "a/*": {
+	        "a/%2A": {
 	          "item": {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_015c2ejdbqrc8rhpnkkwgfpc7m3de977arpd6hhdba4ps8qrdkg7jg",
+	            "id": "dir_01zfz62014mqt374hxtr6xq92h7ndtv6spn06wg0ks67g5pwykxvfg",
 	            "tag": "a/1.1.0"
 	          }
 	        }
@@ -1668,7 +1668,7 @@ async fn tag_diamond_dependency() {
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("import d from \"d/^1\";\nexport default () => \"b\";\n"),
 	            "dependencies": {
-	              "d/^1": {
+	              "d/%5E1": {
 	                "item": tg.directory({
 	                  "tangram.ts": tg.file({
 	                    "contents": tg.blob("export default () => \"d/1.1.0\";\n"),
@@ -1686,7 +1686,7 @@ async fn tag_diamond_dependency() {
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("import d from \"d/^1.0\";\nexport default () => \"c\";\n"),
 	            "dependencies": {
-	              "d/^1.0": {
+	              "d/%5E1.0": {
 	                "item": tg.directory({
 	                  "tangram.ts": tg.file({
 	                    "contents": tg.blob("export default () => \"d/1.1.0\";\n"),
@@ -1722,7 +1722,7 @@ async fn tag_diamond_dependency() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_014kkj24g1we14gfea46q4s2cx7jfbxchsd10n0epqp12crs2jdj6g",
+	            "id": "dir_01ryrmpr778zb37azbccx4my9wtvb9eb2mgq59e82ebsrcctax8m70",
 	            "tag": "b"
 	          }
 	        },
@@ -1731,7 +1731,7 @@ async fn tag_diamond_dependency() {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_01cwsakz889jv3s75qc4seq6c5a6vw77xr8z9jxn36dx9rf7jdr8e0",
+	            "id": "dir_01h87w9995xhedsc177fx2gs2hasgsx6pp5ys9xn2qvrp760gft9xg",
 	            "tag": "c"
 	          }
 	        }
@@ -1756,7 +1756,7 @@ async fn tag_diamond_dependency() {
 	    {
 	      "kind": "file",
 	      "dependencies": {
-	        "d/^1": {
+	        "d/%5E1": {
 	          "item": {
 	            "node": 6
 	          },
@@ -1770,7 +1770,7 @@ async fn tag_diamond_dependency() {
 	    {
 	      "kind": "file",
 	      "dependencies": {
-	        "d/^1.0": {
+	        "d/%5E1.0": {
 	          "item": {
 	            "node": 6
 	          },

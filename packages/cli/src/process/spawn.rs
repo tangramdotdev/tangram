@@ -294,11 +294,7 @@ impl Cli {
 				let item = tg::module::Item::Object(item.into());
 				let referent = tg::Referent::with_item(item);
 				let module = tg::Module { kind, referent };
-				let export = reference
-					.to_uri()
-					.fragment()
-					.map_or("default", |fragment| fragment)
-					.to_owned();
+				let export = reference.export().unwrap_or("default").to_owned();
 				let host = "js".to_owned();
 				let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
 					module,
@@ -326,11 +322,7 @@ impl Cli {
 					let item = tg::module::Item::Object(file.clone().into());
 					let referent = tg::Referent::with_item(item);
 					let module = tg::Module { kind, referent };
-					let export = reference
-						.to_uri()
-						.fragment()
-						.map_or("default", |fragment| fragment)
-						.to_owned();
+					let export = reference.export().unwrap_or("default").to_owned();
 					let host = "js".to_owned();
 					let executable =
 						tg::command::Executable::Module(tg::command::ModuleExecutable {
