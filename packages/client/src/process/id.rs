@@ -2,18 +2,19 @@ use {crate as tg, std::ops::Deref};
 
 #[derive(
 	Clone,
-	Debug,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Debug,
 	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[debug("tg::process::Id(\"{_0}\")")]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 #[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
 pub struct Id(crate::Id);

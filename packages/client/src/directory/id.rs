@@ -2,12 +2,12 @@ use {crate as tg, std::ops::Deref};
 
 #[derive(
 	Clone,
-	Debug,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Debug,
 	derive_more::Display,
 	derive_more::Into,
 	serde::Deserialize,
@@ -15,6 +15,7 @@ use {crate as tg, std::ops::Deref};
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[debug("tg::directory::Id(\"{_0}\")")]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 #[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
 pub struct Id(crate::Id);

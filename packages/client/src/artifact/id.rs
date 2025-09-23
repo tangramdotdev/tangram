@@ -3,12 +3,12 @@ use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 /// An artifact ID.
 #[derive(
 	Clone,
-	Debug,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Debug,
 	derive_more::From,
 	derive_more::IsVariant,
 	derive_more::TryInto,
@@ -24,13 +24,11 @@ use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Id {
-	/// A directory ID.
+	#[debug("tg::artifact::Id(\"{_0}\")")]
 	Directory(tg::directory::Id),
-
-	/// A file ID.
+	#[debug("tg::artifact::Id(\"{_0}\")")]
 	File(tg::file::Id),
-
-	/// A symlink ID.
+	#[debug("tg::artifact::Id(\"{_0}\")")]
 	Symlink(tg::symlink::Id),
 }
 

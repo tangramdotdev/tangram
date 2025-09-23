@@ -2,12 +2,12 @@ use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 
 #[derive(
 	Clone,
-	Debug,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Debug,
 	derive_more::Display,
 	derive_more::From,
 	derive_more::IsVariant,
@@ -22,11 +22,17 @@ use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 #[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
 #[try_unwrap(ref)]
 pub enum Id {
+	#[debug("tg::object::Id(\"{_0}\")")]
 	Blob(tg::blob::Id),
+	#[debug("tg::object::Id(\"{_0}\")")]
 	Directory(tg::directory::Id),
+	#[debug("tg::object::Id(\"{_0}\")")]
 	File(tg::file::Id),
+	#[debug("tg::object::Id(\"{_0}\")")]
 	Symlink(tg::symlink::Id),
+	#[debug("tg::object::Id(\"{_0}\")")]
 	Graph(tg::graph::Id),
+	#[debug("tg::object::Id(\"{_0}\")")]
 	Command(tg::command::Id),
 }
 

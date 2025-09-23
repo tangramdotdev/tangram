@@ -5,16 +5,17 @@ use {
 
 #[derive(
 	Clone,
-	Debug,
 	Eq,
 	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Debug,
 	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
 )]
+#[debug("tg::user::Id(\"{_0}\")]")]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
 pub struct Id(crate::Id);
 

@@ -207,7 +207,6 @@ impl Server {
 
 		// If cached is true, then attempt to get a remote process, and return none if none is found.
 		if matches!(arg.cached, Some(true)) {
-			// Drop the transaction and connection.
 			drop(transaction);
 			drop(connection);
 			if let Some(output) = self.try_get_cached_process_remote(&arg).await? {

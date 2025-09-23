@@ -1,8 +1,14 @@
 use {crate as tg, sha2::Digest};
 
 #[derive(
-	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+	Clone,
+	Eq,
+	PartialEq,
+	derive_more::Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
+#[debug("tg::Checksum(\"{self}\")")]
 pub struct Checksum {
 	algorithm: Algorithm,
 	body: Body,
