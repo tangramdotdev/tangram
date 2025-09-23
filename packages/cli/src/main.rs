@@ -1204,7 +1204,10 @@ impl Cli {
 			style,
 			blobs,
 		};
-		let output = value.print(options);
+		let mut output = value.print(options);
+		if style.is_pretty() {
+			output.push('\n');
+		}
 		stdout
 			.write_all(output.as_bytes())
 			.await

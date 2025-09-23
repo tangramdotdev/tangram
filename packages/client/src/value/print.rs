@@ -15,7 +15,7 @@ pub struct Options {
 	pub blobs: bool,
 }
 
-#[derive(Clone, Debug, Default, derive_more::IsVariant)]
+#[derive(Copy, Clone, Debug, Default, derive_more::IsVariant)]
 pub enum Style {
 	#[default]
 	Compact,
