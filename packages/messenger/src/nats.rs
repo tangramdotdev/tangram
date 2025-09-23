@@ -8,19 +8,20 @@ use futures::{FutureExt as _, TryFutureExt as _, prelude::*, stream::FuturesOrde
 use num::ToPrimitive as _;
 use std::error::Error as _;
 
+#[derive(Clone)]
 pub struct Messenger {
 	client: nats::Client,
 	jetstream: nats::jetstream::Context,
 }
 
+#[derive(Clone)]
 pub struct Stream {
-	stream: tokio::sync::Mutex<nats::jetstream::stream::Stream>,
+	stream: nats::jetstream::stream::Stream,
 }
 
+#[derive(Clone)]
 pub struct Consumer {
-	consumer: tokio::sync::Mutex<
-		nats::jetstream::consumer::Consumer<nats::jetstream::consumer::pull::Config>,
-	>,
+	consumer: nats::jetstream::consumer::Consumer<nats::jetstream::consumer::pull::Config>,
 }
 
 impl Messenger {
@@ -190,13 +191,11 @@ impl Messenger {
 
 impl Stream {
 	fn new(stream: nats::jetstream::stream::Stream) -> Self {
-		let stream = tokio::sync::Mutex::new(stream);
 		Self { stream }
 	}
 
 	async fn info(&self) -> Result<StreamInfo, Error> {
-		let mut stream = self.stream.lock().await;
-		let info = stream.info().await.map_err(Error::other)?;
+		let info = self.stream.get_info().await.map_err(Error::other)?;
 		let info = StreamInfo {
 			first_sequence: info.state.first_sequence,
 			last_sequence: info.state.last_sequence,
@@ -205,8 +204,11 @@ impl Stream {
 	}
 
 	async fn get_consumer(&self, name: String) -> Result<Consumer, Error> {
-		let stream = self.stream.lock().await;
-		let consumer = stream.get_consumer(&name).await.map_err(Error::other)?;
+		let consumer = self
+			.stream
+			.get_consumer(&name)
+			.await
+			.map_err(Error::other)?;
 		let consumer = Consumer::new(consumer);
 		Ok(consumer)
 	}
@@ -217,8 +219,11 @@ impl Stream {
 		config: ConsumerConfig,
 	) -> Result<Consumer, Error> {
 		let config = Self::consumer_config(name, &config);
-		let stream = self.stream.lock().await;
-		let consumer = stream.create_consumer(config).await.map_err(Error::other)?;
+		let consumer = self
+			.stream
+			.create_consumer(config)
+			.await
+			.map_err(Error::other)?;
 		let consumer = Consumer::new(consumer);
 		Ok(consumer)
 	}
@@ -229,8 +234,8 @@ impl Stream {
 		config: ConsumerConfig,
 	) -> Result<Consumer, Error> {
 		let config = Self::consumer_config(name.clone(), &config);
-		let stream = self.stream.lock().await;
-		let consumer = stream
+		let consumer = self
+			.stream
 			.get_or_create_consumer(&name, config)
 			.await
 			.map_err(Error::other)?;
@@ -254,8 +259,10 @@ impl Stream {
 	}
 
 	async fn delete_consumer(&self, name: String) -> Result<(), Error> {
-		let stream = self.stream.lock().await;
-		stream.delete_consumer(&name).await.map_err(Error::other)?;
+		self.stream
+			.delete_consumer(&name)
+			.await
+			.map_err(Error::other)?;
 		Ok(())
 	}
 }
@@ -264,13 +271,11 @@ impl Consumer {
 	fn new(
 		consumer: nats::jetstream::consumer::Consumer<nats::jetstream::consumer::pull::Config>,
 	) -> Self {
-		let consumer = tokio::sync::Mutex::new(consumer);
 		Self { consumer }
 	}
 
 	async fn info(&self) -> Result<ConsumerInfo, Error> {
-		let mut consumer = self.consumer.lock().await;
-		let info = consumer.info().await.map_err(Error::other)?;
+		let info = self.consumer.get_info().await.map_err(Error::other)?;
 		let info = ConsumerInfo {
 			sequence: info.ack_floor.consumer_sequence,
 		};
@@ -282,8 +287,6 @@ impl Consumer {
 	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
 		let stream = self
 			.consumer
-			.lock()
-			.await
 			.stream()
 			.messages()
 			.await
@@ -305,7 +308,7 @@ impl Consumer {
 		config: BatchConfig,
 	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
 		let stream = stream::try_unfold(
-			(self.consumer.lock().await.clone(), config),
+			(self.consumer.clone(), config),
 			move |(consumer, config)| async move {
 				let mut batch = consumer.batch();
 				if let Some(max_bytes) = config.max_bytes {
