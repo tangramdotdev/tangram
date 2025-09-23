@@ -1,9 +1,11 @@
-use crate::Server;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use indoc::indoc;
-use std::sync::Arc;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use {
+	crate::Server,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	indoc::indoc,
+	std::sync::Arc,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+};
 
 impl Server {
 	pub(crate) async fn put_process_sqlite(

@@ -1,7 +1,9 @@
-use futures::FutureExt as _;
-use std::{
-	os::unix::fs::{MetadataExt, PermissionsExt as _},
-	path::{Path, PathBuf},
+use {
+	futures::FutureExt as _,
+	std::{
+		os::unix::fs::{MetadataExt, PermissionsExt as _},
+		path::{Path, PathBuf},
+	},
 };
 
 pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {

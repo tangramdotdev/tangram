@@ -1,8 +1,10 @@
-use indoc::indoc;
-use insta::assert_snapshot;
-use num::ToPrimitive as _;
-use tangram_cli_test::{Server, assert_failure, assert_success};
-use tangram_temp::{self as temp, Temp};
+use {
+	indoc::indoc,
+	insta::assert_snapshot,
+	num::ToPrimitive as _,
+	tangram_cli_test::{Server, assert_failure, assert_success},
+	tangram_temp::{self as temp, Temp},
+};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 

@@ -1,6 +1,8 @@
-use self::builder::Builder;
-use regex::Regex;
-use std::{ops::Range, sync::LazyLock};
+use {
+	self::builder::Builder,
+	regex::Regex,
+	std::{ops::Range, sync::LazyLock},
+};
 
 pub mod builder;
 

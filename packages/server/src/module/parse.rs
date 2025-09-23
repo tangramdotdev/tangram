@@ -1,10 +1,10 @@
-use crate::Server;
-use std::collections::BTreeMap;
-use std::rc::Rc;
-use swc_core as swc;
-use swc_core::common::Spanned;
-use swc_core::common::source_map::SmallPos;
-use tangram_client as tg;
+use {
+	crate::Server,
+	std::{collections::BTreeMap, rc::Rc},
+	swc_core as swc,
+	swc_core::common::{Spanned, source_map::SmallPos},
+	tangram_client as tg,
+};
 
 pub struct Output {
 	pub program: swc::ecma::ast::Program,

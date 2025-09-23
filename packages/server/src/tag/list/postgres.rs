@@ -1,9 +1,7 @@
-use crate::Server;
-use indoc::indoc;
-use num::ToPrimitive as _;
-use tangram_client as tg;
-use tangram_database::prelude::*;
-use tangram_either::Either;
+use {
+	crate::Server, indoc::indoc, num::ToPrimitive as _, tangram_client as tg,
+	tangram_database::prelude::*, tangram_either::Either,
+};
 
 impl Server {
 	pub(super) async fn list_tags_postgres(

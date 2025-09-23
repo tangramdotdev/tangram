@@ -1,10 +1,12 @@
-use crate::Cli;
-use anstream::{eprintln, println};
-use crossterm::style::Stylize as _;
-use futures::{FutureExt as _, TryStreamExt as _};
-use std::path::PathBuf;
-use tangram_client::{self as tg, prelude::*};
-use tangram_futures::task::Task;
+use {
+	crate::Cli,
+	anstream::{eprintln, println},
+	crossterm::style::Stylize as _,
+	futures::{FutureExt as _, TryStreamExt as _},
+	std::path::PathBuf,
+	tangram_client::{self as tg, prelude::*},
+	tangram_futures::task::Task,
+};
 
 /// Spawn and await a sandboxed process.
 #[derive(Clone, Debug, clap::Args)]

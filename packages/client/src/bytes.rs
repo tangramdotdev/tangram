@@ -1,5 +1,4 @@
-use bytes::Bytes;
-use std::ops::Deref;
+use {bytes::Bytes, std::ops::Deref};
 
 #[derive(Clone, Debug, derive_more::From)]
 pub enum Cow<'a> {

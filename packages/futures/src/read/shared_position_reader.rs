@@ -1,13 +1,15 @@
-use pin_project::pin_project;
-use std::{
-	pin::{Pin, pin},
-	sync::{
-		Arc,
-		atomic::{AtomicU64, Ordering},
+use {
+	pin_project::pin_project,
+	std::{
+		pin::{Pin, pin},
+		sync::{
+			Arc,
+			atomic::{AtomicU64, Ordering},
+		},
+		task::Poll,
 	},
-	task::Poll,
+	tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek},
 };
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek};
 
 #[pin_project]
 pub struct SharedPositionReader<R> {

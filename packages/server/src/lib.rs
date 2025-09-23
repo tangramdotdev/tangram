@@ -1,28 +1,30 @@
 #[cfg(feature = "v8")]
 use self::compiler::Compiler;
-use self::{
-	database::Database, index::Index, messenger::Messenger, runtime::Runtime, store::Store,
-	util::fs::remove,
-};
 #[cfg(feature = "nats")]
 use async_nats as nats;
-use dashmap::{DashMap, DashSet};
-use futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered};
-use indoc::{formatdoc, indoc};
-use std::{
-	collections::HashMap,
-	ops::Deref,
-	os::fd::AsRawFd as _,
-	path::PathBuf,
-	sync::{Arc, Mutex, RwLock},
+use {
+	self::{
+		database::Database, index::Index, messenger::Messenger, runtime::Runtime, store::Store,
+		util::fs::remove,
+	},
+	dashmap::{DashMap, DashSet},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
+	indoc::{formatdoc, indoc},
+	std::{
+		collections::HashMap,
+		ops::Deref,
+		os::fd::AsRawFd as _,
+		path::PathBuf,
+		sync::{Arc, Mutex, RwLock},
+	},
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
+	tangram_futures::task::{Task, TaskMap},
+	tangram_messenger::prelude::*,
+	tokio::{io::AsyncWriteExt as _, task::JoinSet},
+	url::Url,
 };
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
-use tangram_futures::task::{Task, TaskMap};
-use tangram_messenger::prelude::*;
-use tokio::{io::AsyncWriteExt as _, task::JoinSet};
-use url::Url;
 
 mod blob;
 mod cache;

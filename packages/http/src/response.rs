@@ -1,9 +1,11 @@
-use crate::{Body, Error, sse};
-use bytes::Bytes;
-use futures::{Stream, TryStreamExt as _, future};
-use http_body_util::{BodyExt as _, BodyStream};
-use tokio::io::AsyncBufRead;
-use tokio_util::io::StreamReader;
+use {
+	crate::{Body, Error, sse},
+	bytes::Bytes,
+	futures::{Stream, TryStreamExt as _, future},
+	http_body_util::{BodyExt as _, BodyStream},
+	tokio::io::AsyncBufRead,
+	tokio_util::io::StreamReader,
+};
 
 pub mod builder;
 

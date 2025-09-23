@@ -1,6 +1,4 @@
-use crate::Value;
-use bytes::Bytes;
-use serde::ser::Error as _;
+use {crate::Value, bytes::Bytes, serde::ser::Error as _};
 
 pub struct Serializer;
 

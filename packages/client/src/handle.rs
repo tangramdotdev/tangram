@@ -1,7 +1,9 @@
-use crate as tg;
-use futures::Stream;
-use std::pin::Pin;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use {
+	crate as tg,
+	futures::Stream,
+	std::pin::Pin,
+	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
+};
 
 mod either;
 mod ext;

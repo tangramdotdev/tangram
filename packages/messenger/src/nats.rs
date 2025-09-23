@@ -1,12 +1,14 @@
-use crate::{
-	Acker, BatchConfig, ConsumerConfig, ConsumerInfo, DeliverPolicy, DiscardPolicy, Error, Message,
-	RetentionPolicy, StreamConfig, StreamInfo,
+use {
+	crate::{
+		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, DeliverPolicy, DiscardPolicy, Error,
+		Message, RetentionPolicy, StreamConfig, StreamInfo,
+	},
+	async_nats as nats,
+	bytes::Bytes,
+	futures::{FutureExt as _, TryFutureExt as _, prelude::*, stream::FuturesOrdered},
+	num::ToPrimitive as _,
+	std::error::Error as _,
 };
-use async_nats as nats;
-use bytes::Bytes;
-use futures::{FutureExt as _, TryFutureExt as _, prelude::*, stream::FuturesOrdered};
-use num::ToPrimitive as _;
-use std::error::Error as _;
 
 #[derive(Clone)]
 pub struct Messenger {

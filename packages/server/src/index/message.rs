@@ -1,11 +1,13 @@
-use byteorder::ReadBytesExt as _;
-use bytes::Bytes;
-use std::collections::BTreeSet;
-use tangram_client::{
-	self as tg,
-	util::serde::{is_default, is_false},
+use {
+	byteorder::ReadBytesExt as _,
+	bytes::Bytes,
+	std::collections::BTreeSet,
+	tangram_client::{
+		self as tg,
+		util::serde::{is_default, is_false},
+	},
+	tangram_either::Either,
 };
-use tangram_either::Either;
 
 #[derive(
 	Clone,

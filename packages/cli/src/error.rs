@@ -1,9 +1,11 @@
-use crate::Cli;
-use anstream::eprintln;
-use crossterm::style::Stylize as _;
-use std::{fmt::Write as _, path::Path};
-use tangram_client::{self as tg};
-use tokio::io::AsyncReadExt;
+use {
+	crate::Cli,
+	anstream::eprintln,
+	crossterm::style::Stylize as _,
+	std::{fmt::Write as _, path::Path},
+	tangram_client as tg,
+	tokio::io::AsyncReadExt,
+};
 
 impl Cli {
 	pub(crate) fn print_error_basic(error: tg::Referent<tg::Error>) {

@@ -1,7 +1,4 @@
-use crate::tg;
-use byteorder::ReadBytesExt as _;
-use bytes::Bytes;
-use std::collections::BTreeSet;
+use {crate::tg, byteorder::ReadBytesExt as _, bytes::Bytes, std::collections::BTreeSet};
 
 #[derive(
 	Clone,

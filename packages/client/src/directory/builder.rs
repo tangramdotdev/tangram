@@ -1,7 +1,9 @@
-use crate as tg;
-use std::{
-	collections::BTreeMap,
-	path::{Path, PathBuf},
+use {
+	crate as tg,
+	std::{
+		collections::BTreeMap,
+		path::{Path, PathBuf},
+	},
 };
 
 #[derive(Clone, Debug, Default)]

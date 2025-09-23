@@ -1,6 +1,8 @@
-use crate::Cli;
-use tangram_client::{self as tg, prelude::*};
-use tokio::io::AsyncWriteExt as _;
+use {
+	crate::Cli,
+	tangram_client::{self as tg, prelude::*},
+	tokio::io::AsyncWriteExt as _,
+};
 
 /// Get an object.
 #[derive(Clone, Debug, clap::Args)]

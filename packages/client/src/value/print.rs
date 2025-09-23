@@ -1,7 +1,4 @@
-use crate as tg;
-use bytes::Bytes;
-use num::ToPrimitive as _;
-use std::fmt::Result;
+use {crate as tg, bytes::Bytes, num::ToPrimitive as _, std::fmt::Result};
 
 pub struct Printer<W> {
 	depth: u64,
@@ -648,8 +645,7 @@ where
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use indoc::indoc;
+	use {super::*, indoc::indoc};
 
 	#[test]
 	fn compact_map() {

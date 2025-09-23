@@ -1,7 +1,9 @@
-use crate::{self as tg, prelude::*, util::arc::Ext as _};
-use std::{
-	ops::Deref,
-	sync::{Arc, Mutex, RwLock},
+use {
+	crate::{self as tg, prelude::*, util::arc::Ext as _},
+	std::{
+		ops::Deref,
+		sync::{Arc, Mutex, RwLock},
+	},
 };
 
 pub use self::{

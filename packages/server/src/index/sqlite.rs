@@ -1,14 +1,16 @@
-use super::message::{
-	DeleteTag, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject, TouchProcess,
+use {
+	super::message::{
+		DeleteTag, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject, TouchProcess,
+	},
+	crate::Server,
+	futures::FutureExt as _,
+	indoc::indoc,
+	rusqlite as sqlite,
+	std::str::FromStr as _,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
 };
-use crate::Server;
-use futures::FutureExt as _;
-use indoc::indoc;
-use rusqlite as sqlite;
-use std::str::FromStr as _;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 
 impl Server {
 	#[allow(clippy::too_many_arguments)]

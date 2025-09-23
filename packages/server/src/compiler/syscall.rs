@@ -1,7 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::Compiler;
-use tangram_client as tg;
+use {super::Compiler, tangram_client as tg};
 
 mod document;
 mod encoding;

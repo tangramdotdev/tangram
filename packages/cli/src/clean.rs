@@ -1,7 +1,9 @@
-use crate::Cli;
-use crossterm::style::Stylize as _;
-use std::os::unix::fs::PermissionsExt as _;
-use tangram_client::{self as tg, prelude::*};
+use {
+	crate::Cli,
+	crossterm::style::Stylize as _,
+	std::os::unix::fs::PermissionsExt as _,
+	tangram_client::{self as tg, prelude::*},
+};
 
 /// Remove unused processes and objects.
 #[derive(Clone, Debug, clap::Args)]

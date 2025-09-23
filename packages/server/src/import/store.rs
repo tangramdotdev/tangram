@@ -1,14 +1,16 @@
-use super::{Graph, Progress};
-use crate::{Server, database::Database, store::Store};
-use futures::{StreamExt as _, TryStreamExt as _, stream};
-use num::ToPrimitive as _;
-use std::{
-	pin::pin,
-	sync::{Arc, Mutex},
+use {
+	super::{Graph, Progress},
+	crate::{Server, database::Database, store::Store},
+	futures::{StreamExt as _, TryStreamExt as _, stream},
+	num::ToPrimitive as _,
+	std::{
+		pin::pin,
+		sync::{Arc, Mutex},
+	},
+	tangram_client as tg,
+	tokio_stream::wrappers::ReceiverStream,
+	tokio_util::task::AbortOnDropHandle,
 };
-use tangram_client as tg;
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::task::AbortOnDropHandle;
 
 impl Server {
 	pub(super) async fn import_store_task(

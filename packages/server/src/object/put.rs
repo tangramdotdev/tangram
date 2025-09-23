@@ -1,9 +1,11 @@
-use crate::Server;
-use num::ToPrimitive as _;
-use std::collections::BTreeSet;
-use tangram_client as tg;
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::prelude::*;
+use {
+	crate::Server,
+	num::ToPrimitive as _,
+	std::collections::BTreeSet,
+	tangram_client as tg,
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_messenger::prelude::*,
+};
 
 impl Server {
 	pub async fn put_object(

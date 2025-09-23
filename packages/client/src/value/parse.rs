@@ -1,9 +1,11 @@
-use crate as tg;
-use winnow::{
-	ascii::float,
-	combinator::{alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair},
-	prelude::*,
-	token::{any, none_of, one_of, take, take_while},
+use {
+	crate as tg,
+	winnow::{
+		ascii::float,
+		combinator::{alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair},
+		prelude::*,
+		token::{any, none_of, one_of, take, take_while},
+	},
 };
 
 type Input<'a> = winnow::stream::LocatingSlice<&'a str>;

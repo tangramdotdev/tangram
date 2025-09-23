@@ -1,7 +1,9 @@
-use crate as tg;
-use std::{ops::Deref, sync::Arc};
-use tangram_http::Body;
-use url::Url;
+use {
+	crate as tg,
+	std::{ops::Deref, sync::Arc},
+	tangram_http::Body,
+	url::Url,
+};
 
 mod http;
 

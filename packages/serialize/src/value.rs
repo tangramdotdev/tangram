@@ -1,5 +1,7 @@
-use crate::{Deserialize, Kind, Serialize};
-use std::io::{Read, Result, Write};
+use {
+	crate::{Deserialize, Kind, Serialize},
+	std::io::{Read, Result, Write},
+};
 
 #[derive(Clone, Debug)]
 pub enum Value {

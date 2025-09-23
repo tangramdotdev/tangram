@@ -1,6 +1,4 @@
-use crate::Server;
-use std::os::fd::OwnedFd;
-use tangram_client as tg;
+use {crate::Server, std::os::fd::OwnedFd, tangram_client as tg};
 
 mod close;
 mod create;

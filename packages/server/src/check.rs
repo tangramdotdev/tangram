@@ -1,6 +1,8 @@
-use crate::{Server, compiler::Compiler};
-use tangram_client as tg;
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use {
+	crate::{Server, compiler::Compiler},
+	tangram_client as tg,
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+};
 
 impl Server {
 	pub async fn check(&self, mut arg: tg::check::Arg) -> tg::Result<tg::check::Output> {

@@ -1,18 +1,20 @@
-use super::{
-	Graph, INDEX_MESSAGE_MAX_BYTES, NodeInner, OBJECT_COMPLETE_BATCH_SIZE,
-	OBJECT_COMPLETE_CONCURRENCY, PROCESS_COMPLETE_BATCH_SIZE, PROCESS_COMPLETE_CONCURRENCY,
+use {
+	super::{
+		Graph, INDEX_MESSAGE_MAX_BYTES, NodeInner, OBJECT_COMPLETE_BATCH_SIZE,
+		OBJECT_COMPLETE_CONCURRENCY, PROCESS_COMPLETE_BATCH_SIZE, PROCESS_COMPLETE_CONCURRENCY,
+	},
+	crate::{Server, index::message::ProcessObjectKind},
+	bytes::Bytes,
+	futures::StreamExt as _,
+	std::{
+		collections::BTreeMap,
+		pin::pin,
+		sync::{Arc, Mutex},
+	},
+	tangram_client as tg,
+	tangram_messenger::prelude::*,
+	tokio_stream::wrappers::ReceiverStream,
 };
-use crate::{Server, index::message::ProcessObjectKind};
-use bytes::Bytes;
-use futures::StreamExt as _;
-use std::{
-	collections::BTreeMap,
-	pin::pin,
-	sync::{Arc, Mutex},
-};
-use tangram_client as tg;
-use tangram_messenger::prelude::*;
-use tokio_stream::wrappers::ReceiverStream;
 
 impl Server {
 	pub(super) async fn import_index_task(

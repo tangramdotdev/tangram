@@ -1,6 +1,8 @@
-use crate as tg;
-use itertools::Itertools as _;
-use std::{collections::BTreeMap, fmt::Debug, path::PathBuf};
+use {
+	crate as tg,
+	itertools::Itertools as _,
+	std::{collections::BTreeMap, fmt::Debug, path::PathBuf},
+};
 
 pub use self::data::Error as Data;
 

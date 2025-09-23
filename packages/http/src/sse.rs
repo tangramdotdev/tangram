@@ -1,5 +1,7 @@
-use futures::{Stream, stream};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt as _};
+use {
+	futures::{Stream, stream},
+	tokio::io::{AsyncBufRead, AsyncBufReadExt as _},
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Event {

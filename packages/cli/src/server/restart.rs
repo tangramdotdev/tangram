@@ -1,5 +1,4 @@
-use crate::Cli;
-use tangram_client as tg;
+use {crate::Cli, tangram_client as tg};
 
 /// Stop the server.
 #[derive(Clone, Debug, clap::Args)]

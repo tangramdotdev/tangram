@@ -1,9 +1,11 @@
-use crate::Server;
-use indoc::formatdoc;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_http::{Body, response::builder::Ext as _};
-use url::Url;
+use {
+	crate::Server,
+	indoc::formatdoc,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{Body, response::builder::Ext as _},
+	url::Url,
+};
 
 impl Server {
 	pub async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {

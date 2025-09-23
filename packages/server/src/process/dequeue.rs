@@ -1,14 +1,16 @@
-use crate::Server;
-use futures::{StreamExt as _, future, stream};
-use indoc::formatdoc;
-use num::ToPrimitive as _;
-use std::time::Duration;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_futures::task::Stop;
-use tangram_http::{Body, request::Ext as _};
-use tangram_messenger::prelude::*;
-use tokio_stream::wrappers::IntervalStream;
+use {
+	crate::Server,
+	futures::{StreamExt as _, future, stream},
+	indoc::formatdoc,
+	num::ToPrimitive as _,
+	std::time::Duration,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_futures::task::Stop,
+	tangram_http::{Body, request::Ext as _},
+	tangram_messenger::prelude::*,
+	tokio_stream::wrappers::IntervalStream,
+};
 
 impl Server {
 	pub async fn try_dequeue_process(
@@ -58,7 +60,10 @@ impl Server {
 			let time = now - timeout.as_secs().to_i64().unwrap();
 			let params = db::params![now, time];
 			let Some(id) = connection
-				.query_optional_value_into::<db::value::Serde<tg::process::Id>>(statement.into(), params)
+				.query_optional_value_into::<db::value::Serde<tg::process::Id>>(
+					statement.into(),
+					params,
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 				.map(|value| value.0)

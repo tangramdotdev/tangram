@@ -1,5 +1,4 @@
-use bytes::Bytes;
-use futures::Future;
+use {bytes::Bytes, futures::Future};
 
 pub mod fuse;
 pub mod nfs;

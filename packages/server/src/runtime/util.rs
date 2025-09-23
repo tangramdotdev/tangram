@@ -1,13 +1,15 @@
-use crate::Server;
-use bytes::Bytes;
-use futures::{Stream, TryStreamExt as _, future, stream};
-use std::{
-	collections::BTreeMap,
-	path::{Path, PathBuf},
-	pin::pin,
+use {
+	crate::Server,
+	bytes::Bytes,
+	futures::{Stream, TryStreamExt as _, future, stream},
+	std::{
+		collections::BTreeMap,
+		path::{Path, PathBuf},
+		pin::pin,
+	},
+	tangram_client as tg,
+	tokio::io::{AsyncRead, AsyncReadExt as _},
 };
-use tangram_client as tg;
-use tokio::io::{AsyncRead, AsyncReadExt as _};
 
 /// Render a value.
 pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {

@@ -1,6 +1,4 @@
-use crate::util::serde::BytesBase64;
-use bytes::Bytes;
-use serde_with::serde_as;
+use {crate::util::serde::BytesBase64, bytes::Bytes, serde_with::serde_as};
 
 pub use self::{id::Id, size::Size};
 

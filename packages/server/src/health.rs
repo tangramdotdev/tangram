@@ -1,9 +1,11 @@
-use crate::{Server, database::Database};
-use num::ToPrimitive as _;
-use std::time::Duration;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_http::{Body, response::builder::Ext as _};
+use {
+	crate::{Server, database::Database},
+	num::ToPrimitive as _,
+	std::time::Duration,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{Body, response::builder::Ext as _},
+};
 
 impl Server {
 	pub async fn health(&self) -> tg::Result<tg::Health> {

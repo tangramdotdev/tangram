@@ -1,7 +1,9 @@
-use super::{Context, guest};
-use crate::common::abort_errno;
-use num::ToPrimitive as _;
-use std::os::fd::AsRawFd as _;
+use {
+	super::{Context, guest},
+	crate::common::abort_errno,
+	num::ToPrimitive as _,
+	std::os::fd::AsRawFd as _,
+};
 
 // The "root" process takes over after the host spawns with CLONE_NEWUSER.
 pub fn main(context: Context) -> ! {

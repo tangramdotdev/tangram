@@ -1,9 +1,11 @@
-use bytes::Buf;
-use http_body::{Body, Frame};
-use pin_project::pin_project;
-use std::{
-	pin::Pin,
-	task::{Context, Poll},
+use {
+	bytes::Buf,
+	http_body::{Body, Frame},
+	pin_project::pin_project,
+	std::{
+		pin::Pin,
+		task::{Context, Poll},
+	},
 };
 
 #[pin_project]

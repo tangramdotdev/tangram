@@ -1,7 +1,9 @@
-use crate as tg;
-use futures::{Stream, StreamExt as _};
-use std::pin::Pin;
-use tangram_http::{Body, response::Ext as _};
+use {
+	crate as tg,
+	futures::{Stream, StreamExt as _},
+	std::pin::Pin,
+	tangram_http::{Body, response::Ext as _},
+};
 
 #[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {

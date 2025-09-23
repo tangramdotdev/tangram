@@ -1,8 +1,10 @@
-use crate::Cli;
-use futures::{StreamExt as _, TryStreamExt as _, stream};
-use std::pin::pin;
-use tangram_client::{self as tg, prelude::*};
-use tokio::io::AsyncWriteExt as _;
+use {
+	crate::Cli,
+	futures::{StreamExt as _, TryStreamExt as _, stream},
+	std::pin::pin,
+	tangram_client::{self as tg, prelude::*},
+	tokio::io::AsyncWriteExt as _,
+};
 
 /// Import processes and objects.
 #[derive(Clone, Debug, clap::Args)]

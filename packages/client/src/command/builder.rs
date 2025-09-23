@@ -1,5 +1,7 @@
-use crate as tg;
-use std::{collections::BTreeMap, path::PathBuf};
+use {
+	crate as tg,
+	std::{collections::BTreeMap, path::PathBuf},
+};
 
 #[derive(Clone, Debug)]
 pub struct Builder {

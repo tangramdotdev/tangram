@@ -1,8 +1,10 @@
-use super::State;
-use num::ToPrimitive as _;
-use std::{collections::BTreeMap, rc::Rc};
-use tangram_client as tg;
-use tangram_v8::{Deserialize as _, Serde, Serialize as _};
+use {
+	super::State,
+	num::ToPrimitive as _,
+	std::{collections::BTreeMap, rc::Rc},
+	tangram_client as tg,
+	tangram_v8::{Deserialize as _, Serde, Serialize as _},
+};
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,

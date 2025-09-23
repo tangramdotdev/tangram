@@ -1,10 +1,12 @@
-use super::Output;
-use crate::Server;
-use indoc::indoc;
-use num::ToPrimitive as _;
-use std::collections::HashMap;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use {
+	super::Output,
+	crate::Server,
+	indoc::indoc,
+	num::ToPrimitive as _,
+	std::collections::HashMap,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+};
 
 impl Server {
 	pub(crate) async fn try_get_process_complete_postgres(

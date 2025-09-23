@@ -1,5 +1,7 @@
-use crate as tg;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate as tg,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {

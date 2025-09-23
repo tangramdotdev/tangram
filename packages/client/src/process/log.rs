@@ -1,5 +1,7 @@
-use crate as tg;
-use std::{fmt, str::FromStr};
+use {
+	crate as tg,
+	std::{fmt, str::FromStr},
+};
 
 pub mod get;
 pub mod post;

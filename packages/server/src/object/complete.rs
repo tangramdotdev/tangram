@@ -1,5 +1,4 @@
-use crate::Server;
-use tangram_client as tg;
+use {crate::Server, tangram_client as tg};
 
 #[cfg(feature = "postgres")]
 mod postgres;

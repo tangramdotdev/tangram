@@ -1,7 +1,4 @@
-use crate::Server;
-use std::path::Path;
-use tangram_client as tg;
-use tangram_either::Either;
+use {crate::Server, std::path::Path, tangram_client as tg, tangram_either::Either};
 
 impl Server {
 	/// Resolve an import from a module.

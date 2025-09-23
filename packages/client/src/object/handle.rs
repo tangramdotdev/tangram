@@ -1,7 +1,9 @@
-use super::{Data, Id, Object as Object_};
-use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use std::sync::{Arc, RwLock};
+use {
+	super::{Data, Id, Object as Object_},
+	crate as tg,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	std::sync::{Arc, RwLock},
+};
 
 #[derive(
 	Clone,

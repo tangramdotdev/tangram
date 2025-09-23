@@ -1,17 +1,19 @@
-use super::{Item, Options, data, log::Log};
-use crossterm as ct;
-use futures::{TryStreamExt as _, future, stream::FuturesUnordered};
-use num::ToPrimitive as _;
-use ratatui::{self as tui, prelude::*};
-use std::{
-	cell::RefCell,
-	collections::BTreeMap,
-	io::Write as _,
-	pin::pin,
-	rc::{Rc, Weak},
+use {
+	super::{Item, Options, data, log::Log},
+	crossterm as ct,
+	futures::{TryStreamExt as _, future, stream::FuturesUnordered},
+	num::ToPrimitive as _,
+	ratatui::{self as tui, prelude::*},
+	std::{
+		cell::RefCell,
+		collections::BTreeMap,
+		io::Write as _,
+		pin::pin,
+		rc::{Rc, Weak},
+	},
+	tangram_client::{self as tg, prelude::*},
+	tangram_futures::task::Task,
 };
-use tangram_client::{self as tg, prelude::*};
-use tangram_futures::task::Task;
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -1435,8 +1437,6 @@ where
 	}
 
 	pub fn render(&mut self, rect: Rect, buffer: &mut Buffer) {
-		use tui::style::Stylize;
-
 		// Get the current time.
 		let now = std::time::SystemTime::now()
 			.duration_since(std::time::UNIX_EPOCH)

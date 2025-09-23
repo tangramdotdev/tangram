@@ -1,8 +1,7 @@
-use crate::Cli;
-use anstream::eprintln;
-use crossterm::style::Stylize as _;
-use tangram_client as tg;
-use tangram_either::Either;
+use {
+	crate::Cli, anstream::eprintln, crossterm::style::Stylize as _, tangram_client as tg,
+	tangram_either::Either,
+};
 
 /// Get a reference.
 #[derive(Clone, Debug, clap::Args)]

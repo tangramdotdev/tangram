@@ -1,14 +1,16 @@
-use crate::blob::create::Blob;
-use bytes::Bytes;
-use indexmap::IndexMap;
-use smallvec::SmallVec;
-use std::{
-	collections::{BTreeMap, HashMap},
-	path::PathBuf,
+use {
+	crate::blob::create::Blob,
+	bytes::Bytes,
+	indexmap::IndexMap,
+	smallvec::SmallVec,
+	std::{
+		collections::{BTreeMap, HashMap},
+		path::PathBuf,
+	},
+	tangram_client as tg,
+	tangram_either::Either,
+	tangram_ignore as ignore,
 };
-use tangram_client as tg;
-use tangram_either::Either;
-use tangram_ignore as ignore;
 
 pub struct State {
 	pub arg: tg::checkin::Arg,

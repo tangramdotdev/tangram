@@ -1,7 +1,9 @@
-use crate::{Connection, ConnectionOptions, Database, Query, Row, Transaction, Value};
-use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
-use std::borrow::Cow;
-use tangram_either::Either;
+use {
+	crate::{Connection, ConnectionOptions, Database, Query, Row, Transaction, Value},
+	futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _},
+	std::borrow::Cow,
+	tangram_either::Either,
+};
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error<L, R> {

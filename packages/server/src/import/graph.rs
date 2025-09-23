@@ -1,10 +1,12 @@
-use crate::index::message::ProcessObjectKind;
-use indexmap::IndexMap;
-use num::ToPrimitive;
-use petgraph::visit::IntoNeighbors as _;
-use smallvec::SmallVec;
-use std::collections::{BTreeSet, HashSet};
-use tangram_client as tg;
+use {
+	crate::index::message::ProcessObjectKind,
+	indexmap::IndexMap,
+	num::ToPrimitive,
+	petgraph::visit::IntoNeighbors as _,
+	smallvec::SmallVec,
+	std::collections::{BTreeSet, HashSet},
+	tangram_client as tg,
+};
 
 #[derive(Default)]
 pub struct Graph {

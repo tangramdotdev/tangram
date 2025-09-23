@@ -1,7 +1,9 @@
-use super::State;
-use std::rc::Rc;
-use tangram_client::{self as tg, prelude::*};
-use tangram_v8::Serde;
+use {
+	super::State,
+	std::rc::Rc,
+	tangram_client::{self as tg, prelude::*},
+	tangram_v8::Serde,
+};
 
 pub async fn get(
 	state: Rc<State>,

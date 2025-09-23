@@ -1,6 +1,8 @@
-use futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
-use itertools::Itertools as _;
-use std::{borrow::Cow, pin::pin};
+use {
+	futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _},
+	itertools::Itertools as _,
+	std::{borrow::Cow, pin::pin},
+};
 
 pub use self::{pool::Priority, row::Row, value::Value};
 

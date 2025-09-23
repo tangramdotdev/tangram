@@ -1,6 +1,8 @@
-use crate::Server;
-use tangram_client as tg;
-use tokio::io::{AsyncRead, AsyncSeek};
+use {
+	crate::Server,
+	tangram_client as tg,
+	tokio::io::{AsyncRead, AsyncSeek},
+};
 
 pub enum Reader {
 	Blob(crate::blob::Reader),

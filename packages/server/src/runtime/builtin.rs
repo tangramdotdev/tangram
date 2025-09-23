@@ -1,6 +1,4 @@
-use crate::Server;
-use futures::FutureExt as _;
-use tangram_client as tg;
+use {crate::Server, futures::FutureExt as _, tangram_client as tg};
 
 mod archive;
 mod bundle;

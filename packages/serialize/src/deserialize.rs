@@ -1,8 +1,10 @@
-use crate::{Deserializer, Kind};
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	io::{Error, Read, Result},
-	sync::Arc,
+use {
+	crate::{Deserializer, Kind},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		io::{Error, Read, Result},
+		sync::Arc,
+	},
 };
 
 pub trait Deserialize: Sized {

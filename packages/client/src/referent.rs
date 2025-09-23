@@ -1,6 +1,8 @@
-use crate::{self as tg, util::serde::is_default};
-use std::path::PathBuf;
-use tangram_uri::Uri;
+use {
+	crate::{self as tg, util::serde::is_default},
+	std::path::PathBuf,
+	tangram_uri::Uri,
+};
 
 #[derive(
 	Clone,

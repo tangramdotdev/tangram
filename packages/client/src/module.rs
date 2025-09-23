@@ -1,5 +1,4 @@
-use crate as tg;
-use std::path::PathBuf;
+use {crate as tg, std::path::PathBuf};
 
 pub use self::{data::Module as Data, import::Import};
 

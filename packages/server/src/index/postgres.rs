@@ -1,13 +1,15 @@
-use super::message::{
-	DeleteTag, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject, TouchProcess,
+use {
+	super::message::{
+		DeleteTag, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject, TouchProcess,
+	},
+	crate::Server,
+	indoc::indoc,
+	num::ToPrimitive as _,
+	std::collections::HashMap,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
 };
-use crate::Server;
-use indoc::indoc;
-use num::ToPrimitive as _;
-use std::collections::HashMap;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
 
 impl Server {
 	#[allow(clippy::too_many_arguments)]

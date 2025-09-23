@@ -1,9 +1,11 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use super::{Promise, State};
-use futures::FutureExt as _;
-use std::rc::Rc;
-use tangram_client as tg;
+use {
+	super::{Promise, State},
+	futures::FutureExt as _,
+	std::rc::Rc,
+	tangram_client as tg,
+};
 
 mod blob;
 mod checksum;

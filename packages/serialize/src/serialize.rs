@@ -1,8 +1,10 @@
-use crate::{Kind, Serializer};
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	io::{Result, Write},
-	sync::Arc,
+use {
+	crate::{Kind, Serializer},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		io::{Result, Write},
+		sync::Arc,
+	},
 };
 
 pub trait Serialize {

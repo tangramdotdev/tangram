@@ -1,13 +1,15 @@
-use bytes::Bytes;
-use dashmap::DashMap;
-use num::ToPrimitive as _;
-use std::{
-	io::{Error, Result},
-	path::PathBuf,
-	sync::atomic::{AtomicU64, Ordering},
+use {
+	bytes::Bytes,
+	dashmap::DashMap,
+	num::ToPrimitive as _,
+	std::{
+		io::{Error, Result},
+		path::PathBuf,
+		sync::atomic::{AtomicU64, Ordering},
+	},
+	tangram_vfs::{Attrs, FileType},
+	tracing_subscriber::{Layer, layer::SubscriberExt as _, util::SubscriberInitExt as _},
 };
-use tangram_vfs::{Attrs, FileType};
-use tracing_subscriber::{Layer, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 #[derive(Clone, Debug, clap::Parser)]
 struct Args {

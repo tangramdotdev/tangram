@@ -1,7 +1,9 @@
-use crate::{self as tg, prelude::*, util::serde::SeekFromNumberOrString};
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
-use serde_with::serde_as;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate::{self as tg, prelude::*, util::serde::SeekFromNumberOrString},
+	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	serde_with::serde_as,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

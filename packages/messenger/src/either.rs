@@ -1,10 +1,12 @@
-use crate::{
-	BatchConfig, Consumer, ConsumerConfig, ConsumerInfo, Error, Message, Messenger, Stream,
-	StreamConfig, StreamInfo,
+use {
+	crate::{
+		BatchConfig, Consumer, ConsumerConfig, ConsumerInfo, Error, Message, Messenger, Stream,
+		StreamConfig, StreamInfo,
+	},
+	bytes::Bytes,
+	futures::{FutureExt as _, TryFutureExt as _},
+	tangram_either::Either,
 };
-use bytes::Bytes;
-use futures::{FutureExt as _, TryFutureExt as _};
-use tangram_either::Either;
 
 impl<L, R> Messenger for Either<L, R>
 where

@@ -1,16 +1,18 @@
 #![allow(dead_code)]
-use futures::{StreamExt as _, TryStreamExt as _, future};
-use num::ToPrimitive as _;
-use ratatui::{self as tui, prelude::*};
-use std::{
-	io::SeekFrom,
-	sync::{
-		Arc, Mutex,
-		atomic::{AtomicBool, AtomicU64, Ordering},
+use {
+	futures::{StreamExt as _, TryStreamExt as _, future},
+	num::ToPrimitive as _,
+	ratatui::{self as tui, prelude::*},
+	std::{
+		io::SeekFrom,
+		sync::{
+			Arc, Mutex,
+			atomic::{AtomicBool, AtomicU64, Ordering},
+		},
+		time::Duration,
 	},
-	time::Duration,
+	tangram_client as tg,
 };
-use tangram_client as tg;
 mod scroll;
 
 pub struct Log<H> {

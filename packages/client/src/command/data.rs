@@ -1,9 +1,11 @@
-use crate as tg;
-use byteorder::ReadBytesExt as _;
-use bytes::Bytes;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
+use {
+	crate as tg,
+	byteorder::ReadBytesExt as _,
+	bytes::Bytes,
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		path::PathBuf,
+	},
 };
 
 #[derive(

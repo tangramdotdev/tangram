@@ -1,6 +1,8 @@
-use indoc::indoc;
-use tangram_cli_test::{Server, assert_failure, assert_success};
-use tangram_temp::{self as temp, Temp};
+use {
+	indoc::indoc,
+	tangram_cli_test::{Server, assert_failure, assert_success},
+	tangram_temp::{self as temp, Temp},
+};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 

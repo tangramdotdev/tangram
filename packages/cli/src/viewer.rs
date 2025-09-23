@@ -1,18 +1,20 @@
-use self::{data::Data, help::Help, log::Log, tree::Tree};
-use crossterm as ct;
-use futures::{TryFutureExt as _, TryStreamExt as _, future};
-use num::ToPrimitive as _;
-use ratatui::{self as tui, prelude::*};
-use std::{
-	io::{IsTerminal as _, Write as _},
-	os::fd::AsRawFd,
-	pin::pin,
-	sync::Arc,
-	time::Duration,
+use {
+	self::{data::Data, help::Help, log::Log, tree::Tree},
+	crossterm as ct,
+	futures::{TryFutureExt as _, TryStreamExt as _, future},
+	num::ToPrimitive as _,
+	ratatui::{self as tui, prelude::*},
+	std::{
+		io::{IsTerminal as _, Write as _},
+		os::fd::AsRawFd,
+		pin::pin,
+		sync::Arc,
+		time::Duration,
+	},
+	tangram_client as tg,
+	tangram_futures::task::Stop,
+	unicode_width::UnicodeWidthChar as _,
 };
-use tangram_client as tg;
-use tangram_futures::task::Stop;
-use unicode_width::UnicodeWidthChar as _;
 
 mod data;
 mod help;

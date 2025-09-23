@@ -1,5 +1,4 @@
-use crate as tg;
-use lsp_types as lsp;
+use {crate as tg, lsp_types as lsp};
 
 /// A range in a string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]

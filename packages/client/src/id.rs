@@ -1,6 +1,8 @@
-use crate as tg;
-use byteorder::{ReadBytesExt as _, WriteBytesExt as _};
-use bytes::Bytes;
+use {
+	crate as tg,
+	byteorder::{ReadBytesExt as _, WriteBytesExt as _},
+	bytes::Bytes,
+};
 
 /// An ID.
 #[derive(

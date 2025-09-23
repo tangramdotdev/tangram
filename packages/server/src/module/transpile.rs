@@ -1,6 +1,8 @@
-use crate::Server;
-use swc_core::{self as swc, ecma::ast::Pass as _};
-use tangram_client as tg;
+use {
+	crate::Server,
+	swc_core::{self as swc, ecma::ast::Pass as _},
+	tangram_client as tg,
+};
 
 #[derive(Debug)]
 pub struct Output {

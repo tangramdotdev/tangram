@@ -1,5 +1,4 @@
-use crate as tg;
-use std::collections::BTreeMap;
+use {crate as tg, std::collections::BTreeMap};
 
 pub struct Builder {
 	contents: tg::Blob,

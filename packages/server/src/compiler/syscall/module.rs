@@ -1,7 +1,6 @@
-use crate::compiler::Compiler;
-use std::collections::BTreeMap;
-use tangram_client as tg;
-use tangram_v8::Serde;
+use {
+	crate::compiler::Compiler, std::collections::BTreeMap, tangram_client as tg, tangram_v8::Serde,
+};
 
 pub fn load(
 	compiler: &Compiler,

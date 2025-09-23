@@ -1,8 +1,10 @@
-use crate::{self as tg, prelude::*};
-use std::{os::unix::ffi::OsStrExt as _, path::PathBuf, pin::pin};
-use tangram_either::Either;
-use tangram_futures::stream::TryExt as _;
-use tangram_uri::Uri;
+use {
+	crate::{self as tg, prelude::*},
+	std::{os::unix::ffi::OsStrExt as _, path::PathBuf, pin::pin},
+	tangram_either::Either,
+	tangram_futures::stream::TryExt as _,
+	tangram_uri::Uri,
+};
 
 #[derive(
 	Clone,
@@ -282,9 +284,7 @@ impl std::str::FromStr for Item {
 
 #[cfg(test)]
 mod tests {
-	use crate as tg;
-	use insta::assert_snapshot;
-	use std::path::PathBuf;
+	use {crate as tg, insta::assert_snapshot, std::path::PathBuf};
 
 	#[test]
 	fn test() {

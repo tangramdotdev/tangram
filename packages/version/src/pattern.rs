@@ -1,8 +1,10 @@
-use crate::Version;
-use winnow::{
-	ascii::dec_uint,
-	combinator::{alt, opt, preceded, separated},
-	prelude::*,
+use {
+	crate::Version,
+	winnow::{
+		ascii::dec_uint,
+		combinator::{alt, opt, preceded, separated},
+		prelude::*,
+	},
 };
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

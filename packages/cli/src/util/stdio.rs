@@ -1,10 +1,12 @@
-use bytes::Bytes;
-use futures::{Stream, TryStreamExt as _};
-use std::io::Read as _;
-use tangram_client as tg;
-use tokio::io::AsyncBufRead;
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::io::StreamReader;
+use {
+	bytes::Bytes,
+	futures::{Stream, TryStreamExt as _},
+	std::io::Read as _,
+	tangram_client as tg,
+	tokio::io::AsyncBufRead,
+	tokio_stream::wrappers::ReceiverStream,
+	tokio_util::io::StreamReader,
+};
 
 pub(crate) fn stdin() -> impl AsyncBufRead + Send + 'static {
 	StreamReader::new(stdin_stream().map_err(std::io::Error::other))

@@ -1,10 +1,12 @@
-use super::{Data, Id, Object};
-use crate as tg;
-use bytes::Bytes;
-use futures::FutureExt as _;
-use num::ToPrimitive as _;
-use std::{pin::pin, sync::Arc};
-use tokio::io::{AsyncRead, AsyncReadExt as _};
+use {
+	super::{Data, Id, Object},
+	crate as tg,
+	bytes::Bytes,
+	futures::FutureExt as _,
+	num::ToPrimitive as _,
+	std::{pin::pin, sync::Arc},
+	tokio::io::{AsyncRead, AsyncReadExt as _},
+};
 
 #[derive(Clone, Debug)]
 pub struct Blob {

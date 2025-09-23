@@ -1,8 +1,10 @@
-use crate::Server;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream};
-use tangram_client as tg;
-use tangram_either::Either;
-use tangram_http::{Body, request::Ext as _};
+use {
+	crate::Server,
+	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	tangram_client as tg,
+	tangram_either::Either,
+	tangram_http::{Body, request::Ext as _},
+};
 
 impl Server {
 	pub async fn try_get(

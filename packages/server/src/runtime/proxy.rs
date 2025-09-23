@@ -1,8 +1,10 @@
-use crate::Server;
-use futures::{Stream, TryStreamExt as _, stream};
-use std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
-use tangram_client as tg;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use {
+	crate::Server,
+	futures::{Stream, TryStreamExt as _, stream},
+	std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc},
+	tangram_client as tg,
+	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
+};
 
 #[derive(Clone)]
 pub struct Proxy(Arc<Inner>);

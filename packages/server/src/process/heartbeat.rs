@@ -1,8 +1,10 @@
-use crate::{Server, database};
-use indoc::indoc;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use {
+	crate::{Server, database},
+	indoc::indoc,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+};
 
 impl Server {
 	pub async fn heartbeat_process(
@@ -56,7 +58,10 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![now, id.to_string()];
 		let Some(status) = connection
-			.query_optional_value_into::<db::value::Serde<tg::process::Status>>(statement.into(), params)
+			.query_optional_value_into::<db::value::Serde<tg::process::Status>>(
+				statement.into(),
+				params,
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|status| status.0)

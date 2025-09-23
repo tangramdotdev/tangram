@@ -1,12 +1,14 @@
-use crate::{
-	Row, Value,
-	pool::{self, Pool},
+use {
+	crate::{
+		Row, Value,
+		pool::{self, Pool},
+	},
+	futures::{Stream, TryStreamExt as _, future},
+	indexmap::IndexMap,
+	std::{borrow::Cow, collections::HashMap},
+	tokio_postgres as postgres,
+	url::Url,
 };
-use futures::{Stream, TryStreamExt as _, future};
-use indexmap::IndexMap;
-use std::{borrow::Cow, collections::HashMap};
-use tokio_postgres as postgres;
-use url::Url;
 
 pub use postgres::types::Json;
 

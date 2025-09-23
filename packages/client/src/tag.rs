@@ -1,10 +1,12 @@
-use crate as tg;
-use tangram_version::Version;
-use winnow::{
-	ascii::{alphanumeric1, dec_uint},
-	combinator::{alt, opt, preceded, separated},
-	prelude::*,
-	token::take_while,
+use {
+	crate as tg,
+	tangram_version::Version,
+	winnow::{
+		ascii::{alphanumeric1, dec_uint},
+		combinator::{alt, opt, preceded, separated},
+		prelude::*,
+		token::take_while,
+	},
 };
 
 pub mod delete;
@@ -235,8 +237,8 @@ impl TryFrom<tg::tag::Pattern> for Tag {
 
 #[cfg(test)]
 mod tests {
-
 	use crate::tg;
+
 	#[test]
 	fn tag() {
 		let tag = "tag".parse::<tg::Tag>().unwrap();

@@ -1,5 +1,7 @@
-use crate as tg;
-use std::{path::PathBuf, str::FromStr};
+use {
+	crate as tg,
+	std::{path::PathBuf, str::FromStr},
+};
 
 #[derive(Clone, Debug)]
 pub struct Mount {

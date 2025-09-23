@@ -1,10 +1,12 @@
-use crate::Error;
-use bytes::Bytes;
-use pin_project::pin_project;
-use std::{
-	pin::pin,
-	sync::{Arc, Mutex},
-	time::Duration,
+use {
+	crate::Error,
+	bytes::Bytes,
+	pin_project::pin_project,
+	std::{
+		pin::pin,
+		sync::{Arc, Mutex},
+		time::Duration,
+	},
 };
 
 #[derive(Clone)]

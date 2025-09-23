@@ -1,8 +1,10 @@
-use super::state::State;
-use crate::Server;
-use futures::{StreamExt as _, TryStreamExt as _, stream};
-use tangram_client as tg;
-use tangram_either::Either;
+use {
+	super::state::State,
+	crate::Server,
+	futures::{StreamExt as _, TryStreamExt as _, stream},
+	tangram_client as tg,
+	tangram_either::Either,
+};
 
 impl Server {
 	pub(super) async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {

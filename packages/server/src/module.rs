@@ -1,6 +1,4 @@
-use crate::Server;
-use std::path::Path;
-use tangram_client as tg;
+use {crate::Server, std::path::Path, tangram_client as tg};
 
 pub mod analyze;
 pub mod load;

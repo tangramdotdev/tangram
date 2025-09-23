@@ -1,7 +1,9 @@
-use super::{Builder, Data, Id, Object};
-use crate as tg;
-use futures::{TryStreamExt, stream::FuturesUnordered};
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use {
+	super::{Builder, Data, Id, Object},
+	crate as tg,
+	futures::{TryStreamExt, stream::FuturesUnordered},
+	std::{collections::BTreeMap, path::Path, sync::Arc},
+};
 
 #[derive(Clone, Debug)]
 pub struct Directory {

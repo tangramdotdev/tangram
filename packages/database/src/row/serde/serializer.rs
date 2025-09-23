@@ -1,5 +1,4 @@
-use crate::Row;
-use serde::ser::Error as _;
+use {crate::Row, serde::ser::Error as _};
 
 pub struct Serializer;
 

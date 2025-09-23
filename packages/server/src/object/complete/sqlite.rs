@@ -1,8 +1,9 @@
-use crate::Server;
-use indoc::indoc;
-use rusqlite as sqlite;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use {
+	crate::Server,
+	indoc::indoc,
+	rusqlite as sqlite, tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+};
 
 impl Server {
 	pub(crate) async fn try_get_object_complete_sqlite(

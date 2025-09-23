@@ -1,21 +1,23 @@
-use self::{document::Document, syscall::syscall};
-use crate::{Server, temp::Temp};
-use dashmap::DashMap;
-use futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future};
-use lsp_types::{self as lsp, notification::Notification as _, request::Request as _};
-use std::{
-	collections::{BTreeSet, HashMap},
-	ops::Deref,
-	path::{Path, PathBuf},
-	pin::pin,
-	sync::{Arc, Mutex, RwLock},
-};
-use tangram_client as tg;
-use tangram_futures::task::{Stop, Task};
-use tangram_http::{Body, response::builder::Ext as _};
-use tangram_v8::{Deserialize as _, Serde, Serialize as _};
-use tokio::io::{
-	AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
+use {
+	self::{document::Document, syscall::syscall},
+	crate::{Server, temp::Temp},
+	dashmap::DashMap,
+	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	lsp_types::{self as lsp, notification::Notification as _, request::Request as _},
+	std::{
+		collections::{BTreeSet, HashMap},
+		ops::Deref,
+		path::{Path, PathBuf},
+		pin::pin,
+		sync::{Arc, Mutex, RwLock},
+	},
+	tangram_client as tg,
+	tangram_futures::task::{Stop, Task},
+	tangram_http::{Body, response::builder::Ext as _},
+	tangram_v8::{Deserialize as _, Serde, Serialize as _},
+	tokio::io::{
+		AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
+	},
 };
 
 pub mod check;

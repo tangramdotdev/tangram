@@ -1,6 +1,8 @@
-use crate as tg;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
-use url::Url;
+use {
+	crate as tg,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	url::Url,
+};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {

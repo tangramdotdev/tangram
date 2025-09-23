@@ -1,6 +1,4 @@
-use crate as tg;
-use itertools::Itertools as _;
-use std::collections::BTreeSet;
+use {crate as tg, itertools::Itertools as _, std::collections::BTreeSet};
 
 #[derive(
 	Clone,

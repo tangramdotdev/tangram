@@ -1,13 +1,15 @@
-use crate::Server;
-use crossterm::style::Stylize as _;
-use futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future};
-use indexmap::IndexMap;
-use num::ToPrimitive as _;
-use std::{fmt::Write as _, pin::pin};
-use tangram_client as tg;
-use tangram_futures::stream::Ext as _;
-use tokio_util::task::AbortOnDropHandle;
-use unicode_width::UnicodeWidthChar as _;
+use {
+	crate::Server,
+	crossterm::style::Stylize as _,
+	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
+	indexmap::IndexMap,
+	num::ToPrimitive as _,
+	std::{fmt::Write as _, pin::pin},
+	tangram_client as tg,
+	tangram_futures::stream::Ext as _,
+	tokio_util::task::AbortOnDropHandle,
+	unicode_width::UnicodeWidthChar as _,
+};
 
 struct State {
 	server: Server,

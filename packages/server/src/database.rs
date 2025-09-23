@@ -1,6 +1,8 @@
-use futures::{Stream, StreamExt as _};
-use std::borrow::Cow;
-use tangram_database as db;
+use {
+	futures::{Stream, StreamExt as _},
+	std::borrow::Cow,
+	tangram_database as db,
+};
 
 pub mod sqlite;
 

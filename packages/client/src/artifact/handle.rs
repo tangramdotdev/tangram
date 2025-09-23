@@ -1,12 +1,14 @@
-use super::{Id, Object};
-use crate as tg;
-use futures::{
-	TryStreamExt as _,
-	stream::{FuturesOrdered, FuturesUnordered},
-};
-use std::{
-	collections::HashSet,
-	sync::{Arc, Mutex},
+use {
+	super::{Id, Object},
+	crate as tg,
+	futures::{
+		TryStreamExt as _,
+		stream::{FuturesOrdered, FuturesUnordered},
+	},
+	std::{
+		collections::HashSet,
+		sync::{Arc, Mutex},
+	},
 };
 
 /// An artifact.

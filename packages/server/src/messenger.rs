@@ -1,5 +1,4 @@
-use bytes::Bytes;
-use tangram_messenger as messenger;
+use {bytes::Bytes, tangram_messenger as messenger};
 
 #[derive(derive_more::IsVariant)]
 pub enum Messenger {

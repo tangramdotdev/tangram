@@ -1,7 +1,4 @@
-use crate as tg;
-use bytes::Bytes;
-use num::ToPrimitive as _;
-use std::borrow::Cow;
+use {crate as tg, bytes::Bytes, num::ToPrimitive as _, std::borrow::Cow};
 
 pub struct BytesBase64;
 

@@ -1,9 +1,11 @@
-use super::{CacheReference, DeleteArg, PutArg};
-use bytes::Bytes;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use num::ToPrimitive as _;
-use tangram_client as tg;
-use time::format_description::well_known::Rfc2822;
+use {
+	super::{CacheReference, DeleteArg, PutArg},
+	bytes::Bytes,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	num::ToPrimitive as _,
+	tangram_client as tg,
+	time::format_description::well_known::Rfc2822,
+};
 
 pub struct S3 {
 	credentials: Option<aws_credential_types::Credentials>,

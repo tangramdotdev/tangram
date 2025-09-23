@@ -1,19 +1,21 @@
-use self::{
-	module::{
-		host_import_module_dynamically_callback, host_initialize_import_meta_object_callback,
+use {
+	self::{
+		module::{
+			host_import_module_dynamically_callback, host_initialize_import_meta_object_callback,
+		},
+		syscall::syscall,
 	},
-	syscall::syscall,
+	crate::Server,
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+		future::{self, LocalBoxFuture},
+		stream::FuturesUnordered,
+	},
+	sourcemap::SourceMap,
+	std::{cell::RefCell, future::poll_fn, pin::pin, rc::Rc, task::Poll},
+	tangram_client as tg,
+	tangram_v8::{Deserialize as _, Serde, Serialize},
 };
-use crate::Server;
-use futures::{
-	FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
-	future::{self, LocalBoxFuture},
-	stream::FuturesUnordered,
-};
-use sourcemap::SourceMap;
-use std::{cell::RefCell, future::poll_fn, pin::pin, rc::Rc, task::Poll};
-use tangram_client as tg;
-use tangram_v8::{Deserialize as _, Serde, Serialize};
 
 mod error;
 mod module;

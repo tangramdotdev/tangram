@@ -1,9 +1,11 @@
-use indoc::indoc;
-use insta::{assert_json_snapshot, assert_snapshot};
-use std::path::Path;
-use tangram_cli_test::{Server, assert_success};
-use tangram_client as tg;
-use tangram_temp::{self as temp, Temp};
+use {
+	indoc::indoc,
+	insta::{assert_json_snapshot, assert_snapshot},
+	std::path::Path,
+	tangram_cli_test::{Server, assert_success},
+	tangram_client as tg,
+	tangram_temp::{self as temp, Temp},
+};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 

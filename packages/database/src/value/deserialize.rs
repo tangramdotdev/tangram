@@ -1,6 +1,4 @@
-use crate::Value;
-use bytes::Bytes;
-use num::ToPrimitive as _;
+use {crate::Value, bytes::Bytes, num::ToPrimitive as _};
 
 pub trait Deserialize: Sized {
 	fn deserialize(

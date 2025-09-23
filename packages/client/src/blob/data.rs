@@ -1,8 +1,10 @@
-use crate::{self as tg, util::serde::BytesBase64};
-use byteorder::{ReadBytesExt as _, WriteBytesExt as _};
-use bytes::Bytes;
-use serde_with::serde_as;
-use std::{collections::BTreeSet, io::Write as _};
+use {
+	crate::{self as tg, util::serde::BytesBase64},
+	byteorder::{ReadBytesExt as _, WriteBytesExt as _},
+	bytes::Bytes,
+	serde_with::serde_as,
+	std::{collections::BTreeSet, io::Write as _},
+};
 
 #[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]

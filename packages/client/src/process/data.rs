@@ -1,8 +1,10 @@
-use crate::{
-	self as tg,
-	util::serde::{is_false, is_true, return_true},
+use {
+	crate::{
+		self as tg,
+		util::serde::{is_false, is_true, return_true},
+	},
+	std::path::PathBuf,
 };
-use std::path::PathBuf;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {

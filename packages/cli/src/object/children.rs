@@ -1,6 +1,4 @@
-use crate::Cli;
-use std::collections::BTreeSet;
-use tangram_client as tg;
+use {crate::Cli, std::collections::BTreeSet, tangram_client as tg};
 
 /// Get an object's children.
 #[derive(Clone, Debug, clap::Args)]

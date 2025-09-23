@@ -1,5 +1,4 @@
-use crate as tg;
-use std::path::PathBuf;
+use {crate as tg, std::path::PathBuf};
 
 #[derive(Clone, Debug, Default)]
 pub struct Arg {

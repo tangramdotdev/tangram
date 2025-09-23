@@ -1,11 +1,13 @@
-use super::{CacheReference, DeleteArg, PutArg};
-use bytes::Bytes;
-use foundationdb::{self as fdb, FdbBindingError};
-use foundationdb_tuple::TuplePack as _;
-use futures::{TryStreamExt as _, future, stream::FuturesOrdered};
-use num::ToPrimitive as _;
-use std::pin::pin;
-use tangram_client as tg;
+use {
+	super::{CacheReference, DeleteArg, PutArg},
+	bytes::Bytes,
+	foundationdb::{self as fdb, FdbBindingError},
+	foundationdb_tuple::TuplePack as _,
+	futures::{TryStreamExt as _, future, stream::FuturesOrdered},
+	num::ToPrimitive as _,
+	std::pin::pin,
+	tangram_client as tg,
+};
 
 /// The maximum size of a value.
 const VALUE_SIZE_LIMIT: usize = 10_240;

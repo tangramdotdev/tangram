@@ -1,5 +1,4 @@
-use crate as tg;
-use sha2::Digest;
+use {crate as tg, sha2::Digest};
 
 #[derive(
 	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,

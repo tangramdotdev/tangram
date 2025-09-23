@@ -1,14 +1,16 @@
-use crate::{
-	Command,
-	common::{CStringVec, abort_errno, cstring, envstring},
-};
-use indoc::writedoc;
-use num::ToPrimitive as _;
-use std::{
-	ffi::{CStr, CString},
-	fmt::Write,
-	os::unix::ffi::OsStrExt as _,
-	path::Path,
+use {
+	crate::{
+		Command,
+		common::{CStringVec, abort_errno, cstring, envstring},
+	},
+	indoc::writedoc,
+	num::ToPrimitive as _,
+	std::{
+		ffi::{CStr, CString},
+		fmt::Write,
+		os::unix::ffi::OsStrExt as _,
+		path::Path,
+	},
 };
 
 struct Context {

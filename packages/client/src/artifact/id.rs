@@ -1,7 +1,4 @@
-use super::Kind;
-use crate as tg;
-use bytes::Bytes;
-use std::ops::Deref;
+use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 
 /// An artifact ID.
 #[derive(

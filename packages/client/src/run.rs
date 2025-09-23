@@ -1,6 +1,8 @@
-use crate as tg;
-use std::{collections::BTreeMap, path::PathBuf};
-use tangram_either::Either;
+use {
+	crate as tg,
+	std::{collections::BTreeMap, path::PathBuf},
+	tangram_either::Either,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Arg {

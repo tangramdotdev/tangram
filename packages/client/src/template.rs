@@ -1,6 +1,8 @@
-use crate as tg;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
-use std::{borrow::Cow, collections::BTreeSet};
+use {
+	crate as tg,
+	futures::{TryStreamExt as _, stream::FuturesOrdered},
+	std::{borrow::Cow, collections::BTreeSet},
+};
 
 pub use self::data::Template as Data;
 

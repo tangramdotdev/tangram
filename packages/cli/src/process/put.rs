@@ -1,6 +1,8 @@
-use crate::Cli;
-use tangram_client::{self as tg, prelude::*};
-use tokio::io::AsyncReadExt as _;
+use {
+	crate::Cli,
+	tangram_client::{self as tg, prelude::*},
+	tokio::io::AsyncReadExt as _,
+};
 
 // Put a process.
 #[derive(Clone, Debug, clap::Args)]

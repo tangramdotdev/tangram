@@ -1,6 +1,4 @@
-use super::Compiler;
-use lsp_types as lsp;
-use tangram_client as tg;
+use {super::Compiler, lsp_types as lsp, tangram_client as tg};
 
 impl Compiler {
 	#[cfg(feature = "format")]

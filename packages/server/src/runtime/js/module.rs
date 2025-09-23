@@ -1,10 +1,12 @@
-use super::{Module, State, error};
-use crate::Server;
-use num::ToPrimitive as _;
-use sourcemap::SourceMap;
-use std::{collections::BTreeMap, rc::Rc};
-use tangram_client as tg;
-use tangram_v8::{Serde, Serialize as _};
+use {
+	super::{Module, State, error},
+	crate::Server,
+	num::ToPrimitive as _,
+	sourcemap::SourceMap,
+	std::{collections::BTreeMap, rc::Rc},
+	tangram_client as tg,
+	tangram_v8::{Serde, Serialize as _},
+};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ImportKind {

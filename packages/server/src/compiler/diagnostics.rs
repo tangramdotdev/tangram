@@ -1,7 +1,4 @@
-use super::Compiler;
-use itertools::Itertools as _;
-use lsp_types as lsp;
-use tangram_client as tg;
+use {super::Compiler, itertools::Itertools as _, lsp_types as lsp, tangram_client as tg};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

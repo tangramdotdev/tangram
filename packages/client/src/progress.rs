@@ -1,5 +1,4 @@
-use crate as tg;
-use num::ToPrimitive as _;
+use {crate as tg, num::ToPrimitive as _};
 
 #[derive(
 	Debug,

@@ -1,6 +1,8 @@
-use crate::{Enum, Item, Struct, VariantKind};
-use itertools::Itertools as _;
-use quote::quote;
+use {
+	crate::{Enum, Item, Struct, VariantKind},
+	itertools::Itertools as _,
+	quote::quote,
+};
 
 impl Item<'_> {
 	pub fn serialize(self) -> proc_macro2::TokenStream {

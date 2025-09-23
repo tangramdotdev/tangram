@@ -1,11 +1,13 @@
-use super::{Options, signal::handle_sigwinch};
-use crate::Cli;
-use std::{
-	io::IsTerminal as _,
-	mem::MaybeUninit,
-	os::fd::{AsRawFd as _, RawFd},
+use {
+	super::{Options, signal::handle_sigwinch},
+	crate::Cli,
+	std::{
+		io::IsTerminal as _,
+		mem::MaybeUninit,
+		os::fd::{AsRawFd as _, RawFd},
+	},
+	tangram_client as tg,
 };
-use tangram_client as tg;
 
 pub struct Stdio {
 	pub termios: Option<(RawFd, libc::termios)>,

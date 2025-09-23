@@ -1,6 +1,4 @@
-use crate as tg;
-use std::path::Path;
-use tangram_either::Either;
+use {crate as tg, std::path::Path, tangram_either::Either};
 
 /// The possible file names for the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];

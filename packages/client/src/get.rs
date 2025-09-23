@@ -1,7 +1,9 @@
-use crate as tg;
-use futures::{Stream, TryStreamExt as _, future};
-use tangram_either::Either;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate as tg,
+	futures::{Stream, TryStreamExt as _, future},
+	tangram_either::Either,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {

@@ -1,6 +1,8 @@
-use num::ToPrimitive as _;
-use ratatui::{self as tui, prelude::*};
-use unicode_segmentation::UnicodeSegmentation;
+use {
+	num::ToPrimitive as _,
+	ratatui::{self as tui, prelude::*},
+	unicode_segmentation::UnicodeSegmentation,
+};
 
 pub struct Data {
 	contents: String,

@@ -1,9 +1,11 @@
-use crate::Server;
-use indoc::indoc;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use url::Url;
+use {
+	crate::Server,
+	indoc::indoc,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	url::Url,
+};
 
 impl Server {
 	pub async fn list_remotes(

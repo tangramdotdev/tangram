@@ -1,7 +1,9 @@
-use crate::Server;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use std::collections::BTreeMap;
-use tangram_client as tg;
+use {
+	crate::Server,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	std::collections::BTreeMap,
+	tangram_client as tg,
+};
 
 pub mod delete;
 pub mod get;

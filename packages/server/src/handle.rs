@@ -1,10 +1,12 @@
-use crate::Server;
-use futures::Stream;
 #[cfg(not(feature = "v8"))]
 use futures::future;
-use std::pin::Pin;
-use tangram_client as tg;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use {
+	crate::Server,
+	futures::Stream,
+	std::pin::Pin,
+	tangram_client as tg,
+	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
+};
 
 impl tg::Handle for Server {
 	fn cache(

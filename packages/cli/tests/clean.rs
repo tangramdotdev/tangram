@@ -1,7 +1,9 @@
-use indoc::indoc;
-use std::path::Path;
-use tangram_cli_test::{Server, assert_failure, assert_success};
-use tangram_temp::{self as temp, Temp};
+use {
+	indoc::indoc,
+	std::path::Path,
+	tangram_cli_test::{Server, assert_failure, assert_success},
+	tangram_temp::{self as temp, Temp},
+};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 

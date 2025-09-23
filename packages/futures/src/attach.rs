@@ -1,6 +1,8 @@
-use futures::Stream;
-use std::{pin::Pin, task::Poll};
-use tokio::io::AsyncRead;
+use {
+	futures::Stream,
+	std::{pin::Pin, task::Poll},
+	tokio::io::AsyncRead,
+};
 
 pub struct Attach<I, T> {
 	inner: I,

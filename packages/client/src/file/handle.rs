@@ -1,8 +1,10 @@
-use super::{Builder, Data, Id, Object};
-use crate as tg;
-use futures::{TryStreamExt, stream::FuturesUnordered};
-use std::{collections::BTreeMap, sync::Arc};
-use tokio::io::AsyncBufRead;
+use {
+	super::{Builder, Data, Id, Object},
+	crate as tg,
+	futures::{TryStreamExt, stream::FuturesUnordered},
+	std::{collections::BTreeMap, sync::Arc},
+	tokio::io::AsyncBufRead,
+};
 
 #[derive(Clone, Debug)]
 pub struct File {

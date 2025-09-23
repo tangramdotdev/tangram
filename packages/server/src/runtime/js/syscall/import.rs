@@ -1,10 +1,12 @@
-use super::State;
-use futures::{StreamExt as _, stream};
-use num::ToPrimitive as _;
-use std::{pin::pin, rc::Rc};
-use tangram_client as tg;
-use tangram_futures::stream::TryExt as _;
-use tangram_v8::Serde;
+use {
+	super::State,
+	futures::{StreamExt as _, stream},
+	num::ToPrimitive as _,
+	std::{pin::pin, rc::Rc},
+	tangram_client as tg,
+	tangram_futures::stream::TryExt as _,
+	tangram_v8::Serde,
+};
 
 #[derive(serde::Deserialize)]
 pub struct Item {

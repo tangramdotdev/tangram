@@ -1,5 +1,7 @@
-use crate as tg;
-use std::path::{Path, PathBuf};
+use {
+	crate as tg,
+	std::path::{Path, PathBuf},
+};
 
 pub fn diff(src: &Path, dst: &Path) -> tg::Result<PathBuf> {
 	if !src.is_absolute() || !dst.is_absolute() {

@@ -1,5 +1,4 @@
-use std::pin::Pin;
-use tokio::io::AsyncRead;
+use {std::pin::Pin, tokio::io::AsyncRead};
 
 pub enum Either<L, R> {
 	Left(L),

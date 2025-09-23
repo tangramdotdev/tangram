@@ -1,5 +1,7 @@
-use super::{Compiler, document::Document};
-use tangram_client as tg;
+use {
+	super::{Compiler, document::Document},
+	tangram_client as tg,
+};
 
 impl Compiler {
 	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<i32> {

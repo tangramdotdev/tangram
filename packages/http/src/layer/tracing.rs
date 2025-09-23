@@ -1,5 +1,7 @@
-use crate::{Request, Response};
-use tower::ServiceExt as _;
+use {
+	crate::{Request, Response},
+	tower::ServiceExt as _,
+};
 
 #[derive(Clone)]
 pub struct TracingLayer {

@@ -1,8 +1,10 @@
-use crate::{Server, compiler::Compiler};
-use std::path::Path;
-use tangram_client as tg;
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_ignore as ignore;
+use {
+	crate::{Server, compiler::Compiler},
+	std::path::Path,
+	tangram_client as tg,
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_ignore as ignore,
+};
 
 impl Server {
 	pub async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {

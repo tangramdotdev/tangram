@@ -1,5 +1,4 @@
-use num::ToPrimitive as _;
-use serde::ser::Error as _;
+use {num::ToPrimitive as _, serde::ser::Error as _};
 
 pub struct Serializer<'a, 's> {
 	scope: &'a mut v8::HandleScope<'s>,

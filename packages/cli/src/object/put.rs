@@ -1,6 +1,8 @@
-use crate::{Cli, put::Format};
-use tangram_client::{self as tg, prelude::*};
-use tokio::io::AsyncReadExt as _;
+use {
+	crate::{Cli, put::Format},
+	tangram_client::{self as tg, prelude::*},
+	tokio::io::AsyncReadExt as _,
+};
 
 /// Put an object.
 #[derive(Clone, Debug, clap::Args)]

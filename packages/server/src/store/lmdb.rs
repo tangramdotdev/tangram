@@ -1,9 +1,11 @@
-use super::{CacheReference, DeleteArg, PutArg};
-use bytes::Bytes;
-use foundationdb_tuple::TuplePack as _;
-use heed as lmdb;
-use num::ToPrimitive as _;
-use tangram_client as tg;
+use {
+	super::{CacheReference, DeleteArg, PutArg},
+	bytes::Bytes,
+	foundationdb_tuple::TuplePack as _,
+	heed as lmdb,
+	num::ToPrimitive as _,
+	tangram_client as tg,
+};
 
 pub struct Lmdb {
 	db: Db,

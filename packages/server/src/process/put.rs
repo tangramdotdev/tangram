@@ -1,8 +1,10 @@
-use crate::{Server, database::Database};
-use std::collections::BTreeSet;
-use tangram_client as tg;
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tangram_messenger::prelude::*;
+use {
+	crate::{Server, database::Database},
+	std::collections::BTreeSet,
+	tangram_client as tg,
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_messenger::prelude::*,
+};
 
 #[cfg(feature = "postgres")]
 mod postgres;

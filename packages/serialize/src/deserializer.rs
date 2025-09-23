@@ -1,7 +1,9 @@
-use crate::{Deserialize, Kind};
-use byteorder::{LittleEndian, ReadBytesExt as _};
-use num::ToPrimitive as _;
-use std::io::{Error, Read, Result};
+use {
+	crate::{Deserialize, Kind},
+	byteorder::{LittleEndian, ReadBytesExt as _},
+	num::ToPrimitive as _,
+	std::io::{Error, Read, Result},
+};
 
 pub struct Deserializer<R>(R)
 where
@@ -36,15 +38,15 @@ where
 
 	pub fn read_kind(&mut self) -> Result<Kind> {
 		let value = self.0.read_u8()?;
-		let kind = num::FromPrimitive::from_u8(value)
-			.ok_or_else(|| Error::other("invalid value kind"))?;
+		let kind =
+			num::FromPrimitive::from_u8(value).ok_or_else(|| Error::other("invalid value kind"))?;
 		Ok(kind)
 	}
 
 	pub fn ensure_kind(&mut self, kind: Kind) -> Result<Kind> {
 		let value = self.0.read_u8()?;
-		let read = num::FromPrimitive::from_u8(value)
-			.ok_or_else(|| Error::other("invalid value kind"))?;
+		let read =
+			num::FromPrimitive::from_u8(value).ok_or_else(|| Error::other("invalid value kind"))?;
 		if read != kind {
 			return Err(Error::other("incorrect kind"));
 		}

@@ -1,8 +1,7 @@
-use crate::Server;
-use num::ToPrimitive as _;
-use tangram_client as tg;
-use tangram_futures::write::Ext as _;
-use tokio::io::AsyncWriteExt as _;
+use {
+	crate::Server, num::ToPrimitive as _, tangram_client as tg, tangram_futures::write::Ext as _,
+	tokio::io::AsyncWriteExt as _,
+};
 
 impl Server {
 	pub(crate) async fn checksum_blob(

@@ -1,7 +1,9 @@
-use crate as tg;
-use std::{
-	collections::{BTreeMap, BTreeSet},
-	path::PathBuf,
+use {
+	crate as tg,
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		path::PathBuf,
+	},
 };
 
 /// An error.

@@ -1,8 +1,10 @@
-use futures::{StreamExt as _, future};
-use std::{mem::MaybeUninit, os::fd::RawFd, pin::pin};
-use tangram_client as tg;
-use tokio::signal::unix::SignalKind;
-use tokio_stream::wrappers::ReceiverStream;
+use {
+	futures::{StreamExt as _, future},
+	std::{mem::MaybeUninit, os::fd::RawFd, pin::pin},
+	tangram_client as tg,
+	tokio::signal::unix::SignalKind,
+	tokio_stream::wrappers::ReceiverStream,
+};
 
 /// Handle sigwinch.
 pub async fn handle_sigwinch<H>(

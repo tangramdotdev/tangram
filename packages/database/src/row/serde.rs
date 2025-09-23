@@ -1,9 +1,11 @@
-use self::serializer::Serializer;
-use crate::{
-	Row,
-	row::{Deserialize, Serialize},
+use {
+	self::serializer::Serializer,
+	crate::{
+		Row,
+		row::{Deserialize, Serialize},
+	},
+	std::ops::Deref,
 };
-use std::ops::Deref;
 
 pub mod deserializer;
 pub mod serializer;

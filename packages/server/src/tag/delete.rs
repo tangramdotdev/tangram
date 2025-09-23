@@ -1,9 +1,11 @@
-use crate::Server;
-use indoc::formatdoc;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_http::{Body, response::builder::Ext as _};
-use tangram_messenger::prelude::*;
+use {
+	crate::Server,
+	indoc::formatdoc,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{Body, response::builder::Ext as _},
+	tangram_messenger::prelude::*,
+};
 
 impl Server {
 	pub async fn delete_tag(&self, tag: &tg::Tag) -> tg::Result<()> {

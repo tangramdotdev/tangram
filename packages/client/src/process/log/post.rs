@@ -1,7 +1,9 @@
-use crate::{self as tg, util::serde::BytesBase64};
-use bytes::Bytes;
-use serde_with::serde_as;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate::{self as tg, util::serde::BytesBase64},
+	bytes::Bytes,
+	serde_with::serde_as,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

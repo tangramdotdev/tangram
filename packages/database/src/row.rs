@@ -1,6 +1,4 @@
-use crate::Value;
-use indexmap::IndexMap;
-use tangram_either::Either;
+use {crate::Value, indexmap::IndexMap, tangram_either::Either};
 
 pub use self::{deserialize::Deserialize, serde::Serde, serialize::Serialize};
 

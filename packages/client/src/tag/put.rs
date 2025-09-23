@@ -1,6 +1,8 @@
-use crate::{self as tg, util::serde::is_false};
-use tangram_either::Either;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate::{self as tg, util::serde::is_false},
+	tangram_either::Either,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {

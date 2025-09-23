@@ -1,8 +1,10 @@
-use crate::Cli;
-use futures::FutureExt as _;
-use std::path::{Path, PathBuf};
-use tangram_client::{self as tg, prelude::*};
-use tangram_either::Either;
+use {
+	crate::Cli,
+	futures::FutureExt as _,
+	std::path::{Path, PathBuf},
+	tangram_client::{self as tg, prelude::*},
+	tangram_either::Either,
+};
 
 /// Spawn a process.
 #[derive(Clone, Debug, clap::Args)]

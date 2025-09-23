@@ -1,5 +1,4 @@
-use self::batches::Batches;
-use tangram_either::Either;
+use {self::batches::Batches, tangram_either::Either};
 
 pub mod batches;
 

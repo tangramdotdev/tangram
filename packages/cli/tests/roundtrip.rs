@@ -1,6 +1,8 @@
-use std::path::Path;
-use tangram_cli_test::{Server, assert_success};
-use tangram_temp::{self as temp, Temp};
+use {
+	std::path::Path,
+	tangram_cli_test::{Server, assert_success},
+	tangram_temp::{self as temp, Temp},
+};
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 

@@ -1,15 +1,17 @@
-use crate::{
-	Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, StreamConfig, StreamInfo,
-};
-use async_broadcast as broadcast;
-use bytes::Bytes;
-use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
-use num::ToPrimitive as _;
-use std::{
-	collections::{BTreeMap, HashMap},
-	ops::Deref,
-	pin::pin,
-	sync::{Arc, RwLock, Weak},
+use {
+	crate::{
+		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, StreamConfig, StreamInfo,
+	},
+	async_broadcast as broadcast,
+	bytes::Bytes,
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream},
+	num::ToPrimitive as _,
+	std::{
+		collections::{BTreeMap, HashMap},
+		ops::Deref,
+		pin::pin,
+		sync::{Arc, RwLock, Weak},
+	},
 };
 
 #[derive(Clone)]

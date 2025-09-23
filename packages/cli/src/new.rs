@@ -1,6 +1,4 @@
-use crate::Cli;
-use std::path::PathBuf;
-use tangram_client as tg;
+use {crate::Cli, std::path::PathBuf, tangram_client as tg};
 
 /// Create a new package.
 #[derive(Clone, Debug, clap::Args)]

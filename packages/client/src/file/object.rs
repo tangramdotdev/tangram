@@ -1,5 +1,4 @@
-use super::Data;
-use crate as tg;
+use {super::Data, crate as tg};
 
 #[derive(Clone, Debug)]
 pub enum File {

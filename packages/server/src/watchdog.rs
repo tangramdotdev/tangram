@@ -1,11 +1,13 @@
-use crate::Server;
-use futures::{FutureExt, StreamExt as _, stream::FuturesUnordered};
-use indoc::formatdoc;
-use num::ToPrimitive as _;
-use std::pin::pin;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_messenger::Messenger as _;
+use {
+	crate::Server,
+	futures::{FutureExt, StreamExt as _, stream::FuturesUnordered},
+	indoc::formatdoc,
+	num::ToPrimitive as _,
+	std::pin::pin,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_messenger::Messenger as _,
+};
 
 impl Server {
 	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) -> tg::Result<()> {

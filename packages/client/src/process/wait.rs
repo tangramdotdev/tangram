@@ -1,7 +1,9 @@
-use crate as tg;
-use futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future};
-use tangram_futures::stream::TryExt as _;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate as tg,
+	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	tangram_futures::stream::TryExt as _,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[derive(Clone, Debug)]
 pub enum Event {

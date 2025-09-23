@@ -1,6 +1,4 @@
-use super::Data;
-use crate as tg;
-use std::sync::Arc;
+use {super::Data, crate as tg, std::sync::Arc};
 
 #[derive(Clone, Debug, derive_more::From, derive_more::TryUnwrap)]
 #[try_unwrap(ref)]

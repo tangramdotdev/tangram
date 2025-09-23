@@ -1,6 +1,4 @@
-use crate::compiler::Compiler;
-use tangram_client as tg;
-use tangram_v8::Serde;
+use {crate::compiler::Compiler, tangram_client as tg, tangram_v8::Serde};
 
 pub fn list(
 	compiler: &Compiler,

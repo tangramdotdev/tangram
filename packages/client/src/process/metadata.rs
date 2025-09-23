@@ -1,5 +1,7 @@
-use crate::{self as tg, util::serde::is_default};
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate::{self as tg, util::serde::is_default},
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[derive(
 	Clone,

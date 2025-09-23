@@ -1,8 +1,10 @@
-use globset::{Candidate, GlobBuilder, GlobSet, GlobSetBuilder};
-use std::{
-	collections::HashMap,
-	ffi::OsString,
-	path::{Path, PathBuf},
+use {
+	globset::{Candidate, GlobBuilder, GlobSet, GlobSetBuilder},
+	std::{
+		collections::HashMap,
+		ffi::OsString,
+		path::{Path, PathBuf},
+	},
 };
 
 #[cfg(test)]

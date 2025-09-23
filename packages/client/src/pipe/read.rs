@@ -1,7 +1,9 @@
-use crate as tg;
-use futures::{Stream, TryStreamExt as _};
-use http_body_util::{BodyExt as _, BodyStream};
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate as tg,
+	futures::{Stream, TryStreamExt as _},
+	http_body_util::{BodyExt as _, BodyStream},
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {

@@ -1,12 +1,14 @@
-use dashmap::DashMap;
-use futures::{
-	FutureExt as _, StreamExt as _, TryFutureExt as _,
-	future::{self, BoxFuture},
-	stream::FuturesUnordered,
-};
-use std::{
-	hash::{BuildHasher, Hash},
-	sync::Arc,
+use {
+	dashmap::DashMap,
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _,
+		future::{self, BoxFuture},
+		stream::FuturesUnordered,
+	},
+	std::{
+		hash::{BuildHasher, Hash},
+		sync::Arc,
+	},
 };
 
 #[derive(Clone)]

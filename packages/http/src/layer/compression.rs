@@ -1,10 +1,12 @@
-use crate::{
-	Body, Request, Response,
-	body::compression::{Algorithm, Compression, Decompression},
-	header::{accept_encoding::AcceptEncoding, content_encoding::ContentEncoding},
+use {
+	crate::{
+		Body, Request, Response,
+		body::compression::{Algorithm, Compression, Decompression},
+		header::{accept_encoding::AcceptEncoding, content_encoding::ContentEncoding},
+	},
+	std::sync::Arc,
+	tower::ServiceExt as _,
 };
-use std::sync::Arc;
-use tower::ServiceExt as _;
 
 #[derive(Clone, Default)]
 pub struct RequestCompressionLayer {

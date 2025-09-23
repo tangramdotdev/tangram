@@ -1,14 +1,16 @@
-use crate::{
-	Error as _, Row, Value,
-	pool::{self, Pool},
+use {
+	crate::{
+		Error as _, Row, Value,
+		pool::{self, Pool},
+	},
+	bytes::Bytes,
+	futures::{Stream, stream},
+	indexmap::IndexMap,
+	itertools::Itertools as _,
+	num::ToPrimitive as _,
+	rusqlite as sqlite,
+	std::{borrow::Cow, path::PathBuf, sync::Arc},
 };
-use bytes::Bytes;
-use futures::{Stream, stream};
-use indexmap::IndexMap;
-use itertools::Itertools as _;
-use num::ToPrimitive as _;
-use rusqlite as sqlite;
-use std::{borrow::Cow, path::PathBuf, sync::Arc};
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {

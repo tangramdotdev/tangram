@@ -1,5 +1,4 @@
-use bytes::Bytes;
-use std::time::Duration;
+use {bytes::Bytes, std::time::Duration};
 
 pub use self::acker::Acker;
 

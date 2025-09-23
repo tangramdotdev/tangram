@@ -1,7 +1,9 @@
-use crate::Server;
-use indoc::indoc;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use {
+	crate::Server,
+	indoc::indoc,
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+};
 
 impl Server {
 	pub(crate) async fn put_tag_postgres(

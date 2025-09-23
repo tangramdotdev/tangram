@@ -1,10 +1,11 @@
-use crate::Server;
-use indoc::indoc;
-use num::ToPrimitive as _;
-use rusqlite as sqlite;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
-use tangram_either::Either;
+use {
+	crate::Server,
+	indoc::indoc,
+	num::ToPrimitive as _,
+	rusqlite as sqlite, tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
+};
 
 impl Server {
 	pub(super) async fn list_tags_sqlite(

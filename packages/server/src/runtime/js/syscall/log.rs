@@ -1,8 +1,4 @@
-use super::State;
-use crate::runtime::util;
-use std::rc::Rc;
-use tangram_client as tg;
-use tangram_v8::Serde;
+use {super::State, crate::runtime::util, std::rc::Rc, tangram_client as tg, tangram_v8::Serde};
 
 pub fn log(
 	state: Rc<State>,

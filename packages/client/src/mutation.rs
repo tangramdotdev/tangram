@@ -1,5 +1,4 @@
-use crate as tg;
-use itertools::Itertools as _;
+use {crate as tg, itertools::Itertools as _};
 
 pub use self::data::Data;
 

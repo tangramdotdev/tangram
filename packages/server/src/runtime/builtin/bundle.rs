@@ -1,8 +1,10 @@
-use super::Runtime;
-use crate::database::Transaction;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
-use std::path::{Path, PathBuf};
-use tangram_client as tg;
+use {
+	super::Runtime,
+	crate::database::Transaction,
+	futures::{TryStreamExt as _, stream::FuturesOrdered},
+	std::path::{Path, PathBuf},
+	tangram_client as tg,
+};
 
 static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 

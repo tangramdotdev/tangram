@@ -1,15 +1,17 @@
-use futures::{Stream, StreamExt as _, future, stream};
-use indexmap::IndexMap;
-use std::{
-	sync::{
-		Arc, Mutex, RwLock,
-		atomic::{AtomicU64, Ordering},
+use {
+	futures::{Stream, StreamExt as _, future, stream},
+	indexmap::IndexMap,
+	std::{
+		sync::{
+			Arc, Mutex, RwLock,
+			atomic::{AtomicU64, Ordering},
+		},
+		time::Duration,
 	},
-	time::Duration,
+	tangram_client as tg,
+	tangram_futures::stream::Ext as _,
+	tokio_stream::wrappers::IntervalStream,
 };
-use tangram_client as tg;
-use tangram_futures::stream::Ext as _;
-use tokio_stream::wrappers::IntervalStream;
 
 #[derive(Clone, Debug)]
 pub struct Handle<T> {

@@ -1,17 +1,19 @@
-use crate::Server;
-use bytes::Bytes;
-use futures::{
-	FutureExt as _, future,
-	stream::{FuturesUnordered, TryStreamExt as _},
+use {
+	crate::Server,
+	bytes::Bytes,
+	futures::{
+		FutureExt as _, future,
+		stream::{FuturesUnordered, TryStreamExt as _},
+	},
+	num::ToPrimitive as _,
+	std::{
+		io::{Read as _, Seek as _},
+		path::PathBuf,
+	},
+	tangram_client::{self as tg, prelude::*},
+	tangram_http::{Body, response::builder::Ext as _},
+	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
-use num::ToPrimitive as _;
-use std::{
-	io::{Read as _, Seek as _},
-	path::PathBuf,
-};
-use tangram_client::{self as tg, prelude::*};
-use tangram_http::{Body, response::builder::Ext as _};
-use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
 impl Server {
 	pub async fn try_get_object(

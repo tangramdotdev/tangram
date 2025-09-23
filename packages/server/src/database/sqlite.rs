@@ -1,8 +1,9 @@
-use super::Database;
-use num::ToPrimitive as _;
-use rusqlite as sqlite;
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use {
+	super::Database,
+	num::ToPrimitive as _,
+	rusqlite as sqlite, tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+};
 
 pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 	connection.pragma_update(None, "auto_vaccum", "incremental")?;

@@ -1,6 +1,8 @@
-use crate as tg;
-use tangram_http::{Body, response::Ext as _};
-use tokio::io::AsyncRead;
+use {
+	crate as tg,
+	tangram_http::{Body, response::Ext as _},
+	tokio::io::AsyncRead,
+};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {

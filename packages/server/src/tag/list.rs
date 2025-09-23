@@ -1,7 +1,9 @@
-use crate::{Database, Server};
-use futures::{TryStreamExt, stream::FuturesUnordered};
-use tangram_client as tg;
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use {
+	crate::{Database, Server},
+	futures::{TryStreamExt, stream::FuturesUnordered},
+	tangram_client as tg,
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+};
 
 #[cfg(feature = "postgres")]
 mod postgres;

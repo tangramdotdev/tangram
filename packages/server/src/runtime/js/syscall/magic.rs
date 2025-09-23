@@ -1,7 +1,9 @@
-use crate::runtime::js::State;
-use std::rc::Rc;
-use tangram_client as tg;
-use tangram_v8::{Serde, Serialize as _};
+use {
+	crate::runtime::js::State,
+	std::rc::Rc,
+	tangram_client as tg,
+	tangram_v8::{Serde, Serialize as _},
+};
 
 pub fn magic<'s>(
 	scope: &mut v8::HandleScope<'s>,

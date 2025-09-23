@@ -1,10 +1,12 @@
-use super::SOURCE_MAP;
-use itertools::Itertools as _;
-use num::ToPrimitive as _;
-use sourcemap::SourceMap;
-use std::collections::BTreeMap;
-use tangram_client as tg;
-use tangram_v8::{Deserialize as _, Serde, Serialize as _};
+use {
+	super::SOURCE_MAP,
+	itertools::Itertools as _,
+	num::ToPrimitive as _,
+	sourcemap::SourceMap,
+	std::collections::BTreeMap,
+	tangram_client as tg,
+	tangram_v8::{Deserialize as _, Serde, Serialize as _},
+};
 
 pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,

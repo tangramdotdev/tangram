@@ -1,12 +1,14 @@
-use futures::{StreamExt as _, TryStreamExt as _, stream};
-use std::{
-	borrow::Cow,
-	collections::BTreeMap,
-	os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
-	path::Path,
+use {
+	futures::{StreamExt as _, TryStreamExt as _, stream},
+	std::{
+		borrow::Cow,
+		collections::BTreeMap,
+		os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
+		path::Path,
+	},
+	tangram_client as tg,
+	tokio::io::AsyncWriteExt as _,
 };
-use tangram_client as tg;
-use tokio::io::AsyncWriteExt as _;
 
 #[derive(
 	Clone,

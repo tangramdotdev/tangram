@@ -1,6 +1,8 @@
-use crate::Server;
-use tangram_client as tg;
-use tangram_http::{Body, response::builder::Ext as _};
+use {
+	crate::Server,
+	tangram_client as tg,
+	tangram_http::{Body, response::builder::Ext as _},
+};
 
 impl Server {
 	pub async fn try_get_tag(

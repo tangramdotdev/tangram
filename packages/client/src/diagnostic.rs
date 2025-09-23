@@ -1,5 +1,4 @@
-use crate as tg;
-use lsp_types as lsp;
+use {crate as tg, lsp_types as lsp};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Diagnostic {

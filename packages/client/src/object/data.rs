@@ -1,7 +1,4 @@
-use super::Kind;
-use crate as tg;
-use bytes::Bytes;
-use std::collections::BTreeSet;
+use {super::Kind, crate as tg, bytes::Bytes, std::collections::BTreeSet};
 
 #[derive(
 	Clone,

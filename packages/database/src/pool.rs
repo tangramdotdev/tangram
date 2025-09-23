@@ -1,8 +1,10 @@
-use futures::{FutureExt as _, future};
-use std::{
-	collections::BinaryHeap,
-	ops::{Deref, DerefMut},
-	sync::{Arc, Mutex},
+use {
+	futures::{FutureExt as _, future},
+	std::{
+		collections::BinaryHeap,
+		ops::{Deref, DerefMut},
+		sync::{Arc, Mutex},
+	},
 };
 
 pub struct Pool<T> {

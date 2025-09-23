@@ -1,27 +1,29 @@
-use self::sys::{
-	fuse_attr, fuse_attr_out, fuse_batch_forget_in, fuse_dirent, fuse_direntplus, fuse_entry_out,
-	fuse_flush_in, fuse_forget_in, fuse_getattr_in, fuse_getxattr_in, fuse_getxattr_out,
-	fuse_in_header, fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header,
-	fuse_read_in, fuse_release_in,
-};
-use crate::{FileType, Provider, Result};
-use futures::{FutureExt as _, future};
-use num::ToPrimitive as _;
-use std::{
-	ffi::CString,
-	io::Error,
-	ops::Deref,
-	os::{
-		fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
-		unix::ffi::OsStrExt as _,
+use {
+	self::sys::{
+		fuse_attr, fuse_attr_out, fuse_batch_forget_in, fuse_dirent, fuse_direntplus,
+		fuse_entry_out, fuse_flush_in, fuse_forget_in, fuse_getattr_in, fuse_getxattr_in,
+		fuse_getxattr_out, fuse_in_header, fuse_init_in, fuse_init_out, fuse_open_in,
+		fuse_open_out, fuse_out_header, fuse_read_in, fuse_release_in,
 	},
-	path::Path,
-	pin::pin,
-	sync::{Arc, Mutex},
+	crate::{FileType, Provider, Result},
+	futures::{FutureExt as _, future},
+	num::ToPrimitive as _,
+	std::{
+		ffi::CString,
+		io::Error,
+		ops::Deref,
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
+			unix::ffi::OsStrExt as _,
+		},
+		path::Path,
+		pin::pin,
+		sync::{Arc, Mutex},
+	},
+	sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in},
+	tangram_futures::task::{Stop, Task},
+	zerocopy::{FromBytes as _, IntoBytes as _},
 };
-use sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in};
-use tangram_futures::task::{Stop, Task};
-use zerocopy::{FromBytes as _, IntoBytes as _};
 
 pub mod sys;
 

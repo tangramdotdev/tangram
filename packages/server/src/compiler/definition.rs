@@ -1,7 +1,8 @@
-use super::Compiler;
-use futures::{TryStreamExt as _, stream::FuturesOrdered};
-use lsp_types as lsp;
-use tangram_client as tg;
+use {
+	super::Compiler,
+	futures::{TryStreamExt as _, stream::FuturesOrdered},
+	lsp_types as lsp, tangram_client as tg,
+};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

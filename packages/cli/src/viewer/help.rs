@@ -1,5 +1,7 @@
-use crossterm as ct;
-use ratatui::{self as tui, style::Stylize as _, widgets::Widget as _};
+use {
+	crossterm as ct,
+	ratatui::{self as tui, style::Stylize as _, widgets::Widget as _},
+};
 
 pub struct Help;
 

@@ -1,6 +1,8 @@
-use super::Context;
-use crate::abort_errno;
-use std::{ffi::CString, mem::MaybeUninit, os::fd::AsRawFd};
+use {
+	super::Context,
+	crate::abort_errno,
+	std::{ffi::CString, mem::MaybeUninit, os::fd::AsRawFd},
+};
 
 pub fn main(mut context: Context) -> ! {
 	unsafe {

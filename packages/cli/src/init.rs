@@ -1,7 +1,4 @@
-use crate::Cli;
-use indoc::formatdoc;
-use std::path::PathBuf;
-use tangram_client as tg;
+use {crate::Cli, indoc::formatdoc, std::path::PathBuf, tangram_client as tg};
 
 /// Initialize a package.
 #[derive(Clone, Debug, clap::Args)]

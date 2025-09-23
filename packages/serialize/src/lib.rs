@@ -1,10 +1,12 @@
 use std::io::{Read, Result, Write};
 
-pub use self::{
-	deserialize::Deserialize, deserializer::Deserializer, kind::Kind, serialize::Serialize,
-	serializer::Serializer, value::Value,
+pub use {
+	self::{
+		deserialize::Deserialize, deserializer::Deserializer, kind::Kind, serialize::Serialize,
+		serializer::Serializer, value::Value,
+	},
+	tangram_serialize_macro::{Deserialize, Serialize},
 };
-pub use tangram_serialize_macro::{Deserialize, Serialize};
 
 pub mod deserialize;
 pub mod deserializer;

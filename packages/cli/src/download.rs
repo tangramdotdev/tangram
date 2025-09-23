@@ -1,6 +1,4 @@
-use crate::Cli;
-use tangram_client as tg;
-use url::Url;
+use {crate::Cli, tangram_client as tg, url::Url};
 
 /// Download a blob or an artifact.
 #[derive(Clone, Debug, clap::Args)]

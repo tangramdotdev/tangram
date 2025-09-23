@@ -1,19 +1,21 @@
-use crate::Server;
-use futures::{
-	Stream, StreamExt as _, future,
-	stream::{FuturesUnordered, TryStreamExt as _},
+use {
+	crate::Server,
+	futures::{
+		Stream, StreamExt as _, future,
+		stream::{FuturesUnordered, TryStreamExt as _},
+	},
+	indoc::formatdoc,
+	num::ToPrimitive as _,
+	std::{
+		os::fd::{AsRawFd, RawFd},
+		pin::pin,
+	},
+	tangram_client::{self as tg, handle::Process},
+	tangram_database::{self as db, Database, Query},
+	tangram_futures::{stream::Ext as _, task::Stop},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tokio::io::unix::AsyncFd,
 };
-use indoc::formatdoc;
-use num::ToPrimitive as _;
-use std::{
-	os::fd::{AsRawFd, RawFd},
-	pin::pin,
-};
-use tangram_client::{self as tg, handle::Process};
-use tangram_database::{self as db, Database, Query};
-use tangram_futures::{stream::Ext as _, task::Stop};
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
-use tokio::io::unix::AsyncFd;
 
 impl Server {
 	pub async fn write_pty(

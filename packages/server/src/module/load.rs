@@ -1,6 +1,4 @@
-use crate::Server;
-use include_dir::include_dir;
-use tangram_client as tg;
+use {crate::Server, include_dir::include_dir, tangram_client as tg};
 
 pub const LIBRARY: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 

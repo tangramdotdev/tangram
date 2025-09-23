@@ -1,6 +1,8 @@
-use crate::Server;
-use tangram_client as tg;
-use tangram_http::{Body, request::Ext as _, response::builder::Ext as _};
+use {
+	crate::Server,
+	tangram_client as tg,
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+};
 
 impl Server {
 	pub async fn close_pipe(

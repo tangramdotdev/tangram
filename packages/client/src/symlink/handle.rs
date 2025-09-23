@@ -1,6 +1,8 @@
-use super::{Data, Id, Object};
-use crate as tg;
-use std::{path::PathBuf, sync::Arc};
+use {
+	super::{Data, Id, Object},
+	crate as tg,
+	std::{path::PathBuf, sync::Arc},
+};
 
 #[derive(Clone, Debug)]
 pub struct Symlink {

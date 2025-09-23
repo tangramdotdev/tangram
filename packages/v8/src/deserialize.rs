@@ -1,8 +1,10 @@
-use bytes::Bytes;
-use num::ToPrimitive as _;
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
-use tangram_client as tg;
-use tangram_either::Either;
+use {
+	bytes::Bytes,
+	num::ToPrimitive as _,
+	std::{collections::BTreeMap, path::PathBuf, sync::Arc},
+	tangram_client as tg,
+	tangram_either::Either,
+};
 
 pub trait Deserialize<'a>: 'a + Sized {
 	fn deserialize(

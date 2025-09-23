@@ -1,7 +1,9 @@
-use crate::attach::Attach;
-use futures::Future;
-use std::pin::Pin;
-use tokio::io::{AsyncRead, AsyncReadExt as _};
+use {
+	crate::attach::Attach,
+	futures::Future,
+	std::pin::Pin,
+	tokio::io::{AsyncRead, AsyncReadExt as _},
+};
 
 pub mod shared_position_reader;
 

@@ -1,6 +1,8 @@
-use super::{Builder, Data, Id, Object};
-use crate::{self as tg, util::arc::Ext as _};
-use std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc};
+use {
+	super::{Builder, Data, Id, Object},
+	crate::{self as tg, util::arc::Ext as _},
+	std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc},
+};
 
 #[derive(Clone, Debug)]
 pub struct Command {

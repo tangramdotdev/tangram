@@ -1,6 +1,4 @@
-use super::Data;
-use crate as tg;
-use std::path::PathBuf;
+use {super::Data, crate as tg, std::path::PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct Command {

@@ -1,6 +1,8 @@
-use crate as tg;
-use bytes::Bytes;
-use tangram_http::{request::builder::Ext as _, response::Ext as _};
+use {
+	crate as tg,
+	bytes::Bytes,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+};
 
 #[derive(Clone, Debug)]
 pub struct Output {

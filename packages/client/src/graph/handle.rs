@@ -1,6 +1,8 @@
-use super::{Data, Id, Object};
-use crate as tg;
-use std::sync::Arc;
+use {
+	super::{Data, Id, Object},
+	crate as tg,
+	std::sync::Arc,
+};
 
 #[derive(Clone, Debug)]
 pub struct Graph {

@@ -1,8 +1,10 @@
-use super::{Count, InnerOutput, Server};
-use bytes::Bytes;
-use indoc::{formatdoc, indoc};
-use tangram_client as tg;
-use tangram_database::{self as db, prelude::*};
+use {
+	super::{Count, InnerOutput, Server},
+	bytes::Bytes,
+	indoc::{formatdoc, indoc},
+	tangram_client as tg,
+	tangram_database::{self as db, prelude::*},
+};
 
 impl Server {
 	pub(super) async fn clean_count_items_sqlite(

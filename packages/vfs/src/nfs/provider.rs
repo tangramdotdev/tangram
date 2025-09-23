@@ -1,12 +1,14 @@
-use crate::Attrs;
-use bytes::Bytes;
-use dashmap::DashMap;
-use num::ToPrimitive as _;
-use std::{
-	io::{Error, Result},
-	sync::atomic::{AtomicU64, Ordering},
+use {
+	crate::Attrs,
+	bytes::Bytes,
+	dashmap::DashMap,
+	num::ToPrimitive as _,
+	std::{
+		io::{Error, Result},
+		sync::atomic::{AtomicU64, Ordering},
+	},
+	tangram_either::Either,
 };
-use tangram_either::Either;
 
 pub(super) struct Provider<P> {
 	inner: P,

@@ -1,7 +1,9 @@
-use super::Ignorer;
-use indoc::indoc;
-use pretty_assertions::assert_eq;
-use tangram_temp::{self as temp, Temp};
+use {
+	super::Ignorer,
+	indoc::indoc,
+	pretty_assertions::assert_eq,
+	tangram_temp::{self as temp, Temp},
+};
 
 #[tokio::test]
 async fn test() {

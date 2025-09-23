@@ -1,6 +1,8 @@
-use crate::Cli;
-use tangram_client::{self as tg, prelude::*};
-use url::Url;
+use {
+	crate::Cli,
+	tangram_client::{self as tg, prelude::*},
+	url::Url,
+};
 
 /// Put a remote.
 #[derive(Clone, Debug, clap::Args)]

@@ -1,5 +1,4 @@
-use crate as tg;
-use std::collections::BTreeMap;
+use {crate as tg, std::collections::BTreeMap};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Import {

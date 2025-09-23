@@ -1,8 +1,10 @@
-use crate as tg;
-use futures::{TryFutureExt as _, future};
-use http_body_util::BodyExt as _;
-use tangram_http::request::builder::Ext as _;
-use tokio::io::{AsyncBufRead, AsyncWrite};
+use {
+	crate as tg,
+	futures::{TryFutureExt as _, future},
+	http_body_util::BodyExt as _,
+	tangram_http::request::builder::Ext as _,
+	tokio::io::{AsyncBufRead, AsyncWrite},
+};
 
 impl tg::Client {
 	pub async fn lsp(

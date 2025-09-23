@@ -1,10 +1,12 @@
-use crate::{Server, database::Database};
-use futures::{
-	FutureExt as _, StreamExt as _, TryStreamExt as _, future,
-	stream::{self, FuturesUnordered},
+use {
+	crate::{Server, database::Database},
+	futures::{
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
+		stream::{self, FuturesUnordered},
+	},
+	tangram_client::{self as tg, prelude::*},
+	tangram_http::{Body, response::builder::Ext as _},
 };
-use tangram_client::{self as tg, prelude::*};
-use tangram_http::{Body, response::builder::Ext as _};
 
 #[cfg(feature = "postgres")]
 mod postgres;

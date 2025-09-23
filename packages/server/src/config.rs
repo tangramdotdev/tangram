@@ -1,5 +1,7 @@
-use std::{collections::HashMap, path::PathBuf, time::Duration};
-use url::Url;
+use {
+	std::{collections::HashMap, path::PathBuf, time::Duration},
+	url::Url,
+};
 
 #[derive(Clone, Debug)]
 pub struct Config {

@@ -1,8 +1,10 @@
-use super::{CacheReference, DeleteArg, PutArg};
-use bytes::Bytes;
-use dashmap::DashMap;
-use num::ToPrimitive as _;
-use tangram_client as tg;
+use {
+	super::{CacheReference, DeleteArg, PutArg},
+	bytes::Bytes,
+	dashmap::DashMap,
+	num::ToPrimitive as _,
+	tangram_client as tg,
+};
 
 pub struct Memory(DashMap<tg::object::Id, Entry, fnv::FnvBuildHasher>);
 

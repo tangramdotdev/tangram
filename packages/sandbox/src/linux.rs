@@ -1,12 +1,14 @@
-use crate::{
-	Command,
-	common::{CStringVec, cstring, envstring},
-};
-use bytes::Bytes;
-use num::ToPrimitive as _;
-use std::{
-	ffi::{CString, OsStr},
-	io::Write,
+use {
+	crate::{
+		Command,
+		common::{CStringVec, cstring, envstring},
+	},
+	bytes::Bytes,
+	num::ToPrimitive as _,
+	std::{
+		ffi::{CString, OsStr},
+		io::Write,
+	},
 };
 
 mod guest;

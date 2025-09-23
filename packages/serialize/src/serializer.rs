@@ -1,7 +1,9 @@
-use crate::{Kind, Serialize};
-use byteorder::{LittleEndian, WriteBytesExt as _};
-use num::ToPrimitive as _;
-use std::io::{Error, Result, Write};
+use {
+	crate::{Kind, Serialize},
+	byteorder::{LittleEndian, WriteBytesExt as _},
+	num::ToPrimitive as _,
+	std::io::{Error, Result, Write},
+};
 
 pub struct Serializer<W>(W)
 where

@@ -1,5 +1,7 @@
-use crate::Error;
-use futures::{FutureExt as _, future::BoxFuture};
+use {
+	crate::Error,
+	futures::{FutureExt as _, future::BoxFuture},
+};
 
 #[derive(Default)]
 pub struct Acker {

@@ -1,6 +1,8 @@
-use super::Data;
-use crate as tg;
-use std::{collections::BTreeMap, path::PathBuf};
+use {
+	super::Data,
+	crate as tg,
+	std::{collections::BTreeMap, path::PathBuf},
+};
 
 #[derive(Clone, Debug)]
 pub struct Graph {

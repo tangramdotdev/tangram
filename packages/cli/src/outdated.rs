@@ -1,5 +1,4 @@
-use crate::Cli;
-use tangram_client as tg;
+use {crate::Cli, tangram_client as tg};
 
 /// Get a package's outdated dependencies.
 #[derive(Clone, Debug, clap::Args)]

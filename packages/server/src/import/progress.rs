@@ -1,10 +1,12 @@
-use futures::{Stream, StreamExt as _};
-use std::{
-	sync::{Arc, atomic::AtomicU64},
-	time::Duration,
+use {
+	futures::{Stream, StreamExt as _},
+	std::{
+		sync::{Arc, atomic::AtomicU64},
+		time::Duration,
+	},
+	tangram_client as tg,
+	tokio_stream::wrappers::IntervalStream,
 };
-use tangram_client as tg;
-use tokio_stream::wrappers::IntervalStream;
 
 #[derive(Debug)]
 pub struct Progress {

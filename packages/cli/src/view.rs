@@ -1,7 +1,4 @@
-use crate::Cli;
-use tangram_client as tg;
-use tangram_either::Either;
-use tangram_futures::task::Task;
+use {crate::Cli, tangram_client as tg, tangram_either::Either, tangram_futures::task::Task};
 
 /// View a process or an object.
 #[derive(Clone, Debug, clap::Args)]

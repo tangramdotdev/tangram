@@ -1,7 +1,9 @@
-use super::Kind;
-use crate as tg;
-use std::{collections::BTreeSet, path::PathBuf};
-use tangram_uri::Uri;
+use {
+	super::Kind,
+	crate as tg,
+	std::{collections::BTreeSet, path::PathBuf},
+	tangram_uri::Uri,
+};
 
 #[derive(
 	Clone,

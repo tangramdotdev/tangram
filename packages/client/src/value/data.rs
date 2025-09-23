@@ -1,8 +1,11 @@
-use crate as tg;
-use byteorder::ReadBytesExt as _;
-use bytes::Bytes;
-use num::ToPrimitive as _;
-use std::collections::{BTreeMap, BTreeSet};
+use {
+	crate as tg,
+	byteorder::ReadBytesExt as _,
+	bytes::Bytes,
+	num::ToPrimitive as _,
+	serde::ser::{SerializeMap, SerializeSeq},
+	std::collections::{BTreeMap, BTreeSet},
+};
 
 /// Value data.
 #[derive(
@@ -112,7 +115,6 @@ impl serde::Serialize for Data {
 	where
 		S: serde::Serializer,
 	{
-		use serde::ser::{SerializeMap, SerializeSeq};
 		match self {
 			Self::Null => serializer.serialize_unit(),
 			Self::Bool(value) => serializer.serialize_bool(*value),

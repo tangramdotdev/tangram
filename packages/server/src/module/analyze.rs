@@ -1,11 +1,12 @@
-use crate::Server;
-use std::{
-	collections::{BTreeMap, HashSet},
-	rc::Rc,
+use {
+	crate::Server,
+	std::{
+		collections::{BTreeMap, HashSet},
+		rc::Rc,
+	},
+	swc::ecma::{ast, visit::VisitWith},
+	swc_core as swc, tangram_client as tg,
 };
-use swc::ecma::{ast, visit::VisitWith};
-use swc_core as swc;
-use tangram_client as tg;
 
 #[derive(Clone, Debug)]
 pub struct Analysis {

@@ -1,6 +1,8 @@
-use futures::Future;
-use std::pin::Pin;
-use tokio::io::{AsyncWrite, AsyncWriteExt as _};
+use {
+	futures::Future,
+	std::pin::Pin,
+	tokio::io::{AsyncWrite, AsyncWriteExt as _},
+};
 
 pub type Boxed<'a> = Pin<Box<dyn AsyncWrite + Send + 'a>>;
 

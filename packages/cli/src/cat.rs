@@ -1,8 +1,7 @@
-use crate::Cli;
-use std::pin::pin;
-use tangram_client as tg;
-use tangram_either::Either;
-use tokio::io::AsyncWriteExt as _;
+use {
+	crate::Cli, std::pin::pin, tangram_client as tg, tangram_either::Either,
+	tokio::io::AsyncWriteExt as _,
+};
 
 /// Concatenate blobs and artifacts.
 #[derive(Clone, Debug, clap::Args)]

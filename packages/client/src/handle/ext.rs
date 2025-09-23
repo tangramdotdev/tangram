@@ -1,14 +1,16 @@
-use crate as tg;
-use futures::{
-	FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
-	stream::{self, BoxStream},
+use {
+	crate as tg,
+	futures::{
+		FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
+		stream::{self, BoxStream},
+	},
+	num::ToPrimitive as _,
+	std::{
+		io::SeekFrom,
+		sync::{Arc, Mutex},
+	},
+	tangram_either::Either,
 };
-use num::ToPrimitive as _;
-use std::{
-	io::SeekFrom,
-	sync::{Arc, Mutex},
-};
-use tangram_either::Either;
 
 pub trait Ext: tg::Handle {
 	fn read_blob(

@@ -1,7 +1,4 @@
-use provider::Provider;
-use std::path::Path;
-use tangram_client as tg;
-use tangram_vfs as vfs;
+use {provider::Provider, std::path::Path, tangram_client as tg, tangram_vfs as vfs};
 
 mod provider;
 

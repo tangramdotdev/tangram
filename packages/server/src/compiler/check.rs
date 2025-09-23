@@ -1,5 +1,4 @@
-use super::Compiler;
-use tangram_client as tg;
+use {super::Compiler, tangram_client as tg};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

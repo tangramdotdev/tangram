@@ -1,8 +1,10 @@
-use crate as tg;
-use futures::{FutureExt as _, Stream, TryFutureExt as _};
-use std::pin::Pin;
-use tangram_either::Either;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use {
+	crate as tg,
+	futures::{FutureExt as _, Stream, TryFutureExt as _},
+	std::pin::Pin,
+	tangram_either::Either,
+	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
+};
 
 impl<L, R> tg::Handle for Either<L, R>
 where

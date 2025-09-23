@@ -1,16 +1,18 @@
-use crate::{Cli, viewer::clip};
-use crossterm::{self as ct, style::Stylize as _};
-use futures::{FutureExt as _, Stream, StreamExt as _, future};
-use indexmap::IndexMap;
-use num::ToPrimitive as _;
-use std::{
-	fmt::Write as _,
-	io::{IsTerminal as _, Write as _},
-	pin::pin,
-	time::Duration,
+use {
+	crate::{Cli, viewer::clip},
+	crossterm::{self as ct, style::Stylize as _},
+	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	indexmap::IndexMap,
+	num::ToPrimitive as _,
+	std::{
+		fmt::Write as _,
+		io::{IsTerminal as _, Write as _},
+		pin::pin,
+		time::Duration,
+	},
+	tangram_client as tg,
+	tangram_futures::stream::TryExt as _,
 };
-use tangram_client as tg;
-use tangram_futures::stream::TryExt as _;
 
 struct State<T> {
 	indicators: IndexMap<String, tg::progress::Indicator>,

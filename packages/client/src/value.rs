@@ -1,14 +1,18 @@
-use self::{parse::parse, print::Printer};
-use crate as tg;
-use bytes::Bytes;
-use futures::{StreamExt as _, stream};
-use num::ToPrimitive as _;
-use std::collections::VecDeque;
-use std::{collections::BTreeMap, pin::pin, sync::Arc};
-use tangram_either::Either;
-use tangram_futures::stream::TryExt as _;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
+use {
+	self::{parse::parse, print::Printer},
+	crate as tg,
+	bytes::Bytes,
+	futures::{StreamExt as _, stream},
+	num::ToPrimitive as _,
+	std::{
+		collections::{BTreeMap, VecDeque},
+		pin::pin,
+		sync::Arc,
+	},
+	tangram_either::Either,
+	tangram_futures::stream::TryExt as _,
+	tokio::{sync::Semaphore, task::JoinSet},
+};
 
 pub use self::data::*;
 

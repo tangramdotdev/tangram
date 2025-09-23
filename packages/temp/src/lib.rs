@@ -1,9 +1,11 @@
-use futures::TryFutureExt as _;
-use rand::{Rng as _, distr::Alphanumeric};
-use std::{
-	ops::Deref,
-	path::{Path, PathBuf},
-	sync::atomic::AtomicBool,
+use {
+	futures::TryFutureExt as _,
+	rand::{Rng as _, distr::Alphanumeric},
+	std::{
+		ops::Deref,
+		path::{Path, PathBuf},
+		sync::atomic::AtomicBool,
+	},
 };
 
 pub use self::artifact::{Artifact, Directory, File, Symlink};

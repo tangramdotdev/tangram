@@ -1,7 +1,9 @@
-use bytes::Bytes;
-use num::ToPrimitive as _;
-use pin_project::pin_project;
-use std::{io::Write as _, pin::Pin, task::Poll};
+use {
+	bytes::Bytes,
+	num::ToPrimitive as _,
+	pin_project::pin_project,
+	std::{io::Write as _, pin::Pin, task::Poll},
+};
 
 #[pin_project]
 pub struct Compression<B> {

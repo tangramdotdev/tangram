@@ -1,7 +1,9 @@
-use crate::Cli;
-use crossterm::style::Stylize as _;
-use futures::future;
-use tangram_client::{self as tg, prelude::*};
+use {
+	crate::Cli,
+	crossterm::style::Stylize as _,
+	futures::future,
+	tangram_client::{self as tg, prelude::*},
+};
 
 /// Push processes and objects.
 #[derive(Clone, Debug, clap::Args)]

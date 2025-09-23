@@ -1,7 +1,9 @@
-use crate::Cli;
-use futures::TryStreamExt as _;
-use std::pin::pin;
-use tangram_client::{self as tg, prelude::*};
+use {
+	crate::Cli,
+	futures::TryStreamExt as _,
+	std::pin::pin,
+	tangram_client::{self as tg, prelude::*},
+};
 
 /// Get a process's children.
 #[derive(Clone, Debug, clap::Args)]

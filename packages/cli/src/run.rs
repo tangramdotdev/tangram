@@ -1,12 +1,14 @@
-use self::signal::handle_signals;
-use crate::Cli;
-use anstream::eprintln;
-use crossterm::style::Stylize as _;
-use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream};
-use std::{path::PathBuf, pin::pin};
-use tangram_client::{self as tg, prelude::*};
-use tangram_futures::task::{Stop, Task};
-use tokio::io::{AsyncWrite, AsyncWriteExt as _};
+use {
+	self::signal::handle_signals,
+	crate::Cli,
+	anstream::eprintln,
+	crossterm::style::Stylize as _,
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream},
+	std::{path::PathBuf, pin::pin},
+	tangram_client::{self as tg, prelude::*},
+	tangram_futures::task::{Stop, Task},
+	tokio::io::{AsyncWrite, AsyncWriteExt as _},
+};
 
 mod signal;
 mod stdio;

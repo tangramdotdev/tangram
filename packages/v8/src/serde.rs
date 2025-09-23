@@ -1,7 +1,9 @@
-use self::{deserializer::Deserializer, serializer::Serializer};
-use crate::{Deserialize, Serialize};
-use std::ops::Deref;
-use tangram_client as tg;
+use {
+	self::{deserializer::Deserializer, serializer::Serializer},
+	crate::{Deserialize, Serialize},
+	std::ops::Deref,
+	tangram_client as tg,
+};
 
 mod deserializer;
 mod serializer;

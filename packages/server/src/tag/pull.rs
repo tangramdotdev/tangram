@@ -1,7 +1,9 @@
-use crate::Server;
-use futures::{TryStreamExt as _, stream::FuturesUnordered};
-use tangram_client as tg;
-use tangram_either::Either;
+use {
+	crate::Server,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	tangram_client as tg,
+	tangram_either::Either,
+};
 
 impl Server {
 	pub(crate) async fn pull_tag(

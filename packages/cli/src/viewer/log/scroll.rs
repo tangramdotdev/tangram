@@ -1,8 +1,10 @@
-use num::ToPrimitive as _;
-use ratatui as tui;
-use tangram_client::{self as tg, process::log::get::Chunk};
-use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
-use unicode_width::UnicodeWidthStr;
+use {
+	num::ToPrimitive as _,
+	ratatui as tui,
+	tangram_client::{self as tg, process::log::get::Chunk},
+	unicode_segmentation::{GraphemeCursor, GraphemeIncomplete},
+	unicode_width::UnicodeWidthStr,
+};
 
 /// Represents the current state of log's scroll, between some `start` and `end` positions.
 #[derive(Clone, Debug)]
@@ -479,10 +481,12 @@ impl GraphemeParserState<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-	use super::{Error, Scroll, next_grapheme, scroll_down_inner, scroll_up_inner};
-	use num::ToPrimitive as _;
-	use ratatui::layout::Rect;
-	use tangram_client as tg;
+	use {
+		super::{Error, Scroll, next_grapheme, scroll_down_inner, scroll_up_inner},
+		num::ToPrimitive as _,
+		ratatui::layout::Rect,
+		tangram_client as tg,
+	};
 
 	#[test]
 	fn scroll_up_and_down() {

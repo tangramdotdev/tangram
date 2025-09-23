@@ -1,7 +1,9 @@
-use crate::{Body, Error};
-use bytes::Bytes;
-use futures::Stream;
-use tokio::io::AsyncRead;
+use {
+	crate::{Body, Error},
+	bytes::Bytes,
+	futures::Stream,
+	tokio::io::AsyncRead,
+};
 
 pub trait Ext: Sized {
 	#[must_use]

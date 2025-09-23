@@ -1,5 +1,4 @@
-use super::Runtime;
-use tangram_client as tg;
+use {super::Runtime, tangram_client as tg};
 
 impl Runtime {
 	pub async fn checksum(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
