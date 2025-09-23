@@ -1,9 +1,10 @@
+#[cfg(target_os = "macos")]
+use num::ToPrimitive as _;
 use {
 	bytes::Bytes,
-	num::ToPrimitive as _,
 	std::{ffi::OsString, path::PathBuf},
 };
-#[cfg(target_os = "macos")]
+
 mod common;
 #[cfg(target_os = "macos")]
 mod darwin;
