@@ -4,6 +4,7 @@ use crossterm::{style::Stylize as _, tty::IsTty as _};
 use futures::FutureExt as _;
 use num::ToPrimitive as _;
 use std::{
+	os::unix::process::CommandExt as _,
 	path::{Path, PathBuf},
 	time::Duration,
 };
@@ -1003,12 +1004,24 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 
 		// Spawn the server.
-		tokio::process::Command::new(executable)
+		let mut command = std::process::Command::new(executable);
+		command
 			.args(["serve"])
 			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
-			.stderr(stderr)
+			.stderr(stderr);
+		unsafe {
+			command.pre_exec(|| {
+				let id = libc::setsid();
+				if id < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
+				Ok(())
+			});
+		}
+
+		command
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
 

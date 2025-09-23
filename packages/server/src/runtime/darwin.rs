@@ -5,7 +5,10 @@ use {
 	},
 	crate::{Server, temp::Temp},
 	num::ToPrimitive as _,
-	std::{os::unix::process::ExitStatusExt as _, path::Path},
+	std::{
+		os::{fd::AsRawFd as _, unix::process::ExitStatusExt as _},
+		path::Path,
+	},
 	tangram_client as tg,
 	tangram_futures::task::Task,
 	url::Url,
@@ -74,9 +77,12 @@ impl Runtime {
 		// Create the output path.
 		let output_path = root.path().join("output");
 
-		// Create the command.
-		let mut cmd = tokio::process::Command::new(sandbox.executable);
-		cmd.args(sandbox.args);
+		// Render the args.
+		let args: Vec<String> = command
+			.args
+			.iter()
+			.map(|value| render_value(&artifacts_path, value))
+			.collect();
 
 		// Create the working directory.
 		let cwd = command
@@ -86,7 +92,26 @@ impl Runtime {
 		tokio::fs::create_dir_all(&cwd)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
-		cmd.arg("-C").arg(&cwd);
+
+		// Render the env.
+		let mut env = render_env(&artifacts_path, &command.env)?;
+
+		// Render the executable.
+		let executable = match command.executable {
+			tg::command::data::Executable::Artifact(executable) => {
+				let mut path = artifacts_path.join(executable.artifact.to_string());
+				if let Some(executable_path) = executable.path {
+					path.push(executable_path);
+				}
+				path
+			},
+			tg::command::data::Executable::Module(_) => {
+				return Err(tg::error!("invalid executable"));
+			},
+			tg::command::data::Executable::Path(executable) => {
+				which(&executable.path, &env).await?
+			},
+		};
 
 		// Create the proxy.
 		let proxy = if root_mount {
@@ -116,43 +141,11 @@ impl Runtime {
 			Some((task, url))
 		};
 
-		// Render the args.
-		let args: Vec<String> = command
-			.args
-			.iter()
-			.map(|value| render_value(&artifacts_path, value))
-			.collect();
-
-		// Render the env.
-		let env = render_env(&artifacts_path, &command.env)?;
-		for (name, value) in &env {
-			cmd.arg("-e").arg(format!("{name}={value}"));
-		}
-
-		// Render the executable.
-		let executable = match command.executable {
-			tg::command::data::Executable::Artifact(executable) => {
-				let mut path = artifacts_path.join(executable.artifact.to_string());
-				if let Some(executable_path) = executable.path {
-					path.push(executable_path);
-				}
-				path
-			},
-			tg::command::data::Executable::Module(_) => {
-				return Err(tg::error!("invalid executable"));
-			},
-			tg::command::data::Executable::Path(executable) => {
-				which(&executable.path, &env).await?
-			},
-		};
-
 		// Set `$OUTPUT`.
-		cmd.arg("-e")
-			.arg(format!("OUTPUT={}", output_path.display()));
+		env.insert("OUTPUT".to_owned(), output_path.display().to_string());
 
 		// Set `$TANGRAM_PROCESS`.
-		cmd.arg("-e")
-			.arg(format!("TANGRAM_PROCESS={}", process.id()));
+		env.insert("TANGRAM_PROCESS".to_owned(), process.id().to_string());
 
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
@@ -163,25 +156,50 @@ impl Runtime {
 			},
 			|(_, url)| url.to_string(),
 		);
-		cmd.arg("-e").arg(format!("TANGRAM_URL={url}"));
+		env.insert("TANGRAM_URL".to_owned(), url);
 
-		// Create the mounts.
-		if !root_mount {
-			cmd.arg("--mount")
-				.arg(format!("source={}", root.path().display()))
-				.arg("--mount")
-				.arg(format!("source={},ro", artifacts_path.display()))
-				.arg("--mount")
-				.arg(format!("source={}", cwd.display()));
-		}
-		for mount in &state.mounts {
-			let mount = if mount.readonly {
-				format!("source={},ro", mount.source.display())
-			} else {
-				format!("source={}", mount.source.display())
-			};
-			cmd.arg("--mount").arg(mount);
-		}
+		// Determine if we're going to use the sandbox or not.
+		let use_sandbox = !(root_mount && state.network);
+
+		// Create the command.
+		let mut cmd = if use_sandbox {
+			// Create the command.
+			let mut cmd = tokio::process::Command::new(sandbox.executable);
+			cmd.args(sandbox.args);
+			cmd.arg("-C").arg(&cwd);
+			for (name, value) in &env {
+				cmd.arg("-e").arg(format!("{name}={value}"));
+			}
+			if !root_mount {
+				cmd.arg("--mount")
+					.arg(format!("source={}", root.path().display()))
+					.arg("--mount")
+					.arg(format!("source={},ro", artifacts_path.display()))
+					.arg("--mount")
+					.arg(format!("source={}", cwd.display()));
+			}
+			for mount in &state.mounts {
+				let mount = if mount.readonly {
+					format!("source={},ro", mount.source.display())
+				} else {
+					format!("source={}", mount.source.display())
+				};
+				cmd.arg("--mount").arg(mount);
+			}
+			if state.network {
+				cmd.arg("--network");
+			}
+			cmd.arg(executable)
+				.arg("--")
+				.args(args)
+				.current_dir("/")
+				.env_clear();
+			cmd
+		} else {
+			let mut cmd = tokio::process::Command::new(executable);
+			cmd.args(args).env_clear().envs(env).current_dir(cwd);
+			cmd
+		};
 
 		// Create the stdio.
 		match state.stdin.as_ref() {
@@ -194,7 +212,13 @@ impl Runtime {
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
+				let tty = self.server.get_pty_fd(pty, true)?;
 				cmd.stdin(fd);
+				unsafe {
+					cmd.pre_exec(move || {
+						crate::runtime::util::set_controlling_terminal(tty.as_raw_fd())
+					});
+				}
 			},
 			None => {
 				cmd.stdin(std::process::Stdio::null());
@@ -227,17 +251,8 @@ impl Runtime {
 			},
 		}
 
-		if state.network {
-			cmd.arg("--network");
-		}
-
 		// Spawn the process.
 		let mut child = cmd
-			.arg(executable)
-			.arg("--")
-			.args(args)
-			.current_dir("/")
-			.env_clear()
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the sandbox process"))?;
 
