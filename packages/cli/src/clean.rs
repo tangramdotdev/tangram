@@ -55,9 +55,9 @@ impl Cli {
 					{
 						let mode = perms.mode();
 						if metadata.is_dir() {
-							perms.set_mode(mode | 0o300);
+							perms.set_mode(mode | 0o700);
 						} else {
-							perms.set_mode(mode | 0o200);
+							perms.set_mode(mode | 0o600);
 						}
 					}
 					#[cfg(not(unix))]
