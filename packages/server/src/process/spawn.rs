@@ -136,9 +136,9 @@ impl Server {
 					let (id, token) = local.unwrap();
 					(id, token)
 				} else {
-					let output = remote_future
-						.await?
-						.ok_or_else(|| tg::error!("failed to find the process"))?;
+					let Some(output) = remote_future.await? else {
+						return Ok(None);
+					};
 					(output.process, output.token)
 				}
 			},
@@ -158,8 +158,9 @@ impl Server {
 					}
 					(output.process, output.token)
 				} else {
-					let (id, token) =
-						local.ok_or_else(|| tg::error!("failed to find the process"))?;
+					let Some((id, token)) = local else {
+						return Ok(None);
+					};
 					(id, token)
 				}
 			},
