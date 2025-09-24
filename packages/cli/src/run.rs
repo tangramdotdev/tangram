@@ -270,7 +270,7 @@ impl Cli {
 
 		// Print the output.
 		if !output.is_null() {
-			Self::print_output(
+			Self::print_value(
 				&handle,
 				&output,
 				options.print_depth,

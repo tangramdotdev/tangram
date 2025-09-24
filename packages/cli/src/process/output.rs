@@ -31,7 +31,7 @@ impl Cli {
 		let output = process.output(&handle).await?;
 
 		// Print the output.
-		Self::print_output(
+		Self::print_value(
 			&handle,
 			&output,
 			args.print_depth,

@@ -45,26 +45,28 @@ impl Cli {
 			output.bytes,
 		);
 
-		// If any reference has a tag, then put it.
-		future::try_join_all(
-			args.references
-				.iter()
-				.enumerate()
-				.map(async |(idx, reference)| {
-					if let tg::reference::Item::Tag(pattern) = reference.item() {
-						if let Ok(tag) = pattern.clone().try_into() {
-							let arg = tg::tag::put::Arg {
-								force: false,
-								item: items[idx].clone(),
-								remote: Some(remote.clone()),
-							};
-							handle.put_tag(&tag, arg).await?;
-						}
+		// Put tags.
+		future::try_join_all(std::iter::zip(&args.references, &items).map(
+			async |(reference, item)| {
+				if let tg::reference::Item::Tag(pattern) = reference.item() {
+					if let Ok(tag) = pattern.clone().try_into() {
+						let arg = tg::tag::put::Arg {
+							force: args.force,
+							item: item.clone(),
+							remote: None,
+						};
+						handle.put_tag(&tag, arg).await?;
 					}
-					Ok::<_, tg::Error>(())
-				}),
-		)
+				}
+				Ok::<_, tg::Error>(())
+			},
+		))
 		.await?;
+		for (reference, item) in std::iter::zip(&args.references, &items) {
+			if reference.item().is_tag() {
+				eprintln!("{} tagged {} {}", "info".blue().bold(), reference, item);
+			}
+		}
 
 		Ok(())
 	}

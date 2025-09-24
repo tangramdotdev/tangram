@@ -162,6 +162,11 @@ pub trait Object {
 }
 
 pub trait Process {
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send;
+
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
@@ -580,6 +585,13 @@ impl tg::handle::Object for tg::Client {
 }
 
 impl tg::handle::Process for tg::Client {
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send {
+		self.list_processes(arg)
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

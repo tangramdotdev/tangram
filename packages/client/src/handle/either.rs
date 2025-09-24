@@ -339,6 +339,16 @@ where
 	L: tg::handle::Process,
 	R: tg::handle::Process,
 {
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
+		match self {
+			Either::Left(s) => s.list_processes(arg).left_future(),
+			Either::Right(s) => s.list_processes(arg).right_future(),
+		}
+	}
+
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,

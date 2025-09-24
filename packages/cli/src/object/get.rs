@@ -64,7 +64,7 @@ impl Cli {
 			Format::Tgon => {
 				let object = tg::Object::with_id(args.object);
 				let value = tg::Value::from(object);
-				Cli::print_output(&handle, &value, args.print_depth, pretty, args.print_blobs)
+				Cli::print_value(&handle, &value, args.print_depth, pretty, args.print_blobs)
 					.await?;
 			},
 		}

@@ -236,6 +236,13 @@ impl tg::handle::Object for Server {
 }
 
 impl tg::handle::Process for Server {
+	fn list_processes(
+		&self,
+		arg: tg::process::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send {
+		self.list_processes(arg)
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -280,9 +287,9 @@ impl tg::handle::Process for Server {
 
 	fn cancel_process(
 		&self,
-		id: &tangram_client::process::Id,
-		arg: tangram_client::process::cancel::Arg,
-	) -> impl Future<Output = tangram_client::Result<()>> + Send {
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.cancel_process(id, arg)
 	}
 

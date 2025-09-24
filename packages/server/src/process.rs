@@ -12,6 +12,7 @@ pub(crate) mod dequeue;
 pub(crate) mod finish;
 pub(crate) mod get;
 pub(crate) mod heartbeat;
+pub(crate) mod list;
 pub(crate) mod log;
 pub(crate) mod metadata;
 pub(crate) mod put;

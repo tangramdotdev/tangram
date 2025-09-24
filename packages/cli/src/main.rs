@@ -207,6 +207,9 @@ enum Command {
 
 	Process(self::process::Args),
 
+	#[command(alias = "ps")]
+	Processes(self::process::list::Args),
+
 	Pull(self::pull::Args),
 
 	Push(self::push::Args),
@@ -1109,6 +1112,7 @@ impl Cli {
 			Command::Outdated(args) => self.command_outdated(args).boxed(),
 			Command::Output(args) => self.command_process_output(args).boxed(),
 			Command::Process(args) => self.command_process(args).boxed(),
+			Command::Processes(args) => self.command_process_list(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_put(args).boxed(),
@@ -1177,7 +1181,37 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn print_output<H>(
+	async fn print_json<T>(output: &T, pretty: Option<bool>) -> tg::Result<()>
+	where
+		T: serde::Serialize,
+	{
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+		let pretty = pretty.unwrap_or(stdout.get_ref().is_tty());
+		let json = if pretty {
+			serde_json::to_string_pretty(output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+		} else {
+			serde_json::to_string(output)
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+		};
+		stdout
+			.write_all(json.as_bytes())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+		if pretty {
+			stdout
+				.write_all(b"\n")
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+		}
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+		Ok(())
+	}
+
+	async fn print_value<H>(
 		handle: &H,
 		value: &tg::Value,
 		depth: crate::object::get::Depth,
@@ -1212,36 +1246,6 @@ impl Cli {
 			.write_all(output.as_bytes())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-		stdout
-			.flush()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
-		Ok(())
-	}
-
-	async fn print_json<T>(output: &T, pretty: Option<bool>) -> tg::Result<()>
-	where
-		T: serde::Serialize,
-	{
-		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let pretty = pretty.unwrap_or(stdout.get_ref().is_tty());
-		let json = if pretty {
-			serde_json::to_string_pretty(output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
-		} else {
-			serde_json::to_string(output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
-		};
-		stdout
-			.write_all(json.as_bytes())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-		if pretty {
-			stdout
-				.write_all(b"\n")
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
-		}
 		stdout
 			.flush()
 			.await

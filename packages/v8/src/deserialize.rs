@@ -17,7 +17,7 @@ impl<'a> Deserialize<'a> for v8::Local<'a, v8::Value> {
 	fn deserialize(
 		_scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
-	) -> tangram_client::Result<Self> {
+	) -> tg::Result<Self> {
 		Ok(value)
 	}
 }

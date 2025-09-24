@@ -19,6 +19,7 @@ pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod id;
+pub mod list;
 pub mod log;
 pub mod metadata;
 pub mod mount;

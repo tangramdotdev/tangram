@@ -471,7 +471,7 @@ where
 				if node.executable {
 					children.push(("executable".to_owned(), tg::Value::Bool(node.executable)));
 				}
-				let dependencies: BTreeMap<String, tangram_client::Value> = node
+				let dependencies: BTreeMap<String, tg::Value> = node
 					.dependencies
 					.clone()
 					.into_iter()

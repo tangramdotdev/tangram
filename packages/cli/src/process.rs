@@ -3,6 +3,7 @@ use {crate::Cli, tangram_client as tg};
 pub mod cancel;
 pub mod children;
 pub mod get;
+pub mod list;
 pub mod log;
 pub mod metadata;
 pub mod output;
@@ -25,6 +26,7 @@ pub enum Command {
 	Cancel(self::cancel::Args),
 	Children(self::children::Args),
 	Get(self::get::Args),
+	List(self::list::Args),
 	Log(self::log::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
@@ -47,6 +49,9 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_process_get(args).await?;
+			},
+			Command::List(args) => {
+				self.command_process_list(args).await?;
 			},
 			Command::Log(args) => {
 				self.command_process_log(args).await?;

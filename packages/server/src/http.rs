@@ -233,6 +233,9 @@ impl Server {
 			},
 
 			// Processes.
+			(http::Method::GET, ["processes"]) => {
+				Self::handle_list_processes_request(handle, request).boxed()
+			},
 			(http::Method::POST, ["processes", "spawn"]) => {
 				Self::handle_spawn_process_request(handle, request).boxed()
 			},
