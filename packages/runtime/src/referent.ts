@@ -10,6 +10,7 @@ export namespace Referent {
 		id?: tg.Object.Id | undefined;
 		path?: string | undefined;
 		tag?: tg.Tag | undefined;
+		name?: string | undefined;
 	};
 
 	export let toData = <T, U>(
@@ -120,6 +121,7 @@ export namespace Referent {
 			id?: tg.Object.Id;
 			path?: string;
 			tag?: tg.Tag;
+			name?: string;
 		};
 	}
 }

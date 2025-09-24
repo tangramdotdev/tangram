@@ -1220,6 +1220,8 @@ declare namespace tg {
 			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
 		): this;
 
+		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
 		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
@@ -1337,6 +1339,8 @@ declare namespace tg {
 				>
 			>
 		): this;
+
+		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
