@@ -69,6 +69,11 @@ impl Module {
 			let id = format!("id={id}");
 			query.push(id);
 		}
+		if let Some(name) = &self.referent.options.name {
+			let name = urlencoding::encode(name);
+			let name = format!("name={name}");
+			query.push(name);
+		}
 		if let Some(path) = &self.referent.options.path {
 			let path = path.to_string_lossy();
 			let path = urlencoding::encode(&path);
@@ -107,6 +112,13 @@ impl Module {
 									.into_owned()
 									.parse()
 									.map_err(|_| tg::error!("failed to parse the id"))?,
+							);
+						},
+						"name" => {
+							options.name.replace(
+								urlencoding::decode(value)
+									.map_err(|_| tg::error!("failed to decode the name"))?
+									.into_owned(),
 							);
 						},
 						"path" => {

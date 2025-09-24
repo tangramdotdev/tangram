@@ -46,16 +46,16 @@ pub struct Options {
 	pub id: Option<tg::object::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Tag>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
 }
 
 impl<T> Referent<T> {
@@ -82,16 +82,16 @@ impl<T> Referent<T> {
 		self.options.id.as_ref()
 	}
 
+	pub fn name(&self) -> Option<&String> {
+		self.options.name.as_ref()
+	}
+
 	pub fn path(&self) -> Option<&PathBuf> {
 		self.options.path.as_ref()
 	}
 
 	pub fn tag(&self) -> Option<&tg::Tag> {
 		self.options.tag.as_ref()
-	}
-
-	pub fn name(&self) -> Option<&String> {
-		self.options.name.as_ref()
 	}
 
 	pub fn replace<U>(self, item: U) -> (tg::Referent<U>, T) {
@@ -151,6 +151,11 @@ where
 			let id = format!("id={id}");
 			query.push(id);
 		}
+		if let Some(name) = &self.options.name {
+			let name = urlencoding::encode(name);
+			let name = format!("name={name}");
+			query.push(name);
+		}
 		if let Some(path) = &self.options.path {
 			let path = path.to_string_lossy();
 			let path = urlencoding::encode(&path);
@@ -193,6 +198,13 @@ where
 									.map_err(|_| tg::error!("failed to parse the id"))?,
 							);
 						},
+						"name" => {
+							options.name.replace(
+								urlencoding::decode(value)
+									.map_err(|_| tg::error!("failed to decode the name"))?
+									.into_owned(),
+							);
+						},
 						"path" => {
 							options.path.replace(
 								urlencoding::decode(value)
@@ -223,9 +235,9 @@ impl Options {
 	pub fn with_path(path: impl Into<PathBuf>) -> Self {
 		Self {
 			id: None,
+			name: None,
 			path: Some(path.into()),
 			tag: None,
-			name: None,
 		}
 	}
 }
