@@ -131,7 +131,6 @@ impl Server {
 		let Some(output) = handle.try_get_process(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let output = output.data;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

@@ -62,6 +62,7 @@ impl Server {
 				if row.get::<_, Option<String>>(0).is_none() {
 					return Ok(None);
 				}
+				let id = row.get::<_, String>(0).parse()?;
 				let actual_checksum = row
 					.get::<_, Option<String>>(1)
 					.map(|s| s.parse())
@@ -144,7 +145,7 @@ impl Server {
 					stdin,
 					stdout,
 				};
-				let output = tg::process::get::Output { data };
+				let output = tg::process::get::Output { id, data };
 				Ok::<_, tg::Error>(Some(output))
 			})
 			.collect::<tg::Result<_>>()?;

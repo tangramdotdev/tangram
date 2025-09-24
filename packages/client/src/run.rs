@@ -14,6 +14,7 @@ pub struct Arg {
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
 	pub mounts: Option<Vec<Either<tg::process::Mount, tg::command::Mount>>>,
+	pub name: Option<String>,
 	pub network: Option<bool>,
 	pub parent: Option<tg::process::Id>,
 	pub remote: Option<String>,
@@ -96,7 +97,10 @@ where
 	}
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
-	let command = tg::Referent::with_item(command_id);
+	let mut command = tg::Referent::with_item(command_id);
+	if let Some(name) = arg.name {
+		command.options.name.replace(name);
+	}
 	let checksum = arg.checksum;
 	let network = arg
 		.network

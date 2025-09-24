@@ -1310,6 +1310,11 @@ where
 	}
 
 	async fn process_title(handle: &H, process: &tg::Referent<tg::Process>) -> Option<String> {
+		// Use the name if provided.
+		if let Some(name) = process.name() {
+			return Some(name.to_owned());
+		}
+
 		// Get the original commands' executable.
 		let command = process.item.command(handle).await.ok()?.clone();
 		let executable = command.executable(handle).await.ok()?.clone();
@@ -1562,7 +1567,7 @@ where
 							.get_process(process.id())
 							.await
 							.and_then(|output| {
-								serde_json::to_string_pretty(&output.data).map_err(|source| {
+								serde_json::to_string_pretty(&output).map_err(|source| {
 									tg::error!(!source, "failed to serialize the process data")
 								})
 							})

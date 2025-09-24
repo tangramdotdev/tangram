@@ -60,7 +60,9 @@ impl Runtime {
 
 	async fn run_inner(&self, process: &tg::Process) -> tg::Result<Output> {
 		// Ensure the process is loaded.
-		let state = process.load(self.server()).await?;
+		let state = process.load(self.server()).await.map_err(
+			|source| tg::error!(!source, %process = process.id(), "failed to load the process"),
+		)?;
 
 		// Run the process.
 		let mut output = match self {

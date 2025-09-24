@@ -17,7 +17,7 @@ pub async fn get(
 	let data = state
 		.main_runtime_handle
 		.spawn(async move {
-			let tg::process::get::Output { data } = handle.get_process(&id).await?;
+			let tg::process::get::Output { data, .. } = handle.get_process(&id).await?;
 			Ok::<_, tg::Error>(data)
 		})
 		.await

@@ -11,6 +11,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	pub id: tg::process::Id,
 	#[serde(flatten)]
 	pub data: tg::process::Data,
 }

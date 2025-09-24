@@ -116,6 +116,7 @@ export namespace Process {
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
 		mounts?: Array<tg.Command.Mount> | undefined;
+		name?: string | undefined;
 		network?: boolean | undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		user?: string | undefined;
@@ -137,6 +138,7 @@ export namespace Process {
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
 		mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
+		name?: string | undefined;
 		network?: boolean | undefined;
 		stderr?: undefined;
 		stdin?: tg.Blob.Arg | undefined;

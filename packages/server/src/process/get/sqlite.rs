@@ -231,7 +231,10 @@ impl Server {
 			stdout,
 		};
 
-		let output = tg::process::get::Output { data };
+		let output = tg::process::get::Output {
+			id: id.clone(),
+			data,
+		};
 
 		Ok(Some(output))
 	}

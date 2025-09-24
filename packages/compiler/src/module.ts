@@ -12,6 +12,7 @@ type Referent = {
 
 type Options = {
 	id?: string;
+	name?: string;
 	path?: string;
 	tag?: string;
 };
@@ -23,6 +24,9 @@ export namespace Module {
 		let params = [];
 		if (value.referent.options?.id !== undefined) {
 			params.push(`id=${encodeURIComponent(value.referent.options.id)}`);
+		}
+		if (value.referent.options?.name !== undefined) {
+			params.push(`name=${encodeURIComponent(value.referent.options.name)}`);
 		}
 		if (value.referent.options?.path !== undefined) {
 			params.push(`path=${encodeURIComponent(value.referent.options.path)}`);
@@ -49,6 +53,10 @@ export namespace Module {
 				switch (key) {
 					case "id": {
 						options.id = decodeURIComponent(value);
+						break;
+					}
+					case "name": {
+						options.name = decodeURIComponent(value);
 						break;
 					}
 					case "path": {

@@ -216,7 +216,10 @@ impl Server {
 				stdout,
 			};
 
-			let output = tg::process::get::Output { data };
+			let output = tg::process::get::Output {
+				id: id.parse()?,
+				data,
+			};
 			outputs.push(output);
 		}
 

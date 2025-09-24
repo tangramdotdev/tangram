@@ -179,6 +179,8 @@ impl Server {
 					id: referent.id().cloned(),
 					path: Some(path),
 					tag: referent.tag().cloned(),
+					name: referent.name().map(ToOwned::to_owned),
+					process: referent.process().cloned(),
 				};
 				let referent = tg::Referent { item, options };
 				Ok(referent)
