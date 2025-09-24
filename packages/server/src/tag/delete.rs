@@ -1,34 +1,26 @@
 use {
-	crate::Server,
-	indoc::formatdoc,
+	crate::{Server, database::Database},
 	tangram_client as tg,
-	tangram_database::{self as db, prelude::*},
-	tangram_http::{Body, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
+#[cfg(feature = "postgres")]
+mod postgres;
+mod sqlite;
+
 impl Server {
 	pub async fn delete_tag(&self, tag: &tg::Tag) -> tg::Result<()> {
-		// Get a database connection.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		// Delete the tag.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from tags
-				where tag = {p}1;
-			"
-		);
-		let params = db::params![tag.to_string()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		// Delete the tag from the database.
+		match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
+				Self::delete_tag_postgres(database, tag).await?;
+			},
+			Database::Sqlite(database) => {
+				Self::delete_tag_sqlite(database, tag).await?;
+			},
+		}
 
 		// Send the delete tag index message.
 		let message = crate::index::Message::DeleteTag(crate::index::message::DeleteTag {

@@ -483,7 +483,7 @@ impl Server {
 		for message in messages {
 			let params = sqlite::params![message.tag];
 			let id = delete_statement
-				.query_one(params, |row| row.get::<_, String>(0))
+				.query_one(params, |row| row.get::<_, Vec<u8>>(0))
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			let params = sqlite::params![id];
 			update_object_reference_count_statement
