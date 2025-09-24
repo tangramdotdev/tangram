@@ -419,7 +419,7 @@ impl Server {
 					.dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						if referent.tag().is_some() {
+						if reference.item().is_tag() {
 							(reference, None)
 						} else {
 							(reference, Some(referent))
@@ -492,7 +492,7 @@ impl Server {
 						.dependencies
 						.into_iter()
 						.map(|(reference, referent)| {
-							if referent.tag().is_some() {
+							if reference.item().is_tag() {
 								(reference, None)
 							} else {
 								(reference, Some(referent))
