@@ -47,13 +47,17 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		},
 		...args,
 	);
-	let sourceOptions: tg.Referent.Options = {};
+	let sourceOptions: tg.Referent.Options =
+		"name" in arg ? { name: arg.name } : {};
 	if (
 		"executable" in arg &&
 		typeof arg.executable === "object" &&
 		"module" in arg.executable
 	) {
-		sourceOptions = arg.executable.module.referent.options;
+		sourceOptions = {
+			...arg.executable.module.referent.options,
+			...sourceOptions,
+		};
 		arg.executable.module.referent.options = {};
 	}
 	let checksum = arg.checksum;
@@ -289,6 +293,11 @@ export class RunBuilder<
 		>
 	): this {
 		this.#args.push(...mounts.map((mounts) => ({ mounts })));
+		return this;
+	}
+
+	named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+		this.#args.push({ name });
 		return this;
 	}
 

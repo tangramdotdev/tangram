@@ -1320,7 +1320,7 @@ where
 		}
 
 		// Use the referent if its fields are set.
-		let title = match (process.path(), process.tag()) {
+		let mut title = match (process.path(), process.tag()) {
 			(Some(path), None) => path.display().to_string(),
 			(Some(path), Some(tag)) => format!("{tag}:{}", path.display()),
 			(None, Some(tag)) => tag.to_string(),
@@ -1332,6 +1332,10 @@ where
 				}
 			},
 		};
+
+		if let Some(name) = process.name() {
+			title = format!("{name} {title}");
+		}
 
 		// Handle exports.
 		let export = executable

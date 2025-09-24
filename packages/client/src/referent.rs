@@ -52,6 +52,10 @@ pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Tag>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
 }
 
 impl<T> Referent<T> {
@@ -84,6 +88,10 @@ impl<T> Referent<T> {
 
 	pub fn tag(&self) -> Option<&tg::Tag> {
 		self.options.tag.as_ref()
+	}
+
+	pub fn name(&self) -> Option<&String> {
+		self.options.name.as_ref()
 	}
 
 	pub fn replace<U>(self, item: U) -> (tg::Referent<U>, T) {
@@ -217,6 +225,7 @@ impl Options {
 			id: None,
 			path: Some(path.into()),
 			tag: None,
+			name: None,
 		}
 	}
 }
