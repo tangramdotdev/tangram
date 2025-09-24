@@ -31,7 +31,6 @@ pub async fn spawn(
 	args: (Serde<tg::process::spawn::Arg>,),
 ) -> tg::Result<Serde<tg::process::spawn::Output>> {
 	let (Serde(arg),) = args;
-	tracing::trace!("arg: {:#?}", arg.command);
 	let server = state.server.clone();
 	let parent = state.process.clone();
 	let output = state
