@@ -31,11 +31,8 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Get the command.
-		let command = arg.command.as_ref().unwrap();
-
 		// Get the host.
-		let command_ = tg::Command::with_id(command.item.clone());
+		let command_ = tg::Command::with_id(arg.command.item.clone());
 		let host = command_.host(self).await.ok();
 
 		// Get a database connection.
@@ -169,7 +166,7 @@ impl Server {
 		};
 
 		if let Some(parent) = &arg.parent {
-			self.add_process_child(parent, &id, &command.options, token.as_ref())
+			self.add_process_child(parent, &id, &arg.command.options, token.as_ref())
 				.await
 				.map_err(
 					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
@@ -192,9 +189,6 @@ impl Server {
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<Option<(tg::process::Id, Option<String>)>> {
 		let p = transaction.p();
-
-		// Get the command.
-		let command = arg.command.as_ref().unwrap().clone();
 
 		// Attempt to get a matching process.
 		#[derive(serde::Deserialize)]
@@ -239,7 +233,7 @@ impl Server {
 			"
 		);
 		let params = db::params![
-			command.item.to_string(),
+			arg.command.item.to_string(),
 			arg.checksum.as_ref().map(ToString::to_string),
 		];
 		let Some(Row {
@@ -292,9 +286,6 @@ impl Server {
 	) -> tg::Result<Option<tg::process::Id>> {
 		let p = transaction.p();
 
-		// Get the command.
-		let command = arg.command.as_ref().unwrap();
-
 		// If the checksum is not set, then return.
 		let Some(expected_checksum) = arg.checksum.clone() else {
 			return Ok(None);
@@ -336,7 +327,7 @@ impl Server {
 				limit 1;
 			"
 		);
-		let params = db::params![command.item.to_string(), expected_checksum.to_string()];
+		let params = db::params![arg.command.item.to_string(), expected_checksum.to_string()];
 		let Some(Row {
 			id: existing_id,
 			actual_checksum,
@@ -454,7 +445,7 @@ impl Server {
 			id.to_string(),
 			actual_checksum.to_string(),
 			true,
-			command.item.to_string(),
+			arg.command.item.to_string(),
 			now,
 			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
 			error
@@ -488,9 +479,6 @@ impl Server {
 		host: &str,
 	) -> tg::Result<(tg::process::Id, Option<String>, Option<ProcessPermit>)> {
 		let p = transaction.p();
-
-		// Get the command.
-		let command = arg.command.as_ref().unwrap();
 
 		// Create an ID.
 		let id = tg::process::Id::new();
@@ -596,7 +584,7 @@ impl Server {
 		let params = db::params![
 			id.to_string(),
 			cacheable,
-			command.item.to_string(),
+			arg.command.item.to_string(),
 			now,
 			now,
 			arg.checksum.as_ref().map(ToString::to_string),

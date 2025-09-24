@@ -41,10 +41,8 @@ where
 {
 	let command = archive_command(artifact, format, compression);
 	let command = command.store(handle).await?;
-	let arg = tg::process::spawn::Arg {
-		command: Some(tg::Referent::with_item(command)),
-		..Default::default()
-	};
+	let command = tg::Referent::with_item(command);
+	let arg = tg::process::spawn::Arg::with_command(command);
 	let output = tg::Process::spawn(handle, arg)
 		.await?
 		.wait(handle)
@@ -80,10 +78,8 @@ where
 {
 	let command = bundle_command(artifact);
 	let command = command.store(handle).await?;
-	let arg = tg::process::spawn::Arg {
-		command: Some(tg::Referent::with_item(command)),
-		..Default::default()
-	};
+	let command = tg::Referent::with_item(command);
+	let arg = tg::process::spawn::Arg::with_command(command);
 	let output = tg::Process::spawn(handle, arg)
 		.await?
 		.wait(handle)
@@ -113,10 +109,8 @@ where
 {
 	let command = checksum_command(input.cloned(), algorithm);
 	let command = command.store(handle).await?;
-	let arg = tg::process::spawn::Arg {
-		command: Some(tg::Referent::with_item(command)),
-		..Default::default()
-	};
+	let command = tg::Referent::with_item(command);
+	let arg = tg::process::spawn::Arg::with_command(command);
 	let output = tg::Process::spawn(handle, arg)
 		.await?
 		.wait(handle)
@@ -153,10 +147,8 @@ where
 {
 	let command = compress_command(input, format);
 	let command = command.store(handle).await?;
-	let arg = tg::process::spawn::Arg {
-		command: Some(tg::Referent::with_item(command)),
-		..Default::default()
-	};
+	let command = tg::Referent::with_item(command);
+	let arg = tg::process::spawn::Arg::with_command(command);
 	let output = tg::Process::spawn(handle, arg)
 		.await?
 		.wait(handle)
@@ -182,10 +174,8 @@ where
 {
 	let command = decompress_command(input);
 	let command = command.store(handle).await?;
-	let arg = tg::process::spawn::Arg {
-		command: Some(tg::Referent::with_item(command)),
-		..Default::default()
-	};
+	let command = tg::Referent::with_item(command);
+	let arg = tg::process::spawn::Arg::with_command(command);
 	let output = tg::Process::spawn(handle, arg)
 		.await?
 		.wait(handle)
@@ -216,11 +206,8 @@ where
 {
 	let command = download_command(url, options);
 	let command = command.store(handle).await?;
-	let arg = tg::process::spawn::Arg {
-		checksum: Some(checksum.clone()),
-		command: Some(tg::Referent::with_item(command)),
-		..Default::default()
-	};
+	let command = tg::Referent::with_item(command);
+	let arg = tg::process::spawn::Arg::with_command_and_checksum(command, Some(checksum.clone()));
 	let output = tg::Process::spawn(handle, arg)
 		.await?
 		.wait(handle)
@@ -255,10 +242,8 @@ where
 {
 	let command = extract_command(input);
 	let command = command.store(handle).await?;
-	let arg = tg::process::spawn::Arg {
-		command: Some(tg::Referent::with_item(command)),
-		..Default::default()
-	};
+	let command = tg::Referent::with_item(command);
+	let arg = tg::process::spawn::Arg::with_command(command);
 	let output = tg::Process::spawn(handle, arg)
 		.await?
 		.wait(handle)

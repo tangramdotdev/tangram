@@ -3,7 +3,7 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cached: Option<bool>,
@@ -11,7 +11,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
-	pub command: Option<tg::Referent<tg::command::Id>>,
+	pub command: tg::Referent<tg::command::Id>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::process::data::Mount>,
@@ -72,5 +72,44 @@ impl tg::Client {
 		}
 		let output = response.json().await?;
 		Ok(output)
+	}
+}
+
+impl Arg {
+	#[must_use]
+	pub fn with_command(command: tg::Referent<tg::command::Id>) -> Self {
+		Self {
+			cached: None,
+			checksum: None,
+			command,
+			mounts: Vec::new(),
+			network: false,
+			parent: None,
+			remote: None,
+			retry: false,
+			stderr: None,
+			stdin: None,
+			stdout: None,
+		}
+	}
+
+	#[must_use]
+	pub fn with_command_and_checksum(
+		command: tg::Referent<tg::command::Id>,
+		checksum: Option<tg::Checksum>,
+	) -> Self {
+		Self {
+			cached: None,
+			checksum,
+			command,
+			mounts: Vec::new(),
+			network: false,
+			parent: None,
+			remote: None,
+			retry: false,
+			stderr: None,
+			stdin: None,
+			stdout: None,
+		}
 	}
 }

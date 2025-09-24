@@ -38,37 +38,35 @@ pub async fn spawn(
 		.spawn(async move {
 			// If the parent is remote, then push the command.
 			if let Some(remote) = parent.remote() {
-				if let Some(command) = &arg.command {
-					// Push the command.
-					let arg = tg::push::Arg {
-						items: vec![Either::Right(command.item.clone().into())],
-						remote: Some(remote.to_owned()),
-						..Default::default()
-					};
-					let stream = server.push(arg).await?;
+				// Push the command.
+				let arg = tg::push::Arg {
+					items: vec![Either::Right(arg.command.item.clone().into())],
+					remote: Some(remote.to_owned()),
+					..Default::default()
+				};
+				let stream = server.push(arg).await?;
 
-					// Consume the stream and log progress.
-					let mut stream = pin!(stream);
-					while let Some(event) = stream.try_next().await? {
-						match event {
-							tg::progress::Event::Start(indicator)
-							| tg::progress::Event::Update(indicator) => {
-								if indicator.name == "bytes" {
-									let message = format!("{indicator}\n");
-									util::log(
-										&server,
-										&parent,
-										tg::process::log::Stream::Stderr,
-										message,
-									)
-									.await;
-								}
-							},
-							tg::progress::Event::Output(_) => {
-								break;
-							},
-							_ => {},
-						}
+				// Consume the stream and log progress.
+				let mut stream = pin!(stream);
+				while let Some(event) = stream.try_next().await? {
+					match event {
+						tg::progress::Event::Start(indicator)
+						| tg::progress::Event::Update(indicator) => {
+							if indicator.name == "bytes" {
+								let message = format!("{indicator}\n");
+								util::log(
+									&server,
+									&parent,
+									tg::process::log::Stream::Stderr,
+									message,
+								)
+								.await;
+							}
+						},
+						tg::progress::Event::Output(_) => {
+							break;
+						},
+						_ => {},
 					}
 				}
 			}

@@ -37,7 +37,7 @@ where
 	builder = builder.user(arg.user);
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
-	let command = Some(tg::Referent::with_item(command_id));
+	let command = tg::Referent::with_item(command_id);
 	if arg.network && arg.checksum.is_none() {
 		return Err(tg::error!(
 			"a checksum is required to build with network enabled"

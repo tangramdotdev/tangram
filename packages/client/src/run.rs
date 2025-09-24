@@ -96,7 +96,7 @@ where
 	}
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
-	let command = Some(tg::Referent::with_item(command_id));
+	let command = tg::Referent::with_item(command_id);
 	let checksum = arg.checksum;
 	let network = arg
 		.network

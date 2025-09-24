@@ -493,7 +493,7 @@ impl Cli {
 		let arg = tg::process::spawn::Arg {
 			cached: options.cached,
 			checksum: options.checksum,
-			command: Some(tg::Referent::with_item(command.id())),
+			command: tg::Referent::with_item(command.id()),
 			mounts,
 			network,
 			parent: None,
