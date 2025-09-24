@@ -3,14 +3,16 @@ import * as tg from "./index.ts";
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
 	R extends tg.ReturnValue,
->(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+>(
+	function_: (...args: A) => R,
+): tg.CommandBuilder<[], tg.ResolvedReturnValue<R>>;
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
 	R extends tg.ReturnValue,
 >(
 	function_: (...args: A) => R,
 	...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
-): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+): tg.CommandBuilder<[], tg.ResolvedReturnValue<R>>;
 export function command(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>

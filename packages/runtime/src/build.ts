@@ -3,14 +3,14 @@ import * as tg from "./index.ts";
 export function build<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
 	R extends tg.ReturnValue,
->(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+>(function_: (...args: A) => R): tg.BuildBuilder<[], tg.ResolvedReturnValue<R>>;
 export function build<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
 	R extends tg.ReturnValue,
 >(
 	function_: (...args: A) => R,
 	...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
-): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
+): tg.BuildBuilder<[], tg.ResolvedReturnValue<R>>;
 export function build(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
@@ -18,7 +18,11 @@ export function build(
 export function build(...args: tg.Args<tg.Process.BuildArg>): tg.BuildBuilder;
 export function build(...args: any): any {
 	if (typeof args[0] === "function") {
-		return tg.command(...args).then((command) => command.build());
+		return new BuildBuilder({
+			host: "js",
+			executable: tg.Command.Executable.fromData(syscall("magic", args[0])),
+			args: args.slice(1),
+		});
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -29,7 +33,7 @@ export function build(...args: any): any {
 		};
 		return new BuildBuilder(arg);
 	} else {
-		return inner(...args);
+		return new BuildBuilder(...args);
 	}
 }
 
@@ -274,8 +278,7 @@ export class BuildBuilder<
 			| undefined
 			| null,
 	): PromiseLike<TResult1 | TResult2> {
-		return tg
-			.build(...this.#args)
+		return inner(...this.#args)
 			.then((output) => output as R)
 			.then(onfulfilled, onrejected);
 	}

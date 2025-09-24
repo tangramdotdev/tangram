@@ -18,7 +18,11 @@ export function run(
 export function run(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
 export function run(...args: any): any {
 	if (typeof args[0] === "function") {
-		return tg.command(...args).then((command) => command.run());
+		return new RunBuilder({
+			host: "js",
+			executable: tg.Command.Executable.fromData(syscall("magic", args[0])),
+			args: args.slice(1),
+		});
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -29,7 +33,7 @@ export function run(...args: any): any {
 		};
 		return new RunBuilder(arg);
 	} else {
-		return inner(...args);
+		return new RunBuilder(...args);
 	}
 }
 
@@ -304,8 +308,7 @@ export class RunBuilder<
 			| undefined
 			| null,
 	): PromiseLike<TResult1 | TResult2> {
-		return tg
-			.run(...this.#args)
+		return inner(...this.#args)
 			.then((output) => output as R)
 			.then(onfulfilled, onrejected);
 	}
