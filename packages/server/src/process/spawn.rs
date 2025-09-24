@@ -59,180 +59,31 @@ impl Server {
 				&& arg.stdout.is_none()
 				&& arg.stderr.is_none());
 
-		// If the process is not cacheable or cached is false, then spawn a local process, add it as a child of the parent, and return it.
-		if !cacheable || matches!(arg.cached, Some(false)) {
-			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
-
-			// Spawn the process.
-			let (id, token, permit) = self
-				.spawn_local_process(&transaction, &arg, cacheable, &host)
-				.await?;
-
-			// Add the process as a child.
-			if let Some(parent) = &arg.parent {
-				self.add_process_child_with_transaction(
-					&transaction,
-					parent,
-					&id,
-					&command.options,
-					Some(&token),
-				)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
-			}
-
-			// Commit the transaction.
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-			// Drop the connection.
-			drop(connection);
-
-			// If a permit was immediately available, then spawn the process task. Otherwise, spawn tasks to publish the created message and spawn the process task when the parent's permit is available.
-			if let Some(permit) = permit {
-				let process = tg::Process::new(id.clone(), None, None, None, None);
-				self.spawn_process_task(&process, permit);
-			} else {
-				self.spawn_process_created_message_task();
-				self.spawn_process_parent_permit_task(&arg, &id);
-			}
-
-			// Publish the child message.
-			if let Some(parent) = &arg.parent {
-				self.spawn_publish_process_child_message_task(parent);
-			}
-
-			// Create the output.
-			let output = tg::process::spawn::Output {
-				process: id,
-				remote: None,
-				token: Some(token),
-			};
-
-			return Ok(Some(output));
-		}
-
-		// Return a cached local process if one exists.
-		if let Some((id, token)) = self
-			.try_get_cached_process_local(&transaction, &arg)
-			.await?
+		// Get or create a local process.
+		let local = if cacheable
+			&& matches!(arg.cached, None | Some(true))
+			&& let Some((id, token)) = self
+				.try_get_cached_process_local(&transaction, &arg)
+				.await?
 		{
-			// Add the process as a child.
-			if let Some(parent) = &arg.parent {
-				self.add_process_child_with_transaction(
-					&transaction,
-					parent,
-					&id,
-					&command.options,
-					token.as_ref(),
-				)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
-			}
-
-			// Commit the transaction.
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-			// Drop the connection.
-			drop(connection);
-
-			// Publish the child message.
-			if let Some(parent) = &arg.parent {
-				self.spawn_publish_process_child_message_task(parent);
-			}
-
-			// Create the output.
-			let output = tg::process::spawn::Output {
-				process: id,
-				remote: None,
-				token,
-			};
-
-			return Ok(Some(output));
-		}
-
-		// Return a cached local process with mismatched checksum if possible.
-		if let Some(host) = &host
+			Some((id, token, None))
+		} else if cacheable
+			&& matches!(arg.cached, None | Some(true))
+			&& let Some(host) = &host
 			&& let Some(id) = self
 				.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, host)
 				.await?
 		{
-			// Add the process as a child.
-			if let Some(parent) = &arg.parent {
-				self.add_process_child_with_transaction(
-					&transaction,
-					parent,
-					&id,
-					&command.options,
-					None,
-				)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
-				)?;
-			}
-
-			// Commit the transaction.
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-			// Drop the connection.
-			drop(connection);
-
-			// Publish the child message.
-			if let Some(parent) = &arg.parent {
-				self.spawn_publish_process_child_message_task(parent);
-			}
-
-			// Create the output.
-			let output = tg::process::spawn::Output {
-				process: id,
-				remote: None,
-				token: None,
-			};
-
-			return Ok(Some(output));
-		}
-
-		// If cached is true, then attempt to get a remote process, and return none if none is found.
-		if matches!(arg.cached, Some(true)) {
-			drop(transaction);
-			drop(connection);
-			if let Some(output) = self.try_get_cached_process_remote(&arg).await? {
-				if let Some(parent) = &arg.parent {
-					self.add_process_child(
-						parent,
-						&output.process,
-						&command.options,
-						output.token.as_ref(),
-					)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %parent, %child = output.process, "failed to add the process as a child"),
-					)?;
-				}
-				return Ok(Some(output));
-			}
-			return Ok(None);
-		}
-
-		let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
-
-		// Spawn a local process.
-		let (local_id, local_token, local_permit) = self
-			.spawn_local_process(&transaction, &arg, cacheable, &host)
-			.await?;
+			Some((id, None, None))
+		} else if matches!(arg.cached, None | Some(false)) {
+			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
+			Some(
+				self.create_local_process(&transaction, &arg, cacheable, &host)
+					.await?,
+			)
+		} else {
+			None
+		};
 
 		// Commit the transaction.
 		transaction
@@ -243,41 +94,76 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// If a permit was immediately available, then spawn the process task. Otherwise, spawn tasks to publish the created message and spawn the process task when the parent's permit is available.
-		if let Some(permit) = local_permit {
-			let process = tg::Process::new(local_id.clone(), None, None, None, None);
-			self.spawn_process_task(&process, permit);
+		// If a permit has been acquired, then spawn the process task. Otherwise, spawn tasks to publish the created message and spawn the process task when the parent's permit is acquired.
+		let local = if let Some(local) = local {
+			let (id, token, permit) = local;
+			if let Some(permit) = permit {
+				let process = tg::Process::new(id.clone(), None, None, None, None);
+				self.spawn_process_task(&process, permit);
+			} else {
+				self.spawn_process_created_message_task();
+				self.spawn_process_parent_permit_task(&arg, &id);
+			}
+			Some((id, token))
 		} else {
-			self.spawn_process_created_message_task();
-			self.spawn_process_parent_permit_task(&arg, &local_id);
-		}
+			None
+		};
 
-		// Create a future that will await the local process.
-		let local = async { self.wait_process(&local_id).await };
+		// Create a future that will await the local process if there is one.
+		let local_future = {
+			let local = local.clone();
+			async {
+				if let Some((id, _)) = local {
+					let output = self.wait_process(&id).await?;
+					Ok::<_, tg::Error>(Some(output))
+				} else {
+					Ok(None)
+				}
+			}
+		};
 
-		// Create a future that will attempt to get a cached remote process.
-		let remote = async { self.try_get_cached_process_remote(&arg).await };
+		// Create a future that will attempt to get a cached remote process if possible.
+		let remote_future = async {
+			if cacheable && matches!(arg.cached, None | Some(true)) {
+				let output = self.try_get_cached_process_remote(&arg).await?;
+				Ok::<_, tg::Error>(output)
+			} else {
+				Ok(None)
+			}
+		};
 
 		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
-		let (id, token) = match future::select(pin!(local), pin!(remote)).await {
-			future::Either::Left((_, _)) => (local_id.clone(), Some(local_token.clone())),
-			future::Either::Right((remote, _)) => {
-				if let Ok(Some(output)) = remote {
-					tokio::spawn({
-						let server = self.clone();
-						let id = local_id.clone();
-						let token = local_token.clone();
-						async move {
-							let arg = tg::process::cancel::Arg {
-								remote: None,
-								token,
-							};
-							server.cancel_process(&id, arg).boxed().await.ok();
-						}
-					});
+		let (id, token) = match future::select(pin!(local_future), pin!(remote_future)).await {
+			future::Either::Left((result, remote_future)) => {
+				if result?.is_some() {
+					let (id, token) = local.unwrap();
+					(id, token)
+				} else {
+					let output = remote_future
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the process"))?;
+					(output.process, output.token)
+				}
+			},
+			future::Either::Right((result, _)) => {
+				if let Ok(Some(output)) = result {
+					if let Some((id, Some(token))) = local {
+						tokio::spawn({
+							let server = self.clone();
+							async move {
+								let arg = tg::process::cancel::Arg {
+									remote: None,
+									token,
+								};
+								server.cancel_process(&id, arg).boxed().await.ok();
+							}
+						});
+					}
 					(output.process, output.token)
 				} else {
-					(local_id.clone(), Some(local_token.clone()))
+					let (id, token) =
+						local.ok_or_else(|| tg::error!("failed to find the process"))?;
+					(id, token)
 				}
 			},
 		};
@@ -594,13 +480,13 @@ impl Server {
 		Ok(Some(id))
 	}
 
-	async fn spawn_local_process(
+	async fn create_local_process(
 		&self,
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
 		cacheable: bool,
 		host: &str,
-	) -> tg::Result<(tg::process::Id, String, Option<ProcessPermit>)> {
+	) -> tg::Result<(tg::process::Id, Option<String>, Option<ProcessPermit>)> {
 		let p = transaction.p();
 
 		// Get the command.
@@ -745,7 +631,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		Ok((id, token, permit))
+		Ok((id, Some(token), permit))
 	}
 
 	async fn try_get_cached_process_remote(
