@@ -19,7 +19,7 @@ async fn list_no_results() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_json_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""""#);
+	assert_json_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#""[]""#);
 }
 
 #[tokio::test]
@@ -76,7 +76,7 @@ async fn single() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"test");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test","item":"fil_0167443evdrttfx23fm68kvpc49ay023jagrg50gchcymw1wfjthmg"}]"#);
 
 	// Get tag
 	let output = server
@@ -88,7 +88,7 @@ async fn single() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_0167443evdrttfx23fm68kvpc49ay023jagrg50gchcymw1wfjthmg");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test","item":"fil_0167443evdrttfx23fm68kvpc49ay023jagrg50gchcymw1wfjthmg"}"#);
 }
 
 #[tokio::test]
@@ -145,14 +145,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r"
-	test/hello
-	test/world
-	test/1.0.0
-	test/1.1.0
-	test/1.2.0
-	test/10.0.0
-	");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/world","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/1.0.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/1.1.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/1.2.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/10.0.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"}]"#);
 
 	// List
 	let pattern = "test/*";
@@ -165,14 +158,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r"
-	test/hello
-	test/world
-	test/1.0.0
-	test/1.1.0
-	test/1.2.0
-	test/10.0.0
-	");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/world","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/1.0.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/1.1.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/1.2.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"},{"tag":"test/10.0.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"}]"#);
 
 	// Get
 	let pattern = "test";
@@ -185,7 +171,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/10.0.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"}"#);
 
 	// Get
 	let pattern = "test/^1";
@@ -198,7 +184,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/1.2.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"}"#);
 
 	// Get
 	let pattern = "test/^10";
@@ -211,7 +197,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/10.0.0","item":"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00"}"#);
 }
 
 #[tokio::test]
