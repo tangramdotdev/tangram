@@ -11,6 +11,13 @@ use {
 	tangram_messenger::prelude::*,
 };
 
+struct LocalOutput {
+	id: tg::process::Id,
+	permit: Option<ProcessPermit>,
+	status: tg::process::Status,
+	token: Option<String>,
+}
+
 impl Server {
 	pub async fn try_spawn_process(
 		&self,
@@ -57,27 +64,27 @@ impl Server {
 				&& arg.stderr.is_none());
 
 		// Get or create a local process.
-		let local = if cacheable
+		let mut output = if cacheable
 			&& matches!(arg.cached, None | Some(true))
-			&& let Some((id, token)) = self
+			&& let Some(output) = self
 				.try_get_cached_process_local(&transaction, &arg)
 				.await?
 		{
-			Some((id, token, None))
+			Some(output)
 		} else if cacheable
 			&& matches!(arg.cached, None | Some(true))
 			&& let Some(host) = &host
-			&& let Some(id) = self
+			&& let Some(output) = self
 				.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, host)
 				.await?
 		{
-			Some((id, None, None))
+			Some(output)
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
-			Some(
-				self.create_local_process(&transaction, &arg, cacheable, &host)
-					.await?,
-			)
+			let output = self
+				.create_local_process(&transaction, &arg, cacheable, &host)
+				.await?;
+			Some(output)
 		} else {
 			None
 		};
@@ -92,27 +99,31 @@ impl Server {
 		drop(connection);
 
 		// If a permit has been acquired, then spawn the process task. Otherwise, spawn tasks to publish the created message and spawn the process task when the parent's permit is acquired.
-		let local = if let Some(local) = local {
-			let (id, token, permit) = local;
-			if let Some(permit) = permit {
-				let process = tg::Process::new(id.clone(), None, None, None, None);
+		if let Some(output) = &mut output {
+			if let Some(permit) = output.permit.take() {
+				let process = tg::Process::new(output.id.clone(), None, None, None, None);
 				self.spawn_process_task(&process, permit);
 			} else {
 				self.spawn_process_created_message_task();
-				self.spawn_process_parent_permit_task(&arg, &id);
+				self.spawn_process_parent_permit_task(&arg, &output.id);
 			}
-			Some((id, token))
-		} else {
-			None
-		};
+		}
+
+		// Determine if the local process is finished.
+		let finished = output
+			.as_ref()
+			.is_some_and(|output| output.status.is_finished());
 
 		// Create a future that will await the local process if there is one.
 		let local_future = {
-			let local = local.clone();
+			let id = output.as_ref().map(|output| output.id.clone());
 			async {
-				if let Some((id, _)) = local {
-					let output = self.wait_process(&id).await?;
-					Ok::<_, tg::Error>(Some(output))
+				if finished {
+					return Ok::<_, tg::Error>(Some(()));
+				}
+				if let Some(id) = id {
+					self.wait_process(&id).await?;
+					Ok(Some(()))
 				} else {
 					Ok(None)
 				}
@@ -120,12 +131,19 @@ impl Server {
 		};
 
 		// Create a future that will attempt to get a cached remote process if possible.
-		let remote_future = async {
-			if cacheable && matches!(arg.cached, None | Some(true)) {
-				let output = self.try_get_cached_process_remote(&arg).await?;
-				Ok::<_, tg::Error>(output)
-			} else {
-				Ok(None)
+		let remote_future = {
+			async {
+				if finished {
+					return Ok::<_, tg::Error>(None);
+				}
+				if cacheable && matches!(arg.cached, None | Some(true)) {
+					let Some(output) = self.try_get_cached_process_remote(&arg).await? else {
+						return Ok(None);
+					};
+					Ok(Some(output))
+				} else {
+					Ok(None)
+				}
 			}
 		};
 
@@ -133,8 +151,8 @@ impl Server {
 		let (id, token) = match future::select(pin!(local_future), pin!(remote_future)).await {
 			future::Either::Left((result, remote_future)) => {
 				if result?.is_some() {
-					let (id, token) = local.unwrap();
-					(id, token)
+					let output = output.unwrap();
+					(output.id, output.token)
 				} else {
 					let Some(output) = remote_future.await? else {
 						return Ok(None);
@@ -143,8 +161,10 @@ impl Server {
 				}
 			},
 			future::Either::Right((result, _)) => {
-				if let Ok(Some(output)) = result {
-					if let Some((id, Some(token))) = local {
+				if let Ok(Some(remote_output)) = result {
+					if let Some(output) = output
+						&& let Some(token) = output.token
+					{
 						tokio::spawn({
 							let server = self.clone();
 							async move {
@@ -152,16 +172,16 @@ impl Server {
 									remote: None,
 									token,
 								};
-								server.cancel_process(&id, arg).boxed().await.ok();
+								server.cancel_process(&output.id, arg).boxed().await.ok();
 							}
 						});
 					}
-					(output.process, output.token)
+					(remote_output.process, remote_output.token)
 				} else {
-					let Some((id, token)) = local else {
+					let Some(output) = output else {
 						return Ok(None);
 					};
-					(id, token)
+					(output.id, output.token)
 				}
 			},
 		};
@@ -188,7 +208,7 @@ impl Server {
 		&self,
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<Option<(tg::process::Id, Option<String>)>> {
+	) -> tg::Result<Option<LocalOutput>> {
 		let p = transaction.p();
 
 		// Attempt to get a matching process.
@@ -276,7 +296,12 @@ impl Server {
 			Some(token)
 		};
 
-		Ok(Some((id, token)))
+		Ok(Some(LocalOutput {
+			id,
+			permit: None,
+			status,
+			token,
+		}))
 	}
 
 	async fn try_get_cached_process_with_mismatched_checksum_local(
@@ -284,7 +309,7 @@ impl Server {
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
 		host: &str,
-	) -> tg::Result<Option<tg::process::Id>> {
+	) -> tg::Result<Option<LocalOutput>> {
 		let p = transaction.p();
 
 		// If the checksum is not set, then return.
@@ -378,6 +403,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		let status = tg::process::Status::Finished;
+
 		// Insert the process.
 		let statement = formatdoc!(
 			"
@@ -460,7 +487,7 @@ impl Server {
 			arg.network,
 			output,
 			arg.retry,
-			tg::process::Status::Finished.to_string(),
+			status.to_string(),
 			0,
 			now,
 		];
@@ -469,7 +496,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		Ok(Some(id))
+		Ok(Some(LocalOutput {
+			id,
+			permit: None,
+			status,
+			token: None,
+		}))
 	}
 
 	async fn create_local_process(
@@ -478,7 +510,7 @@ impl Server {
 		arg: &tg::process::spawn::Arg,
 		cacheable: bool,
 		host: &str,
-	) -> tg::Result<(tg::process::Id, Option<String>, Option<ProcessPermit>)> {
+	) -> tg::Result<LocalOutput> {
 		let p = transaction.p();
 
 		// Create an ID.
@@ -620,7 +652,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		Ok((id, Some(token), permit))
+		Ok(LocalOutput {
+			id,
+			permit,
+			status,
+			token: Some(token),
+		})
 	}
 
 	async fn try_get_cached_process_remote(
