@@ -8,6 +8,7 @@ use {
 pub struct Output {
 	pub tag: tg::Tag,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub item: Option<Either<tg::process::Id, tg::object::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
