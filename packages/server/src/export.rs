@@ -691,7 +691,7 @@ impl Server {
 				false,
 			);
 			if !inserted || complete {
-				let metadata = self.try_get_object_metadata(&item.object).await?;
+				let metadata = self.try_get_object_metadata_local(&item.object).await?;
 				let event =
 					tg::export::Event::Skip(tg::export::Skip::Object(tg::export::ObjectSkip {
 						id: item.object.clone(),
