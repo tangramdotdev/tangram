@@ -21,7 +21,7 @@ impl Server {
 
 		// Find the tag by traversing the component path.
 		let mut parent: i64 = 0;
-		for component in tag.components().iter() {
+		for component in tag.components() {
 			let statement = indoc!(
 				"
 					select id, item
@@ -59,8 +59,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		rows.iter()
-			.next()
+		rows.first()
 			.ok_or_else(|| tg::error!(%tag, "expected a leaf tag"))?;
 
 		// Commit the transaction.

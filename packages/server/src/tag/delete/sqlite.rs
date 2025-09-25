@@ -51,7 +51,7 @@ impl Server {
 
 		// Find the tag by traversing the component path.
 		let mut parent = 0;
-		for component in tag.components().iter() {
+		for component in tag.components() {
 			let statement = indoc!(
 				"
 					select id, item

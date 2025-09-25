@@ -1,7 +1,7 @@
 use {
 	crate::{Server, database::Database},
 	tangram_client as tg,
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{Body, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
