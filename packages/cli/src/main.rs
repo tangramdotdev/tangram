@@ -36,6 +36,7 @@ mod extract;
 mod format;
 mod get;
 mod health;
+mod id;
 mod import;
 mod index;
 mod init;
@@ -181,6 +182,9 @@ enum Command {
 	Get(self::get::Args),
 
 	Health(self::health::Args),
+
+	#[command(hide = true)]
+	Id(self::id::Args),
 
 	Import(self::import::Args),
 
@@ -1100,6 +1104,7 @@ impl Cli {
 			Command::Format(args) => self.command_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Health(args) => self.command_health(args).boxed(),
+			Command::Id(args) => self.command_id(args).boxed(),
 			Command::Import(args) => self.command_import(args).boxed(),
 			Command::Index(args) => self.command_index(args).boxed(),
 			Command::Init(args) => self.command_init(args).boxed(),
