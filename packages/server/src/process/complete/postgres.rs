@@ -23,11 +23,11 @@ impl Server {
 		// Get the metadata.
 		#[derive(serde::Deserialize)]
 		struct Row {
-			pub children_complete: bool,
-			pub command_complete: bool,
-			pub commands_complete: bool,
-			pub output_complete: bool,
-			pub outputs_complete: bool,
+			children_complete: bool,
+			command_complete: bool,
+			commands_complete: bool,
+			output_complete: bool,
+			outputs_complete: bool,
 		}
 		let statement = indoc!(
 			"
@@ -132,24 +132,24 @@ impl Server {
 
 		#[derive(serde::Deserialize)]
 		struct Row {
-			pub children_complete: bool,
-			pub children_count: Option<u64>,
-			pub command_complete: bool,
-			pub command_count: Option<u64>,
-			pub command_depth: Option<u64>,
-			pub command_weight: Option<u64>,
-			pub commands_complete: bool,
-			pub commands_count: Option<u64>,
-			pub commands_depth: Option<u64>,
-			pub commands_weight: Option<u64>,
-			pub output_complete: bool,
-			pub output_count: Option<u64>,
-			pub output_depth: Option<u64>,
-			pub output_weight: Option<u64>,
-			pub outputs_complete: bool,
-			pub outputs_count: Option<u64>,
-			pub outputs_depth: Option<u64>,
-			pub outputs_weight: Option<u64>,
+			children_complete: bool,
+			children_count: Option<u64>,
+			command_complete: bool,
+			command_count: Option<u64>,
+			command_depth: Option<u64>,
+			command_weight: Option<u64>,
+			commands_complete: bool,
+			commands_count: Option<u64>,
+			commands_depth: Option<u64>,
+			commands_weight: Option<u64>,
+			output_complete: bool,
+			output_count: Option<u64>,
+			output_depth: Option<u64>,
+			output_weight: Option<u64>,
+			outputs_complete: bool,
+			outputs_count: Option<u64>,
+			outputs_depth: Option<u64>,
+			outputs_weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"

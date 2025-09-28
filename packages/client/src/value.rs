@@ -3,7 +3,6 @@ use {
 	crate as tg,
 	bytes::Bytes,
 	futures::{StreamExt as _, stream},
-	num::ToPrimitive as _,
 	std::{
 		collections::{BTreeMap, VecDeque},
 		pin::pin,
@@ -107,8 +106,9 @@ impl Value {
 		}
 		unstored.reverse();
 
-		// Import.
-		let mut items = Vec::new();
+		// Sync.
+		let mut messages = Vec::new();
+		messages.push(Ok(tg::sync::Message::Get(None)));
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
 				let data = object_.to_data();
@@ -117,32 +117,23 @@ impl Value {
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
-				let size = bytes.len().to_u64().unwrap();
-				let item = tg::export::Item::Object(tg::export::ObjectItem { id, data, size });
-				items.push(item);
+				let message = tg::sync::Message::Put(Some(tg::sync::PutMessage::Object(
+					tg::sync::ObjectPutMessage { id, bytes },
+				)));
+				messages.push(Ok(message));
 			}
 		}
-		let arg = tg::import::Arg {
-			items: Some(
-				self.objects()
-					.into_iter()
-					.map(|object| Either::Right(object.id()))
-					.collect(),
-			),
-			..Default::default()
-		};
-		let events = items
-			.into_iter()
-			.map(|item| Ok(tg::export::Event::Item(item)));
-		let stream = stream::iter(events).boxed();
-		let stream = handle.import(arg, stream).await?;
+		messages.push(Ok(tg::sync::Message::Put(None)));
+		let arg = tg::sync::Arg::default();
+		let stream = stream::iter(messages).boxed();
+		let stream = handle.sync(arg, stream).await?;
 		pin!(stream)
 			.try_last()
 			.await?
-			.ok_or_else(|| tg::error!("expected an event"))?
+			.ok_or_else(|| tg::error!("expected a message"))?
 			.try_unwrap_end()
 			.ok()
-			.ok_or_else(|| tg::error!("expected the end"))?;
+			.ok_or_else(|| tg::error!("expected the end message"))?;
 
 		// Mark all objects stored.
 		for object in &unstored {

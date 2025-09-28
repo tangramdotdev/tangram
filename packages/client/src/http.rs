@@ -68,16 +68,14 @@ impl tg::Client {
 				tangram_http::layer::compression::RequestCompressionLayer::new(|parts, _| {
 					let has_content_length =
 						parts.headers.get(http::header::CONTENT_LENGTH).is_some();
-					let is_import_or_export = parts
-						.headers
-						.get(http::header::CONTENT_TYPE)
-						.is_some_and(|content_type| {
-							matches!(
-								content_type.to_str(),
-								Ok(tg::import::CONTENT_TYPE | tg::export::CONTENT_TYPE)
-							)
-						});
-					if has_content_length || is_import_or_export {
+					let is_sync =
+						parts
+							.headers
+							.get(http::header::CONTENT_TYPE)
+							.is_some_and(|content_type| {
+								matches!(content_type.to_str(), Ok(tg::sync::CONTENT_TYPE))
+							});
+					if has_content_length || is_sync {
 						Some((tangram_http::body::compression::Algorithm::Zstd, 3))
 					} else {
 						None

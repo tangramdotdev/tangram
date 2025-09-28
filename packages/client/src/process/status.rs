@@ -15,7 +15,10 @@ use {
 	derive_more::TryUnwrap,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
+#[tangram_serialize(display, from_str)]
 pub enum Status {
 	Created,
 	Enqueued,

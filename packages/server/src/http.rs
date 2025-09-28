@@ -100,16 +100,13 @@ impl Server {
 						|accept_encoding, parts, _| {
 							let has_content_length =
 								parts.headers.get(http::header::CONTENT_LENGTH).is_some();
-							let is_import_or_export = parts
+							let is_sync = parts
 								.headers
 								.get(http::header::CONTENT_TYPE)
 								.is_some_and(|content_type| {
-									matches!(
-										content_type.to_str(),
-										Ok(tg::import::CONTENT_TYPE | tg::export::CONTENT_TYPE)
-									)
+									matches!(content_type.to_str(), Ok(tg::sync::CONTENT_TYPE))
 								});
-							if (has_content_length || is_import_or_export)
+							if (has_content_length || is_sync)
 								&& accept_encoding.is_some_and(|accept_encoding| {
 									accept_encoding.preferences.iter().any(|preference| {
 										preference.encoding == tangram_http::header::content_encoding::ContentEncoding::Zstd
@@ -194,22 +191,17 @@ impl Server {
 			},
 			#[cfg(feature = "v8")]
 			(http::Method::POST, ["document"]) => Self::handle_document_request(handle, request).boxed(),
-			(http::Method::POST, ["export"]) => {
-				Self::handle_export_request(handle, request).boxed()
-			},
 			#[cfg(feature = "v8")]
 			(http::Method::POST, ["format"]) => Self::handle_format_request(handle, request).boxed(),
 			(http::Method::GET, ["health"]) => {
 				Self::handle_server_health_request(handle, request).boxed()
-			},
-			(http::Method::POST, ["import"]) => {
-				Self::handle_import_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["index"]) => Self::handle_index_request(handle, request).boxed(),
 			#[cfg(feature = "v8")]
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 			(http::Method::POST, ["pull"]) => Self::handle_pull_request(handle, request).boxed(),
 			(http::Method::POST, ["push"]) => Self::handle_push_request(handle, request).boxed(),
+			(http::Method::POST, ["sync"]) => Self::handle_sync_request(handle, request).boxed(),
 			(http::Method::POST, ["blobs"]) => Self::handle_blob_request(handle, request).boxed(),
 			(http::Method::GET, ["blobs", blob, "read"]) => {
 				Self::handle_read_request(handle, request, blob).boxed()

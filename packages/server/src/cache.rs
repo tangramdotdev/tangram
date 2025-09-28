@@ -135,7 +135,7 @@ impl Server {
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
 		// Check if the artifacts are complete.
-		let complete = futures::future::try_join_all(artifacts.iter().map(|artifact| {
+		let complete = future::try_join_all(artifacts.iter().map(|artifact| {
 			let server = self.clone();
 			let artifact = artifact.clone();
 			async move {
@@ -184,7 +184,7 @@ impl Server {
 				let stream = server.index().await?;
 				let stream = std::pin::pin!(stream);
 				stream.try_last().await?;
-				let complete = futures::future::try_join_all(artifacts.iter().map(|artifact| {
+				let complete = future::try_join_all(artifacts.iter().map(|artifact| {
 					let server = self.clone();
 					let artifact = artifact.clone();
 					async move {

@@ -42,6 +42,7 @@ pub struct Output {
 }
 
 impl Server {
+	#[allow(dead_code)]
 	pub(crate) async fn try_get_process_complete(
 		&self,
 		id: &tg::process::Id,
@@ -75,7 +76,6 @@ impl Server {
 		}
 	}
 
-	#[allow(dead_code)]
 	pub(crate) async fn try_touch_process_and_get_complete_and_metadata(
 		&self,
 		id: &tg::process::Id,

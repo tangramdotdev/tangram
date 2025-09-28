@@ -1,7 +1,7 @@
 use {
 	super::{Graph, Progress},
 	crate::{Server, database::Database, store::Store},
-	futures::{StreamExt as _, TryStreamExt as _, stream},
+	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{
 		pin::pin,
@@ -13,11 +13,11 @@ use {
 };
 
 impl Server {
-	pub(super) async fn import_store_task(
+	pub(super) async fn sync_get_store(
 		&self,
 		graph: Arc<Mutex<Graph>>,
-		process_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
-		object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
+		process_receiver: tokio::sync::mpsc::Receiver<tg::sync::ProcessPutMessage>,
+		object_receiver: tokio::sync::mpsc::Receiver<tg::sync::ObjectPutMessage>,
 		progress: Arc<Progress>,
 	) -> tg::Result<()> {
 		let process_task = AbortOnDropHandle::new(tokio::spawn({
@@ -26,7 +26,7 @@ impl Server {
 			let progress = progress.clone();
 			async move {
 				server
-					.import_process_store_task(graph, process_receiver, &progress)
+					.sync_get_process_store(graph, process_receiver, &progress)
 					.await
 			}
 		}));
@@ -36,29 +36,29 @@ impl Server {
 			let progress = progress.clone();
 			async move {
 				server
-					.import_object_store_task(graph, object_receiver, &progress)
+					.sync_get_object_store(graph, object_receiver, &progress)
 					.await
 			}
 		}));
-		let result = futures::try_join!(process_task, object_task);
-		match result {
-			Ok((Ok(()), Ok(()))) => Ok(()),
-			Ok((_, Err(error)) | (Err(error), _)) => Err(error),
-			Err(error) => Err(tg::error!(!error, "the task panicked")),
-		}
+		let (process_result, object_result) =
+			future::try_join(process_task, object_task).await.unwrap();
+		process_result.and(object_result)?;
+		Ok(())
 	}
 
-	async fn import_process_store_task(
+	async fn sync_get_process_store(
 		&self,
 		graph: Arc<Mutex<Graph>>,
-		process_receiver: tokio::sync::mpsc::Receiver<tg::export::ProcessItem>,
+		process_receiver: tokio::sync::mpsc::Receiver<tg::sync::ProcessPutMessage>,
 		progress: &Progress,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(process_receiver);
 		let mut stream = pin!(stream);
-		while let Some(item) = stream.next().await {
-			let id = &item.id;
-			let arg = tg::process::put::Arg { data: item.data };
+		while let Some(message) = stream.next().await {
+			let id = &message.id;
+			let data = serde_json::from_slice(&message.bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the process data"))?;
+			let arg = tg::process::put::Arg { data };
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			match &self.database {
 				#[cfg(feature = "postgres")]
@@ -73,16 +73,16 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 				},
 			}
-			graph.lock().unwrap().set_process_stored(&item.id);
+			graph.lock().unwrap().set_process_stored(&message.id);
 			progress.increment_processes();
 		}
 		Ok(())
 	}
 
-	async fn import_object_store_task(
+	async fn sync_get_object_store(
 		&self,
 		graph: Arc<Mutex<Graph>>,
-		object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
+		object_receiver: tokio::sync::mpsc::Receiver<tg::sync::ObjectPutMessage>,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
@@ -98,31 +98,35 @@ impl Server {
 
 		// Create a stream of batches.
 		struct State {
-			item: Option<tg::export::ObjectItem>,
-			object_receiver: tokio::sync::mpsc::Receiver<tg::export::ObjectItem>,
+			message: Option<tg::sync::ObjectPutMessage>,
+			object_receiver: tokio::sync::mpsc::Receiver<tg::sync::ObjectPutMessage>,
 		}
 		let state = State {
-			item: None,
+			message: None,
 			object_receiver,
 		};
 		let stream = stream::unfold(state, |mut state| async {
 			let mut batch_bytes = state
-				.item
+				.message
 				.as_ref()
-				.map(|item| item.size)
+				.map(|message| message.bytes.len().to_u64().unwrap())
 				.unwrap_or_default();
-			let mut batch = state.item.take().map(|item| vec![item]).unwrap_or_default();
-			while let Some(item) = state.object_receiver.recv().await {
-				let size = item.size;
+			let mut batch = state
+				.message
+				.take()
+				.map(|message| vec![message])
+				.unwrap_or_default();
+			while let Some(message) = state.object_receiver.recv().await {
+				let size = message.bytes.len().to_u64().unwrap();
 				if !batch.is_empty()
 					&& (batch.len() + 1 >= max_objects_per_batch
 						|| batch_bytes + size >= max_bytes_per_batch)
 				{
-					state.item.replace(item);
+					state.message.replace(message);
 					return Some((batch, state));
 				}
 				batch_bytes += 100 + size;
-				batch.push(item);
+				batch.push(message);
 			}
 			if batch.is_empty() {
 				return None;
@@ -135,33 +139,31 @@ impl Server {
 			.map(Ok)
 			.try_for_each_concurrent(concurrency, move |batch| {
 				let graph = graph.clone();
-				async move { self.import_objects_task_inner(graph, batch, progress).await }
+				async move {
+					self.sync_get_object_store_inner(graph, batch, progress)
+						.await
+				}
 			})
 			.await?;
 
 		Ok(())
 	}
 
-	async fn import_objects_task_inner(
+	async fn sync_get_object_store_inner(
 		&self,
 		graph: Arc<Mutex<Graph>>,
-		items: Vec<tg::export::ObjectItem>,
+		messages: Vec<tg::sync::ObjectPutMessage>,
 		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Store the items.
-		let args = items
-			.clone()
-			.into_iter()
-			.map(|item| {
-				let bytes = item
-					.data
-					.serialize()
-					.map_err(|source| tg::error!(!source, "failed to serialize object data"))?;
+		// Store the objects.
+		let args = messages
+			.iter()
+			.map(|message| {
 				Ok(crate::store::PutArg {
-					id: item.id,
-					bytes: Some(bytes),
+					id: message.id.clone(),
+					bytes: Some(message.bytes.clone()),
 					cache_reference: None,
 					touched_at,
 				})
@@ -171,14 +173,17 @@ impl Server {
 
 		// Mark the nodes as stored.
 		let mut graph = graph.lock().unwrap();
-		for item in &items {
-			graph.set_object_stored(&item.id);
+		for message in &messages {
+			graph.set_object_stored(&message.id);
 		}
 		drop(graph);
 
 		// Update the progress.
-		let objects = items.len().to_u64().unwrap();
-		let bytes = items.iter().map(|item| item.size).sum();
+		let objects = messages.len().to_u64().unwrap();
+		let bytes = messages
+			.iter()
+			.map(|message| message.bytes.len().to_u64().unwrap())
+			.sum();
 		progress.increment_objects(objects);
 		progress.increment_bytes(bytes);
 

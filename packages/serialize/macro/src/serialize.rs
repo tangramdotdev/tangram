@@ -90,7 +90,6 @@ impl Struct<'_> {
 						let field_access = if let Some(field_ident) = field.ident {
 							quote! { &self.#field_ident }
 						} else {
-							// For tuple structs, use numeric index
 							let index = syn::Index::from(index);
 							quote! { &self.#index }
 						};

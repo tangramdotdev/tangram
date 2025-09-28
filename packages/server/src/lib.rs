@@ -2,6 +2,7 @@
 use self::compiler::Compiler;
 #[cfg(feature = "nats")]
 use async_nats as nats;
+use tokio_util::task::TaskTracker;
 use {
 	self::{
 		database::Database, index::Index, messenger::Messenger, runtime::Runtime, store::Store,
@@ -22,7 +23,7 @@ use {
 	tangram_either::Either,
 	tangram_futures::task::{Task, TaskMap},
 	tangram_messenger::prelude::*,
-	tokio::{io::AsyncWriteExt as _, task::JoinSet},
+	tokio::io::AsyncWriteExt as _,
 	url::Url,
 };
 
@@ -39,14 +40,12 @@ mod compiler;
 mod database;
 #[cfg(feature = "v8")]
 mod document;
-mod export;
 #[cfg(feature = "v8")]
 mod format;
 mod get;
 mod handle;
 mod health;
 mod http;
-mod import;
 mod index;
 mod messenger;
 mod module;
@@ -61,6 +60,7 @@ mod remote;
 mod runner;
 mod runtime;
 mod store;
+mod sync;
 mod tag;
 mod temp;
 mod user;
@@ -83,7 +83,6 @@ pub struct Inner {
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	http: Option<Http>,
-	import_index_tasks: Mutex<Option<JoinSet<()>>>,
 	index: Index,
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
@@ -97,6 +96,7 @@ pub struct Inner {
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
 	task: Mutex<Option<Task<()>>>,
+	tasks: TaskTracker,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -214,9 +214,6 @@ impl Server {
 			});
 			Http { url }
 		});
-
-		// Create the import index tasks.
-		let import_index_tasks = Mutex::new(Some(JoinSet::new()));
 
 		// Create the process permits.
 		let process_permits = DashMap::default();
@@ -402,6 +399,9 @@ impl Server {
 		// Create the task.
 		let task = Mutex::new(None);
 
+		// Create the tasks.
+		let tasks = TaskTracker::new();
+
 		// Create the temp paths.
 		let temp_paths = DashSet::default();
 
@@ -426,7 +426,6 @@ impl Server {
 			database,
 			diagnostics,
 			http,
-			import_index_tasks,
 			index,
 			lock_file,
 			messenger,
@@ -440,6 +439,7 @@ impl Server {
 			runtimes,
 			store,
 			task,
+			tasks,
 			temp_paths,
 			version,
 			vfs,
@@ -810,11 +810,9 @@ impl Server {
 				}
 				tracing::trace!("shutdown cache tasks");
 
-				// Await the import index tasks.
-				let import_index_tasks = server.import_index_tasks.lock().unwrap().take();
-				if let Some(import_index_tasks) = import_index_tasks {
-					import_index_tasks.join_all().await;
-				}
+				// Await the tasks.
+				server.tasks.close();
+				server.tasks.wait().await;
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();

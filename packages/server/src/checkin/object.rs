@@ -2,7 +2,7 @@ use {
 	super::state::{Object, State, Variant},
 	crate::Server,
 	indexmap::IndexMap,
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
 	tangram_client as tg,
 	tangram_either::Either,

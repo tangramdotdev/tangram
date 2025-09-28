@@ -1,7 +1,7 @@
 use {
 	crate::index::message::ProcessObjectKind,
 	indexmap::IndexMap,
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	petgraph::visit::IntoNeighbors as _,
 	smallvec::SmallVec,
 	std::collections::{BTreeSet, HashSet},
@@ -35,14 +35,14 @@ pub enum Id {
 	Object(tg::object::Id),
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Node {
 	pub parents: SmallVec<[usize; 1]>,
 	pub inner: Option<NodeInner>,
 	pub stored: bool,
 }
 
-#[derive(derive_more::TryUnwrap, derive_more::Unwrap)]
+#[derive(Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
 pub enum NodeInner {
@@ -50,6 +50,7 @@ pub enum NodeInner {
 	Object(ObjectNode),
 }
 
+#[derive(Debug)]
 pub struct ProcessNode {
 	pub children: Vec<usize>,
 	pub complete: crate::process::complete::Output,
@@ -57,6 +58,7 @@ pub struct ProcessNode {
 	pub objects: Vec<(usize, crate::index::message::ProcessObjectKind)>,
 }
 
+#[derive(Debug)]
 pub struct ObjectNode {
 	pub children: Vec<usize>,
 	pub complete: bool,

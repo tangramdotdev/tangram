@@ -1,9 +1,21 @@
 use lsp_types as lsp;
 
 /// A position in a string.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Position {
+	#[tangram_serialize(id = 0)]
 	pub line: u32,
+	#[tangram_serialize(id = 1)]
 	pub character: u32,
 }
 

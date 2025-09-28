@@ -12,21 +12,23 @@ impl Server {
 		database: &db::sqlite::Database,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Output>> {
-		// Get an index connection.
 		let connection = database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		let output = connection
+			.with({
+				let id = id.clone();
+				move |connection| Self::try_get_process_complete_sqlite_sync(connection, &id)
+			})
+			.await?;
+		Ok(output)
+	}
 
-		// Get the metadata.
-		#[derive(serde::Deserialize)]
-		struct Row {
-			pub children_complete: bool,
-			pub command_complete: bool,
-			pub commands_complete: bool,
-			pub output_complete: bool,
-			pub outputs_complete: bool,
-		}
+	pub(crate) fn try_get_process_complete_sqlite_sync(
+		connection: &sqlite::Connection,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<Output>> {
 		let statement = indoc!(
 			"
 				select
@@ -39,24 +41,32 @@ impl Server {
 				where id = ?1;
 			",
 		);
-		let params = db::params![id.to_bytes()];
-		let output = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
-			.await
+		let mut statement = connection
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let params = sqlite::params![id.to_bytes().to_vec()];
+		let mut rows = statement
+			.query(params)
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let Some(row) = rows
+			.next()
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0)
-			.map(|row| Output {
-				children: row.children_complete,
-				command: row.command_complete,
-				commands: row.commands_complete,
-				output: row.output_complete,
-				outputs: row.outputs_complete,
-			});
-
-		// Drop the connection.
-		drop(connection);
-
-		Ok(output)
+		else {
+			return Ok(None);
+		};
+		let children_complete = row.get_unwrap(0);
+		let command_complete = row.get_unwrap(1);
+		let commands_complete = row.get_unwrap(2);
+		let output_complete = row.get_unwrap(3);
+		let outputs_complete = row.get_unwrap(4);
+		let complete = Output {
+			children: children_complete,
+			command: command_complete,
+			commands: commands_complete,
+			output: output_complete,
+			outputs: outputs_complete,
+		};
+		Ok(Some(complete))
 	}
 
 	pub(crate) async fn try_get_process_complete_batch_sqlite(

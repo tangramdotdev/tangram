@@ -110,25 +110,6 @@ where
 		}
 	}
 
-	fn export(
-		&self,
-		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.export(arg, stream)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.export(arg, stream)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
 	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> + Send {
 		match self {
 			Either::Left(s) => s.format(arg).left_future(),
@@ -140,25 +121,6 @@ where
 		match self {
 			Either::Left(s) => s.health().left_future(),
 			Either::Right(s) => s.health().right_future(),
-		}
-	}
-
-	fn import(
-		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.import(arg, stream)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			Either::Right(s) => s
-				.import(arg, stream)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
 		}
 	}
 
@@ -239,6 +201,25 @@ where
 		match self {
 			Either::Left(s) => s.create_blob(reader).left_future(),
 			Either::Right(s) => s.create_blob(reader).right_future(),
+		}
+	}
+
+	fn sync(
+		&self,
+		arg: tg::sync::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.sync(arg, stream)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			Either::Right(s) => s
+				.sync(arg, stream)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 

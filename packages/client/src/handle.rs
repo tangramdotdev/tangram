@@ -58,25 +58,9 @@ pub trait Handle:
 		arg: tg::document::Arg,
 	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send;
 
-	fn export(
-		&self,
-		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
-	> + Send;
-
 	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> + Send;
-
-	fn import(
-		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
-	> + Send;
 
 	fn index(
 		&self,
@@ -114,6 +98,14 @@ pub trait Handle:
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> + Send;
+
+	fn sync(
+		&self,
+		arg: tg::sync::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+	> + Send;
 
 	fn try_read_blob_stream(
 		&self,
@@ -451,32 +443,12 @@ impl tg::Handle for tg::Client {
 		self.document(arg)
 	}
 
-	fn export(
-		&self,
-		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
-	> {
-		self.export(arg, stream)
-	}
-
 	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
 		self.format(arg)
 	}
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		self.health()
-	}
-
-	fn import(
-		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
-	> {
-		self.import(arg, stream)
 	}
 
 	fn index(
@@ -524,6 +496,16 @@ impl tg::Handle for tg::Client {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.create_blob(reader)
+	}
+
+	fn sync(
+		&self,
+		arg: tg::sync::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+	> {
+		self.sync(arg, stream)
 	}
 
 	fn try_read_blob_stream(

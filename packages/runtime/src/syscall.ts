@@ -54,16 +54,6 @@ declare global {
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
 	function syscall(
-		syscall: "import",
-		objects: Array<ImportItem>,
-	): Promise<void>;
-
-	type ImportItem = {
-		id: tg.Object.Id;
-		data: tg.Object.Data;
-	};
-
-	function syscall(
 		syscall: "log",
 		stream: "stdout" | "stderr",
 		string: string,
@@ -118,4 +108,11 @@ declare global {
 	): Promise<tg.Process.Wait.Data>;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
+
+	function syscall(syscall: "sync", items: Array<SyncItem>): Promise<void>;
+
+	type SyncItem = {
+		id: tg.Object.Id;
+		data: tg.Object.Data;
+	};
 }

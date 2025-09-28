@@ -31,13 +31,11 @@ mod decompress;
 mod document;
 mod download;
 mod error;
-mod export;
 mod extract;
 mod format;
 mod get;
 mod health;
 mod id;
-mod import;
 mod index;
 mod init;
 mod lsp;
@@ -173,8 +171,6 @@ enum Command {
 
 	Download(self::download::Args),
 
-	Export(self::export::Args),
-
 	Extract(self::extract::Args),
 
 	Format(self::format::Args),
@@ -185,8 +181,6 @@ enum Command {
 
 	#[command(hide = true)]
 	Id(self::id::Args),
-
-	Import(self::import::Args),
 
 	Index(self::index::Args),
 
@@ -1099,13 +1093,11 @@ impl Cli {
 			Command::Decompress(args) => self.command_decompress(args).boxed(),
 			Command::Document(args) => self.command_document(args).boxed(),
 			Command::Download(args) => self.command_download(args).boxed(),
-			Command::Export(args) => self.command_export(args).boxed(),
 			Command::Extract(args) => self.command_extract(args).boxed(),
 			Command::Format(args) => self.command_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),
 			Command::Health(args) => self.command_health(args).boxed(),
 			Command::Id(args) => self.command_id(args).boxed(),
-			Command::Import(args) => self.command_import(args).boxed(),
 			Command::Index(args) => self.command_index(args).boxed(),
 			Command::Init(args) => self.command_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),

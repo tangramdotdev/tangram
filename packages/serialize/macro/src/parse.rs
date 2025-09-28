@@ -121,7 +121,7 @@ impl<'a> Struct<'a> {
 impl<'a> Field<'a> {
 	pub fn parse(field: &'a syn::Field) -> syn::Result<Field<'a>> {
 		// Initialize the attrs.
-		let mut default = false;
+		let mut default = None;
 		let mut deserialize_with = None;
 		let mut display = false;
 		let mut from_str = false;
@@ -172,7 +172,13 @@ impl<'a> Field<'a> {
 					skip = true;
 					Ok(())
 				} else if meta.path.is_ident("default") {
-					default = true;
+					if meta.input.peek(syn::Token![=]) {
+						let value = meta.value()?;
+						let lit: syn::LitStr = value.parse()?;
+						default = Some(lit.value());
+					} else {
+						default = Some(String::new());
+					}
 					Ok(())
 				} else {
 					Err(meta.error("unsupported attribute"))
@@ -180,7 +186,7 @@ impl<'a> Field<'a> {
 			})?;
 		}
 
-		// Validate attribute combinations
+		// Validate attribute combinations.
 		if display && serialize_with.is_some() {
 			return Err(syn::Error::new_spanned(
 				field,
@@ -202,7 +208,7 @@ impl<'a> Field<'a> {
 			));
 		}
 
-		if default && skip {
+		if default.is_some() && skip {
 			return Err(syn::Error::new_spanned(
 				field,
 				"default attribute cannot be used together with skip attribute",
@@ -275,7 +281,7 @@ impl<'a> Enum<'a> {
 			})?;
 		}
 
-		// Validate attribute combinations
+		// Validate attribute combinations.
 		if display && into.is_some() {
 			return Err(syn::Error::new_spanned(
 				input,

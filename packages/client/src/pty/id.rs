@@ -11,9 +11,12 @@ use crate as tg;
 	derive_more::Display,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[debug("tg::pty::Id(\"{_0}\")]")]
 #[serde(into = "crate::Id", try_from = "crate::Id")]
+#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
 pub struct Id(crate::Id);
 
 impl Id {

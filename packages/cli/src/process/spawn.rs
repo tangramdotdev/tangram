@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	futures::FutureExt as _,
+	futures::prelude::*,
 	std::path::{Path, PathBuf},
 	tangram_client::{self as tg, prelude::*},
 	tangram_either::Either,

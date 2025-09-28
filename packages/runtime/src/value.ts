@@ -158,7 +158,7 @@ export namespace Value {
 			return;
 		}
 
-		// Import.
+		// Sync.
 		let items = [];
 		for (let object of unstored) {
 			if (object.state.object === undefined) {
@@ -173,7 +173,7 @@ export namespace Value {
 			object.state.id = id;
 			items.push({ id, data });
 		}
-		await syscall("import", items);
+		await syscall("sync", items);
 
 		// Mark all objects stored.
 		for (let object of unstored) {

@@ -1,6 +1,6 @@
 use {
 	crate::Server,
-	futures::{Stream, StreamExt as _, stream::FuturesUnordered},
+	futures::{prelude::*, stream::FuturesUnordered},
 	std::{
 		pin::pin,
 		sync::{Arc, Mutex},
@@ -72,129 +72,7 @@ impl Server {
 			let src = src.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
-			async move {
-				let mut metadata_futures = arg
-					.items
-					.iter()
-					.map(|item| {
-						let src = src.clone();
-						async move {
-							loop {
-								match item {
-									Either::Left(process) => {
-										let Some(metadata) = src
-											.try_get_process_metadata(process)
-											.await
-											.map_err(|source| {
-												tg::error!(!source, "failed to get the process")
-											})?
-										else {
-											return Err(tg::error!("failed to get the process"));
-										};
-										let mut complete = true;
-										if arg.recursive {
-											complete =
-												complete && metadata.children.count.is_some();
-											if arg.commands {
-												complete = complete
-													&& metadata.commands.count.is_some()
-													&& metadata.commands.weight.is_some();
-											}
-											if arg.outputs {
-												complete = complete
-													&& metadata.outputs.count.is_some()
-													&& metadata.outputs.weight.is_some();
-											}
-										} else {
-											if arg.commands {
-												complete = complete
-													&& metadata.command.count.is_some()
-													&& metadata.command.weight.is_some();
-											}
-											if arg.outputs {
-												complete = complete
-													&& metadata.output.count.is_some()
-													&& metadata.output.weight.is_some();
-											}
-										}
-										if complete {
-											break Ok::<_, tg::Error>(Either::Left(metadata));
-										}
-									},
-									Either::Right(object) => {
-										let metadata =
-											src.try_get_object_metadata(object).await?.ok_or_else(
-												|| tg::error!("expected the metadata to be set"),
-											)?;
-										if metadata.count.is_some() && metadata.weight.is_some() {
-											break Ok::<_, tg::Error>(Either::Right(metadata));
-										}
-									},
-								}
-								tokio::time::sleep(Duration::from_secs(1)).await;
-							}
-						}
-					})
-					.collect::<FuturesUnordered<_>>();
-				let mut processes: Option<u64> = None;
-				let mut objects: Option<u64> = None;
-				let mut bytes: Option<u64> = None;
-				while let Some(Ok(metadata)) = metadata_futures.next().await {
-					match metadata {
-						Either::Left(metadata) => {
-							if arg.recursive {
-								if let Some(children_count) = metadata.children.count {
-									*processes.get_or_insert(0) += children_count;
-								}
-								if arg.commands {
-									if let Some(commands_count) = metadata.commands.count {
-										*objects.get_or_insert(0) += commands_count;
-									}
-									if let Some(commands_weight) = metadata.commands.weight {
-										*bytes.get_or_insert(0) += commands_weight;
-									}
-								}
-								if arg.outputs {
-									if let Some(outputs_count) = metadata.outputs.count {
-										*objects.get_or_insert(0) += outputs_count;
-									}
-									if let Some(outputs_weight) = metadata.outputs.weight {
-										*bytes.get_or_insert(0) += outputs_weight;
-									}
-								}
-							} else {
-								if arg.commands {
-									if let Some(command_count) = metadata.command.count {
-										*objects.get_or_insert(0) += command_count;
-									}
-									if let Some(command_weight) = metadata.command.weight {
-										*bytes.get_or_insert(0) += command_weight;
-									}
-								}
-								if arg.outputs {
-									if let Some(output_count) = metadata.output.count {
-										*objects.get_or_insert(0) += output_count;
-									}
-									if let Some(output_weight) = metadata.output.weight {
-										*bytes.get_or_insert(0) += output_weight;
-									}
-								}
-							}
-						},
-						Either::Right(metadata) => {
-							if let Some(count) = metadata.count {
-								*objects.get_or_insert(0) += count;
-							}
-							if let Some(weight) = metadata.weight {
-								*bytes.get_or_insert(0) += weight;
-							}
-						},
-					}
-					progress.set_total("processes", processes);
-					progress.set_total("objects", objects);
-					progress.set_total("bytes", bytes);
-				}
-			}
+			async move { Self::push_or_pull_set_indicator_totals(&src, progress, &arg).await }
 		}));
 
 		// Spawn the task.
@@ -217,6 +95,135 @@ impl Server {
 		Ok(stream)
 	}
 
+	async fn push_or_pull_set_indicator_totals<S>(
+		src: &S,
+		progress: crate::progress::Handle<tg::push::Output>,
+		arg: &tg::push::Arg,
+	) -> tg::Result<()>
+	where
+		S: tg::Handle,
+	{
+		let mut metadata_futures = arg
+			.items
+			.iter()
+			.map(|item| {
+				let src = src.clone();
+				async move {
+					loop {
+						match item {
+							Either::Left(process) => {
+								let Some(metadata) =
+									src.try_get_process_metadata(process).await.map_err(
+										|source| tg::error!(!source, "failed to get the process"),
+									)?
+								else {
+									return Err(tg::error!("failed to get the process"));
+								};
+								let mut complete = true;
+								if arg.recursive {
+									complete = complete && metadata.children.count.is_some();
+									if arg.commands {
+										complete = complete
+											&& metadata.commands.count.is_some()
+											&& metadata.commands.weight.is_some();
+									}
+									if arg.outputs {
+										complete = complete
+											&& metadata.outputs.count.is_some()
+											&& metadata.outputs.weight.is_some();
+									}
+								} else {
+									if arg.commands {
+										complete = complete
+											&& metadata.command.count.is_some()
+											&& metadata.command.weight.is_some();
+									}
+									if arg.outputs {
+										complete = complete
+											&& metadata.output.count.is_some()
+											&& metadata.output.weight.is_some();
+									}
+								}
+								if complete {
+									break Ok::<_, tg::Error>(Either::Left(metadata));
+								}
+							},
+							Either::Right(object) => {
+								let metadata = src
+									.try_get_object_metadata(object)
+									.await?
+									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+								if metadata.count.is_some() && metadata.weight.is_some() {
+									break Ok::<_, tg::Error>(Either::Right(metadata));
+								}
+							},
+						}
+						tokio::time::sleep(Duration::from_secs(1)).await;
+					}
+				}
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut processes: Option<u64> = None;
+		let mut objects: Option<u64> = None;
+		let mut bytes: Option<u64> = None;
+		while let Some(Ok(metadata)) = metadata_futures.next().await {
+			match metadata {
+				Either::Left(metadata) => {
+					if arg.recursive {
+						if let Some(children_count) = metadata.children.count {
+							*processes.get_or_insert(0) += children_count;
+						}
+						if arg.commands {
+							if let Some(commands_count) = metadata.commands.count {
+								*objects.get_or_insert(0) += commands_count;
+							}
+							if let Some(commands_weight) = metadata.commands.weight {
+								*bytes.get_or_insert(0) += commands_weight;
+							}
+						}
+						if arg.outputs {
+							if let Some(outputs_count) = metadata.outputs.count {
+								*objects.get_or_insert(0) += outputs_count;
+							}
+							if let Some(outputs_weight) = metadata.outputs.weight {
+								*bytes.get_or_insert(0) += outputs_weight;
+							}
+						}
+					} else {
+						if arg.commands {
+							if let Some(command_count) = metadata.command.count {
+								*objects.get_or_insert(0) += command_count;
+							}
+							if let Some(command_weight) = metadata.command.weight {
+								*bytes.get_or_insert(0) += command_weight;
+							}
+						}
+						if arg.outputs {
+							if let Some(output_count) = metadata.output.count {
+								*objects.get_or_insert(0) += output_count;
+							}
+							if let Some(output_weight) = metadata.output.weight {
+								*bytes.get_or_insert(0) += output_weight;
+							}
+						}
+					}
+				},
+				Either::Right(metadata) => {
+					if let Some(count) = metadata.count {
+						*objects.get_or_insert(0) += count;
+					}
+					if let Some(weight) = metadata.weight {
+						*bytes.get_or_insert(0) += weight;
+					}
+				},
+			}
+			progress.set_total("processes", processes);
+			progress.set_total("objects", objects);
+			progress.set_total("bytes", bytes);
+		}
+		Ok(())
+	}
+
 	async fn push_or_pull_task<S, D>(
 		arg: tg::push::Arg,
 		progress: crate::progress::Handle<tg::push::Output>,
@@ -233,187 +240,94 @@ impl Server {
 			bytes: 0,
 		}));
 
-		'a: loop {
-			// Set the progress to zero.
-			progress.set("processes", 0);
-			progress.set("objects", 0);
-			progress.set("bytes", 0);
+		// Set the progress to zero.
+		progress.set("processes", 0);
+		progress.set("objects", 0);
+		progress.set("bytes", 0);
 
-			// Create channels to send events.
-			let (export_item_sender, export_item_receiver) = tokio::sync::mpsc::channel(1024);
-			let (import_complete_sender, import_complete_receiver) =
-				tokio::sync::mpsc::channel(1024);
+		// Create the channels.
+		let (push_sender, push_receiver) = tokio::sync::mpsc::channel(1024);
+		let (pull_sender, pull_receiver) = tokio::sync::mpsc::channel(1024);
 
-			// Start the export.
-			let export_arg = tg::export::Arg {
-				commands: arg.commands,
-				items: arg.items.clone(),
-				outputs: arg.outputs,
-				recursive: arg.recursive,
-				remote: None,
-			};
-			let import_complete_stream = ReceiverStream::new(import_complete_receiver);
-			let export_event_stream = src
-				.export(export_arg, import_complete_stream.boxed())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the export stream"))?;
+		// Start the push.
+		let push_arg = tg::sync::Arg {
+			commands: arg.commands,
+			get: None,
+			outputs: arg.outputs,
+			put: None,
+			recursive: arg.recursive,
+			remote: None,
+		};
+		let push_stream = src
+			.sync(push_arg, ReceiverStream::new(pull_receiver).boxed())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the push stream"))?;
 
-			// Start the import.
-			let import_arg = tg::import::Arg {
-				commands: arg.commands,
-				items: Some(arg.items.clone()),
-				outputs: arg.outputs,
-				recursive: arg.recursive,
-				remote: None,
-			};
-			let export_item_stream = ReceiverStream::new(export_item_receiver);
-			let import_event_stream = dst
-				.import(import_arg, export_item_stream.boxed())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the import stream"))?;
+		// Start the pull.
+		let pull_arg = tg::sync::Arg {
+			commands: arg.commands,
+			get: Some(arg.items.clone()),
+			outputs: arg.outputs,
+			put: None,
+			recursive: arg.recursive,
+			remote: None,
+		};
+		let pull_stream = dst
+			.sync(pull_arg, ReceiverStream::new(push_receiver).boxed())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the pull stream"))?;
 
-			// Spawn the export.
-			let export_task = tokio::spawn({
-				let output = output.clone();
-				let progress = progress.clone();
-				async move {
-					let mut export_event_stream = pin!(export_event_stream);
-					while let Some(result) = export_event_stream.next().await {
-						match result {
-							Ok(tg::export::Event::Item(item)) => {
-								match &item {
-									tg::export::Item::Process(_) => {
-										let mut output = output.lock().unwrap();
-										output.processes += 1;
-									},
-									tg::export::Item::Object(item) => {
-										let mut output = output.lock().unwrap();
-										output.objects += 1;
-										output.bytes += item.size;
-									},
-								}
-								let event = tg::export::Event::Item(item);
-								let result = export_item_sender.send(Ok(event)).await;
-								if let Err(error) = result {
-									let error = tg::error!(!error, "failed to send export item");
-									progress.error(error);
-									break;
-								}
-							},
-							Ok(tg::export::Event::Skip(complete)) => match complete {
-								tg::export::Skip::Process(process_complete) => {
-									let mut processes = 0;
-									let mut objects = 0;
-									let mut bytes = 0;
-									if arg.recursive {
-										if let Some(children_count) =
-											process_complete.metadata.children.count
-										{
-											processes += children_count;
-										}
-										if arg.commands {
-											if let Some(commands_count) =
-												process_complete.metadata.commands.count
-											{
-												objects += commands_count;
-											}
-											if let Some(commands_weight) =
-												process_complete.metadata.commands.weight
-											{
-												bytes += commands_weight;
-											}
-										}
-										if arg.outputs {
-											if let Some(outputs_count) =
-												process_complete.metadata.outputs.count
-											{
-												objects += outputs_count;
-											}
-											if let Some(outputs_weight) =
-												process_complete.metadata.outputs.weight
-											{
-												bytes += outputs_weight;
-											}
-										}
-									} else {
-										processes += 1;
-										if arg.commands {
-											if let Some(commands_count) =
-												process_complete.metadata.command.count
-											{
-												objects += commands_count;
-											}
-											if let Some(commands_weight) =
-												process_complete.metadata.command.weight
-											{
-												bytes += commands_weight;
-											}
-										}
-										if arg.outputs {
-											if let Some(outputs_count) =
-												process_complete.metadata.output.count
-											{
-												objects += outputs_count;
-											}
-											if let Some(outputs_weight) =
-												process_complete.metadata.output.weight
-											{
-												bytes += outputs_weight;
-											}
-										}
-									}
-									progress.increment("processes", processes);
-									progress.increment("objects", objects);
-									progress.increment("bytes", bytes);
-								},
-								tg::export::Skip::Object(object_complete) => {
-									if let Some(count) = object_complete.metadata.count {
-										progress.increment("objects", count);
-									}
-									if let Some(weight) = object_complete.metadata.weight {
-										progress.increment("bytes", weight);
-									}
-								},
-							},
-							Ok(tg::export::Event::End) => {
-								return;
-							},
-							Err(error) => {
-								progress.error(error);
-							},
-						}
-					}
-				}
-			});
-			let export_task_abort_handle = export_task.abort_handle();
-			scopeguard::defer! {
-				export_task_abort_handle.abort();
-			}
-
-			// Import.
-			let mut import_event_stream = pin!(import_event_stream);
-			while let Some(result) = import_event_stream.next().await {
-				match result {
-					Ok(tg::import::Event::Complete(complete)) => {
-						let event = tg::import::Event::Complete(complete);
-						import_complete_sender.send(Ok(event)).await.ok();
+		// Create the push future.
+		let push_future = async {
+			let mut push_stream = pin!(push_stream);
+			while let Some(message) = push_stream.try_next().await? {
+				match message {
+					tg::sync::Message::Progress(message) => {
+						progress.increment("processes", message.processes);
+						progress.increment("objects", message.objects);
+						progress.increment("bytes", message.bytes);
+						let mut output = output.lock().unwrap();
+						output.processes += message.processes;
+						output.objects += message.objects;
+						output.bytes += message.bytes;
 					},
-					Ok(tg::import::Event::Progress(import_progress)) => {
-						if let Some(processes) = import_progress.processes {
-							progress.increment("processes", processes);
-						}
-						progress.increment("objects", import_progress.objects);
-						progress.increment("bytes", import_progress.bytes);
+					tg::sync::Message::End => {
+						return Ok(());
 					},
-					Ok(tg::import::Event::End) => {
-						break 'a;
-					},
-					Err(error) => {
-						progress.error(error);
+					_ => {
+						push_sender.send(Ok(message.clone())).await.ok();
 					},
 				}
 			}
-		}
+			Err(tg::error!("the push did not send the end message"))
+		};
+
+		// Create the pull future.
+		let pull_future = async {
+			let mut pull_stream = pin!(pull_stream);
+			while let Some(message) = pull_stream.try_next().await? {
+				match message {
+					tg::sync::Message::Progress(message) => {
+						progress.increment("processes", message.processes);
+						progress.increment("objects", message.objects);
+						progress.increment("bytes", message.bytes);
+						let mut output = output.lock().unwrap();
+						output.processes += message.processes;
+						output.objects += message.objects;
+						output.bytes += message.bytes;
+					},
+					tg::sync::Message::End => {
+						return Ok(());
+					},
+					_ => {
+						pull_sender.send(Ok(message.clone())).await.ok();
+					},
+				}
+			}
+			Err(tg::error!("the pull did not send the end message"))
+		};
+
+		future::try_join(push_future, pull_future).await?;
 
 		progress.finish("processes");
 		progress.finish("objects");

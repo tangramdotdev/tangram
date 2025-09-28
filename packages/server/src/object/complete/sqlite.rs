@@ -1,7 +1,8 @@
 use {
 	crate::Server,
 	indoc::indoc,
-	rusqlite as sqlite, tangram_client as tg,
+	rusqlite::{self as sqlite, OptionalExtension},
+	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
 };
 
@@ -33,6 +34,30 @@ impl Server {
 
 		// Drop the connection.
 		drop(connection);
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_object_complete_sqlite_sync(
+		connection: &sqlite::Connection,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<bool>> {
+		// Get the object metadata.
+		let statement = indoc!(
+			"
+				select complete
+				from objects
+				where id = ?1;
+			",
+		);
+		let mut statement = connection
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let id_bytes = id.to_bytes();
+		let output = statement
+			.query_row([id_bytes.as_ref()], |row| row.get::<_, bool>(0))
+			.optional()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		Ok(output)
 	}

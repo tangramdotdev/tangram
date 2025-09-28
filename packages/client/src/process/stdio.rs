@@ -1,9 +1,20 @@
 use crate as tg;
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	Eq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(untagged)]
 pub enum Stdio {
+	#[tangram_serialize(id = 0)]
 	Pipe(tg::pipe::Id),
+	#[tangram_serialize(id = 1)]
 	Pty(tg::pty::Id),
 }
 

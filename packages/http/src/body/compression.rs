@@ -56,6 +56,7 @@ impl Compressor {
 		match self {
 			Self::Gzip(s) => {
 				s.write_all(data)?;
+				s.flush()?;
 				let buffer = s.get_mut();
 				let output = Bytes::copy_from_slice(buffer);
 				buffer.clear();
@@ -63,6 +64,7 @@ impl Compressor {
 			},
 			Self::Zstd(s) => {
 				s.write_all(data)?;
+				s.flush()?;
 				let buffer = s.get_mut();
 				let output = Bytes::copy_from_slice(buffer);
 				buffer.clear();
@@ -105,6 +107,7 @@ impl Decompressor {
 		match self {
 			Self::Gzip(s) => {
 				s.write_all(data)?;
+				s.flush()?;
 				let buffer = s.get_mut();
 				let output = Bytes::copy_from_slice(buffer);
 				buffer.clear();
@@ -112,6 +115,7 @@ impl Decompressor {
 			},
 			Self::Zstd(s) => {
 				s.write_all(data)?;
+				s.flush()?;
 				let buffer = s.get_mut();
 				let output = Bytes::copy_from_slice(buffer);
 				buffer.clear();

@@ -1,9 +1,21 @@
 use {crate as tg, lsp_types as lsp};
 
 /// A range in a string.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Range {
+	#[tangram_serialize(id = 0)]
 	pub start: tg::Position,
+	#[tangram_serialize(id = 1)]
 	pub end: tg::Position,
 }
 

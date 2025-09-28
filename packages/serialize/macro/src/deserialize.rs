@@ -91,17 +91,43 @@ impl Struct<'_> {
 			// Get the field idents.
 			let field_idents = fields.iter().map(|field| &field.ident).collect_vec();
 
-			// Separate fields into those with and without default attribute
-			let fields_with_default = fields.iter().filter(|field| field.default).collect_vec();
-			let fields_without_default = fields.iter().filter(|field| !field.default).collect_vec();
-
-			let default_field_idents = fields_with_default
+			// Separate fields into those with and without default attribute.
+			let fields_with_default = fields
 				.iter()
-				.map(|field| &field.ident)
+				.filter(|field| field.default.is_some())
 				.collect_vec();
+			let fields_without_default = fields
+				.iter()
+				.filter(|field| field.default.is_none())
+				.collect_vec();
+
 			let non_default_field_idents = fields_without_default
 				.iter()
 				.map(|field| &field.ident)
+				.collect_vec();
+
+			// Generate individual default assignment statements.
+			let default_field_statements = fields_with_default
+				.iter()
+				.map(|field| {
+					let field_ident = field.ident.as_ref().unwrap();
+					let default_path = field.default.as_ref().unwrap();
+					let default_call = if default_path.is_empty() {
+						// Use Default::default() if no custom function specified.
+						quote! { ::std::default::Default::default() }
+					} else {
+						// Use custom function path.
+						let path: proc_macro2::TokenStream = default_path.parse().unwrap();
+						quote! { #path() }
+					};
+					quote! {
+						let #field_ident = if let Some(value) = #field_ident {
+							value
+						} else {
+							#default_call
+						};
+					}
+				})
 				.collect_vec();
 
 			// Get the skipped fields.
@@ -163,11 +189,8 @@ impl Struct<'_> {
 					}
 				}
 
-				#(let #default_field_idents = if let Some(value) = #default_field_idents {
-					value
-				} else {
-					::std::default::Default::default()
-				};)*
+				// Handle default field assignments.
+				#(#default_field_statements)*
 
 				#(let #non_default_field_idents = #non_default_field_idents.ok_or_else(|| ::std::io::Error::new(::std::io::ErrorKind::Other, "Missing field."))?;)*
 

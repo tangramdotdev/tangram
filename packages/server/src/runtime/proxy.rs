@@ -167,22 +167,6 @@ impl tg::Handle for Proxy {
 		Ok(stream)
 	}
 
-	async fn import(
-		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static> {
-		self.server.import(arg, stream).await
-	}
-
-	async fn export(
-		&self,
-		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static> {
-		self.server.export(arg, stream).await
-	}
-
 	async fn pull(
 		&self,
 		arg: tg::pull::Arg,
@@ -214,6 +198,16 @@ impl tg::Handle for Proxy {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.server.create_blob(reader)
+	}
+
+	fn sync(
+		&self,
+		arg: tg::sync::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+	> {
+		self.server.sync(arg, stream)
 	}
 
 	fn try_read_blob_stream(

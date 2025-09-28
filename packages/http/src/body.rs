@@ -10,6 +10,7 @@ use {
 };
 
 pub use http_body_util::{Empty, Full};
+use num::ToPrimitive;
 
 pub mod and_then_frame;
 pub mod compression;
@@ -127,9 +128,34 @@ impl hyper::body::Body for Body {
 		match self.get_mut() {
 			Body::Empty => std::task::Poll::Ready(None),
 			Body::Bytes(option) => {
-				std::task::Poll::Ready(option.take().map(hyper::body::Frame::data).map(Ok))
+				let Some(bytes) = option.take() else {
+					return std::task::Poll::Ready(None);
+				};
+				let frame = hyper::body::Frame::data(bytes);
+				std::task::Poll::Ready(Some(Ok(frame)))
 			},
 			Body::Body(body) => pin!(body).poll_frame(cx),
+		}
+	}
+
+	fn is_end_stream(&self) -> bool {
+		match self {
+			Body::Empty => true,
+			Body::Bytes(option) => option.is_none(),
+			Body::Body(body) => body.is_end_stream(),
+		}
+	}
+
+	fn size_hint(&self) -> http_body::SizeHint {
+		match self {
+			Body::Empty => http_body::SizeHint::with_exact(0),
+			Body::Bytes(option) => {
+				let value = option
+					.as_ref()
+					.map_or(0, |bytes| bytes.len().to_u64().unwrap());
+				http_body::SizeHint::with_exact(value)
+			},
+			Body::Body(body) => body.size_hint(),
 		}
 	}
 }

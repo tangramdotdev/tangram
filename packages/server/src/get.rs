@@ -24,6 +24,7 @@ impl Server {
 				let stream = stream::once(future::ok(event));
 				Ok::<_, tg::Error>(stream.boxed())
 			},
+
 			tg::reference::Item::Object(object) => {
 				let item = Either::Right(object.clone());
 				let output = tg::get::Output {
@@ -33,6 +34,7 @@ impl Server {
 				let stream = stream::once(future::ok(event));
 				Ok::<_, tg::Error>(stream.boxed())
 			},
+
 			tg::reference::Item::Path(path) => {
 				let arg = tg::checkin::Arg {
 					destructive: false,
@@ -66,6 +68,7 @@ impl Server {
 				});
 				Ok::<_, tg::Error>(stream.boxed())
 			},
+
 			tg::reference::Item::Tag(tag) => {
 				let Some(tg::tag::get::Output { item, tag, .. }) = self.try_get_tag(tag).await?
 				else {

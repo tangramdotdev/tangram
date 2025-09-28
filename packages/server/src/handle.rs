@@ -82,16 +82,6 @@ impl tg::Handle for Server {
 		self.document(arg)
 	}
 
-	fn export(
-		&self,
-		arg: tg::export::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>,
-	> {
-		self.export(arg, stream)
-	}
-
 	#[cfg(not(feature = "v8"))]
 	fn format(&self, _arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
 		future::ready(Err(tg::error!(
@@ -106,16 +96,6 @@ impl tg::Handle for Server {
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		self.health()
-	}
-
-	fn import(
-		&self,
-		arg: tg::import::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::export::Event>> + Send + 'static>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::import::Event>> + Send + 'static>,
-	> {
-		self.import(arg, stream)
 	}
 
 	fn index(
@@ -175,6 +155,16 @@ impl tg::Handle for Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
 		self.create_blob(reader)
+	}
+
+	fn sync(
+		&self,
+		arg: tg::sync::Arg,
+		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+	> {
+		self.sync(arg, stream)
 	}
 
 	fn try_read_blob_stream(

@@ -47,7 +47,7 @@ struct Struct<'a> {
 }
 
 struct Field<'a> {
-	default: bool,
+	default: Option<String>,
 	deserialize_with: Option<String>,
 	display: bool,
 	from_str: bool,

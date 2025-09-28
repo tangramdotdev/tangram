@@ -10,11 +10,11 @@ use {
 mod blob;
 mod checksum;
 mod encoding;
-mod import;
 mod magic;
 mod object;
 mod process;
 mod sleep;
+mod sync;
 
 pub mod log;
 
@@ -43,7 +43,6 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
-		"import" => async_(scope, &args, self::import::import),
 		"log" => sync(scope, &args, self::log::log),
 		"magic" => self::magic::magic(scope, &args),
 		"object_get" => async_(scope, &args, self::object::get),
@@ -52,6 +51,7 @@ pub fn syscall<'s>(
 		"process_spawn" => async_(scope, &args, self::process::spawn),
 		"process_wait" => async_(scope, &args, self::process::wait),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
+		"sync" => async_(scope, &args, self::sync::sync),
 		_ => Err(tg::error!(%name, "unknown syscall")),
 	};
 

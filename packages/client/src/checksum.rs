@@ -7,7 +7,10 @@ use {crate as tg, sha2::Digest};
 	derive_more::Debug,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
+#[tangram_serialize(display, from_str)]
 #[debug("tg::Checksum(\"{self}\")")]
 pub struct Checksum {
 	algorithm: Algorithm,
