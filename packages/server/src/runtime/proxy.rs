@@ -538,7 +538,7 @@ impl tg::handle::Tag for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	async fn delete_tag(&self, _tag: &tg::Tag) -> tg::Result<()> {
+	async fn delete_tag(&self, _tag: &tg::Tag, _arg: tg::tag::delete::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 }

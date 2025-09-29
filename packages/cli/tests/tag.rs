@@ -1,6 +1,7 @@
 use {
 	insta::{assert_json_snapshot, assert_snapshot},
 	tangram_cli_test::{Server, assert_failure, assert_success},
+	tangram_client as tg,
 	tangram_temp::{self as temp, Temp},
 };
 
@@ -270,8 +271,9 @@ async fn remote_put() {
 		.unwrap();
 	assert_success!(remote_output);
 
-	let local_output = std::str::from_utf8(&local_output.stdout).unwrap();
-	let remote_output = std::str::from_utf8(&remote_output.stdout).unwrap();
-
-	assert_eq!(local_output, remote_output);
+	let local_output =
+		serde_json::from_slice::<tg::tag::get::Output>(&local_output.stdout).unwrap();
+	let remote_output =
+		serde_json::from_slice::<tg::tag::get::Output>(&remote_output.stdout).unwrap();
+	assert_eq!(local_output.item, remote_output.item);
 }

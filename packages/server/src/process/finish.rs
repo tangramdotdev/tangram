@@ -19,10 +19,6 @@ impl Server {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let client = self.get_remote_client(remote.clone()).await?;
-			let arg = tg::process::finish::Arg {
-				remote: None,
-				..arg.clone()
-			};
 			client.finish_process(id, arg).await?;
 			return Ok(());
 		}

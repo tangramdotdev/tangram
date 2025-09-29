@@ -14,11 +14,8 @@ impl Server {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			let arg = tg::tag::put::Arg {
-				remote: None,
-				..arg.clone()
-			};
 			remote.put_tag(tag, arg).await?;
+			return Ok(());
 		}
 
 		// Insert the tag into the database.

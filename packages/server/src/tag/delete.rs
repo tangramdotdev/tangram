@@ -1,7 +1,7 @@
 use {
 	crate::{Server, database::Database},
 	tangram_client as tg,
-	tangram_http::{Body, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
@@ -10,7 +10,14 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub async fn delete_tag(&self, tag: &tg::Tag) -> tg::Result<()> {
+	pub async fn delete_tag(&self, tag: &tg::Tag, mut arg: tg::tag::delete::Arg) -> tg::Result<()> {
+		// If the remote arg is set, then forward the request.
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
+			remote.delete_tag(tag, arg).await?;
+			return Ok(());
+		}
+
 		// Delete the tag from the database.
 		match &self.database {
 			#[cfg(feature = "postgres")]
@@ -38,7 +45,7 @@ impl Server {
 
 	pub(crate) async fn handle_delete_tag_request<H>(
 		handle: &H,
-		_request: http::Request<Body>,
+		request: http::Request<Body>,
 		tag: &[&str],
 	) -> tg::Result<http::Response<Body>>
 	where
@@ -48,7 +55,8 @@ impl Server {
 			.join("/")
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
-		handle.delete_tag(&tag).await?;
+		let arg = request.json().await?;
+		handle.delete_tag(&tag, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}
