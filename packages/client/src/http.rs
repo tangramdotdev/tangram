@@ -2,7 +2,6 @@ use {
 	crate as tg,
 	futures::TryFutureExt as _,
 	std::{
-		collections::VecDeque,
 		path::{Path, PathBuf},
 		str::FromStr,
 		sync::Arc,
@@ -462,40 +461,6 @@ impl tg::Client {
 	}
 
 	pub(crate) async fn send(
-		&self,
-		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>> {
-		if request.body().try_clone().is_some() {
-			self.send_with_retry(request).await
-		} else {
-			self.send_without_retry(request).await
-		}
-	}
-
-	async fn send_with_retry(
-		&self,
-		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>> {
-		let mut retries = VecDeque::from([100, 1000]);
-		let (head, body) = request.into_parts();
-		loop {
-			let request = http::Request::from_parts(head.clone(), body.try_clone().unwrap());
-			let result = self.send_without_retry(request).await;
-			let is_error = result.is_err();
-			let is_server_error =
-				matches!(&result, Ok(response) if response.status().is_server_error());
-			if is_error || is_server_error {
-				if let Some(duration) = retries.pop_front() {
-					let duration = Duration::from_millis(duration);
-					tokio::time::sleep(duration).await;
-					continue;
-				}
-			}
-			return result;
-		}
-	}
-
-	async fn send_without_retry(
 		&self,
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>> {
