@@ -7,7 +7,6 @@ use {
 	bytes::Bytes,
 	futures::{FutureExt as _, TryFutureExt as _, prelude::*, stream::FuturesOrdered},
 	num::ToPrimitive as _,
-	std::error::Error as _,
 };
 
 #[derive(Clone)]
@@ -158,18 +157,7 @@ impl Messenger {
 			.map_err(Error::other)?
 			.into_future()
 			.map_ok(|ack| ack.sequence)
-			.map_err(|error| {
-				let code = error
-					.source()
-					.unwrap()
-					.downcast_ref::<nats::jetstream::Error>()
-					.unwrap()
-					.error_code();
-				if matches!(code, nats::jetstream::ErrorCode::STREAM_STORE_FAILED) {
-					return Error::MaxBytes;
-				}
-				Error::other(error)
-			});
+			.map_err(Error::other);
 		Ok(future)
 	}
 
