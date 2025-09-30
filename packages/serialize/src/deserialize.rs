@@ -2,7 +2,7 @@ use {
 	crate::{Deserializer, Kind},
 	std::{
 		collections::{BTreeMap, BTreeSet},
-		io::{Error, Read, Result},
+		io::{Error, Read, Result, Seek},
 		sync::Arc,
 	},
 };
@@ -10,22 +10,22 @@ use {
 pub trait Deserialize: Sized {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read;
+		R: Read + Seek;
 }
 
 impl Deserialize for () {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
-		deserializer.deserialize_unit()
+		deserializer.deserialize_null()
 	}
 }
 
 impl Deserialize for bool {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer.deserialize_bool()
 	}
@@ -36,7 +36,7 @@ macro_rules! uvarint {
 		impl Deserialize for $t {
 			fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 			where
-				R: Read,
+				R: Read + Seek,
 			{
 				let value = deserializer.deserialize_uvarint()?;
 				let value = value
@@ -58,7 +58,7 @@ macro_rules! ivarint {
 		impl Deserialize for $t {
 			fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 			where
-				R: Read,
+				R: Read + Seek,
 			{
 				let value = deserializer.deserialize_ivarint()?;
 				let value = value
@@ -78,7 +78,7 @@ ivarint!(i64);
 impl Deserialize for usize {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let value = deserializer.deserialize_uvarint()?;
 		let value = value.try_into().map_err(std::io::Error::other)?;
@@ -89,7 +89,7 @@ impl Deserialize for usize {
 impl Deserialize for isize {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let value = deserializer.deserialize_ivarint()?;
 		let value = value.try_into().map_err(std::io::Error::other)?;
@@ -100,7 +100,7 @@ impl Deserialize for isize {
 impl Deserialize for f32 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer.deserialize_f32()
 	}
@@ -109,7 +109,7 @@ impl Deserialize for f32 {
 impl Deserialize for f64 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer.deserialize_f64()
 	}
@@ -118,7 +118,7 @@ impl Deserialize for f64 {
 impl<const N: usize> Deserialize for [u8; N] {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer
 			.deserialize_bytes()?
@@ -133,9 +133,17 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
-		deserializer.deserialize_option()
+		let start = deserializer.position()?;
+		let kind = deserializer.read_kind()?;
+		if kind == Kind::Null {
+			Ok(None)
+		} else {
+			deserializer.seek(start)?;
+			let value = deserializer.deserialize()?;
+			Ok(Some(value))
+		}
 	}
 }
 
@@ -146,7 +154,7 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer.ensure_kind(Kind::Enum)?;
 		let id = deserializer.read_id()?;
@@ -167,7 +175,7 @@ where
 impl Deserialize for String {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer.deserialize_string()
 	}
@@ -176,7 +184,7 @@ impl Deserialize for String {
 impl Deserialize for std::path::PathBuf {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let path_str = deserializer.deserialize_string()?;
 		Ok(std::path::PathBuf::from(path_str))
@@ -186,7 +194,7 @@ impl Deserialize for std::path::PathBuf {
 impl Deserialize for Arc<str> {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let value = deserializer.deserialize_string()?;
 		let value = value.into();
@@ -200,7 +208,7 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		Ok(Self::new(deserializer.deserialize()?))
 	}
@@ -212,7 +220,7 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		Ok(Self::new(deserializer.deserialize()?))
 	}
@@ -225,7 +233,7 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let t = deserializer.deserialize()?;
 		let u = deserializer.deserialize()?;
@@ -239,7 +247,7 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer.deserialize_array()
 	}
@@ -251,7 +259,7 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		deserializer
 			.deserialize_array()
@@ -266,7 +274,7 @@ where
 {
 	fn deserialize<R>(deserializer: &mut Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let value = deserializer.deserialize_map()?;
 		let value = value.into_iter().collect();
@@ -278,7 +286,7 @@ where
 impl Deserialize for bytes::Bytes {
 	fn deserialize<R>(deserializer: &mut crate::Deserializer<R>) -> std::io::Result<Self>
 	where
-		R: std::io::Read,
+		R: std::io::Read + std::io::Seek,
 	{
 		Ok(bytes::Bytes::from(deserializer.deserialize_bytes()?))
 	}
@@ -288,7 +296,7 @@ impl Deserialize for bytes::Bytes {
 impl Deserialize for url::Url {
 	fn deserialize<R>(deserializer: &mut crate::Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let value = deserializer.deserialize_string()?;
 		let url = value.parse().map_err(Error::other)?;

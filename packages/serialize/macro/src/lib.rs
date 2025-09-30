@@ -65,6 +65,7 @@ struct Enum<'a> {
 	ident: &'a syn::Ident,
 	into: Option<syn::Type>,
 	try_from: Option<syn::Type>,
+	untagged: bool,
 	variants: Vec<Variant<'a>>,
 }
 

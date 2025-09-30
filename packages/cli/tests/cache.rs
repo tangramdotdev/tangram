@@ -25,7 +25,7 @@ async fn directory() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_015nxhedsebk1vassrgs1kypbdfg56j3v49k3v0e6n899gny8evjng": {
+	    "dir_01seeyzrw1z6n5ekzj4858fxp1eqnr3s2mh1x5taajbq6m8237e57g": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -34,7 +34,7 @@ async fn directory() {
 	        }
 	      }
 	    },
-	    "fil_01ab391rmw9mcb7ra82y741x6shh96tg7g63djndaemaq1gz2zrd50": {
+	    "fil_01vjrnapxxd037hpq3sbd2wb9bp5czqtavp57ve9x6ap6dxdgbbf8g": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": \"Hello, World!\",\n\t});\n}\n"
 	    }
@@ -59,11 +59,11 @@ async fn file() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00": {
+	    "fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60": {
 	      "kind": "file",
 	      "contents": "Hello, World!"
 	    },
-	    "fil_01we83e22gns6qqy6j7ygxkvpgs5cywfbzv2hkyd94n16j5rv0m0tg": {
+	    "fil_01cdpb7y42700ea0vpjjdd99r7dbt2dw97z8r86w0nxj05ypc5pwm0": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.file(\"Hello, World!\");\n}\n"
 	    }
@@ -88,14 +88,14 @@ async fn executable_file() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "fil_0199fj35x8ck4wcq13bdvwkg5www2jvvc269r77kw6ttj85g9sjcfg": {
-	      "kind": "file",
-	      "contents": "export default () => {\n\treturn tg.file(\"Hello, World!\", { executable: true });\n}\n"
-	    },
-	    "fil_01jt5z2knevk3bmxj738veen9qtc674y9d33nrjk19pqc42fez6kjg": {
+	    "fil_018gyv78y738ns83fmn1rrsvfs8fey4dqv8ygbx02khbka4kh67wc0": {
 	      "kind": "file",
 	      "contents": "Hello, World!",
 	      "executable": true
+	    },
+	    "fil_01sypjs1f3tceazrht9bcq8zhtp7hkbzeys0sv23g5yytd3p266ksg": {
+	      "kind": "file",
+	      "contents": "export default () => {\n\treturn tg.file(\"Hello, World!\", { executable: true });\n}\n"
 	    }
 	  }
 	}
@@ -121,7 +121,7 @@ async fn directory_with_two_identical_files() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01b8yvtd48c6k6rvm3fkfj870qn56zesp2593t1sjkm7qf7cbd1mr0": {
+	    "dir_01znw0wfjs8s24cfqv0ebkbfne6r61mgr8w1pk8xjn9h38sxmkc950": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -134,7 +134,7 @@ async fn directory_with_two_identical_files() {
 	        }
 	      }
 	    },
-	    "fil_019zw38hy6s55emdrt5c1sn8zqhyq5gzy9n94vnmt761fg6b7zg0e0": {
+	    "fil_01xn2kf70vf7xfa9523df88b16r4wzf2dawhw5twvcthvk8evygjeg": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": \"Hello, World!\",\n\t\t\"world.txt\": \"Hello, World!\",\n\t});\n}\n"
 	    }
@@ -163,15 +163,15 @@ async fn file_with_dependency() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "fil_014fr29kstq7da0d7q658r9ahm279znng5fhxfzph8bhdr40g71agg": {
+	    "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
 	      "kind": "file",
 	      "contents": "bar"
 	    },
-	    "fil_01amfa43614nxvbezdxn3mrt9m65gg037tgvw91ecbra521jhj6mc0": {
+	    "fil_01epw23z8dy6w1w2tfvhzs8mdtr6zye7ackxcdhkjt7174bd5y73jg": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.file(\"foo\", {\n\t\tdependencies: {\n\t\t\t\"bar\": tg.file(\"bar\"),\n\t\t},\n\t});\n}\n"
 	    },
-	    "fil_01zypw2x59k9q5g4at7nqs2kdeqdv21583435kxx9rsjz8z3fe17n0": {
+	    "fil_01y9hzys1sk7wvz699bh0ntymbexydsg5r00j72ebe9ezravxg14z0": {
 	      "kind": "file",
 	      "contents": "foo",
 	      "xattrs": {
@@ -199,11 +199,11 @@ async fn symlink() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "fil_0100cegr3mk77acak3kp8nmdvxkvp5egt5sa1jnt61xfq91q71p10g": {
+	    "fil_01j2905wk3r0yr5q75zj04r0mn3s8qvkyaxvfq7bc57mxst4e10wcg": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.symlink(\"/bin/sh\");\n}\n"
 	    },
-	    "sym_01wcsacv99pffr6zgsndnehtpqjeds7scp617mjr355b2797b3nzmg": {
+	    "sym_01a5tvcfq8dj5pdwe4v5q0g0mjfk2b4daazgb8e9vbsd3ksd1j368g": {
 	      "kind": "symlink",
 	      "path": "/bin/sh"
 	    }
@@ -231,7 +231,7 @@ async fn directory_with_symlink() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01wrj3pfw1qdyvht69c0d2srxc6b7fax0p1y9ekh7bke6caf1gkkjg": {
+	    "dir_01rjms5m47grw9t14mx2se2r8rj80k69gcf51h1q8rk36mbs2k1zp0": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -244,7 +244,7 @@ async fn directory_with_symlink() {
 	        }
 	      }
 	    },
-	    "fil_01h9219whd8eh68hwp674s9jbwd34nn5g9h5gh589athfg5z2z71tg": {
+	    "fil_01j4xxv6f6stf4z86v1qrapykseyavd50nykezzccdv8jemrz1gs10": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": tg.file(\"Hello, World!\"),\n\t\t\"link\": tg.symlink(\"hello.txt\"),\n\t});\n}\n"
 	    }
@@ -275,7 +275,7 @@ async fn directory_with_file_with_dependency() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01zexm3zwna9arqk6kb15vp40sqtrj7nzq07pcxqs2japt89ty9pg0": {
+	    "dir_010x4r0f0stj6t4hwfmgr2mg5aa5pn58513cxcxaehq0f1m5yvyk10": {
 	      "kind": "directory",
 	      "entries": {
 	        "foo": {
@@ -287,13 +287,13 @@ async fn directory_with_file_with_dependency() {
 	        }
 	      }
 	    },
-	    "fil_014fr29kstq7da0d7q658r9ahm279znng5fhxfzph8bhdr40g71agg": {
-	      "kind": "file",
-	      "contents": "bar"
-	    },
-	    "fil_01nt6dnj1pgg71k8jqjjy23z31tfrhd2j6gh22b6dsc5dn2qk8z450": {
+	    "fil_0101xcwnyk8v568vmb65ytg3ffm0nrzacvzpm8pzw6vtffnc2pwz70": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.directory({\n\t\tfoo: tg.file(\"foo\", {\n\t\t\tdependencies: {\n\t\t\t\t\"bar\": tg.file(\"bar\"),\n\t\t\t},\n\t\t}),\n\t});\n}\n"
+	    },
+	    "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
+	      "kind": "file",
+	      "contents": "bar"
 	    }
 	  }
 	}
@@ -318,20 +318,20 @@ async fn directory_with_symlink_with_dependency() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01m94jq9ya92azhgrkj09c5k9axk3ybqmv0wz3qmf26vyqh74qjrz0": {
+	    "dir_0193cpm5b23112tkpy0cskavrkyve7qbzkf3s3rzg0jp3k4kagsbx0": {
 	      "kind": "directory",
 	      "entries": {
 	        "foo": {
 	          "kind": "symlink",
-	          "path": "../fil_014fr29kstq7da0d7q658r9ahm279znng5fhxfzph8bhdr40g71agg"
+	          "path": "../fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g"
 	        }
 	      }
 	    },
-	    "fil_014fr29kstq7da0d7q658r9ahm279znng5fhxfzph8bhdr40g71agg": {
+	    "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
 	      "kind": "file",
 	      "contents": "bar"
 	    },
-	    "fil_01js4h4ght83twa65g2h81z43shfybxb1v4rwcka5nzm4rgbaytjm0": {
+	    "fil_01qt7gahyfjc54fw0f3qcm79ft5bcg8q10qagvjn3zvgpyvxdm0j0g": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.directory({\n\t\tfoo: tg.symlink(tg.file(\"bar\")),\n\t});\n}\n"
 	    }
@@ -366,7 +366,7 @@ async fn graph_directory() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_017r9tkq9cced8gdp62p83dx1s2ascadrgxwh8m81twxqv57xrjedg": {
+	    "dir_01n5cfedwwmqc5g4j80460jvgenx6t2vsv76khxe632nmr3jk73000": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -375,7 +375,7 @@ async fn graph_directory() {
 	        }
 	      }
 	    },
-	    "fil_01e274jafxy40xthwexrmnqyaz01qzn25z9qebmkmme1pxbn4jnx90": {
+	    "fil_01pdv2pv605gzfsq8frpbh2r6s4ms5wbw14qbvdykzxd0nvqgy2g90": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: {\n\t\t\t\t\t\"hello.txt\": tg.file(\"Hello, World!\")\n\t\t\t\t}\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.directory({ graph, node: 0 });\n}\n"
 	    }
@@ -408,11 +408,11 @@ async fn graph_file() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "fil_017jbt8bpwx6mfe2vzw0f7syajknz89jx1pjfpzcnf36ab647tams0": {
+	    "fil_01frvykaz0sqdpbcpwncqjrv9m6bqrnykbhs3mj3hq70c9a1430rm0": {
 	      "kind": "file",
 	      "contents": "Hello, World!"
 	    },
-	    "fil_01ecd5b9abhhq8ntrvjjpg2t7tqygx378fx29697553wcxmsxtsch0": {
+	    "fil_01fycg10ma8gthk5fj67y6khanprs5n6aszm3ma89egy07edqkcf2g": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"file\",\n\t\t\t\tcontents: \"Hello, World!\",\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.file({ graph, node: 0 });\n}\n"
 	    }
@@ -445,11 +445,11 @@ async fn graph_symlink() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "fil_01bd942ejhym84rqdpmryxk41qqtp1bhgpes0ry481gag4wp6r3ghg": {
+	    "fil_01crgmht1kc9kanrnvqff480c3dn68wrq3xa6ajrrpqep1ew113me0": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tpath: \"/bin/sh\",\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({ graph, node: 0 });\n}\n"
 	    },
-	    "sym_01tka6c2r1f2367zvznc58mhscp372kdbqk79w121j00grn2fa0d5g": {
+	    "sym_01j4terqyd7btz9tm8wsh4ybwavbkt8dnc512p9mewa140hsdg7ydg": {
 	      "kind": "symlink",
 	      "path": "/bin/sh"
 	    }
@@ -487,7 +487,7 @@ async fn directory_with_symlink_cycle() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01h6rfmj742k64qgyc30yk88vefpm24afvhv5z70pqjqwa46x4mgm0": {
+	    "dir_01pgw3y7cs7x7mbmxjc1p7k8knknxkbaatm226fmg0ae464mbshtpg": {
 	      "kind": "directory",
 	      "entries": {
 	        "link": {
@@ -496,7 +496,7 @@ async fn directory_with_symlink_cycle() {
 	        }
 	      }
 	    },
-	    "fil_01jc7emyabnm7d89w79z0nsv3m275qx0p906bdcj36gwn9f75ys47g": {
+	    "fil_01wpf3x2k8gr2gb974hs75ynzzb6pnev5xt2r1zyn9m0ct4t1dq0e0": {
 	      "kind": "file",
 	      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: { link: { node: 1 } },\n\t\t\t},\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tartifact: { node: 0 },\n\t\t\t\tpath: \"link\",\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({ graph, node: 0 });\n}\n"
 	    }

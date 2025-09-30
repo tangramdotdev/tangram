@@ -265,7 +265,7 @@ where
 		deserializer: &mut tangram_serialize::Deserializer<R_>,
 	) -> std::result::Result<Self, std::io::Error>
 	where
-		R_: std::io::Read,
+		R_: std::io::Read + std::io::Seek,
 	{
 		deserializer.ensure_kind(tangram_serialize::Kind::Enum)?;
 		let id = deserializer.read_id()?;

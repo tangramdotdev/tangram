@@ -18,7 +18,7 @@ impl Serialize for () {
 	where
 		W: Write,
 	{
-		serializer.serialize_unit()
+		serializer.serialize_null()
 	}
 }
 
@@ -120,7 +120,10 @@ where
 	where
 		W: Write,
 	{
-		serializer.serialize_option(self)
+		match self {
+			Some(value) => serializer.serialize(value),
+			None => serializer.serialize_null(),
+		}
 	}
 }
 

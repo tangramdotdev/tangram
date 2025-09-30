@@ -250,6 +250,7 @@ impl<'a> Enum<'a> {
 		let mut from_str = false;
 		let mut into = None;
 		let mut try_from = None;
+		let mut untagged = false;
 
 		// Get the tangram_serialize attr.
 		let attr = input
@@ -274,6 +275,9 @@ impl<'a> Enum<'a> {
 					let value = meta.value()?;
 					let lit: syn::LitStr = value.parse()?;
 					try_from = Some(lit.parse()?);
+					Ok(())
+				} else if meta.path.is_ident("untagged") {
+					untagged = true;
 					Ok(())
 				} else {
 					Err(meta.error("unsupported attribute"))
@@ -303,6 +307,34 @@ impl<'a> Enum<'a> {
 			));
 		}
 
+		if untagged && display {
+			return Err(syn::Error::new_spanned(
+				input,
+				"untagged attribute cannot be used together with display attribute",
+			));
+		}
+
+		if untagged && from_str {
+			return Err(syn::Error::new_spanned(
+				input,
+				"untagged attribute cannot be used together with from_str attribute",
+			));
+		}
+
+		if untagged && into.is_some() {
+			return Err(syn::Error::new_spanned(
+				input,
+				"untagged attribute cannot be used together with into attribute",
+			));
+		}
+
+		if untagged && try_from.is_some() {
+			return Err(syn::Error::new_spanned(
+				input,
+				"untagged attribute cannot be used together with try_from attribute",
+			));
+		}
+
 		// Parse the variants.
 		let mut variants = data
 			.variants
@@ -310,8 +342,10 @@ impl<'a> Enum<'a> {
 			.map(Variant::parse)
 			.collect::<syn::Result<Vec<_>>>()?;
 
-		// Sort the variants by ID.
-		variants.sort_by_key(|field| field.id);
+		// Sort the variants by ID if not untagged.
+		if !untagged {
+			variants.sort_by_key(|field| field.id);
+		}
 
 		// Create the enum.
 		let enum_ = Enum {
@@ -321,6 +355,7 @@ impl<'a> Enum<'a> {
 			generics: &input.generics,
 			into,
 			try_from,
+			untagged,
 			variants,
 		};
 

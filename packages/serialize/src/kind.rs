@@ -1,7 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
 #[num_traits = "num"]
 pub enum Kind {
-	Unit = 0,
+	Null = 0,
 
 	Bool = 1,
 
@@ -14,10 +14,9 @@ pub enum Kind {
 	String = 6,
 	Bytes = 7,
 
-	Option = 8,
-	Array = 9,
-	Map = 10,
+	Array = 8,
+	Map = 9,
 
-	Struct = 11,
-	Enum = 12,
+	Struct = 10,
+	Enum = 11,
 }

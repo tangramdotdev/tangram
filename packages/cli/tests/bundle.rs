@@ -99,7 +99,7 @@ async fn directory_containing_file_with_file_dependency() {
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "fil_01hszfh8hddz0ms87xkcb0f13cyn8j8ctt6gqbf47b33sskyw003eg": {
+	            "fil_0143v1bnvb04nrjr0y1x07wwmkv3873ybk9ap6g0a8bjtva5cathmg": {
 	              "kind": "file",
 	              "contents": "dependency"
 	            }
@@ -156,7 +156,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "dir_01pxd4f2rnmdtn1j4z9geze45wbxqg8sj919ay68ja88g0cvncbwn0": {
+	            "dir_01y7rmc2c0zq98v8y0mm0st5r2j19k23gv2kkf5e8y9yt9z0p4ymcg": {
 	              "kind": "directory",
 	              "entries": {
 	                "dep": {
@@ -232,7 +232,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "dir_012kp3nfs247xpzkq36sgnatz15rw7acjqr6jgr03etxxn9ayy28q0": {
+	            "dir_014pnhk0m6b28tajqw57mq77pvkj357tnpresx03qmgwng5pk2vxdg": {
 	              "kind": "directory",
 	              "entries": {
 	                "a": {
@@ -241,7 +241,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 	                }
 	              }
 	            },
-	            "dir_01rfyc4mfh0qzgmqyza9tw6jye72nqzw689rm9cn2ttweqy7arvhe0": {
+	            "dir_01vkfa3jrd2a5n0z1pwwt9a6hxsb5rpdhtgzdayqg40y4ytk29y6n0": {
 	              "kind": "directory",
 	              "entries": {
 	                "dep": {
@@ -250,7 +250,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 	                },
 	                "link": {
 	                  "kind": "symlink",
-	                  "path": "../../../.tangram/artifacts/dir_012kp3nfs247xpzkq36sgnatz15rw7acjqr6jgr03etxxn9ayy28q0/a"
+	                  "path": "../../../.tangram/artifacts/dir_014pnhk0m6b28tajqw57mq77pvkj357tnpresx03qmgwng5pk2vxdg/a"
 	                }
 	              }
 	            }

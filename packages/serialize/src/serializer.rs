@@ -67,8 +67,8 @@ where
 		Ok(())
 	}
 
-	pub fn serialize_unit(&mut self) -> Result<()> {
-		self.write_kind(Kind::Unit)?;
+	pub fn serialize_null(&mut self) -> Result<()> {
+		self.write_kind(Kind::Null)?;
 		Ok(())
 	}
 
@@ -114,20 +114,6 @@ where
 		self.write_kind(Kind::Bytes)?;
 		self.write_len(value.len())?;
 		self.0.write_all(value)?;
-		Ok(())
-	}
-
-	pub fn serialize_option<T>(&mut self, value: &Option<T>) -> Result<()>
-	where
-		T: Serialize,
-	{
-		self.write_kind(Kind::Option)?;
-		if let Some(value) = value {
-			self.0.write_u8(1)?;
-			self.serialize(value)?;
-		} else {
-			self.0.write_u8(0)?;
-		}
 		Ok(())
 	}
 

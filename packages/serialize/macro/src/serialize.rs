@@ -202,7 +202,121 @@ impl Enum<'_> {
 		let ident = self.ident;
 
 		// Generate the body.
-		let body = if let Some(into) = self.into {
+		let body = if self.untagged {
+			// For untagged enums, serialize variant data without Kind::Enum wrapper and variant ID.
+			let unit_variants = self
+				.variants
+				.iter()
+				.filter(|variant| matches!(variant.kind, VariantKind::Unit))
+				.collect_vec();
+			let tuple_variants = self
+				.variants
+				.iter()
+				.filter(|variant| matches!(variant.kind, VariantKind::Tuple(_)))
+				.collect_vec();
+			let struct_variants = self
+				.variants
+				.iter()
+				.filter(|variant| matches!(variant.kind, VariantKind::Struct(_)))
+				.collect_vec();
+
+			let unit_variant_idents = unit_variants
+				.iter()
+				.map(|variant| &variant.ident)
+				.collect_vec();
+
+			let tuple_variant_idents = tuple_variants
+				.iter()
+				.map(|variant| &variant.ident)
+				.collect_vec();
+			let tuple_field_patterns = tuple_variants
+				.iter()
+				.map(|variant| {
+					if let VariantKind::Tuple(types) = &variant.kind {
+						let field_names = (0..types.len())
+							.map(|i| {
+								syn::Ident::new(
+									&format!("field_{i}"),
+									proc_macro2::Span::call_site(),
+								)
+							})
+							.collect_vec();
+						quote! { ( #(#field_names),* ) }
+					} else {
+						unreachable!()
+					}
+				})
+				.collect_vec();
+			let tuple_field_serializations = tuple_variants
+				.iter()
+				.map(|variant| {
+					if let VariantKind::Tuple(types) = &variant.kind {
+						let field_names = (0..types.len())
+							.map(|i| {
+								syn::Ident::new(
+									&format!("field_{i}"),
+									proc_macro2::Span::call_site(),
+								)
+							})
+							.collect_vec();
+						quote! {
+							#(serializer.serialize(#field_names)?;)*
+						}
+					} else {
+						unreachable!()
+					}
+				})
+				.collect_vec();
+
+			let struct_variant_idents = struct_variants
+				.iter()
+				.map(|variant| &variant.ident)
+				.collect_vec();
+			let struct_field_patterns = struct_variants
+				.iter()
+				.map(|variant| {
+					if let VariantKind::Struct(fields) = &variant.kind {
+						let field_names = fields.iter().map(|field| &field.ident).collect_vec();
+						quote! { { #(#field_names),* } }
+					} else {
+						unreachable!()
+					}
+				})
+				.collect_vec();
+			let struct_field_serializations = struct_variants
+				.iter()
+				.map(|variant| {
+					if let VariantKind::Struct(fields) = &variant.kind {
+						let field_names = fields.iter().map(|field| &field.ident).collect_vec();
+						quote! {
+							#(serializer.serialize(#field_names)?;)*
+						}
+					} else {
+						unreachable!()
+					}
+				})
+				.collect_vec();
+
+			quote! {
+				match self {
+					// Handle unit variants - just serialize unit.
+					#(#ident::#unit_variant_idents => {
+						serializer.serialize(&())?;
+					})*
+
+					// Handle tuple variants - serialize fields directly.
+					#(#ident::#tuple_variant_idents #tuple_field_patterns => {
+						#tuple_field_serializations
+					})*
+
+					// Handle struct variants - serialize fields directly.
+					#(#ident::#struct_variant_idents #struct_field_patterns => {
+						#struct_field_serializations
+					})*
+				}
+				Ok(())
+			}
+		} else if let Some(into) = self.into {
 			quote! {
 				// Convert the value.
 				let s: #into = self.clone().into();

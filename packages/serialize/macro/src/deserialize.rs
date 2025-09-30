@@ -229,7 +229,7 @@ impl Struct<'_> {
 			{
 				fn deserialize<R>(deserializer: &mut tangram_serialize::Deserializer<R>) -> ::std::io::Result<Self>
 				where
-					R: ::std::io::Read,
+					R: ::std::io::Read + ::std::io::Seek,
 				{
 					#body
 				}
@@ -246,7 +246,75 @@ impl Enum<'_> {
 		let ident = self.ident;
 
 		// Generate the body.
-		let body = if self.from_str {
+		let body = if self.untagged {
+			// For untagged enums, try each variant in order with backtracking.
+			let variant_attempts = self.variants.iter().map(|variant| {
+				let variant_ident = variant.ident;
+				match &variant.kind {
+					VariantKind::Unit => {
+						quote! {
+							deserializer.seek(start)?;
+							match deserializer.deserialize::<()>() {
+								::std::result::Result::Ok(_) => {
+									return ::std::result::Result::Ok(#ident::#variant_ident);
+								},
+								::std::result::Result::Err(_) => {},
+							}
+						}
+					},
+					VariantKind::Tuple(types) => {
+						let field_names = (0..types.len())
+							.map(|i| quote::format_ident!("field_{}", i))
+							.collect_vec();
+						let field_deserializations = field_names
+							.iter()
+							.map(|field_name| {
+								quote! {
+									let #field_name = match deserializer.deserialize() {
+										::std::result::Result::Ok(value) => value,
+										::std::result::Result::Err(_) => break,
+									};
+								}
+							})
+							.collect_vec();
+						quote! {
+							deserializer.seek(start)?;
+							loop {
+								#(#field_deserializations)*
+								return ::std::result::Result::Ok(#ident::#variant_ident(#(#field_names),*));
+							}
+						}
+					},
+					VariantKind::Struct(fields) => {
+						let field_names = fields.iter().map(|f| f.ident).collect_vec();
+						let field_deserializations = field_names
+							.iter()
+							.map(|field_name| {
+								quote! {
+									let #field_name = match deserializer.deserialize() {
+										::std::result::Result::Ok(value) => value,
+										::std::result::Result::Err(_) => break,
+									};
+								}
+							})
+							.collect_vec();
+						quote! {
+							deserializer.seek(start)?;
+							loop {
+								#(#field_deserializations)*
+								return ::std::result::Result::Ok(#ident::#variant_ident { #(#field_names),* });
+							}
+						}
+					},
+				}
+			}).collect_vec();
+
+			quote! {
+				let start = deserializer.position()?;
+				#(#variant_attempts)*
+				::std::result::Result::Err(::std::io::Error::new(::std::io::ErrorKind::Other, "No variant matched for untagged enum"))
+			}
+		} else if self.from_str {
 			quote! {
 				let display_string: String = deserializer.deserialize()?;
 				let value = display_string.parse().map_err(|error| ::std::io::Error::new(::std::io::ErrorKind::Other, format!("{}", error)))?;
@@ -397,7 +465,7 @@ impl Enum<'_> {
 			{
 				fn deserialize<R>(deserializer: &mut tangram_serialize::Deserializer<R>) -> ::std::io::Result<Self>
 				where
-					R: ::std::io::Read,
+					R: ::std::io::Read + ::std::io::Seek,
 				{
 					#body
 				}

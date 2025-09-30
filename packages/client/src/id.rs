@@ -330,7 +330,7 @@ impl tangram_serialize::Deserialize for Id {
 		deserializer: &mut tangram_serialize::Deserializer<R>,
 	) -> std::io::Result<Self>
 	where
-		R: std::io::Read,
+		R: std::io::Read + std::io::Seek,
 	{
 		let bytes = deserializer.deserialize_bytes()?;
 		let id = Self::from_slice(&bytes).map_err(std::io::Error::other)?;

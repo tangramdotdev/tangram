@@ -1,11 +1,11 @@
 use {
 	crate::{Deserialize, Kind, Serialize},
-	std::io::{Read, Result, Write},
+	std::io::{Read, Result, Seek, Write},
 };
 
 #[derive(Clone, Debug)]
 pub enum Value {
-	Unit(()),
+	Null,
 
 	Bool(bool),
 
@@ -18,7 +18,6 @@ pub enum Value {
 	String(String),
 	Bytes(Vec<u8>),
 
-	Option(Option<Box<Value>>),
 	Array(Vec<Value>),
 	Map(Vec<(Value, Value)>),
 
@@ -49,8 +48,8 @@ impl Serialize for Value {
 		W: Write,
 	{
 		match self {
-			Value::Unit(()) => {
-				serializer.serialize_unit()?;
+			Value::Null => {
+				serializer.serialize_null()?;
 			},
 			Value::Bool(value) => {
 				serializer.serialize_bool(*value)?;
@@ -72,9 +71,6 @@ impl Serialize for Value {
 			},
 			Value::Bytes(value) => {
 				serializer.serialize_bytes(value)?;
-			},
-			Value::Option(value) => {
-				serializer.serialize_option(value)?;
 			},
 			Value::Array(value) => {
 				serializer.serialize_array(value.len(), value)?;
@@ -104,11 +100,11 @@ impl Serialize for Value {
 impl Deserialize for Value {
 	fn deserialize<R>(deserializer: &mut crate::Deserializer<R>) -> Result<Self>
 	where
-		R: Read,
+		R: Read + Seek,
 	{
 		let kind = deserializer.read_kind()?;
 		let value = match kind {
-			Kind::Unit => Value::Unit(deserializer.read_unit()?),
+			Kind::Null => Value::Null,
 			Kind::Bool => Value::Bool(deserializer.read_bool()?),
 			Kind::UVarint => Value::UVarint(deserializer.read_uvarint()?),
 			Kind::IVarint => Value::IVarint(deserializer.read_ivarint()?),
@@ -116,7 +112,6 @@ impl Deserialize for Value {
 			Kind::F64 => Value::F64(deserializer.read_f64()?),
 			Kind::String => Value::String(deserializer.read_string()?),
 			Kind::Bytes => Value::Bytes(deserializer.read_bytes()?),
-			Kind::Option => Value::Option(deserializer.read_option()?),
 			Kind::Array => Value::Array(deserializer.read_array()?),
 			Kind::Map => Value::Map(deserializer.read_map()?),
 			Kind::Struct => {

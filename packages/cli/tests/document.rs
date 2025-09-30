@@ -43,7 +43,7 @@ async fn hello_world() {
 	            "module": {
 	              "kind": "ts",
 	              "referent": {
-	                "item": "fil_01g8rfpv95s4g7pmen8n11t9f6st5xpdnm38v286tva106f5qeyfvg",
+	                "item": "fil_019we8rz78zvbf57763m5yzjhjp0s4s46vmjjt4v3qdmry4jndkweg",
 	                "options": {
 	                  "path": "tangram.ts"
 	                }
@@ -69,7 +69,7 @@ async fn hello_world() {
 	                    "module": {
 	                      "kind": "ts",
 	                      "referent": {
-	                        "item": "fil_01g8rfpv95s4g7pmen8n11t9f6st5xpdnm38v286tva106f5qeyfvg",
+	                        "item": "fil_019we8rz78zvbf57763m5yzjhjp0s4s46vmjjt4v3qdmry4jndkweg",
 	                        "options": {
 	                          "path": "tangram.ts"
 	                        }

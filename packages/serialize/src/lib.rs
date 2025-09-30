@@ -1,4 +1,4 @@
-use std::io::{Read, Result, Write};
+use std::io::{Cursor, Read, Result, Seek, Write};
 
 pub use {
 	self::{
@@ -37,7 +37,7 @@ where
 pub fn from_reader<T, R>(reader: R) -> Result<T>
 where
 	T: Deserialize,
-	R: Read,
+	R: Read + Seek,
 {
 	let mut deserializer = Deserializer::new(reader);
 	deserializer.deserialize()
@@ -47,7 +47,7 @@ pub fn from_slice<T>(slice: &[u8]) -> Result<T>
 where
 	T: Deserialize,
 {
-	from_reader(slice)
+	from_reader(Cursor::new(slice))
 }
 
 pub fn serialize_display<T, W>(value: &T, serializer: &mut Serializer<W>) -> Result<()>
@@ -62,7 +62,7 @@ pub fn deserialize_from_str<T, R>(deserializer: &mut Deserializer<R>) -> Result<
 where
 	T: std::str::FromStr,
 	T::Err: std::fmt::Display,
-	R: Read,
+	R: Read + Seek,
 {
 	deserializer
 		.deserialize::<String>()?

@@ -38,7 +38,7 @@ async fn get_symlink() {
 	assert_success!(output);
 
 	// Assert the output.
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00");
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60");
 }
 
 #[tokio::test]
@@ -73,5 +73,5 @@ async fn get_file_through_symlink() {
 		.unwrap();
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_01w439ptb1t3g6srv9h369xjwyqj7m17cfqqvnt7e2pdg8yhjy7h00");
+	assert_snapshot!(stdout, @"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60");
 }

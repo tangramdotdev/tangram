@@ -1,17 +1,17 @@
 use {
 	crate::{Deserialize, Kind},
 	byteorder::{LittleEndian, ReadBytesExt as _},
-	num::ToPrimitive as _,
-	std::io::{Error, Read, Result},
+	num::{FromPrimitive as _, ToPrimitive as _},
+	std::io::{Error, Read, Result, Seek},
 };
 
 pub struct Deserializer<R>(R)
 where
-	R: Read;
+	R: Read + Seek;
 
 impl<R> Deserializer<R>
 where
-	R: Read,
+	R: Read + Seek,
 {
 	pub fn new(reader: R) -> Deserializer<R> {
 		Deserializer(reader)
@@ -29,6 +29,15 @@ where
 		self.0
 	}
 
+	pub fn position(&mut self) -> Result<u64> {
+		self.0.stream_position()
+	}
+
+	pub fn seek(&mut self, position: u64) -> Result<()> {
+		self.0.seek(std::io::SeekFrom::Start(position))?;
+		Ok(())
+	}
+
 	pub fn deserialize<T>(&mut self) -> Result<T>
 	where
 		T: Deserialize,
@@ -38,15 +47,14 @@ where
 
 	pub fn read_kind(&mut self) -> Result<Kind> {
 		let value = self.0.read_u8()?;
-		let kind =
-			num::FromPrimitive::from_u8(value).ok_or_else(|| Error::other("invalid value kind"))?;
+		let kind = Kind::from_u8(value).ok_or_else(|| Error::other("invalid kind"))?;
 		Ok(kind)
 	}
 
 	pub fn ensure_kind(&mut self, kind: Kind) -> Result<Kind> {
 		let value = self.0.read_u8()?;
 		let read =
-			num::FromPrimitive::from_u8(value).ok_or_else(|| Error::other("invalid value kind"))?;
+			num::FromPrimitive::from_u8(value).ok_or_else(|| Error::other("invalid kind"))?;
 		if read != kind {
 			return Err(Error::other("incorrect kind"));
 		}
@@ -66,13 +74,8 @@ where
 		Ok(len)
 	}
 
-	pub fn deserialize_unit(&mut self) -> Result<()> {
-		self.ensure_kind(Kind::Unit)?;
-		self.read_unit()?;
-		Ok(())
-	}
-
-	pub fn read_unit(&mut self) -> Result<()> {
+	pub fn deserialize_null(&mut self) -> Result<()> {
+		self.ensure_kind(Kind::Null)?;
 		Ok(())
 	}
 
@@ -177,28 +180,6 @@ where
 		let len = self.read_len()?;
 		let mut value = vec![0u8; len];
 		self.0.read_exact(&mut value)?;
-		Ok(value)
-	}
-
-	pub fn deserialize_option<T>(&mut self) -> Result<Option<T>>
-	where
-		T: Deserialize,
-	{
-		self.ensure_kind(Kind::Option)?;
-		let value = self.read_option()?;
-		Ok(value)
-	}
-
-	pub fn read_option<T>(&mut self) -> Result<Option<T>>
-	where
-		T: Deserialize,
-	{
-		let is_some = self.0.read_u8()? != 0;
-		let value = if is_some {
-			Some(self.deserialize()?)
-		} else {
-			None
-		};
 		Ok(value)
 	}
 
