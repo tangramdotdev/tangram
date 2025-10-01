@@ -5,6 +5,7 @@ use {
 	crate::Server,
 	futures::FutureExt as _,
 	indoc::indoc,
+	num::ToPrimitive as _,
 	rusqlite as sqlite,
 	std::str::FromStr as _,
 	tangram_client as tg,
@@ -330,7 +331,7 @@ impl Server {
 				let params = sqlite::params![
 					message.id.to_bytes().to_vec(),
 					object.to_bytes().to_vec(),
-					kind.to_string()
+					kind.to_i64().unwrap(),
 				];
 				object_statement
 					.execute(params)
@@ -1004,7 +1005,7 @@ impl Server {
 					coalesce(sum(coalesce(command_objects.weight, 0)), 0)
 					+ coalesce(sum(coalesce(child_processes.commands_weight, 0)), 0) as commands_weight
 					from processes
-					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 'command'
+					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 0
 					left join objects command_objects on command_objects.id = process_objects_commands.object
 					left join process_children process_children_commands on process_children_commands.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_commands.child
@@ -1033,7 +1034,7 @@ impl Server {
 				from process_objects
 				left join objects on process_objects.object = objects.id
 				where processes.id = process_objects.process
-					and process_objects.kind = 'command'
+					and process_objects.kind = 0
 					and process_objects.process = ?1
 					and objects.complete = 1
 					and processes.command_complete = 0;
@@ -1070,7 +1071,7 @@ impl Server {
 					coalesce(sum(coalesce(output_objects.weight, 0)), 0)
 					+ coalesce(sum(coalesce(child_processes.outputs_weight, 0)), 0) as outputs_weight
 					from processes
-					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 'output'
+					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 3
 					left join objects output_objects on output_objects.id = process_objects_outputs.object
 					left join process_children process_children_outputs on process_children_outputs.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_outputs.child
@@ -1110,7 +1111,7 @@ impl Server {
 					from processes
 					join process_objects on processes.id = process_objects.process
 					left join objects on process_objects.object = objects.id
-					where process_objects.kind = 'output'
+					where process_objects.kind = 3
 					and process_objects.process = ?1
 					and processes.output_complete = 0
 					group by process_objects.process

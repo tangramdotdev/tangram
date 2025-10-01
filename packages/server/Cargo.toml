@@ -74,6 +74,8 @@ mime = { workspace = true }
 moka = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }
+num-derive = { workspace = true }
+num-traits = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
 petgraph = { workspace = true }

@@ -5981,6 +5981,7 @@ dependencies = [
  "bytes",
  "num",
  "num-derive",
+ "num-traits",
  "tangram_serialize_macro",
  "url",
 ]
@@ -6041,6 +6042,8 @@ dependencies = [
  "moka",
  "notify",
  "num",
+ "num-derive",
+ "num-traits",
  "oauth2",
  "octocrab",
  "petgraph",

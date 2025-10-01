@@ -115,7 +115,7 @@ create index process_children_child_process_index on process_children (child, pr
 create table process_objects (
 	process blob not null,
 	object blob not null,
-	kind text not null
+	kind integer not null
 );
 
 create unique index process_objects_index on process_objects (process, object, kind);

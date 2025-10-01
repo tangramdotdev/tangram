@@ -310,7 +310,7 @@ impl Server {
 			.collect::<Vec<_>>();
 		let process_object_kinds = put_process_messages
 			.values()
-			.flat_map(|message| message.objects.iter().map(|(_, kind)| kind.to_string()))
+			.flat_map(|message| message.objects.iter().map(|(_, kind)| kind.to_i64().unwrap()))
 			.collect::<Vec<_>>();
 		let process_object_process_indices = put_process_messages
 			.values()
@@ -391,7 +391,7 @@ impl Server {
 					$36::int8[],
 					$37::int8[],
 					$38::bytea[],
-					$39::text[],
+					$39::int8[],
 					$40::int8[],
 					$41::int8[],
 					$42::bytea[],

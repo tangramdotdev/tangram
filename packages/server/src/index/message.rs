@@ -212,6 +212,8 @@ pub struct DeleteTag {
 	Clone,
 	Copy,
 	Debug,
+	num_derive::FromPrimitive,
+	num_derive::ToPrimitive,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
@@ -219,13 +221,13 @@ pub struct DeleteTag {
 )]
 pub enum ProcessObjectKind {
 	#[tangram_serialize(id = 0)]
-	Command,
+	Command = 0,
 	#[tangram_serialize(id = 1)]
-	Error,
+	Error = 1,
 	#[tangram_serialize(id = 2)]
-	Log,
+	Log = 2,
 	#[tangram_serialize(id = 3)]
-	Output,
+	Output = 3,
 }
 
 impl std::fmt::Display for ProcessObjectKind {

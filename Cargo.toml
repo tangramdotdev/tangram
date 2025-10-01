@@ -107,6 +107,7 @@ moka = { version = "0.12", features = ["sync"] }
 notify = "8"
 num = "0.4"
 num-derive = "0.4"
+num-traits = "0.2"
 oauth2 = "5.0.0"
 octocrab = "0.45"
 owo-colors = "4"
