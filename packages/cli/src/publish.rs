@@ -81,6 +81,19 @@ impl Cli {
 		Ok(())
 	}
 
+	async fn is_package(
+		&self,
+		handle: &impl tg::Handle,
+		directory: &tg::Directory,
+	) -> tg::Result<bool> {
+		Ok(tg::package::try_get_root_module_file_name(
+			handle,
+			Either::Left(&directory.clone().into()),
+		)
+		.await?
+		.is_some())
+	}
+
 	async fn get_package_metadata(
 		&mut self,
 		handle: &impl tg::Handle,
@@ -179,9 +192,12 @@ impl Cli {
 			let mut dependency_indices = Vec::new();
 
 			for dependency in dependencies {
-				// We only care about directory dependencies (packages).
-				// FIXME - we only care about directories with root modules!
+				// We only care about directory dependencies with root modules (packages).
 				if let Ok(directory) = tg::Directory::try_from(dependency) {
+					// Check if this directory is a package.
+					if !self.is_package(handle, &directory).await? {
+						continue;
+					}
 					let dep_id = directory.id();
 					let dep_index = if let Some(&existing_index) = id_to_index.get(&dep_id) {
 						existing_index
@@ -227,6 +243,7 @@ impl Cli {
 			let node = &graph.nodes[node_index];
 			let directory = &node.directory;
 			let metadata = &node.metadata;
+			dbg!(&metadata);
 
 			// Construct the tag.
 			let tag_string = format!("{}/{}", metadata.name, metadata.version);
@@ -235,9 +252,16 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
 			dbg!(&tag);
 
-			// Check if the tag already exists.
+			// Check if the tag already exists on the remote.
 			let pattern: tg::tag::Pattern = tag.clone().into();
-			let existing = handle.try_get_tag(&pattern).await?;
+			let arg = tg::tag::list::Arg {
+				length: Some(1),
+				pattern: pattern.clone(),
+				remote: Some("default".to_string()), // FIXME
+				reverse: true,
+			};
+			let tg::tag::list::Output { data } = handle.list_tags(arg).await?;
+			let existing = data.into_iter().next();
 
 			let should_publish = if let Some(output) = existing {
 				if let Some(item) = output.item {
@@ -348,7 +372,7 @@ impl DependencyGraph {
 		let sccs = tarjan_scc(self);
 
 		let mut order = Vec::new();
-		for scc in sccs.into_iter().rev() {
+		for scc in &sccs {
 			// If there's a cycle, the SCC will have more than one node.
 			if scc.len() > 1 {
 				let ids: Vec<_> = scc.iter().map(|&i| self.nodes[i].directory.id()).collect();
