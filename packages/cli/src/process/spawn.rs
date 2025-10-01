@@ -187,14 +187,19 @@ impl Tty {
 	}
 }
 
+pub struct Output {
+	pub process: tg::Referent<tg::Process>,
+	pub output: tg::process::spawn::Output,
+}
+
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-		let (_, process) = self
+		let Output { output, .. } = self
 			.spawn(args.options, reference, args.trailing, None, None, None)
 			.boxed()
 			.await?;
-		println!("{}", process.id());
+		Self::print_json(&output, None).await?;
 		Ok(())
 	}
 
@@ -206,7 +211,7 @@ impl Cli {
 		stderr: Option<tg::process::Stdio>,
 		stdin: Option<tg::process::Stdio>,
 		stdout: Option<tg::process::Stdio>,
-	) -> tg::Result<(tg::Referent<tg::object::Id>, tg::Process)> {
+	) -> tg::Result<Output> {
 		let handle = self.handle().await?;
 
 		// Get the remote.
@@ -503,11 +508,11 @@ impl Cli {
 			stdin,
 			stdout,
 		};
-		let process = tg::Process::spawn(&handle, arg).await?;
+		let output = handle.spawn_process(arg).await?;
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
-			let item = Either::Left(process.id().clone());
+			let item = Either::Left(output.process.clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,
@@ -516,9 +521,13 @@ impl Cli {
 			handle.put_tag(&tag, arg).await?;
 		}
 
-		// Get the referent.
-		let referent = referent.map(|item| item.id());
+		let id = output.process.clone();
+		let remote = output.remote.clone();
+		let token = output.token.clone();
+		let process = tg::Process::new(id, None, remote, None, token);
+		let process = referent.replace(process).0;
+		let output = Output { process, output };
 
-		Ok((referent, process))
+		Ok(output)
 	}
 }

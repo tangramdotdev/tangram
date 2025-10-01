@@ -3,6 +3,7 @@ use {
 	insta::assert_snapshot,
 	num::ToPrimitive as _,
 	tangram_cli_test::{Server, assert_failure, assert_success},
+	tangram_client as tg,
 	tangram_temp::{self as temp, Temp},
 };
 
@@ -1021,12 +1022,14 @@ async fn signal_cacheable_processs() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	let process = String::from_utf8(output.stdout).unwrap();
-	let process = process.trim();
+	let process = serde_json::from_slice::<tg::process::spawn::Output>(&output.stdout)
+		.unwrap()
+		.process
+		.to_string();
 	let output = server
 		.tg()
 		.arg("signal")
-		.arg(process)
+		.arg(&process)
 		.output()
 		.await
 		.unwrap();
@@ -1034,7 +1037,7 @@ async fn signal_cacheable_processs() {
 	let error_msg = String::from_utf8(output.stderr).unwrap();
 
 	insta::with_settings!({
-		filters => vec![(process, "[PROCESS]")],
+		filters => vec![(process.as_str(), "[PROCESS]")],
 	}, {
 		assert_snapshot!(error_msg, @r"
 		error failed to run the command
@@ -1199,10 +1202,9 @@ async fn test_remote(
 		.await
 		.unwrap();
 	assert_success!(output);
-	let process_id = std::str::from_utf8(&output.stdout)
+	let process = serde_json::from_slice::<tg::process::spawn::Output>(&output.stdout)
 		.unwrap()
-		.trim()
-		.to_owned();
+		.process;
 
 	// Get the output.
 	let output = server
@@ -1210,7 +1212,7 @@ async fn test_remote(
 		.current_dir(temp.path())
 		.arg("process")
 		.arg("output")
-		.arg(process_id.clone())
+		.arg(process.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -1222,7 +1224,7 @@ async fn test_remote(
 		.current_dir(temp.path())
 		.arg("process")
 		.arg("output")
-		.arg(process_id)
+		.arg(process.to_string())
 		.output()
 		.await
 		.unwrap();

@@ -2,6 +2,7 @@ use {
 	indoc::indoc,
 	std::path::Path,
 	tangram_cli_test::{Server, assert_failure, assert_success},
+	tangram_client as tg,
 	tangram_temp::{self as temp, Temp},
 };
 
@@ -16,16 +17,16 @@ async fn processes() {
 			export let a = async () => {
 				await tg.build(c);
 				await tg.build(b);
-				return "a";
+				return tg.file("a");
 			};
 			export let b = async () => {
 				await tg.build(e);
 				await tg.build(d);
-				return "b";
+				return tg.file("b");
 			};
-			export let c = () => "c";
-			export let d = () => "d";
-			export let e = () => "e";
+			export let c = () => tg.file("c");
+			export let d = () => tg.file("d");
+			export let e = () => tg.file("e");
 		"#),
 	};
 
@@ -45,7 +46,7 @@ async fn processes() {
 			.tg()
 			.arg("tag")
 			.arg(pattern)
-			.arg(id)
+			.arg(id.to_string())
 			.output()
 			.await
 			.unwrap();
@@ -61,7 +62,7 @@ async fn processes() {
 		.tg()
 		.arg("process")
 		.arg("get")
-		.arg(a)
+		.arg(a.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -71,7 +72,7 @@ async fn processes() {
 		.tg()
 		.arg("process")
 		.arg("get")
-		.arg(b)
+		.arg(b.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -81,7 +82,7 @@ async fn processes() {
 		.tg()
 		.arg("process")
 		.arg("get")
-		.arg(c)
+		.arg(c.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -91,7 +92,7 @@ async fn processes() {
 		.tg()
 		.arg("process")
 		.arg("get")
-		.arg(d)
+		.arg(d.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -101,7 +102,7 @@ async fn processes() {
 		.tg()
 		.arg("process")
 		.arg("get")
-		.arg(e)
+		.arg(e.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -153,7 +154,7 @@ async fn objects() {
 		.tg()
 		.arg("tag")
 		.arg("c")
-		.arg(c.clone())
+		.arg(c.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -164,7 +165,7 @@ async fn objects() {
 		.tg()
 		.arg("tag")
 		.arg("h")
-		.arg(h.clone())
+		.arg(h.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -179,7 +180,7 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(a)
+		.arg(a.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -189,7 +190,7 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(b)
+		.arg(b.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -199,7 +200,7 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(c)
+		.arg(c.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -209,7 +210,7 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(d)
+		.arg(d.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -219,7 +220,7 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(e)
+		.arg(e.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -229,7 +230,7 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(f)
+		.arg(f.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -239,7 +240,7 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(g)
+		.arg(g.to_string())
 		.output()
 		.await
 		.unwrap();
@@ -249,14 +250,18 @@ async fn objects() {
 		.tg()
 		.arg("object")
 		.arg("get")
-		.arg(h)
+		.arg(h.to_string())
 		.output()
 		.await
 		.unwrap();
 	assert_success!(h_output);
 }
 
-async fn build(server: &tangram_cli_test::Server, path: &Path, name: &str) -> (String, String) {
+async fn build(
+	server: &tangram_cli_test::Server,
+	path: &Path,
+	name: &str,
+) -> (tg::process::Id, tg::object::Id) {
 	let output = server
 		.tg()
 		.arg("process")
@@ -267,16 +272,21 @@ async fn build(server: &tangram_cli_test::Server, path: &Path, name: &str) -> (S
 		.await
 		.unwrap();
 	assert_success!(output);
-	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+	let id = serde_json::from_slice::<tg::process::spawn::Output>(&output.stdout)
+		.unwrap()
+		.process;
 	let output = server
 		.tg()
 		.arg("process")
 		.arg("output")
-		.arg(id)
+		.arg(id.to_string())
 		.output()
 		.await
 		.unwrap();
 	assert_success!(output);
-	let output = std::str::from_utf8(&output.stdout).unwrap().trim();
-	(id.to_owned(), output.to_owned())
+	let output = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.parse()
+		.unwrap();
+	(id, output)
 }

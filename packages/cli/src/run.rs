@@ -147,7 +147,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
 
 		// Spawn the process.
-		let (referent, process) = self
+		let crate::process::spawn::Output { process, output } = self
 			.spawn(
 				options.spawn,
 				reference,
@@ -161,14 +161,14 @@ impl Cli {
 
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
-			println!("{}", process.id());
+			Self::print_json(&output, None).await?;
 			return Ok(());
 		}
 
 		// Print the process.
 		if !self.args.quiet {
-			eprint!("{} {}", "info".blue().bold(), process.id());
-			if let Some(token) = process.token() {
+			eprint!("{} {}", "info".blue().bold(), process.item().id());
+			if let Some(token) = process.item().token() {
 				eprint!(" {token}");
 			}
 			eprintln!();
@@ -190,7 +190,7 @@ impl Cli {
 		// Spawn a task to handle signals.
 		let signal_task = tokio::spawn({
 			let handle = handle.clone();
-			let process = process.id().clone();
+			let process = process.item().id().clone();
 			let remote = remote.clone();
 			async move {
 				handle_signals(&handle, &process, remote).await.ok();
@@ -199,6 +199,7 @@ impl Cli {
 
 		// Await the process.
 		let result = process
+			.item()
 			.wait(&handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed await the process"));
@@ -220,7 +221,7 @@ impl Cli {
 		// Print the error.
 		if let Some(error) = wait.error {
 			eprintln!("{} the process failed", "error".red().bold());
-			let error = referent.map(|_| error);
+			let error = process.clone().map(|_| error);
 			self.print_error(error).await;
 		}
 

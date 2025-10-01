@@ -97,27 +97,21 @@ impl Cli {
 			sandbox,
 			..options.spawn
 		};
-		let (referent, process) = self
+		let crate::process::spawn::Output { process, output } = self
 			.spawn(spawn, reference, trailing, None, None, None)
 			.boxed()
 			.await?;
 
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
-			if print {
-				print!("{}", process.id());
-				if let Some(token) = process.token() {
-					print!(" {token}");
-				}
-				println!();
-			}
+			Self::print_json(&output, None).await?;
 			return Ok(None);
 		}
 
 		// Print the process.
 		if !self.args.quiet {
-			eprint!("{} {}", "info".blue().bold(), process.id());
-			if let Some(token) = process.token() {
+			eprint!("{} {}", "info".blue().bold(), process.item().id());
+			if let Some(token) = process.item().token() {
 				eprint!(" {token}");
 			}
 			eprintln!();
@@ -125,6 +119,7 @@ impl Cli {
 
 		// Get the process's status.
 		let status = process
+			.item()
 			.status(&handle)
 			.await?
 			.try_next()
@@ -134,6 +129,7 @@ impl Cli {
 		// If the process is finished, then get the process's output.
 		let output = if status.is_finished() {
 			let output = process
+				.item()
 				.wait(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the output"))?;
@@ -149,8 +145,7 @@ impl Cli {
 			// Spawn the view task.
 			let view_task = {
 				let handle = handle.clone();
-				let item = crate::viewer::Item::Process(process.clone());
-				let root = referent.clone().map(|_| item);
+				let root = process.clone().map(crate::viewer::Item::Process);
 				let task = Task::spawn_blocking(move |stop| {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
@@ -190,6 +185,7 @@ impl Cli {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
 						process
+							.item()
 							.cancel(&handle)
 							.await
 							.inspect_err(|error| {
@@ -203,7 +199,7 @@ impl Cli {
 			});
 
 			// Await the process.
-			let result = process.wait(&handle).await;
+			let result = process.item().wait(&handle).await;
 
 			// Abort the cancel task.
 			cancel_task.abort();
@@ -220,7 +216,7 @@ impl Cli {
 		// Get the output.
 		if let Some(error) = wait.error {
 			eprintln!("{} the process failed", "error".red().bold());
-			let error = referent.map(|_| error);
+			let error = process.clone().map(|_| error);
 			self.print_error(error).await;
 		}
 
