@@ -5765,6 +5765,7 @@ dependencies = [
  "miette",
  "num",
  "owo-colors",
+ "petgraph",
  "ratatui",
  "serde",
  "serde_json",
