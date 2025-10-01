@@ -66,25 +66,27 @@ impl Component {
 		let Some(minor) = self.minor else {
 			return true;
 		};
+		let version_minor = version.minor.unwrap_or(0);
 		let Some(patch) = self.patch else {
 			if self.major > 0 {
-				return version.minor >= minor;
+				return version_minor >= minor;
 			}
-			return version.minor == minor;
+			return version_minor == minor;
 		};
+		let version_patch = version.patch.unwrap_or(0);
 		if self.major > 0 {
-			if version.minor != minor {
-				return version.minor > minor;
-			} else if version.patch != patch {
-				return version.patch > patch;
+			if version_minor != minor {
+				return version_minor > minor;
+			} else if version_patch != patch {
+				return version_patch > patch;
 			}
 		} else if minor > 0 {
-			if version.minor != minor {
+			if version_minor != minor {
 				return false;
-			} else if version.patch != patch {
-				return version.patch > patch;
+			} else if version_patch != patch {
+				return version_patch > patch;
 			}
-		} else if version.minor != minor || version.patch != patch {
+		} else if version_minor != minor || version_patch != patch {
 			return false;
 		}
 		true
@@ -95,12 +97,12 @@ impl Component {
 			return false;
 		}
 		if let Some(minor) = self.minor {
-			if version.minor != minor {
+			if version.minor.unwrap_or(0) != minor {
 				return false;
 			}
 		}
 		if let Some(patch) = self.patch {
-			if version.patch != patch {
+			if version.patch.unwrap_or(0) != patch {
 				return false;
 			}
 		}
@@ -116,8 +118,9 @@ impl Component {
 				return false;
 			},
 			Some(minor) => {
-				if version.minor != minor {
-					return version.minor > minor;
+				let version_minor = version.minor.unwrap_or(0);
+				if version_minor != minor {
+					return version_minor > minor;
 				}
 			},
 		}
@@ -126,8 +129,9 @@ impl Component {
 				return false;
 			},
 			Some(patch) => {
-				if version.patch != patch {
-					return version.patch > patch;
+				let version_patch = version.patch.unwrap_or(0);
+				if version_patch != patch {
+					return version_patch > patch;
 				}
 			},
 		}
@@ -143,8 +147,9 @@ impl Component {
 				return false;
 			},
 			Some(minor) => {
-				if version.minor != minor {
-					return version.minor < minor;
+				let version_minor = version.minor.unwrap_or(0);
+				if version_minor != minor {
+					return version_minor < minor;
 				}
 			},
 		}
@@ -153,8 +158,9 @@ impl Component {
 				return false;
 			},
 			Some(patch) => {
-				if version.patch != patch {
-					return version.patch < patch;
+				let version_patch = version.patch.unwrap_or(0);
+				if version_patch != patch {
+					return version_patch < patch;
 				}
 			},
 		}
@@ -166,13 +172,14 @@ impl Component {
 			return false;
 		}
 		if let Some(minor) = self.minor {
-			if version.minor != minor {
+			if version.minor.unwrap_or(0) != minor {
 				return false;
 			}
 		}
 		if let Some(patch) = self.patch {
-			if version.patch != patch {
-				return version.patch > patch;
+			let version_patch = version.patch.unwrap_or(0);
+			if version_patch != patch {
+				return version_patch > patch;
 			}
 		}
 		true

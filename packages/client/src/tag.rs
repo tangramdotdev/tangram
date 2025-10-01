@@ -1,6 +1,6 @@
 use {
 	crate as tg,
-	tangram_version::Version,
+	tangram_version::{Prerelease, PrereleaseComponent, Version},
 	winnow::{
 		ascii::{alphanumeric1, dec_uint},
 		combinator::{alt, opt, preceded, separated},
@@ -143,11 +143,16 @@ fn component(input: &mut &str) -> ModalResult<Component> {
 }
 
 fn version(input: &mut &str) -> ModalResult<Version> {
-	let prerelease = opt(preceded("-", dot_separated_identifier));
+	let prerelease = opt(preceded("-", prerelease));
 	let build = opt(preceded("+", dot_separated_identifier));
-	let (major, _, minor, _, patch, prerelease, build) =
-		(dec_uint, ".", dec_uint, ".", dec_uint, prerelease, build).parse_next(input)?;
-	let prerelease = prerelease.map(ToOwned::to_owned);
+	let (major, minor, patch, prerelease, build) = (
+		dec_uint,
+		opt(preceded(".", dec_uint)),
+		opt(preceded(".", dec_uint)),
+		prerelease,
+		build,
+	)
+		.parse_next(input)?;
 	let build = build.map(ToOwned::to_owned);
 	let version = Version {
 		major,
@@ -157,6 +162,21 @@ fn version(input: &mut &str) -> ModalResult<Version> {
 		build,
 	};
 	Ok(version)
+}
+
+fn prerelease(input: &mut &str) -> ModalResult<Prerelease> {
+	let identifiers: Vec<&str> = separated(1.., alphanumeric1, ".").parse_next(input)?;
+	let components = identifiers
+		.into_iter()
+		.map(|id| {
+			if let Ok(n) = id.parse::<u64>() {
+				PrereleaseComponent::Number(n)
+			} else {
+				PrereleaseComponent::String(id.to_owned())
+			}
+		})
+		.collect();
+	Ok(Prerelease { components })
 }
 
 fn dot_separated_identifier<'a>(input: &mut &'a str) -> ModalResult<&'a str> {
