@@ -11,10 +11,6 @@ impl Server {
 		tag: &tg::Tag,
 		arg: &tg::tag::put::Arg,
 	) -> tg::Result<()> {
-		if tag.is_empty() {
-			return Err(tg::error!("cannot put an empty tag"));
-		}
-
 		// Get a database connection.
 		let mut connection = database
 			.write_connection()
@@ -22,10 +18,33 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Begin a transaction.
-		let transaction = connection
+		let mut transaction = connection
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
+		// Perform the transaction.
+		Self::put_tag_postgres_inner(&mut transaction, tag, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to perform the transaction"))?;
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		Ok(())
+	}
+
+	pub(crate) async fn put_tag_postgres_inner(
+		transaction: &mut db::postgres::Transaction<'_>,
+		tag: &tg::Tag,
+		arg: &tg::tag::put::Arg,
+	) -> tg::Result<()> {
+		if tag.is_empty() {
+			return Err(tg::error!("cannot put an empty tag"));
+		}
 
 		// Create the branches.
 		let mut parent = 0;
@@ -105,13 +124,6 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
 		Ok(())
 	}
 }
