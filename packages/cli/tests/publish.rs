@@ -559,7 +559,154 @@ async fn package_with_diamond_dependency_and_shared_import() {
 	ctx.assert_metadata_synced(&bottom_package_id).await;
 }
 
-// TODO - Execrise with local: path, without creating tags. Publish should find hte local package, create the tag, and then check in the parent using the tag instead of the local path.
+#[tokio::test]
+#[ignore = "pending unimplemented checkin feature for local path imports"]
+async fn package_with_local_path_import() {
+	let ctx = TestContext::new().await;
+
+	// Create a shared temp directory with both packages as siblings.
+	let shared_artifact = temp::directory! {
+		"dep" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				export default () => "I am a local dependency!";
+
+				export let metadata = {
+					name: "test-dep",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+		"main" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				import dep from "test-dep" with { local: "../dep" };
+
+				export default () => `Main package using: ${dep()}`;
+
+				export let metadata = {
+					name: "test-main",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+	};
+	let shared_temp = Temp::new();
+	let shared_temp_artifact: temp::Artifact = shared_artifact.into();
+	shared_temp_artifact.to_path(&shared_temp).await.unwrap();
+
+	let dep_path = shared_temp.path().join("dep");
+	let main_path = shared_temp.path().join("main");
+
+	// Checkin the dep package to get its ID, but don't create a tag.
+	let dep_checkin_output = ctx
+		.local_server
+		.tg()
+		.current_dir(&dep_path)
+		.arg("checkin")
+		.arg(".")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(dep_checkin_output);
+	let dep_package_id = std::str::from_utf8(&dep_checkin_output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Checkin the main package to get its ID, but don't create a tag.
+	let main_checkin_output = ctx
+		.local_server
+		.tg()
+		.current_dir(&main_path)
+		.arg("checkin")
+		.arg(".")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(main_checkin_output);
+	let main_package_id = std::str::from_utf8(&main_checkin_output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Publish the main package without having created tags beforehand.
+	// This should discover the local dep, create its tag, publish it, then publish main.
+	let publish_output = ctx
+		.local_server
+		.tg()
+		.current_dir(&main_path)
+		.arg("publish")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(publish_output);
+
+	// Verify publish order by checking stderr output.
+	let stderr = String::from_utf8_lossy(&publish_output.stderr);
+
+	// Extract the positions where each package appears in the output.
+	let dep_pos = stderr.find("publishing test-dep/1.0.0");
+	let main_pos = stderr.find("publishing test-main/1.0.0");
+
+	// Both packages should be published.
+	assert!(dep_pos.is_some(), "test-dep should be published");
+	assert!(main_pos.is_some(), "test-main should be published");
+
+	// Verify the order: dep must be published before main.
+	assert!(
+		dep_pos < main_pos,
+		"test-dep should be published before test-main"
+	);
+
+	// Verify both packages are tagged on local and remote servers.
+	ctx.assert_tag_on_local("test-dep/1.0.0", &dep_package_id)
+		.await;
+	ctx.assert_tag_on_local("test-main/1.0.0", &main_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-main/1.0.0", &main_package_id)
+		.await;
+
+	// Verify both packages are synced.
+	ctx.assert_object_synced(&dep_package_id).await;
+	ctx.assert_object_synced(&main_package_id).await;
+	ctx.index_servers().await;
+	ctx.assert_metadata_synced(&dep_package_id).await;
+	ctx.assert_metadata_synced(&main_package_id).await;
+
+	// Verify that main package has dependency on dep by tag, not by local path.
+	let main_object_output = ctx
+		.local_server
+		.tg()
+		.arg("get")
+		.arg(&main_package_id)
+		.arg("--format=tgon")
+		.arg("--print-blobs")
+		.arg("--print-depth=inf")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(main_object_output);
+	let main_object_tgon = std::str::from_utf8(&main_object_output.stdout).unwrap();
+	dbg!(&main_object_tgon);
+
+	// The object should NOT contain the local path reference.
+	assert!(
+		!main_object_tgon.contains("?local="),
+		"main package should not reference dep by local path after publishing"
+	);
+
+	// The object should contain a reference to the dep tag.
+	assert!(
+		main_object_tgon.contains("test-dep"),
+		"main package should reference dep by tag name"
+	);
+}
+
 // TODO - dependency cycle.
 //
 struct TestContext {
