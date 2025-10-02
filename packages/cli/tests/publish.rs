@@ -792,6 +792,220 @@ async fn package_with_dependency_cycle() {
 	ctx.assert_metadata_synced(&b_published_id).await;
 }
 
+#[tokio::test]
+async fn package_with_cycles_and_non_cycles() {
+	let ctx = TestContext::new().await;
+
+	// Create a complex graph with both cycles and non-cycles:
+	//
+	//              main
+	//            /      \
+	//        cycle-a   independent
+	//         /   \        /    \
+	//     cycle-b  \     leaf1  leaf2
+	//        /      \
+	//     leaf2    leaf1
+	//     (cycle + leaf deps)
+	//
+	// This tests that the publish ordering:
+	// 1. Handles cycles (cycle-a <-> cycle-b)
+	// 2. Handles acyclic dependencies (independent -> leaf1, leaf2)
+	// 3. Both packages in the cycle import leaves (cycle-a -> leaf1, cycle-b -> leaf2)
+	// 4. Publishes leaves before their dependents
+	// 5. Publishes everything in a valid order
+
+	let shared_artifact = temp::directory! {
+		"leaf1" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				export default () => "I am leaf1!";
+				export let metadata = {
+					name: "test-leaf1",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+		"leaf2" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				export default () => "I am leaf2!";
+				export let metadata = {
+					name: "test-leaf2",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+		"independent" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				import leaf1 from "test-leaf1" with { local: "../leaf1" };
+				import leaf2 from "test-leaf2" with { local: "../leaf2" };
+				export default () => `Independent using: ${leaf1()} and ${leaf2()}`;
+				export let metadata = {
+					name: "test-independent",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+		"cycle-a" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				import cycleB from "test-cycle-b" with { local: "../cycle-b" };
+				import leaf1 from "test-leaf1" with { local: "../leaf1" };
+				export default () => `Cycle A using: ${cycleB()} and ${leaf1()}`;
+				export let greeting = () => "Hello from Cycle A";
+				export let metadata = {
+					name: "test-cycle-a",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+		"cycle-b" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				import * as cycleA from "test-cycle-a" with { local: "../cycle-a" };
+				import leaf2 from "test-leaf2" with { local: "../leaf2" };
+				export default () => `Cycle B using: ${cycleA.greeting()} and ${leaf2()}`;
+				export let metadata = {
+					name: "test-cycle-b",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+		"main" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				import cycleA from "test-cycle-a" with { local: "../cycle-a" };
+				import independent from "test-independent" with { local: "../independent" };
+				export default () => `Main using: ${cycleA()} and ${independent()}`;
+				export let metadata = {
+					name: "test-main",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+	};
+
+	let shared_temp = Temp::new();
+	let shared_temp_artifact: temp::Artifact = shared_artifact.into();
+	shared_temp_artifact.to_path(&shared_temp).await.unwrap();
+
+	let main_path = shared_temp.path().join("main");
+
+	// Publish the main package - this should handle both cycles and non-cycles.
+	let output = ctx
+		.local_server
+		.tg()
+		.current_dir(&main_path)
+		.arg("publish")
+		.output()
+		.await
+		.unwrap();
+
+	// Verify that publish succeeds.
+	assert_success!(output);
+
+	// Extract the published IDs from the stderr.
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	// Find all published package IDs.
+	let extract_id = |package_name: &str| -> String {
+		stderr
+			.lines()
+			.find(|line| line.contains(&format!("publishing {}", package_name)))
+			.and_then(|line| line.split("dir_").nth(1))
+			.map(|s| format!("dir_{}", s.trim_end_matches(')')))
+			.unwrap_or_else(|| panic!("{} should be published", package_name))
+	};
+
+	let leaf1_id = extract_id("test-leaf1/1.0.0");
+	let leaf2_id = extract_id("test-leaf2/1.0.0");
+	let independent_id = extract_id("test-independent/1.0.0");
+	let cycle_a_id = extract_id("test-cycle-a/1.0.0");
+	let cycle_b_id = extract_id("test-cycle-b/1.0.0");
+	let main_id = extract_id("test-main/1.0.0");
+
+	// Verify publish ordering constraints:
+	let get_pos = |name: &str| stderr.find(&format!("publishing {}", name));
+
+	let leaf1_pos = get_pos("test-leaf1/1.0.0").expect("leaf1 should be published");
+	let leaf2_pos = get_pos("test-leaf2/1.0.0").expect("leaf2 should be published");
+	let independent_pos = get_pos("test-independent/1.0.0").expect("independent should be published");
+	let cycle_a_pos = get_pos("test-cycle-a/1.0.0").expect("cycle-a should be published");
+	let cycle_b_pos = get_pos("test-cycle-b/1.0.0").expect("cycle-b should be published");
+	let main_pos = get_pos("test-main/1.0.0").expect("main should be published");
+
+	// Non-cyclic ordering constraints:
+	// leaf1 and leaf2 must come before independent
+	assert!(
+		leaf1_pos < independent_pos,
+		"test-leaf1 should be published before test-independent"
+	);
+	assert!(
+		leaf2_pos < independent_pos,
+		"test-leaf2 should be published before test-independent"
+	);
+
+	// leaf1 must come before cycle-a (since cycle-a depends on it)
+	assert!(
+		leaf1_pos < cycle_a_pos,
+		"test-leaf1 should be published before test-cycle-a"
+	);
+
+	// leaf2 must come before cycle-b (since cycle-b depends on it)
+	assert!(
+		leaf2_pos < cycle_b_pos,
+		"test-leaf2 should be published before test-cycle-b"
+	);
+
+	// Both independent and the cycle packages must come before main
+	assert!(
+		independent_pos < main_pos,
+		"test-independent should be published before test-main"
+	);
+	assert!(
+		cycle_a_pos < main_pos,
+		"test-cycle-a should be published before test-main"
+	);
+	assert!(
+		cycle_b_pos < main_pos,
+		"test-cycle-b should be published before test-main"
+	);
+
+	// Verify all packages are tagged correctly on both servers.
+	for (tag, id) in [
+		("test-leaf1/1.0.0", &leaf1_id),
+		("test-leaf2/1.0.0", &leaf2_id),
+		("test-independent/1.0.0", &independent_id),
+		("test-cycle-a/1.0.0", &cycle_a_id),
+		("test-cycle-b/1.0.0", &cycle_b_id),
+		("test-main/1.0.0", &main_id),
+	] {
+		ctx.assert_tag_on_local(tag, id).await;
+		ctx.assert_tag_on_remote(tag, id).await;
+		ctx.assert_object_synced(id).await;
+	}
+
+	// Verify metadata is synced for all packages.
+	ctx.index_servers().await;
+	for id in [
+		&leaf1_id,
+		&leaf2_id,
+		&independent_id,
+		&cycle_a_id,
+		&cycle_b_id,
+		&main_id,
+	] {
+		ctx.assert_metadata_synced(id).await;
+	}
+}
+
 struct TestContext {
 	local_server: Server,
 	remote_server: Server,
