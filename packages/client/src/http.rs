@@ -437,7 +437,7 @@ impl tg::Client {
 		let mut root_store = rustls::RootCertStore::empty();
 		root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 		let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
-			rustls::crypto::aws_lc_rs::default_provider(),
+			rustls::crypto::ring::default_provider(),
 		))
 		.with_safe_default_protocol_versions()
 		.unwrap()

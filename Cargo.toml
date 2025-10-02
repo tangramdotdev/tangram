@@ -127,7 +127,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
 ] }
 rusqlite = { version = "0.37", features = ["blob", "bundled", "functions"] }
-rustls = "0.23"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 scopeguard = "1"
 scylla = "1"
 serde = { version = "1", features = ["rc", "derive"] }
@@ -176,7 +176,7 @@ tokio-postgres = { version = "0.7", features = [
   "runtime",
   "with-serde_json-1",
 ] }
-tokio-rustls = "0.26"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 toml = { version = "0.9" }
