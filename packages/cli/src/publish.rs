@@ -312,7 +312,7 @@ impl Cli {
 		order: Vec<Scc>,
 		remote: &str,
 	) -> tg::Result<()> {
-		// Phase 1: Create dummy packages and tag them locally for all cycles.
+		// Create dummy packages and tag them locally for all cycles.
 		let has_cycles = order.iter().any(|scc| matches!(scc, Scc::Cycle(_)));
 		if has_cycles {
 			eprintln!("detected dependency cycles, creating local dummy package tags");
@@ -343,11 +343,13 @@ impl Cli {
 			}
 		}
 
-		// Phase 2: Publish packages in topological order.
+		// Collect all items to push and their tags.
+		let mut items_to_push = Vec::new();
+		let mut tags_to_put: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
+
 		for scc in &order {
 			match scc {
 				Scc::Single(node_index) => {
-					// Publish non-cyclic package.
 					let node = &graph.nodes[*node_index];
 					let directory = &node.directory;
 					let metadata = &node.metadata;
@@ -362,42 +364,12 @@ impl Cli {
 						.await?;
 
 					if should_publish {
-						// Push the object.
-						let arg = tg::push::Arg {
-							commands: false,
-							items: vec![Either::Right(directory.id().clone().into())],
-							logs: false,
-							outputs: true,
-							recursive: false,
-							remote: Some(remote.to_owned()),
-						};
-						let stream = handle.push(arg).await?;
-						self.render_progress_stream(stream).await?;
-
-						// Put tag locally and on remote.
-						let item = directory.id();
-
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(item.clone().into()),
-							remote: None,
-						};
-						handle.put_tag(&tag, arg).await?;
-
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(item.clone().into()),
-							remote: Some(remote.to_owned()),
-						};
-						handle.put_tag(&tag, arg).await?;
+						items_to_push.push(Either::Right(directory.id().clone().into()));
+						tags_to_put.push((tag, directory.id().clone().into()));
 					}
 				},
 				Scc::Cycle(nodes) => {
-					// Publish real implementations of cyclic packages.
 					eprintln!("publishing {} packages in cycle", nodes.len());
-					let mut items_to_push = Vec::new();
-					let mut tags_to_put: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
-
 					for node_index in nodes {
 						let node = &graph.nodes[*node_index];
 						let directory = &node.directory;
@@ -417,39 +389,39 @@ impl Cli {
 							tags_to_put.push((tag, directory.id().clone().into()));
 						}
 					}
-
-					// Push all cyclic items.
-					if !items_to_push.is_empty() {
-						let arg = tg::push::Arg {
-							commands: false,
-							items: items_to_push,
-							logs: false,
-							outputs: true,
-							recursive: false,
-							remote: Some(remote.to_owned()),
-						};
-						let stream = handle.push(arg).await?;
-						self.render_progress_stream(stream).await?;
-					}
-
-					// Put all tags, overwriting the dummies both locally and on remote.
-					for (tag, item) in &tags_to_put {
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(item.clone()),
-							remote: None,
-						};
-						handle.put_tag(tag, arg).await?;
-
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(item.clone()),
-							remote: Some(remote.to_owned()),
-						};
-						handle.put_tag(tag, arg).await?;
-					}
 				},
 			}
+		}
+
+		// Push all items.
+		if !items_to_push.is_empty() {
+			let arg = tg::push::Arg {
+				commands: false,
+				items: items_to_push,
+				logs: false,
+				outputs: true,
+				recursive: false,
+				remote: Some(remote.to_owned()),
+			};
+			let stream = handle.push(arg).await?;
+			self.render_progress_stream(stream).await?;
+		}
+
+		// Put all tags.
+		for (tag, item) in &tags_to_put {
+			let arg = tg::tag::put::Arg {
+				force: true,
+				item: Either::Right(item.clone()),
+				remote: None,
+			};
+			handle.put_tag(tag, arg).await?;
+
+			let arg = tg::tag::put::Arg {
+				force: true,
+				item: Either::Right(item.clone()),
+				remote: Some(remote.to_owned()),
+			};
+			handle.put_tag(tag, arg).await?;
 		}
 
 		Ok(())
