@@ -707,8 +707,109 @@ async fn package_with_local_path_import() {
 	);
 }
 
-// TODO - dependency cycle.
-//
+#[tokio::test]
+async fn package_with_dependency_cycle() {
+	let ctx = TestContext::new().await;
+
+	// Create both packages in the same filesystem structure so they can reference each other.
+	let shared_artifact = temp::directory! {
+		"a" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				import b from "test-b" with { local: "../b" };
+				export default () => `A using: ${b()}`;
+				export let metadata = {
+					name: "test-a",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+		"b" => temp::directory! {
+			"tangram.ts" => indoc!(
+				r#"
+				import a from "test-a" with { local: "../a" };
+				export default () => `B using: ${a()}`;
+				export let metadata = {
+					name: "test-b",
+					version: "1.0.0",
+				};
+			"#
+			).to_owned(),
+		},
+	};
+	let shared_temp = Temp::new();
+	let shared_temp_artifact: temp::Artifact = shared_artifact.into();
+	shared_temp_artifact.to_path(&shared_temp).await.unwrap();
+
+	let a_path = shared_temp.path().join("a");
+	let b_path = shared_temp.path().join("b");
+
+	// Checkin package A to get its ID.
+	let a_checkin_output = ctx
+		.local_server
+		.tg()
+		.current_dir(&a_path)
+		.arg("checkin")
+		.arg(".")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(a_checkin_output);
+	let a_package_id = std::str::from_utf8(&a_checkin_output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Checkin package B to get its ID.
+	let b_checkin_output = ctx
+		.local_server
+		.tg()
+		.current_dir(&b_path)
+		.arg("checkin")
+		.arg(".")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(b_checkin_output);
+	let b_package_id = std::str::from_utf8(&b_checkin_output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Attempt to publish package B - this should detect the cycle and return an error.
+	let output = ctx
+		.local_server
+		.tg()
+		.current_dir(&b_path)
+		.arg("publish")
+		.output()
+		.await
+		.unwrap();
+
+	// Verify that publish succeeds - cycles should be handled gracefully.
+	assert_success!(output);
+
+	// Verify publish order - both packages should be published.
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	let a_pos = stderr.find("publishing test-a/1.0.0");
+	let b_pos = stderr.find("publishing test-b/1.0.0");
+
+	assert!(a_pos.is_some(), "test-a should be published");
+	assert!(b_pos.is_some(), "test-b should be published");
+
+	// Verify both packages are tagged and synced on the remote.
+	ctx.assert_tag_on_remote("test-a/1.0.0", &a_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-b/1.0.0", &b_package_id)
+		.await;
+	ctx.assert_object_synced(&a_package_id).await;
+	ctx.assert_object_synced(&b_package_id).await;
+	ctx.index_servers().await;
+	ctx.assert_metadata_synced(&a_package_id).await;
+	ctx.assert_metadata_synced(&b_package_id).await;
+}
+
 struct TestContext {
 	local_server: Server,
 	remote_server: Server,
