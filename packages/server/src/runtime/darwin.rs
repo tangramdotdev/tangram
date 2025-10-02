@@ -40,15 +40,15 @@ impl Runtime {
 	}
 
 	pub async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
-		let sandbox = self
+		let config = self
 			.server
 			.config()
 			.runtimes
 			.get("darwin")
 			.ok_or_else(|| tg::error!("server has no runtime configured for darwin"))
 			.cloned()?;
-		if !matches!(sandbox.kind, crate::config::RuntimeKind::Tangram) {
-			return Err(tg::error!("unsupported sandbox kind"));
+		if !matches!(config.kind, crate::config::RuntimeKind::Tangram) {
+			return Err(tg::error!("unsupported runtime kind"));
 		}
 
 		let state = process.load(&self.server).await?;
@@ -158,14 +158,14 @@ impl Runtime {
 		);
 		env.insert("TANGRAM_URL".to_owned(), url);
 
-		// Determine if we're going to use the sandbox or not.
-		let use_sandbox = !(root_mount && state.network);
+		// Determine whether to use the sandbox.
+		let sandbox = !(root_mount && state.network);
 
 		// Create the command.
-		let mut cmd = if use_sandbox {
+		let mut cmd = if sandbox {
 			// Create the command.
-			let mut cmd = tokio::process::Command::new(sandbox.executable);
-			cmd.args(sandbox.args);
+			let mut cmd = tokio::process::Command::new(config.executable);
+			cmd.args(config.args);
 			cmd.arg("-C").arg(&cwd);
 			for (name, value) in &env {
 				cmd.arg("-e").arg(format!("{name}={value}"));
@@ -257,7 +257,7 @@ impl Runtime {
 		// Spawn the process.
 		let mut child = cmd
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the sandbox process"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn({
