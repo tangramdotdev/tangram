@@ -225,6 +225,7 @@ impl tg::Handle for Proxy {
 	async fn try_get(
 		&self,
 		_reference: &tg::Reference,
+		_arg: tg::get::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {

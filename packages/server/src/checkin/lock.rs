@@ -55,7 +55,7 @@ impl Server {
 
 	pub(super) async fn checkin_write_lock(&self, state: &State) -> tg::Result<()> {
 		// Do not create a lock if this is a destructive checkin or the user did not request one.
-		if state.arg.destructive || !state.arg.lock {
+		if state.arg.options.destructive || !state.arg.options.lock {
 			return Ok(());
 		}
 
@@ -63,7 +63,7 @@ impl Server {
 		let lock = Self::checkin_create_lock(state);
 
 		// If this is a locked checkin, then verify the lock is unchanged.
-		if state.arg.locked
+		if state.arg.options.locked
 			&& state
 				.lock
 				.as_ref()

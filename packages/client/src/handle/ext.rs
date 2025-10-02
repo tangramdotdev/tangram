@@ -465,6 +465,7 @@ pub trait Ext: tg::Handle {
 	fn get(
 		&self,
 		reference: &tg::Reference,
+		arg: tg::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<
@@ -475,7 +476,7 @@ pub trait Ext: tg::Handle {
 			+ 'static,
 		>,
 	> + Send {
-		self.try_get(reference).map(|result| {
+		self.try_get(reference, arg).map(|result| {
 			result.map(|stream| {
 				let reference = reference.clone();
 				stream.map(move |event_result| {

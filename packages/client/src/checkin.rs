@@ -11,6 +11,17 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(flatten)]
+	pub options: Options,
+
+	pub path: PathBuf,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub updates: Vec<tg::tag::Pattern>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Options {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub destructive: bool,
 
@@ -21,15 +32,13 @@ pub struct Arg {
 	pub ignore: bool,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub local_dependencies: bool,
+
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub lock: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub locked: bool,
-
-	pub path: PathBuf,
-
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub updates: Vec<tg::tag::Pattern>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -98,5 +107,18 @@ impl tg::Client {
 				)
 			});
 		Ok(stream)
+	}
+}
+
+impl Default for Options {
+	fn default() -> Self {
+		Self {
+			destructive: false,
+			deterministic: false,
+			ignore: true,
+			local_dependencies: true,
+			lock: true,
+			locked: false,
+		}
 	}
 }

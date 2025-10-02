@@ -200,11 +200,13 @@ impl Runtime {
 
 		// Check in the temp.
 		let arg = tg::checkin::Arg {
-			destructive: true,
-			deterministic: true,
-			ignore: false,
-			lock: false,
-			locked: false,
+			options: tg::checkin::Options {
+				destructive: true,
+				deterministic: true,
+				ignore: false,
+				lock: false,
+				..Default::default()
+			},
 			path: temp.path().to_owned(),
 			updates: Vec::new(),
 		};

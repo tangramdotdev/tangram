@@ -163,8 +163,9 @@ impl Reference {
 	where
 		H: tg::Handle,
 	{
+		let arg = tg::get::Arg::default();
 		let stream = handle
-			.get(self)
+			.get(self, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get stream"))?;
 		let stream = pin!(stream);

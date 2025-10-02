@@ -10,7 +10,7 @@ use {
 
 impl Server {
 	pub(super) async fn checkin_cache(&self, state: Arc<State>) -> tg::Result<()> {
-		if state.arg.destructive {
+		if state.arg.options.destructive {
 			self.checkin_cache_task_destructive(state).await?;
 		} else {
 			tokio::task::spawn_blocking({
@@ -145,7 +145,7 @@ impl Server {
 		let mut messages: Vec<Bytes> = Vec::new();
 
 		// Create put cache entry messages.
-		if state.arg.destructive {
+		if state.arg.options.destructive {
 			let id = state.graph.nodes[0]
 				.object_id
 				.as_ref()

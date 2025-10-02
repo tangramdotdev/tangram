@@ -1254,6 +1254,15 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
+		self.get_reference_with_arg(reference, tg::get::Arg::default())
+			.await
+	}
+
+	async fn get_reference_with_arg(
+		&mut self,
+		reference: &tg::Reference,
+		arg: tg::get::Arg,
+	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
 		let handle = self.handle().await?;
 
 		// Make the path absolute.
@@ -1270,7 +1279,7 @@ impl Cli {
 		let reference = tg::Reference::with_item_and_options(item, options);
 
 		// Get the reference
-		let stream = handle.get(&reference).await?;
+		let stream = handle.get(&reference, arg).await?;
 		let mut referent = self.render_progress_stream(stream).await?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.

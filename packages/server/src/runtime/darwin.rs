@@ -298,12 +298,15 @@ impl Runtime {
 			})?;
 		let output = if exists {
 			let arg = tg::checkin::Arg {
-				destructive: true,
-				deterministic: true,
-				ignore: false,
+				options: tg::checkin::Options {
+					destructive: true,
+					deterministic: true,
+					ignore: false,
+					lock: false,
+					locked: true,
+					..Default::default()
+				},
 				path: output_path,
-				lock: false,
-				locked: true,
 				updates: Vec::new(),
 			};
 			let artifact = tg::checkin(&self.server, arg)

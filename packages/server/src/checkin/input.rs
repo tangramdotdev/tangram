@@ -185,12 +185,16 @@ impl Server {
 			// Create the dependencies and visit the path dependencies.
 			let mut dependencies = BTreeMap::new();
 			for reference in references {
-				let referent = if let Some(reference_path) = reference
-					.options()
-					.local
-					.as_ref()
-					.or(reference.item().try_unwrap_path_ref().ok())
-				{
+				let reference_path = if state.arg.options.local_dependencies {
+					reference
+						.options()
+						.local
+						.as_ref()
+						.or(reference.item().try_unwrap_path_ref().ok())
+				} else {
+					reference.item().try_unwrap_path_ref().ok()
+				};
+				let referent = if let Some(reference_path) = reference_path {
 					let parent = Parent {
 						node: index,
 						variant: ParentVariant::FileDependency(reference.clone()),
@@ -255,12 +259,16 @@ impl Server {
 			let mut dependencies = BTreeMap::new();
 			for import in analysis.imports {
 				let reference = import.reference;
-				let referent = if let Some(reference_path) = reference
-					.options()
-					.local
-					.as_ref()
-					.or(reference.item().try_unwrap_path_ref().ok())
-				{
+				let reference_path = if state.arg.options.local_dependencies {
+					reference
+						.options()
+						.local
+						.as_ref()
+						.or(reference.item().try_unwrap_path_ref().ok())
+				} else {
+					reference.item().try_unwrap_path_ref().ok()
+				};
+				let referent = if let Some(reference_path) = reference_path {
 					let parent = Parent {
 						node: index,
 						variant: ParentVariant::FileDependency(reference.clone()),

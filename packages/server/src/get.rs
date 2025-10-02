@@ -10,6 +10,7 @@ impl Server {
 	pub async fn try_get(
 		&self,
 		reference: &tg::Reference,
+		get_arg: tg::get::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
@@ -37,11 +38,7 @@ impl Server {
 
 			tg::reference::Item::Path(path) => {
 				let arg = tg::checkin::Arg {
-					destructive: false,
-					deterministic: false,
-					ignore: true,
-					lock: true,
-					locked: false,
+					options: get_arg.checkin.clone(),
 					path: path.clone(),
 					updates: Vec::new(),
 				};
@@ -107,10 +104,13 @@ impl Server {
 			.transpose()?;
 
 		let item = path.join("/").parse()?;
+
+		// Get the reference options and arg.
+		let arg: tg::get::Arg = request.query_params().transpose()?.unwrap_or_default();
 		let options = request.query_params().transpose()?.unwrap_or_default();
 		let reference = tg::Reference::with_item_and_options(item, options);
 
-		let stream = handle.try_get(&reference).await?;
+		let stream = handle.try_get(&reference, arg).await?;
 
 		let (content_type, body) = match accept
 			.as_ref()

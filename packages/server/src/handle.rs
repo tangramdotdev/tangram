@@ -182,6 +182,7 @@ impl tg::Handle for Server {
 	fn try_get(
 		&self,
 		reference: &tg::Reference,
+		arg: tg::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>>
@@ -189,7 +190,7 @@ impl tg::Handle for Server {
 			+ 'static,
 		>,
 	> + Send {
-		self.try_get(reference)
+		self.try_get(reference, arg)
 	}
 }
 

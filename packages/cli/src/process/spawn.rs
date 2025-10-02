@@ -82,9 +82,8 @@ pub struct Options {
 	#[arg(long)]
 	pub host: Option<String>,
 
-	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
-	pub locked: bool,
+	#[command(flatten)]
+	pub checkin: crate::checkin::Options,
 
 	/// Configure mounts.
 	#[arg(
@@ -251,7 +250,10 @@ impl Cli {
 		}
 
 		// Get the reference.
-		let referent = self.get_reference(&reference).await?;
+		let arg = tg::get::Arg {
+			checkin: options.checkin.to_options(),
+		};
+		let referent = self.get_reference_with_arg(&reference, arg).await?;
 		let item = referent
 			.item
 			.clone()

@@ -69,7 +69,7 @@ impl Server {
 		progress: &crate::progress::Handle<tg::checkin::Output>,
 	) -> tg::Result<tg::checkin::Output> {
 		// Validate the arg.
-		if arg.destructive && arg.ignore {
+		if arg.options.destructive && arg.options.ignore {
 			return Err(tg::error!("ignore is forbidden for destructive checkins"));
 		}
 
@@ -111,7 +111,7 @@ impl Server {
 		}
 
 		// Create the ignorer if necessary.
-		let ignorer = if arg.ignore {
+		let ignorer = if arg.options.ignore {
 			Some(Self::checkin_create_ignorer()?)
 		} else {
 			None
@@ -152,7 +152,7 @@ impl Server {
 		};
 
 		// Spawn the fixup task.
-		let fixup_task = if arg.destructive {
+		let fixup_task = if arg.options.destructive {
 			let (sender, receiver) = std::sync::mpsc::channel();
 			state.fixup_sender = Some(sender);
 			let task = tokio::task::spawn_blocking(move || Self::checkin_fixup_task(&receiver))

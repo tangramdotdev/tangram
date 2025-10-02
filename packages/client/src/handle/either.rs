@@ -247,6 +247,7 @@ where
 	fn try_get(
 		&self,
 		reference: &tg::Reference,
+		arg: tg::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>>
@@ -256,11 +257,11 @@ where
 	> + Send {
 		match self {
 			Either::Left(s) => s
-				.try_get(reference)
+				.try_get(reference, arg.clone())
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
 			Either::Right(s) => s
-				.try_get(reference)
+				.try_get(reference, arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

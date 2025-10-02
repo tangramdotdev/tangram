@@ -448,7 +448,7 @@ impl Server {
 				};
 				let mut stack = vec![blob];
 				while let Some(blob) = stack.pop() {
-					let (artifact, path) = if state.arg.destructive {
+					let (artifact, path) = if state.arg.options.destructive {
 						let path = node
 							.path
 							.as_ref()

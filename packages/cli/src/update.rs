@@ -13,11 +13,9 @@ pub struct Args {
 
 	#[arg(
 		action = clap::ArgAction::Append,
-		long,
 		num_args = 1..,
-		short,
 	)]
-	pub patterns: Option<Vec<tg::tag::Pattern>>,
+	pub updates: Option<Vec<tg::tag::Pattern>>,
 }
 
 impl Cli {
@@ -30,16 +28,12 @@ impl Cli {
 
 		// Get the updates.
 		let updates = args
-			.patterns
+			.updates
 			.unwrap_or_else(|| vec![tg::tag::Pattern::wildcard()]);
 
-		// Check in the path.
+		// Check in.
 		let arg = tg::checkin::Arg {
-			destructive: false,
-			deterministic: false,
-			ignore: true,
-			lock: true,
-			locked: false,
+			options: tg::checkin::Options::default(),
 			path,
 			updates,
 		};

@@ -104,11 +104,12 @@ impl Runtime {
 		let stream = self
 			.server
 			.checkin(tg::checkin::Arg {
-				deterministic: false,
-				ignore: false,
-				lock: false,
-				locked: false,
-				destructive: true,
+				options: tg::checkin::Options {
+					destructive: true,
+					ignore: false,
+					lock: false,
+					..Default::default()
+				},
 				path: temp.path().to_owned(),
 				updates: Vec::new(),
 			})
