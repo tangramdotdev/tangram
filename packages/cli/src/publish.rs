@@ -36,9 +36,9 @@ struct PackageNode {
 	dependency_indices: Vec<usize>,
 }
 
-struct PublishOrder {
-	cycles: Vec<Vec<usize>>,
-	non_cyclic: Vec<usize>,
+enum Scc {
+	Cycle(Vec<usize>),
+	Single(usize),
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -65,11 +65,17 @@ impl Cli {
 			.try_unwrap_directory()
 			.map_err(|source| tg::error!(!source, "expected a directory"))?;
 
-		// Compute graph and report size.
+		// Compute graph and report number of packages.
 		let graph = self.build_dependency_graph(&handle, directory).await?;
 		let order = graph.compute_publish_order();
-		let cyclic_packages = order.cycles.iter().map(std::vec::Vec::len).sum::<usize>();
-		let total_packages = cyclic_packages + order.non_cyclic.len();
+		let cyclic_packages: usize = order
+			.iter()
+			.map(|scc| match scc {
+				Scc::Cycle(nodes) => nodes.len(),
+				Scc::Single(_) => 0,
+			})
+			.sum();
+		let total_packages = graph.nodes.len();
 		eprintln!("publishing {total_packages} packages");
 		if cyclic_packages > 0 {
 			eprintln!("  {cyclic_packages} packages in dependency cycles");
@@ -251,142 +257,98 @@ impl Cli {
 		Ok(DependencyGraph { nodes })
 	}
 
+	async fn should_publish_package(
+		&self,
+		handle: &impl tg::Handle,
+		tag: &tg::Tag,
+		directory_id: &tg::directory::Id,
+		remote: &str,
+	) -> tg::Result<bool> {
+		// Check if the tag already exists on the remote.
+		let pattern: tg::tag::Pattern = tag.clone().into();
+		let arg = tg::tag::list::Arg {
+			length: Some(1),
+			pattern: pattern.clone(),
+			remote: Some(remote.to_string()),
+			reverse: true,
+		};
+		let tg::tag::list::Output { data } = handle.list_tags(arg).await?;
+		let existing = data.into_iter().next();
+
+		let should_publish = if let Some(output) = existing {
+			if let Some(item) = output.item {
+				// Check if it points to the same directory.
+				match item {
+					Either::Right(object_id) => {
+						if object_id == directory_id.clone().into() {
+							eprintln!("tag {tag} already published, skipping");
+							false
+						} else {
+							eprintln!("tag {tag} exists but points to different item, overwriting");
+							true
+						}
+					},
+					Either::Left(_process_id) => {
+						eprintln!("tag {tag} points to a process, overwriting");
+						true
+					},
+				}
+			} else {
+				eprintln!("tag {tag} exists but has no item, overwriting");
+				true
+			}
+		} else {
+			eprintln!("publishing {tag} ({directory_id})");
+			true
+		};
+
+		Ok(should_publish)
+	}
+
 	async fn publish_in_order(
 		&mut self,
 		handle: &impl tg::Handle,
 		graph: &DependencyGraph,
-		order: PublishOrder,
+		order: Vec<Scc>,
 		remote: &str,
 	) -> tg::Result<()> {
-		// Phase 1: Create dummy packages and tag them locally for cycle resolution.
-		if !order.cycles.is_empty() {
+		// Phase 1: Create dummy packages and tag them locally for all cycles.
+		let has_cycles = order.iter().any(|scc| matches!(scc, Scc::Cycle(_)));
+		if has_cycles {
 			eprintln!("detected dependency cycles, creating local dummy package tags");
 
-			for cycle in &order.cycles {
-				for &node_index in cycle {
-					let node = &graph.nodes[node_index];
-					let metadata = &node.metadata;
+			for scc in &order {
+				if let Scc::Cycle(nodes) = scc {
+					for node_index in nodes {
+						let node = &graph.nodes[*node_index];
+						let metadata = &node.metadata;
 
-					let dummy_directory = self.create_dummy_package(handle, metadata).await?;
+						let dummy_directory = self.create_dummy_package(handle, metadata).await?;
 
-					let tag_string = format!("{}/{}", metadata.name, metadata.version);
-					let tag = tag_string
-						.parse::<tg::Tag>()
-						.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
+						let tag_string = format!("{}/{}", metadata.name, metadata.version);
+						let tag = tag_string
+							.parse::<tg::Tag>()
+							.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
 
-					eprintln!("creating local dummy tag {tag}");
+						eprintln!("creating local dummy tag {tag}");
 
-					let arg = tg::tag::put::Arg {
-						force: true,
-						item: Either::Right(dummy_directory.id().clone().into()),
-						remote: None,
-					};
-					handle.put_tag(&tag, arg).await?;
-				}
-			}
-		}
-
-		// Phase 2: Publish non-cyclic packages in topological order.
-		let mut items_to_push = Vec::new();
-		let mut tags_to_put: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
-
-		for node_index in &order.non_cyclic {
-			let node = &graph.nodes[*node_index];
-			let directory = &node.directory;
-			let metadata = &node.metadata;
-
-			let tag_string = format!("{}/{}", metadata.name, metadata.version);
-			let tag = tag_string
-				.parse::<tg::Tag>()
-				.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-
-			// Check if the tag already exists on the remote.
-			let pattern: tg::tag::Pattern = tag.clone().into();
-			let arg = tg::tag::list::Arg {
-				length: Some(1),
-				pattern: pattern.clone(),
-				remote: Some(remote.to_string()),
-				reverse: true,
-			};
-			let tg::tag::list::Output { data } = handle.list_tags(arg).await?;
-			let existing = data.into_iter().next();
-
-			let should_publish = if let Some(output) = existing {
-				if let Some(item) = output.item {
-					// Check if it points to the same directory.
-					match item {
-						Either::Right(object_id) => {
-							let current_id = directory.id();
-							if object_id == current_id.clone().into() {
-								eprintln!("tag {tag} already published, skipping");
-								false
-							} else {
-								eprintln!(
-									"tag {tag} exists but points to different item, overwriting"
-								);
-								true
-							}
-						},
-						Either::Left(_process_id) => {
-							eprintln!("tag {tag} points to a process, overwriting");
-							true
-						},
+						let arg = tg::tag::put::Arg {
+							force: true,
+							item: Either::Right(dummy_directory.id().clone().into()),
+							remote: None,
+						};
+						handle.put_tag(&tag, arg).await?;
 					}
-				} else {
-					eprintln!("tag {tag} exists but has no item, overwriting");
-					true
 				}
-			} else {
-				eprintln!("publishing {tag}");
-				true
-			};
-
-			if should_publish {
-				items_to_push.push(Either::Right(directory.id().clone().into()));
-				tags_to_put.push((tag, directory.id().clone().into()));
 			}
 		}
 
-		// Push all non-cyclic items.
-		if !items_to_push.is_empty() {
-			let arg = tg::push::Arg {
-				commands: false,
-				items: items_to_push,
-				logs: false,
-				outputs: true,
-				recursive: false,
-				remote: Some(remote.to_owned()),
-			};
-			let stream = handle.push(arg).await?;
-			self.render_progress_stream(stream).await?;
-		}
-
-		// Put all non-cyclic tags both locally and on remote.
-		for (tag, item) in &tags_to_put {
-			let arg = tg::tag::put::Arg {
-				force: true,
-				item: Either::Right(item.clone()),
-				remote: None,
-			};
-			handle.put_tag(tag, arg).await?;
-
-			let arg = tg::tag::put::Arg {
-				force: true,
-				item: Either::Right(item.clone()),
-				remote: Some(remote.to_owned()),
-			};
-			handle.put_tag(tag, arg).await?;
-		}
-
-		// Phase 3: Overwrite dummy packages with real implementations.
-		if !order.cycles.is_empty() {
-			eprintln!("overwriting dummy packages with real implementations");
-			let mut real_items = Vec::new();
-			let mut real_tags: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
-
-			for cycle in &order.cycles {
-				for &node_index in cycle {
-					let node = &graph.nodes[node_index];
+		// Phase 2: Publish packages in topological order.
+		for scc in &order {
+			match scc {
+				Scc::Single(node_index) => {
+					// Publish non-cyclic package.
+					let node = &graph.nodes[*node_index];
 					let directory = &node.directory;
 					let metadata = &node.metadata;
 
@@ -395,44 +357,98 @@ impl Cli {
 						.parse::<tg::Tag>()
 						.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
 
-					eprintln!("publishing {tag} (real package {})", directory.id());
-					real_items.push(Either::Right(directory.id().clone().into()));
-					real_tags.push((tag.clone(), directory.id().clone().into()));
-				}
-			}
+					let should_publish = self
+						.should_publish_package(handle, &tag, &directory.id(), remote)
+						.await?;
 
-			// Push all real items.
-			if !real_items.is_empty() {
-				eprintln!("pushing {} real package objects", real_items.len());
-				let arg = tg::push::Arg {
-					commands: false,
-					items: real_items,
-					logs: false,
-					outputs: true,
-					recursive: false,
-					remote: Some(remote.to_owned()),
-				};
-				let stream = handle.push(arg).await?;
-				self.render_progress_stream(stream).await?;
-			}
+					if should_publish {
+						// Push the object.
+						let arg = tg::push::Arg {
+							commands: false,
+							items: vec![Either::Right(directory.id().clone().into())],
+							logs: false,
+							outputs: true,
+							recursive: false,
+							remote: Some(remote.to_owned()),
+						};
+						let stream = handle.push(arg).await?;
+						self.render_progress_stream(stream).await?;
 
-			// Put all real tags, overwriting the dummies both locally and on remote.
-			for (tag, item) in &real_tags {
-				eprintln!("updating tag {tag} to point to {item}");
+						// Put tag locally and on remote.
+						let item = directory.id();
 
-				let arg = tg::tag::put::Arg {
-					force: true,
-					item: Either::Right(item.clone()),
-					remote: None,
-				};
-				handle.put_tag(tag, arg).await?;
+						let arg = tg::tag::put::Arg {
+							force: true,
+							item: Either::Right(item.clone().into()),
+							remote: None,
+						};
+						handle.put_tag(&tag, arg).await?;
 
-				let arg = tg::tag::put::Arg {
-					force: true,
-					item: Either::Right(item.clone()),
-					remote: Some(remote.to_owned()),
-				};
-				handle.put_tag(tag, arg).await?;
+						let arg = tg::tag::put::Arg {
+							force: true,
+							item: Either::Right(item.clone().into()),
+							remote: Some(remote.to_owned()),
+						};
+						handle.put_tag(&tag, arg).await?;
+					}
+				},
+				Scc::Cycle(nodes) => {
+					// Publish real implementations of cyclic packages.
+					eprintln!("publishing {} packages in cycle", nodes.len());
+					let mut items_to_push = Vec::new();
+					let mut tags_to_put: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
+
+					for node_index in nodes {
+						let node = &graph.nodes[*node_index];
+						let directory = &node.directory;
+						let metadata = &node.metadata;
+
+						let tag_string = format!("{}/{}", metadata.name, metadata.version);
+						let tag = tag_string
+							.parse::<tg::Tag>()
+							.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
+
+						let should_publish = self
+							.should_publish_package(handle, &tag, &directory.id(), remote)
+							.await?;
+
+						if should_publish {
+							items_to_push.push(Either::Right(directory.id().clone().into()));
+							tags_to_put.push((tag, directory.id().clone().into()));
+						}
+					}
+
+					// Push all cyclic items.
+					if !items_to_push.is_empty() {
+						let arg = tg::push::Arg {
+							commands: false,
+							items: items_to_push,
+							logs: false,
+							outputs: true,
+							recursive: false,
+							remote: Some(remote.to_owned()),
+						};
+						let stream = handle.push(arg).await?;
+						self.render_progress_stream(stream).await?;
+					}
+
+					// Put all tags, overwriting the dummies both locally and on remote.
+					for (tag, item) in &tags_to_put {
+						let arg = tg::tag::put::Arg {
+							force: true,
+							item: Either::Right(item.clone()),
+							remote: None,
+						};
+						handle.put_tag(tag, arg).await?;
+
+						let arg = tg::tag::put::Arg {
+							force: true,
+							item: Either::Right(item.clone()),
+							remote: Some(remote.to_owned()),
+						};
+						handle.put_tag(tag, arg).await?;
+					}
+				},
 			}
 		}
 
@@ -476,20 +492,18 @@ impl<'a> IntoNeighbors for &'a DependencyGraph {
 }
 
 impl DependencyGraph {
-	fn compute_publish_order(&self) -> PublishOrder {
-		let sccs = tarjan_scc(self);
-		let mut cycles = Vec::new();
-		let mut non_cyclic = Vec::new();
+	fn compute_publish_order(&self) -> Vec<Scc> {
+		let tarjan_sccs = tarjan_scc(self);
 
-		for scc in &sccs {
-			// If there's a cycle, the SCC will have more than one node.
-			if scc.len() > 1 {
-				cycles.push(scc.clone());
-			} else {
-				non_cyclic.extend(scc);
-			}
-		}
-
-		PublishOrder { cycles, non_cyclic }
+		tarjan_sccs
+			.into_iter()
+			.map(|scc| {
+				if scc.len() > 1 {
+					Scc::Cycle(scc)
+				} else {
+					Scc::Single(scc[0])
+				}
+			})
+			.collect()
 	}
 }

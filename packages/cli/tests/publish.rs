@@ -744,8 +744,6 @@ async fn package_with_dependency_cycle() {
 	shared_temp_artifact.to_path(&shared_temp).await.unwrap();
 
 	let b_path = shared_temp.path().join("b");
-
-	// Publish package B - this should detect the import cycle and handle it gracefully.
 	let output = ctx
 		.local_server
 		.tg()
@@ -754,22 +752,20 @@ async fn package_with_dependency_cycle() {
 		.output()
 		.await
 		.unwrap();
-
-	// Verify that publish succeeds - import cycles should be handled gracefully.
 	assert_success!(output);
 
 	// Extract the published IDs from the stderr
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	let a_published_id = stderr
 		.lines()
-		.find(|line| line.contains("publishing test-a/1.0.0 (real package"))
+		.find(|line| line.contains("publishing test-a/1.0.0"))
 		.and_then(|line| line.split("dir_").nth(1))
 		.map(|s| format!("dir_{}", s.trim_end_matches(')')))
 		.expect("test-a should be published");
 
 	let b_published_id = stderr
 		.lines()
-		.find(|line| line.contains("publishing test-b/1.0.0 (real package"))
+		.find(|line| line.contains("publishing test-b/1.0.0"))
 		.and_then(|line| line.split("dir_").nth(1))
 		.map(|s| format!("dir_{}", s.trim_end_matches(')')))
 		.expect("test-b should be published");
@@ -907,21 +903,18 @@ async fn package_with_cycles_and_non_cycles() {
 		.output()
 		.await
 		.unwrap();
-
-	// Verify that publish succeeds.
 	assert_success!(output);
 
-	// Extract the published IDs from the stderr.
 	let stderr = String::from_utf8_lossy(&output.stderr);
-
-	// Find all published package IDs.
 	let extract_id = |package_name: &str| -> String {
 		stderr
 			.lines()
-			.find(|line| line.contains(&format!("publishing {}", package_name)))
+			.find(|line| line.contains(&format!("publishing {package_name}")))
 			.and_then(|line| line.split("dir_").nth(1))
-			.map(|s| format!("dir_{}", s.trim_end_matches(')')))
-			.unwrap_or_else(|| panic!("{} should be published", package_name))
+			.map_or_else(
+				|| panic!("{package_name} should be published"),
+				|s| format!("dir_{}", s.trim_end_matches(')')),
+			)
 	};
 
 	let leaf1_id = extract_id("test-leaf1/1.0.0");
@@ -931,12 +924,12 @@ async fn package_with_cycles_and_non_cycles() {
 	let cycle_b_id = extract_id("test-cycle-b/1.0.0");
 	let main_id = extract_id("test-main/1.0.0");
 
-	// Verify publish ordering constraints:
-	let get_pos = |name: &str| stderr.find(&format!("publishing {}", name));
+	let get_pos = |name: &str| stderr.find(&format!("publishing {name}"));
 
 	let leaf1_pos = get_pos("test-leaf1/1.0.0").expect("leaf1 should be published");
 	let leaf2_pos = get_pos("test-leaf2/1.0.0").expect("leaf2 should be published");
-	let independent_pos = get_pos("test-independent/1.0.0").expect("independent should be published");
+	let independent_pos =
+		get_pos("test-independent/1.0.0").expect("independent should be published");
 	let cycle_a_pos = get_pos("test-cycle-a/1.0.0").expect("cycle-a should be published");
 	let cycle_b_pos = get_pos("test-cycle-b/1.0.0").expect("cycle-b should be published");
 	let main_pos = get_pos("test-main/1.0.0").expect("main should be published");
