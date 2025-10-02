@@ -1092,129 +1092,170 @@ async fn simple_package_with_tag() {
 	ctx.assert_metadata_synced(&package_id).await;
 }
 
-// #[tokio::test]
-// async fn package_with_single_file_and_multi_file_dependencies() {
-// 	let ctx = TestContext::new().await;
+#[tokio::test]
+async fn package_with_single_file_and_multi_file_dependencies() {
+	let ctx = TestContext::new().await;
 
-// 	// Create a single-file package.
-// 	let (single_file_temp, single_file_package_id) = ctx
-// 		.create_package(
-// 			indoc!(
-// 				r#"
-// 			export default () => "I am a single-file package!";
+	// Create a single-file package.
+	let single_file = temp::file!(indoc!(
+		r#"
+		export default () => "I am a single-file package!";
 
-// 			export let metadata = {
-// 				name: "test-single-file",
-// 				version: "1.0.0",
-// 			};
-// 		"#
-// 			)
-// 			.to_owned(),
-// 		)
-// 		.await;
+		export let metadata = {
+			name: "test-single-file",
+			version: "1.0.0",
+		};
+	"#
+	));
+	let single_file_temp = Temp::new();
+	let single_file_artifact: temp::Artifact = single_file.into();
+	single_file_artifact
+		.to_path(&single_file_temp)
+		.await
+		.unwrap();
 
-// 	// Tag the single-file package.
-// 	ctx.create_tag("test-single-file/1.0.0", &single_file_package_id)
-// 		.await;
+	let single_file_checkin_output = ctx
+		.local_server
+		.tg()
+		.arg("checkin")
+		.arg(single_file_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(single_file_checkin_output);
+	let single_file_package_id = std::str::from_utf8(&single_file_checkin_output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+	ctx.create_tag("test-single-file/1.0.0", &single_file_package_id)
+		.await;
 
-// 	// Create a multi-file package with submodules.
-// 	let multi_file_artifact = temp::directory! {
-// 		"tangram.ts" => indoc!(
-// 			r#"
-// 			import { helper } from "./helper.ts";
-// 			import { util } from "./subdir/util.ts";
+	// Create a multi-file package with submodules.
+	let multi_file_artifact = temp::directory! {
+		"tangram.ts" => indoc!(
+			r#"
+			import { helper } from "./helper.ts";
+			import { util } from "./subdir/util.ts";
 
-// 			export default () => `Multi-file using: ${helper()} and ${util()}`;
+			export default () => `Multi-file using: ${helper()} and ${util()}`;
 
-// 			export let metadata = {
-// 				name: "test-multi-file",
-// 				version: "1.0.0",
-// 			};
-// 		"#
-// 		).to_owned(),
-// 		"helper.ts" => indoc!(
-// 			r#"
-// 			export let helper = () => "helper function";
-// 		"#
-// 		).to_owned(),
-// 		"subdir" => temp::directory! {
-// 			"util.ts" => indoc!(
-// 				r#"
-// 				export let util = () => "util function";
-// 			"#
-// 			).to_owned(),
-// 		},
-// 	};
-// 	let multi_file_temp = Temp::new();
-// 	let multi_file_temp_artifact: temp::Artifact = multi_file_artifact.into();
-// 	multi_file_temp_artifact
-// 		.to_path(&multi_file_temp)
-// 		.await
-// 		.unwrap();
+			export let metadata = {
+				name: "test-multi-file",
+				version: "1.0.0",
+			};
+		"#
+		).to_owned(),
+		"helper.ts" => indoc!(
+			r#"
+			export let helper = () => "helper function";
+		"#
+		).to_owned(),
+		"subdir" => temp::directory! {
+			"util.ts" => indoc!(
+				r#"
+				export let util = () => "util function";
+			"#
+			).to_owned(),
+		},
+	};
+	let multi_file_temp = Temp::new();
+	let multi_file_temp_artifact: temp::Artifact = multi_file_artifact.into();
+	multi_file_temp_artifact
+		.to_path(&multi_file_temp)
+		.await
+		.unwrap();
+	let multi_file_checkin_output = ctx
+		.local_server
+		.tg()
+		.current_dir(multi_file_temp.path())
+		.arg("checkin")
+		.arg(".")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(multi_file_checkin_output);
+	let multi_file_package_id = std::str::from_utf8(&multi_file_checkin_output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+	ctx.create_tag("test-multi-file/1.0.0", &multi_file_package_id)
+		.await;
 
-// 	// Checkin the multi-file package.
-// 	let multi_file_checkin_output = ctx
-// 		.local_server
-// 		.tg()
-// 		.current_dir(multi_file_temp.path())
-// 		.arg("checkin")
-// 		.arg(".")
-// 		.output()
-// 		.await
-// 		.unwrap();
-// 	assert_success!(multi_file_checkin_output);
-// 	let multi_file_package_id = std::str::from_utf8(&multi_file_checkin_output.stdout)
-// 		.unwrap()
-// 		.trim()
-// 		.to_owned();
+	// Create a main package that imports both.
+	let (temp, package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			import singleFile from "test-single-file";
+			import multiFile from "test-multi-file";
 
-// 	// Tag the multi-file package.
-// 	ctx.create_tag("test-multi-file/1.0.0", &multi_file_package_id)
-// 		.await;
+			export default () => `Main using: ${singleFile()} and ${multiFile()}`;
 
-// 	// Create a main package that imports both.
-// 	let (temp, package_id) = ctx
-// 		.create_package(
-// 			indoc!(
-// 				r#"
-// 			import singleFile from "test-single-file";
-// 			import multiFile from "test-multi-file";
+			export let metadata = {
+				name: "test-main",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
 
-// 			export default () => `Main using: ${singleFile()} and ${multiFile()}`;
+	// Publish and capture the output to check what gets published.
+	let publish_output = ctx.publish_with_output(&temp).await;
+	assert_success!(publish_output);
 
-// 			export let metadata = {
-// 				name: "test-main",
-// 				version: "1.0.0",
-// 			};
-// 		"#
-// 			)
-// 			.to_owned(),
-// 		)
-// 		.await;
+	// Extract the stderr to verify what was published.
+	let stderr = String::from_utf8_lossy(&publish_output.stderr);
 
-// 	ctx.publish(&temp).await;
+	// Count how many packages are being published.
+	let publish_count = stderr
+		.lines()
+		.filter(|line| line.contains("publishing test-"))
+		.count();
 
-// 	// Verify all packages are tagged and synced.
-// 	ctx.assert_tag_on_local("test-main/1.0.0", &package_id)
-// 		.await;
-// 	ctx.assert_tag_on_local("test-single-file/1.0.0", &single_file_package_id)
-// 		.await;
-// 	ctx.assert_tag_on_local("test-multi-file/1.0.0", &multi_file_package_id)
-// 		.await;
-// 	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
-// 		.await;
-// 	ctx.assert_tag_on_remote("test-single-file/1.0.0", &single_file_package_id)
-// 		.await;
-// 	ctx.assert_tag_on_remote("test-multi-file/1.0.0", &multi_file_package_id)
-// 		.await;
-// 	ctx.assert_object_synced(&package_id).await;
-// 	ctx.assert_object_synced(&single_file_package_id).await;
-// 	ctx.assert_object_synced(&multi_file_package_id).await;
-// 	ctx.index_servers().await;
-// 	ctx.assert_metadata_synced(&package_id).await;
-// 	ctx.assert_metadata_synced(&single_file_package_id).await;
-// 	ctx.assert_metadata_synced(&multi_file_package_id).await;
-// }
+	// We should only publish 3 packages: test-main, test-single-file, test-multi-file.
+	// We should NOT publish helper.ts or util.ts as separate packages.
+	assert_eq!(
+		publish_count, 3,
+		"Expected 3 packages to be published (test-main, test-single-file, test-multi-file), but found {publish_count}\nStderr:\n{stderr}"
+	);
+
+	// Verify the correct packages are published.
+	assert!(
+		stderr.contains("publishing test-main/1.0.0"),
+		"test-main should be published"
+	);
+	assert!(
+		stderr.contains("publishing test-single-file/1.0.0"),
+		"test-single-file should be published"
+	);
+	assert!(
+		stderr.contains("publishing test-multi-file/1.0.0"),
+		"test-multi-file should be published"
+	);
+
+	// Verify all packages are tagged and synced.
+	ctx.assert_tag_on_local("test-main/1.0.0", &package_id)
+		.await;
+	ctx.assert_tag_on_local("test-single-file/1.0.0", &single_file_package_id)
+		.await;
+	ctx.assert_tag_on_local("test-multi-file/1.0.0", &multi_file_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-single-file/1.0.0", &single_file_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-multi-file/1.0.0", &multi_file_package_id)
+		.await;
+	ctx.assert_object_synced(&package_id).await;
+	ctx.assert_object_synced(&single_file_package_id).await;
+	ctx.assert_object_synced(&multi_file_package_id).await;
+	ctx.index_servers().await;
+	ctx.assert_metadata_synced(&package_id).await;
+	ctx.assert_metadata_synced(&single_file_package_id).await;
+	ctx.assert_metadata_synced(&multi_file_package_id).await;
+}
 
 struct TestContext {
 	local_server: Server,
@@ -1277,7 +1318,6 @@ impl TestContext {
 			.tg()
 			.current_dir(temp.path())
 			.arg("publish")
-			.arg("--remote=default")
 			.output()
 			.await
 			.unwrap()
