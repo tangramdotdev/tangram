@@ -232,12 +232,15 @@ impl Runtime {
 				cmd.stdin(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
-				let fd = self.server.get_pty_fd(pty, false)?;
-				let tty = self.server.get_pty_fd(pty, true)?;
-				cmd.stdin(fd);
+				let host = self.server.get_pty_fd(pty, true)?;
+				let guest = self.server.get_pty_fd(pty, false)?;
+				let fd = guest.as_raw_fd();
+				cmd.stdin(guest);
 				unsafe {
 					cmd.pre_exec(move || {
-						crate::runtime::util::set_controlling_terminal(tty.as_raw_fd())
+						crate::runtime::util::set_controlling_terminal(fd)?;
+						libc::close(host.as_raw_fd());
+						Ok(())
 					});
 				}
 			},

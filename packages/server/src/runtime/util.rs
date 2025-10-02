@@ -41,6 +41,15 @@ pub fn set_controlling_terminal(tty_fd: RawFd) -> std::io::Result<()> {
 			return Err(std::io::Error::last_os_error());
 		}
 
+		// Verify that we have a controlling terminal again.
+		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+		scopeguard::defer! {
+			libc::close(fd);
+		}
+		if fd <= 0 {
+			return Err(std::io::Error::other("failed to set controlling tty"));
+		}
+
 		Ok(())
 	}
 }
