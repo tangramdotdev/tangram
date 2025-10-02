@@ -120,6 +120,29 @@ impl Cli {
 		}
 	}
 
+	async fn is_contained_in_directory(
+		&self,
+		handle: &impl tg::Handle,
+		directory: &tg::Directory,
+		artifact: &tg::Artifact,
+	) -> tg::Result<bool> {
+		let artifact_id = artifact.id();
+		let entries = directory.entries(handle).await?;
+
+		for entry in entries.values() {
+			if entry.id() == artifact_id {
+				return Ok(true);
+			}
+			if let tg::Artifact::Directory(subdir) = entry {
+				if Box::pin(self.is_contained_in_directory(handle, subdir, artifact)).await? {
+					return Ok(true);
+				}
+			}
+		}
+
+		Ok(false)
+	}
+
 	async fn get_package_metadata(
 		&mut self,
 		handle: &impl tg::Handle,
@@ -261,6 +284,26 @@ impl Cli {
 				if !self.is_package(handle, &dependency).await? {
 					continue;
 				}
+
+				// Check if this dependency is a member of the current package.
+				if let tg::Artifact::Directory(current_dir) = &current_artifact {
+					if self
+						.is_contained_in_directory(handle, current_dir, &dependency)
+						.await?
+					{
+						match dependency {
+							tg::Artifact::File(_) | tg::Artifact::Symlink(_) => {
+								continue;
+							},
+							tg::Artifact::Directory(_) => {
+								if !self.is_package(handle, &dependency).await? {
+									continue;
+								}
+							},
+						}
+					}
+				}
+
 				let dep_id = dependency.id();
 				let dep_index = if let Some(&existing_index) = id_to_index.get(&dep_id) {
 					existing_index
