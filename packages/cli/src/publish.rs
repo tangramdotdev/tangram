@@ -5,10 +5,7 @@ use {
 		algo::tarjan_scc,
 		visit::{GraphBase, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable},
 	},
-	std::{
-		collections::{HashMap, VecDeque},
-		path::PathBuf,
-	},
+	std::collections::{HashMap, VecDeque},
 	tangram_client as tg,
 	tangram_either::Either,
 };
@@ -17,11 +14,11 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The path of the package
-	#[arg(default_value = ".")]
-	pub path: Option<PathBuf>,
+	/// The reference to publish.
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
 
-	/// The remote to publish to
+	/// The remote to publish to.
 	#[arg(long, short)]
 	pub remote: Option<String>,
 }
@@ -31,7 +28,7 @@ struct DependencyGraph {
 }
 
 struct PackageNode {
-	directory: tg::Directory,
+	artifact: tg::Artifact,
 	metadata: Metadata,
 	dependency_indices: Vec<usize>,
 }
@@ -51,22 +48,28 @@ impl Cli {
 	pub async fn command_publish(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Obtain directory.
-		let path = std::path::absolute(args.path.unwrap_or_default())
-			.map_err(|source| tg::error!(!source, "failed to get the path"))?;
-		let reference = tg::Reference::with_path(path.clone());
+		// Get the reference.
+		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
+
+		if reference.export().is_some() {
+			return Err(tg::error!("cannot publish a reference with an export"));
+		}
+
+		// Obtain the artifact (can be a file or directory).
 		let referent = self.get_reference(&reference).await?;
 		let item = referent
 			.item
 			.clone()
 			.right()
 			.ok_or_else(|| tg::error!("expected an object"))?;
-		let directory = item
-			.try_unwrap_directory()
-			.map_err(|source| tg::error!(!source, "expected a directory"))?;
+		let artifact =
+			tg::Artifact::try_from(item).map_err(|_| tg::error!("expected an artifact"))?;
+		if matches!(artifact, tg::Artifact::Symlink(_)) {
+			return Err(tg::error!("cannot publish a symlink"));
+		}
 
 		// Compute graph and report number of packages.
-		let graph = self.build_dependency_graph(&handle, directory).await?;
+		let graph = self.build_dependency_graph(&handle, artifact).await?;
 		let order = graph.compute_publish_order();
 		let cyclic_packages: usize = order
 			.iter()
@@ -93,44 +96,75 @@ impl Cli {
 	async fn is_package(
 		&self,
 		handle: &impl tg::Handle,
-		directory: &tg::Directory,
+		artifact: &tg::Artifact,
 	) -> tg::Result<bool> {
-		Ok(tg::package::try_get_root_module_file_name(
-			handle,
-			Either::Left(&directory.clone().into()),
-		)
-		.await?
-		.is_some())
+		match artifact {
+			tg::Artifact::File(_file) => {
+				// Files don't have names, only directory entries have names.
+				// Without path context, we assume a standalone file is a package.
+				Ok(true)
+			},
+			tg::Artifact::Directory(directory) => {
+				// A directory is a package if it has a root module file.
+				Ok(tg::package::try_get_root_module_file_name(
+					handle,
+					Either::Left(&directory.clone().into()),
+				)
+				.await?
+				.is_some())
+			},
+			tg::Artifact::Symlink(_) => {
+				// Symlinks are not packages.
+				Ok(false)
+			},
+		}
 	}
 
 	async fn get_package_metadata(
 		&mut self,
 		handle: &impl tg::Handle,
-		directory: &tg::Directory,
+		artifact: &tg::Artifact,
 	) -> tg::Result<Metadata> {
-		let root_module_file_name = tg::package::try_get_root_module_file_name(
-			handle,
-			Either::Left(&directory.clone().into()),
-		)
-		.await?
-		.ok_or_else(|| tg::error!("could not find a root module in the directory"))?;
+		let (kind, item) = match artifact {
+			tg::Artifact::File(file) => {
+				// For a single file, use the file itself as the module.
+				// Files don't have names - assume TypeScript.
+				let kind = tg::module::Kind::Ts;
+				let item = tg::module::Item::Object(file.clone().into());
+				(kind, item)
+			},
+			tg::Artifact::Directory(directory) => {
+				// For a directory, find the root module file.
+				let root_module_file_name = tg::package::try_get_root_module_file_name(
+					handle,
+					Either::Left(&directory.clone().into()),
+				)
+				.await?
+				.ok_or_else(|| tg::error!("could not find a root module in the directory"))?;
 
-		let kind = if std::path::Path::new(root_module_file_name)
-			.extension()
-			.is_some_and(|ext| ext == "js")
-		{
-			tg::module::Kind::Js
-		} else if std::path::Path::new(root_module_file_name)
-			.extension()
-			.is_some_and(|ext| ext == "ts")
-		{
-			tg::module::Kind::Ts
-		} else {
-			return Err(tg::error!("unsupported module type"));
+				let kind = if std::path::Path::new(root_module_file_name)
+					.extension()
+					.is_some_and(|ext| ext == "js")
+				{
+					tg::module::Kind::Js
+				} else if std::path::Path::new(root_module_file_name)
+					.extension()
+					.is_some_and(|ext| ext == "ts")
+				{
+					tg::module::Kind::Ts
+				} else {
+					return Err(tg::error!("unsupported module type"));
+				};
+
+				let file = directory.get(handle, root_module_file_name).await?;
+				let item = tg::module::Item::Object(file.into());
+				(kind, item)
+			},
+			tg::Artifact::Symlink(_) => {
+				return Err(tg::error!("symlinks cannot be packages"));
+			},
 		};
 
-		let item = directory.get(handle, root_module_file_name).await?;
-		let item = tg::module::Item::Object(item.into());
 		let referent = tg::Referent::with_item(item);
 		let module = tg::Module { kind, referent };
 		let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
@@ -168,7 +202,7 @@ impl Cli {
 		&self,
 		handle: &impl tg::Handle,
 		metadata: &Metadata,
-	) -> tg::Result<tg::Directory> {
+	) -> tg::Result<tg::Artifact> {
 		let content = formatdoc!(
 			r#"
 			export default () => {{ throw new Error("This is a dummy package placeholder for cycle resolution. The real implementation should be published shortly."); }};
@@ -182,31 +216,33 @@ impl Cli {
 			metadata.version
 		);
 		let file = tg::File::builder(content).build();
-		let mut entries = std::collections::BTreeMap::new();
-		entries.insert("tangram.ts".to_owned(), file.into());
-		let directory = tg::Directory::with_entries(entries);
-		directory.store(handle).await?;
-		Ok(directory)
+		file.store(handle).await?;
+		Ok(file.into())
 	}
 
 	async fn build_dependency_graph(
 		&mut self,
 		handle: &impl tg::Handle,
-		root: tg::Directory,
+		root: tg::Artifact,
 	) -> tg::Result<DependencyGraph> {
 		let mut nodes = Vec::new();
 		let mut id_to_index = HashMap::new();
 		let mut queue = VecDeque::new();
 
-		// Start with the root directory.
+		// Check if the root is a package.
+		if !self.is_package(handle, &root).await? {
+			return Err(tg::error!("root is not a package"));
+		}
+
+		// Start with the root artifact.
 		let root_id = root.id();
 		let root_index = 0;
 		id_to_index.insert(root_id.clone(), root_index);
 		let root_metadata = self.get_package_metadata(handle, &root).await.map_err(
-			|source| tg::error!(!source, ?directory = root_id, "failed to get metadata for root package"),
+			|source| tg::error!(!source, ?artifact = root_id, "failed to get metadata for root package"),
 		)?;
 		nodes.push(PackageNode {
-			directory: root.clone(),
+			artifact: root.clone(),
 			metadata: root_metadata,
 			dependency_indices: Vec::new(),
 		});
@@ -214,41 +250,38 @@ impl Cli {
 
 		while let Some(current_index) = queue.pop_front() {
 			let current_node = &nodes[current_index];
-			let current_directory = current_node.directory.clone();
+			let current_artifact = current_node.artifact.clone();
 
-			let artifact = tg::Artifact::from(current_directory);
-			let dependencies = artifact.dependencies(handle).await?;
+			let dependencies = current_artifact.dependencies(handle).await?;
 
 			let mut dependency_indices = Vec::new();
 
 			for dependency in dependencies {
-				// We only care about directory dependencies with root modules (packages).
-				if let Ok(directory) = tg::Directory::try_from(dependency) {
-					if !self.is_package(handle, &directory).await? {
-						continue;
-					}
-					let dep_id = directory.id();
-					let dep_index = if let Some(&existing_index) = id_to_index.get(&dep_id) {
-						existing_index
-					} else {
-						let new_index = nodes.len();
-						id_to_index.insert(dep_id.clone(), new_index);
-						let metadata = self
-							.get_package_metadata(handle, &directory)
-							.await
-							.map_err(
-								|source| tg::error!(!source, ?directory = dep_id, "failed to get metadata for dependency"),
-							)?;
-						nodes.push(PackageNode {
-							directory: directory.clone(),
-							metadata,
-							dependency_indices: Vec::new(),
-						});
-						queue.push_back(new_index);
-						new_index
-					};
-					dependency_indices.push(dep_index);
+				// Check if this dependency is a package (either a file or directory with root module).
+				if !self.is_package(handle, &dependency).await? {
+					continue;
 				}
+				let dep_id = dependency.id();
+				let dep_index = if let Some(&existing_index) = id_to_index.get(&dep_id) {
+					existing_index
+				} else {
+					let new_index = nodes.len();
+					id_to_index.insert(dep_id.clone(), new_index);
+					let metadata = self
+						.get_package_metadata(handle, &dependency)
+						.await
+						.map_err(
+							|source| tg::error!(!source, ?artifact = dep_id, "failed to get metadata for dependency"),
+						)?;
+					nodes.push(PackageNode {
+						artifact: dependency.clone(),
+						metadata,
+						dependency_indices: Vec::new(),
+					});
+					queue.push_back(new_index);
+					new_index
+				};
+				dependency_indices.push(dep_index);
 			}
 
 			nodes[current_index].dependency_indices = dependency_indices;
@@ -261,7 +294,7 @@ impl Cli {
 		&self,
 		handle: &impl tg::Handle,
 		tag: &tg::Tag,
-		directory_id: &tg::directory::Id,
+		artifact_id: &tg::artifact::Id,
 		remote: &str,
 	) -> tg::Result<bool> {
 		// Check if the tag already exists on the remote.
@@ -275,12 +308,13 @@ impl Cli {
 		let tg::tag::list::Output { data } = handle.list_tags(arg).await?;
 		let existing = data.into_iter().next();
 
+		let object_id: tg::object::Id = artifact_id.clone().into();
 		let should_publish = if let Some(output) = existing {
 			if let Some(item) = output.item {
-				// Check if it points to the same directory.
+				// Check if it points to the same artifact.
 				match item {
-					Either::Right(object_id) => {
-						if object_id == directory_id.clone().into() {
+					Either::Right(existing_object_id) => {
+						if existing_object_id == object_id {
 							eprintln!("tag {tag} already published, skipping");
 							false
 						} else {
@@ -298,7 +332,7 @@ impl Cli {
 				true
 			}
 		} else {
-			eprintln!("publishing {tag} ({directory_id})");
+			eprintln!("publishing {tag} ({object_id})");
 			true
 		};
 
@@ -323,7 +357,8 @@ impl Cli {
 						let node = &graph.nodes[*node_index];
 						let metadata = &node.metadata;
 
-						let dummy_directory = self.create_dummy_package(handle, metadata).await?;
+						let dummy_artifact = self.create_dummy_package(handle, metadata).await?;
+						let dummy_id: tg::object::Id = dummy_artifact.id().into();
 
 						let tag_string = format!("{}/{}", metadata.name, metadata.version);
 						let tag = tag_string
@@ -334,7 +369,7 @@ impl Cli {
 
 						let arg = tg::tag::put::Arg {
 							force: true,
-							item: Either::Right(dummy_directory.id().clone().into()),
+							item: Either::Right(dummy_id),
 							remote: None,
 						};
 						handle.put_tag(&tag, arg).await?;
@@ -345,13 +380,13 @@ impl Cli {
 
 		// Collect all items to push and their tags.
 		let mut items_to_push = Vec::new();
-		let mut tags_to_put: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
+		let mut tags_to_put: Vec<(tg::Tag, tg::artifact::Id)> = Vec::new();
 
 		for scc in &order {
 			match scc {
 				Scc::Single(node_index) => {
 					let node = &graph.nodes[*node_index];
-					let directory = &node.directory;
+					let artifact = &node.artifact;
 					let metadata = &node.metadata;
 
 					let tag_string = format!("{}/{}", metadata.name, metadata.version);
@@ -359,20 +394,21 @@ impl Cli {
 						.parse::<tg::Tag>()
 						.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
 
+					let artifact_id = artifact.id();
 					let should_publish = self
-						.should_publish_package(handle, &tag, &directory.id(), remote)
+						.should_publish_package(handle, &tag, &artifact_id, remote)
 						.await?;
 
 					if should_publish {
-						items_to_push.push(Either::Right(directory.id().clone().into()));
-						tags_to_put.push((tag, directory.id().clone().into()));
+						tags_to_put.push((tag, artifact_id.clone()));
+						items_to_push.push(Either::Right(artifact_id.into()));
 					}
 				},
 				Scc::Cycle(nodes) => {
 					eprintln!("publishing {} packages in cycle", nodes.len());
 					for node_index in nodes {
 						let node = &graph.nodes[*node_index];
-						let directory = &node.directory;
+						let artifact = &node.artifact;
 						let metadata = &node.metadata;
 
 						let tag_string = format!("{}/{}", metadata.name, metadata.version);
@@ -380,13 +416,14 @@ impl Cli {
 							.parse::<tg::Tag>()
 							.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
 
+						let artifact_id = artifact.id();
 						let should_publish = self
-							.should_publish_package(handle, &tag, &directory.id(), remote)
+							.should_publish_package(handle, &tag, &artifact_id, remote)
 							.await?;
 
 						if should_publish {
-							items_to_push.push(Either::Right(directory.id().clone().into()));
-							tags_to_put.push((tag, directory.id().clone().into()));
+							tags_to_put.push((tag, artifact_id.clone()));
+							items_to_push.push(Either::Right(artifact_id.into()));
 						}
 					}
 				},
@@ -408,17 +445,18 @@ impl Cli {
 		}
 
 		// Put all tags.
-		for (tag, item) in &tags_to_put {
+		for (tag, artifact_id) in &tags_to_put {
+			let object_id: tg::object::Id = artifact_id.clone().into();
 			let arg = tg::tag::put::Arg {
 				force: true,
-				item: Either::Right(item.clone()),
+				item: Either::Right(object_id.clone()),
 				remote: None,
 			};
 			handle.put_tag(tag, arg).await?;
 
 			let arg = tg::tag::put::Arg {
 				force: true,
-				item: Either::Right(item.clone()),
+				item: Either::Right(object_id),
 				remote: Some(remote.to_owned()),
 			};
 			handle.put_tag(tag, arg).await?;
