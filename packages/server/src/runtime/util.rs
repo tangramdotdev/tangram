@@ -4,12 +4,55 @@ use {
 	futures::{Stream, TryStreamExt as _, future, stream},
 	std::{
 		collections::BTreeMap,
+		os::fd::RawFd,
 		path::{Path, PathBuf},
 		pin::pin,
 	},
 	tangram_client as tg,
 	tokio::io::{AsyncRead, AsyncReadExt as _},
 };
+
+/// Set a controlling terminal.
+pub fn set_controlling_terminal(tty_fd: RawFd) -> std::io::Result<()> {
+	unsafe {
+		// Disconnect from the old controlling terminal.
+		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+		#[allow(clippy::useless_conversion)]
+		if fd > 0 {
+			libc::ioctl(fd, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
+			libc::close(fd);
+		}
+
+		// Set the current process as session leader.
+		if libc::setsid() == -1 {
+			return Err(std::io::Error::last_os_error());
+		}
+
+		// Verify that we disconnected from the controlling terminal.
+		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+		if fd >= 0 {
+			libc::close(fd);
+			return Err(std::io::Error::other("failed to remove controlling tty"));
+		}
+
+		// Set the slave as the controlling tty.
+		#[allow(clippy::useless_conversion)]
+		if libc::ioctl(tty_fd, libc::TIOCSCTTY.into(), 0) < 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+
+		// Verify that we have a controlling terminal again.
+		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+		scopeguard::defer! {
+			libc::close(fd);
+		}
+		if fd <= 0 {
+			return Err(std::io::Error::other("failed to set controlling tty"));
+		}
+
+		Ok(())
+	}
+}
 
 /// Render a value.
 pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {
@@ -280,6 +323,23 @@ pub async fn log(
 		.await
 		.inspect_err(|error| tracing::error!(?error, "failed to post process log"))
 		.ok();
+}
+
+#[allow(dead_code)]
+pub fn whoami() -> tg::Result<String> {
+	unsafe {
+		let uid = libc::getuid();
+		let pwd = libc::getpwuid(uid);
+		if pwd.is_null() {
+			let source = std::io::Error::last_os_error();
+			return Err(tg::error!(!source, "failed to get username"));
+		}
+		let username = std::ffi::CString::from_raw((*pwd).pw_name)
+			.to_str()
+			.map_err(|source| tg::error!(!source, "non-utf8 username"))?
+			.to_owned();
+		Ok(username)
+	}
 }
 
 impl Server {
