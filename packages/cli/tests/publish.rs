@@ -331,8 +331,7 @@ async fn package_with_diamond_dependency() {
 		.await;
 
 	// Create a tag for the right package on the local server so it can be resolved.
-	ctx.create_tag("test-right/1.0.0", &right_package_id)
-		.await;
+	ctx.create_tag("test-right/1.0.0", &right_package_id).await;
 
 	// Create the main package - depends on both left and right.
 	let (temp, package_id) = ctx
@@ -367,10 +366,7 @@ async fn package_with_diamond_dependency() {
 	let main_pos = stderr.find("publishing test-main/1.0.0");
 
 	// All packages should be published.
-	assert!(
-		bottom_pos.is_some(),
-		"test-bottom should be published"
-	);
+	assert!(bottom_pos.is_some(), "test-bottom should be published");
 	assert!(left_pos.is_some(), "test-left should be published");
 	assert!(right_pos.is_some(), "test-right should be published");
 	assert!(main_pos.is_some(), "test-main should be published");
@@ -415,7 +411,154 @@ async fn package_with_diamond_dependency() {
 	ctx.assert_metadata_synced(&bottom_package_id).await;
 }
 
-// TODO - multiple dependencies, some of which have transitive dependencies which may be shared.
+#[tokio::test]
+async fn package_with_diamond_dependency_and_shared_import() {
+	let ctx = TestContext::new().await;
+
+	// Create the bottom package (D) - no dependencies.
+	let (_bottom_temp, bottom_package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			export default () => "I am the bottom of the diamond!";
+
+			export let metadata = {
+				name: "test-bottom",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	// Create a tag for the bottom package on the local server so it can be resolved.
+	ctx.create_tag("test-bottom/1.0.0", &bottom_package_id)
+		.await;
+
+	// Create the left package (A) - depends on bottom.
+	let (_left_temp, left_package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			import bottom from "test-bottom";
+
+			export default () => `Left using: ${bottom()}`;
+
+			export let metadata = {
+				name: "test-left",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	// Create a tag for the left package on the local server so it can be resolved.
+	ctx.create_tag("test-left/1.0.0", &left_package_id).await;
+
+	// Create the right package (B) - depends on bottom.
+	let (_right_temp, right_package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			import bottom from "test-bottom";
+
+			export default () => `Right using: ${bottom()}`;
+
+			export let metadata = {
+				name: "test-right",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	// Create a tag for the right package on the local server so it can be resolved.
+	ctx.create_tag("test-right/1.0.0", &right_package_id).await;
+
+	// Create the main package - depends on left, right, AND bottom directly.
+	let (temp, package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			import left from "test-left";
+			import right from "test-right";
+			import bottom from "test-bottom";
+
+			export default () => `Main using: ${left()}, ${right()}, and ${bottom()}`;
+
+			export let metadata = {
+				name: "test-main",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	// Publish the main package - this should publish bottom, then left and right, then main.
+	let publish_output = ctx.publish_with_output(&temp).await;
+
+	// Verify publish order by checking stderr output.
+	let stderr = String::from_utf8_lossy(&publish_output.stderr);
+
+	// Extract the positions where each package appears in the output.
+	let bottom_pos = stderr.find("publishing test-bottom/1.0.0");
+	let left_pos = stderr.find("publishing test-left/1.0.0");
+	let right_pos = stderr.find("publishing test-right/1.0.0");
+	let main_pos = stderr.find("publishing test-main/1.0.0");
+
+	// All packages should be published.
+	assert!(bottom_pos.is_some(), "test-bottom should be published");
+	assert!(left_pos.is_some(), "test-left should be published");
+	assert!(right_pos.is_some(), "test-right should be published");
+	assert!(main_pos.is_some(), "test-main should be published");
+
+	// Verify the order: bottom comes first.
+	assert!(
+		bottom_pos < left_pos,
+		"test-bottom should be published before test-left"
+	);
+	assert!(
+		bottom_pos < right_pos,
+		"test-bottom should be published before test-right"
+	);
+
+	// Left and right can be in either order, but both must come before main.
+	assert!(
+		left_pos < main_pos,
+		"test-left should be published before test-main"
+	);
+	assert!(
+		right_pos < main_pos,
+		"test-right should be published before test-main"
+	);
+
+	// Verify all four packages are tagged and synced on the remote.
+	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-left/1.0.0", &left_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-right/1.0.0", &right_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-bottom/1.0.0", &bottom_package_id)
+		.await;
+	ctx.assert_object_synced(&package_id).await;
+	ctx.assert_object_synced(&left_package_id).await;
+	ctx.assert_object_synced(&right_package_id).await;
+	ctx.assert_object_synced(&bottom_package_id).await;
+	ctx.index_servers().await;
+	ctx.assert_metadata_synced(&package_id).await;
+	ctx.assert_metadata_synced(&left_package_id).await;
+	ctx.assert_metadata_synced(&right_package_id).await;
+	ctx.assert_metadata_synced(&bottom_package_id).await;
+}
+
 // TODO - Execrise with local: path, without creating tags. Publish should find hte local package, create the tag, and then check in the parent using the tag instead of the local path.
 // TODO - dependency cycle.
 //
