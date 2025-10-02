@@ -71,9 +71,6 @@ async fn package_with_dependency_pre_publish() {
 			export let metadata = {
 				name: "test-main",
 				version: "1.0.0",
-				dependencies: {
-					"test-dep": "1.0.0",
-				},
 			};
 		"#
 			)
@@ -134,9 +131,6 @@ async fn package_with_unpublished_dependency() {
 			export let metadata = {
 				name: "test-main",
 				version: "1.0.0",
-				dependencies: {
-					"test-dep": "1.0.0",
-				},
 			};
 		"#
 			)
@@ -159,7 +153,117 @@ async fn package_with_unpublished_dependency() {
 	ctx.assert_metadata_synced(&dep_package_id).await;
 }
 
-// TODO - one dependency which in turn has a dependency
+#[tokio::test]
+async fn package_with_transitive_dependency() {
+	let ctx = TestContext::new().await;
+
+	// Create the transitive dependency (C) - no dependencies.
+	let (_transitive_temp, transitive_package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			export default () => "I am the transitive dependency!";
+
+			export let metadata = {
+				name: "test-transitive",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	// Create a tag for the transitive dependency on the local server so it can be resolved.
+	ctx.create_tag("test-transitive/1.0.0", &transitive_package_id)
+		.await;
+
+	// Create the intermediate dependency (B) - depends on C.
+	let (_dep_temp, dep_package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			import transitive from "test-transitive";
+
+			export default () => `Dependency using: ${transitive()}`;
+
+			export let metadata = {
+				name: "test-dep",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	// Create a tag for the dependency on the local server so it can be resolved.
+	ctx.create_tag("test-dep/1.0.0", &dep_package_id).await;
+
+	// Create the main package (A) - depends on B.
+	let (temp, package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			import dep from "test-dep";
+
+			export default () => `Main package using: ${dep()}`;
+
+			export let metadata = {
+				name: "test-main",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	// Publish the main package - this should publish C, then B, then A.
+	let publish_output = ctx.publish_with_output(&temp).await;
+
+	// Verify publish order by checking stderr output.
+	let stderr = String::from_utf8_lossy(&publish_output.stderr);
+
+	// Extract the positions where each package appears in the output.
+	let transitive_pos = stderr.find("publishing test-transitive/1.0.0");
+	let dep_pos = stderr.find("publishing test-dep/1.0.0");
+	let main_pos = stderr.find("publishing test-main/1.0.0");
+
+	// All packages should be published.
+	assert!(
+		transitive_pos.is_some(),
+		"test-transitive should be published"
+	);
+	assert!(dep_pos.is_some(), "test-dep should be published");
+	assert!(main_pos.is_some(), "test-main should be published");
+
+	// Verify the order: transitive < dep < main.
+	assert!(
+		transitive_pos < dep_pos,
+		"test-transitive should be published before test-dep"
+	);
+	assert!(
+		dep_pos < main_pos,
+		"test-dep should be published before test-main"
+	);
+
+	// Verify all three packages are tagged and synced on the remote.
+	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+		.await;
+	ctx.assert_tag_on_remote("test-transitive/1.0.0", &transitive_package_id)
+		.await;
+	ctx.assert_object_synced(&package_id).await;
+	ctx.assert_object_synced(&dep_package_id).await;
+	ctx.assert_object_synced(&transitive_package_id).await;
+	ctx.index_servers().await;
+	ctx.assert_metadata_synced(&package_id).await;
+	ctx.assert_metadata_synced(&dep_package_id).await;
+	ctx.assert_metadata_synced(&transitive_package_id).await;
+}
+
 // TODO - multiple dependencies, some of which have transitive dependencies which may be shared.
 // TODO - dependency cycle.
 //
@@ -215,16 +319,19 @@ impl TestContext {
 	}
 
 	async fn publish(&self, temp: &Temp) {
-		let output = self
-			.local_server
+		let output = self.publish_with_output(temp).await;
+		assert_success!(output);
+	}
+
+	async fn publish_with_output(&self, temp: &Temp) -> std::process::Output {
+		self.local_server
 			.tg()
 			.current_dir(temp.path())
 			.arg("publish")
 			.arg("--remote=default")
 			.output()
 			.await
-			.unwrap();
-		assert_success!(output);
+			.unwrap()
 	}
 
 	async fn create_tag(&self, tag: &str, id: &str) {
