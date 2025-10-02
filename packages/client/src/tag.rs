@@ -3,7 +3,7 @@ use {
 	tangram_version::Version,
 	winnow::{
 		ascii::{alphanumeric1, dec_uint},
-		combinator::{alt, opt, preceded, separated},
+		combinator::{alt, eof, opt, peek, preceded, separated, terminated},
 		prelude::*,
 		token::take_while,
 	},
@@ -145,8 +145,12 @@ fn component(input: &mut &str) -> ModalResult<Component> {
 fn version(input: &mut &str) -> ModalResult<Version> {
 	let prerelease = opt(preceded("-", dot_separated_identifier));
 	let build = opt(preceded("+", dot_separated_identifier));
-	let (major, _, minor, _, patch, prerelease, build) =
-		(dec_uint, ".", dec_uint, ".", dec_uint, prerelease, build).parse_next(input)?;
+	let (major, _, minor, _, patch, prerelease, build) = terminated(
+		(dec_uint, ".", dec_uint, ".", dec_uint, prerelease, build),
+		peek(alt((eof, "/"))),
+	)
+	.parse_next(input)?;
+
 	let prerelease = prerelease.map(ToOwned::to_owned);
 	let build = build.map(ToOwned::to_owned);
 	let version = Version {
@@ -166,7 +170,7 @@ fn dot_separated_identifier<'a>(input: &mut &'a str) -> ModalResult<&'a str> {
 }
 
 fn string(input: &mut &str) -> ModalResult<String> {
-	let string = take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-')
+	let string = take_while(1.., |c: char| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
 		.verify(|value: &str| {
 			if value.parse::<tg::process::Id>().is_ok() {
 				return false;
@@ -265,5 +269,60 @@ mod tests {
 				.parse::<tg::Tag>()
 				.is_err()
 		);
+
+		// Valid semantic versions.
+		assert!("1.0.0".parse::<tg::tag::Component>().is_ok());
+		assert!("0.1.2".parse::<tg::tag::Component>().is_ok());
+		assert!("10.20.30".parse::<tg::tag::Component>().is_ok());
+
+		// With prerelease.
+		assert!("1.0.0-alpha".parse::<tg::tag::Component>().is_ok());
+		assert!("1.0.0-alpha.1".parse::<tg::tag::Component>().is_ok());
+		assert!("1.0.0-0.3.7".parse::<tg::tag::Component>().is_ok());
+
+		// With build metadata.
+		assert!("1.0.0+20130313144700".parse::<tg::tag::Component>().is_ok());
+		assert!("1.0.0+exp.sha.5114f85".parse::<tg::tag::Component>().is_ok());
+
+		// With both prerelease and build.
+		assert!("1.0.0-beta.1+exp.sha.5114f85".parse::<tg::tag::Component>().is_ok());
+
+		// Verify these parse as Version components, not String.
+		let comp = "1.2.3".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_version());
+		let comp = "2.0.0-alpha".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_version());
+
+		// These should parse as strings since they're not valid semantic versions.
+		let comp = "2025b".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+		let comp = "v1.0.0".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string()); // Has 'v' prefix
+		let comp = "hello-world".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+		let comp = "test_123".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+
+		// Too few parts - should parse as strings, not versions.
+		let comp = "1".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+
+		let comp = "1.0".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+
+		// Too many parts - should fail version parsing and fall back to string.
+		let comp = "9.1.0.814".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+
+		// Invalid prerelease format (should be - not p).
+		let comp = "1.9.17p1".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+
+		// Non-numeric parts - should parse as strings since they're not valid versions.
+		let comp = "1.a.0".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
+
+		let comp = "a.1.0".parse::<tg::tag::Component>().unwrap();
+		assert!(comp.is_string());
 	}
 }
