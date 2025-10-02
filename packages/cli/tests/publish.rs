@@ -999,6 +999,184 @@ async fn package_with_cycles_and_non_cycles() {
 	}
 }
 
+#[tokio::test]
+async fn single_file_package() {
+	let ctx = TestContext::new().await;
+
+	// Create a single file (not a directory).
+	let file = temp::file!(indoc!(
+		r#"
+		export default () => "I am a single-file package!";
+
+		export let metadata = {
+			name: "test-single-file",
+			version: "1.0.0",
+		};
+	"#
+	));
+	let temp = Temp::new();
+	let artifact: temp::Artifact = file.into();
+	artifact.to_path(&temp).await.unwrap();
+
+	// Checkin the file.
+	let checkin_output = ctx
+		.local_server
+		.tg()
+		.arg("checkin")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(checkin_output);
+	let package_id = std::str::from_utf8(&checkin_output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+	dbg!(&package_id);
+
+	// Publish from the temp directory.
+	let publish_output = ctx
+		.local_server
+		.tg()
+		.arg("publish")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(publish_output);
+
+	let tag = "test-single-file/1.0.0";
+	ctx.assert_tag_on_local(tag, &package_id).await;
+	ctx.assert_tag_on_remote(tag, &package_id).await;
+	ctx.assert_object_synced(&package_id).await;
+	ctx.index_servers().await;
+	ctx.assert_metadata_synced(&package_id).await;
+}
+
+// #[tokio::test]
+// async fn package_with_single_file_and_multi_file_dependencies() {
+// 	let ctx = TestContext::new().await;
+
+// 	// Create a single-file package.
+// 	let (single_file_temp, single_file_package_id) = ctx
+// 		.create_package(
+// 			indoc!(
+// 				r#"
+// 			export default () => "I am a single-file package!";
+
+// 			export let metadata = {
+// 				name: "test-single-file",
+// 				version: "1.0.0",
+// 			};
+// 		"#
+// 			)
+// 			.to_owned(),
+// 		)
+// 		.await;
+
+// 	// Tag the single-file package.
+// 	ctx.create_tag("test-single-file/1.0.0", &single_file_package_id)
+// 		.await;
+
+// 	// Create a multi-file package with submodules.
+// 	let multi_file_artifact = temp::directory! {
+// 		"tangram.ts" => indoc!(
+// 			r#"
+// 			import { helper } from "./helper.ts";
+// 			import { util } from "./subdir/util.ts";
+
+// 			export default () => `Multi-file using: ${helper()} and ${util()}`;
+
+// 			export let metadata = {
+// 				name: "test-multi-file",
+// 				version: "1.0.0",
+// 			};
+// 		"#
+// 		).to_owned(),
+// 		"helper.ts" => indoc!(
+// 			r#"
+// 			export let helper = () => "helper function";
+// 		"#
+// 		).to_owned(),
+// 		"subdir" => temp::directory! {
+// 			"util.ts" => indoc!(
+// 				r#"
+// 				export let util = () => "util function";
+// 			"#
+// 			).to_owned(),
+// 		},
+// 	};
+// 	let multi_file_temp = Temp::new();
+// 	let multi_file_temp_artifact: temp::Artifact = multi_file_artifact.into();
+// 	multi_file_temp_artifact
+// 		.to_path(&multi_file_temp)
+// 		.await
+// 		.unwrap();
+
+// 	// Checkin the multi-file package.
+// 	let multi_file_checkin_output = ctx
+// 		.local_server
+// 		.tg()
+// 		.current_dir(multi_file_temp.path())
+// 		.arg("checkin")
+// 		.arg(".")
+// 		.output()
+// 		.await
+// 		.unwrap();
+// 	assert_success!(multi_file_checkin_output);
+// 	let multi_file_package_id = std::str::from_utf8(&multi_file_checkin_output.stdout)
+// 		.unwrap()
+// 		.trim()
+// 		.to_owned();
+
+// 	// Tag the multi-file package.
+// 	ctx.create_tag("test-multi-file/1.0.0", &multi_file_package_id)
+// 		.await;
+
+// 	// Create a main package that imports both.
+// 	let (temp, package_id) = ctx
+// 		.create_package(
+// 			indoc!(
+// 				r#"
+// 			import singleFile from "test-single-file";
+// 			import multiFile from "test-multi-file";
+
+// 			export default () => `Main using: ${singleFile()} and ${multiFile()}`;
+
+// 			export let metadata = {
+// 				name: "test-main",
+// 				version: "1.0.0",
+// 			};
+// 		"#
+// 			)
+// 			.to_owned(),
+// 		)
+// 		.await;
+
+// 	ctx.publish(&temp).await;
+
+// 	// Verify all packages are tagged and synced.
+// 	ctx.assert_tag_on_local("test-main/1.0.0", &package_id)
+// 		.await;
+// 	ctx.assert_tag_on_local("test-single-file/1.0.0", &single_file_package_id)
+// 		.await;
+// 	ctx.assert_tag_on_local("test-multi-file/1.0.0", &multi_file_package_id)
+// 		.await;
+// 	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+// 		.await;
+// 	ctx.assert_tag_on_remote("test-single-file/1.0.0", &single_file_package_id)
+// 		.await;
+// 	ctx.assert_tag_on_remote("test-multi-file/1.0.0", &multi_file_package_id)
+// 		.await;
+// 	ctx.assert_object_synced(&package_id).await;
+// 	ctx.assert_object_synced(&single_file_package_id).await;
+// 	ctx.assert_object_synced(&multi_file_package_id).await;
+// 	ctx.index_servers().await;
+// 	ctx.assert_metadata_synced(&package_id).await;
+// 	ctx.assert_metadata_synced(&single_file_package_id).await;
+// 	ctx.assert_metadata_synced(&multi_file_package_id).await;
+// }
+
 struct TestContext {
 	local_server: Server,
 	remote_server: Server,
