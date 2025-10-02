@@ -1053,6 +1053,45 @@ async fn single_file_package() {
 	ctx.assert_metadata_synced(&package_id).await;
 }
 
+#[tokio::test]
+async fn simple_package_with_tag() {
+	let ctx = TestContext::new().await;
+
+	let (_temp, package_id) = ctx
+		.create_package(
+			indoc!(
+				r#"
+			export default () => "Hello, World!";
+
+			export let metadata = {
+				name: "test-pkg",
+				version: "1.0.0",
+			};
+		"#
+			)
+			.to_owned(),
+		)
+		.await;
+
+	let tag = "test-pkg/1.0.0";
+	ctx.create_tag(tag, &package_id).await;
+	let output = ctx
+		.local_server
+		.tg()
+		.arg("publish")
+		.arg(tag)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	ctx.assert_tag_on_local(tag, &package_id).await;
+	ctx.assert_tag_on_remote(tag, &package_id).await;
+	ctx.assert_object_synced(&package_id).await;
+	ctx.index_servers().await;
+	ctx.assert_metadata_synced(&package_id).await;
+}
+
 // #[tokio::test]
 // async fn package_with_single_file_and_multi_file_dependencies() {
 // 	let ctx = TestContext::new().await;
