@@ -1,5 +1,6 @@
 use {
 	crate::Cli,
+	indoc::formatdoc,
 	petgraph::{
 		algo::tarjan_scc,
 		visit::{GraphBase, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable},
@@ -35,6 +36,11 @@ struct PackageNode {
 	dependency_indices: Vec<usize>,
 }
 
+struct PublishOrder {
+	cycles: Vec<Vec<usize>>,
+	non_cyclic: Vec<usize>,
+}
+
 #[derive(Clone, Debug, serde::Deserialize)]
 struct Metadata {
 	name: String,
@@ -45,6 +51,7 @@ impl Cli {
 	pub async fn command_publish(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
+		// Obtain directory.
 		let path = std::path::absolute(args.path.unwrap_or_default())
 			.map_err(|source| tg::error!(!source, "failed to get the path"))?;
 		let reference = tg::Reference::with_path(path.clone());
@@ -58,26 +65,22 @@ impl Cli {
 			.try_unwrap_directory()
 			.map_err(|source| tg::error!(!source, "expected a directory"))?;
 
-		eprintln!("building dependency graph for {}", path.display());
-
+		// Compute graph and report size.
 		let graph = self.build_dependency_graph(&handle, directory).await?;
-		// FIXME remove this.
-		eprintln!("computing publish order from graph");
-		eprint!("[");
-		for node in &graph.nodes {
-			let id = node.directory.id();
-			eprint!(" {id} ");
+		let order = graph.compute_publish_order();
+		let cyclic_packages = order.cycles.iter().map(std::vec::Vec::len).sum::<usize>();
+		let total_packages = cyclic_packages + order.non_cyclic.len();
+		eprintln!("publishing {total_packages} packages");
+		if cyclic_packages > 0 {
+			eprintln!("  {cyclic_packages} packages in dependency cycles");
 		}
-		eprintln!("]");
 
-		let order = graph.compute_publish_order()?;
-		eprintln!("publishing {} packages: {:?}", order.len(), order);
+		// Publish packages.
 		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
 		self.publish_in_order(&handle, &graph, order, &remote)
 			.await?;
 
 		eprintln!("publish complete");
-
 		Ok(())
 	}
 
@@ -134,20 +137,17 @@ impl Cli {
 			executable: Some(executable),
 			..Default::default()
 		};
-
 		let output = tg::run::run(handle, arg).await?;
 
 		let map = output
 			.try_unwrap_map()
 			.map_err(|_| tg::error!("expected metadata to be a map"))?;
-
 		let name = map
 			.get("name")
 			.ok_or_else(|| tg::error!("metadata missing 'name' field"))?
 			.try_unwrap_string_ref()
 			.map_err(|_| tg::error!("expected 'name' to be a string"))?
 			.clone();
-
 		let version = map
 			.get("version")
 			.ok_or_else(|| tg::error!("metadata missing 'version' field"))?
@@ -156,6 +156,31 @@ impl Cli {
 			.clone();
 
 		Ok(Metadata { name, version })
+	}
+
+	async fn create_dummy_package(
+		&self,
+		handle: &impl tg::Handle,
+		metadata: &Metadata,
+	) -> tg::Result<tg::Directory> {
+		let content = formatdoc!(
+			r#"
+			export default () => {{ throw new Error("This is a dummy package placeholder for cycle resolution. The real implementation should be published shortly."); }};
+
+			export let metadata = {{
+				name: "{}",
+				version: "{}",
+			}};
+		"#,
+			metadata.name,
+			metadata.version
+		);
+		let file = tg::File::builder(content).build();
+		let mut entries = std::collections::BTreeMap::new();
+		entries.insert("tangram.ts".to_owned(), file.into());
+		let directory = tg::Directory::with_entries(entries);
+		directory.store(handle).await?;
+		Ok(directory)
 	}
 
 	async fn build_dependency_graph(
@@ -181,7 +206,6 @@ impl Cli {
 		});
 		queue.push_back(root_index);
 
-		// Perform BFS traversal.
 		while let Some(current_index) = queue.pop_front() {
 			let current_node = &nodes[current_index];
 			let current_directory = current_node.directory.clone();
@@ -194,7 +218,6 @@ impl Cli {
 			for dependency in dependencies {
 				// We only care about directory dependencies with root modules (packages).
 				if let Ok(directory) = tg::Directory::try_from(dependency) {
-					// Check if this directory is a package.
 					if !self.is_package(handle, &directory).await? {
 						continue;
 					}
@@ -232,32 +255,57 @@ impl Cli {
 		&mut self,
 		handle: &impl tg::Handle,
 		graph: &DependencyGraph,
-		order: Vec<usize>,
+		order: PublishOrder,
 		remote: &str,
 	) -> tg::Result<()> {
-		// Collect all items and tags to publish.
-		let mut items_to_push = Vec::new();
-		let mut tags_to_put = Vec::new();
+		// Phase 1: Create dummy packages and tag them locally for cycle resolution.
+		if !order.cycles.is_empty() {
+			eprintln!("detected dependency cycles, creating local dummy package tags");
 
-		for node_index in order {
-			let node = &graph.nodes[node_index];
+			for cycle in &order.cycles {
+				for &node_index in cycle {
+					let node = &graph.nodes[node_index];
+					let metadata = &node.metadata;
+
+					let dummy_directory = self.create_dummy_package(handle, metadata).await?;
+
+					let tag_string = format!("{}/{}", metadata.name, metadata.version);
+					let tag = tag_string
+						.parse::<tg::Tag>()
+						.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
+
+					eprintln!("creating local dummy tag {tag}");
+
+					let arg = tg::tag::put::Arg {
+						force: true,
+						item: Either::Right(dummy_directory.id().clone().into()),
+						remote: None,
+					};
+					handle.put_tag(&tag, arg).await?;
+				}
+			}
+		}
+
+		// Phase 2: Publish non-cyclic packages in topological order.
+		let mut items_to_push = Vec::new();
+		let mut tags_to_put: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
+
+		for node_index in &order.non_cyclic {
+			let node = &graph.nodes[*node_index];
 			let directory = &node.directory;
 			let metadata = &node.metadata;
-			dbg!(&metadata);
 
-			// Construct the tag.
 			let tag_string = format!("{}/{}", metadata.name, metadata.version);
 			let tag = tag_string
 				.parse::<tg::Tag>()
 				.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-			dbg!(&tag);
 
 			// Check if the tag already exists on the remote.
 			let pattern: tg::tag::Pattern = tag.clone().into();
 			let arg = tg::tag::list::Arg {
 				length: Some(1),
 				pattern: pattern.clone(),
-				remote: Some("default".to_string()), // FIXME
+				remote: Some(remote.to_string()),
 				reverse: true,
 			};
 			let tg::tag::list::Output { data } = handle.list_tags(arg).await?;
@@ -280,13 +328,11 @@ impl Cli {
 							}
 						},
 						Either::Left(_process_id) => {
-							// Tags shouldn't point to processes, but if they do, overwrite.
 							eprintln!("tag {tag} points to a process, overwriting");
 							true
 						},
 					}
 				} else {
-					// Tag exists but has no item, overwrite.
 					eprintln!("tag {tag} exists but has no item, overwriting");
 					true
 				}
@@ -301,7 +347,7 @@ impl Cli {
 			}
 		}
 
-		// Push all items.
+		// Push all non-cyclic items.
 		if !items_to_push.is_empty() {
 			let arg = tg::push::Arg {
 				commands: false,
@@ -315,14 +361,79 @@ impl Cli {
 			self.render_progress_stream(stream).await?;
 		}
 
-		// Put all tags.
-		for (tag, item) in tags_to_put {
+		// Put all non-cyclic tags both locally and on remote.
+		for (tag, item) in &tags_to_put {
 			let arg = tg::tag::put::Arg {
 				force: true,
-				item: Either::Right(item),
+				item: Either::Right(item.clone()),
+				remote: None,
+			};
+			handle.put_tag(tag, arg).await?;
+
+			let arg = tg::tag::put::Arg {
+				force: true,
+				item: Either::Right(item.clone()),
 				remote: Some(remote.to_owned()),
 			};
-			handle.put_tag(&tag, arg).await?;
+			handle.put_tag(tag, arg).await?;
+		}
+
+		// Phase 3: Overwrite dummy packages with real implementations.
+		if !order.cycles.is_empty() {
+			eprintln!("overwriting dummy packages with real implementations");
+			let mut real_items = Vec::new();
+			let mut real_tags: Vec<(tg::Tag, tg::object::Id)> = Vec::new();
+
+			for cycle in &order.cycles {
+				for &node_index in cycle {
+					let node = &graph.nodes[node_index];
+					let directory = &node.directory;
+					let metadata = &node.metadata;
+
+					let tag_string = format!("{}/{}", metadata.name, metadata.version);
+					let tag = tag_string
+						.parse::<tg::Tag>()
+						.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
+
+					eprintln!("publishing {tag} (real package {})", directory.id());
+					real_items.push(Either::Right(directory.id().clone().into()));
+					real_tags.push((tag.clone(), directory.id().clone().into()));
+				}
+			}
+
+			// Push all real items.
+			if !real_items.is_empty() {
+				eprintln!("pushing {} real package objects", real_items.len());
+				let arg = tg::push::Arg {
+					commands: false,
+					items: real_items,
+					logs: false,
+					outputs: true,
+					recursive: false,
+					remote: Some(remote.to_owned()),
+				};
+				let stream = handle.push(arg).await?;
+				self.render_progress_stream(stream).await?;
+			}
+
+			// Put all real tags, overwriting the dummies both locally and on remote.
+			for (tag, item) in &real_tags {
+				eprintln!("updating tag {tag} to point to {item}");
+
+				let arg = tg::tag::put::Arg {
+					force: true,
+					item: Either::Right(item.clone()),
+					remote: None,
+				};
+				handle.put_tag(tag, arg).await?;
+
+				let arg = tg::tag::put::Arg {
+					force: true,
+					item: Either::Right(item.clone()),
+					remote: Some(remote.to_owned()),
+				};
+				handle.put_tag(tag, arg).await?;
+			}
 		}
 
 		Ok(())
@@ -365,22 +476,20 @@ impl<'a> IntoNeighbors for &'a DependencyGraph {
 }
 
 impl DependencyGraph {
-	/// Compute the publish order using Tarjan's SCC algorithm.
-	/// Returns a Vec of node indices in the order they should be published
-	/// (dependencies before dependents).
-	fn compute_publish_order(&self) -> tg::Result<Vec<usize>> {
+	fn compute_publish_order(&self) -> PublishOrder {
 		let sccs = tarjan_scc(self);
+		let mut cycles = Vec::new();
+		let mut non_cyclic = Vec::new();
 
-		let mut order = Vec::new();
 		for scc in &sccs {
 			// If there's a cycle, the SCC will have more than one node.
 			if scc.len() > 1 {
-				let ids: Vec<_> = scc.iter().map(|&i| self.nodes[i].directory.id()).collect();
-				return Err(tg::error!(?ids, "dependency cycle detected"));
+				cycles.push(scc.clone());
+			} else {
+				non_cyclic.extend(scc);
 			}
-			order.extend(scc);
 		}
 
-		Ok(order)
+		PublishOrder { cycles, non_cyclic }
 	}
 }

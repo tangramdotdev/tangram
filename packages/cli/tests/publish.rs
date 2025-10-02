@@ -711,13 +711,14 @@ async fn package_with_local_path_import() {
 async fn package_with_dependency_cycle() {
 	let ctx = TestContext::new().await;
 
-	// Create both packages in the same filesystem structure so they can reference each other.
+	// Create an import cycle but NOT a process cycle:
 	let shared_artifact = temp::directory! {
 		"a" => temp::directory! {
 			"tangram.ts" => indoc!(
 				r#"
 				import b from "test-b" with { local: "../b" };
 				export default () => `A using: ${b()}`;
+				export let greeting = () => "Hello from A";
 				export let metadata = {
 					name: "test-a",
 					version: "1.0.0",
@@ -728,8 +729,8 @@ async fn package_with_dependency_cycle() {
 		"b" => temp::directory! {
 			"tangram.ts" => indoc!(
 				r#"
-				import a from "test-a" with { local: "../a" };
-				export default () => `B using: ${a()}`;
+				import * as a from "test-a" with { local: "../a" };
+				export default () => `B using: ${a.greeting()}`;
 				export let metadata = {
 					name: "test-b",
 					version: "1.0.0",
@@ -742,42 +743,9 @@ async fn package_with_dependency_cycle() {
 	let shared_temp_artifact: temp::Artifact = shared_artifact.into();
 	shared_temp_artifact.to_path(&shared_temp).await.unwrap();
 
-	let a_path = shared_temp.path().join("a");
 	let b_path = shared_temp.path().join("b");
 
-	// Checkin package A to get its ID.
-	let a_checkin_output = ctx
-		.local_server
-		.tg()
-		.current_dir(&a_path)
-		.arg("checkin")
-		.arg(".")
-		.output()
-		.await
-		.unwrap();
-	assert_success!(a_checkin_output);
-	let a_package_id = std::str::from_utf8(&a_checkin_output.stdout)
-		.unwrap()
-		.trim()
-		.to_owned();
-
-	// Checkin package B to get its ID.
-	let b_checkin_output = ctx
-		.local_server
-		.tg()
-		.current_dir(&b_path)
-		.arg("checkin")
-		.arg(".")
-		.output()
-		.await
-		.unwrap();
-	assert_success!(b_checkin_output);
-	let b_package_id = std::str::from_utf8(&b_checkin_output.stdout)
-		.unwrap()
-		.trim()
-		.to_owned();
-
-	// Attempt to publish package B - this should detect the cycle and return an error.
+	// Publish package B - this should detect the import cycle and handle it gracefully.
 	let output = ctx
 		.local_server
 		.tg()
@@ -787,27 +755,41 @@ async fn package_with_dependency_cycle() {
 		.await
 		.unwrap();
 
-	// Verify that publish succeeds - cycles should be handled gracefully.
+	// Verify that publish succeeds - import cycles should be handled gracefully.
 	assert_success!(output);
 
-	// Verify publish order - both packages should be published.
+	// Extract the published IDs from the stderr
 	let stderr = String::from_utf8_lossy(&output.stderr);
-	let a_pos = stderr.find("publishing test-a/1.0.0");
-	let b_pos = stderr.find("publishing test-b/1.0.0");
+	let a_published_id = stderr
+		.lines()
+		.find(|line| line.contains("publishing test-a/1.0.0 (real package"))
+		.and_then(|line| line.split("dir_").nth(1))
+		.map(|s| format!("dir_{}", s.trim_end_matches(')')))
+		.expect("test-a should be published");
 
-	assert!(a_pos.is_some(), "test-a should be published");
-	assert!(b_pos.is_some(), "test-b should be published");
+	let b_published_id = stderr
+		.lines()
+		.find(|line| line.contains("publishing test-b/1.0.0 (real package"))
+		.and_then(|line| line.split("dir_").nth(1))
+		.map(|s| format!("dir_{}", s.trim_end_matches(')')))
+		.expect("test-b should be published");
 
-	// Verify both packages are tagged and synced on the remote.
-	ctx.assert_tag_on_remote("test-a/1.0.0", &a_package_id)
+	// Verify both packages are tagged correctly.
+	ctx.assert_tag_on_local("test-a/1.0.0", &a_published_id)
 		.await;
-	ctx.assert_tag_on_remote("test-b/1.0.0", &b_package_id)
+	ctx.assert_tag_on_local("test-b/1.0.0", &b_published_id)
 		.await;
-	ctx.assert_object_synced(&a_package_id).await;
-	ctx.assert_object_synced(&b_package_id).await;
+	ctx.assert_tag_on_remote("test-a/1.0.0", &a_published_id)
+		.await;
+	ctx.assert_tag_on_remote("test-b/1.0.0", &b_published_id)
+		.await;
+
+	// Verify objects are synced to remote.
+	ctx.assert_object_synced(&a_published_id).await;
+	ctx.assert_object_synced(&b_published_id).await;
 	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&a_package_id).await;
-	ctx.assert_metadata_synced(&b_package_id).await;
+	ctx.assert_metadata_synced(&a_published_id).await;
+	ctx.assert_metadata_synced(&b_published_id).await;
 }
 
 struct TestContext {
