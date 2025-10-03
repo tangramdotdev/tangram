@@ -118,7 +118,7 @@ impl Server {
 		}
 
 		// Create the state.
-		let graph = Mutex::new(Graph::new());
+		let graph = Mutex::new(Graph::new(arg.clone()));
 		let last_get_message_received = AtomicBool::new(false);
 		let (process_queue_sender, process_queue_receiver) =
 			async_channel::unbounded::<ProcessQueueItem>();
@@ -200,25 +200,27 @@ impl Server {
 							}
 						},
 						tg::sync::Message::Complete(tg::sync::CompleteMessage::Process(
-							complete,
+							message,
 						)) => {
-							let id = Either::Left(complete.id.clone());
-							let complete = if state.arg.recursive {
-								complete.children_complete
-									&& (!state.arg.commands || complete.children_commands_complete)
-									&& (!state.arg.outputs || complete.children_outputs_complete)
-							} else {
-								(!state.arg.commands || complete.command_complete)
-									&& (!state.arg.outputs || complete.output_complete)
+							let complete = crate::process::complete::Output {
+								children: message.children_complete,
+								children_commands: message.children_commands_complete,
+								children_outputs: message.children_outputs_complete,
+								command: message.command_complete,
+								output: message.output_complete,
 							};
-							state.graph.lock().unwrap().update(None, id, complete);
+							state.graph.lock().unwrap().update(
+								None,
+								Either::Left(message.id.clone()),
+								Either::Left(complete),
+							);
 						},
-						tg::sync::Message::Complete(tg::sync::CompleteMessage::Object(
-							complete,
-						)) => {
-							let id = Either::Right(complete.id.clone());
-							let complete = true;
-							state.graph.lock().unwrap().update(None, id, complete);
+						tg::sync::Message::Complete(tg::sync::CompleteMessage::Object(message)) => {
+							state.graph.lock().unwrap().update(
+								None,
+								Either::Right(message.id.clone()),
+								Either::Right(true),
+							);
 						},
 						_ => unreachable!(),
 					}
@@ -343,12 +345,12 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the state.
 		let mut state = StateSync {
+			graph: Graph::new(arg.clone()),
 			arg,
 			complete_receiver,
 			database,
 			file: None,
 			get_receiver,
-			graph: Graph::new(),
 			index,
 			object_queue: VecDeque::new(),
 			process_queue: VecDeque::new(),
@@ -402,21 +404,25 @@ impl Server {
 				while let Ok(message) = state.complete_receiver.try_recv() {
 					match message {
 						tg::sync::CompleteMessage::Process(message) => {
-							let id = Either::Left(message.id.clone());
-							let complete = if state.arg.recursive {
-								message.children_complete
-									&& (!state.arg.commands || message.children_commands_complete)
-									&& (!state.arg.outputs || message.children_outputs_complete)
-							} else {
-								(!state.arg.commands || message.command_complete)
-									&& (!state.arg.outputs || message.output_complete)
+							let complete = crate::process::complete::Output {
+								children: message.children_complete,
+								children_commands: message.children_commands_complete,
+								children_outputs: message.children_outputs_complete,
+								command: message.command_complete,
+								output: message.output_complete,
 							};
-							state.graph.update(None, id, complete);
+							state.graph.update(
+								None,
+								Either::Left(message.id.clone()),
+								Either::Left(complete),
+							);
 						},
 						tg::sync::CompleteMessage::Object(message) => {
-							let id = Either::Right(message.id.clone());
-							let complete = true;
-							state.graph.update(None, id, complete);
+							state.graph.update(
+								None,
+								Either::Right(message.id.clone()),
+								Either::Right(true),
+							);
 						},
 					}
 				}
@@ -474,15 +480,25 @@ impl Server {
 	) -> tg::Result<()> {
 		// Update the graph and handle inserted and complete processes.
 		let n = items.len();
-		let mut i = 0;
+		let mut items_with_complete = Vec::new();
+		let i = 0;
 		while i < items.len() {
 			let item = &items[i];
 			let (inserted, complete) = state.graph.lock().unwrap().update(
 				item.parent.clone().map(Either::Left),
 				Either::Left(item.process.clone()),
-				false,
+				Either::Right(false),
 			);
-			if !inserted || complete {
+			let process_complete = complete.as_ref().unwrap_left();
+			let is_complete = if state.arg.recursive {
+				process_complete.children
+					&& (!state.arg.commands || process_complete.children_commands)
+					&& (!state.arg.outputs || process_complete.children_outputs)
+			} else {
+				(!state.arg.commands || process_complete.command)
+					&& (!state.arg.outputs || process_complete.output)
+			};
+			if !inserted || is_complete {
 				let metadata = self
 					.try_get_process_metadata_local(&item.process)
 					.await?
@@ -533,13 +549,19 @@ impl Server {
 					})?;
 				}
 			}
-			if !inserted || complete {
+			if !inserted || is_complete {
 				items.remove(i);
 			} else {
-				i += 1;
+				// Store the complete value with the item for later use
+				let item = items.remove(i);
+				let process_complete = match complete {
+					Either::Left(c) => Some(c),
+					Either::Right(_) => None,
+				};
+				items_with_complete.push((item, process_complete));
 			}
 		}
-		if items.is_empty() {
+		if items_with_complete.is_empty() {
 			if state
 				.queue_counter
 				.fetch_sub(n, std::sync::atomic::Ordering::SeqCst)
@@ -554,9 +576,9 @@ impl Server {
 		}
 
 		// Get the processes.
-		let ids = items
+		let ids = items_with_complete
 			.iter()
-			.map(|item| item.process.clone())
+			.map(|(item, _)| item.process.clone())
 			.collect::<Vec<_>>();
 		let outputs = self
 			.try_get_process_batch(&ids)
@@ -564,7 +586,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
 		// Handle the processes.
-		for (item, output) in std::iter::zip(items, outputs) {
+		for ((item, complete), output) in std::iter::zip(items_with_complete, outputs) {
 			let ProcessQueueItem { process, .. } = item;
 			let Some(output) = output else {
 				return Err(tg::error!(%id = process, "failed to find the process"));
@@ -591,7 +613,7 @@ impl Server {
 				.children
 				.as_ref()
 				.ok_or_else(|| tg::error!("expected the children to be set"))?;
-			if state.arg.recursive {
+			if state.arg.recursive && !complete.as_ref().is_some_and(|c| c.children) {
 				state
 					.queue_counter
 					.fetch_add(children.len(), std::sync::atomic::Ordering::SeqCst);
@@ -607,14 +629,26 @@ impl Server {
 			// Enqueue the objects.
 			let mut objects: Vec<tg::object::Id> = Vec::new();
 			if state.arg.commands {
-				objects.push(data.command.clone().into());
+				let command_complete = if state.arg.recursive {
+					complete.as_ref().is_some_and(|c| c.children_commands)
+				} else {
+					complete.as_ref().is_some_and(|c| c.command)
+				};
+				if !command_complete {
+					objects.push(data.command.clone().into());
+				}
 			}
-			if state.arg.outputs
-				&& let Some(output) = &data.output
-			{
-				let mut children = BTreeSet::new();
-				output.children(&mut children);
-				objects.extend(children);
+			if state.arg.outputs {
+				let output_complete = if state.arg.recursive {
+					complete.as_ref().is_some_and(|c| c.children_outputs)
+				} else {
+					complete.as_ref().is_some_and(|c| c.output)
+				};
+				if !output_complete && let Some(output) = &data.output {
+					let mut children = BTreeSet::new();
+					output.children(&mut children);
+					objects.extend(children);
+				}
 			}
 			state
 				.queue_counter
@@ -653,9 +687,18 @@ impl Server {
 		let (inserted, complete) = state.graph.update(
 			parent.map(Either::Left),
 			Either::Left(process.clone()),
-			false,
+			Either::Right(false),
 		);
-		if !inserted || complete {
+		let process_complete = complete.as_ref().unwrap_left();
+		let is_complete = if state.arg.recursive {
+			process_complete.children
+				&& (!state.arg.commands || process_complete.children_commands)
+				&& (!state.arg.outputs || process_complete.children_outputs)
+		} else {
+			(!state.arg.commands || process_complete.command)
+				&& (!state.arg.outputs || process_complete.output)
+		};
+		if !inserted || is_complete {
 			let metadata = Self::try_get_process_metadata_sqlite_sync(&state.index, &process)?
 				.ok_or_else(|| tg::error!("failed to find the process"))?;
 			let mut message = tg::sync::ProgressMessage::default();
@@ -705,7 +748,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to send the progress message"))?;
 			}
 		}
-		if !inserted || complete {
+		if !inserted || is_complete {
 			return Ok(());
 		}
 
@@ -714,8 +757,11 @@ impl Server {
 			Self::try_get_process_sqlite_sync(&state.database, &process)?
 				.ok_or_else(|| tg::error!("failed to find the process"))?;
 
+		// Extract process completeness from the complete value we got earlier.
+		let process_complete = complete.as_ref().unwrap_left();
+
 		// Enqueue the children.
-		if state.arg.recursive {
+		if state.arg.recursive && !process_complete.children {
 			for child in data.children.iter().flatten() {
 				let item = ProcessQueueItem {
 					parent: Some(process.clone()),
@@ -728,14 +774,26 @@ impl Server {
 		// Enqueue the objects.
 		let mut objects: Vec<tg::object::Id> = Vec::new();
 		if state.arg.commands {
-			objects.push(data.command.clone().into());
+			let command_complete = if state.arg.recursive {
+				process_complete.children_commands
+			} else {
+				process_complete.command
+			};
+			if !command_complete {
+				objects.push(data.command.clone().into());
+			}
 		}
-		if state.arg.outputs
-			&& let Some(output) = &data.output
-		{
-			let mut children = BTreeSet::new();
-			output.children(&mut children);
-			objects.extend(children);
+		if state.arg.outputs {
+			let output_complete = if state.arg.recursive {
+				process_complete.children_outputs
+			} else {
+				process_complete.output
+			};
+			if !output_complete && let Some(output) = &data.output {
+				let mut children = BTreeSet::new();
+				output.children(&mut children);
+				objects.extend(children);
+			}
 		}
 		for child in objects {
 			let item = ObjectQueueItem {
@@ -775,9 +833,10 @@ impl Server {
 			let (inserted, complete) = state.graph.lock().unwrap().update(
 				item.parent.clone(),
 				Either::Right(item.object.clone()),
-				false,
+				Either::Right(false),
 			);
-			if !inserted || complete {
+			let is_complete = complete.unwrap_right();
+			if !inserted || is_complete {
 				let metadata = self.try_get_object_metadata_local(&item.object).await?;
 				let message = tg::sync::ProgressMessage {
 					processes: 0,
@@ -797,7 +856,7 @@ impl Server {
 					})?;
 				}
 			}
-			if !inserted || complete {
+			if !inserted || is_complete {
 				items.remove(i);
 			} else {
 				i += 1;
@@ -887,10 +946,12 @@ impl Server {
 		let ObjectQueueItem { parent, object } = item;
 
 		// If the object has already been sent or is complete, then update the progress and return.
-		let (inserted, complete) = state
-			.graph
-			.update(parent, Either::Right(object.clone()), false);
-		if !inserted || complete {
+		let (inserted, complete) =
+			state
+				.graph
+				.update(parent, Either::Right(object.clone()), Either::Right(false));
+		let is_complete = complete.unwrap_right();
+		if !inserted || is_complete {
 			let metadata = Self::try_get_object_metadata_sqlite_sync(&state.index, &object)?;
 			let message = tg::sync::ProgressMessage {
 				processes: 0,
@@ -911,7 +972,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to send the progress message"))?;
 			}
 		}
-		if !inserted || complete {
+		if !inserted || is_complete {
 			return Ok(());
 		}
 
