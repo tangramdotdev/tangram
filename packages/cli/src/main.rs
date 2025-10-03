@@ -1005,8 +1005,22 @@ impl Cli {
 
 		// Spawn the server.
 		let mut command = std::process::Command::new(executable);
+		let mut args = vec![];
+		if let Some(config) = &self.args.config {
+			args.push("-c".to_owned());
+			args.push(config.to_string_lossy().into_owned());
+		}
+		if let Some(directory) = &self.args.directory {
+			args.push("-d".to_owned());
+			args.push(directory.to_string_lossy().into_owned());
+		}
+		if let Some(url) = &self.args.url {
+			args.push("-u".to_owned());
+			args.push(url.to_string());
+		}
+		args.push("serve".to_owned());
 		command
-			.args(["serve"])
+			.args(args)
 			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
 			.stdin(std::process::Stdio::null())
 			.stdout(stdout)
