@@ -25,7 +25,7 @@ async fn directory() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01seeyzrw1z6n5ekzj4858fxp1eqnr3s2mh1x5taajbq6m8237e57g": {
+	    "dir_0161140hvfyh9k9x0wmw1ad9cnghemznwsn4p5n2qfvvjr6n6a9fd0": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -121,7 +121,7 @@ async fn directory_with_two_identical_files() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01znw0wfjs8s24cfqv0ebkbfne6r61mgr8w1pk8xjn9h38sxmkc950": {
+	    "dir_015x7vb1f3wfv5h55h7s72e0x04ns0ak9bs0ayxm5hxp71dnkbkqzg": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -171,7 +171,7 @@ async fn file_with_dependency() {
 	      "kind": "file",
 	      "contents": "export default () => {\n\treturn tg.file(\"foo\", {\n\t\tdependencies: {\n\t\t\t\"bar\": tg.file(\"bar\"),\n\t\t},\n\t});\n}\n"
 	    },
-	    "fil_01y9hzys1sk7wvz699bh0ntymbexydsg5r00j72ebe9ezravxg14z0": {
+	    "fil_01kkwpqw5jmbt5md0ck62tnwrf5mrn75atrrf05n2338yqrdfc1800": {
 	      "kind": "file",
 	      "contents": "foo",
 	      "xattrs": {
@@ -231,7 +231,7 @@ async fn directory_with_symlink() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01rjms5m47grw9t14mx2se2r8rj80k69gcf51h1q8rk36mbs2k1zp0": {
+	    "dir_01mfcyy0ayssk405f66n95a9ead33vmer8y9tvne0xqz01w2t4etxg": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -275,7 +275,7 @@ async fn directory_with_file_with_dependency() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_010x4r0f0stj6t4hwfmgr2mg5aa5pn58513cxcxaehq0f1m5yvyk10": {
+	    "dir_01y4pdrkvwrpe63trn2jaqs59fm012wdymntq6nm0qcfd4a0se4d40": {
 	      "kind": "directory",
 	      "entries": {
 	        "foo": {
@@ -318,7 +318,7 @@ async fn directory_with_symlink_with_dependency() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_0193cpm5b23112tkpy0cskavrkyve7qbzkf3s3rzg0jp3k4kagsbx0": {
+	    "dir_0109qjm6akjjcf25wsyqdpdmegmghkjdtmdb9b6p756yzxt4kdefq0": {
 	      "kind": "directory",
 	      "entries": {
 	        "foo": {
@@ -366,7 +366,7 @@ async fn graph_directory() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01n5cfedwwmqc5g4j80460jvgenx6t2vsv76khxe632nmr3jk73000": {
+	    "dir_013yj7djcxmew6cg7psf5ywc0sbm3bcmnhm07wnz2xjskfs2fmp85g": {
 	      "kind": "directory",
 	      "entries": {
 	        "hello.txt": {
@@ -487,7 +487,7 @@ async fn directory_with_symlink_cycle() {
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "dir_01pgw3y7cs7x7mbmxjc1p7k8knknxkbaatm226fmg0ae464mbshtpg": {
+	    "dir_01jx4k03rrr7z7ma9f0vepqzzj3wysvx7ga73twmmz28r1ywtjn2fg": {
 	      "kind": "directory",
 	      "entries": {
 	        "link": {

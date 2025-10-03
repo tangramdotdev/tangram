@@ -11,10 +11,9 @@ use crate as tg;
 	tangram_serialize::Serialize,
 )]
 #[serde(untagged)]
+#[tangram_serialize(untagged)]
 pub enum Stdio {
-	#[tangram_serialize(id = 0)]
 	Pipe(tg::pipe::Id),
-	#[tangram_serialize(id = 1)]
 	Pty(tg::pty::Id),
 }
 

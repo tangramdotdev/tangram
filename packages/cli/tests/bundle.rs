@@ -156,7 +156,7 @@ async fn directory_containing_file_with_directory_dependency_target_symlink() {
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "dir_01y7rmc2c0zq98v8y0mm0st5r2j19k23gv2kkf5e8y9yt9z0p4ymcg": {
+	            "dir_01rjyptv2qx6qd51m312rmndqwbjf8r129qhdryfettexqdswa26q0": {
 	              "kind": "directory",
 	              "entries": {
 	                "dep": {
@@ -232,16 +232,7 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 	        "artifacts": {
 	          "kind": "directory",
 	          "entries": {
-	            "dir_014pnhk0m6b28tajqw57mq77pvkj357tnpresx03qmgwng5pk2vxdg": {
-	              "kind": "directory",
-	              "entries": {
-	                "a": {
-	                  "kind": "file",
-	                  "contents": "a"
-	                }
-	              }
-	            },
-	            "dir_01vkfa3jrd2a5n0z1pwwt9a6hxsb5rpdhtgzdayqg40y4ytk29y6n0": {
+	            "dir_01070b6af8w8hnmjfq1jy2f830z06c2kw61m10q5dbjmymgxd24cg0": {
 	              "kind": "directory",
 	              "entries": {
 	                "dep": {
@@ -250,7 +241,16 @@ async fn directory_containing_file_with_directory_dependency_artifact_path_symli
 	                },
 	                "link": {
 	                  "kind": "symlink",
-	                  "path": "../../../.tangram/artifacts/dir_014pnhk0m6b28tajqw57mq77pvkj357tnpresx03qmgwng5pk2vxdg/a"
+	                  "path": "../../../.tangram/artifacts/dir_011vkx0f0t6mf2p868869w28ty27pwefaajzv9kyqf445n207mnzpg/a"
+	                }
+	              }
+	            },
+	            "dir_011vkx0f0t6mf2p868869w28ty27pwefaajzv9kyqf445n207mnzpg": {
+	              "kind": "directory",
+	              "entries": {
+	                "a": {
+	                  "kind": "file",
+	                  "contents": "a"
 	                }
 	              }
 	            }

@@ -42,7 +42,7 @@ async fn directory() {
 	{
 	  "count": 6,
 	  "depth": 3,
-	  "weight": 306
+	  "weight": 298
 	}
 	"#);
 	assert!(lock.is_none());
@@ -69,7 +69,7 @@ async fn file() {
 	{
 	  "count": 3,
 	  "depth": 3,
-	  "weight": 117
+	  "weight": 115
 	}
 	"#);
 	assert!(lock.is_none());
@@ -96,7 +96,7 @@ async fn symlink() {
 	{
 	  "count": 2,
 	  "depth": 2,
-	  "weight": 63
+	  "weight": 61
 	}
 	"#);
 	assert!(lock.is_none());
@@ -127,7 +127,7 @@ async fn directory_with_duplicate_entries() {
 	{
 	  "count": 3,
 	  "depth": 3,
-	  "weight": 160
+	  "weight": 156
 	}
 	"#);
 	assert!(lock.is_none());
@@ -170,7 +170,7 @@ async fn file_through_symlink() {
 	{
 	  "count": 5,
 	  "depth": 4,
-	  "weight": 251
+	  "weight": 247
 	}
 	"#);
 	assert!(lock.is_none());
@@ -217,7 +217,7 @@ async fn file_with_symlink_no_kind() {
 	{
 	  "count": 8,
 	  "depth": 4,
-	  "weight": 475
+	  "weight": 467
 	}
 	"#);
 	assert!(lock.is_none());
@@ -264,7 +264,7 @@ async fn file_with_symlink() {
 	{
 	  "count": 7,
 	  "depth": 3,
-	  "weight": 444
+	  "weight": 436
 	}
 	"#);
 	assert!(lock.is_none());
@@ -309,7 +309,7 @@ async fn artifact_symlink() {
 	{
 	  "count": 6,
 	  "depth": 5,
-	  "weight": 296
+	  "weight": 290
 	}
 	"#);
 	assert!(lock.is_none());
@@ -371,7 +371,7 @@ async fn lock_out_of_date() {
 	{
 	  "count": 7,
 	  "depth": 4,
-	  "weight": 333
+	  "weight": 327
 	}
 	"#);
 	assert!(lock.is_none());
@@ -1161,7 +1161,7 @@ async fn simple_tagged_package() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01ykx807j8sbcmnxc3qvexb54emfnx9qerh75257xyde3jbnaxb2v0",
+	            "id": "dir_01va3y2d84s8st8xbsnka859w7rf90yc9kvsbb5zskhq5nn8q0vnsg",
 	            "tag": "a"
 	          }
 	        }
@@ -1293,7 +1293,7 @@ async fn tagged_package_with_cyclic_dependency() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01pt8c2g8nmsmfbwdh57g0jcyk63bnb0hmfr46wp3p1czbex31a490",
+	            "id": "dir_010c0ty66164s1qxzc6c8f6wr364pns1gfwkczzr9za6bnd1ftev7g",
 	            "tag": "a"
 	          }
 	        }
@@ -1520,7 +1520,7 @@ async fn tag_dependency_cycles() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01qbf8611s522m7bdb5jtp9d4w5n6kvfekf189vq8zwcvn7bsfcjq0",
+	            "id": "dir_01ybr8jp6yasqkwng3777n1r2m7zkqa5gdh3mnqn32a5zcakzjmh60",
 	            "tag": "a/1.1.0"
 	          }
 	        },
@@ -1529,7 +1529,7 @@ async fn tag_dependency_cycles() {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_011wy6c875bsnehd49bj97a90h4ktktkwb3p93v1zj0ff1w8z9xq30",
+	            "id": "dir_01ctfx95x4rjxts0axh5rj24n3gzz9zktja0h35af79vxw6mkepgrg",
 	            "tag": "b/1.0.0"
 	          }
 	        }
@@ -1562,7 +1562,7 @@ async fn tag_dependency_cycles() {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_011wy6c875bsnehd49bj97a90h4ktktkwb3p93v1zj0ff1w8z9xq30",
+	            "id": "dir_01ctfx95x4rjxts0axh5rj24n3gzz9zktja0h35af79vxw6mkepgrg",
 	            "tag": "b/1.0.0"
 	          }
 	        }
@@ -1597,7 +1597,7 @@ async fn tag_dependency_cycles() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01qbf8611s522m7bdb5jtp9d4w5n6kvfekf189vq8zwcvn7bsfcjq0",
+	            "id": "dir_01ybr8jp6yasqkwng3777n1r2m7zkqa5gdh3mnqn32a5zcakzjmh60",
 	            "tag": "a/1.1.0"
 	          }
 	        }
@@ -1724,7 +1724,7 @@ async fn tag_diamond_dependency() {
 	            "node": 2
 	          },
 	          "options": {
-	            "id": "dir_01qncmvbm8qf2214e696cpznqeaj5a3kjw0pje9k2sjev25jq7tz5g",
+	            "id": "dir_01f87ev0es7bk0bzb0hc1h5rxe4d7qhf1srqachk2ga3bmprx5ry2g",
 	            "tag": "b"
 	          }
 	        },
@@ -1733,7 +1733,7 @@ async fn tag_diamond_dependency() {
 	            "node": 3
 	          },
 	          "options": {
-	            "id": "dir_012m4xqzretm7ht4pk7rhkqt2m80ezsp9ftmebwpg9mevdn3ra19eg",
+	            "id": "dir_012vhy5zrsdgfgxc04630z8c1sd6zgj2nnqdm26e1hzdatgckam970",
 	            "tag": "c"
 	          }
 	        }
@@ -1763,7 +1763,7 @@ async fn tag_diamond_dependency() {
 	            "node": 6
 	          },
 	          "options": {
-	            "id": "dir_01m3hfbbf2skhn4q2g77wmxsaxz4n36f778r1kh8k7g43mqmnv3td0",
+	            "id": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	            "tag": "d/1.1.0"
 	          }
 	        }
@@ -1777,7 +1777,7 @@ async fn tag_diamond_dependency() {
 	            "node": 6
 	          },
 	          "options": {
-	            "id": "dir_01m3hfbbf2skhn4q2g77wmxsaxz4n36f778r1kh8k7g43mqmnv3td0",
+	            "id": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	            "tag": "d/1.1.0"
 	          }
 	        }
