@@ -84,6 +84,10 @@ impl Database {
 	pub fn pool(&self) -> &Pool<Connection> {
 		&self.pool
 	}
+
+	pub async fn sync(&self) -> Result<(), Error> {
+		Ok(())
+	}
 }
 
 impl Connection {
@@ -157,6 +161,10 @@ impl super::Database for Database {
 			connection.reconnect().await?;
 		}
 		Ok(connection)
+	}
+
+	async fn sync(&self) -> Result<(), Self::Error> {
+		self.sync().await
 	}
 }
 

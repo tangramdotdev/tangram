@@ -160,6 +160,17 @@ impl Database {
 		let connection = sqlite::Connection::open_with_flags(&self.options.path, flags)?;
 		Ok(connection)
 	}
+
+	pub async fn sync(&self) -> Result<(), Error> {
+		let connection = self.write_pool.get(crate::pool::Priority::default()).await;
+		connection
+			.with(|connection| {
+				connection.pragma_update(None, "wal_checkpoint", "full")?;
+				Ok::<_, sqlite::Error>(())
+			})
+			.await
+			.map_err(Into::into)
+	}
 }
 
 impl Connection {
@@ -296,6 +307,10 @@ impl super::Database for Database {
 			crate::ConnectionKind::Write => self.write_pool.get(options.priority).await,
 		};
 		Ok(connection)
+	}
+
+	async fn sync(&self) -> Result<(), Self::Error> {
+		self.sync().await
 	}
 }
 

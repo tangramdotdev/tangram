@@ -70,6 +70,9 @@ impl Server {
 		// Join the futures.
 		future::try_join(process_future, object_future).await?;
 
+		// Sync the store.
+		self.store.sync().await?;
+
 		// Create the messages.
 		let messages = Self::sync_get_index_create_messages(&mut graph.lock().unwrap())?;
 

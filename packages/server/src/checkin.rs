@@ -221,16 +221,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
-		// Publish.
-		let start = Instant::now();
-		self.checkin_publish(&state, touched_at)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to write the objects to the messenger")
-			})?;
-		tracing::trace!(elapsed = ?start.elapsed(), "write objects to messenger");
-
-		let state = Arc::into_inner(state).unwrap();
+		// Index.
+		self.tasks.spawn({
+			let server = self.clone();
+			let state = state.clone();
+			async move {
+				let result = server.checkin_index(&state, touched_at).await;
+				if let Err(error) = result {
+					tracing::error!(?error, "the index task failed");
+				}
+			}
+		});
 
 		// Write the lock.
 		let start = Instant::now();

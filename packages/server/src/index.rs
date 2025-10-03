@@ -43,6 +43,11 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
+				// Wait for outstanding tasks to complete.
+				server.tasks.close();
+				server.tasks.wait().await;
+				server.tasks.reopen();
+
 				// Wait for the index stream's first sequence to reach the current last sequence.
 				let info = stream
 					.info()
@@ -430,5 +435,27 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl Index {
+	#[allow(dead_code)]
+	pub async fn sync(&self) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(database) => {
+				database
+					.sync()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to sync the index"))?;
+			},
+			Self::Sqlite(database) => {
+				database
+					.sync()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to sync the index"))?;
+			},
+		}
+		Ok(())
 	}
 }

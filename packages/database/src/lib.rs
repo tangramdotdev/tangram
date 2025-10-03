@@ -47,6 +47,8 @@ pub trait Database {
 		&self,
 		options: ConnectionOptions,
 	) -> impl Future<Output = Result<Self::Connection, Self::Error>> + Send;
+
+	fn sync(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 #[derive(Clone, Debug, Default)]

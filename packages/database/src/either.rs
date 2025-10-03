@@ -55,6 +55,19 @@ where
 				.right_future(),
 		}
 	}
+
+	fn sync(&self) -> impl Future<Output = Result<(), Self::Error>> {
+		match self {
+			Either::Left(s) => s
+				.sync()
+				.map_err(|error| Error::Either(Either::Left(error)))
+				.left_future(),
+			Either::Right(s) => s
+				.sync()
+				.map_err(|error| Error::Either(Either::Right(error)))
+				.right_future(),
+		}
+	}
 }
 
 impl<L, R> Connection for Either<L, R>

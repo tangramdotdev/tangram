@@ -257,4 +257,8 @@ impl Fdb {
 			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
 		Ok(())
 	}
+
+	pub async fn sync(&self) -> tg::Result<()> {
+		Ok(())
+	}
 }

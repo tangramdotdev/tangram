@@ -73,4 +73,8 @@ impl Memory {
 			self.delete(arg);
 		}
 	}
+
+	pub async fn sync(&self) -> tg::Result<()> {
+		Ok(())
+	}
 }

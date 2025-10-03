@@ -137,7 +137,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn checkin_publish(
+	pub(super) async fn checkin_index(
 		&self,
 		state: &Arc<State>,
 		touched_at: i64,

@@ -54,7 +54,7 @@ impl Server {
 		}));
 
 		// Spawn the index task.
-		let index_task = AbortOnDropHandle::new(tokio::spawn({
+		self.tasks.spawn({
 			let server = self.clone();
 			let graph = graph.clone();
 			let sender = sender.clone();
@@ -66,7 +66,7 @@ impl Server {
 					tracing::error!(?error, "the index task failed");
 				}
 			}
-		}));
+		});
 
 		// Spawn the store task.
 		let store_task = AbortOnDropHandle::new(tokio::spawn({
@@ -150,9 +150,6 @@ impl Server {
 		// Drop the index senders.
 		drop(process_index_sender);
 		drop(object_index_sender);
-
-		// Await the index task.
-		index_task.await.unwrap();
 
 		// Stop and await the progress task.
 		progress_stop.stop();

@@ -368,4 +368,8 @@ impl Scylla {
 			.map_err(|source| tg::error!(!source, "failed to execute the batch delete"))?;
 		Ok(())
 	}
+
+	pub async fn sync(&self) -> tg::Result<()> {
+		Ok(())
+	}
 }

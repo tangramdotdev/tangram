@@ -328,6 +328,19 @@ impl Lmdb {
 		Ok(())
 	}
 
+	pub async fn sync(&self) -> tg::Result<()> {
+		tokio::task::spawn_blocking({
+			let env = self.env.clone();
+			move || {
+				env.force_sync()
+					.map_err(|source| tg::error!(!source, "failed to sync"))
+			}
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the task panicked"))??;
+		Ok(())
+	}
+
 	fn task(env: &lmdb::Env, db: &Db, mut receiver: RequestReceiver) {
 		while let Some((request, sender)) = receiver.blocking_recv() {
 			let mut requests = vec![request];

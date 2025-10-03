@@ -222,6 +222,19 @@ impl Store {
 		}
 		Ok(())
 	}
+
+	pub async fn sync(&self) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.sync().await?,
+			Self::Lmdb(lmdb) => lmdb.sync().await?,
+			Self::Memory(memory) => memory.sync().await?,
+			Self::S3(s3) => s3.sync().await?,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.sync().await?,
+		}
+		Ok(())
+	}
 }
 
 impl CacheReference {

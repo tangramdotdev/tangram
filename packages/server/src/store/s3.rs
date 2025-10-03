@@ -188,6 +188,10 @@ impl S3 {
 			.await
 	}
 
+	pub async fn sync(&self) -> tg::Result<()> {
+		Ok(())
+	}
+
 	fn sign_request(&self, request: reqwest::Request) -> tg::Result<reqwest::Request> {
 		let mut signing_params_builder = aws_sigv4::sign::v4::SigningParams::builder();
 		let identity = self.credentials.clone().map(Into::into);
