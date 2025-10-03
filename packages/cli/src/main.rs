@@ -592,11 +592,7 @@ impl Cli {
 			path: directory.join("store"),
 		});
 		let version = Some(version());
-		let vfs = if cfg!(target_os = "linux") {
-			Some(tangram_server::config::Vfs::default())
-		} else {
-			None
-		};
+		let vfs = None;
 		let watchdog = Some(tangram_server::config::Watchdog::default());
 		let mut config = tangram_server::Config {
 			advanced,
