@@ -5839,7 +5839,6 @@ dependencies = [
  "tangram_itertools",
  "tangram_serialize",
  "tangram_uri",
- "tangram_version",
  "time",
  "tokio",
  "tokio-rustls",

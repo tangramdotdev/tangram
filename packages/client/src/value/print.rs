@@ -324,7 +324,7 @@ where
 							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 						}
 						if let Some(tag) = referent.tag() {
-							s.map_entry("tag", |s| s.string(&tag.to_string()))?;
+							s.map_entry("tag", |s| s.string(tag.as_str()))?;
 						}
 						s.finish_map()?;
 						Ok(())
@@ -550,7 +550,7 @@ where
 				s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 			}
 			if let Some(tag) = &value.referent.tag() {
-				s.map_entry("tag", |s| s.string(&tag.to_string()))?;
+				s.map_entry("tag", |s| s.string(tag.as_str()))?;
 			}
 			s.finish_map()?;
 			Ok(())

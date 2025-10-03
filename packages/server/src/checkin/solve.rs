@@ -223,17 +223,12 @@ impl Server {
 		reference: tg::Reference,
 		pattern: tg::tag::Pattern,
 	) -> tg::Result<()> {
-		// Validate the pattern.
-		let valid = Self::checkin_solve_validate_pattern(&pattern);
-		if !valid {
-			return Err(tg::error!("invalid tag"));
-		}
-
 		// Get the tag.
-		let tag = if matches!(
-			pattern.components().last(),
-			Some(tg::tag::pattern::Component::Version(_) | tg::tag::pattern::Component::Wildcard)
-		) {
+		let tag = if pattern
+			.components()
+			.last()
+			.is_some_and(|component| component.contains(['=', '>', '<', '^']))
+		{
 			pattern.parent().unwrap().try_into().unwrap()
 		} else {
 			pattern.clone().try_into().unwrap()
@@ -644,22 +639,5 @@ impl Server {
 		let mut checkpoint = checkpoints.pop()?;
 		checkpoint.tags.remove(tag);
 		Some(checkpoint)
-	}
-
-	fn checkin_solve_validate_pattern(pattern: &tg::tag::Pattern) -> bool {
-		let all_components_normal = pattern
-			.components()
-			.iter()
-			.all(tg::tag::pattern::Component::is_normal);
-		let mut components_reverse_iter = pattern.components().iter().rev();
-		let last_component_version_or_wildcard = matches!(
-			components_reverse_iter.next(),
-			Some(tg::tag::pattern::Component::Version(_) | tg::tag::pattern::Component::Wildcard)
-		);
-		let all_components_except_last_normal =
-			components_reverse_iter.all(tg::tag::pattern::Component::is_normal);
-		let all_components_normal_except_last =
-			last_component_version_or_wildcard && all_components_except_last_normal;
-		all_components_normal || all_components_normal_except_last
 	}
 }

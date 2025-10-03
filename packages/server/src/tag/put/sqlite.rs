@@ -55,10 +55,8 @@ impl Server {
 		// Create the branches.
 		let mut parent = 0;
 		let mut ancestor = tg::Tag::empty();
-		for component in tag.components().iter().take(tag.components().len() - 1) {
-			let mut components = ancestor.components().clone();
-			components.push(component.clone());
-			ancestor = tg::Tag::with_components(components);
+		for component in tag.components().take(tag.components().count() - 1) {
+			ancestor.push(component);
 			let statement = indoc!(
 				"
 					insert into tags (parent, component)

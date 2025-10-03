@@ -27,9 +27,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
 
 		// Get the updates.
-		let updates = args
-			.updates
-			.unwrap_or_else(|| vec![tg::tag::Pattern::wildcard()]);
+		let updates = args.updates.unwrap_or_else(|| vec!["*".parse().unwrap()]);
 
 		// Check in.
 		let arg = tg::checkin::Arg {

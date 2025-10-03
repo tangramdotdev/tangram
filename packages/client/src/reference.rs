@@ -235,25 +235,14 @@ impl std::fmt::Display for Item {
 				write!(f, "{process}")?;
 			},
 			Item::Tag(tag) => {
-				for (i, component) in tag.components().iter().enumerate() {
+				for (i, component) in tag.components().enumerate() {
 					if i > 0 {
 						write!(f, "/")?;
 					}
-					match component {
-						tg::tag::pattern::Component::Normal(tg::tag::Component::String(name)) => {
-							write!(f, "{}", urlencoding::encode(name))?;
-						},
-						tg::tag::pattern::Component::Normal(tg::tag::Component::Version(
-							version,
-						)) => {
-							write!(f, "{}", urlencoding::encode(&version.to_string()))?;
-						},
-						tg::tag::pattern::Component::Version(version) => {
-							write!(f, "{}", urlencoding::encode(&version.to_string()))?;
-						},
-						tg::tag::pattern::Component::Wildcard => {
-							write!(f, "%2A")?;
-						},
+					if component == "*" {
+						write!(f, "%2A")?;
+					} else {
+						write!(f, "{}", urlencoding::encode(component))?;
 					}
 				}
 			},

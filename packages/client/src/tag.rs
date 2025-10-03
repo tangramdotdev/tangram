@@ -1,13 +1,4 @@
-use {
-	crate as tg,
-	tangram_version::{Prerelease, PrereleaseComponent, Version},
-	winnow::{
-		ascii::{alphanumeric1, dec_uint},
-		combinator::{alt, opt, preceded, separated},
-		prelude::*,
-		token::take_while,
-	},
-};
+use crate as tg;
 
 pub mod delete;
 pub mod get;
@@ -21,183 +12,86 @@ pub use self::pattern::Pattern;
 	Clone,
 	Debug,
 	Default,
-	Eq,
-	Hash,
-	PartialEq,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 #[tangram_serialize(display, from_str)]
-pub struct Tag {
-	components: Vec<Component>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	Eq,
-	Hash,
-	PartialEq,
-	derive_more::IsVariant,
-	derive_more::TryUnwrap,
-	derive_more::Unwrap,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-)]
-#[try_unwrap(ref)]
-#[unwrap(ref)]
-pub enum Component {
-	String(String),
-	Version(Version),
-}
-
-#[derive(Clone, Debug, derive_more::Display, derive_more::Error)]
-#[display("parse error")]
-pub struct ParseError;
+pub struct Tag(String);
 
 impl Tag {
+	#[must_use]
+	pub fn new(s: impl Into<String>) -> Self {
+		Self(s.into())
+	}
+
 	#[must_use]
 	pub fn empty() -> Self {
 		Self::default()
 	}
 
 	#[must_use]
-	pub fn with_components(components: Vec<Component>) -> Self {
-		Self { components }
+	pub fn as_str(&self) -> &str {
+		&self.0
 	}
 
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self.components.is_empty()
+		self.0.is_empty()
 	}
 
-	#[must_use]
-	pub fn components(&self) -> &Vec<Component> {
-		&self.components
+	pub fn components(&self) -> impl Iterator<Item = &str> {
+		self.0.split('/')
 	}
 
-	#[must_use]
-	pub fn into_components(self) -> Vec<Component> {
-		self.components
+	pub fn push(&mut self, component: &str) {
+		if !self.is_empty() {
+			self.0.push('/');
+		}
+		self.0.push_str(component);
 	}
 
 	#[must_use]
 	pub fn parent(&self) -> Option<Self> {
-		let mut components = self.components.clone();
+		let mut components: Vec<_> = self.components().collect();
 		components.pop()?;
-		let parent = Self::with_components(components);
-		Some(parent)
+		Some(Self(components.join("/")))
+	}
+}
+
+impl AsRef<str> for Tag {
+	fn as_ref(&self) -> &str {
+		self.0.as_str()
 	}
 }
 
 impl std::fmt::Display for Tag {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		for (i, component) in self.components.iter().enumerate() {
-			if i > 0 {
-				write!(f, "/")?;
-			}
-			write!(f, "{component}")?;
-		}
-		Ok(())
+		write!(f, "{}", self.0)
 	}
 }
 
 impl std::str::FromStr for Tag {
-	type Err = ParseError;
+	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		tag.parse(s).ok().ok_or(ParseError)
+		Ok(Self::new(s.to_owned()))
 	}
 }
 
-impl std::fmt::Display for Component {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::String(string) => write!(f, "{string}"),
-			Self::Version(version) => write!(f, "{version}"),
-		}
+impl std::cmp::PartialEq for Tag {
+	fn eq(&self, other: &Self) -> bool {
+		self.cmp(other) == std::cmp::Ordering::Equal
 	}
 }
 
-impl std::str::FromStr for Component {
-	type Err = ParseError;
+impl std::cmp::Eq for Tag {}
 
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		component.parse(s).ok().ok_or(ParseError)
+impl std::hash::Hash for Tag {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.0.hash(state);
 	}
-}
-
-fn tag(input: &mut &str) -> ModalResult<Tag> {
-	let components: Vec<_> = separated(1.., component, "/").parse_next(input)?;
-	Ok(Tag { components })
-}
-
-fn component(input: &mut &str) -> ModalResult<Component> {
-	alt((
-		version.map(Component::Version),
-		string.map(Component::String),
-	))
-	.parse_next(input)
-}
-
-fn version(input: &mut &str) -> ModalResult<Version> {
-	let prerelease = opt(preceded("-", prerelease));
-	let build = opt(preceded("+", dot_separated_identifier));
-	let (major, minor, patch, prerelease, build) = (
-		dec_uint,
-		opt(preceded(".", dec_uint)),
-		opt(preceded(".", dec_uint)),
-		prerelease,
-		build,
-	)
-		.parse_next(input)?;
-	let build = build.map(ToOwned::to_owned);
-	let version = Version {
-		major,
-		minor,
-		patch,
-		prerelease,
-		build,
-	};
-	Ok(version)
-}
-
-fn prerelease(input: &mut &str) -> ModalResult<Prerelease> {
-	let identifiers: Vec<&str> = separated(1.., alphanumeric1, ".").parse_next(input)?;
-	let components = identifiers
-		.into_iter()
-		.map(|id| {
-			if let Ok(n) = id.parse::<u64>() {
-				PrereleaseComponent::Number(n)
-			} else {
-				PrereleaseComponent::String(id.to_owned())
-			}
-		})
-		.collect();
-	Ok(Prerelease { components })
-}
-
-fn dot_separated_identifier<'a>(input: &mut &'a str) -> ModalResult<&'a str> {
-	separated::<_, _, Vec<_>, _, _, _, _>(1.., alphanumeric1, ".")
-		.take()
-		.parse_next(input)
-}
-
-fn string(input: &mut &str) -> ModalResult<String> {
-	let string = take_while(1.., |c: char| c.is_alphanumeric() || c == '_' || c == '-')
-		.verify(|value: &str| {
-			if value.parse::<tg::process::Id>().is_ok() {
-				return false;
-			}
-			if value.parse::<tg::object::Id>().is_ok() {
-				return false;
-			}
-			true
-		})
-		.parse_next(input)?;
-	Ok(string.to_owned())
 }
 
 impl std::cmp::PartialOrd for Tag {
@@ -208,82 +102,19 @@ impl std::cmp::PartialOrd for Tag {
 
 impl std::cmp::Ord for Tag {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		self.components().cmp(other.components())
-	}
-}
-
-impl std::cmp::PartialOrd for Component {
-	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-		Some(self.cmp(other))
-	}
-}
-
-impl std::cmp::Ord for Component {
-	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-		match (self, other) {
-			(Component::String(a), Component::String(b)) => a.cmp(b),
-			(Component::String(_), Component::Version(_)) => std::cmp::Ordering::Less,
-			(Component::Version(_), Component::String(_)) => std::cmp::Ordering::Greater,
-			(Component::Version(a), Component::Version(b)) => a.cmp(b),
+		let mut a = self.components();
+		let mut b = other.components();
+		for (a, b) in a.by_ref().zip(b.by_ref()) {
+			let order = self::pattern::compare(a, b);
+			if order != std::cmp::Ordering::Equal {
+				return order;
+			}
 		}
-	}
-}
-
-impl TryFrom<tg::tag::Pattern> for Tag {
-	type Error = tg::Error;
-
-	fn try_from(value: tg::tag::Pattern) -> Result<Self, Self::Error> {
-		let components = value.into_components();
-		let components = components
-			.into_iter()
-			.map(|component| match component {
-				self::pattern::Component::Normal(Component::String(string)) => {
-					Ok(Component::String(string))
-				},
-				self::pattern::Component::Normal(Component::Version(version)) => {
-					Ok(Component::Version(version))
-				},
-				self::pattern::Component::Version(_) => Err(tg::error!(
-					"pattern is not a tag if it has a version component"
-				)),
-				self::pattern::Component::Wildcard => Err(tg::error!(
-					"pattern is not a tag if it has a wildcard component"
-				)),
-			})
-			.collect::<tg::Result<_>>()?;
-		Ok(Self { components })
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use crate::tg;
-
-	#[test]
-	fn tag() {
-		let tag = "tag".parse::<tg::Tag>().unwrap();
-		let left = tag.components();
-		let right = &["tag".parse().unwrap()];
-		assert_eq!(left, right);
-
-		let tag = "tag/1.0.0".parse::<tg::Tag>().unwrap();
-		let left = tag.components();
-		let right = &["tag".parse().unwrap(), "1.0.0".parse().unwrap()];
-		assert_eq!(left, right);
-
-		assert!("".parse::<tg::Tag>().is_err());
-		assert!("hello/".parse::<tg::Tag>().is_err());
-		assert!("hello//world".parse::<tg::Tag>().is_err());
-
-		assert!(
-			"fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260"
-				.parse::<tg::Tag>()
-				.is_err()
-		);
-		assert!(
-			"hello/fil_010kectq93xrz0cdy3bvkb43sdx2b0exppwwdfcy34ve5aktn8z260/world"
-				.parse::<tg::Tag>()
-				.is_err()
-		);
+		match (a.next(), b.next()) {
+			(Some(_), None) => std::cmp::Ordering::Greater,
+			(None, Some(_)) => std::cmp::Ordering::Less,
+			(None, None) => std::cmp::Ordering::Equal,
+			_ => unreachable!(),
+		}
 	}
 }
