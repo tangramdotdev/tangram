@@ -11,10 +11,8 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 async fn simple_package() {
 	let ctx = TestContext::new().await;
 
-	let (temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			export default () => "Hello, World!";
 
 			export let metadata = {
@@ -22,10 +20,8 @@ async fn simple_package() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
 
 	ctx.publish(&temp).await;
 
@@ -42,10 +38,8 @@ async fn package_with_dependency_pre_publish() {
 	let ctx = TestContext::new().await;
 
 	// Create and publish the dependency package.
-	let (dep_temp, dep_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			export default () => "I am a dependency!";
 
 			export let metadata = {
@@ -53,17 +47,13 @@ async fn package_with_dependency_pre_publish() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (dep_temp, dep_package_id) = ctx.create_package(content.to_owned()).await;
 	ctx.publish(&dep_temp).await;
 
 	// Create a package that depends on the first package.
-	let (temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import dep from "test-dep";
 
 			export default () => `Main package using: ${dep()}`;
@@ -73,10 +63,8 @@ async fn package_with_dependency_pre_publish() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
 	ctx.publish(&temp).await;
 
 	// Verify tags and objects for both packages.
@@ -100,10 +88,8 @@ async fn package_with_unpublished_dependency() {
 	let ctx = TestContext::new().await;
 
 	// Create a dependency package but DON'T publish it yet.
-	let (_dep_temp, dep_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			export default () => "I am a dependency!";
 
 			export let metadata = {
@@ -111,19 +97,15 @@ async fn package_with_unpublished_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_dep_temp, dep_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the dependency on the local server so it can be resolved.
 	ctx.create_tag("test-dep/1.0.0", &dep_package_id).await;
 
 	// Create a package that depends on the unpublished package.
-	let (temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import dep from "test-dep";
 
 			export default () => `Main package using: ${dep()}`;
@@ -133,10 +115,8 @@ async fn package_with_unpublished_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should also publish the dependency.
 	ctx.publish(&temp).await;
@@ -158,10 +138,8 @@ async fn package_with_transitive_dependency() {
 	let ctx = TestContext::new().await;
 
 	// Create the transitive dependency (C) - no dependencies.
-	let (_transitive_temp, transitive_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			export default () => "I am the transitive dependency!";
 
 			export let metadata = {
@@ -169,20 +147,16 @@ async fn package_with_transitive_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_transitive_temp, transitive_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the transitive dependency on the local server so it can be resolved.
 	ctx.create_tag("test-transitive/1.0.0", &transitive_package_id)
 		.await;
 
 	// Create the intermediate dependency (B) - depends on C.
-	let (_dep_temp, dep_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import transitive from "test-transitive";
 
 			export default () => `Dependency using: ${transitive()}`;
@@ -192,19 +166,15 @@ async fn package_with_transitive_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_dep_temp, dep_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the dependency on the local server so it can be resolved.
 	ctx.create_tag("test-dep/1.0.0", &dep_package_id).await;
 
 	// Create the main package (A) - depends on B.
-	let (temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import dep from "test-dep";
 
 			export default () => `Main package using: ${dep()}`;
@@ -214,10 +184,8 @@ async fn package_with_transitive_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should publish C, then B, then A.
 	let publish_output = ctx.publish_with_output(&temp).await;
@@ -269,10 +237,8 @@ async fn package_with_diamond_dependency() {
 	let ctx = TestContext::new().await;
 
 	// Create the bottom package (D) - no dependencies.
-	let (_bottom_temp, bottom_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			export default () => "I am the bottom of the diamond!";
 
 			export let metadata = {
@@ -280,20 +246,16 @@ async fn package_with_diamond_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_bottom_temp, bottom_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the bottom package on the local server so it can be resolved.
 	ctx.create_tag("test-bottom/1.0.0", &bottom_package_id)
 		.await;
 
 	// Create the left package (A) - depends on bottom.
-	let (_left_temp, left_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import bottom from "test-bottom";
 
 			export default () => `Left using: ${bottom()}`;
@@ -303,19 +265,15 @@ async fn package_with_diamond_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_left_temp, left_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the left package on the local server so it can be resolved.
 	ctx.create_tag("test-left/1.0.0", &left_package_id).await;
 
 	// Create the right package (B) - depends on bottom.
-	let (_right_temp, right_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import bottom from "test-bottom";
 
 			export default () => `Right using: ${bottom()}`;
@@ -325,19 +283,15 @@ async fn package_with_diamond_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_right_temp, right_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the right package on the local server so it can be resolved.
 	ctx.create_tag("test-right/1.0.0", &right_package_id).await;
 
 	// Create the main package - depends on both left and right.
-	let (temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import left from "test-left";
 			import right from "test-right";
 
@@ -348,10 +302,8 @@ async fn package_with_diamond_dependency() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should publish bottom, then left and right, then main.
 	let publish_output = ctx.publish_with_output(&temp).await;
@@ -416,10 +368,8 @@ async fn package_with_diamond_dependency_and_shared_import() {
 	let ctx = TestContext::new().await;
 
 	// Create the bottom package (D) - no dependencies.
-	let (_bottom_temp, bottom_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			export default () => "I am the bottom of the diamond!";
 
 			export let metadata = {
@@ -427,20 +377,16 @@ async fn package_with_diamond_dependency_and_shared_import() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_bottom_temp, bottom_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the bottom package on the local server so it can be resolved.
 	ctx.create_tag("test-bottom/1.0.0", &bottom_package_id)
 		.await;
 
 	// Create the left package (A) - depends on bottom.
-	let (_left_temp, left_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import bottom from "test-bottom";
 
 			export default () => `Left using: ${bottom()}`;
@@ -450,19 +396,15 @@ async fn package_with_diamond_dependency_and_shared_import() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_left_temp, left_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the left package on the local server so it can be resolved.
 	ctx.create_tag("test-left/1.0.0", &left_package_id).await;
 
 	// Create the right package (B) - depends on bottom.
-	let (_right_temp, right_package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import bottom from "test-bottom";
 
 			export default () => `Right using: ${bottom()}`;
@@ -472,19 +414,15 @@ async fn package_with_diamond_dependency_and_shared_import() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_right_temp, right_package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Create a tag for the right package on the local server so it can be resolved.
 	ctx.create_tag("test-right/1.0.0", &right_package_id).await;
 
 	// Create the main package - depends on left, right, AND bottom directly.
-	let (temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import left from "test-left";
 			import right from "test-right";
 			import bottom from "test-bottom";
@@ -496,10 +434,8 @@ async fn package_with_diamond_dependency_and_shared_import() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should publish bottom, then left and right, then main.
 	let publish_output = ctx.publish_with_output(&temp).await;
@@ -566,20 +502,17 @@ async fn package_with_local_path_import() {
 	// Create a shared temp directory with both packages as siblings.
 	let shared_artifact = temp::directory! {
 		"dep" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				export default () => "I am a local dependency!";
 
 				export let metadata = {
 					name: "test-dep",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 		"main" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				import dep from "test-dep" with { local: "../dep" };
 
 				export default () => `Main package using: ${dep()}`;
@@ -588,8 +521,7 @@ async fn package_with_local_path_import() {
 					name: "test-main",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 	};
 	let shared_temp = Temp::new();
@@ -720,8 +652,7 @@ async fn package_with_dependency_cycle() {
 	// Create an import cycle but NOT a process cycle:
 	let shared_artifact = temp::directory! {
 		"a" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				import b from "test-b" with { local: "../b" };
 				export default () => `A using: ${b()}`;
 				export let greeting = () => "Hello from A";
@@ -729,20 +660,17 @@ async fn package_with_dependency_cycle() {
 					name: "test-a",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 		"b" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				import * as a from "test-a" with { local: "../a" };
 				export default () => `B using: ${a.greeting()}`;
 				export let metadata = {
 					name: "test-b",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 	};
 	let shared_temp = Temp::new();
@@ -818,30 +746,25 @@ async fn package_with_cycles_and_non_cycles() {
 
 	let shared_artifact = temp::directory! {
 		"leaf1" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				export default () => "I am leaf1!";
 				export let metadata = {
 					name: "test-leaf1",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 		"leaf2" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				export default () => "I am leaf2!";
 				export let metadata = {
 					name: "test-leaf2",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 		"independent" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				import leaf1 from "test-leaf1" with { local: "../leaf1" };
 				import leaf2 from "test-leaf2" with { local: "../leaf2" };
 				export default () => `Independent using: ${leaf1()} and ${leaf2()}`;
@@ -849,12 +772,10 @@ async fn package_with_cycles_and_non_cycles() {
 					name: "test-independent",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 		"cycle-a" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				import cycleB from "test-cycle-b" with { local: "../cycle-b" };
 				import leaf1 from "test-leaf1" with { local: "../leaf1" };
 				export default () => `Cycle A using: ${cycleB()} and ${leaf1()}`;
@@ -863,12 +784,10 @@ async fn package_with_cycles_and_non_cycles() {
 					name: "test-cycle-a",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 		"cycle-b" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				import * as cycleA from "test-cycle-a" with { local: "../cycle-a" };
 				import leaf2 from "test-leaf2" with { local: "../leaf2" };
 				export default () => `Cycle B using: ${cycleA.greeting()} and ${leaf2()}`;
@@ -876,12 +795,10 @@ async fn package_with_cycles_and_non_cycles() {
 					name: "test-cycle-b",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 		"main" => temp::directory! {
-			"tangram.ts" => indoc!(
-				r#"
+			"tangram.ts" => indoc!(r#"
 				import cycleA from "test-cycle-a" with { local: "../cycle-a" };
 				import independent from "test-independent" with { local: "../independent" };
 				export default () => `Main using: ${cycleA()} and ${independent()}`;
@@ -889,8 +806,7 @@ async fn package_with_cycles_and_non_cycles() {
 					name: "test-main",
 					version: "1.0.0",
 				};
-			"#
-			).to_owned(),
+			"#),
 		},
 	};
 
@@ -1063,10 +979,8 @@ async fn single_file_package() {
 async fn simple_package_with_tag() {
 	let ctx = TestContext::new().await;
 
-	let (_temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			export default () => "Hello, World!";
 
 			export let metadata = {
@@ -1074,10 +988,8 @@ async fn simple_package_with_tag() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (_temp, package_id) = ctx.create_package(content.to_owned()).await;
 
 	let tag = "test-pkg/1.0.0";
 	ctx.create_tag(tag, &package_id).await;
@@ -1138,8 +1050,7 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 
 	// Create a multi-file package with submodules.
 	let multi_file_artifact = temp::directory! {
-		"tangram.ts" => indoc!(
-			r#"
+		"tangram.ts" => indoc!(r#"
 			import { helper } from "./helper.ts";
 			import { util } from "./subdir/util.ts";
 
@@ -1149,19 +1060,14 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 				name: "test-multi-file",
 				version: "1.0.0",
 			};
-		"#
-		).to_owned(),
-		"helper.ts" => indoc!(
-			r#"
+		"#),
+		"helper.ts" => indoc!(r#"
 			export let helper = () => "helper function";
-		"#
-		).to_owned(),
+		"#),
 		"subdir" => temp::directory! {
-			"util.ts" => indoc!(
-				r#"
+			"util.ts" => indoc!(r#"
 				export let util = () => "util function";
-			"#
-			).to_owned(),
+			"#),
 		},
 	};
 	let multi_file_temp = Temp::new();
@@ -1188,10 +1094,8 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 		.await;
 
 	// Create a main package that imports both.
-	let (temp, package_id) = ctx
-		.create_package(
-			indoc!(
-				r#"
+	let content = indoc!(
+		r#"
 			import singleFile from "test-single-file";
 			import multiFile from "test-multi-file";
 
@@ -1202,10 +1106,8 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 				version: "1.0.0",
 			};
 		"#
-			)
-			.to_owned(),
-		)
-		.await;
+	);
+	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
 
 	// Publish and capture the output to check what gets published.
 	let publish_output = ctx.publish_with_output(&temp).await;
