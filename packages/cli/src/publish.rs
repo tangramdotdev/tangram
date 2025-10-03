@@ -51,7 +51,6 @@ impl Cli {
 
 		// Get the reference.
 		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-
 		if reference.export().is_some() {
 			return Err(tg::error!("cannot publish a reference with an export"));
 		}
@@ -70,16 +69,11 @@ impl Cli {
 		}
 
 		// Compute graph and report number of packages.
-		let root_path = reference.item().try_unwrap_path_ref().ok().map(|path| {
-			if path.is_absolute() {
-				path.clone()
-			} else {
-				std::env::current_dir()
-					.ok()
-					.map(|cwd| cwd.join(path))
-					.unwrap_or_else(|| path.clone())
-			}
-		});
+		let root_path = reference
+			.item()
+			.try_unwrap_path_ref()
+			.ok()
+			.and_then(|path| std::path::absolute(path).ok());
 		let graph = self
 			.build_dependency_graph(&handle, artifact, root_path)
 			.await?;
@@ -116,12 +110,10 @@ impl Cli {
 		let mut id_to_index = HashMap::new();
 		let mut queue = VecDeque::new();
 
-		// Check if the root is a package.
 		if !is_package(handle, &root).await? {
 			return Err(tg::error!("root is not a package"));
 		}
 
-		// Start with the root artifact.
 		let root_id = root.id();
 		let root_index = 0;
 		id_to_index.insert(root_id.clone(), root_index);
@@ -165,12 +157,10 @@ impl Cli {
 			let mut dependency_indices = Vec::new();
 
 			for (reference, dependency) in dependencies_with_refs {
-				// Check if this dependency is a package (either a file or directory with root module).
+				// Skip if this dependency is a package or contained within a pckage.
 				if !is_package(handle, &dependency).await? {
 					continue;
 				}
-
-				// Check if this dependency is a member of the current package.
 				if let tg::Artifact::Directory(current_dir) = &current_artifact {
 					if is_contained_in_directory(handle, current_dir, &dependency).await? {
 						match dependency {
@@ -234,215 +224,72 @@ impl Cli {
 		remote: &str,
 	) -> tg::Result<()> {
 		// Create dummy packages and tag them locally for all cycles.
-		let has_cycles = order.iter().any(|scc| matches!(scc, Scc::Cycle(_)));
+		let has_cycles = order.iter().any(Scc::is_cycle);
 		if has_cycles {
 			eprintln!("detected dependency cycles, creating local dummy package tags");
 
 			for scc in &order {
-				if let Scc::Cycle(nodes) = scc {
-					for node_index in nodes {
-						let node = &graph.nodes[*node_index];
+				if scc.is_cycle() {
+					for &node_index in scc.node_indices() {
+						let node = &graph.nodes[node_index];
 						let metadata = &node.metadata;
-
 						let dummy_artifact = create_dummy_package(handle, metadata).await?;
-						let dummy_id: tg::object::Id = dummy_artifact.id().into();
-
-						let tag_string = format!("{}/{}", metadata.name, metadata.version);
-						let tag = tag_string
-							.parse::<tg::Tag>()
-							.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-
+						let tag = create_tag_from_metadata(metadata)?;
 						eprintln!("creating local dummy tag {tag}");
-
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(dummy_id),
-							remote: None,
-						};
-						handle.put_tag(&tag, arg).await?;
+						put_local_tag(handle, &tag, &dummy_artifact.id()).await?;
 					}
 				}
 			}
 		}
 
-		// Re-checkin packages with local path dependencies and create local tags.
-		let mut updated_artifacts: HashMap<usize, tg::artifact::Id> = HashMap::new();
-		for scc in &order {
-			match scc {
-				Scc::Single(node_index) => {
-					let node = &graph.nodes[*node_index];
-					let artifact = &node.artifact;
-					let metadata = &node.metadata;
-					let path = &node.path;
-
-					let tag_string = format!("{}/{}", metadata.name, metadata.version);
-					let tag = tag_string
-						.parse::<tg::Tag>()
-						.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-
-					let has_local_deps = has_local_path_dependencies(handle, artifact).await?;
-
-					let final_artifact_id = if has_local_deps && path.is_some() {
-						let path = path.as_ref().unwrap();
-						eprintln!("re-checking in {tag} without local dependencies");
-
-						let arg = tg::checkin::Arg {
-							path: path.clone(),
-							options: tg::checkin::Options {
-								local_dependencies: false,
-								..Default::default()
-							},
-							updates: Vec::new(),
-						};
-						let re_checked_in_artifact = tg::checkin::checkin(handle, arg).await?;
-						let new_artifact_id = re_checked_in_artifact.id();
-
-						let object_id: tg::object::Id = new_artifact_id.clone().into();
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(object_id),
-							remote: None,
-						};
-						handle.put_tag(&tag, arg).await?;
-
-						new_artifact_id
-					} else {
-						let artifact_id = artifact.id();
-						let object_id: tg::object::Id = artifact_id.clone().into();
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(object_id),
-							remote: None,
-						};
-						handle.put_tag(&tag, arg).await?;
-
-						artifact_id
-					};
-
-					updated_artifacts.insert(*node_index, final_artifact_id);
-				},
-				Scc::Cycle(indices) => {
-					// First, tag all packages in the cycle with their original artifacts.
-					for node_index in indices {
-						let node = &graph.nodes[*node_index];
-						let artifact = &node.artifact;
-						let metadata = &node.metadata;
-
-						let tag_string = format!("{}/{}", metadata.name, metadata.version);
-						let tag = tag_string
-							.parse::<tg::Tag>()
-							.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-
-						let artifact_id = artifact.id();
-						let object_id: tg::object::Id = artifact_id.clone().into();
-						let arg = tg::tag::put::Arg {
-							force: true,
-							item: Either::Right(object_id),
-							remote: None,
-						};
-						handle.put_tag(&tag, arg).await?;
-
-						updated_artifacts.insert(*node_index, artifact_id);
-					}
-
-					// Now that all tags exist, re-checkin packages with local path dependencies.
-					for node_index in indices {
-						let node = &graph.nodes[*node_index];
-						let artifact = &node.artifact;
-						let metadata = &node.metadata;
-						let path = &node.path;
-
-						let tag_string = format!("{}/{}", metadata.name, metadata.version);
-						let tag = tag_string
-							.parse::<tg::Tag>()
-							.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-
-						let has_local_deps = has_local_path_dependencies(handle, artifact).await?;
-						if has_local_deps && path.is_some() {
-							let path = path.as_ref().unwrap();
-							eprintln!("re-checking in {tag} (cyclic) without local dependencies");
-
-							let arg = tg::checkin::Arg {
-								path: path.clone(),
-								options: tg::checkin::Options {
-									local_dependencies: false,
-									..Default::default()
-								},
-								updates: Vec::new(),
-							};
-							let re_checked_in_artifact = tg::checkin::checkin(handle, arg).await?;
-							let new_artifact_id = re_checked_in_artifact.id();
-
-							let object_id: tg::object::Id = new_artifact_id.clone().into();
-							let arg = tg::tag::put::Arg {
-								force: true,
-								item: Either::Right(object_id),
-								remote: None,
-							};
-							handle.put_tag(&tag, arg).await?;
-
-							updated_artifacts.insert(*node_index, new_artifact_id);
-						}
-					}
-				},
-			}
-		}
-
-		// Collect all items to push and their tags.
+		// Process all packages - re-checkin and collect items to publish.
 		let mut items_to_push = Vec::new();
 		let mut tags_to_put: Vec<(tg::Tag, tg::artifact::Id)> = Vec::new();
 
 		for scc in &order {
-			match scc {
-				Scc::Single(node_index) => {
-					let node = &graph.nodes[*node_index];
-					let metadata = &node.metadata;
+			// For cycles, first tag all packages with their original artifacts.
+			if scc.is_cycle() {
+				for &node_index in scc.node_indices() {
+					let node = &graph.nodes[node_index];
+					let artifact_id = node.artifact.id();
+					let tag = create_tag_from_metadata(&node.metadata)?;
+					put_local_tag(handle, &tag, &artifact_id).await?;
+				}
+			}
 
-					let tag_string = format!("{}/{}", metadata.name, metadata.version);
-					let tag = tag_string
-						.parse::<tg::Tag>()
-						.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
+			// Process each node: re-checkin if needed and collect for publishing.
+			for &node_index in scc.node_indices() {
+				let node = &graph.nodes[node_index];
+				let artifact = &node.artifact;
+				let metadata = &node.metadata;
+				let path = &node.path;
 
-					// Use the updated artifact ID if available.
-					let artifact_id = updated_artifacts
-						.get(node_index)
-						.cloned()
-						.unwrap_or_else(|| node.artifact.id());
-
-					let should_publish =
-						should_publish_package(handle, &tag, &artifact_id, remote).await?;
-
-					if should_publish {
-						tags_to_put.push((tag, artifact_id.clone()));
-						items_to_push.push(Either::Right(artifact_id.into()));
-					}
-				},
-				Scc::Cycle(nodes) => {
-					eprintln!("publishing {} packages in cycle", nodes.len());
-					for node_index in nodes {
-						let node = &graph.nodes[*node_index];
-						let metadata = &node.metadata;
-
-						let tag_string = format!("{}/{}", metadata.name, metadata.version);
-						let tag = tag_string
-							.parse::<tg::Tag>()
-							.map_err(|source| tg::error!(!source, "failed to parse tag"))?;
-
-						// Use the updated artifact ID if available.
-						let artifact_id = updated_artifacts
-							.get(node_index)
-							.cloned()
-							.unwrap_or_else(|| node.artifact.id());
-
-						let should_publish =
-							should_publish_package(handle, &tag, &artifact_id, remote).await?;
-
-						if should_publish {
-							tags_to_put.push((tag, artifact_id.clone()));
-							items_to_push.push(Either::Right(artifact_id.into()));
+				let tag = create_tag_from_metadata(metadata)?;
+				let final_artifact_id =
+					if has_local_path_dependencies(handle, artifact).await? && path.is_some() {
+						eprintln!("re-checking in {tag} without local dependencies");
+						let new_artifact =
+							re_checkin_without_local_deps(handle, path.as_ref().unwrap()).await?;
+						let new_artifact_id = new_artifact.id();
+						put_local_tag(handle, &tag, &new_artifact_id).await?;
+						new_artifact_id
+					} else {
+						let artifact_id = artifact.id();
+						// Packages in cycles are already tagged, but we need tags for non-cyclic packages.
+						if !scc.is_cycle() {
+							put_local_tag(handle, &tag, &artifact_id).await?;
 						}
-					}
-				},
+						artifact_id
+					};
+
+				if should_publish_package(handle, &tag, &final_artifact_id, remote).await? {
+					tags_to_put.push((tag, final_artifact_id.clone()));
+					items_to_push.push(Either::Right(final_artifact_id.into()));
+				}
+			}
+
+			if scc.is_cycle() {
+				eprintln!("publishing {} packages in cycle", scc.node_indices().len());
 			}
 		}
 
@@ -482,6 +329,34 @@ impl Cli {
 	}
 }
 
+async fn create_dummy_package(
+	handle: &impl tg::Handle,
+	metadata: &Metadata,
+) -> tg::Result<tg::Artifact> {
+	let content = formatdoc!(
+		r#"
+		export default () => {{ throw new Error("This is a dummy package placeholder for cycle resolution. The real implementation should be published shortly."); }};
+
+		export let metadata = {{
+			name: "{}",
+			version: "{}",
+		}};
+	"#,
+		metadata.name,
+		metadata.version
+	);
+	let file = tg::File::builder(content).build();
+	file.store(handle).await?;
+	Ok(file.into())
+}
+
+fn create_tag_from_metadata(metadata: &Metadata) -> tg::Result<tg::Tag> {
+	let tag_string = format!("{}/{}", metadata.name, metadata.version);
+	tag_string
+		.parse::<tg::Tag>()
+		.map_err(|source| tg::error!(!source, "failed to parse tag"))
+}
+
 async fn has_local_path_dependencies(
 	handle: &impl tg::Handle,
 	artifact: &tg::Artifact,
@@ -508,24 +383,14 @@ async fn has_local_path_dependencies(
 
 async fn is_package(handle: &impl tg::Handle, artifact: &tg::Artifact) -> tg::Result<bool> {
 	match artifact {
-		tg::Artifact::File(_file) => {
-			// Files don't have names, only directory entries have names.
-			// Without path context, we assume a standalone file is a package.
-			Ok(true)
-		},
-		tg::Artifact::Directory(directory) => {
-			// A directory is a package if it has a root module file.
-			Ok(tg::package::try_get_root_module_file_name(
-				handle,
-				Either::Left(&directory.clone().into()),
-			)
-			.await?
-			.is_some())
-		},
-		tg::Artifact::Symlink(_) => {
-			// Symlinks are not packages.
-			Ok(false)
-		},
+		tg::Artifact::File(_file) => Ok(true),
+		tg::Artifact::Directory(directory) => Ok(tg::package::try_get_root_module_file_name(
+			handle,
+			Either::Left(&directory.clone().into()),
+		)
+		.await?
+		.is_some()),
+		tg::Artifact::Symlink(_) => Ok(false),
 	}
 }
 
@@ -534,11 +399,10 @@ async fn is_contained_in_directory(
 	directory: &tg::Directory,
 	artifact: &tg::Artifact,
 ) -> tg::Result<bool> {
-	let artifact_id = artifact.id();
 	let entries = directory.entries(handle).await?;
 
 	for entry in entries.values() {
-		if entry.id() == artifact_id {
+		if entry.id() == artifact.id() {
 			return Ok(true);
 		}
 		if let tg::Artifact::Directory(subdir) = entry {
@@ -557,14 +421,11 @@ async fn get_package_metadata(
 ) -> tg::Result<Metadata> {
 	let (kind, item) = match artifact {
 		tg::Artifact::File(file) => {
-			// For a single file, use the file itself as the module.
-			// Files don't have names - assume TypeScript.
 			let kind = tg::module::Kind::Ts;
 			let item = tg::module::Item::Object(file.clone().into());
 			(kind, item)
 		},
 		tg::Artifact::Directory(directory) => {
-			// For a directory, find the root module file.
 			let root_module_file_name = tg::package::try_get_root_module_file_name(
 				handle,
 				Either::Left(&directory.clone().into()),
@@ -628,25 +489,33 @@ async fn get_package_metadata(
 	Ok(Metadata { name, version })
 }
 
-async fn create_dummy_package(
+async fn put_local_tag(
 	handle: &impl tg::Handle,
-	metadata: &Metadata,
-) -> tg::Result<tg::Artifact> {
-	let content = formatdoc!(
-		r#"
-		export default () => {{ throw new Error("This is a dummy package placeholder for cycle resolution. The real implementation should be published shortly."); }};
+	tag: &tg::Tag,
+	artifact_id: &tg::artifact::Id,
+) -> tg::Result<()> {
+	let object_id: tg::object::Id = artifact_id.clone().into();
+	let arg = tg::tag::put::Arg {
+		force: true,
+		item: Either::Right(object_id),
+		remote: None,
+	};
+	handle.put_tag(tag, arg).await
+}
 
-		export let metadata = {{
-			name: "{}",
-			version: "{}",
-		}};
-	"#,
-		metadata.name,
-		metadata.version
-	);
-	let file = tg::File::builder(content).build();
-	file.store(handle).await?;
-	Ok(file.into())
+async fn re_checkin_without_local_deps(
+	handle: &impl tg::Handle,
+	path: &std::path::Path,
+) -> tg::Result<tg::Artifact> {
+	let arg = tg::checkin::Arg {
+		path: path.to_owned(),
+		options: tg::checkin::Options {
+			local_dependencies: false,
+			..Default::default()
+		},
+		updates: Vec::new(),
+	};
+	tg::checkin::checkin(handle, arg).await
 }
 
 async fn should_publish_package(
@@ -663,11 +532,9 @@ async fn should_publish_package(
 		remote: Some(remote.to_string()),
 		reverse: true,
 	};
-	let tg::tag::list::Output { data } = handle.list_tags(arg).await?;
-	let existing = data.into_iter().next();
-
 	let object_id: tg::object::Id = artifact_id.clone().into();
-	let should_publish = if let Some(output) = existing {
+	let tg::tag::list::Output { data } = handle.list_tags(arg).await?;
+	let should_publish = if let Some(output) = data.into_iter().next() {
 		if let Some(item) = output.item {
 			// Check if it points to the same artifact.
 			match item {
@@ -680,7 +547,7 @@ async fn should_publish_package(
 						true
 					}
 				},
-				Either::Left(_process_id) => {
+				Either::Left(_) => {
 					eprintln!("tag {tag} points to a process, overwriting");
 					true
 				},
@@ -746,5 +613,18 @@ impl DependencyGraph {
 				}
 			})
 			.collect()
+	}
+}
+
+impl Scc {
+	fn node_indices(&self) -> &[usize] {
+		match self {
+			Scc::Single(idx) => std::slice::from_ref(idx),
+			Scc::Cycle(indices) => indices,
+		}
+	}
+
+	fn is_cycle(&self) -> bool {
+		matches!(self, Scc::Cycle(_))
 	}
 }
