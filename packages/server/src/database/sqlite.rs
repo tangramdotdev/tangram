@@ -13,7 +13,7 @@ pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 	connection.pragma_update(None, "journal_mode", "wal")?;
 	connection.pragma_update(None, "mmap_size", "2147483648")?;
 	connection.pragma_update(None, "recursive_triggers", "on")?;
-	connection.pragma_update(None, "synchronous", "normal")?;
+	connection.pragma_update(None, "synchronous", "off")?;
 	connection.pragma_update(None, "temp_store", "memory")?;
 
 	let function = |context: &sqlite::functions::Context| -> sqlite::Result<sqlite::types::Value> {

@@ -54,7 +54,7 @@ impl Lmdb {
 				.map_size(1_099_511_627_776)
 				.max_dbs(3)
 				.max_readers(1_000)
-				.flags(lmdb::EnvFlags::NO_SUB_DIR)
+				.flags(lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::WRITE_MAP | lmdb::EnvFlags::MAP_ASYNC)
 				.open(&config.path)
 				.map_err(|source| tg::error!(!source, "failed to open the database"))?
 		};
