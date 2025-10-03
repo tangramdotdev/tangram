@@ -88,11 +88,9 @@ impl Server {
 				let dependencies = file
 					.dependencies
 					.iter()
-					.map(|(reference, referent)| {
+					.filter_map(|(reference, referent)| {
 						let reference = reference.clone();
-						let referent = referent.as_ref().ok_or_else(
-							|| tg::error!(%reference, "expected the referent to be set"),
-						)?;
+						let referent = referent.as_ref()?;
 						let edge = referent.item();
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
@@ -111,9 +109,9 @@ impl Server {
 							},
 						};
 						let referent = referent.clone().map(|_| edge);
-						Ok::<_, tg::Error>((reference, referent))
+						Some((reference, referent))
 					})
-					.collect::<tg::Result<_>>()?;
+					.collect();
 				let executable = file.executable;
 				let data = tg::file::data::Node {
 					contents: Some(contents),
@@ -244,10 +242,8 @@ impl Server {
 				let dependencies = file
 					.dependencies
 					.iter()
-					.map(|(reference, referent)| {
-						let referent = referent.as_ref().ok_or_else(
-							|| tg::error!(%reference, "expected the referent to be set"),
-						)?;
+					.filter_map(|(reference, referent)| {
+						let referent = referent.as_ref()?;
 						let edge = referent.item();
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
@@ -277,9 +273,9 @@ impl Server {
 							item: edge,
 							options: referent.options.clone(),
 						};
-						Ok::<_, tg::Error>((reference.clone(), referent))
+						Some((reference.clone(), referent))
 					})
-					.collect::<tg::Result<_>>()?;
+					.collect();
 				let executable = file.executable;
 				let data = tg::graph::data::File {
 					contents: Some(contents),
