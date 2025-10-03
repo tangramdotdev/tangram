@@ -560,7 +560,6 @@ async fn package_with_diamond_dependency_and_shared_import() {
 }
 
 #[tokio::test]
-#[ignore = "pending unimplemented checkin feature for local path imports"]
 async fn package_with_local_path_import() {
 	let ctx = TestContext::new().await;
 
@@ -694,16 +693,14 @@ async fn package_with_local_path_import() {
 	let main_object_tgon = std::str::from_utf8(&main_object_output.stdout).unwrap();
 	dbg!(&main_object_tgon);
 
-	// The object should NOT contain the local path reference.
+	// The referent should have the "tag" key and NOT the "path" key.
 	assert!(
-		!main_object_tgon.contains("?local="),
-		"main package should not reference dep by local path after publishing"
+		main_object_tgon.contains(r#""tag":"#),
+		"main package's dependency referent should have a 'tag' field"
 	);
-
-	// The object should contain a reference to the dep tag.
 	assert!(
-		main_object_tgon.contains("test-dep"),
-		"main package should reference dep by tag name"
+		!main_object_tgon.contains(r#""path":"#),
+		"main package's dependency referent should not have a 'path' field"
 	);
 }
 
