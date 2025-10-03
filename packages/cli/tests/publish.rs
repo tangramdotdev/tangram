@@ -610,10 +610,6 @@ async fn package_with_local_path_import() {
 		.await
 		.unwrap();
 	assert_success!(dep_checkin_output);
-	let dep_package_id = std::str::from_utf8(&dep_checkin_output.stdout)
-		.unwrap()
-		.trim()
-		.to_owned();
 
 	// Checkin the main package to get its ID, but don't create a tag.
 	let main_checkin_output = ctx
@@ -626,10 +622,6 @@ async fn package_with_local_path_import() {
 		.await
 		.unwrap();
 	assert_success!(main_checkin_output);
-	let main_package_id = std::str::from_utf8(&main_checkin_output.stdout)
-		.unwrap()
-		.trim()
-		.to_owned();
 
 	// Publish the main package without having created tags beforehand.
 	// This should discover the local dep, create its tag, publish it, then publish main.
@@ -660,29 +652,46 @@ async fn package_with_local_path_import() {
 		"test-dep should be published before test-main"
 	);
 
-	// Verify both packages are tagged on local and remote servers.
-	ctx.assert_tag_on_local("test-dep/1.0.0", &dep_package_id)
+	// Extract the published artifact IDs from the stderr output.
+	// Since packages with local path dependencies are re-checked-in, the published IDs
+	// may differ from the original checkin IDs.
+	let extract_published_id = |package_name: &str| -> String {
+		stderr
+			.lines()
+			.find(|line| line.contains(&format!("publishing {package_name}")))
+			.and_then(|line| line.split("dir_").nth(1))
+			.map_or_else(
+				|| panic!("{package_name} should have a published ID in output"),
+				|s| format!("dir_{}", s.trim_end_matches(')')),
+			)
+	};
+
+	let published_dep_id = extract_published_id("test-dep/1.0.0");
+	let published_main_id = extract_published_id("test-main/1.0.0");
+
+	// Verify both packages are tagged on local and remote servers with the published IDs.
+	ctx.assert_tag_on_local("test-dep/1.0.0", &published_dep_id)
 		.await;
-	ctx.assert_tag_on_local("test-main/1.0.0", &main_package_id)
+	ctx.assert_tag_on_local("test-main/1.0.0", &published_main_id)
 		.await;
-	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+	ctx.assert_tag_on_remote("test-dep/1.0.0", &published_dep_id)
 		.await;
-	ctx.assert_tag_on_remote("test-main/1.0.0", &main_package_id)
+	ctx.assert_tag_on_remote("test-main/1.0.0", &published_main_id)
 		.await;
 
-	// Verify both packages are synced.
-	ctx.assert_object_synced(&dep_package_id).await;
-	ctx.assert_object_synced(&main_package_id).await;
+	// Verify both packages are synced using the published IDs.
+	ctx.assert_object_synced(&published_dep_id).await;
+	ctx.assert_object_synced(&published_main_id).await;
 	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&dep_package_id).await;
-	ctx.assert_metadata_synced(&main_package_id).await;
+	ctx.assert_metadata_synced(&published_dep_id).await;
+	ctx.assert_metadata_synced(&published_main_id).await;
 
 	// Verify that main package has dependency on dep by tag, not by local path.
 	let main_object_output = ctx
 		.local_server
 		.tg()
 		.arg("get")
-		.arg(&main_package_id)
+		.arg(&published_main_id)
 		.arg("--format=tgon")
 		.arg("--print-blobs")
 		.arg("--print-depth=inf")
