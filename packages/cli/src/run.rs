@@ -71,22 +71,16 @@ pub struct Options {
 
 impl Cli {
 	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
-		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-
-		// Run.
-		Box::pin(self.run(args.options, reference, args.trailing)).await?;
-
-		Ok(())
-	}
-
-	pub async fn run(
-		&mut self,
-		options: Options,
-		reference: tg::Reference,
-		trailing: Vec<String>,
-	) -> tg::Result<()> {
 		let handle = self.handle().await?;
+
+		let Args {
+			options,
+			reference,
+			trailing,
+		} = args;
+
+		// Get the reference.
+		let reference = reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// If the build flag is set, then build and get the output.
 		let reference = if options.build {
