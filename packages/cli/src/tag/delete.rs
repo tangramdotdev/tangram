@@ -26,9 +26,7 @@ impl Cli {
 			remote,
 		};
 		let output = handle.delete_tag(arg).await?;
-		let json = serde_json::to_string(&output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-		println!("{json}");
+		Self::print_json(&output, None).await?;
 		Ok(())
 	}
 }

@@ -71,10 +71,7 @@ impl Server {
 				statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				deleted.push(tg::tag::delete::Item {
-					tag: m.tag,
-					is_leaf,
-				});
+				deleted.push(m.tag);
 			} else {
 				// This is a branch tag, check if it has children.
 				let statement = indoc!(
@@ -112,10 +109,7 @@ impl Server {
 				statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				deleted.push(tg::tag::delete::Item {
-					tag: m.tag,
-					is_leaf,
-				});
+				deleted.push(m.tag);
 			}
 		}
 

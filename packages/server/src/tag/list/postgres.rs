@@ -4,7 +4,7 @@ use {
 };
 
 #[derive(Clone, Debug)]
-pub(in crate::tag) struct Match {
+pub struct Match {
 	pub id: u64,
 	pub tag: tg::Tag,
 	pub item: Option<Either<tg::process::Id, tg::object::Id>>,
@@ -102,7 +102,7 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(in crate::tag) async fn match_tags_postgres(
+	pub async fn match_tags_postgres(
 		transaction: &tangram_database::postgres::Transaction<'_>,
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<Vec<Match>> {

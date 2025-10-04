@@ -307,7 +307,7 @@ async fn delete() {
 		assert_success!(output);
 	}
 
-	// Delete with wildcard.
+	// Delete with star.
 	let output = server
 		.tg()
 		.arg("tag")
@@ -330,7 +330,6 @@ async fn delete() {
 	assert_success!(output);
 	let delete_output: tg::tag::delete::Output = serde_json::from_slice(&output.stdout).unwrap();
 	assert_eq!(delete_output.deleted.len(), 1);
-	assert!(delete_output.deleted[0].is_leaf);
 
 	// Try to delete branch tag with children - should fail.
 	let output = server
@@ -390,7 +389,6 @@ async fn delete() {
 	assert_success!(output);
 	let delete_output: tg::tag::delete::Output = serde_json::from_slice(&output.stdout).unwrap();
 	assert_eq!(delete_output.deleted.len(), 1);
-	assert!(!delete_output.deleted[0].is_leaf);
 
 	// Try to delete with empty pattern - should fail.
 	let output = server

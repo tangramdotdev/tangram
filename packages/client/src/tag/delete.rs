@@ -13,13 +13,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub deleted: Vec<Item>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Item {
-	pub tag: tg::Tag,
-	pub is_leaf: bool,
+	pub deleted: Vec<tg::Tag>,
 }
 
 impl tg::Client {

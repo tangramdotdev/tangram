@@ -28,19 +28,17 @@ impl Server {
 			Database::Sqlite(database) => Self::delete_tag_sqlite(database, &arg.pattern).await?,
 		};
 
-		// Send a delete tag index message for each leaf tag only.
-		for item in &output.deleted {
-			if item.is_leaf {
-				let message = crate::index::Message::DeleteTag(crate::index::message::DeleteTag {
-					tag: item.tag.to_string(),
-				});
-				let message = message.serialize()?;
-				let _published = self
-					.messenger
-					.stream_publish("index".to_owned(), message)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-			}
+		// Send delete tag index messages.
+		for tag in &output.deleted {
+			let message = crate::index::Message::DeleteTag(crate::index::message::DeleteTag {
+				tag: tag.to_string(),
+			});
+			let message = message.serialize()?;
+			let _published = self
+				.messenger
+				.stream_publish("index".to_owned(), message)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		}
 
 		Ok(output)

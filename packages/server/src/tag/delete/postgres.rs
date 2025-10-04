@@ -43,10 +43,7 @@ impl Server {
 					.execute(statement, &[&m.id.to_i64().unwrap()])
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				deleted.push(tg::tag::delete::Item {
-					tag: m.tag,
-					is_leaf,
-				});
+				deleted.push(m.tag);
 			} else {
 				// This is a branch tag, check if it has children.
 				let statement = indoc!(
@@ -84,10 +81,7 @@ impl Server {
 					.execute(statement, &[&m.id.to_i64().unwrap()])
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				deleted.push(tg::tag::delete::Item {
-					tag: m.tag,
-					is_leaf,
-				});
+				deleted.push(m.tag);
 			}
 		}
 
@@ -98,6 +92,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		let output = tg::tag::delete::Output { deleted };
+
 		Ok(output)
 	}
 }
