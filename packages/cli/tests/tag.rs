@@ -43,18 +43,18 @@ async fn get_no_results() {
 async fn single() {
 	let server = Server::new(TG).await.unwrap();
 
-	// Write the artifact to a temp
+	// Write the artifact to a temp.
 	let artifact: temp::Artifact = temp::file!("test").into();
 	let temp = Temp::new();
 	let path = temp.path();
 	artifact.to_path(path).await.unwrap();
 
-	// Check in
+	// Check in.
 	let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
 	assert_success!(output);
 	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
 
-	// Put tag
+	// Put tag.
 	let pattern = "test";
 	let output = server
 		.tg()
@@ -67,7 +67,7 @@ async fn single() {
 		.unwrap();
 	assert_success!(output);
 
-	// List tags
+	// List tags.
 	let output = server
 		.tg()
 		.arg("tag")
@@ -79,7 +79,7 @@ async fn single() {
 	assert_success!(output);
 	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test","item":"fil_012qhh3dzv6bpymrpys6pgtvga6k2wm3jknx5y5ymp0ak4prm50eh0"}]"#);
 
-	// Get tag
+	// Get tag.
 	let output = server
 		.tg()
 		.arg("tag")
@@ -116,8 +116,8 @@ async fn multiple() {
 		"test/1.1.0",
 		"test/1.2.0",
 		"test/10.0.0",
-		"test/hello",
-		"test/world",
+		"test/hello/1.0.0",
+		"test/world/1.0.0",
 	];
 	for tag in tags {
 		let artifact: temp::Artifact = temp::file!("Hello, World!").into();
@@ -135,7 +135,7 @@ async fn multiple() {
 		assert_success!(output);
 	}
 
-	// List
+	// List.
 	let pattern = "test";
 	let output = server
 		.tg()
@@ -146,9 +146,9 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
 
-	// List
+	// List.
 	let pattern = "test/*";
 	let output = server
 		.tg()
@@ -159,9 +159,9 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
 
-	// Get
+	// Get.
 	let pattern = "test";
 	let output = server
 		.tg()
@@ -174,7 +174,7 @@ async fn multiple() {
 	assert_success!(output);
 	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}"#);
 
-	// Get
+	// Get.
 	let pattern = "test/^1";
 	let output = server
 		.tg()
@@ -187,7 +187,7 @@ async fn multiple() {
 	assert_success!(output);
 	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}"#);
 
-	// Get
+	// Get.
 	let pattern = "test/^10";
 	let output = server
 		.tg()
@@ -276,4 +276,132 @@ async fn remote_put() {
 	let remote_output =
 		serde_json::from_slice::<tg::tag::get::Output>(&remote_output.stdout).unwrap();
 	assert_eq!(local_output.item, remote_output.item);
+}
+
+#[tokio::test]
+async fn delete() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag an artifact.
+	let artifact: temp::Artifact = temp::file!("test").into();
+	let temp = Temp::new();
+	let path = temp.path();
+	artifact.to_path(path).await.unwrap();
+
+	let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
+	assert_success!(output);
+	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+
+	// Create a mix of leaf tags and nested structure.
+	let tags = ["test/1.0.0", "test/2.0.0", "test/foo/bar", "test/foo/baz"];
+	for tag in tags {
+		let output = server
+			.tg()
+			.arg("tag")
+			.arg("put")
+			.arg(tag)
+			.arg(id)
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+	}
+
+	// Delete with wildcard.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/*")
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+
+	// Delete a leaf tag.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/1.0.0")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let delete_output: tg::tag::delete::Output = serde_json::from_slice(&output.stdout).unwrap();
+	assert_eq!(delete_output.deleted.len(), 1);
+	assert!(delete_output.deleted[0].is_leaf);
+
+	// Try to delete branch tag with children - should fail.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo")
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	assert!(stderr.contains("cannot delete branch tag"));
+
+	// Delete one child leaf.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo/bar")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Still can't delete branch with remaining child.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo")
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+
+	// Delete remaining child.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo/baz")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Now we can delete empty branch.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let delete_output: tg::tag::delete::Output = serde_json::from_slice(&output.stdout).unwrap();
+	assert_eq!(delete_output.deleted.len(), 1);
+	assert!(!delete_output.deleted[0].is_leaf);
+
+	// Try to delete with empty pattern - should fail.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("")
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	assert!(stderr.contains("cannot delete an empty pattern"));
 }

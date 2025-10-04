@@ -12,7 +12,7 @@ pub struct Args {
 	pub remote: Option<Option<String>>,
 
 	#[arg(index = 1)]
-	pub tag: tg::Tag,
+	pub pattern: tg::tag::Pattern,
 }
 
 impl Cli {
@@ -21,8 +21,14 @@ impl Cli {
 		let remote = args
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
-		let arg = tg::tag::delete::Arg { remote };
-		handle.delete_tag(&args.tag, arg).await?;
+		let arg = tg::tag::delete::Arg {
+			pattern: args.pattern,
+			remote,
+		};
+		let output = handle.delete_tag(arg).await?;
+		let json = serde_json::to_string(&output)
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+		println!("{json}");
 		Ok(())
 	}
 }

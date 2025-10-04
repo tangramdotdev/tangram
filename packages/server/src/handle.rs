@@ -526,10 +526,9 @@ impl tg::handle::Tag for Server {
 
 	fn delete_tag(
 		&self,
-		tag: &tg::Tag,
 		arg: tg::tag::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_tag(tag, arg)
+	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> {
+		self.delete_tag(arg)
 	}
 }
 
