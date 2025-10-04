@@ -930,7 +930,11 @@ impl Server {
 				parent: Some(Either::Right(object.clone())),
 				object: child,
 			};
-			state.object_queue.push_back(item);
+			if object.is_blob() {
+				state.object_queue.push_front(item);
+			} else {
+				state.object_queue.push_back(item);
+			}
 		}
 
 		// Send the object.
