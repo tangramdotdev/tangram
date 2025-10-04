@@ -60,7 +60,10 @@ impl Server {
 
 				let _metadata = future::try_join_all(artifacts.iter().map(|artifact| async {
 					server
-						.try_get_object_metadata(&artifact.clone().into(), tg::object::metadata::Arg::default())
+						.try_get_object_metadata(
+							&artifact.clone().into(),
+							tg::object::metadata::Arg::default(),
+						)
 						.await
 				}))
 				.await

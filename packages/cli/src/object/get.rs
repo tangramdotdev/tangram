@@ -57,7 +57,10 @@ impl Cli {
 				let arg = tg::object::get::Arg {
 					remote: args.remote.clone(),
 				};
-				let tg::object::get::Output { bytes } = handle.try_get_object(&args.object, arg).await?.ok_or_else(|| tg::error!("failed to get the object"))?;
+				let tg::object::get::Output { bytes } = handle
+					.try_get_object(&args.object, arg)
+					.await?
+					.ok_or_else(|| tg::error!("failed to get the object"))?;
 				stdout
 					.write_all(&bytes)
 					.await
@@ -67,7 +70,10 @@ impl Cli {
 				let arg = tg::object::get::Arg {
 					remote: args.remote.clone(),
 				};
-				let tg::object::get::Output { bytes } = handle.try_get_object(&args.object, arg).await?.ok_or_else(|| tg::error!("failed to get the object"))?;
+				let tg::object::get::Output { bytes } = handle
+					.try_get_object(&args.object, arg)
+					.await?
+					.ok_or_else(|| tg::error!("failed to get the object"))?;
 				let data = tg::object::Data::deserialize(args.object.kind(), bytes.clone())?;
 				Self::print_json(&data, args.print_pretty).await?;
 			},

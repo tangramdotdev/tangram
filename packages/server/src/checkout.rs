@@ -87,7 +87,10 @@ impl Server {
 
 				progress.spinner("checkout", "checkout");
 				let metadata = server
-					.try_get_object_metadata(&arg.artifact.clone().into(), tg::object::metadata::Arg::default())
+					.try_get_object_metadata(
+						&arg.artifact.clone().into(),
+						tg::object::metadata::Arg::default(),
+					)
 					.await
 					.ok()
 					.flatten();

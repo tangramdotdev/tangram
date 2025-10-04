@@ -113,10 +113,12 @@ impl Server {
 						match item {
 							Either::Left(process) => {
 								let metadata_arg = tg::process::metadata::Arg::default();
-								let Some(metadata) =
-									src.try_get_process_metadata(process, metadata_arg).await.map_err(
-										|source| tg::error!(!source, "failed to get the process"),
-									)?
+								let Some(metadata) = src
+									.try_get_process_metadata(process, metadata_arg)
+									.await
+									.map_err(|source| {
+										tg::error!(!source, "failed to get the process")
+									})?
 								else {
 									return Err(tg::error!("failed to get the process"));
 								};

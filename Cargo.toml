@@ -60,7 +60,7 @@ async_zip = { version = "0.0.18", features = ["full"] }
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.43"
+async-nats = "0.44"
 aws-credential-types = "1"
 aws-sigv4 = "1"
 biome_js_formatter = { git = "https://github.com/biomejs/biome" }
@@ -109,7 +109,7 @@ num = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
 oauth2 = "5.0.0"
-octocrab = "0.45"
+octocrab = "0.46"
 owo-colors = "4"
 petgraph = "0.8"
 pin-project = "1"
@@ -140,7 +140,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "43", features = [
+swc_core = { version = "44", features = [
   "common",
   "common_sourcemap",
   "ecma_ast",
