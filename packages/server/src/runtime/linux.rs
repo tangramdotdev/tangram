@@ -151,7 +151,7 @@ impl Runtime {
 				.to_str()
 				.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?;
 			let socket = urlencoding::encode(socket);
-			let guest_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
+			let guest_url = format!("http+unix://{socket}").parse::<Uri>().unwrap();
 
 			// Create the proxy server host URL.
 			let socket = temp.path().join(".tangram/socket");
@@ -164,7 +164,7 @@ impl Runtime {
 					.to_str()
 					.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?,
 			);
-			let host_url = format!("http+unix://{socket}").parse::<Url>().unwrap();
+			let host_url = format!("http+unix://{socket}").parse::<Uri>().unwrap();
 
 			// Start the proxy server.
 			let proxy = Proxy::new(
