@@ -13,6 +13,7 @@ pub struct Args {
 
 	#[arg(
 		action = clap::ArgAction::Append,
+		index = 2,
 		num_args = 1..,
 	)]
 	pub updates: Option<Vec<tg::tag::Pattern>>,
