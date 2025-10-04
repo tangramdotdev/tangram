@@ -22,7 +22,12 @@ impl Cli {
 		let command = tg::builtin::compress_command(&blob, format);
 		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(command.into());
-		self.build(args.build, reference, vec![], true).await?;
+		let args = crate::build::Args {
+			options: args.build,
+			reference: Some(reference),
+			trailing: Vec::new(),
+		};
+		self.command_build(args).await?;
 		Ok(())
 	}
 }

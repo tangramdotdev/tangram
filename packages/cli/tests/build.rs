@@ -1040,7 +1040,7 @@ async fn signal_cacheable_processs() {
 		filters => vec![(process.as_str(), "[PROCESS]")],
 	}, {
 		assert_snapshot!(error_msg, @r"
-		error failed to run the command
+		error an error occurred
 		-> failed to post process signal
 		-> cannot signal cacheable processes
 		   id = [PROCESS]

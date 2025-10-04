@@ -267,7 +267,7 @@ fn main() -> std::process::ExitCode {
 	let config = match Cli::read_config(args.config.clone()) {
 		Ok(config) => config,
 		Err(error) => {
-			eprintln!("{} failed to run the command", "error".red().bold());
+			eprintln!("{} an error occurred", "error".red().bold());
 			let error = tg::Referent::with_item(error);
 			Cli::print_error_basic(error);
 			return std::process::ExitCode::FAILURE;
@@ -352,7 +352,7 @@ fn main() -> std::process::ExitCode {
 	let exit = match result {
 		Ok(()) => cli.exit.unwrap_or_default().into(),
 		Err(error) => {
-			eprintln!("{} failed to run the command", "error".red().bold());
+			eprintln!("{} an error occurred", "error".red().bold());
 			runtime.block_on(async {
 				let error = tg::Referent::with_item(error);
 				cli.print_error(error).await;

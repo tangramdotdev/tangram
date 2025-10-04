@@ -36,6 +36,10 @@ pub struct Options {
 	#[arg(long, short)]
 	pub build: bool,
 
+	/// The view to display while building.
+	#[arg(long, default_value = "inline")]
+	pub build_view: crate::build::View,
+
 	/// Whether to check out the output.
 	#[allow(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
@@ -84,23 +88,151 @@ impl Cli {
 
 		// If the build flag is set, then build and get the output.
 		let reference = if options.build {
+			// Spawn the process.
 			let spawn = crate::process::spawn::Options {
+				sandbox: crate::process::spawn::Sandbox::new(Some(true)),
 				remote: options.spawn.remote.clone(),
 				..Default::default()
 			};
-			let options = crate::build::Options {
-				checkout: None,
-				checkout_force: false,
-				detach: false,
-				print_depth: crate::object::get::Depth::Finite(0),
-				print_pretty: None,
-				print_blobs: false,
-				spawn,
-				view: crate::build::View::default(),
+			let crate::process::spawn::Output { process, .. } = self
+				.spawn(spawn, reference, vec![], None, None, None)
+				.boxed()
+				.await?;
+
+			// Print the process.
+			if !self.args.quiet {
+				eprint!("{} {}", "info".blue().bold(), process.item().id());
+				if let Some(token) = process.item().token() {
+					eprint!(" {token}");
+				}
+				eprintln!();
+			}
+
+			// Get the process's status.
+			let status = process
+				.item()
+				.status(&handle)
+				.await?
+				.try_next()
+				.await?
+				.ok_or_else(|| tg::error!("failed to get the status"))?;
+
+			// If the process is finished, then get the process's output.
+			let wait = if status.is_finished() {
+				let output = process
+					.item()
+					.wait(&handle)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the output"))?;
+				Some(output)
+			} else {
+				None
 			};
-			let Some(output) = self.build(options, reference, vec![], false).await? else {
-				return Ok(());
+
+			// If the process is not finished, then wait for it to finish while showing the viewer if enabled.
+			let wait = if let Some(wait) = wait {
+				wait
+			} else {
+				// Spawn the view task.
+				let view_task = {
+					let handle = handle.clone();
+					let root = process.clone().map(crate::viewer::Item::Process);
+					let task = Task::spawn_blocking(move |stop| {
+						let local_set = tokio::task::LocalSet::new();
+						let runtime = tokio::runtime::Builder::new_current_thread()
+							.worker_threads(1)
+							.enable_all()
+							.build()
+							.unwrap();
+						local_set
+							.block_on(&runtime, async move {
+								let viewer_options = crate::viewer::Options {
+									auto_expand_and_collapse_processes: true,
+									show_process_commands: false,
+								};
+								let mut viewer =
+									crate::viewer::Viewer::new(&handle, root, viewer_options);
+								match options.build_view {
+									crate::build::View::None => (),
+									crate::build::View::Inline => {
+										viewer.run_inline(stop).await?;
+									},
+									crate::build::View::Fullscreen => {
+										viewer.run_fullscreen(stop).await?;
+									},
+								}
+								Ok::<_, tg::Error>(())
+							})
+							.unwrap();
+					});
+					Some(task)
+				};
+
+				// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
+				let cancel_task = tokio::spawn({
+					let handle = handle.clone();
+					let process = process.clone();
+					async move {
+						tokio::signal::ctrl_c().await.unwrap();
+						tokio::spawn(async move {
+							process
+								.item()
+								.cancel(&handle)
+								.await
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to cancel the process");
+								})
+								.ok();
+						});
+						tokio::signal::ctrl_c().await.unwrap();
+						std::process::exit(130);
+					}
+				});
+
+				// Await the process.
+				let result = process.item().wait(&handle).await;
+
+				// Abort the cancel task.
+				cancel_task.abort();
+
+				// Stop and await the view task.
+				if let Some(view_task) = view_task {
+					view_task.stop();
+					view_task.wait().await.unwrap();
+				}
+
+				result?
 			};
+
+			// Set the exit.
+			if wait.exit != 0 {
+				self.exit.replace(wait.exit);
+			}
+
+			// Handle an error.
+			if let Some(error) = wait.error {
+				let error = tg::Error {
+					message: Some("the process failed".to_owned()),
+					source: Some(process.clone().map(|_| Box::new(error))),
+					..Default::default()
+				};
+				return Err(error);
+			}
+
+			// Handle non-zero exit.
+			if wait.exit > 1 && wait.exit < 128 {
+				return Err(tg::error!("the process exited with code {}", wait.exit));
+			}
+			if wait.exit >= 128 {
+				return Err(tg::error!(
+					"the process exited with signal {}",
+					wait.exit - 128
+				));
+			}
+
+			// Get the output.
+			let output = wait.output.unwrap_or(tg::Value::Null);
+
 			let object = output
 				.try_unwrap_object()
 				.ok()
@@ -212,15 +344,31 @@ impl Cli {
 		// Handle the result.
 		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
-		// Print the error.
-		if let Some(error) = wait.error {
-			eprintln!("{} the process failed", "error".red().bold());
-			let error = process.clone().map(|_| error);
-			self.print_error(error).await;
+		// Set the exit.
+		if wait.exit != 0 {
+			self.exit.replace(wait.exit);
 		}
 
-		// Set the exit.
-		self.exit.replace(wait.exit);
+		// Handle an error.
+		if let Some(error) = wait.error {
+			let error = tg::Error {
+				message: Some("the process failed".to_owned()),
+				source: Some(process.clone().map(|_| Box::new(error))),
+				..Default::default()
+			};
+			return Err(error);
+		}
+
+		// Handle non-zero exit.
+		if wait.exit > 1 && wait.exit < 128 {
+			return Err(tg::error!("the process exited with code {}", wait.exit));
+		}
+		if wait.exit >= 128 {
+			return Err(tg::error!(
+				"the process exited with signal {}",
+				wait.exit - 128
+			));
+		}
 
 		// Get the output.
 		let output = wait.output.unwrap_or(tg::Value::Null);

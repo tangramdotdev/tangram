@@ -71,24 +71,16 @@ pub enum View {
 
 impl Cli {
 	pub async fn command_build(&mut self, args: Args) -> tg::Result<()> {
-		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-
-		// Build.
-		self.build(args.options, reference, args.trailing, true)
-			.await?;
-
-		Ok(())
-	}
-
-	pub async fn build(
-		&mut self,
-		options: Options,
-		reference: tg::Reference,
-		trailing: Vec<String>,
-		print: bool,
-	) -> tg::Result<Option<tg::Value>> {
 		let handle = self.handle().await?;
+
+		let Args {
+			options,
+			reference,
+			trailing,
+		} = args;
+
+		// Get the reference.
+		let reference = reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Spawn the process.
 		let sandbox =
@@ -105,7 +97,7 @@ impl Cli {
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
 			Self::print_json(&output, None).await?;
-			return Ok(None);
+			return Ok(());
 		}
 
 		// Print the process.
@@ -127,7 +119,7 @@ impl Cli {
 			.ok_or_else(|| tg::error!("failed to get the status"))?;
 
 		// If the process is finished, then get the process's output.
-		let output = if status.is_finished() {
+		let wait = if status.is_finished() {
 			let output = process
 				.item()
 				.wait(&handle)
@@ -139,8 +131,8 @@ impl Cli {
 		};
 
 		// If the process is not finished, then wait for it to finish while showing the viewer if enabled.
-		let wait = if let Some(output) = output {
-			output
+		let wait = if let Some(wait) = wait {
+			wait
 		} else {
 			// Spawn the view task.
 			let view_task = {
@@ -213,15 +205,31 @@ impl Cli {
 			result?
 		};
 
-		// Get the output.
-		if let Some(error) = wait.error {
-			eprintln!("{} the process failed", "error".red().bold());
-			let error = process.clone().map(|_| error);
-			self.print_error(error).await;
+		// Set the exit.
+		if wait.exit != 0 {
+			self.exit.replace(wait.exit);
 		}
 
-		// Set the exit.
-		self.exit.replace(wait.exit);
+		// Handle an error.
+		if let Some(error) = wait.error {
+			let error = tg::Error {
+				message: Some("the process failed".to_owned()),
+				source: Some(process.clone().map(|_| Box::new(error))),
+				..Default::default()
+			};
+			return Err(error);
+		}
+
+		// Handle non-zero exit.
+		if wait.exit > 1 && wait.exit < 128 {
+			return Err(tg::error!("the process exited with code {}", wait.exit));
+		}
+		if wait.exit >= 128 {
+			return Err(tg::error!(
+				"the process exited with signal {}",
+				wait.exit - 128
+			));
+		}
 
 		// Get the output.
 		let output = wait.output.unwrap_or(tg::Value::Null);
@@ -261,11 +269,11 @@ impl Cli {
 			// Print the path.
 			println!("{}", path.display());
 
-			return Ok(Some(output));
+			return Ok(());
 		}
 
 		// Print the output.
-		if print && !output.is_null() {
+		if !output.is_null() {
 			Self::print_value(
 				&handle,
 				&output,
@@ -276,6 +284,6 @@ impl Cli {
 			.await?;
 		}
 
-		Ok(Some(output))
+		Ok(())
 	}
 }
