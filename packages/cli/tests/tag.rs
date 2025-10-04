@@ -277,3 +277,127 @@ async fn remote_put() {
 		serde_json::from_slice::<tg::tag::get::Output>(&remote_output.stdout).unwrap();
 	assert_eq!(local_output.item, remote_output.item);
 }
+
+#[tokio::test]
+async fn delete() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag an artifact.
+	let artifact: temp::Artifact = temp::file!("test").into();
+	let temp = Temp::new();
+	let path = temp.path();
+	artifact.to_path(path).await.unwrap();
+
+	let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
+	assert_success!(output);
+	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+
+	// Create a mix of leaf tags and nested structure.
+	let tags = ["test/1.0.0", "test/2.0.0", "test/foo/bar", "test/foo/baz"];
+	for tag in tags {
+		let output = server
+			.tg()
+			.arg("tag")
+			.arg("put")
+			.arg(tag)
+			.arg(id)
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+	}
+
+	// Delete a leaf tag.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/1.0.0")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let delete_output: tg::tag::delete::Output =
+		serde_json::from_slice(&output.stdout).unwrap();
+	assert_eq!(delete_output.deleted.len(), 1);
+	assert_eq!(delete_output.leaf_deleted.len(), 1);
+
+	// Try to delete branch tag with children - should fail.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo")
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	assert!(stderr.contains("cannot delete branch tag"));
+
+	// Delete one child leaf.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo/bar")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Still can't delete branch with remaining child.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo")
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+
+	// Delete remaining child.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo/baz")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Now we can delete empty branch.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("test/foo")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let delete_output: tg::tag::delete::Output =
+		serde_json::from_slice(&output.stdout).unwrap();
+	assert_eq!(delete_output.deleted.len(), 1);
+	assert_eq!(delete_output.leaf_deleted.len(), 0);
+}
+
+#[tokio::test]
+async fn delete_empty_pattern() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Try to delete with empty pattern - should fail.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("")
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(output);
+	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	assert!(stderr.contains("cannot delete an empty pattern"));
+}
