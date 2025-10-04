@@ -6,7 +6,7 @@ use {
 	crate::{Server, temp::Temp},
 	num::ToPrimitive as _,
 	std::{
-		os::{fd::AsRawFd as _, unix::process::ExitStatusExt as _},
+		os::{fd::IntoRawFd as _, unix::process::ExitStatusExt as _},
 		path::Path,
 	},
 	tangram_client as tg,
@@ -211,14 +211,12 @@ impl Runtime {
 				cmd.stdin(fd);
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
-				let host = self.server.get_pty_fd(pty, true)?;
+				let host = self.server.get_pty_fd(pty, true)?.into_raw_fd();
 				let guest = self.server.get_pty_fd(pty, false)?;
-				let fd = guest.as_raw_fd();
 				cmd.stdin(guest);
 				unsafe {
 					cmd.pre_exec(move || {
-						crate::runtime::util::set_controlling_terminal(fd)?;
-						libc::close(host.as_raw_fd());
+						libc::close(host);
 						Ok(())
 					});
 				}
@@ -240,7 +238,7 @@ impl Runtime {
 				cmd.stdout(std::process::Stdio::piped());
 			},
 		}
-		match state.stdout.as_ref() {
+		match state.stderr.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, false)?;
 				cmd.stderr(fd);

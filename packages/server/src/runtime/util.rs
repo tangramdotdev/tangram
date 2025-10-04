@@ -12,19 +12,20 @@ use {
 	tokio::io::{AsyncRead, AsyncReadExt as _},
 };
 
-/// Set a controlling terminal.
+#[allow(dead_code)]
 pub fn set_controlling_terminal(tty_fd: RawFd) -> std::io::Result<()> {
 	unsafe {
 		// Disconnect from the old controlling terminal.
 		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-		#[allow(clippy::useless_conversion)]
 		if fd > 0 {
+			#[allow(clippy::useless_conversion)]
 			libc::ioctl(fd, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
 			libc::close(fd);
 		}
 
 		// Set the current process as session leader.
-		if libc::setsid() == -1 {
+		let ret = libc::setsid();
+		if ret == -1 {
 			return Err(std::io::Error::last_os_error());
 		}
 
@@ -37,7 +38,8 @@ pub fn set_controlling_terminal(tty_fd: RawFd) -> std::io::Result<()> {
 
 		// Set the slave as the controlling tty.
 		#[allow(clippy::useless_conversion)]
-		if libc::ioctl(tty_fd, libc::TIOCSCTTY.into(), 0) < 0 {
+		let ret = libc::ioctl(tty_fd, libc::TIOCSCTTY.into(), 0);
+		if ret < 0 {
 			return Err(std::io::Error::last_os_error());
 		}
 
@@ -325,7 +327,7 @@ pub async fn log(
 		.ok();
 }
 
-#[allow(dead_code)]
+#[cfg(target_os = "linux")]
 pub fn whoami() -> tg::Result<String> {
 	unsafe {
 		let uid = libc::getuid();

@@ -9,7 +9,8 @@ use {
 pub fn main(context: Context) -> ! {
 	unsafe {
 		// If the host process dies, kill this process.
-		if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == -1 {
+		let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+		if ret == -1 {
 			abort_errno!("prctl failed");
 		}
 
