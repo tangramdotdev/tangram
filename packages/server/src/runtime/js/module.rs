@@ -5,7 +5,7 @@ use {
 	sourcemap::SourceMap,
 	std::{collections::BTreeMap, rc::Rc},
 	tangram_client as tg,
-	tangram_v8::{Serde, Serialize as _},
+	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -28,9 +28,10 @@ pub fn host_import_module_dynamically_callback<'s>(
 	// Get the state.
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
-	// Get the module.
-	let module = if specifier.to_rust_string_lossy(scope) == "!" {
-		Some(state.root.clone())
+	// Determine the referrer and import.
+	let (referrer, import) = if specifier.to_rust_string_lossy(scope) == "!" {
+		// Root module.
+		(None, None)
 	} else {
 		// Get the referrer's ID.
 		let id = resource_name
@@ -46,56 +47,146 @@ pub fn host_import_module_dynamically_callback<'s>(
 		// Parse the import.
 		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
 
-		// Resolve the module.
-		let module = resolve_module_sync(scope, &referrer, &import)?;
+		(Some(referrer), Some(import))
+	};
 
-		Some(module)
-	}?;
+	// Resolve the module.
+	let promise = state.create_promise(scope, {
+		let state = state.clone();
+		async move {
+			let module = if let (Some(referrer), Some(import)) = (referrer, import) {
+				state
+					.server
+					.resolve_module(&referrer, &import)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
+					})?
+			} else {
+				state.root.clone()
+			};
+			Ok(Serde(module))
+		}
+	});
 
-	// Find a module with the same item if it already exists. Otherwise, load and compile the module.
-	let option = state
-		.modules
-		.borrow()
-		.iter()
-		.find(|m| m.module == module)
-		.cloned();
-	let module = if let Some(module) = option {
-		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());
-		Some(module)
-	} else {
-		// Load the module.
-		let text = load_module_sync(scope, &module)?;
-
-		// Compile the module.
-		let module = compile_module(scope, &module, text)?;
-
-		// Instantiate the module.
-		module.instantiate_module(scope, resolve_module_callback)?;
-
-		Some(module)
-	}?;
-
-	// Evaluate the module.
-	let output = module.evaluate(scope)?;
-	let output = v8::Local::<v8::Promise>::try_from(output).unwrap();
-
-	// Get the module namespace.
-	let namespace = module.get_module_namespace();
-	let namespace = v8::Global::new(scope, namespace);
-	let namespace = v8::Local::new(scope, namespace);
-
-	// Create a promise that resolves to the module namespace when evaluation completes.
+	// Load the module if necessary.
 	let handler = v8::Function::builder(
-		|_scope: &mut v8::HandleScope,
+		|scope: &mut v8::HandleScope,
 		 args: v8::FunctionCallbackArguments,
 		 mut return_value: v8::ReturnValue| {
-			return_value.set(args.data());
+			let context = scope.get_current_context();
+			let state = context.get_slot::<Rc<State>>().unwrap().clone();
+
+			// Deserialize the module.
+			let value: v8::Local<v8::Value> = unsafe { std::mem::transmute(args.get(0)) };
+			let Serde(module) = Serde::<tg::module::Data>::deserialize(scope, value).unwrap();
+
+			// Check if the module already exists.
+			let index = state
+				.modules
+				.borrow()
+				.iter()
+				.position(|m| m.module == module);
+
+			if let Some(index) = index {
+				let index = v8::Integer::new(scope, index.to_i32().unwrap());
+				return_value.set(index.into());
+			} else {
+				let promise = state.create_promise(scope, {
+					let state = state.clone();
+					async move {
+						let text = state.server.load_module(&module).await.map_err(|source| {
+							tg::error!(!source, ?module, "failed to load the module")
+						})?;
+						Ok(Serde((module, text)))
+					}
+				});
+				return_value.set(promise.into());
+			}
 		},
 	)
-	.data(namespace)
 	.build(scope)
 	.unwrap();
-	let promise = output.then(scope, handler).unwrap();
+	let promise = promise.then(scope, handler).unwrap();
+
+	// Compile, instantiate, and evaluate the module.
+	let handler = v8::Function::builder(
+		|scope: &mut v8::HandleScope,
+		 args: v8::FunctionCallbackArguments,
+		 mut return_value: v8::ReturnValue| {
+			let arg = args.get(0);
+			let context = scope.get_current_context();
+			let state = context.get_slot::<Rc<State>>().unwrap().clone();
+
+			let v8_module = if let Ok(index) = v8::Local::<v8::Integer>::try_from(arg) {
+				let index = index.value().to_usize().unwrap();
+				let modules = state.modules.borrow();
+				let module = &modules[index];
+				let v8_module = module.v8.as_ref().unwrap();
+				v8::Local::new(scope, v8_module)
+			} else {
+				let value: v8::Local<v8::Value> = unsafe { std::mem::transmute(arg) };
+				let Serde((module, text)) =
+					Serde::<(tg::module::Data, String)>::deserialize(scope, value).unwrap();
+
+				// Compile the module.
+				let Some(v8_module) = compile_module(scope, &module, text) else {
+					return;
+				};
+
+				// Instantiate the module.
+				if v8_module
+					.instantiate_module(scope, resolve_module_callback)
+					.is_none()
+				{
+					return;
+				}
+
+				v8_module
+			};
+
+			// Evaluate the module.
+			let Some(promise) = v8_module.evaluate(scope) else {
+				return;
+			};
+
+			// Get the namespace.
+			let namespace = v8_module.get_module_namespace();
+
+			let result = v8::Array::new_with_elements(scope, &[promise, namespace]);
+			return_value.set(result.into());
+		},
+	)
+	.build(scope)
+	.unwrap();
+	let promise = promise.then(scope, handler).unwrap();
+
+	// Await the evaluation and return the namespace.
+	let handler = v8::Function::builder(
+		|scope: &mut v8::HandleScope,
+		 args: v8::FunctionCallbackArguments,
+		 mut return_value: v8::ReturnValue| {
+			let array = v8::Local::<v8::Array>::try_from(args.get(0)).unwrap();
+			let promise = array.get_index(scope, 0).unwrap();
+			let promise = v8::Local::<v8::Promise>::try_from(promise).unwrap();
+			let namespace = array.get_index(scope, 1).unwrap();
+			let handler = v8::Function::builder(
+				|_scope: &mut v8::HandleScope,
+				 args: v8::FunctionCallbackArguments,
+				 mut return_value: v8::ReturnValue| {
+					return_value.set(args.data());
+				},
+			)
+			.data(namespace)
+			.build(scope)
+			.unwrap();
+			let promise = promise.then(scope, handler).unwrap();
+			return_value.set(promise.into());
+		},
+	)
+	.build(scope)
+	.unwrap();
+	let promise = promise.then(scope, handler).unwrap();
 
 	Some(promise)
 }

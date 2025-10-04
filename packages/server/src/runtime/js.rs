@@ -14,7 +14,7 @@ use {
 	sourcemap::SourceMap,
 	std::{cell::RefCell, future::poll_fn, pin::pin, rc::Rc, task::Poll},
 	tangram_client as tg,
-	tangram_v8::{Deserialize as _, Serde, Serialize},
+	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
 mod error;
@@ -33,7 +33,7 @@ pub struct Runtime {
 
 struct State {
 	process: tg::Process,
-	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, Promise>>>,
+	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
 	global_source_map: Option<SourceMap>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
@@ -42,9 +42,9 @@ struct State {
 	server: Server,
 }
 
-struct Promise {
+struct PromiseOutput {
 	resolver: v8::Global<v8::PromiseResolver>,
-	result: tg::Result<Box<dyn Serialize>>,
+	result: tg::Result<Box<dyn tangram_v8::Serialize>>,
 }
 
 #[allow(clippy::struct_field_names)]
@@ -312,7 +312,7 @@ impl Runtime {
 
 					// If there is a promise to fulfill, then resolve or reject it and run microtasks.
 					Poll::Ready(Some(output)) => {
-						let Promise {
+						let PromiseOutput {
 							resolver: promise_resolver,
 							result,
 						} = output;
@@ -460,6 +460,37 @@ impl Runtime {
 		};
 
 		Ok(output)
+	}
+}
+
+impl State {
+	pub fn create_promise<'a>(
+		&self,
+		scope: &mut v8::HandleScope<'a>,
+		future: impl Future<Output = tg::Result<impl tangram_v8::Serialize + 'static>> + 'static,
+	) -> v8::Local<'a, v8::Promise> {
+		// Create the promise.
+		let resolver = v8::PromiseResolver::new(scope).unwrap();
+		let promise = resolver.get_promise(scope);
+
+		// Move the promise resolver to the global scope.
+		let resolver = v8::Global::new(scope, resolver);
+
+		// Create the future.
+		let future = {
+			async move {
+				let result = future
+					.await
+					.map(|value| Box::new(value) as Box<dyn tangram_v8::Serialize>);
+				PromiseOutput { resolver, result }
+			}
+			.boxed_local()
+		};
+
+		// Add the promise.
+		self.promises.borrow_mut().push(future);
+
+		promise
 	}
 }
 

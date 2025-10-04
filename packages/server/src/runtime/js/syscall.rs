@@ -1,11 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use {
-	super::{Promise, State},
-	futures::FutureExt as _,
-	std::rc::Rc,
-	tangram_client as tg,
-};
+use {super::State, std::rc::Rc, tangram_client as tg};
 
 mod blob;
 mod checksum;
@@ -116,7 +111,7 @@ where
 	A: tangram_v8::Deserialize<'s> + 'static,
 	T: tangram_v8::Serialize + 'static,
 	F: FnOnce(Rc<State>, A) -> Fut + 'static,
-	Fut: Future<Output = tg::Result<T>>,
+	Fut: Future<Output = tg::Result<T>> + 'static,
 {
 	// Get the context.
 	let context = scope.get_current_context();
@@ -132,27 +127,7 @@ where
 	let args = A::deserialize(scope, args.into())
 		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
 
-	// Create the promise.
-	let resolver = v8::PromiseResolver::new(scope).unwrap();
-	let promise = resolver.get_promise(scope);
-
-	// Move the promise resolver to the global scope.
-	let resolver = v8::Global::new(scope, resolver);
-
-	// Create the future.
-	let future = {
-		let state = state.clone();
-		async move {
-			let result = f(state, args)
-				.await
-				.map(|value| Box::new(value) as Box<dyn tangram_v8::Serialize>);
-			Promise { resolver, result }
-		}
-		.boxed_local()
-	};
-
-	// Add the promise.
-	state.promises.borrow_mut().push(future);
+	let promise = state.create_promise(scope, f(state.clone(), args));
 
 	Ok(promise.into())
 }

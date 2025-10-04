@@ -13,6 +13,20 @@ pub trait Serialize {
 	) -> tg::Result<v8::Local<'a, v8::Value>>;
 }
 
+impl<T> Serialize for v8::Local<'_, T>
+where
+	T: v8::Handle,
+	for<'a> v8::Local<'a, T>: Into<v8::Local<'a, v8::Value>>,
+{
+	fn serialize<'a>(
+		&self,
+		_scope: &mut v8::HandleScope<'a>,
+	) -> tg::Result<v8::Local<'a, v8::Value>> {
+		let local: v8::Local<'a, T> = unsafe { std::mem::transmute(*self) };
+		Ok(local.into())
+	}
+}
+
 impl<T> Serialize for &T
 where
 	T: Serialize,

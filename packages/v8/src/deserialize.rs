@@ -13,12 +13,18 @@ pub trait Deserialize<'a>: 'a + Sized {
 	) -> tg::Result<Self>;
 }
 
-impl<'a> Deserialize<'a> for v8::Local<'a, v8::Value> {
+impl<'a, T> Deserialize<'a> for v8::Local<'a, T>
+where
+	T: 'static,
+	v8::Local<'a, v8::Value>: TryInto<v8::Local<'a, T>>,
+{
 	fn deserialize(
 		_scope: &mut v8::HandleScope<'a>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
-		Ok(value)
+		value
+			.try_into()
+			.map_err(|_| tg::error!("failed to convert v8::Value to the target type"))
 	}
 }
 
