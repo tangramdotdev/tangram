@@ -248,66 +248,70 @@ impl Enum<'_> {
 		// Generate the body.
 		let body = if self.untagged {
 			// For untagged enums, try each variant in order with backtracking.
-			let variant_attempts = self.variants.iter().map(|variant| {
-				let variant_ident = variant.ident;
-				match &variant.kind {
-					VariantKind::Unit => {
-						quote! {
-							deserializer.seek(start)?;
-							match deserializer.deserialize::<()>() {
-								::std::result::Result::Ok(_) => {
-									return ::std::result::Result::Ok(#ident::#variant_ident);
-								},
-								::std::result::Result::Err(_) => {},
-							}
-						}
-					},
-					VariantKind::Tuple(types) => {
-						let field_names = (0..types.len())
-							.map(|i| quote::format_ident!("field_{}", i))
-							.collect_vec();
-						let field_deserializations = field_names
-							.iter()
-							.map(|field_name| {
-								quote! {
-									let #field_name = match deserializer.deserialize() {
-										::std::result::Result::Ok(value) => value,
-										::std::result::Result::Err(_) => break,
-									};
+			let variant_attempts = self
+				.variants
+				.iter()
+				.map(|variant| {
+					let variant_ident = variant.ident;
+					match &variant.kind {
+						VariantKind::Unit => {
+							quote! {
+								deserializer.seek(start)?;
+								match deserializer.deserialize::<()>() {
+									::std::result::Result::Ok(_) => {
+										return ::std::result::Result::Ok(#ident::#variant_ident);
+									},
+									::std::result::Result::Err(_) => {},
 								}
-							})
-							.collect_vec();
-						quote! {
-							deserializer.seek(start)?;
-							loop {
-								#(#field_deserializations)*
-								return ::std::result::Result::Ok(#ident::#variant_ident(#(#field_names),*));
 							}
-						}
-					},
-					VariantKind::Struct(fields) => {
-						let field_names = fields.iter().map(|f| f.ident).collect_vec();
-						let field_deserializations = field_names
-							.iter()
-							.map(|field_name| {
-								quote! {
-									let #field_name = match deserializer.deserialize() {
-										::std::result::Result::Ok(value) => value,
-										::std::result::Result::Err(_) => break,
-									};
+						},
+						VariantKind::Tuple(types) => {
+							let field_names = (0..types.len())
+								.map(|i| quote::format_ident!("field_{}", i))
+								.collect_vec();
+							let field_deserializations = field_names
+								.iter()
+								.map(|field_name| {
+									quote! {
+										let #field_name = match deserializer.deserialize() {
+											::std::result::Result::Ok(value) => value,
+											::std::result::Result::Err(_) => break,
+										};
+									}
+								})
+								.collect_vec();
+							quote! {
+								deserializer.seek(start)?;
+								loop {
+									#(#field_deserializations)*
+									return ::std::result::Result::Ok(#ident::#variant_ident(#(#field_names),*));
 								}
-							})
-							.collect_vec();
-						quote! {
-							deserializer.seek(start)?;
-							loop {
-								#(#field_deserializations)*
-								return ::std::result::Result::Ok(#ident::#variant_ident { #(#field_names),* });
 							}
-						}
-					},
-				}
-			}).collect_vec();
+						},
+						VariantKind::Struct(fields) => {
+							let field_names = fields.iter().map(|f| f.ident).collect_vec();
+							let field_deserializations = field_names
+								.iter()
+								.map(|field_name| {
+									quote! {
+										let #field_name = match deserializer.deserialize() {
+											::std::result::Result::Ok(value) => value,
+											::std::result::Result::Err(_) => break,
+										};
+									}
+								})
+								.collect_vec();
+							quote! {
+								deserializer.seek(start)?;
+								loop {
+									#(#field_deserializations)*
+									return ::std::result::Result::Ok(#ident::#variant_ident { #(#field_names),* });
+								}
+							}
+						},
+					}
+				})
+				.collect_vec();
 
 			quote! {
 				let start = deserializer.position()?;
