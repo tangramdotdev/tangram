@@ -27,6 +27,10 @@ pub struct Args {
 	/// Whether to pretty print the output.
 	#[arg(long)]
 	pub print_pretty: Option<bool>,
+
+	/// The remote to get the object from.
+	#[arg(long)]
+	pub remote: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -50,14 +54,20 @@ impl Cli {
 		let pretty = args.print_pretty;
 		match args.format.unwrap_or_default() {
 			Format::Bytes => {
-				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
+				let arg = tg::object::get::Arg {
+					remote: args.remote.clone(),
+				};
+				let tg::object::get::Output { bytes } = handle.try_get_object(&args.object, arg).await?.ok_or_else(|| tg::error!("failed to get the object"))?;
 				stdout
 					.write_all(&bytes)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 			},
 			Format::Json => {
-				let tg::object::get::Output { bytes } = handle.get_object(&args.object).await?;
+				let arg = tg::object::get::Arg {
+					remote: args.remote.clone(),
+				};
+				let tg::object::get::Output { bytes } = handle.try_get_object(&args.object, arg).await?.ok_or_else(|| tg::error!("failed to get the object"))?;
 				let data = tg::object::Data::deserialize(args.object.kind(), bytes.clone())?;
 				Self::print_json(&data, args.print_pretty).await?;
 			},

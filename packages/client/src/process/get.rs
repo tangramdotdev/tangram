@@ -3,6 +3,12 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(flatten)]
@@ -13,9 +19,12 @@ impl tg::Client {
 	pub async fn try_get_process(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let method = http::Method::GET;
-		let uri = format!("/processes/{id}");
+		let query = serde_urlencoded::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
+		let uri = format!("/processes/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

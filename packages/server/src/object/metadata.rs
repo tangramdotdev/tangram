@@ -5,14 +5,22 @@ use {
 	rusqlite as sqlite,
 	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{Body, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
 	pub async fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
+		mut arg: tg::object::metadata::Arg,
 	) -> tg::Result<Option<tg::object::Metadata>> {
+		// If the remote arg is set, then forward the request.
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
+			let output = remote.try_get_object_metadata(id, arg).await?;
+			return Ok(output);
+		}
+
 		if let Some(metadata) = self.try_get_object_metadata_local(id).await? {
 			Ok(Some(metadata))
 		} else if let Some(metadata) = self.try_get_object_metadata_remote(id).await? {
@@ -165,14 +173,15 @@ impl Server {
 
 	pub(crate) async fn handle_get_object_metadata_request<H>(
 		handle: &H,
-		_request: http::Request<Body>,
+		request: http::Request<Body>,
 		id: &str,
 	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let Some(output) = handle.try_get_object_metadata(&id).await? else {
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let Some(output) = handle.try_get_object_metadata(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()

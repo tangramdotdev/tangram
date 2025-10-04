@@ -276,20 +276,22 @@ where
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
 		match self {
-			Either::Left(s) => s.try_get_object_metadata(id).left_future(),
-			Either::Right(s) => s.try_get_object_metadata(id).right_future(),
+			Either::Left(s) => s.try_get_object_metadata(id, arg).left_future(),
+			Either::Right(s) => s.try_get_object_metadata(id, arg).right_future(),
 		}
 	}
 
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
 		match self {
-			Either::Left(s) => s.try_get_object(id).left_future(),
-			Either::Right(s) => s.try_get_object(id).right_future(),
+			Either::Left(s) => s.try_get_object(id, arg).left_future(),
+			Either::Right(s) => s.try_get_object(id, arg).right_future(),
 		}
 	}
 
@@ -334,20 +336,22 @@ where
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> {
 		match self {
-			Either::Left(s) => s.try_get_process_metadata(id).left_future(),
-			Either::Right(s) => s.try_get_process_metadata(id).right_future(),
+			Either::Left(s) => s.try_get_process_metadata(id, arg).left_future(),
+			Either::Right(s) => s.try_get_process_metadata(id, arg).right_future(),
 		}
 	}
 
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
 		match self {
-			Either::Left(s) => s.try_get_process(id).left_future(),
-			Either::Right(s) => s.try_get_process(id).right_future(),
+			Either::Left(s) => s.try_get_process(id, arg).left_future(),
+			Either::Right(s) => s.try_get_process(id, arg).right_future(),
 		}
 	}
 

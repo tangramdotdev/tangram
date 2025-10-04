@@ -103,7 +103,8 @@ pub trait Ext: tg::Handle {
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<tg::process::Metadata>> + Send {
-		self.try_get_process_metadata(id).map(move |result| {
+		let arg = tg::process::metadata::Arg::default();
+		self.try_get_process_metadata(id, arg).map(move |result| {
 			result.and_then(|option| {
 				option.ok_or_else(|| tg::error!(?id, "failed to get the process metadata"))
 			})
@@ -114,7 +115,8 @@ pub trait Ext: tg::Handle {
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<tg::process::get::Output>> + Send {
-		self.try_get_process(id).map(|result| {
+		let arg = tg::process::get::Arg::default();
+		self.try_get_process(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
@@ -437,7 +439,8 @@ pub trait Ext: tg::Handle {
 		&self,
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<tg::object::Metadata>> + Send {
-		self.try_get_object_metadata(id).map(move |result| {
+		let arg = tg::object::metadata::Arg::default();
+		self.try_get_object_metadata(id, arg).map(move |result| {
 			result.and_then(|option| {
 				option.ok_or_else(|| tg::error!(?id, "failed to get the object metadata"))
 			})
@@ -448,7 +451,8 @@ pub trait Ext: tg::Handle {
 		&self,
 		id: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<tg::object::get::Output>> + Send {
-		self.try_get_object(id).map(|result| {
+		let arg = tg::object::get::Arg::default();
+		self.try_get_object(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the object")))
 		})
 	}

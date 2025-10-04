@@ -25,6 +25,7 @@ impl Cli {
 				let args = crate::process::metadata::Args {
 					process,
 					pretty: args.pretty,
+					remote: None,
 				};
 				self.command_process_metadata(args).await?;
 			},
@@ -32,6 +33,7 @@ impl Cli {
 				let args = crate::object::metadata::Args {
 					object,
 					pretty: args.pretty,
+					remote: None,
 				};
 				self.command_object_metadata(args).await?;
 			},

@@ -39,6 +39,7 @@ impl Cli {
 				let args = crate::process::get::Args {
 					pretty: args.print_pretty,
 					process,
+					remote: None,
 				};
 				self.command_process_get(args).await?;
 			},
@@ -49,6 +50,7 @@ impl Cli {
 					print_blobs: args.print_blobs,
 					print_depth: args.print_depth,
 					print_pretty: args.print_pretty,
+					remote: None,
 				};
 				self.command_object_get(args).await?;
 			},

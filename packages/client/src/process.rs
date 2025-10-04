@@ -121,7 +121,8 @@ impl Process {
 		if let Some(state) = self.state.read().unwrap().clone() {
 			return Ok(Some(state));
 		}
-		let Some(output) = handle.try_get_process(self.id()).await? else {
+		let arg = tg::process::get::Arg::default();
+		let Some(output) = handle.try_get_process(self.id(), arg).await? else {
 			return Ok(None);
 		};
 		let state = tg::process::State::try_from(output.data)?;

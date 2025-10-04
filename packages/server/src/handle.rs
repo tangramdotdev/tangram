@@ -198,15 +198,17 @@ impl tg::handle::Object for Server {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
-		self.try_get_object_metadata(id)
+		self.try_get_object_metadata(id, arg)
 	}
 
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
-		self.try_get_object(id)
+		self.try_get_object(id, arg)
 	}
 
 	fn put_object(
@@ -257,15 +259,17 @@ impl tg::handle::Process for Server {
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> {
-		self.try_get_process_metadata(id)
+		self.try_get_process_metadata(id, arg)
 	}
 
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
-		self.try_get_process(id)
+		self.try_get_process(id, arg)
 	}
 
 	fn put_process(

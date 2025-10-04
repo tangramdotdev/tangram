@@ -112,8 +112,9 @@ impl Server {
 					loop {
 						match item {
 							Either::Left(process) => {
+								let metadata_arg = tg::process::metadata::Arg::default();
 								let Some(metadata) =
-									src.try_get_process_metadata(process).await.map_err(
+									src.try_get_process_metadata(process, metadata_arg).await.map_err(
 										|source| tg::error!(!source, "failed to get the process"),
 									)?
 								else {
@@ -149,8 +150,9 @@ impl Server {
 								}
 							},
 							Either::Right(object) => {
+								let metadata_arg = tg::object::metadata::Arg::default();
 								let metadata = src
-									.try_get_object_metadata(object)
+									.try_get_object_metadata(object, metadata_arg)
 									.await?
 									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
 								if metadata.count.is_some() && metadata.weight.is_some() {

@@ -11,7 +11,7 @@ use {
 		path::PathBuf,
 	},
 	tangram_client::{self as tg, prelude::*},
-	tangram_http::{Body, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
@@ -19,7 +19,15 @@ impl Server {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
+		mut arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
+		// If the remote arg is set, then forward the request.
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
+			let output = remote.try_get_object(id, arg).await?;
+			return Ok(output);
+		}
+
 		if let Some(output) = self.try_get_object_local(id).await? {
 			Ok(Some(output))
 		} else if let Some(output) = self.try_get_object_remote(id).await? {
@@ -272,14 +280,15 @@ impl Server {
 
 	pub(crate) async fn handle_get_object_request<H>(
 		handle: &H,
-		_request: http::Request<Body>,
+		request: http::Request<Body>,
 		id: &str,
 	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let Some(output) = handle.try_get_object(&id).await? else {
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let Some(output) = handle.try_get_object(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder().bytes(output.bytes).unwrap();

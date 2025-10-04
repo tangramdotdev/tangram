@@ -80,7 +80,8 @@ impl Graph {
 			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = handle.try_get_object(&id.into()).await? else {
+		let arg = tg::object::get::Arg::default();
+		let Some(output) = handle.try_get_object(&id.into(), arg).await? else {
 			return Ok(None);
 		};
 		let data = Data::deserialize(output.bytes)

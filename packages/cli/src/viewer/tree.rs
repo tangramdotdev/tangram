@@ -1415,8 +1415,9 @@ where
 		}
 
 		// Check if the process was canceled.
+		let arg = tg::process::get::Arg::default();
 		if handle
-			.try_get_process(process.item.id())
+			.try_get_process(process.item.id(), arg)
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancellation)))

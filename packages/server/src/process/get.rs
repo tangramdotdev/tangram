@@ -5,7 +5,7 @@ use {
 		stream::{self, FuturesUnordered},
 	},
 	tangram_client::{self as tg, prelude::*},
-	tangram_http::{Body, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 #[cfg(feature = "postgres")]
@@ -16,7 +16,15 @@ impl Server {
 	pub async fn try_get_process(
 		&self,
 		id: &tg::process::Id,
+		mut arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
+		// If the remote arg is set, then forward the request.
+		if let Some(remote) = arg.remote.take() {
+			let remote = self.get_remote_client(remote).await?;
+			let output = remote.try_get_process(id, arg).await?;
+			return Ok(output);
+		}
+
 		if let Some(output) = self.try_get_process_local(id).await? {
 			Ok(Some(output))
 		} else if let Some(output) = self.try_get_process_remote(id).await? {
@@ -112,14 +120,15 @@ impl Server {
 
 	pub(crate) async fn handle_get_process_request<H>(
 		handle: &H,
-		_request: http::Request<Body>,
+		request: http::Request<Body>,
 		id: &str,
 	) -> tg::Result<http::Response<Body>>
 	where
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let Some(output) = handle.try_get_process(&id).await? else {
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let Some(output) = handle.try_get_process(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let output = output.data;

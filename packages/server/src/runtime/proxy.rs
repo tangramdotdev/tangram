@@ -237,15 +237,17 @@ impl tg::handle::Object for Proxy {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
-		self.server.try_get_object_metadata(id)
+		self.server.try_get_object_metadata(id, arg)
 	}
 
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
-		self.server.try_get_object(id)
+		self.server.try_get_object(id, arg)
 	}
 
 	fn touch_object(
@@ -276,15 +278,17 @@ impl tg::handle::Process for Proxy {
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> {
-		self.server.try_get_process_metadata(id)
+		self.server.try_get_process_metadata(id, arg)
 	}
 
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
-		self.server.try_get_process(id)
+		self.server.try_get_process(id, arg)
 	}
 
 	async fn put_process(

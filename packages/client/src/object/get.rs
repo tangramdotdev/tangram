@@ -4,6 +4,12 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Output {
 	pub bytes: Bytes,
@@ -13,9 +19,12 @@ impl tg::Client {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let method = http::Method::GET;
-		let uri = format!("/objects/{id}");
+		let query = serde_urlencoded::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
+		let uri = format!("/objects/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
