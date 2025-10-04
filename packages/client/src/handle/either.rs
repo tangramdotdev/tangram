@@ -780,12 +780,11 @@ where
 
 	fn delete_tag(
 		&self,
-		tag: &tg::Tag,
 		arg: tg::tag::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> {
 		match self {
-			Either::Left(s) => s.delete_tag(tag, arg).left_future(),
-			Either::Right(s) => s.delete_tag(tag, arg).right_future(),
+			Either::Left(s) => s.delete_tag(arg).left_future(),
+			Either::Right(s) => s.delete_tag(arg).right_future(),
 		}
 	}
 }

@@ -483,9 +483,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
 			let params = sqlite::params![message.tag];
-			let id = delete_statement
-				.query_one(params, |row| row.get::<_, Vec<u8>>(0))
+			let mut rows = delete_statement
+				.query(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let Some(row) = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			else {
+				continue;
+			};
+			let id = row.get_unwrap::<_, Vec<u8>>(0);
 			let params = sqlite::params![id];
 			update_object_reference_count_statement
 				.execute(params)

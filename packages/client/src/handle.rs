@@ -388,9 +388,8 @@ pub trait Tag {
 
 	fn delete_tag(
 		&self,
-		tag: &tg::Tag,
 		arg: tg::tag::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> + Send;
 }
 
 pub trait User {
@@ -876,10 +875,9 @@ impl tg::handle::Tag for tg::Client {
 
 	fn delete_tag(
 		&self,
-		tag: &tg::Tag,
 		arg: tg::tag::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_tag(tag, arg)
+	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> {
+		self.delete_tag(arg)
 	}
 }
 

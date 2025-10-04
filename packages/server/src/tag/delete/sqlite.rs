@@ -8,96 +8,112 @@ use {
 impl Server {
 	pub(crate) async fn delete_tag_sqlite(
 		database: &db::sqlite::Database,
-		tag: &tg::Tag,
-	) -> tg::Result<()> {
+		pattern: &tg::tag::Pattern,
+	) -> tg::Result<tg::tag::delete::Output> {
 		// Get a database connection.
 		let connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		connection
+		let output = connection
 			.with({
-				let tag = tag.clone();
+				let pattern = pattern.clone();
 				move |connection| {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-					// Insert the tag.
-					Self::delete_tag_sqlite_sync(&transaction, &tag)?;
+					// Delete tags matching the pattern.
+					let output = Self::delete_tag_sqlite_sync(&transaction, &pattern)?;
 
 					// Commit the transaction.
 					transaction.commit().map_err(|source| {
 						tg::error!(!source, "failed to commit the transaction")
 					})?;
 
-					Ok::<_, tg::Error>(())
+					Ok::<_, tg::Error>(output)
 				}
 			})
 			.await?;
 
-		Ok(())
+		Ok(output)
 	}
 
 	pub(crate) fn delete_tag_sqlite_sync(
 		transaction: &sqlite::Transaction,
-		tag: &tg::Tag,
-	) -> tg::Result<()> {
-		if tag.is_empty() {
-			return Err(tg::error!("cannot delete an empty tag"));
+		pattern: &tg::tag::Pattern,
+	) -> tg::Result<tg::tag::delete::Output> {
+		if pattern.is_empty() {
+			return Err(tg::error!("cannot delete an empty pattern"));
 		}
 
-		// Find the tag by traversing the component path.
-		let mut parent = 0;
-		for component in tag.components() {
-			let statement = indoc!(
-				"
-					select id, item
-					from tags
-					where parent = ?1 and component = ?2;
-				"
-			);
-			let mut statement = transaction
-				.prepare_cached(statement)
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-			let params = sqlite::params![parent, component.to_string()];
-			let mut rows = statement
-				.query(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		// Get all tags matching the pattern.
+		let matches = Self::match_tags_sqlite_sync(transaction, pattern)?;
 
-			let row = rows
-				.next()
-				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
-				.ok_or_else(|| tg::error!(%tag, "tag not found"))?;
+		// Validate and delete each match.
+		let mut deleted = Vec::new();
+		for m in matches {
+			let is_leaf = m.item.is_some();
+			if is_leaf {
+				// This is a leaf tag, safe to delete.
+				let statement = indoc!(
+					"
+						delete from tags
+						where id = ?1;
+					"
+				);
+				let mut statement = transaction
+					.prepare_cached(statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![m.id];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				deleted.push(m.tag);
+			} else {
+				// This is a branch tag, check if it has children.
+				let statement = indoc!(
+					"
+						select count(*) from tags
+						where parent = ?1;
+					"
+				);
+				let mut statement = transaction
+					.prepare_cached(statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![m.id];
+				let count: i64 = statement
+					.query_row(params, |row| row.get(0))
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-			let id = row.get_unwrap::<_, u64>(0);
-			parent = id;
+				if count > 0 {
+					return Err(tg::error!(
+						"cannot delete branch tag {} with children",
+						m.tag
+					));
+				}
+
+				// No children, safe to delete.
+				let statement = indoc!(
+					"
+						delete from tags
+						where id = ?1;
+					"
+				);
+				let mut statement = transaction
+					.prepare_cached(statement)
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![m.id];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				deleted.push(m.tag);
+			}
 		}
 
-		// Delete the tag if it is a leaf.
-		let statement = indoc!(
-			"
-				delete
-				from tags
-				where id = ?1
-				and item is not null
-				returning id;
-			"
-		);
-		let mut statement = transaction
-			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let params = sqlite::params![parent];
-		let mut rows = statement
-			.query(params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		rows.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the query"))?
-			.ok_or_else(|| tg::error!(%tag, "expected a leaf tag"))?;
-
-		Ok(())
+		let output = tg::tag::delete::Output { deleted };
+		Ok(output)
 	}
 }

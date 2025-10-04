@@ -12,7 +12,7 @@ pub struct Args {
 	pub remote: Option<Option<String>>,
 
 	#[arg(index = 1)]
-	pub tag: tg::Tag,
+	pub pattern: tg::tag::Pattern,
 }
 
 impl Cli {
@@ -21,8 +21,12 @@ impl Cli {
 		let remote = args
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
-		let arg = tg::tag::delete::Arg { remote };
-		handle.delete_tag(&args.tag, arg).await?;
+		let arg = tg::tag::delete::Arg {
+			pattern: args.pattern,
+			remote,
+		};
+		let output = handle.delete_tag(arg).await?;
+		Self::print_json(&output, None).await?;
 		Ok(())
 	}
 }

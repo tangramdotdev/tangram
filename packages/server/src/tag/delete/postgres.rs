@@ -1,13 +1,17 @@
-use {crate::Server, indoc::indoc, tangram_client as tg, tangram_database::prelude::*};
+use {
+	crate::Server, indoc::indoc, num::ToPrimitive as _, tangram_client as tg,
+	tangram_database::prelude::*,
+};
 
 impl Server {
 	pub(crate) async fn delete_tag_postgres(
 		database: &tangram_database::postgres::Database,
-		tag: &tg::Tag,
-	) -> tg::Result<()> {
-		if tag.is_empty() {
-			return Err(tg::error!("cannot delete an empty tag"));
+		pattern: &tg::tag::Pattern,
+	) -> tg::Result<tg::tag::delete::Output> {
+		if pattern.is_empty() {
+			return Err(tg::error!("cannot delete an empty pattern"));
 		}
+
 		let mut connection = database
 			.connection()
 			.await
@@ -19,48 +23,67 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		// Find the tag by traversing the component path.
-		let mut parent: i64 = 0;
-		for component in tag.components() {
-			let statement = indoc!(
-				"
-					select id, item
-					from tags
-					where parent = $1 and component = $2;
-				"
-			);
-			let rows = transaction
-				.inner()
-				.query(statement, &[&parent, &component.to_string()])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		// Get all tags matching the pattern.
+		let matches = Self::match_tags_postgres(&transaction, pattern).await?;
 
-			let row = rows
-				.first()
-				.ok_or_else(|| tg::error!(%tag, "tag not found"))?;
+		// Validate and delete each match.
+		let mut deleted = Vec::new();
+		for m in matches {
+			let is_leaf = m.item.is_some();
+			if is_leaf {
+				// This is a leaf tag, safe to delete.
+				let statement = indoc!(
+					"
+						delete from tags
+						where id = $1;
+					"
+				);
+				transaction
+					.inner()
+					.execute(statement, &[&m.id.to_i64().unwrap()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				deleted.push(m.tag);
+			} else {
+				// This is a branch tag, check if it has children.
+				let statement = indoc!(
+					"
+						select count(*) from tags
+						where parent = $1;
+					"
+				);
+				let rows = transaction
+					.inner()
+					.query(statement, &[&m.id.to_i64().unwrap()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let count: i64 = rows
+					.first()
+					.ok_or_else(|| tg::error!("failed to get count"))?
+					.get(0);
 
-			let id: i64 = row.get(0);
-			parent = id;
+				if count > 0 {
+					return Err(tg::error!(
+						"cannot delete branch tag {} with children",
+						m.tag
+					));
+				}
+
+				// No children, safe to delete.
+				let statement = indoc!(
+					"
+						delete from tags
+						where id = $1;
+					"
+				);
+				transaction
+					.inner()
+					.execute(statement, &[&m.id.to_i64().unwrap()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				deleted.push(m.tag);
+			}
 		}
-
-		// Delete the tag if it is a leaf.
-		let statement = indoc!(
-			"
-				delete
-				from tags
-				where id = $1
-				and item is not null
-				returning id;
-			"
-		);
-		let rows = transaction
-			.inner()
-			.query(statement, &[&parent])
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		rows.first()
-			.ok_or_else(|| tg::error!(%tag, "expected a leaf tag"))?;
 
 		// Commit the transaction.
 		transaction
@@ -68,6 +91,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-		Ok(())
+		let output = tg::tag::delete::Output { deleted };
+
+		Ok(output)
 	}
 }
