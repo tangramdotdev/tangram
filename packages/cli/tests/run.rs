@@ -48,7 +48,8 @@ async fn assertion_failure() {
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
 	assert_snapshot!(stderr, @r#"
-	error the process failed
+	error an error occurred
+	-> the process failed
 	-> Uncaught Error: failed assertion
 	   ╭─[./tangram.ts:2:22]
 	 1 │ import foo from "./foo.tg.ts";
@@ -87,7 +88,8 @@ async fn assertion_failure_out_of_tree() {
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
 	assert_snapshot!(stderr, @r"
-	error the process failed
+	error an error occurred
+	-> the process failed
 	-> the child process failed
 	-> Uncaught Error: failed assertion
 	   ╭─[./bar/tangram.ts:1:25]
@@ -121,7 +123,8 @@ async fn assertion_failure_in_path_dependency() {
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
 	assert_snapshot!(stderr, @r#"
-	error the process failed
+	error an error occurred
+	-> the process failed
 	-> Uncaught Error: error
 	   ╭─[./foo/tangram.ts:2:22]
 	 1 │ import foo from "../bar";
@@ -159,7 +162,8 @@ async fn assertion_failure_in_tag_dependency() {
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
 	assert_snapshot!(stderr, @r#"
-	error the process failed
+	error an error occurred
+	-> the process failed
 	-> Uncaught Error: error in foo
 	   ╭─[./tangram.ts:2:22]
 	 1 │ import foo from "foo";
@@ -207,7 +211,8 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
 	assert_snapshot!(stderr, @r#"
-	error the process failed
+	error an error occurred
+	-> the process failed
 	-> Uncaught Error: failure in foo
 	   ╭─[./tangram.ts:2:22]
 	 1 │ import foo from "foo";

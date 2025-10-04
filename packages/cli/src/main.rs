@@ -357,7 +357,7 @@ fn main() -> std::process::ExitCode {
 				let error = tg::Referent::with_item(error);
 				cli.print_error(error).await;
 			});
-			std::process::ExitCode::FAILURE
+			cli.exit.map_or(std::process::ExitCode::FAILURE, Into::into)
 		},
 	};
 
