@@ -2,7 +2,7 @@ use {
 	crate::{Deserializer, Kind},
 	std::{
 		collections::{BTreeMap, BTreeSet},
-		io::{Error, Read, Result, Seek},
+		io::{Read, Result, Seek},
 		sync::Arc,
 	},
 };
@@ -289,17 +289,5 @@ impl Deserialize for bytes::Bytes {
 		R: std::io::Read + std::io::Seek,
 	{
 		Ok(bytes::Bytes::from(deserializer.deserialize_bytes()?))
-	}
-}
-
-#[cfg(feature = "url")]
-impl Deserialize for url::Url {
-	fn deserialize<R>(deserializer: &mut crate::Deserializer<R>) -> Result<Self>
-	where
-		R: Read + Seek,
-	{
-		let value = deserializer.deserialize_string()?;
-		let url = value.parse().map_err(Error::other)?;
-		Ok(url)
 	}
 }

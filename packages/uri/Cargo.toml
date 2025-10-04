@@ -17,3 +17,4 @@ workspace = true
 derive_more = { workspace = true }
 regex = { workspace = true }
 serde_with = { workspace = true }
+tangram_serialize = { workspace = true }

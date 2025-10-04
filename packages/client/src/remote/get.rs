@@ -1,13 +1,13 @@
 use {
 	crate as tg,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	url::Url,
+	tangram_uri::Uri,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub name: String,
-	pub url: Url,
+	pub url: Uri,
 }
 
 impl tg::Client {

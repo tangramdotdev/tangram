@@ -59,6 +59,7 @@ tangram_http = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }
 tangram_temp = { workspace = true }
+tangram_uri = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
@@ -67,7 +68,6 @@ tracing-subscriber = { workspace = true }
 tracing-tree = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
-url = { workspace = true }
 urlencoding = { workspace = true }
 v8 = { workspace = true, optional = true }
 webbrowser = { workspace = true }

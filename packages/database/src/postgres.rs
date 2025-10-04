@@ -6,8 +6,8 @@ use {
 	futures::{Stream, TryStreamExt as _, future},
 	indexmap::IndexMap,
 	std::{borrow::Cow, collections::HashMap},
+	tangram_uri::Uri,
 	tokio_postgres as postgres,
-	url::Url,
 };
 
 pub use postgres::types::Json;
@@ -21,12 +21,12 @@ pub enum Error {
 #[derive(Clone, Debug)]
 pub struct DatabaseOptions {
 	pub connections: usize,
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]
 pub struct ConnectionOptions {
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Default)]

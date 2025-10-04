@@ -5774,6 +5774,7 @@ dependencies = [
  "tangram_sandbox",
  "tangram_server",
  "tangram_temp",
+ "tangram_uri",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -5782,7 +5783,6 @@ dependencies = [
  "tracing-tree",
  "unicode-segmentation",
  "unicode-width 0.2.0",
- "url",
  "urlencoding",
  "v8",
  "webbrowser",
@@ -5795,8 +5795,8 @@ dependencies = [
  "serde_json",
  "tangram_client",
  "tangram_temp",
+ "tangram_uri",
  "tokio",
- "url",
  "urlencoding",
 ]
 
@@ -5844,7 +5844,6 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "tracing",
- "url",
  "urlencoding",
  "uuid",
  "webpki-roots 1.0.2",
@@ -5867,10 +5866,10 @@ dependencies = [
  "serde_json",
  "tangram_database_macro",
  "tangram_either",
+ "tangram_uri",
  "tokio",
  "tokio-postgres",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -5980,7 +5979,6 @@ dependencies = [
  "num-derive",
  "num-traits",
  "tangram_serialize_macro",
- "url",
 ]
 
 [[package]]
@@ -6081,7 +6079,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "unicode-width 0.2.0",
- "url",
  "urlencoding",
  "uuid",
  "v8",
@@ -6108,6 +6105,7 @@ dependencies = [
  "derive_more",
  "regex",
  "serde_with",
+ "tangram_serialize",
 ]
 
 [[package]]

@@ -273,13 +273,3 @@ impl Serialize for bytes::Bytes {
 		serializer.serialize_bytes(self)
 	}
 }
-
-#[cfg(feature = "url")]
-impl Serialize for url::Url {
-	fn serialize<W>(&self, serializer: &mut crate::Serializer<W>) -> Result<()>
-	where
-		W: Write,
-	{
-		serializer.serialize(self.as_str())
-	}
-}

@@ -2,7 +2,7 @@ use {
 	crate as tg,
 	std::{ops::Deref, sync::Arc},
 	tangram_http::Body,
-	url::Url,
+	tangram_uri::Uri,
 };
 
 mod http;
@@ -101,7 +101,7 @@ pub struct Client(Arc<Inner>);
 
 #[derive(Debug)]
 pub struct Inner {
-	url: Url,
+	url: Uri,
 	sender: Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>,
 	service: self::http::Service,
 	version: String,
@@ -109,7 +109,7 @@ pub struct Inner {
 
 impl Client {
 	#[must_use]
-	pub fn new(url: Url, version: Option<String>) -> Self {
+	pub fn new(url: Uri, version: Option<String>) -> Self {
 		let version = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 		let (sender, service) = Self::service(&url, &version);
 		Self(Arc::new(Inner {
@@ -139,7 +139,7 @@ impl Client {
 	}
 
 	#[must_use]
-	pub fn url(&self) -> &Url {
+	pub fn url(&self) -> &Uri {
 		&self.url
 	}
 

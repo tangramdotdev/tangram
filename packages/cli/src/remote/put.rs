@@ -1,7 +1,7 @@
 use {
 	crate::Cli,
 	tangram_client::{self as tg, prelude::*},
-	url::Url,
+	tangram_uri::Uri,
 };
 
 /// Put a remote.
@@ -12,7 +12,7 @@ pub struct Args {
 	pub name: String,
 
 	#[arg(index = 2)]
-	pub url: Url,
+	pub url: Uri,
 }
 
 impl Cli {

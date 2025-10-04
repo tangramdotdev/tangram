@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg, url::Url};
+use {crate::Cli, tangram_client as tg, tangram_uri::Uri};
 
 /// Download a blob or an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,7 +11,7 @@ pub struct Args {
 	pub mode: Option<tg::DownloadMode>,
 
 	#[arg(index = 1)]
-	pub url: Url,
+	pub url: Uri,
 }
 
 impl Cli {

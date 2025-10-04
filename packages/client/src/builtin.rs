@@ -1,4 +1,4 @@
-use {crate as tg, std::collections::BTreeMap, tangram_either::Either, url::Url};
+use {crate as tg, std::collections::BTreeMap, tangram_either::Either, tangram_uri::Uri};
 
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum ArchiveFormat {
@@ -197,7 +197,7 @@ pub fn decompress_command(input: &tg::Blob) -> tg::Command {
 
 pub async fn download<H>(
 	handle: &H,
-	url: &Url,
+	url: &Uri,
 	checksum: &tg::Checksum,
 	options: Option<DownloadOptions>,
 ) -> tg::Result<Either<tg::Blob, tg::Artifact>>
@@ -224,7 +224,7 @@ where
 }
 
 #[must_use]
-pub fn download_command(url: &Url, options: Option<DownloadOptions>) -> tg::Command {
+pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Command {
 	let host = "builtin";
 	let mut args = vec![url.to_string().into()];
 	if let Some(options) = options {

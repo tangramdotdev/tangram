@@ -23,8 +23,8 @@ use {
 	tangram_either::Either,
 	tangram_futures::task::{Task, TaskMap},
 	tangram_messenger::prelude::*,
+	tangram_uri::Uri,
 	tokio::io::AsyncWriteExt as _,
-	url::Url,
 };
 
 mod blob;
@@ -105,7 +105,7 @@ pub struct Inner {
 type CacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
 
 struct Http {
-	url: Url,
+	url: Uri,
 }
 
 type ProcessPermits =
@@ -868,7 +868,7 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn url(&self) -> Option<&Url> {
+	pub fn url(&self) -> Option<&Uri> {
 		self.http.as_ref().map(|http| &http.url)
 	}
 

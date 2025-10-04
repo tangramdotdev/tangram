@@ -1,4 +1,4 @@
-use {serde_json::json, std::time::Duration, tangram_client as tg, tangram_temp::Temp, url::Url};
+use {serde_json::json, std::time::Duration, tangram_client as tg, tangram_temp::Temp, tangram_uri::Uri};
 
 pub struct Server {
 	child: tokio::process::Child,
@@ -132,7 +132,7 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn url(&self) -> Url {
+	pub fn url(&self) -> Uri {
 		let path = self.temp.path().join(".tangram/socket");
 		let path = path.to_str().unwrap();
 		let path = urlencoding::encode(path);

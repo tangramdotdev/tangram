@@ -8,11 +8,11 @@ use {
 		time::Duration,
 	},
 	tangram_http::Body,
+	tangram_uri::Uri,
 	time::format_description::well_known::Rfc3339,
 	tokio::net::{TcpStream, UnixStream},
 	tower::{Service as _, util::BoxCloneSyncService},
 	tower_http::ServiceBuilderExt as _,
-	url::Url,
 };
 
 pub(crate) type Sender =
@@ -21,7 +21,7 @@ pub(crate) type Sender =
 pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, tg::Error>;
 
 impl tg::Client {
-	pub(crate) fn service(url: &Url, version: &str) -> (Sender, Service) {
+	pub(crate) fn service(url: &Uri, version: &str) -> (Sender, Service) {
 		let sender = Arc::new(tokio::sync::Mutex::<
 			Option<hyper::client::conn::http2::SendRequest<Body>>,
 		>::new(None));
@@ -105,24 +105,24 @@ impl tg::Client {
 	}
 
 	pub(crate) async fn connect_h1(
-		url: &Url,
+		url: &Uri,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		match url.scheme() {
-			"http+unix" => {
-				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
 				let path = urlencoding::decode(path)
 					.map_err(|source| tg::error!(!source, "invalid url"))?;
 				let path = PathBuf::from(path.into_owned());
 				Self::connect_unix_h1(&path).await
 			},
-			"http" => {
-				let host = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+			Some("http") => {
+				let host = url.host().ok_or_else(|| tg::error!("invalid url"))?;
 				let port = url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
 				Self::connect_tcp_h1(host, port).await
 			},
-			"https" => {
+			Some("https") => {
 				#[cfg(not(feature = "tls"))]
 				{
 					Err(tg::error!("tls is not enabled"))
@@ -142,23 +142,23 @@ impl tg::Client {
 		}
 	}
 
-	async fn connect_h2(url: &Url) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
+	async fn connect_h2(url: &Uri) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		match url.scheme() {
-			"http+unix" => {
-				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
 				let path = urlencoding::decode(path)
 					.map_err(|source| tg::error!(!source, %path, "invalid url"))?;
 				let path = PathBuf::from(path.into_owned());
 				Self::connect_unix_h2(&path).await
 			},
-			"http" => {
-				let host = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+			Some("http") => {
+				let host = url.host().ok_or_else(|| tg::error!("invalid url"))?;
 				let port = url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
 				Self::connect_tcp_h2(host, port).await
 			},
-			"https" => {
+			Some("https") => {
 				#[cfg(not(feature = "tls"))]
 				{
 					Err(tg::error!("tls is not enabled"))

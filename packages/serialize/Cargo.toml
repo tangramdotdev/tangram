@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-default = ["bytes", "url"]
+default = ["bytes"]
 
 [lints]
 workspace = true
@@ -23,4 +23,3 @@ num = { workspace = true }
 num-derive = { workspace = true }
 num-traits = { workspace = true }
 tangram_serialize_macro = { path = "macro" }
-url = { workspace = true, optional = true }

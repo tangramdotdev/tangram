@@ -9,9 +9,9 @@ use {
 	},
 	tangram_client as tg,
 	tangram_futures::stream::Ext,
+	tangram_uri::Uri,
 	tokio::io::{AsyncBufReadExt as _, AsyncRead},
 	tokio_util::{io::StreamReader, task::AbortOnDropHandle},
-	url::Url,
 };
 
 enum Mode {
@@ -32,7 +32,7 @@ impl Runtime {
 
 		// Get the args.
 		let args = command.args(server).await?;
-		let url: Url = args
+		let url: Uri = args
 			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
 			.try_unwrap_string_ref()
@@ -49,7 +49,7 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "invalid options"))?;
 
 		// Send the request.
-		let response = reqwest::get(url.clone())
+		let response = reqwest::get(url.as_str())
 			.await
 			.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
 			.error_for_status()

@@ -116,7 +116,6 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 unicode-width = { workspace = true }
-url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
 v8 = { workspace = true }

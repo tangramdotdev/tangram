@@ -3,7 +3,7 @@ use {
 	std::{path::PathBuf, time::Duration},
 	tangram_client::{self as tg, util::serde::is_false},
 	tangram_either::Either,
-	url::Url,
+	tangram_uri::Uri,
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -160,7 +160,7 @@ pub struct PostgresDatabase {
 
 	/// The URL.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Url>,
+	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -180,7 +180,7 @@ pub struct SqliteDatabase {
 pub struct Http {
 	/// The URL the server will bind to.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Url>,
+	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -199,7 +199,7 @@ pub struct PostgresIndex {
 
 	/// The URL.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Url>,
+	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -244,14 +244,14 @@ pub enum Messenger {
 #[serde(deny_unknown_fields)]
 pub struct NatsMessenger {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Url>,
+	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Remote {
 	pub name: String,
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[serde_as]
@@ -303,7 +303,7 @@ pub struct S3Store {
 	pub bucket: String,
 	pub region: Option<String>,
 	pub secret_key: Option<String>,
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

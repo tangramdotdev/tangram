@@ -1,6 +1,6 @@
 use {
 	std::{collections::HashMap, path::PathBuf, time::Duration},
-	url::Url,
+	tangram_uri::Uri,
 };
 
 #[derive(Clone, Debug)]
@@ -67,7 +67,7 @@ pub enum Database {
 #[derive(Clone, Debug)]
 pub struct PostgresDatabase {
 	pub connections: usize,
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]
@@ -78,7 +78,7 @@ pub struct SqliteDatabase {
 
 #[derive(Clone, Debug, Default)]
 pub struct Http {
-	pub url: Option<Url>,
+	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,7 +90,7 @@ pub enum Index {
 #[derive(Clone, Debug)]
 pub struct PostgresIndex {
 	pub connections: usize,
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]
@@ -116,13 +116,13 @@ pub enum Messenger {
 
 #[derive(Clone, Debug)]
 pub struct NatsMessenger {
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]
 pub struct Remote {
 	pub name: String,
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]
@@ -169,7 +169,7 @@ pub struct S3Store {
 	pub bucket: String,
 	pub region: Option<String>,
 	pub secret_key: Option<String>,
-	pub url: Url,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]

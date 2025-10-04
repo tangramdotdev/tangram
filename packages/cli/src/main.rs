@@ -13,7 +13,7 @@ use tangram_either::Either;
 use tangram_server::Server;
 use tokio::io::AsyncWriteExt as _;
 use tracing_subscriber::prelude::*;
-use url::Url;
+use tangram_uri::Uri;
 
 mod archive;
 mod blob;
@@ -109,7 +109,7 @@ struct Args {
 
 	/// Override the `url` key in the config.
 	#[arg(env = "TANGRAM_URL", long, short)]
-	url: Option<Url>,
+	url: Option<Uri>,
 }
 
 fn before_help() -> String {
@@ -440,8 +440,8 @@ impl Cli {
 		let mut connected = client.connect().await.is_ok();
 
 		// If the client is not connected and the URL is local, then start the server and attempt to connect.
-		let local = client.url().scheme() == "http+unix"
-			|| matches!(client.url().host_str(), Some("localhost" | "0.0.0.0"));
+		let local = client.url().scheme() == Some("http+unix")
+			|| matches!(client.url().host(), Some("localhost" | "0.0.0.0"));
 		if !connected && local {
 			// Start the server.
 			self.start_server().await?;

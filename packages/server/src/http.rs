@@ -7,20 +7,20 @@ use {
 	tangram_client as tg,
 	tangram_futures::task::Stop,
 	tangram_http::{Body, response::builder::Ext as _},
+	tangram_uri::Uri,
 	tokio::net::{TcpListener, UnixListener},
 	tower::ServiceExt as _,
 	tower_http::ServiceBuilderExt as _,
-	url::Url,
 };
 
 impl Server {
 	pub(crate) async fn listen(
-		url: &Url,
+		url: &Uri,
 	) -> tg::Result<tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>>
 	{
 		let listener = match url.scheme() {
-			"http+unix" => {
-				let path = url.host_str().ok_or_else(|| tg::error!("invalid url"))?;
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
 				let path = urlencoding::decode(path)
 					.map_err(|source| tg::error!(!source, "invalid url"))?;
 				let path = Path::new(path.as_ref());
@@ -29,7 +29,7 @@ impl Server {
 				)?;
 				tokio_util::either::Either::Left(listener)
 			},
-			"http" => {
+			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!("invalid url"))?;
 				let port = url
 					.port_or_known_default()

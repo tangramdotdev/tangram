@@ -10,7 +10,15 @@ static REGEX: LazyLock<Regex> = LazyLock::new(|| {
 	Regex::new(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?").unwrap()
 });
 
-#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[tangram_serialize(display, from_str)]
 pub struct Uri {
 	string: String,
 	scheme: Option<Range<usize>>,
@@ -70,6 +78,49 @@ impl Uri {
 	#[must_use]
 	pub fn fragment(&self) -> Option<&str> {
 		self.fragment.clone().map(|range| &self.string[range])
+	}
+
+	#[must_use]
+	pub fn host(&self) -> Option<&str> {
+		self.authority().and_then(|authority| {
+			let authority = authority.split('@').next_back()?;
+			if authority.starts_with('[') {
+				authority.split(']').next()?.strip_prefix('[')
+			} else {
+				authority.split(':').next()
+			}
+		})
+	}
+
+	#[must_use]
+	pub fn port(&self) -> Option<u16> {
+		self.authority().and_then(|authority| {
+			let authority = authority.split('@').next_back()?;
+			if authority.starts_with('[') {
+				authority.split("]:").nth(1)?.parse().ok()
+			} else {
+				authority.split(':').nth(1)?.parse().ok()
+			}
+		})
+	}
+
+	#[must_use]
+	pub fn port_or_known_default(&self) -> Option<u16> {
+		self.port().or_else(|| match self.scheme()? {
+			"http" | "http+unix" => Some(80),
+			"https" => Some(443),
+			_ => None,
+		})
+	}
+
+	#[must_use]
+	pub fn domain(&self) -> Option<&str> {
+		self.host()
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		&self.string
 	}
 }
 

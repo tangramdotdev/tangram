@@ -4,7 +4,7 @@ use {
 	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
-	url::Url,
+	tangram_uri::Uri,
 };
 
 impl Server {
@@ -20,7 +20,7 @@ impl Server {
 		#[derive(Debug, serde::Deserialize)]
 		struct Row {
 			name: String,
-			url: Url,
+			url: Uri,
 		}
 		let statement = indoc!(
 			"

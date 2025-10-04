@@ -188,7 +188,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"
 unicode-segmentation = "1"
 unicode-width = "0.2"
-url = { version = "2", features = ["serde"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
 v8 = { git = "https://github.com/tangramdotdev/rusty_v8", branch = "rusty-v8-archive-target-var" }

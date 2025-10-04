@@ -17,7 +17,7 @@ use {
 	tangram_client as tg,
 	tangram_either::Either,
 	tangram_futures::task::Task,
-	url::Url,
+	tangram_uri::Uri,
 };
 
 #[derive(Clone)]
