@@ -1,4 +1,7 @@
-use {serde_json::json, std::time::Duration, tangram_client as tg, tangram_temp::Temp, tangram_uri::Uri};
+use {
+	serde_json::json, std::time::Duration, tangram_client as tg, tangram_temp::Temp,
+	tangram_uri::Uri,
+};
 
 pub struct Server {
 	child: tokio::process::Child,

@@ -1,11 +1,14 @@
 use {
-	crate as tg,
+	crate::{self as tg, util::serde::is_false},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub pattern: tg::tag::Pattern,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,

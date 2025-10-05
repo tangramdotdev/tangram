@@ -24,8 +24,12 @@ impl Server {
 		// Delete the tag from the database.
 		let output = match &self.database {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => Self::delete_tag_postgres(database, &arg.pattern).await?,
-			Database::Sqlite(database) => Self::delete_tag_sqlite(database, &arg.pattern).await?,
+			Database::Postgres(database) => {
+				Self::delete_tag_postgres(database, &arg.pattern, arg.recursive).await?
+			},
+			Database::Sqlite(database) => {
+				Self::delete_tag_sqlite(database, &arg.pattern, arg.recursive).await?
+			},
 		};
 
 		// Send delete tag index messages.

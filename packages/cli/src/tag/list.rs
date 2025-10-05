@@ -13,6 +13,9 @@ pub struct Args {
 	#[arg(long)]
 	pub pretty: Option<bool>,
 
+	#[arg(long)]
+	pub recursive: bool,
+
 	#[allow(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
@@ -30,6 +33,7 @@ impl Cli {
 		let arg = tg::tag::list::Arg {
 			length: None,
 			pattern: args.pattern,
+			recursive: args.recursive,
 			remote,
 			reverse: args.reverse,
 		};
