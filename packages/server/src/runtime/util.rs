@@ -4,7 +4,6 @@ use {
 	futures::{Stream, TryStreamExt as _, future, stream},
 	std::{
 		collections::BTreeMap,
-		os::fd::RawFd,
 		path::{Path, PathBuf},
 		pin::pin,
 	},
@@ -12,8 +11,7 @@ use {
 	tokio::io::{AsyncRead, AsyncReadExt as _},
 };
 
-#[allow(dead_code)]
-pub fn set_controlling_terminal(tty_fd: RawFd) -> std::io::Result<()> {
+pub fn set_controlling_tty(tty_fd: std::os::fd::RawFd) -> std::io::Result<()> {
 	unsafe {
 		// Disconnect from the old controlling terminal.
 		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);

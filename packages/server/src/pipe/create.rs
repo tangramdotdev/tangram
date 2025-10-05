@@ -17,7 +17,7 @@ impl Server {
 
 		// Create the pipe.
 		let id = tg::pipe::Id::new();
-		let pipe = super::Pipe::open().await?;
+		let pipe = super::Pipe::new().await?;
 		self.pipes.insert(id.clone(), pipe);
 
 		// Create the output.

@@ -14,10 +14,10 @@ impl Server {
 			let remote = self.get_remote_client(remote).await?;
 			return remote.create_pty(arg).await;
 		}
-		let id = tg::pty::Id::new();
 
 		// Create the pty.
-		let pty = super::Pty::open(arg.size).await?;
+		let id = tg::pty::Id::new();
+		let pty = super::Pty::new(arg.size).await?;
 		self.ptys.insert(id.clone(), pty);
 
 		// Create the output.

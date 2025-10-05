@@ -15,6 +15,7 @@
 		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tangram $@' -- -m client",
 		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tangram $@' -- -m client",
 		"tgorx": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tangram $@' -- -m client run -b",
+		"tgos": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tangram $@' -- -m server",
 		"tgr": "cargo run --release -- -m client",
 		"tgrs": "cargo run --release -- -m server",
 		"tgrsx": "cargo run --release -- -m server run -b",
@@ -23,5 +24,9 @@
 		"tgsx": "cargo run -- -m server run -b",
 		"tgx": "cargo run -- -m client run -b"
 	},
-	"workspaces": ["packages/compiler", "packages/runtime", "packages/vscode"]
+	"workspaces": [
+		"packages/compiler",
+		"packages/runtime",
+		"packages/vscode"
+	]
 }

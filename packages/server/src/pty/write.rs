@@ -7,7 +7,7 @@ use {
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::{
-		os::fd::{AsRawFd, RawFd},
+		os::fd::{AsRawFd as _, RawFd},
 		pin::pin,
 	},
 	tangram_client::{self as tg, handle::Process},
@@ -47,7 +47,7 @@ impl Server {
 		};
 
 		let fd = AsyncFd::with_interest(fd, tokio::io::Interest::WRITABLE)
-			.map_err(|source| tg::error!(!source, "failed to write pty"))?;
+			.map_err(|source| tg::error!(!source, "failed to write to the pty"))?;
 
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
@@ -56,7 +56,7 @@ impl Server {
 					self.js_signal_hack(id, &chunk)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error, "failed to send signal to process");
+							tracing::error!(?error, "failed to signal the process");
 						})
 						.ok();
 					let mut chunk = chunk.as_ref();
@@ -71,7 +71,7 @@ impl Server {
 								Ok(n.to_usize().unwrap())
 							})
 							.await
-							.map_err(|source| tg::error!(!source, "failed to write pty"))?;
+							.map_err(|source| tg::error!(!source, "failed to write to the pty"))?;
 						if n == 0 {
 							break;
 						}
@@ -81,7 +81,9 @@ impl Server {
 				tg::pty::Event::Size(size) => {
 					change_window_size(fd.as_raw_fd(), size)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to change window size"))?;
+						.map_err(|source| {
+							tg::error!(!source, "failed to change the window size")
+						})?;
 				},
 				tg::pty::Event::End => {
 					break;
@@ -209,7 +211,8 @@ async fn change_window_size(fd: RawFd, size: tg::pty::Size) -> std::io::Result<(
 			ws_xpixel: 0,
 			ws_ypixel: 0,
 		};
-		if libc::ioctl(fd, libc::TIOCSWINSZ, std::ptr::addr_of_mut!(winsize)) != 0 {
+		let ret = libc::ioctl(fd, libc::TIOCSWINSZ, std::ptr::addr_of_mut!(winsize));
+		if ret != 0 {
 			return Err(std::io::Error::last_os_error());
 		}
 		Ok(())
