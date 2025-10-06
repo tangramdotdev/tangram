@@ -43,15 +43,15 @@ impl Runtime {
 	}
 
 	async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
-		let config = self
+		let sandbox = self
 			.server
 			.config()
 			.runtimes
 			.get("linux")
 			.ok_or_else(|| tg::error!("server has no runtime configured for linux"))
 			.cloned()?;
-		if !matches!(config.kind, crate::config::RuntimeKind::Tangram) {
-			return Err(tg::error!("unsupported runtime kind"));
+		if !matches!(sandbox.kind, crate::config::RuntimeKind::Tangram) {
+			return Err(tg::error!("unsupported sandbox kind"));
 		}
 
 		let state = process.load(&self.server).await?;
@@ -121,8 +121,8 @@ impl Runtime {
 			.chain(command.mounts.iter().map(Either::Right))
 			.collect::<Vec<_>>();
 
-		// Determine whether to use the sandbox.
-		let sandbox = !(is_bind_mount_at_root
+		// Determine if we're going to use the sandbox or not.
+		let use_sandbox = !(is_bind_mount_at_root
 			&& (mounts.len() == 1)
 			&& state.network
 			&& command.user.as_ref().is_none_or(|usr| {
@@ -134,60 +134,24 @@ impl Runtime {
 				usr == &username
 			}));
 
-		// Create the proxy server.
-		let proxy = if is_bind_mount_at_root {
-			None
-		} else {
-			// Create the path map.
-			let path_map = crate::runtime::proxy::PathMap {
-				output_host: temp.path().join("output"),
-				output_guest: "/output".into(),
-				root_host: temp.path().join("root"),
-			};
-
-			// Create the proxy server guest URL.
+		let guest_url = (!is_bind_mount_at_root).then(|| {
 			let socket = Path::new("/.tangram/socket");
-			let socket = socket
-				.to_str()
-				.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?;
+			let socket = socket.to_str().unwrap();
 			let socket = urlencoding::encode(socket);
-			let guest_url = format!("http+unix://{socket}").parse::<Uri>().unwrap();
-
-			// Create the proxy server host URL.
-			let socket = temp.path().join(".tangram/socket");
-			tokio::fs::create_dir_all(socket.parent().unwrap())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-
-			let socket = urlencoding::encode(
-				socket
-					.to_str()
-					.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?,
-			);
-			let host_url = format!("http+unix://{socket}").parse::<Uri>().unwrap();
-
-			// Start the proxy server.
-			let proxy = Proxy::new(
-				self.server.clone(),
-				process,
-				process.remote().cloned(),
-				Some(path_map),
-			);
-			let listener = Server::listen(&host_url).await?;
-			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
-			Some((task, guest_url))
-		};
+			let guest_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
+			guest_uri
+		});
 
 		// Add our env vars.
 		env.insert("TANGRAM_PROCESS".to_owned(), process.id().to_string());
 
-		let url = proxy.as_ref().map_or_else(
+		let url: String = guest_url.as_ref().map_or_else(
 			|| {
 				let path = self.server.path.join("socket").display().to_string();
 				let path = urlencoding::encode(&path);
 				format!("http+unix://{path}")
 			},
-			|(_, url)| url.to_string(),
+			|uri| uri.to_string(),
 		);
 		env.insert("TANGRAM_URL".to_owned(), url);
 
@@ -201,9 +165,9 @@ impl Runtime {
 		}
 
 		// Create the command.
-		let mut cmd = if sandbox {
-			self.sandbox_command(
-				&config,
+		let (root_path, mut cmd) = if use_sandbox {
+			self.root_path_and_sandbox_command(
+				&sandbox,
 				&args,
 				&cwd,
 				&env,
@@ -219,7 +183,50 @@ impl Runtime {
 		} else {
 			let mut cmd = tokio::process::Command::new(executable);
 			cmd.args(args).env_clear().current_dir(cwd).envs(env.iter());
-			cmd
+			let root_path = temp.path().join("root");
+			(root_path, cmd)
+		};
+
+		// Create the proxy server.
+		let proxy = if is_bind_mount_at_root {
+			None
+		} else {
+			// Create the path map.
+			let path_map = crate::runtime::proxy::PathMap {
+				output_host: temp.path().join("output"),
+				output_guest: "/output".into(),
+				root_host: root_path,
+			};
+
+			// Create the proxy server guest URL.
+			let socket = Path::new("/.tangram/socket");
+			let socket = socket.to_str().unwrap();
+			let socket = urlencoding::encode(socket);
+			let guest_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
+
+			// Create the proxy server host URL.
+			let socket = temp.path().join(".tangram/socket");
+			tokio::fs::create_dir_all(socket.parent().unwrap())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
+
+			let socket = urlencoding::encode(
+				socket
+					.to_str()
+					.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?,
+			);
+			let host_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
+
+			// Start the proxy server.
+			let proxy = Proxy::new(
+				self.server.clone(),
+				process,
+				process.remote().cloned(),
+				Some(path_map),
+			);
+			let listener = Server::listen(&host_uri).await?;
+			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
+			Some((task, guest_uri))
 		};
 
 		// Create the stdio.
@@ -233,12 +240,11 @@ impl Runtime {
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				let raw = fd.as_raw_fd();
+				let tty = self.server.get_pty_fd(pty, true)?;
 				cmd.stdin(fd);
 				unsafe {
 					cmd.pre_exec(move || {
-						crate::runtime::util::set_controlling_tty(raw)?;
-						Ok(())
+						crate::runtime::util::set_controlling_tty(tty.as_raw_fd())
 					});
 				}
 			},
@@ -259,7 +265,7 @@ impl Runtime {
 				cmd.stdout(std::process::Stdio::piped());
 			},
 		}
-		match state.stderr.as_ref() {
+		match state.stdout.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
 				let fd = self.server.get_pipe_fd(pipe, false)?;
 				cmd.stderr(fd);
@@ -276,7 +282,7 @@ impl Runtime {
 		// Spawn the process.
 		let mut child = cmd
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+			.map_err(|source| tg::error!(!source, "failed to spawn the sandbox process"))?;
 
 		// Spawn the stdio task.
 		let stdio_task = tokio::spawn({
@@ -362,9 +368,9 @@ impl Runtime {
 	}
 
 	#[allow(clippy::too_many_arguments)]
-	async fn sandbox_command(
+	async fn root_path_and_sandbox_command(
 		&self,
-		config: &crate::config::Runtime,
+		sandbox: &crate::config::Runtime,
 		args: &[String],
 		cwd: &Path,
 		env: &BTreeMap<String, String>,
@@ -375,14 +381,14 @@ impl Runtime {
 		state: &tg::process::State,
 		process: &tg::Process,
 		command: &tg::command::Data,
-	) -> tg::Result<tokio::process::Command> {
+	) -> tg::Result<(PathBuf, tokio::process::Command)> {
 		// Create the output/root paths.
 		let output_path = temp.path().join("output");
 		let mut root_path = temp.path().join("root");
 
 		// Create the command.
-		let mut cmd = tokio::process::Command::new(&config.executable);
-		cmd.args(&config.args);
+		let mut cmd = tokio::process::Command::new(&sandbox.executable);
+		cmd.args(&sandbox.args);
 
 		let mut overlays = HashMap::new();
 		for mount in mounts {
@@ -516,14 +522,14 @@ impl Runtime {
 		}
 
 		// Set the user.
-		let user = command.user.as_deref().unwrap_or("root");
+		let user = command.user.as_deref().unwrap_or_else(|| "root".into());
 		cmd.arg("--user").arg(user);
 
 		// Set the hostname
 		cmd.arg("--hostname").arg(process.id().to_string());
 
 		// Set the chroot.
-		cmd.arg("--chroot").arg(root_path);
+		cmd.arg("--chroot").arg(&root_path);
 
 		// Finish the command setup.
 		cmd.arg(executable)
@@ -531,7 +537,7 @@ impl Runtime {
 			.args(args)
 			.current_dir("/")
 			.env_clear();
-		Ok(cmd)
+		Ok((root_path, cmd))
 	}
 }
 
