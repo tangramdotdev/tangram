@@ -17,7 +17,17 @@ impl Server {
 			return Ok(());
 		}
 
-		self.ptys.remove(id);
+		// Remove the PTY, which will drop the spawn_tx and session_task.
+		let pty = self.ptys.remove(id);
+
+		// If we had a PTY, abort the session task.
+		if let Some((_, pty)) = pty {
+			// Drop spawn_tx to signal session task to exit.
+			drop(pty.spawn_tx);
+
+			// Abort the session task.
+			pty.session_task.abort();
+		}
 
 		Ok(())
 	}

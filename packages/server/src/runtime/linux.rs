@@ -9,7 +9,7 @@ use {
 	std::{
 		collections::{BTreeMap, HashMap},
 		os::{
-			fd::AsRawFd as _,
+			fd::{AsRawFd as _, FromRawFd as _, IntoRawFd as _},
 			unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
 		},
 		path::{Path, PathBuf},
@@ -57,6 +57,15 @@ impl Runtime {
 		let state = process.load(&self.server).await?;
 		let command = process.command(&self.server).await?;
 		let command = command.data(&self.server).await?;
+
+		// Check if any stdio uses a PTY.
+		let uses_pty = state.stdin.as_ref().is_some_and(|s| matches!(s, tg::process::Stdio::Pty(_)))
+			|| state.stdout.as_ref().is_some_and(|s| matches!(s, tg::process::Stdio::Pty(_)))
+			|| state.stderr.as_ref().is_some_and(|s| matches!(s, tg::process::Stdio::Pty(_)));
+
+		if uses_pty {
+			return self.run_with_pty(process, &state, &command).await;
+		}
 
 		// Checkout the process's chidlren.
 		self.server.checkout_children(process).await?;
@@ -532,6 +541,229 @@ impl Runtime {
 			.current_dir("/")
 			.env_clear();
 		Ok(cmd)
+	}
+
+	async fn run_with_pty(
+		&self,
+		process: &tg::Process,
+		state: &tg::process::State,
+		command: &tg::command::Data,
+	) -> tg::Result<super::Output> {
+		// Get the PTY ID from whichever stdio uses it.
+		let pty_id = state
+			.stdin
+			.as_ref()
+			.and_then(|s| {
+				if let tg::process::Stdio::Pty(id) = s {
+					Some(id)
+				} else {
+					None
+				}
+			})
+			.or_else(|| {
+				state.stdout.as_ref().and_then(|s| {
+					if let tg::process::Stdio::Pty(id) = s {
+						Some(id)
+					} else {
+						None
+					}
+				})
+			})
+			.or_else(|| {
+				state.stderr.as_ref().and_then(|s| {
+					if let tg::process::Stdio::Pty(id) = s {
+						Some(id)
+					} else {
+						None
+					}
+				})
+			})
+			.ok_or_else(|| tg::error!("expected a PTY but none found"))?;
+
+		// Checkout the process's children.
+		self.server.checkout_children(process).await?;
+
+		// Get the artifacts path.
+		let artifacts_path = self.server.artifacts_path();
+
+		// Render the args.
+		let args: Vec<String> = command
+			.args
+			.iter()
+			.map(|value| render_value(&artifacts_path, value))
+			.collect();
+
+		// Render the env.
+		let env = render_env(&artifacts_path, &command.env)?;
+
+		// Render the executable.
+		let executable = match &command.executable {
+			tg::command::data::Executable::Artifact(executable) => {
+				let mut path = artifacts_path.join(executable.artifact.to_string());
+				if let Some(executable_path) = &executable.path {
+					path = path.join(executable_path);
+				}
+				path
+			},
+			tg::command::data::Executable::Module(_) => {
+				return Err(tg::error!("invalid executable"));
+			},
+			tg::command::data::Executable::Path(executable) => {
+				which(&executable.path, &env).await?
+			},
+		};
+
+		// Get the working directory.
+		let cwd = command.cwd.clone().unwrap_or_else(|| "/".into());
+
+		// Create FDs for pipes if needed.
+		let stdin_fd = if command.stdin.is_some() {
+			// TODO: Create pipe for stdin from blob
+			None
+		} else {
+			None
+		};
+
+		let (stdout_fd, stdout_pipe) = if state.stdout.as_ref().is_some_and(|s| matches!(s, tg::process::Stdio::Pipe(_))) {
+			let mut fds = [0i32; 2];
+			let ret = unsafe { libc::pipe(fds.as_mut_ptr()) };
+			if ret < 0 {
+				return Err(std::io::Error::last_os_error())
+					.map_err(|source| tg::error!(!source, "failed to create pipe"));
+			}
+			let read_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fds[0]) };
+			let write_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fds[1]) };
+			(Some(write_fd), Some(read_fd))
+		} else {
+			(None, None)
+		};
+
+		let (stderr_fd, stderr_pipe) = if state.stderr.as_ref().is_some_and(|s| matches!(s, tg::process::Stdio::Pipe(_))) {
+			let mut fds = [0i32; 2];
+			let ret = unsafe { libc::pipe(fds.as_mut_ptr()) };
+			if ret < 0 {
+				return Err(std::io::Error::last_os_error())
+					.map_err(|source| tg::error!(!source, "failed to create pipe"));
+			}
+			let read_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fds[0]) };
+			let write_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fds[1]) };
+			(Some(write_fd), Some(read_fd))
+		} else {
+			(None, None)
+		};
+
+		// Send spawn request to PTY session leader.
+		let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+		let spawn_request = crate::pty::session::PtySpawnRequest {
+			request_id: 0, // Will be set by pty_session_task
+			executable,
+			args,
+			env,
+			cwd,
+			stdin_fd,
+			stdout_fd,
+			stderr_fd,
+			response_tx,
+		};
+
+		self.server.send_pty_spawn_request(pty_id, spawn_request)?;
+
+		// Wait for PID.
+		let pid = response_rx
+			.await
+			.map_err(|source| tg::error!(!source, "failed to receive spawn response"))??;
+
+		// For PTY spawns, we manage stdio through the session leader, so we don't use the regular stdio_task.
+		// Instead, we'll manually read from the pipes if they exist.
+		if let Some(stdout_fd) = stdout_pipe {
+			tokio::spawn({
+				let server = self.server.clone();
+				let process = process.clone();
+				async move {
+					use tokio::io::AsyncReadExt as _;
+					let mut file = unsafe { tokio::fs::File::from_std(std::fs::File::from_raw_fd(stdout_fd.into_raw_fd())) };
+					let mut buffer = Vec::new();
+					if let Err(error) = file.read_to_end(&mut buffer).await {
+						tracing::error!(?error, "failed to read stdout from PTY pipe");
+					}
+					// TODO: Write to process log
+					let _ = (server, process);
+				}
+			});
+		}
+
+		if let Some(stderr_fd) = stderr_pipe {
+			tokio::spawn({
+				let server = self.server.clone();
+				let process = process.clone();
+				async move {
+					use tokio::io::AsyncReadExt as _;
+					let mut file = unsafe { tokio::fs::File::from_std(std::fs::File::from_raw_fd(stderr_fd.into_raw_fd())) };
+					let mut buffer = Vec::new();
+					if let Err(error) = file.read_to_end(&mut buffer).await {
+						tracing::error!(?error, "failed to read stderr from PTY pipe");
+					}
+					// TODO: Write to process log
+					let _ = (server, process);
+				}
+			});
+		}
+
+		// Spawn the signal task.
+		let signal_task = tokio::spawn({
+			let server = self.server.clone();
+			let process = process.clone();
+			async move {
+				signal_task(&server, pid as i32, &process)
+					.await
+					.inspect_err(|source| tracing::error!(?source, "signal task failed"))
+					.ok();
+			}
+		});
+
+		// Wait for the process to complete by monitoring via pidfd or polling.
+		let exit = loop {
+			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+			// Try to wait for the process with WNOHANG.
+			let result = unsafe {
+				let mut status = 0;
+				let ret = libc::waitpid(pid as i32, &raw mut status, libc::WNOHANG);
+				if ret < 0 {
+					let error = std::io::Error::last_os_error();
+					if error.kind() == std::io::ErrorKind::Interrupted {
+						continue;
+					}
+					return Err(tg::error!(!error, "waitpid failed"));
+				}
+				if ret == 0 {
+					// Process still running.
+					continue;
+				}
+				// Process exited.
+				if libc::WIFEXITED(status) {
+					libc::WEXITSTATUS(status) as u8
+				} else if libc::WIFSIGNALED(status) {
+					128 + libc::WTERMSIG(status) as u8
+				} else {
+					1
+				}
+			};
+			break result;
+		};
+
+		// Abort the signal task.
+		signal_task.abort();
+
+		// Create the output (PTY processes don't produce output artifacts in this flow).
+		let output = super::Output {
+			checksum: None,
+			error: None,
+			exit,
+			output: None,
+		};
+
+		Ok(output)
 	}
 }
 

@@ -53,6 +53,7 @@ mod remote;
 mod run;
 mod sandbox;
 mod server;
+mod session;
 mod tag;
 mod tangram;
 mod tree;
@@ -231,6 +232,9 @@ enum Command {
 
 	Server(self::server::Args),
 
+	#[command(hide = true)]
+	Session(self::session::Args),
+
 	#[command(alias = "kill")]
 	Signal(self::process::signal::Args),
 
@@ -254,13 +258,35 @@ enum Command {
 }
 
 fn main() -> std::process::ExitCode {
+	eprintln!("MAIN CALLED - args: {:?}", std::env::args().collect::<Vec<_>>());
+
 	// Parse the args.
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
 
+	eprintln!("PARSED COMMAND: {:?}", std::mem::discriminant(&args.command));
+
 	// Handle the sandbox command.
 	if let Command::Sandbox(args) = args.command {
 		return tangram_sandbox::main(args.command);
+	}
+
+	// Handle the session command.
+	if let Command::Session(args) = args.command {
+		eprintln!("DETECTED SESSION COMMAND");
+
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		return runtime.block_on(async {
+			session::main(args).await
+				.map(|_| std::process::ExitCode::SUCCESS)
+				.unwrap_or_else(|error| {
+					eprintln!("Session error: {error}");
+					std::process::ExitCode::FAILURE
+				})
+		});
 	}
 
 	// Read the config.
@@ -1162,6 +1188,7 @@ impl Cli {
 			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Sandbox(_) => return Err(tg::error!("unreachable")),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
+			Command::Session(_) => return Err(tg::error!("unreachable")),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Signal(args) => self.command_process_signal(args).boxed(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
