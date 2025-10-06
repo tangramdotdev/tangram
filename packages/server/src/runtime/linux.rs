@@ -8,10 +8,7 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		collections::{BTreeMap, HashMap},
-		os::{
-			fd::AsRawFd as _,
-			unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
-		},
+		os::unix::{ffi::OsStrExt as _, process::ExitStatusExt as _},
 		path::{Path, PathBuf},
 	},
 	tangram_client as tg,
@@ -138,8 +135,7 @@ impl Runtime {
 			let socket = Path::new("/.tangram/socket");
 			let socket = socket.to_str().unwrap();
 			let socket = urlencoding::encode(socket);
-			let guest_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
-			guest_uri
+			format!("http+unix://{socket}").parse::<Uri>().unwrap()
 		});
 
 		// Add our env vars.
@@ -151,7 +147,7 @@ impl Runtime {
 				let path = urlencoding::encode(&path);
 				format!("http+unix://{path}")
 			},
-			|uri| uri.to_string(),
+			ToString::to_string,
 		);
 		env.insert("TANGRAM_URL".to_owned(), url);
 
@@ -240,13 +236,7 @@ impl Runtime {
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				let tty = self.server.get_pty_fd(pty, true)?;
 				cmd.stdin(fd);
-				unsafe {
-					cmd.pre_exec(move || {
-						crate::runtime::util::set_controlling_tty(tty.as_raw_fd())
-					});
-				}
 			},
 			None => {
 				cmd.stdin(std::process::Stdio::null());
@@ -522,7 +512,7 @@ impl Runtime {
 		}
 
 		// Set the user.
-		let user = command.user.as_deref().unwrap_or_else(|| "root".into());
+		let user = command.user.as_deref().unwrap_or("root");
 		cmd.arg("--user").arg(user);
 
 		// Set the hostname

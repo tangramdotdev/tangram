@@ -5,10 +5,7 @@ use {
 	},
 	crate::{Server, temp::Temp},
 	num::ToPrimitive as _,
-	std::{
-		os::{fd::AsRawFd as _, unix::process::ExitStatusExt as _},
-		path::Path,
-	},
+	std::{os::unix::process::ExitStatusExt as _, path::Path},
 	tangram_client as tg,
 	tangram_futures::task::Task,
 	tangram_uri::Uri,
@@ -212,14 +209,7 @@ impl Runtime {
 			},
 			Some(tg::process::Stdio::Pty(pty)) => {
 				let fd = self.server.get_pty_fd(pty, false)?;
-				let raw = fd.as_raw_fd();
 				cmd.stdin(fd);
-				unsafe {
-					cmd.pre_exec(move || {
-						crate::runtime::util::set_controlling_tty(raw)?;
-						Ok(())
-					});
-				}
 			},
 			None => {
 				cmd.stdin(std::process::Stdio::null());

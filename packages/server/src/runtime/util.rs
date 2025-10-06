@@ -11,49 +11,6 @@ use {
 	tokio::io::{AsyncRead, AsyncReadExt as _},
 };
 
-pub fn set_controlling_tty(tty_fd: std::os::fd::RawFd) -> std::io::Result<()> {
-	unsafe {
-		// Disconnect from the old controlling terminal.
-		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-		if fd > 0 {
-			#[allow(clippy::useless_conversion)]
-			libc::ioctl(fd, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
-			libc::close(fd);
-		}
-
-		// Set the current process as session leader.
-		let ret = libc::setsid();
-		if ret == -1 {
-			return Err(std::io::Error::last_os_error());
-		}
-
-		// Verify that we disconnected from the controlling terminal.
-		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-		if fd >= 0 {
-			libc::close(fd);
-			return Err(std::io::Error::other("failed to remove controlling tty"));
-		}
-
-		// Set the slave as the controlling tty.
-		#[allow(clippy::useless_conversion)]
-		let ret = libc::ioctl(tty_fd, libc::TIOCSCTTY.into(), 0);
-		if ret < 0 {
-			return Err(std::io::Error::last_os_error());
-		}
-
-		// Verify that we have a controlling terminal again.
-		let fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-		scopeguard::defer! {
-			libc::close(fd);
-		}
-		if fd <= 0 {
-			return Err(std::io::Error::other("failed to set controlling tty"));
-		}
-
-		Ok(())
-	}
-}
-
 /// Render a value.
 pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {
 	if let Ok(string) = value.try_unwrap_string_ref() {
