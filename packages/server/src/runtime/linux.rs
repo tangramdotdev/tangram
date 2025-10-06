@@ -43,14 +43,14 @@ impl Runtime {
 	}
 
 	async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
-		let sandbox = self
+		let config = self
 			.server
 			.config()
 			.runtimes
 			.get("linux")
 			.ok_or_else(|| tg::error!("server has no runtime configured for linux"))
 			.cloned()?;
-		if !matches!(sandbox.kind, crate::config::RuntimeKind::Tangram) {
+		if !matches!(config.kind, crate::config::RuntimeKind::Tangram) {
 			return Err(tg::error!("unsupported sandbox kind"));
 		}
 
@@ -121,8 +121,8 @@ impl Runtime {
 			.chain(command.mounts.iter().map(Either::Right))
 			.collect::<Vec<_>>();
 
-		// Determine if we're going to use the sandbox or not.
-		let use_sandbox = !(is_bind_mount_at_root
+		// Determine whether to use the sandbox.
+		let sandbox = !(is_bind_mount_at_root
 			&& (mounts.len() == 1)
 			&& state.network
 			&& command.user.as_ref().is_none_or(|usr| {
@@ -165,9 +165,9 @@ impl Runtime {
 		}
 
 		// Create the command.
-		let (root_path, mut cmd) = if use_sandbox {
+		let (root_path, mut cmd) = if sandbox {
 			self.root_path_and_sandbox_command(
-				&sandbox,
+				&config,
 				&args,
 				&cwd,
 				&env,
@@ -370,7 +370,7 @@ impl Runtime {
 	#[allow(clippy::too_many_arguments)]
 	async fn root_path_and_sandbox_command(
 		&self,
-		sandbox: &crate::config::Runtime,
+		config: &crate::config::Runtime,
 		args: &[String],
 		cwd: &Path,
 		env: &BTreeMap<String, String>,
@@ -387,8 +387,8 @@ impl Runtime {
 		let mut root_path = temp.path().join("root");
 
 		// Create the command.
-		let mut cmd = tokio::process::Command::new(&sandbox.executable);
-		cmd.args(&sandbox.args);
+		let mut cmd = tokio::process::Command::new(&config.executable);
+		cmd.args(&config.args);
 
 		let mut overlays = HashMap::new();
 		for mount in mounts {
@@ -471,7 +471,7 @@ impl Runtime {
 				)
 				.await
 				.map_err(|source| {
-					tg::error!(!source, "failed to copy /etc/resolv.conf to sandbox")
+					tg::error!(!source, "failed to copy /etc/resolv.conf to the sandbox")
 				})?;
 				cmd.arg("--network");
 			}
