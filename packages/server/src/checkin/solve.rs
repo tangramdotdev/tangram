@@ -3,7 +3,7 @@ use {
 		Server,
 		checkin::state::{Directory, File, Graph, Node, State, Symlink, Variant},
 	},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::{self as tg, handle::Ext as _},
 	tangram_either::Either,
 };
 
@@ -11,7 +11,8 @@ use {
 struct Checkpoint<'a> {
 	candidates: Option<im::Vector<Candidate>>,
 	graph: Graph,
-	graphs: im::HashMap<tg::graph::Id, usize, fnv::FnvBuildHasher>,
+	graphs: im::HashMap<tg::graph::Id, tg::graph::Data, fnv::FnvBuildHasher>,
+	graph_nodes: im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>,
 	ids: im::HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
 	queue: im::Vector<Item>,
 	state: &'a State,
@@ -51,6 +52,7 @@ impl Server {
 			candidates: None,
 			graph,
 			graphs: im::HashMap::default(),
+			graph_nodes: im::HashMap::default(),
 			ids: im::HashMap::default(),
 			queue: im::Vector::new(),
 			state,
@@ -85,10 +87,70 @@ impl Server {
 		// If the item is solved, then add its destination's items to the queue and return.
 		if let Some(destination) = Self::checkin_solve_get_destination_for_item(checkpoint, &item) {
 			let destination = match destination {
-				tg::graph::data::Edge::Reference(reference) => Some(reference.node),
+				tg::graph::data::Edge::Reference(reference) => {
+					if let Some(graph_id) = &reference.graph {
+						let index = self
+							.checkin_solve_add_graph_node(
+								checkpoint,
+								&item,
+								graph_id,
+								reference.node,
+							)
+							.await?;
+						let node = &mut checkpoint.graph.nodes[item.node];
+						match &item.variant {
+							ItemVariant::DirectoryEntry(name) => {
+								let edge =
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph: None,
+										node: index,
+									});
+								*node
+									.variant
+									.unwrap_directory_mut()
+									.entries
+									.get_mut(name)
+									.unwrap() = edge;
+							},
+							ItemVariant::FileDependency(reference) => {
+								let edge =
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph: None,
+										node: index,
+									});
+								node.variant
+									.unwrap_file_mut()
+									.dependencies
+									.get_mut(reference)
+									.unwrap()
+									.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
+									.item = edge.clone();
+							},
+							ItemVariant::SymlinkArtifact => {
+								let edge =
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph: None,
+										node: index,
+									});
+								*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() =
+									edge;
+							},
+						}
+						Some(index)
+					} else {
+						Some(reference.node)
+					}
+				},
 				tg::graph::data::Edge::Object(id) => {
-					if let Ok(id) = tg::artifact::Id::try_from(id) {
-						let index = self.checkin_solve_add_node(checkpoint, &item, &id).await?;
+					let index = if let Ok(artifact_id) = tg::artifact::Id::try_from(id) {
+						Some(
+							self.checkin_solve_add_node(checkpoint, &item, &artifact_id)
+								.await?,
+						)
+					} else {
+						None
+					};
+					if let Some(index) = index {
 						let node = &mut checkpoint.graph.nodes[item.node];
 						match &item.variant {
 							ItemVariant::DirectoryEntry(name) => {
@@ -386,22 +448,25 @@ impl Server {
 		item: &Item,
 		id: &tg::artifact::Id,
 	) -> tg::Result<usize> {
+		// Load the object and deserialize it.
 		let output = self
 			.get_object(&id.clone().into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+
+		// Create the checkin graph node.
 		let variant = match data {
 			tg::artifact::Data::Directory(tg::directory::Data::Reference(reference))
 			| tg::artifact::Data::File(tg::file::Data::Reference(reference))
 			| tg::artifact::Data::Symlink(tg::symlink::Data::Reference(reference)) => {
-				let graph = reference
-					.graph
-					.ok_or_else(|| tg::error!("expected the graph to be set"))?;
-				let graph = self.checkin_solve_add_graph(checkpoint, &graph).await?;
-				let node = graph + reference.node;
-				return Ok(node);
+				let Some(graph) = reference.graph else {
+					return Err(tg::error!("invalid artifact"));
+				};
+				return self
+					.checkin_solve_add_graph_node(checkpoint, item, &graph, reference.node)
+					.await;
 			},
 			tg::artifact::Data::Directory(tg::directory::Data::Node(directory)) => {
 				Variant::Directory(Directory {
@@ -444,85 +509,136 @@ impl Server {
 			path_metadata: None,
 			variant,
 		};
+
+		// Insert the node into the graph.
 		let index = checkpoint.graph.nodes.len();
 		checkpoint.graph.nodes.push_back(node);
+
 		Ok(index)
 	}
 
-	async fn checkin_solve_add_graph(
+	async fn checkin_solve_add_graph_node(
 		&self,
 		checkpoint: &mut Checkpoint<'_>,
-		id: &tg::graph::Id,
+		item: &Item,
+		graph_id: &tg::graph::Id,
+		node_index: usize,
 	) -> tg::Result<usize> {
-		if let Some(index) = checkpoint.graphs.get(id).copied() {
+		// Check if this graph node has already been added.
+		let key = (graph_id.clone(), node_index);
+		if let Some(&index) = checkpoint.graph_nodes.get(&key) {
 			return Ok(index);
 		}
-		let index = checkpoint.graph.nodes.len();
-		let output = self
-			.get_object(&id.clone().into())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
-		let data = tg::graph::Data::deserialize(output.bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
-		for node in data.nodes {
-			let variant = match node {
-				tg::graph::data::Node::Directory(mut directory) => {
-					for mut edge in directory.entries.values_mut() {
-						if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-							reference.node += index;
-						}
+
+		// Load the graph data from the cache or fetch it.
+		let graph_data = if let Some(cached) = checkpoint.graphs.get(graph_id) {
+			cached
+		} else {
+			let graph = tg::Graph::with_id(graph_id.clone());
+			let data = graph
+				.data(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get graph data"))?;
+			checkpoint.graphs.insert(graph_id.clone(), data);
+			checkpoint.graphs.get(graph_id).unwrap()
+		};
+
+		// Get the node.
+		let graph_node = graph_data
+			.nodes
+			.get(node_index)
+			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
+
+		// Create the checkin graph node.
+		let variant = match graph_node {
+			tg::graph::data::Node::Directory(directory) => {
+				let mut entries = std::collections::BTreeMap::new();
+				for (name, edge) in &directory.entries {
+					let edge = match edge {
+						tg::graph::data::Edge::Reference(reference) => {
+							let graph = reference.graph.clone().or_else(|| Some(graph_id.clone()));
+							tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+								graph,
+								node: reference.node,
+							})
+						},
+						tg::graph::data::Edge::Object(id) => {
+							tg::graph::data::Edge::Object(id.clone())
+						},
+					};
+					entries.insert(name.clone(), edge);
+				}
+				Variant::Directory(Directory { entries })
+			},
+			tg::graph::data::Node::File(file) => {
+				let contents = file.contents.as_ref().map(|id| Either::Right(id.clone()));
+				let mut dependencies = std::collections::BTreeMap::new();
+				for (reference, referent) in &file.dependencies {
+					if referent.options.tag.is_some() {
+						dependencies.insert(reference.clone(), None);
+					} else {
+						let referent = tg::Referent {
+							item: match &referent.item {
+								tg::graph::data::Edge::Reference(reference) => {
+									let graph =
+										reference.graph.clone().or_else(|| Some(graph_id.clone()));
+									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+										graph,
+										node: reference.node,
+									})
+								},
+								tg::graph::data::Edge::Object(id) => {
+									tg::graph::data::Edge::Object(id.clone())
+								},
+							},
+							options: referent.options.clone(),
+						};
+						dependencies.insert(reference.clone(), Some(referent));
 					}
-					Variant::Directory(Directory {
-						entries: directory.entries,
-					})
-				},
-				tg::graph::data::Node::File(mut file) => {
-					for referent in file.dependencies.values_mut() {
-						if let tg::graph::data::Edge::Reference(reference) = &mut referent.item {
-							reference.node += index;
-						}
-					}
-					let contents = file.contents.map(Either::Right);
-					let dependencies = file
-						.dependencies
-						.into_iter()
-						.map(|(reference, referent)| {
-							if reference.item().is_tag() {
-								(reference, None)
-							} else {
-								(reference, Some(referent))
-							}
+				}
+				Variant::File(File {
+					contents,
+					dependencies,
+					executable: file.executable,
+				})
+			},
+			tg::graph::data::Node::Symlink(symlink) => {
+				let artifact = symlink.artifact.as_ref().map(|edge| match edge {
+					tg::graph::data::Edge::Reference(reference) => {
+						let graph = reference.graph.clone().or_else(|| Some(graph_id.clone()));
+						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							graph,
+							node: reference.node,
 						})
-						.collect();
-					let executable = file.executable;
-					Variant::File(File {
-						contents,
-						dependencies,
-						executable,
-					})
-				},
-				tg::graph::data::Node::Symlink(mut symlink) => {
-					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
-					{
-						reference.node += index;
-					}
-					Variant::Symlink(Symlink {
-						artifact: symlink.artifact,
-						path: symlink.path,
-					})
-				},
-			};
-			let node = Node {
-				lock_node: None,
-				object_id: None,
-				parents: None,
-				path: None,
-				path_metadata: None,
-				variant,
-			};
-			checkpoint.graph.nodes.push_back(node);
-		}
-		checkpoint.graphs.insert(id.clone(), index);
+					},
+					tg::graph::data::Edge::Object(id) => tg::graph::data::Edge::Object(id.clone()),
+				});
+				Variant::Symlink(Symlink {
+					artifact,
+					path: symlink.path.clone(),
+				})
+			},
+		};
+		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
+		let node = Node {
+			lock_node,
+			object_id: None,
+			parents: None,
+			path: None,
+			path_metadata: None,
+			variant,
+		};
+
+		// Add the node to the checkin graph.
+		let index = checkpoint.graph.nodes.len();
+		checkpoint.graph.nodes.push_back(node);
+
+		// Cache the mapping.
+		checkpoint.graph_nodes.insert(key, index);
+
+		// Enqueue items for the node so that tag dependencies get resolved.
+		Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
+
 		Ok(index)
 	}
 

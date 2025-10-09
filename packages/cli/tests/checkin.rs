@@ -2135,6 +2135,63 @@ async fn update_tagged_package() {
 	"#);
 }
 
+#[tokio::test]
+async fn cyclic_tag_dependency() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Tag b with an empty package.
+	let temp = Temp::new();
+	let artifact = temp::directory! {};
+	artifact.to_path(&temp).await.unwrap();
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("b")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	let artifact = temp::directory! {
+		"a" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import b from "b" with { local: "../b" };
+			"#),
+		},
+		"b" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				import a from "a" with { local: "../a" };
+			"#),
+		},
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// Check in and tag a with local dependencies.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("a")
+		.arg(temp.path().join("a"))
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Check in and tag a with local dependencies.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("--no-local-dependencies")
+		.arg("b")
+		.arg(temp.path().join("b"))
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+}
+
 async fn test(
 	artifact: temp::Artifact,
 	path: &Path,

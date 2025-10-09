@@ -1,4 +1,7 @@
-use {serde_json::json, std::time::Duration, tangram_client as tg, tangram_temp::Temp, tangram_uri::Uri};
+use {
+	serde_json::json, std::time::Duration, tangram_client as tg, tangram_temp::Temp,
+	tangram_uri::Uri,
+};
 
 pub struct Server {
 	child: tokio::process::Child,
@@ -42,18 +45,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
-		// Create the command.
+		// Spawn the server.
 		let mut command = tokio::process::Command::new(tg);
-		command.kill_on_drop(true);
-		command.arg("--config");
-		command.arg(&config_path);
-		command.arg("--directory");
-		command.arg(&directory_path);
-		command.arg("--quiet");
-		command.arg("serve");
-
-		// Spawn the process.
-		let process = command.spawn().unwrap();
+		command
+			.kill_on_drop(true)
+			.arg("--config")
+			.arg(&config_path)
+			.arg("--directory")
+			.arg(&directory_path)
+			.arg("--quiet")
+			.arg("serve")
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::inherit());
+		let child = command.spawn().unwrap();
 
 		// Wait for the server to start.
 		let mut started = false;
@@ -68,7 +73,9 @@ impl Server {
 				.arg("client")
 				.arg("--quiet")
 				.arg("health")
+				.stdin(std::process::Stdio::null())
 				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
 				.status()
 				.await
 				.unwrap();
@@ -84,8 +91,8 @@ impl Server {
 
 		// Create the server.
 		let server = Self {
+			child,
 			config,
-			child: process,
 			temp,
 			tg,
 		};
@@ -102,7 +109,7 @@ impl Server {
 			.kill_on_drop(true)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::piped())
-			.stderr(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::inherit())
 			.arg("--config")
 			.arg(config_path)
 			.arg("--directory")

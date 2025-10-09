@@ -20,23 +20,30 @@ pub struct Arg {
 	pub updates: Vec<tg::tag::Pattern>,
 }
 
+#[serde_with::serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Options {
+	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub destructive: bool,
 
+	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub deterministic: bool,
 
+	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub ignore: bool,
 
+	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub local_dependencies: bool,
 
+	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub lock: bool,
 
+	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub locked: bool,
 }

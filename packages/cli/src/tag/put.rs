@@ -7,6 +7,9 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub checkin: crate::checkin::Options,
+
 	#[arg(long, short)]
 	pub force: bool,
 
@@ -31,7 +34,10 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
+		let arg = tg::get::Arg {
+			checkin: args.checkin.to_options(),
+		};
+		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
 		let item = referent
 			.item
 			.map_left(|process| process.id().clone())
