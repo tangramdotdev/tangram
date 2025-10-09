@@ -41,7 +41,7 @@ pub struct Graph {
 pub struct Node {
 	pub lock_node: Option<usize>,
 	pub object_id: Option<tg::object::Id>,
-	pub parents: Option<SmallVec<[usize; 1]>>,
+	pub referrers: SmallVec<[usize; 1]>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub variant: Variant,

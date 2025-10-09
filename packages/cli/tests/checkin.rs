@@ -2,7 +2,7 @@ use {
 	indoc::indoc,
 	insta::{assert_json_snapshot, assert_snapshot},
 	std::path::Path,
-	tangram_cli_test::{Server, assert_success},
+	tangram_cli_test::{Server, assert_failure, assert_success},
 	tangram_client as tg,
 	tangram_temp::{self as temp, Temp},
 };
@@ -1308,6 +1308,83 @@ async fn tagged_package_with_cyclic_dependency() {
 }
 
 #[tokio::test]
+async fn tag_dependency_not_exist() {
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as a from "a/^1.2";
+		"#),
+	}
+	.into();
+	let tags = vec![];
+	let path = Path::new("");
+	let destructive = false;
+	let (stdout, stderr) = test_failure(artifact, path, destructive, tags).await;
+	eprintln!("stdout: {stdout:?}");
+	eprintln!("stderr: {stderr:?}");
+	assert_snapshot!(stderr, @r"
+	error an error occurred
+	-> <path>/tangram.ts requires 'a/^1.2' but no matching tags were found
+	");
+	assert_snapshot!(stdout, @r#""#);
+}
+
+#[tokio::test]
+async fn tag_dependency_no_solution() {
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as a from "a/*";
+			import * as b from "b/*";
+		"#),
+	}
+	.into();
+
+	let tags = vec![
+		(
+			"c/1.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r""),
+			}
+			.into(),
+		),
+		(
+			"c/2.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r""),
+			}
+			.into(),
+		),
+		(
+			"a/1.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import * as c from "c/^1"
+				"#),
+			}
+			.into(),
+		),
+		(
+			"b/1.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import * as c from "c/^2"
+				"#),
+			}
+			.into(),
+		),
+	];
+	let path = Path::new("");
+	let destructive = false;
+	let (stdout, stderr) = test_failure(artifact, path, destructive, tags).await;
+	assert_snapshot!(stderr, @r"
+	error an error occurred
+	-> failed to find a matching tag for 'c'
+	-> b/1.0.0:tangram.ts requires 'c/^2'
+	-> a/1.0.0:tangram.ts requires 'c/^1'
+	");
+	assert_snapshot!(stdout, @r#""#);
+}
+
+#[tokio::test]
 async fn tag_dependency_cycles() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
@@ -1855,10 +1932,18 @@ async fn tagged_package_reproducible_checkin() {
 		path,
 		destructive,
 		tags.clone(),
+		true,
 	)
 	.await;
-	let (object_output2, _metadata_output2, _lockfile2) =
-		test_inner(&local_server2, artifact.clone(), path, destructive, tags).await;
+	let (object_output2, _metadata_output2, _lockfile2) = test_inner(
+		&local_server2,
+		artifact.clone(),
+		path,
+		destructive,
+		tags,
+		true,
+	)
+	.await;
 	assert_eq!(object_output1, object_output2);
 }
 
@@ -1911,7 +1996,8 @@ async fn tag_dependencies_after_clean() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (output1, _, _) = test_inner(&server2, referrer.clone(), path, destructive, tags).await;
+	let (output1, _, _) =
+		test_inner(&server2, referrer.clone(), path, destructive, tags, true).await;
 
 	// Clean up server 2.
 	server2.stop().await;
@@ -1933,7 +2019,8 @@ async fn tag_dependencies_after_clean() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (output2, _, _) = test_inner(&server2, referrer.clone(), path, destructive, tags).await;
+	let (output2, _, _) =
+		test_inner(&server2, referrer.clone(), path, destructive, tags, true).await;
 
 	// Confirm the outputs are the same.
 	assert_eq!(output1, output2);
@@ -2199,7 +2286,18 @@ async fn test(
 	tags: Vec<(String, temp::Artifact)>,
 ) -> (String, String, Option<tg::graph::Data>) {
 	let server = Server::new(TG).await.unwrap();
-	test_inner(&server, artifact, path, destructive, tags).await
+	test_inner(&server, artifact, path, destructive, tags, true).await
+}
+
+async fn test_failure(
+	artifact: temp::Artifact,
+	path: &Path,
+	destructive: bool,
+	tags: Vec<(String, temp::Artifact)>,
+) -> (String, String) {
+	let server = Server::new(TG).await.unwrap();
+	let (stdout, stderr, _) = test_inner(&server, artifact, path, destructive, tags, false).await;
+	(stdout, stderr)
 }
 
 async fn test_inner(
@@ -2208,6 +2306,7 @@ async fn test_inner(
 	path: &Path,
 	destructive: bool,
 	tags: Vec<(String, temp::Artifact)>,
+	expect_success: bool,
 ) -> (String, String, Option<tg::graph::Data>) {
 	// Tag the objects.
 	for (tag, artifact) in tags {
@@ -2241,6 +2340,18 @@ async fn test_inner(
 		command.arg("--ignore=false");
 	}
 	let output = command.output().await.unwrap();
+	if !expect_success {
+		eprintln!(
+			"process succeeded: {}",
+			std::str::from_utf8(&output.stdout).unwrap()
+		);
+		assert_failure!(output);
+		let stdout = String::from_utf8(output.stdout).unwrap();
+		let stderr = String::from_utf8(output.stderr).unwrap();
+		let stdout = stdout.replace(path.to_str().unwrap(), "<path>/");
+		let stderr = stderr.replace(path.to_str().unwrap(), "<path>/");
+		return (stdout, stderr, None);
+	}
 	assert_success!(output);
 
 	// Index.
