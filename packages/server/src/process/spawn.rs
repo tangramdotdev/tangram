@@ -293,6 +293,21 @@ impl Server {
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Update token count.
+			let statement = formatdoc!(
+				"
+					update processes
+					set token_count = token_count + 1
+					where id = {p}1;
+				"
+			);
+			let params = db::params![id.to_string()];
+			transaction
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 			Some(token)
 		};
 
@@ -402,6 +417,27 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Update parent depths.
+		match &transaction {
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => {
+				let statement = formatdoc!(
+					"
+						call update_parent_depths(array[{p}1]::text[]);
+					"
+				);
+				let params = db::params![id.to_string()];
+				transaction
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			},
+			database::Transaction::Sqlite(transaction) => {
+				Self::update_parent_depths(transaction, vec![id.to_string()])
+					.await?;
+			},
+		}
 
 		let status = tg::process::Status::Finished;
 
@@ -652,6 +688,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		// Update token count.
+		let statement = formatdoc!(
+			"
+				update processes
+				set token_count = token_count + 1
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 		Ok(LocalOutput {
 			id,
 			permit,
@@ -792,6 +842,102 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Update parent depths.
+		match &transaction {
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => {
+				let statement = formatdoc!(
+					"
+						call update_parent_depths(array[{p}1]::text[]);
+					"
+				);
+				let params = db::params![parent.to_string()];
+				transaction
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			},
+			database::Transaction::Sqlite(transaction) => {
+				Self::update_parent_depths(transaction, vec![parent.to_string()])
+					.await?;
+			},
+		}
+
+		Ok(())
+	}
+
+	pub(crate) async fn update_parent_depths(
+		transaction: &db::sqlite::Transaction<'_>,
+		child_ids: Vec<String>,
+	) -> tg::Result<()> {
+		let mut current_ids = child_ids;
+
+		while !current_ids.is_empty() {
+			let p = transaction.p();
+			let mut updated_ids = Vec::new();
+
+			// Process each child to find and update its parents.
+			for child_id in &current_ids {
+				// Find parents of this child and their max child depth.
+				let statement = formatdoc!(
+					"
+						select pc.process, max(p.depth) as max_child_depth
+						from process_children pc
+						join processes p on p.id = pc.child
+						where pc.child = {p}1
+						group by pc.process;
+					"
+				);
+				let params = db::params![child_id.clone()];
+
+				#[derive(serde::Deserialize)]
+				struct Parent {
+					process: String,
+					max_child_depth: Option<i64>,
+				}
+
+				let parents: Vec<Parent> = transaction
+					.query_all_into::<db::row::Serde<Parent>>(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to query parent depths"))?
+					.into_iter()
+					.map(|row| row.0)
+					.collect();
+
+				// Update each parent's depth if needed.
+				for parent in parents {
+					if let Some(max_child_depth) = parent.max_child_depth {
+						let statement = formatdoc!(
+							"
+								update processes
+								set depth = max(coalesce(depth, 0), {p}1)
+								where id = {p}2 and coalesce(depth, 0) < {p}1;
+							"
+						);
+						let new_depth = max_child_depth + 1;
+						let params = db::params![new_depth, parent.process.clone()];
+						let rows = transaction
+							.execute(statement.into(), params)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to update parent depth"))?;
+
+						// If we updated this parent, track it for next iteration.
+						if rows > 0 {
+							updated_ids.push(parent.process);
+						}
+					}
+				}
+			}
+
+			// Exit if no parents were updated.
+			if updated_ids.is_empty() {
+				break;
+			}
+
+			// Continue with the updated parents.
+			current_ids = updated_ids;
+		}
 
 		Ok(())
 	}

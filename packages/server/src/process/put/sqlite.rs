@@ -179,6 +179,9 @@ impl Server {
 				.collect::<FuturesUnordered<_>>()
 				.try_collect::<()>()
 				.await?;
+
+			// Update parent depths.
+			Server::update_parent_depths(&transaction, vec![id.to_string()]).await?;
 		}
 		// Commit the transaction.
 		Arc::into_inner(transaction)

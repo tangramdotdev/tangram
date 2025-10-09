@@ -201,6 +201,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		// Update token count to 0.
+		let statement = formatdoc!(
+			"
+				update processes
+				set token_count = 0
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 		// Drop the connection.
 		drop(connection);
 

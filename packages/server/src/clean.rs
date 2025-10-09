@@ -223,18 +223,45 @@ impl Server {
 
 		// Delete processes.
 		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				delete from processes
-				where id = {p}1 and touched_at <= {p}2;
-			"
-		);
 		for id in &output.processes {
+			// Delete process_children.
+			let statement = formatdoc!(
+				"
+					delete from process_children
+					where process = {p}1;
+				"
+			);
+			let params = db::params![id.to_string()];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete process_children"))?;
+
+			// Delete process_tokens.
+			let statement = formatdoc!(
+				"
+					delete from process_tokens
+					where process = {p}1;
+				"
+			);
+			let params = db::params![id.to_string()];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete process_tokens"))?;
+
+			// Delete the process.
+			let statement = formatdoc!(
+				"
+					delete from processes
+					where id = {p}1 and touched_at <= {p}2;
+				"
+			);
 			let params = db::params![id.to_string(), max_touched_at];
 			connection
-				.execute(statement.clone().into(), params)
+				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+				.map_err(|source| tg::error!(!source, "failed to delete the process"))?;
 		}
 
 		// Drop the connection.
