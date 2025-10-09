@@ -701,7 +701,7 @@ async fn builtin_download_checksum() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_0181wb17d7zttzbm5zzm9mrr3b24kj7y8c6v2advatrrn0vqbdydt0");
+	assert_snapshot!(stdout, @"fil_01medmn2qk628qg93csf10fx8mdxpcg8f4p9dvtxawzm8msx0whvq0");
 }
 
 #[tokio::test]
@@ -709,7 +709,7 @@ async fn builtin_download_exact_checksum() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			export default async () => {
-				let blob = await tg.download("https://www.example.com", "sha256:ea8fac7c65fb589b0d53560f5251f74f9e9b243478dcb6b3ea79b5e36449c8d9");
+				let blob = await tg.download("https://www.example.com", "sha256:6f5635035f36ad500b4fc4bb7816bb72ef5594e1bcae44fa074c5e988fc4c0fe");
 				return tg.file(blob);
 			};
 		"#),
@@ -719,7 +719,7 @@ async fn builtin_download_exact_checksum() {
 	let output = test(artifact, reference, args).await;
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @"fil_0181wb17d7zttzbm5zzm9mrr3b24kj7y8c6v2advatrrn0vqbdydt0");
+	assert_snapshot!(stdout, @"fil_01medmn2qk628qg93csf10fx8mdxpcg8f4p9dvtxawzm8msx0whvq0");
 }
 
 #[tokio::test]
