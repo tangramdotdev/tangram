@@ -11,9 +11,9 @@ use std::{
 use tangram_client::{self as tg, Client, prelude::*};
 use tangram_either::Either;
 use tangram_server::Server;
+use tangram_uri::Uri;
 use tokio::io::AsyncWriteExt as _;
 use tracing_subscriber::prelude::*;
-use tangram_uri::Uri;
 
 mod archive;
 mod blob;

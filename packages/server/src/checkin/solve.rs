@@ -3,9 +3,16 @@ use {
 		Server,
 		checkin::state::{Directory, File, Graph, Node, State, Symlink, Variant},
 	},
+	smallvec::SmallVec,
+	std::collections::HashMap,
 	tangram_client::{self as tg, handle::Ext as _},
 	tangram_either::Either,
 };
+
+struct Context<'a> {
+	checkpoints: Vec<Checkpoint<'a>>,
+	tags: HashMap<tg::Tag, Vec<(usize, tg::tag::Pattern)>, fnv::FnvBuildHasher>,
+}
 
 #[derive(Clone)]
 struct Checkpoint<'a> {
@@ -15,7 +22,7 @@ struct Checkpoint<'a> {
 	graph_nodes: im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>,
 	ids: im::HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
 	queue: im::Vector<Item>,
-	state: &'a State,
+	lock: Option<&'a tg::graph::Data>,
 	tags: im::HashMap<tg::Tag, tg::Referent<usize>, fnv::FnvBuildHasher>,
 	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
 }
@@ -43,19 +50,24 @@ enum ItemVariant {
 
 impl Server {
 	pub(super) async fn checkin_solve(&self, state: &mut State) -> tg::Result<()> {
-		// Create the checkpoints.
-		let mut checkpoints = Vec::new();
+		let State { graph, lock, .. } = state;
+
+		// Create the context
+		let mut context = Context {
+			checkpoints: Vec::new(),
+			tags: HashMap::default(),
+		};
 
 		// Create the first checkpoint.
-		let graph = state.graph.clone();
+		let graph = graph.clone();
 		let mut checkpoint = Checkpoint {
 			candidates: None,
 			graph,
 			graphs: im::HashMap::default(),
 			graph_nodes: im::HashMap::default(),
 			ids: im::HashMap::default(),
+			lock: lock.as_ref(),
 			queue: im::Vector::new(),
-			state,
 			tags: im::HashMap::default(),
 			visited: im::HashSet::default(),
 		};
@@ -63,7 +75,7 @@ impl Server {
 
 		// Solve.
 		while let Some(item) = checkpoint.queue.pop_front() {
-			self.checkin_solve_visit_item(&mut checkpoints, &mut checkpoint, item)
+			self.checkin_solve_visit_item(&mut context, &mut checkpoint, item)
 				.await?;
 		}
 
@@ -75,7 +87,7 @@ impl Server {
 
 	async fn checkin_solve_visit_item<'a>(
 		&self,
-		checkpoints: &mut Vec<Checkpoint<'a>>,
+		context: &mut Context<'a>,
 		checkpoint: &mut Checkpoint<'a>,
 		item: Item,
 	) -> tg::Result<()> {
@@ -136,6 +148,7 @@ impl Server {
 									edge;
 							},
 						}
+						checkpoint.graph.nodes[index].referrers.push(item.node);
 						Some(index)
 					} else {
 						Some(reference.node)
@@ -190,6 +203,7 @@ impl Server {
 									edge;
 							},
 						}
+						checkpoint.graph.nodes[index].referrers.push(item.node);
 						Some(index)
 					} else {
 						None
@@ -224,7 +238,7 @@ impl Server {
 
 			tg::reference::Item::Tag(pattern) => {
 				self.checkin_solve_visit_item_with_tag(
-					checkpoints,
+					context,
 					checkpoint,
 					item,
 					reference.clone(),
@@ -270,6 +284,7 @@ impl Server {
 			.unwrap()
 			.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
 			.item = edge.clone();
+		checkpoint.graph.nodes[index].referrers.push(item.node);
 
 		// Enqueue the node's items.
 		Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
@@ -279,14 +294,14 @@ impl Server {
 
 	async fn checkin_solve_visit_item_with_tag<'a>(
 		&self,
-		checkpoints: &mut Vec<Checkpoint<'a>>,
+		context: &mut Context<'a>,
 		checkpoint: &mut Checkpoint<'a>,
 		item: Item,
 		reference: tg::Reference,
 		pattern: tg::tag::Pattern,
 	) -> tg::Result<()> {
 		// Get the tag.
-		let tag = if pattern
+		let tag: tg::Tag = if pattern
 			.components()
 			.last()
 			.is_some_and(|component| component.contains(['=', '>', '<', '^']))
@@ -296,44 +311,49 @@ impl Server {
 			pattern.clone().try_into().unwrap()
 		};
 
+		// Insert the tag.
+		context
+			.tags
+			.entry(tag.clone())
+			.or_default()
+			.push((item.node, pattern.clone()));
+
 		// Solve the item.
 		let result = self
 			.checkin_solve_visit_item_with_tag_inner(checkpoint, &item, &tag, &pattern)
 			.await?;
 
 		// Handle the result.
-		match result {
-			Ok(referent) => {
-				// Set the tag.
-				checkpoint.tags.insert(tag, referent.clone());
+		if let Ok(referent) = result {
+			// Checkpoint.
+			context.checkpoints.push(checkpoint.clone());
 
-				// Checkpoint.
-				checkpoints.push(checkpoint.clone());
+			// Create the edge.
+			checkpoint.graph.nodes[item.node]
+				.variant
+				.unwrap_file_mut()
+				.dependencies
+				.iter_mut()
+				.find_map(|(r, referent)| (r == &reference).then_some(referent))
+				.unwrap()
+				.replace(referent.clone().map(|item| {
+					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+						graph: None,
+						node: item,
+					})
+				}));
+			checkpoint.graph.nodes[referent.item]
+				.referrers
+				.push(item.node);
 
-				// Create the edge.
-				checkpoint.graph.nodes[item.node]
-					.variant
-					.unwrap_file_mut()
-					.dependencies
-					.iter_mut()
-					.find_map(|(r, referent)| (r == &reference).then_some(referent))
-					.unwrap()
-					.replace(referent.clone().map(|item| {
-						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-							graph: None,
-							node: item,
-						})
-					}));
+			// Enqueue the node's items.
+			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
+		} else {
+			// Backtrack.
+			*checkpoint = Self::checkin_solve_backtrack(context, &tag)
+				.ok_or_else(|| explain(context, &checkpoint.graph, &tag))?;
 
-				// Enqueue the node's items.
-				Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
-			},
-
-			Err(()) => {
-				// Backtrack.
-				*checkpoint = Self::checkin_solve_backtrack(checkpoints, &tag)
-					.ok_or_else(|| tg::error!("backtracking failed"))?;
-			},
+			return Ok(());
 		}
 
 		// Remove the candidates.
@@ -351,21 +371,37 @@ impl Server {
 	) -> tg::Result<Result<tg::Referent<usize>, ()>> {
 		// Check if the tag is already set.
 		if let Some(referent) = checkpoint.tags.get(tag) {
+			if !pattern.matches(referent.tag().unwrap()) {
+				return Ok(Err(()));
+			}
+			// Return the referent.
 			return Ok(Ok(referent.clone()));
 		}
 
 		// Get the candidates if necessary.
 		if checkpoint.candidates.is_none() {
+			// Try to get an initial list of candidates.
 			let candidates = self
 				.checkin_solve_get_candidates(checkpoint, item, pattern)
-				.await?;
+				.await
+				.inspect_err(|e| {
+					tracing::error!(?e, "failed to get matching tags for {pattern}");
+				})?;
+
+			// If the list was empty, return an error that the tag is bogus.
+			if candidates.is_empty() {
+				return Err(tg::error!(
+					"{} but no matching tags were found",
+					format_dependency(&checkpoint.graph, item.node, pattern)
+				));
+			}
+
+			// Update the list of candidates.
 			checkpoint.candidates.replace(candidates);
 		}
 
 		// Get the next candidate.
-		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_back() else {
-			return Ok(Err(()));
-		};
+		let candidate = checkpoint.candidates.as_mut().unwrap().pop_back().unwrap();
 
 		// Add the node.
 		let id = candidate
@@ -375,13 +411,16 @@ impl Server {
 		let node = self.checkin_solve_add_node(checkpoint, item, &id).await?;
 
 		// Create the referent.
-		let item = node;
+		let new_item = node;
 		let options = tg::referent::Options {
 			id: Some(id.into()),
 			tag: Some(candidate.tag),
 			..Default::default()
 		};
-		let referent = tg::Referent::new(item, options);
+		let referent = tg::Referent::new(new_item, options);
+
+		// Update the tags.
+		checkpoint.tags.insert(tag.clone(), referent.clone());
 
 		Ok(Ok(referent))
 	}
@@ -425,7 +464,7 @@ impl Server {
 		item: &Item,
 		lock_index: usize,
 	) -> Option<Candidate> {
-		let lock_node = &checkpoint.state.lock.as_ref().unwrap().nodes[lock_index];
+		let lock_node = &checkpoint.lock.as_ref().unwrap().nodes[lock_index];
 		let options = if let ItemVariant::FileDependency(reference) = &item.variant {
 			lock_node
 				.try_unwrap_file_ref()
@@ -504,7 +543,7 @@ impl Server {
 		let node = Node {
 			lock_node,
 			object_id: None,
-			parents: None,
+			referrers: SmallVec::new(),
 			path: None,
 			path_metadata: None,
 			variant,
@@ -623,7 +662,7 @@ impl Server {
 		let node = Node {
 			lock_node,
 			object_id: None,
-			parents: None,
+			referrers: SmallVec::new(),
 			path: None,
 			path_metadata: None,
 			variant,
@@ -636,14 +675,11 @@ impl Server {
 		// Cache the mapping.
 		checkpoint.graph_nodes.insert(key, index);
 
-		// Enqueue items for the node so that tag dependencies get resolved.
-		Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
-
 		Ok(index)
 	}
 
 	fn checkin_solve_get_lock_node(checkpoint: &Checkpoint, item: &Item) -> Option<usize> {
-		let Some(lock) = &checkpoint.state.lock else {
+		let Some(lock) = &checkpoint.lock else {
 			return None;
 		};
 		let parent_index = checkpoint.graph.nodes[item.node].lock_node?;
@@ -745,15 +781,117 @@ impl Server {
 	}
 
 	fn checkin_solve_backtrack<'a>(
-		checkpoints: &mut Vec<Checkpoint<'a>>,
+		context: &mut Context<'a>,
 		tag: &tg::Tag,
 	) -> Option<Checkpoint<'a>> {
-		let position = checkpoints
+		let position = context
+			.checkpoints
 			.iter()
 			.position(|checkpoint| checkpoint.tags.contains_key(tag))?;
-		checkpoints.truncate(position + 1);
-		let mut checkpoint = checkpoints.pop()?;
+		if context.checkpoints[position]
+			.candidates
+			.as_ref()
+			.unwrap()
+			.is_empty()
+		{
+			return None;
+		}
+		context.checkpoints.truncate(position);
+		let mut checkpoint = context.checkpoints.pop()?;
 		checkpoint.tags.remove(tag);
+		context.tags.remove(tag);
 		Some(checkpoint)
 	}
+}
+
+fn explain(context: &Context, graph: &Graph, tag: &tg::Tag) -> tg::Error {
+	let mut source = None;
+	let referrers = context.tags.get(tag).unwrap();
+	for (node, pattern) in referrers {
+		let mut error = tg::error!("{}", format_dependency(graph, *node, pattern));
+		if let Some(source) = source.take() {
+			error.source.replace(tg::Referent::with_item(source));
+		}
+		source.replace(Box::new(error));
+	}
+	tg::error!(
+		source = source.unwrap(),
+		"failed to find a matching tag for '{tag}'"
+	)
+}
+
+fn format_dependency(graph: &Graph, node: usize, pattern: &tg::tag::Pattern) -> String {
+	let referrer = &graph.nodes[node];
+	if let Some(path) = &referrer.path {
+		return format!("{} requires '{pattern}'", path.display());
+	}
+	if let Some(id) = &graph.nodes[node].object_id {
+		return format!("{id} requires '{pattern}'");
+	}
+	let mut tag = None;
+	let mut id = None;
+	let mut components = vec![];
+	let mut current = node;
+	while tag.is_none() && id.is_none() {
+		let parent = *graph.nodes[current].referrers.first().unwrap();
+		match &graph.nodes[parent].variant {
+			Variant::Directory(directory) => {
+				let name = directory
+					.entries
+					.iter()
+					.find_map(|(name, edge)| {
+						let reference = edge.try_unwrap_reference_ref().ok()?;
+						if reference.graph.is_some() {
+							return None;
+						}
+						(reference.node == current).then_some(name.clone())
+					})
+					.unwrap();
+				components.push(name);
+			},
+			Variant::File(file) => {
+				let referent = file
+					.dependencies
+					.values()
+					.flatten()
+					.find_map(|referent| {
+						let reference = referent.item.try_unwrap_reference_ref().ok()?;
+						if reference.graph.is_some() {
+							return None;
+						}
+						(reference.node == current).then_some(referent)
+					})
+					.unwrap();
+
+				if let Some(path) = referent.path() {
+					components.push(path.display().to_string());
+				}
+
+				if let Some(tag_) = referent.tag() {
+					tag.replace(tag_.clone());
+				}
+
+				if let Some(id_) = referent.id() {
+					id.replace(id_.clone());
+				}
+			},
+			Variant::Symlink(symlink) => {
+				let Some(path) = &symlink.path else {
+					break;
+				};
+				components.push(path.display().to_string());
+			},
+		}
+		current = parent;
+	}
+	components.reverse();
+	let path = components.join("/");
+	let name = if let Some(tag) = tag {
+		format!("{tag}:{path}")
+	} else if let Some(id) = id {
+		format!("{id}:{path}")
+	} else {
+		path
+	};
+	format!("{name} requires '{pattern}'")
 }

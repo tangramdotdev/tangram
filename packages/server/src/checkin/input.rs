@@ -96,7 +96,7 @@ impl Server {
 		let node = Node {
 			lock_node,
 			object_id: None,
-			parents: Some(SmallVec::new()),
+			referrers: SmallVec::new(),
 			path: Some(path),
 			path_metadata: Some(metadata),
 			variant,
@@ -152,11 +152,7 @@ impl Server {
 			let Some(child_index) = self.checkin_visit(state, Some(parent), path)? else {
 				continue;
 			};
-			state.graph.nodes[child_index]
-				.parents
-				.as_mut()
-				.unwrap()
-				.push(index);
+			state.graph.nodes[child_index].referrers.push(index);
 			let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 				graph: None,
 				node: child_index,
@@ -184,6 +180,7 @@ impl Server {
 
 			// Create the dependencies and visit the path dependencies.
 			let mut dependencies = BTreeMap::new();
+			let referrer = index;
 			for reference in references {
 				let reference_path = if state.arg.options.local_dependencies {
 					reference
@@ -207,6 +204,7 @@ impl Server {
 					else {
 						continue;
 					};
+					state.graph.nodes[index].referrers.push(referrer);
 					let path = tg::util::path::diff(path.parent().unwrap(), &referent)?;
 					let path = if path.as_os_str().is_empty() {
 						".".into()
@@ -257,6 +255,7 @@ impl Server {
 
 			// Create the dependencies and visit the path dependencies.
 			let mut dependencies = BTreeMap::new();
+			let referrer = index;
 			for import in analysis.imports {
 				let reference = import.reference;
 				let reference_path = if state.arg.options.local_dependencies {
@@ -287,6 +286,7 @@ impl Server {
 					else {
 						continue;
 					};
+					state.graph.nodes[index].referrers.push(referrer);
 					let path = tg::util::path::diff(path.parent().unwrap(), &referent)?;
 					let path = if path.as_os_str().is_empty() {
 						".".into()
@@ -371,6 +371,7 @@ impl Server {
 			let artifact = self
 				.checkin_visit(state, Some(parent), path)?
 				.ok_or_else(|| tg::error!("failed to visit dependency"))?;
+			state.graph.nodes[artifact].referrers.push(index);
 
 			// Get the path.
 			let path = components.collect();
