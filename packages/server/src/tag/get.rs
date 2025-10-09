@@ -12,6 +12,7 @@ impl Server {
 		let arg = tg::tag::list::Arg {
 			length: Some(1),
 			pattern: pattern.clone(),
+			recursive: false,
 			remote: None,
 			reverse: true,
 		};
