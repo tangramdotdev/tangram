@@ -359,12 +359,6 @@ impl Server {
 			let candidates = self
 				.checkin_solve_get_candidates(checkpoint, item, pattern)
 				.await?;
-
-			// If there are no candidates at all, fail immediately.
-			if candidates.is_empty() {
-				return Err(tg::error!(%pattern, "no candidates found for tag pattern"));
-			}
-
 			checkpoint.candidates.replace(candidates);
 		}
 
@@ -458,7 +452,7 @@ impl Server {
 		let output = self
 			.get_object(&id.clone().into())
 			.await
-			.map_err(|source| tg::error!(!source, ?id, "failed to get the object"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
 
