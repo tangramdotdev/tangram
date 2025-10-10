@@ -1,13 +1,13 @@
 use {
-	crate::{ProcessPermit, Server, database},
+	crate::{database, ProcessPermit, Server},
 	bytes::Bytes,
-	futures::{FutureExt as _, future},
-	indoc::formatdoc,
+	futures::{future, FutureExt as _},
+	indoc::{formatdoc, indoc},
 	std::pin::pin,
 	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{request::Ext as _, response::builder::Ext as _, Body},
 	tangram_messenger::prelude::*,
 };
 
@@ -592,6 +592,7 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
+					depth,
 					enqueued_at,
 					expected_checksum,
 					heartbeat_at,
@@ -625,26 +626,28 @@ impl Server {
 					{p}15,
 					{p}16,
 					{p}17,
-					{p}18
+					{p}18,
+					{p}19
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
 					command = {p}3,
 					created_at = {p}4,
-					enqueued_at = {p}5,
-					expected_checksum = {p}6,
-					heartbeat_at = {p}7,
-					host = {p}8,
-					mounts = {p}9,
-					network = {p}10,
-					retry = {p}11,
-					started_at = {p}12,
-					status = {p}13,
-					stderr = {p}14,
-					stdin = {p}15,
-					stdout = {p}16,
-					token_count = {p}17,
-					touched_at = {p}18;
+					depth = {p}5,
+					enqueued_at = {p}6,
+					expected_checksum = {p}7,
+					heartbeat_at = {p}8,
+					host = {p}9,
+					mounts = {p}10,
+					network = {p}11,
+					retry = {p}12,
+					started_at = {p}13,
+					status = {p}14,
+					stderr = {p}15,
+					stdin = {p}16,
+					stdout = {p}17,
+					token_count = {p}18,
+					touched_at = {p}19;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -655,6 +658,7 @@ impl Server {
 			cacheable,
 			arg.command.item.to_string(),
 			now,
+			0,
 			now,
 			arg.checksum.as_ref().map(ToString::to_string),
 			heartbeat_at,
@@ -852,14 +856,14 @@ impl Server {
 						call update_parent_depths(array[{p}1]::text[]);
 					"
 				);
-				let params = db::params![parent.to_string()];
+				let params = db::params![child.to_string()];
 				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths(transaction, vec![parent.to_string()])
+				Self::update_parent_depths(transaction, vec![child.to_string()])
 					.await?;
 			},
 		}
@@ -874,24 +878,23 @@ impl Server {
 		let mut current_ids = child_ids;
 
 		while !current_ids.is_empty() {
-			let p = transaction.p();
 			let mut updated_ids = Vec::new();
 
 			// Process each child to find and update its parents.
 			for child_id in &current_ids {
 				// Find parents of this child and their max child depth.
-				let statement = formatdoc!(
+				let statement = indoc!(
 					"
-						select pc.process, max(p.depth) as max_child_depth
-						from process_children pc
-						join processes p on p.id = pc.child
-						where pc.child = {p}1
-						group by pc.process;
+						select process_children.process, max(processes.depth) as max_child_depth
+						from process_children
+						join processes on processes.id = process_children.child
+						where process_children.child = ?1
+						group by process_children.process;
 					"
 				);
 				let params = db::params![child_id.clone()];
 
-				#[derive(serde::Deserialize)]
+				#[derive(serde::Deserialize, Debug)]
 				struct Parent {
 					process: String,
 					max_child_depth: Option<i64>,
@@ -908,11 +911,11 @@ impl Server {
 				// Update each parent's depth if needed.
 				for parent in parents {
 					if let Some(max_child_depth) = parent.max_child_depth {
-						let statement = formatdoc!(
+						let statement = indoc!(
 							"
 								update processes
-								set depth = max(coalesce(depth, 0), {p}1)
-								where id = {p}2 and coalesce(depth, 0) < {p}1;
+								set depth = max(depth, ?1)
+								where id = ?2 and depth < ?1;
 							"
 						);
 						let new_depth = max_child_depth + 1;

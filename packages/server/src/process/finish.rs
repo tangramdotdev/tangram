@@ -154,6 +154,7 @@ impl Server {
 				update processes
 				set
 					actual_checksum = {p}1,
+					depth = null,
 					error = {p}2,
 					error_code = {p}3,
 					finished_at = {p}4,

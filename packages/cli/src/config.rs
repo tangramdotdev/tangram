@@ -373,6 +373,10 @@ pub struct Watchdog {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub interval: Option<Duration>,
 
+	/// The maximum depth when traversing the process tree.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_depth: Option<usize>,
+
 	/// The duration without a heartbeat before a process is canceled.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]

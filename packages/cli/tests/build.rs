@@ -1147,6 +1147,98 @@ async fn multiple_cancellation() {
 	assert_snapshot!(output, @"");
 }
 
+#[tokio::test]
+async fn watchdog_max_depth() {
+	use serde_json::json;
+
+	// Configure watchdog with low max_depth and fast interval.
+	let config = json!({
+		"remotes": [],
+		"watchdog": {
+			"max_depth": 2,
+		}
+	});
+	let server = Server::with_config(TG, config).await.unwrap();
+
+	// Create a build that goes deeper than max_depth.
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r"
+			export let foo = async () => {
+				await tg.build(bar);
+			};
+			export let bar = async () => {
+				await tg.build(baz);
+			};
+			export let baz = async () => {
+				await tg.build(qux);
+			};
+			export let qux = async () => {
+				return 'qux';
+			};
+		")
+	};
+	let temp = Temp::new();
+	artifact.to_path(temp.as_ref()).await.unwrap();
+
+	let output = server
+		.tg()
+		.arg("build")
+		.arg(format!("{}#foo", temp.path().display()))
+		.output()
+		.await
+		.unwrap();
+
+	assert_failure!(output);
+	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	assert!(
+		stderr.contains("maximum depth exceeded"),
+		"Expected 'maximum depth exceeded' error, got: {stderr}"
+	);
+}
+
+#[tokio::test]
+async fn watchdog_heartbeat_expiration() {
+	use serde_json::json;
+
+	// Configure watchdog with short TTL and fast interval.
+	let config = json!({
+		"remotes": [],
+		"watchdog": {
+			"ttl": 0.1,
+			"interval": 0.1,
+		}
+	});
+	let server = Server::with_config(TG, config).await.unwrap();
+
+	// Create a long-running process.
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r"
+			export let foo = async () => {
+				await tg.sleep(2);
+				return 'done';
+			});
+		")
+	};
+	let temp = Temp::new();
+	artifact.to_path(temp.as_ref()).await.unwrap();
+
+	// Start the build.
+	let output = server
+		.tg()
+		.arg("build")
+		.arg(format!("{}#foo", temp.path().display()))
+		.output()
+		.await
+		.unwrap();
+
+	assert_failure!(output);
+	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	assert!(
+		stderr.contains("heartbeat expired"),
+		"Expected 'heartbeat expired' error, got: {stderr}"
+	);
+}
+
 async fn test(
 	artifact: temp::Artifact,
 	reference: &str,
