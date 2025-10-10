@@ -46,6 +46,7 @@ mod object;
 mod outdated;
 mod process;
 mod progress;
+mod publish;
 mod pull;
 mod push;
 mod put;
@@ -212,6 +213,8 @@ enum Command {
 
 	#[command(alias = "ps")]
 	Processes(self::process::list::Args),
+
+	Publish(self::publish::Args),
 
 	Pull(self::pull::Args),
 
@@ -1158,6 +1161,7 @@ impl Cli {
 			Command::Output(args) => self.command_process_output(args).boxed(),
 			Command::Process(args) => self.command_process(args).boxed(),
 			Command::Processes(args) => self.command_process_list(args).boxed(),
+			Command::Publish(args) => self.command_publish(args).boxed(),
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_put(args).boxed(),
