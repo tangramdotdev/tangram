@@ -12,6 +12,7 @@ use {
 struct Context<'a> {
 	checkpoints: Vec<Checkpoint<'a>>,
 	tags: HashMap<tg::Tag, Vec<(usize, tg::tag::Pattern)>, fnv::FnvBuildHasher>,
+	updates: &'a [tg::tag::Pattern],
 }
 
 #[derive(Clone)]
@@ -50,12 +51,15 @@ enum ItemVariant {
 
 impl Server {
 	pub(super) async fn checkin_solve(&self, state: &mut State) -> tg::Result<()> {
-		let State { graph, lock, .. } = state;
+		let State {
+			arg, graph, lock, ..
+		} = state;
 
 		// Create the context
 		let mut context = Context {
 			checkpoints: Vec::new(),
 			tags: HashMap::default(),
+			updates: &arg.updates,
 		};
 
 		// Create the first checkpoint.
@@ -320,7 +324,7 @@ impl Server {
 
 		// Solve the item.
 		let result = self
-			.checkin_solve_visit_item_with_tag_inner(checkpoint, &item, &tag, &pattern)
+			.checkin_solve_visit_item_with_tag_inner(context, checkpoint, &item, &tag, &pattern)
 			.await?;
 
 		// Handle the result.
@@ -364,6 +368,7 @@ impl Server {
 
 	async fn checkin_solve_visit_item_with_tag_inner(
 		&self,
+		context: &Context<'_>,
 		checkpoint: &mut Checkpoint<'_>,
 		item: &Item,
 		tag: &tg::Tag,
@@ -382,7 +387,7 @@ impl Server {
 		if checkpoint.candidates.is_none() {
 			// Try to get an initial list of candidates.
 			let candidates = self
-				.checkin_solve_get_candidates(checkpoint, item, pattern)
+				.checkin_solve_get_candidates(context, checkpoint, item, pattern)
 				.await
 				.inspect_err(|e| {
 					tracing::error!(?e, "failed to get matching tags for {pattern}");
@@ -427,6 +432,7 @@ impl Server {
 
 	async fn checkin_solve_get_candidates(
 		&self,
+		context: &Context<'_>,
 		checkpoint: &Checkpoint<'_>,
 		item: &Item,
 		pattern: &tg::tag::Pattern,
@@ -453,6 +459,10 @@ impl Server {
 		if let Some(lock_index) = checkpoint.graph.nodes[item.node].lock_node
 			&& let Some(candidate) =
 				Self::checkin_solve_get_candidate_from_lock(checkpoint, item, lock_index)
+			&& !context
+				.updates
+				.iter()
+				.any(|pattern| pattern.matches(&candidate.tag))
 		{
 			candidates.push_back(candidate);
 		}
