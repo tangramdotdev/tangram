@@ -188,13 +188,6 @@ impl Server {
 					)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-				// Update parent depths.
-				let statement = "call update_parent_depths(array[$1]::text[]);";
-				transaction
-					.execute(statement, &[&id.to_string()])
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 		}
 
