@@ -434,7 +434,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths(transaction, vec![id.to_string()])
+				Self::update_parent_depths_sqlite(transaction, vec![id.to_string()])
 					.await?;
 			},
 		}
@@ -658,7 +658,7 @@ impl Server {
 			cacheable,
 			arg.command.item.to_string(),
 			now,
-			0,
+			1,
 			now,
 			arg.checksum.as_ref().map(ToString::to_string),
 			heartbeat_at,
@@ -863,7 +863,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths(transaction, vec![child.to_string()])
+				Self::update_parent_depths_sqlite(transaction, vec![child.to_string()])
 					.await?;
 			},
 		}
@@ -871,7 +871,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn update_parent_depths(
+	pub(crate) async fn update_parent_depths_sqlite(
 		transaction: &db::sqlite::Transaction<'_>,
 		child_ids: Vec<String>,
 	) -> tg::Result<()> {
