@@ -967,6 +967,9 @@ impl Cli {
 				if let Some(interval) = watchdog.interval {
 					new.interval = interval;
 				}
+				if let Some(max_depth) = watchdog.max_depth {
+					new.max_depth = max_depth;
+				}
 				if let Some(ttl) = watchdog.ttl {
 					new.ttl = ttl;
 				}

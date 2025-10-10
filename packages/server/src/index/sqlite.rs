@@ -68,21 +68,62 @@ impl Server {
 		messages: Vec<PutCacheEntry>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
-		let statement = indoc!(
+		let insert_statement = indoc!(
 			"
 				insert into cache_entries (id, touched_at)
 				values (?1, ?2)
-				on conflict (id) do update set touched_at = ?2;
+				on conflict (id) do nothing;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut insert_statement = transaction
+			.prepare_cached(insert_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		let update_statement = indoc!(
+			"
+				update cache_entries
+				set touched_at = ?2
+				where id = ?1;
+			"
+		);
+		let mut update_statement = transaction
+			.prepare_cached(update_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		let queue_statement = indoc!(
+			"
+				insert into cache_entry_queue (cache_entry, transaction_id)
+				values (?1, (select id from transaction_id));
+			"
+		);
+		let mut queue_statement = transaction
+			.prepare_cached(queue_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		for message in messages {
 			let params = sqlite::params![message.id.to_bytes().to_vec(), message.touched_at];
-			statement
+
+			// Try to insert.
+			let rows = insert_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let inserted = rows > 0;
+
+			// If not inserted, update instead.
+			if !inserted {
+				let params = sqlite::params![message.id.to_bytes().to_vec(), message.touched_at];
+				update_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Only insert into queue if this was a new entry.
+			if inserted {
+				let params = sqlite::params![message.id.to_bytes().to_vec()];
+				queue_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 		}
 
 		Ok(())
@@ -92,24 +133,36 @@ impl Server {
 		messages: Vec<PutObject>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
-		// Prepare a statement for the objects.
-		let objects_statement = indoc!(
+		// Prepare insert statement for objects.
+		let insert_statement = indoc!(
 			"
 				insert into objects (id, cache_entry, complete, count, depth, size, touched_at, transaction_id, weight)
 				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, (select id from transaction_id), ?8)
-				on conflict (id) do update set
+				on conflict (id) do nothing;
+			"
+		);
+		let mut insert_statement = transaction
+			.prepare_cached(insert_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare update statement for objects.
+		let update_statement = indoc!(
+			"
+				update objects
+				set
 					complete = complete or ?3,
 					count = coalesce(count, ?4),
 					depth = coalesce(depth, ?5),
 					touched_at = coalesce(touched_at, ?7),
-					weight = coalesce(weight, ?8);
+					weight = coalesce(weight, ?8)
+				where id = ?1;
 			"
 		);
-		let mut objects_statement = transaction
-			.prepare_cached(objects_statement)
+		let mut update_statement = transaction
+			.prepare_cached(update_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
-		// Prepare a statement for the object children
+		// Prepare a statement for the object children.
 		let children_statement = indoc!(
 			"
 				insert into object_children (object, child)
@@ -119,6 +172,17 @@ impl Server {
 		);
 		let mut children_statement = transaction
 			.prepare_cached(children_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare statement for object queue.
+		let queue_statement = indoc!(
+			"
+				insert into object_queue (object, kind, transaction_id)
+				values (?1, ?2, (select id from transaction_id));
+			"
+		);
+		let mut queue_statement = transaction
+			.prepare_cached(queue_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
@@ -143,7 +207,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Insert the object.
+			// Try to insert the object.
 			let params = sqlite::params![
 				&id.to_bytes().to_vec(),
 				cache_entry,
@@ -154,9 +218,37 @@ impl Server {
 				touched_at,
 				metadata.weight
 			];
-			objects_statement
+			let rows = insert_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let inserted = rows > 0;
+
+			// If not inserted, update instead.
+			if !inserted {
+				let params = sqlite::params![
+					&id.to_bytes().to_vec(),
+					cache_entry,
+					complete,
+					metadata.count,
+					metadata.depth,
+					size,
+					touched_at,
+					metadata.weight
+				];
+				update_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Only insert into queue if this was a new object.
+			if inserted {
+				for kind in [0, 1] {
+					let params = sqlite::params![&id.to_bytes().to_vec(), kind];
+					queue_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				}
+			}
 		}
 
 		Ok(())
@@ -190,7 +282,8 @@ impl Server {
 		messages: Vec<PutProcess>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
-		let process_statement = indoc!(
+		// Prepare insert statement for processes.
+		let insert_statement = indoc!(
 			"
 				insert into processes (
 					id,
@@ -238,7 +331,18 @@ impl Server {
 					?20,
 					(select id from transaction_id)
 				)
-				on conflict (id) do update set
+				on conflict (id) do nothing;
+			"
+		);
+		let mut insert_statement = transaction
+			.prepare_cached(insert_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare update statement for processes.
+		let update_statement = indoc!(
+			"
+				update processes
+				set
 					children_complete = children_complete or ?2,
 					children_count = coalesce(children_count, ?3),
 					command_complete = command_complete or ?4,
@@ -257,11 +361,12 @@ impl Server {
 					outputs_count = coalesce(outputs_count, ?17),
 					outputs_depth = coalesce(outputs_depth, ?18),
 					outputs_weight = coalesce(outputs_weight, ?19),
-					touched_at = ?20;
+					touched_at = ?20
+				where id = ?1;
 			"
 		);
-		let mut process_statement = transaction
-			.prepare_cached(process_statement)
+		let mut update_statement = transaction
+			.prepare_cached(update_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let object_statement = indoc!(
@@ -286,8 +391,19 @@ impl Server {
 			.prepare_cached(child_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+		// Prepare statement for process queue.
+		let queue_statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
+				values (?1, ?2, (select id from transaction_id));
+			"
+		);
+		let mut queue_statement = transaction
+			.prepare_cached(queue_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		for message in messages {
-			// Insert the process.
+			// Try to insert the process.
 			let params = sqlite::params![
 				message.id.to_bytes().to_vec(),
 				message.complete.children,
@@ -310,9 +426,39 @@ impl Server {
 				message.metadata.outputs.weight,
 				message.touched_at
 			];
-			process_statement
+			let rows = insert_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let inserted = rows > 0;
+
+			// If not inserted, update instead.
+			if !inserted {
+				let params = sqlite::params![
+					message.id.to_bytes().to_vec(),
+					message.complete.children,
+					message.metadata.children.count,
+					message.complete.command,
+					message.metadata.command.count,
+					message.metadata.command.depth,
+					message.metadata.command.weight,
+					message.complete.commands,
+					message.metadata.commands.count,
+					message.metadata.commands.depth,
+					message.metadata.commands.weight,
+					message.complete.output,
+					message.metadata.output.count,
+					message.metadata.output.depth,
+					message.metadata.output.weight,
+					message.complete.outputs,
+					message.metadata.outputs.count,
+					message.metadata.outputs.depth,
+					message.metadata.outputs.weight,
+					message.touched_at
+				];
+				update_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 
 			// Insert the children.
 			for (position, child) in message.children.iter().enumerate() {
@@ -336,6 +482,16 @@ impl Server {
 				object_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Only insert into queue if this was a new process.
+			if inserted {
+				for kind in [0, 1, 2, 3] {
+					let params = sqlite::params![message.id.to_bytes().to_vec(), kind];
+					queue_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				}
 			}
 		}
 

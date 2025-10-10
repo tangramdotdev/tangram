@@ -154,6 +154,7 @@ impl Server {
 				update processes
 				set
 					actual_checksum = {p}1,
+					depth = null,
 					error = {p}2,
 					error_code = {p}3,
 					finished_at = {p}4,
@@ -193,6 +194,20 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				delete from process_tokens where process = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Update token count to 0.
+		let statement = formatdoc!(
+			"
+				update processes
+				set token_count = 0
+				where id = {p}1;
 			"
 		);
 		let params = db::params![id.to_string()];

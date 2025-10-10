@@ -21,12 +21,6 @@ create table cache_entry_queue (
 
 create index cache_entry_queue_transaction_id_index on cache_entry_queue (transaction_id);
 
-create trigger cache_entry_insert_trigger
-after insert on cache_entries
-begin
-	insert into cache_entry_queue (cache_entry, transaction_id) values (new.id, (select id from transaction_id));
-end;
-
 create table objects (
 	id blob primary key,
 	cache_entry blob,
@@ -64,13 +58,6 @@ create table object_queue (
 create index object_queue_transaction_id_index on object_queue (transaction_id);
 
 create index object_queue_kind_index on object_queue (kind, id);
-
-create trigger object_queue_trigger
-after insert on objects
-begin
-	insert into object_queue (object, kind, transaction_id) values (new.id, 0, (select id from transaction_id));
-	insert into object_queue (object, kind, transaction_id) values (new.id, 1, (select id from transaction_id));
-end;
 
 create table processes (
 	id blob primary key,
@@ -132,15 +119,6 @@ create table process_queue (
 create index process_queue_transaction_id_index on process_queue (transaction_id);
 
 create index process_queue_kind_index on process_queue (kind, id);
-
-create trigger process_queue_trigger
-after insert on processes
-begin
-	insert into process_queue (process, kind, transaction_id) values (new.id, 0, (select id from transaction_id));
-	insert into process_queue (process, kind, transaction_id) values (new.id, 1, (select id from transaction_id));
-	insert into process_queue (process, kind, transaction_id) values (new.id, 2, (select id from transaction_id));
-	insert into process_queue (process, kind, transaction_id) values (new.id, 3, (select id from transaction_id));
-end;
 
 create table tags (
 	tag text primary key,

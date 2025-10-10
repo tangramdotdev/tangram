@@ -38,31 +38,6 @@ create index processes_status_index on processes (status);
 
 create index processes_token_count_index on processes (token_count) where token_count = 0 and status != 'finished';
 
-create trigger processes_delete_trigger
-after delete on processes
-for each row
-begin
-	delete from process_children
-	where process = old.id;
-
-	delete from process_tokens
-	where process = old.id;
-end;
-
-create trigger processes_update_depth_trigger
-after update of depth on processes
-for each row
-when new.depth <> old.depth
-begin
-	update processes
-	set depth = max(processes.depth, new.depth + 1)
-	where processes.id in (
-		select process
-		from process_children
-		where process_children.child = new.id
-	);
-end;
-
 create table process_tokens (
 	process text not null,
 	token text not null
@@ -71,24 +46,6 @@ create table process_tokens (
 create index process_tokens_process_index on process_tokens (process);
 
 create index process_tokens_token_index on process_tokens (token);
-
-create trigger process_tokens_insert_trigger
-after insert on process_tokens
-for each row
-begin
-	update processes
-	set token_count = token_count + 1
-	where id = new.process;
-end;
-
-create trigger process_tokens_delete_trigger
-after delete on process_tokens
-for each row
-begin
-	update processes
-	set token_count = token_count - 1
-	where id = old.process;
-end;
 
 create table process_children (
 	process text not null,
@@ -103,18 +60,6 @@ create unique index process_children_process_child_index on process_children (pr
 create unique index process_children_process_position_index on process_children (process, position);
 
 create index process_children_child_index on process_children (child);
-
-create trigger process_children_insert_trigger
-after insert on process_children
-for each row
-begin
-	update processes
-	set depth = max(
-		processes.depth,
-		(select depth from processes where id = new.child)
-	)
-	where processes.id = new.process;
-end;
 
 create table pipes (
 	id text primary key,
