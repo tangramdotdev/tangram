@@ -2026,7 +2026,6 @@ async fn tag_dependencies_after_clean() {
 	assert_eq!(output1, output2);
 }
 
-#[ignore = "unimplemented"]
 #[tokio::test]
 async fn update_tagged_package() {
 	let server = Server::new(TG).await.unwrap();
@@ -2090,21 +2089,19 @@ async fn update_tagged_package() {
 	    {
 	      "kind": "file",
 	      "dependencies": {
-	        "a/^1": {
+	        "a/%5E1": {
 	          "item": {
 	            "node": 2
 	          },
 	          "options": {
+	            "id": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
 	            "tag": "a/1.0.0"
 	          }
 	        }
 	      }
 	    },
 	    {
-	      "kind": "directory",
-	      "entries": {
-	        "tangram.ts": "fil_0124wz8r6hhv205c0xxe0k2dq20yrbs71cpjr74np8rhrtak3jnv1g"
-	      }
+	      "kind": "directory"
 	    }
 	  ]
 	}
