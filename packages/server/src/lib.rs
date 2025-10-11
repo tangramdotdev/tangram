@@ -21,7 +21,7 @@ use {
 	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
-	tangram_futures::task::{Task, TaskMap},
+	tangram_futures::task::Task,
 	tangram_messenger::prelude::*,
 	tangram_uri::Uri,
 	tokio::io::AsyncWriteExt as _,
@@ -95,14 +95,15 @@ pub struct Inner {
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
-	task: Mutex<Option<Task<()>>>,
+	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 	tasks: TaskTracker,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
-type CacheTaskMap = TaskMap<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
+type CacheTaskMap =
+	tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
 
 struct Http {
 	url: Uri,
@@ -116,7 +117,7 @@ struct ProcessPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type ProcessTaskMap = TaskMap<tg::process::Id, (), fnv::FnvBuildHasher>;
+type ProcessTaskMap = tangram_futures::task::Map<tg::process::Id, (), fnv::FnvBuildHasher>;
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {
@@ -202,7 +203,7 @@ impl Server {
 		tokio::fs::remove_file(&socket_path).await.ok();
 
 		// Create the artifact cache task map.
-		let cache_task_map = TaskMap::default();
+		let cache_task_map = tangram_futures::task::Map::default();
 
 		// Create the HTTP configuration.
 		let http = config.http.as_ref().map(|config| {
@@ -226,7 +227,7 @@ impl Server {
 		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the process task map.
-		let process_task_map = TaskMap::default();
+		let process_task_map = tangram_futures::task::Map::default();
 
 		// Create the compilers.
 		#[cfg(feature = "v8")]
@@ -844,7 +845,7 @@ impl Server {
 		};
 
 		// Spawn the task.
-		let task = Task::spawn(|stop| async move {
+		let task = tangram_futures::task::Shared::spawn(|stop| async move {
 			stop.wait().await;
 			shutdown.await;
 		});

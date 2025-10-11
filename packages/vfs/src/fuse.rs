@@ -21,7 +21,7 @@ use {
 		sync::{Arc, Mutex},
 	},
 	sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in},
-	tangram_futures::task::{Stop, Task},
+	tangram_futures::task::Stop,
 	zerocopy::{FromBytes as _, IntoBytes as _},
 };
 
@@ -31,7 +31,7 @@ pub struct Server<P>(Arc<Inner<P>>);
 
 pub struct Inner<P> {
 	provider: P,
-	task: Mutex<Option<Task<()>>>,
+	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 }
 
 /// A request.
@@ -120,7 +120,7 @@ where
 		});
 
 		// Spawn the request handler task.
-		let request_handler_task = Task::spawn(|stop| {
+		let request_handler_task = tangram_futures::task::Task::spawn(|stop| {
 			let server = server.clone();
 			let path = path.to_owned();
 			async move {
@@ -136,7 +136,7 @@ where
 		};
 
 		// Spawn the task.
-		let task = Task::spawn(|stop| async move {
+		let task = tangram_futures::task::Shared::spawn(|stop| async move {
 			stop.wait().await;
 			shutdown.await;
 		});

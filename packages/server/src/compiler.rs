@@ -12,7 +12,7 @@ use {
 		sync::{Arc, Mutex, RwLock},
 	},
 	tangram_client as tg,
-	tangram_futures::task::{Stop, Task},
+	tangram_futures::task::Stop,
 	tangram_http::{Body, response::builder::Ext as _},
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 	tokio::io::{
@@ -64,13 +64,13 @@ pub struct Inner {
 	sender: RwLock<Option<tokio::sync::mpsc::UnboundedSender<jsonrpc::Message>>>,
 
 	/// The serve task.
-	serve_task: tokio::sync::Mutex<Option<Task<()>>>,
+	serve_task: tokio::sync::Mutex<Option<tangram_futures::task::Shared<()>>>,
 
 	/// The server.
 	server: Server,
 
 	/// The task.
-	task: Mutex<Option<Task<()>>>,
+	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 
 	/// The task tracker.
 	task_tracker: tokio::sync::Mutex<Option<tokio_util::task::TaskTracker>>,
@@ -174,7 +174,7 @@ impl Compiler {
 		};
 
 		// Spawn the task.
-		let task = Task::spawn(|stop| async move {
+		let task = tangram_futures::task::Shared::spawn(|stop| async move {
 			stop.wait().await;
 			shutdown.await;
 		});
@@ -196,7 +196,7 @@ impl Compiler {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let task = Task::spawn(|stop| {
+		let task = tangram_futures::task::Shared::spawn(|stop| {
 			let compiler = self.clone();
 			async move {
 				compiler.serve_inner(input, output, stop).await;

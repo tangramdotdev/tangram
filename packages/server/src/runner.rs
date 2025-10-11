@@ -4,7 +4,6 @@ use {
 	std::{collections::BTreeSet, sync::Arc, time::Duration},
 	tangram_client::{self as tg, prelude::*},
 	tangram_either::Either,
-	tangram_futures::task::Task,
 };
 
 impl Server {
@@ -67,18 +66,15 @@ impl Server {
 
 	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
 		// Spawn the process task.
-		self.process_task_map.spawn(
-			process.id().clone(),
-			Task::spawn(|_| {
-				let server = self.clone();
-				let process = process.clone();
-				async move { server.process_task(&process, permit).await }
-					.inspect_err(|error| {
-						tracing::error!(?error, "the process task failed");
-					})
-					.map(|_| ())
-			}),
-		);
+		self.process_task_map.spawn(process.id().clone(), |_| {
+			let server = self.clone();
+			let process = process.clone();
+			async move { server.process_task(&process, permit).await }
+				.inspect_err(|error| {
+					tracing::error!(?error, "the process task failed");
+				})
+				.map(|_| ())
+		});
 
 		// Spawn the heartbeat task.
 		tokio::spawn({

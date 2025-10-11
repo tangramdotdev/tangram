@@ -5898,6 +5898,7 @@ dependencies = [
  "futures",
  "pin-project",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

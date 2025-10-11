@@ -285,7 +285,7 @@ impl Runtime {
 			.unwrap();
 
 		// Stop and await the proxy task.
-		if let Some(task) = proxy.as_ref().map(|(proxy, _)| proxy) {
+		if let Some((task, _)) = proxy {
 			task.stop();
 			task.wait().await.unwrap();
 		}

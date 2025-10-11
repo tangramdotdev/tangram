@@ -47,7 +47,7 @@ use {
 		sync::{Arc, Mutex, atomic::AtomicU64},
 		time::Duration,
 	},
-	tangram_futures::task::{Stop, Task},
+	tangram_futures::task::Stop,
 	tokio::net::{TcpListener, TcpStream},
 };
 
@@ -68,7 +68,7 @@ pub struct Inner<P> {
 	path: PathBuf,
 	port: u16,
 	provider: Provider<P>,
-	task: Mutex<Option<Task<()>>>,
+	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 }
 
 struct ClientData {
@@ -121,7 +121,7 @@ where
 		Self::mount(&server.path, &server.host, server.port).await?;
 
 		// Spawn the task.
-		let request_handler_task = Task::spawn(|stop| {
+		let request_handler_task = tangram_futures::task::Task::spawn(|stop| {
 			let server = server.clone();
 			async move {
 				server
@@ -140,7 +140,7 @@ where
 		};
 
 		// Spawn the task.
-		let task = Task::spawn(|stop| async move {
+		let task = tangram_futures::task::Shared::spawn(|stop| async move {
 			stop.wait().await;
 			shutdown.await;
 		});
