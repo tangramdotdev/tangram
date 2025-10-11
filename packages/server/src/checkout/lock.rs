@@ -2,9 +2,9 @@ use {crate::Server, std::collections::HashMap, tangram_client as tg};
 
 struct State {
 	dependencies: bool,
-	graphs: HashMap<tg::graph::Id, tg::graph::Data, fnv::FnvBuildHasher>,
+	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	nodes: Vec<Option<tg::graph::data::Node>>,
-	visited: HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
+	visited: HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
 }
 
 impl Server {

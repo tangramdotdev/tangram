@@ -6,7 +6,7 @@ use {
 	tangram_client as tg,
 };
 
-pub struct Memory(DashMap<tg::object::Id, Entry, fnv::FnvBuildHasher>);
+pub struct Memory(DashMap<tg::object::Id, Entry, tg::id::BuildHasher>);
 
 struct Entry {
 	bytes: Option<Bytes>,

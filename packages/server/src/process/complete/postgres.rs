@@ -346,7 +346,7 @@ impl Server {
 				};
 				(id, (complete, metadata))
 			})
-			.collect::<HashMap<_, _, fnv::FnvBuildHasher>>();
+			.collect::<HashMap<_, _, tg::id::BuildHasher>>();
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
 		Ok(output)
 	}

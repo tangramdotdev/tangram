@@ -19,10 +19,10 @@ use {
 struct State {
 	artifact: tg::artifact::Id,
 	depth: usize,
-	graphs: HashMap<tg::graph::Id, tg::graph::Data, fnv::FnvBuildHasher>,
+	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	path: PathBuf,
 	progress: crate::progress::Handle<()>,
-	visited: im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
+	visited: im::HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 }
 
 impl Server {
@@ -244,7 +244,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
-		visited: &im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
+		visited: &im::HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
 		let server = self.clone();
@@ -274,7 +274,7 @@ impl Server {
 		&self,
 		id: &tg::artifact::Id,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-		visited: im::HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
+		visited: im::HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
 		// Create the path.

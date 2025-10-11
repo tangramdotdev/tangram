@@ -184,7 +184,7 @@ impl Scylla {
 		&self,
 		ids: &[tg::object::Id],
 		statement: &scylla::statement::prepared::PreparedStatement,
-	) -> tg::Result<HashMap<tg::object::Id, Bytes, fnv::FnvBuildHasher>> {
+	) -> tg::Result<HashMap<tg::object::Id, Bytes, tg::id::BuildHasher>> {
 		let ids = ids
 			.iter()
 			.map(|id| id.to_bytes().to_vec())

@@ -19,9 +19,9 @@ struct Context<'a> {
 struct Checkpoint<'a> {
 	candidates: Option<im::Vector<Candidate>>,
 	graph: Graph,
-	graphs: im::HashMap<tg::graph::Id, tg::graph::Data, fnv::FnvBuildHasher>,
+	graphs: im::HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	graph_nodes: im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>,
-	ids: im::HashMap<tg::artifact::Id, usize, fnv::FnvBuildHasher>,
+	ids: im::HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
 	queue: im::Vector<Item>,
 	lock: Option<&'a tg::graph::Data>,
 	tags: im::HashMap<tg::Tag, tg::Referent<usize>, fnv::FnvBuildHasher>,

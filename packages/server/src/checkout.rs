@@ -24,10 +24,10 @@ struct State {
 	artifact: tg::artifact::Id,
 	artifacts_path: Option<PathBuf>,
 	artifacts_path_created: bool,
-	graphs: HashMap<tg::graph::Id, tg::graph::Data, fnv::FnvBuildHasher>,
+	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
-	visited: HashSet<tg::artifact::Id, fnv::FnvBuildHasher>,
+	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 }
 
 impl Server {

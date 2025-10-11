@@ -87,11 +87,11 @@ pub struct Inner {
 	lock_file: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
-	pipes: DashMap<tg::pipe::Id, pipe::Pipe>,
+	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
 	process_task_map: ProcessTaskMap,
-	ptys: DashMap<tg::pty::Id, pty::Pty>,
+	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
@@ -103,21 +103,21 @@ pub struct Inner {
 }
 
 type CacheTaskMap =
-	tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, fnv::FnvBuildHasher>;
+	tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, tg::id::BuildHasher>;
 
 struct Http {
 	url: Uri,
 }
 
 type ProcessPermits =
-	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<ProcessPermit>>>, fnv::FnvBuildHasher>;
+	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<ProcessPermit>>>, tg::id::BuildHasher>;
 
 struct ProcessPermit(
 	#[allow(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type ProcessTaskMap = tangram_futures::task::Map<tg::process::Id, (), fnv::FnvBuildHasher>;
+type ProcessTaskMap = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {
@@ -415,8 +415,8 @@ impl Server {
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
-		let pipes = DashMap::new();
-		let ptys = DashMap::new();
+		let pipes = DashMap::default();
+		let ptys = DashMap::default();
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {

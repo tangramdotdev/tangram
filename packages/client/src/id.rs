@@ -1,6 +1,6 @@
 use {
 	crate as tg,
-	byteorder::{ReadBytesExt as _, WriteBytesExt as _},
+	byteorder::{ByteOrder as _, ReadBytesExt as _, WriteBytesExt as _},
 	bytes::Bytes,
 };
 
@@ -8,7 +8,6 @@ use {
 #[derive(
 	Clone,
 	Eq,
-	Hash,
 	Ord,
 	PartialEq,
 	PartialOrd,
@@ -335,5 +334,37 @@ impl tangram_serialize::Deserialize for Id {
 		let bytes = deserializer.deserialize_bytes()?;
 		let id = Self::from_slice(&bytes).map_err(std::io::Error::other)?;
 		Ok(id)
+	}
+}
+
+impl std::hash::Hash for Id {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		state.write(self.body.as_slice());
+	}
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct BuildHasher;
+
+impl std::hash::BuildHasher for BuildHasher {
+	type Hasher = Hasher;
+
+	fn build_hasher(&self) -> Self::Hasher {
+		Hasher::default()
+	}
+}
+
+#[derive(Default)]
+pub struct Hasher {
+	hash: u64,
+}
+
+impl std::hash::Hasher for Hasher {
+	fn finish(&self) -> u64 {
+		self.hash
+	}
+
+	fn write(&mut self, bytes: &[u8]) {
+		self.hash = byteorder::NativeEndian::read_u64(bytes);
 	}
 }

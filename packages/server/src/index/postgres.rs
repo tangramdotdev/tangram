@@ -3,7 +3,6 @@ use {
 		DeleteTag, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject, TouchProcess,
 	},
 	crate::Server,
-	fnv::FnvBuildHasher,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::collections::{HashMap, HashSet},
@@ -40,20 +39,24 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		let put_cache_entry_messages: HashMap<&tg::artifact::Id, &PutCacheEntry, FnvBuildHasher> =
-			put_cache_entry_messages.iter().fold(
-				HashMap::with_hasher(FnvBuildHasher::default()),
-				|mut acc, message| {
-					acc.entry(&message.id)
-						.and_modify(|existing| {
-							if message.touched_at > existing.touched_at {
-								*existing = message;
-							}
-						})
-						.or_insert(message);
-					acc
-				},
-			);
+		let put_cache_entry_messages: HashMap<
+			&tg::artifact::Id,
+			&PutCacheEntry,
+			tg::id::BuildHasher,
+		> = put_cache_entry_messages.iter().fold(
+			HashMap::with_hasher(tg::id::BuildHasher),
+			|mut messages, message| {
+				messages
+					.entry(&message.id)
+					.and_modify(|existing| {
+						if message.touched_at > existing.touched_at {
+							*existing = message;
+						}
+					})
+					.or_insert(message);
+				messages
+			},
+		);
 		let cache_entry_ids = put_cache_entry_messages
 			.values()
 			.map(|message| message.id.to_bytes().to_vec())
@@ -64,7 +67,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare put object parameters.
-		let put_object_messages: HashMap<&tg::object::Id, &PutObject, fnv::FnvBuildHasher> =
+		let put_object_messages: HashMap<&tg::object::Id, &PutObject, tg::id::BuildHasher> =
 			put_object_messages
 				.iter()
 				.map(|message| (&message.id, message))
@@ -125,18 +128,19 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare touch object parameters.
-		let touch_object_messages: HashMap<&tg::object::Id, &TouchObject, FnvBuildHasher> =
+		let touch_object_messages: HashMap<&tg::object::Id, &TouchObject, tg::id::BuildHasher> =
 			touch_object_messages.iter().fold(
-				HashMap::with_hasher(FnvBuildHasher::default()),
-				|mut acc, message| {
-					acc.entry(&message.id)
+				HashMap::with_hasher(tg::id::BuildHasher),
+				|mut messages, message| {
+					messages
+						.entry(&message.id)
 						.and_modify(|existing| {
 							if message.touched_at > existing.touched_at {
 								*existing = message;
 							}
 						})
 						.or_insert(message);
-					acc
+					messages
 				},
 			);
 		let touch_object_touched_ats = touch_object_messages
@@ -149,7 +153,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare put process parameters.
-		let put_process_messages: HashMap<&tg::process::Id, &PutProcess, fnv::FnvBuildHasher> =
+		let put_process_messages: HashMap<&tg::process::Id, &PutProcess, tg::id::BuildHasher> =
 			put_process_messages
 				.iter()
 				.map(|message| (&message.id, message))
@@ -354,18 +358,19 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare touch process parameters.
-		let touch_process_messages: HashMap<&tg::process::Id, &TouchProcess, fnv::FnvBuildHasher> =
+		let touch_process_messages: HashMap<&tg::process::Id, &TouchProcess, tg::id::BuildHasher> =
 			touch_process_messages.iter().fold(
-				HashMap::with_hasher(FnvBuildHasher::default()),
-				|mut acc, message| {
-					acc.entry(&message.id)
+				HashMap::with_hasher(tg::id::BuildHasher),
+				|mut messages, message| {
+					messages
+						.entry(&message.id)
 						.and_modify(|existing| {
 							if message.touched_at > existing.touched_at {
 								*existing = message;
 							}
 						})
 						.or_insert(message);
-					acc
+					messages
 				},
 			);
 		let touch_process_touched_ats = touch_process_messages

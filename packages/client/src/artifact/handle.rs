@@ -162,7 +162,7 @@ impl Artifact {
 	pub async fn recursive_dependencies<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<HashSet<Id, fnv::FnvBuildHasher>>
+	) -> tg::Result<HashSet<Id, tg::id::BuildHasher>>
 	where
 		H: tg::Handle,
 	{
@@ -176,7 +176,7 @@ impl Artifact {
 	async fn recursive_dependencies_inner<H>(
 		&self,
 		handle: &H,
-		output: Arc<Mutex<HashSet<Id, std::hash::BuildHasherDefault<fnv::FnvHasher>>>>,
+		output: Arc<Mutex<HashSet<Id, tg::id::BuildHasher>>>,
 	) -> tg::Result<()>
 	where
 		H: tg::Handle,

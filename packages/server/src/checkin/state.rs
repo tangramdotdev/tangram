@@ -15,7 +15,7 @@ use {
 pub struct State {
 	pub arg: tg::checkin::Arg,
 	pub artifacts_path: Option<PathBuf>,
-	pub blobs: HashMap<tg::blob::Id, Blob, fnv::FnvBuildHasher>,
+	pub blobs: HashMap<tg::blob::Id, Blob, tg::id::BuildHasher>,
 	pub fixup_sender: Option<std::sync::mpsc::Sender<FixupMessage>>,
 	pub graph: Graph,
 	pub ignorer: Option<ignore::Ignorer>,
