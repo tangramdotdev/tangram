@@ -134,11 +134,11 @@ impl Server {
 		struct Row {
 			children_complete: bool,
 			children_count: Option<u64>,
-			commands_complete: bool,
+			children_commands_complete: bool,
 			children_commands_count: Option<u64>,
 			children_commands_depth: Option<u64>,
 			children_commands_weight: Option<u64>,
-			outputs_complete: bool,
+			children_outputs_complete: bool,
 			children_outputs_count: Option<u64>,
 			children_outputs_depth: Option<u64>,
 			children_outputs_weight: Option<u64>,
@@ -190,8 +190,8 @@ impl Server {
 		let output = row.map(|row| {
 			let complete = Output {
 				children: row.children_complete,
-				children_commands: row.commands_complete,
-				children_outputs: row.outputs_complete,
+				children_commands: row.children_commands_complete,
+				children_outputs: row.children_outputs_complete,
 				command: row.command_complete,
 				output: row.output_complete,
 			};
