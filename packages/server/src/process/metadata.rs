@@ -67,15 +67,15 @@ impl Server {
 			command_count: Option<u64>,
 			command_depth: Option<u64>,
 			command_weight: Option<u64>,
-			commands_count: Option<u64>,
-			commands_depth: Option<u64>,
-			commands_weight: Option<u64>,
+			children_commands_count: Option<u64>,
+			children_commands_depth: Option<u64>,
+			children_commands_weight: Option<u64>,
 			output_count: Option<u64>,
 			output_depth: Option<u64>,
 			output_weight: Option<u64>,
-			outputs_count: Option<u64>,
-			outputs_depth: Option<u64>,
-			outputs_weight: Option<u64>,
+			children_outputs_count: Option<u64>,
+			children_outputs_depth: Option<u64>,
+			children_outputs_weight: Option<u64>,
 		}
 		let statement = formatdoc!(
 			"
@@ -84,15 +84,15 @@ impl Server {
 					command_count,
 					command_depth,
 					command_weight,
-					commands_count,
-					commands_depth,
-					commands_weight,
+					children_commands_count,
+					children_commands_depth,
+					children_commands_weight,
 					output_count,
 					output_depth,
 					output_weight,
-					outputs_count,
-					outputs_depth,
-					outputs_weight
+					children_outputs_count,
+					children_outputs_depth,
+					children_outputs_weight
 				from processes
 				where processes.id = {p}1;
 			"
@@ -112,27 +112,27 @@ impl Server {
 					depth: row.command_depth,
 					weight: row.command_weight,
 				};
-				let commands = tg::object::Metadata {
-					count: row.commands_count,
-					depth: row.commands_depth,
-					weight: row.commands_weight,
+				let children_commands = tg::object::Metadata {
+					count: row.children_commands_count,
+					depth: row.children_commands_depth,
+					weight: row.children_commands_weight,
 				};
 				let output = tg::object::Metadata {
 					count: row.output_count,
 					depth: row.output_depth,
 					weight: row.output_weight,
 				};
-				let outputs = tg::object::Metadata {
-					count: row.outputs_count,
-					depth: row.outputs_depth,
-					weight: row.outputs_weight,
+				let children_outputs = tg::object::Metadata {
+					count: row.children_outputs_count,
+					depth: row.children_outputs_depth,
+					weight: row.children_outputs_weight,
 				};
 				tg::process::Metadata {
 					children,
+					children_commands,
+					children_outputs,
 					command,
-					commands,
 					output,
-					outputs,
 				}
 			});
 
@@ -171,15 +171,15 @@ impl Server {
 					command_count,
 					command_depth,
 					command_weight,
-					commands_count,
-					commands_depth,
-					commands_weight,
+					children_commands_count,
+					children_commands_depth,
+					children_commands_weight,
 					output_count,
 					output_depth,
 					output_weight,
-					outputs_count,
-					outputs_depth,
-					outputs_weight
+					children_outputs_count,
+					children_outputs_depth,
+					children_outputs_weight
 				from processes
 				where processes.id = ?1;
 			"
@@ -208,13 +208,13 @@ impl Server {
 		let command_weight = row
 			.get::<_, Option<u64>>(3)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_count = row
+		let children_commands_count = row
 			.get::<_, Option<u64>>(4)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_depth = row
+		let children_commands_depth = row
 			.get::<_, Option<u64>>(5)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_weight = row
+		let children_commands_weight = row
 			.get::<_, Option<u64>>(6)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let output_count = row
@@ -226,13 +226,13 @@ impl Server {
 		let output_weight = row
 			.get::<_, Option<u64>>(9)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let outputs_count = row
+		let children_outputs_count = row
 			.get::<_, Option<u64>>(10)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let outputs_depth = row
+		let children_outputs_depth = row
 			.get::<_, Option<u64>>(11)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let outputs_weight = row
+		let children_outputs_weight = row
 			.get::<_, Option<u64>>(12)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let children = tg::process::metadata::Children {
@@ -243,27 +243,27 @@ impl Server {
 			depth: command_depth,
 			weight: command_weight,
 		};
-		let commands = tg::object::Metadata {
-			count: commands_count,
-			depth: commands_depth,
-			weight: commands_weight,
+		let children_commands = tg::object::Metadata {
+			count: children_commands_count,
+			depth: children_commands_depth,
+			weight: children_commands_weight,
 		};
 		let output = tg::object::Metadata {
 			count: output_count,
 			depth: output_depth,
 			weight: output_weight,
 		};
-		let outputs = tg::object::Metadata {
-			count: outputs_count,
-			depth: outputs_depth,
-			weight: outputs_weight,
+		let children_outputs = tg::object::Metadata {
+			count: children_outputs_count,
+			depth: children_outputs_depth,
+			weight: children_outputs_weight,
 		};
 		let metadata = tg::process::Metadata {
 			children,
+			children_commands,
+			children_outputs,
 			command,
-			commands,
 			output,
-			outputs,
 		};
 		Ok(Some(metadata))
 	}

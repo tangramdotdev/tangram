@@ -26,20 +26,20 @@ pub struct Metadata {
 	pub children: Children,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
+	pub children_commands: tg::object::Metadata,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
+	pub children_outputs: tg::object::Metadata,
+
+	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
 	pub command: tg::object::Metadata,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
-	pub commands: tg::object::Metadata,
-
-	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
 	pub output: tg::object::Metadata,
-
-	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
-	pub outputs: tg::object::Metadata,
 }
 
 #[derive(

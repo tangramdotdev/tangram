@@ -189,8 +189,8 @@ impl Server {
 							}
 						}
 						if (arg.recursive && !complete.children)
-							|| (arg.commands && !complete.commands)
-							|| (arg.outputs && !complete.outputs)
+							|| (arg.commands && !complete.children_commands)
+							|| (arg.outputs && !complete.children_outputs)
 						{
 							if let Some(children) = data.children {
 								for referent in children {

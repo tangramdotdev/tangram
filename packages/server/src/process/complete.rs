@@ -25,20 +25,20 @@ pub struct Output {
 	pub children: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
+	pub children_commands: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
+	pub children_outputs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
 	pub command: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
-	pub commands: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
 	pub output: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
-	pub outputs: bool,
 }
 
 impl Server {

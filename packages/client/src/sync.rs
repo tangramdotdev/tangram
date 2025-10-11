@@ -136,13 +136,13 @@ pub struct ProcessCompleteMessage {
 	pub command_complete: bool,
 
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
-	pub commands_complete: bool,
+	pub children_commands_complete: bool,
 
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
 	pub output_complete: bool,
 
 	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
-	pub outputs_complete: bool,
+	pub children_outputs_complete: bool,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
