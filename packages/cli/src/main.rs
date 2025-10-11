@@ -104,8 +104,12 @@ struct Args {
 	quiet: bool,
 
 	/// Override the `remotes` key in the config.
-	#[arg(long, short, value_delimiter = ',')]
+	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
 	remotes: Option<Vec<String>>,
+
+	/// Set remotes to empty, overriding the config.
+	#[arg(long, conflicts_with = "remotes")]
+	no_remotes: bool,
 
 	/// Override the `url` key in the config.
 	#[arg(env = "TANGRAM_URL", long, short)]
@@ -830,7 +834,9 @@ impl Cli {
 		}
 
 		// Set the remotes config.
-		if let Some(remotes) = &self.args.remotes {
+		if self.args.no_remotes {
+			config.remotes = Some(vec![]);
+		} else if let Some(remotes) = &self.args.remotes {
 			config.remotes = Some(
 				remotes
 					.iter()
@@ -1031,7 +1037,9 @@ impl Cli {
 			args.push("-d".to_owned());
 			args.push(directory.to_string_lossy().into_owned());
 		}
-		if let Some(remotes) = &self.args.remotes {
+		if self.args.no_remotes {
+			args.push("--no-remotes".to_owned());
+		} else if let Some(remotes) = &self.args.remotes {
 			args.push("-r".to_owned());
 			args.push(remotes.join(","));
 		}
