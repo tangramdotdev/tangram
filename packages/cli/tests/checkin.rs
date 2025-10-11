@@ -2156,13 +2156,19 @@ async fn update_tagged_package() {
 	    {
 	      "kind": "file",
 	      "dependencies": {
-	        "a/^1": {
-	          "item": "dir_013a21q59fsmhghm22hyzfnbh9c9j0h4h1v6ep59t8f7tyvs8vdpeg",
+	        "a/%5E1": {
+	          "item": {
+	            "node": 2
+	          },
 	          "options": {
+	            "id": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
 	            "tag": "a/1.0.0"
 	          }
 	        }
 	      }
+	    },
+	    {
+	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -2198,21 +2204,19 @@ async fn update_tagged_package() {
 	    {
 	      "kind": "file",
 	      "dependencies": {
-	        "a/^1": {
+	        "a/%5E1": {
 	          "item": {
 	            "node": 2
 	          },
 	          "options": {
+	            "id": "dir_01q46gmjms1bbs1hqz1jwq076c3w8gyghm5anbj8nx9sffephf8nyg",
 	            "tag": "a/1.1.0"
 	          }
 	        }
 	      }
 	    },
 	    {
-	      "kind": "directory",
-	      "entries": {
-	        "tangram.ts": "fil_01es7rz5mgcv9zas8dnavagvd3j80nz8vzvgar41fw7xt2b66qa3j0"
-	      }
+	      "kind": "directory"
 	    }
 	  ]
 	}
