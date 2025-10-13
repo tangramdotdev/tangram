@@ -212,14 +212,14 @@ impl Server {
 			.collect::<Vec<_>>();
 		let process_children_commands_completes = put_process_messages
 			.values()
-			.map(|message| message.complete.commands)
+			.map(|message| message.complete.children_commands)
 			.collect::<Vec<_>>();
 		let process_children_commands_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.commands
+					.children_commands
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -229,7 +229,7 @@ impl Server {
 			.map(|message| {
 				message
 					.metadata
-					.commands
+					.children_commands
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -239,7 +239,7 @@ impl Server {
 			.map(|message| {
 				message
 					.metadata
-					.commands
+					.children_commands
 					.weight
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -280,14 +280,14 @@ impl Server {
 			.collect::<Vec<_>>();
 		let process_children_outputs_completes = put_process_messages
 			.values()
-			.map(|message| message.complete.outputs)
+			.map(|message| message.complete.children_outputs)
 			.collect::<Vec<_>>();
 		let process_children_outputs_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.outputs
+					.children_outputs
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -297,7 +297,7 @@ impl Server {
 			.map(|message| {
 				message
 					.metadata
-					.outputs
+					.children_outputs
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -307,7 +307,7 @@ impl Server {
 			.map(|message| {
 				message
 					.metadata
-					.outputs
+					.children_outputs
 					.weight
 					.map(|value| value.to_i64().unwrap())
 			})
