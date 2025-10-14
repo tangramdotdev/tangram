@@ -289,22 +289,22 @@ impl Server {
 					id,
 					children_complete,
 					children_count,
+					children_commands_complete,
+					children_commands_count,
+					children_commands_depth,
+					children_commands_weight,
+					children_outputs_complete,
+					children_outputs_count,
+					children_outputs_depth,
+					children_outputs_weight,
 					command_complete,
 					command_count,
 					command_depth,
 					command_weight,
-					commands_complete,
-					commands_count,
-					commands_depth,
-					commands_weight,
 					output_complete,
 					output_count,
 					output_depth,
 					output_weight,
-					outputs_complete,
-					outputs_count,
-					outputs_depth,
-					outputs_weight,
 					touched_at,
 					transaction_id
 				)
@@ -345,22 +345,22 @@ impl Server {
 				set
 					children_complete = children_complete or ?2,
 					children_count = coalesce(children_count, ?3),
-					command_complete = command_complete or ?4,
-					command_count = coalesce(command_count, ?5),
-					command_depth = coalesce(command_depth, ?6),
-					command_weight = coalesce(command_weight, ?7),
-					commands_complete = commands_complete or ?8,
-					commands_count = coalesce(commands_count, ?9),
-					commands_depth = coalesce(commands_depth, ?10),
-					commands_weight = coalesce(commands_weight, ?11),
-					output_complete = output_complete or ?12,
-					output_count = coalesce(output_count, ?13),
-					output_depth = coalesce(output_depth, ?14),
-					output_weight = coalesce(output_weight, ?15),
-					outputs_complete = outputs_complete or ?16,
-					outputs_count = coalesce(outputs_count, ?17),
-					outputs_depth = coalesce(outputs_depth, ?18),
-					outputs_weight = coalesce(outputs_weight, ?19),
+					children_commands_complete = children_commands_complete or ?4,
+					children_commands_count = coalesce(children_commands_count, ?5),
+					children_commands_depth = coalesce(children_commands_depth, ?6),
+					children_commands_weight = coalesce(children_commands_weight, ?7),
+					children_outputs_complete = children_outputs_complete or ?8,
+					children_outputs_count = coalesce(children_outputs_count, ?9),
+					children_outputs_depth = coalesce(children_outputs_depth, ?10),
+					children_outputs_weight = coalesce(children_outputs_weight, ?11),
+					command_complete = command_complete or ?12,
+					command_count = coalesce(command_count, ?13),
+					command_depth = coalesce(command_depth, ?14),
+					command_weight = coalesce(command_weight, ?15),
+					output_complete = output_complete or ?16,
+					output_count = coalesce(output_count, ?17),
+					output_depth = coalesce(output_depth, ?18),
+					output_weight = coalesce(output_weight, ?19),
 					touched_at = ?20
 				where id = ?1;
 			"
@@ -408,22 +408,22 @@ impl Server {
 				message.id.to_bytes().to_vec(),
 				message.complete.children,
 				message.metadata.children.count,
+				message.complete.children_commands,
+				message.metadata.children_commands.count,
+				message.metadata.children_commands.depth,
+				message.metadata.children_commands.weight,
+				message.complete.children_outputs,
+				message.metadata.children_outputs.count,
+				message.metadata.children_outputs.depth,
+				message.metadata.children_outputs.weight,
 				message.complete.command,
 				message.metadata.command.count,
 				message.metadata.command.depth,
 				message.metadata.command.weight,
-				message.complete.commands,
-				message.metadata.commands.count,
-				message.metadata.commands.depth,
-				message.metadata.commands.weight,
 				message.complete.output,
 				message.metadata.output.count,
 				message.metadata.output.depth,
 				message.metadata.output.weight,
-				message.complete.outputs,
-				message.metadata.outputs.count,
-				message.metadata.outputs.depth,
-				message.metadata.outputs.weight,
 				message.touched_at
 			];
 			let rows = insert_statement
@@ -437,22 +437,22 @@ impl Server {
 					message.id.to_bytes().to_vec(),
 					message.complete.children,
 					message.metadata.children.count,
+					message.complete.children_commands,
+					message.metadata.children_commands.count,
+					message.metadata.children_commands.depth,
+					message.metadata.children_commands.weight,
+					message.complete.children_outputs,
+					message.metadata.children_outputs.count,
+					message.metadata.children_outputs.depth,
+					message.metadata.children_outputs.weight,
 					message.complete.command,
 					message.metadata.command.count,
 					message.metadata.command.depth,
 					message.metadata.command.weight,
-					message.complete.commands,
-					message.metadata.commands.count,
-					message.metadata.commands.depth,
-					message.metadata.commands.weight,
 					message.complete.output,
 					message.metadata.output.count,
 					message.metadata.output.depth,
 					message.metadata.output.weight,
-					message.complete.outputs,
-					message.metadata.outputs.count,
-					message.metadata.outputs.depth,
-					message.metadata.outputs.weight,
 					message.touched_at
 				];
 				update_statement
@@ -814,7 +814,7 @@ impl Server {
 				select process, 2, ?2
 				from process_objects
 				join processes on processes.id = process_objects.process
-				where process_objects.object = ?1 and processes.commands_complete = 0;
+				where process_objects.object = ?1 and processes.children_commands_complete = 0;
 			"
 		);
 		let mut enqueue_incomplete_commands_processes_statement =
@@ -831,7 +831,7 @@ impl Server {
 				select process, 3, ?2
 				from process_objects
 				join processes on processes.id = process_objects.process
-				where process_objects.object = ?1 and processes.outputs_complete = 0;
+				where process_objects.object = ?1 and processes.children_outputs_complete = 0;
 			"
 		);
 		let mut enqueue_incomplete_outputs_processes_statement =
@@ -1030,23 +1030,23 @@ impl Server {
 			})?;
 		let statement = indoc!(
 			"
-				select commands_complete
+				select children_commands_complete
 				from processes
 				where id = ?1;
 			"
 		);
-		let mut commands_complete_statement =
+		let mut children_commands_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the commands complete statement")
 			})?;
 		let statement = indoc!(
 			"
-				select outputs_complete
+				select children_outputs_complete
 				from processes
 				where id = ?1;
 			"
 		);
-		let mut outputs_complete_statement =
+		let mut children_outputs_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the outputs complete statement")
 			})?;
@@ -1078,7 +1078,7 @@ impl Server {
 				join processes on processes.id = process_children.process
 				where
 					process_children.child = ?1
-					and processes.commands_complete = 0;
+					and processes.children_commands_complete = 0;
 			"
 		);
 		let mut enqueue_incomplete_commands_parents_statement =
@@ -1097,7 +1097,7 @@ impl Server {
 				join processes on processes.id = process_children.process
 				where
 					process_children.child = ?1
-					and processes.outputs_complete = 0;
+					and processes.children_outputs_complete = 0;
 			"
 		);
 		let mut enqueue_incomplete_outputs_parents_statement =
@@ -1146,10 +1146,10 @@ impl Server {
 			"
 				update processes
 					set
-						commands_complete = updates.commands_complete,
-						commands_count = updates.commands_count,
-						commands_depth = updates.commands_depth,
-						commands_weight = updates.commands_weight
+						children_commands_complete = updates.children_commands_complete,
+						children_commands_count = updates.children_commands_count,
+						children_commands_depth = updates.children_commands_depth,
+						children_commands_weight = updates.children_commands_weight
 				from (
 					select
 						processes.id,
@@ -1157,31 +1157,31 @@ impl Server {
 							when
 								min(coalesce(command_objects.complete, 0))
 								and (count(process_children_commands.child) = 0
-								or min(coalesce(child_processes.commands_complete, 0)))
+								or min(coalesce(child_processes.children_commands_complete, 0)))
 								then 1
 							else 0
-						end as commands_complete,
+						end as children_commands_complete,
 					coalesce(sum(coalesce(command_objects.count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.commands_count, 0)), 0) as commands_count,
+					+ coalesce(sum(coalesce(child_processes.children_commands_count, 0)), 0) as children_commands_count,
 					max(coalesce(command_objects.depth, 0),
-					coalesce(child_processes.commands_depth, 0)) as commands_depth,
+					coalesce(child_processes.children_commands_depth, 0)) as children_commands_depth,
 					coalesce(sum(coalesce(command_objects.weight, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.commands_weight, 0)), 0) as commands_weight
+					+ coalesce(sum(coalesce(child_processes.children_commands_weight, 0)), 0) as children_commands_weight
 					from processes
 					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 0
 					left join objects command_objects on command_objects.id = process_objects_commands.object
 					left join process_children process_children_commands on process_children_commands.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_commands.child
 					where processes.id = ?1
-					and processes.commands_complete = 0
+					and processes.children_commands_complete = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.commands_complete = 1
-				returning commands_complete;
+				and updates.children_commands_complete = 1
+				returning children_commands_complete;
 			"
 		);
-		let mut update_commands_complete_statement =
+		let mut update_children_commands_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update complete statement")
 			})?;
@@ -1212,10 +1212,10 @@ impl Server {
 			"
 				update processes
 				set
-					outputs_complete = updates.outputs_complete,
-					outputs_count = updates.outputs_count,
-					outputs_depth = updates.outputs_depth,
-					outputs_weight = updates.outputs_weight
+					children_outputs_complete = updates.children_outputs_complete,
+					children_outputs_count = updates.children_outputs_count,
+					children_outputs_depth = updates.children_outputs_depth,
+					children_outputs_weight = updates.children_outputs_weight
 				from (
 					select
 						processes.id,
@@ -1223,31 +1223,31 @@ impl Server {
 							when
 								min(coalesce(output_objects.complete, 0))
 								and (count(process_children_outputs.child) = 0
-								or min(coalesce(child_processes.outputs_complete, 0)))
+								or min(coalesce(child_processes.children_outputs_complete, 0)))
 								then 1
 							else 0
-						end as outputs_complete,
+						end as children_outputs_complete,
 					coalesce(sum(coalesce(output_objects.count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.outputs_count, 0)), 0) as outputs_count,
+					+ coalesce(sum(coalesce(child_processes.children_outputs_count, 0)), 0) as children_outputs_count,
 					max(coalesce(output_objects.depth, 0),
-					coalesce(child_processes.outputs_depth, 0)) as outputs_depth,
+					coalesce(child_processes.children_outputs_depth, 0)) as children_outputs_depth,
 					coalesce(sum(coalesce(output_objects.weight, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.outputs_weight, 0)), 0) as outputs_weight
+					+ coalesce(sum(coalesce(child_processes.children_outputs_weight, 0)), 0) as children_outputs_weight
 					from processes
 					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 3
 					left join objects output_objects on output_objects.id = process_objects_outputs.object
 					left join process_children process_children_outputs on process_children_outputs.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_outputs.child
 					where processes.id = ?1
-					and processes.outputs_complete = 0
+					and processes.children_outputs_complete = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.outputs_complete = 1
-				returning outputs_complete;
+				and updates.children_outputs_complete = 1
+				returning children_outputs_complete;
 			"
 		);
-		let mut update_outputs_complete_statement =
+		let mut update_children_outputs_complete_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update complete statement")
 			})?;
@@ -1349,7 +1349,7 @@ impl Server {
 				},
 				Kind::Commands => {
 					let params = [item.process.to_bytes().to_vec()];
-					let mut rows = commands_complete_statement
+					let mut rows = children_commands_complete_statement
 						.query(params)
 						.map_err(|source| {
 							tg::error!(!source, "failed to execute the complete statement")
@@ -1357,7 +1357,7 @@ impl Server {
 					let row = rows.next().map_err(|source| {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
-					let mut commands_complete = if let Some(row) = row {
+					let mut children_commands_complete = if let Some(row) = row {
 						row.get::<_, bool>(0).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the commands complete flag")
 						})?
@@ -1365,10 +1365,10 @@ impl Server {
 						false
 					};
 
-					if !commands_complete {
+					if !children_commands_complete {
 						let params = [item.process.to_bytes().to_vec()];
 						let mut rows =
-							update_commands_complete_statement
+							update_children_commands_complete_statement
 								.query(params)
 								.map_err(|source| {
 									tg::error!(
@@ -1379,7 +1379,7 @@ impl Server {
 						let row = rows.next().map_err(|source| {
 							tg::error!(!source, "failed to execute the update complete statement")
 						})?;
-						commands_complete = if let Some(row) = row {
+						children_commands_complete = if let Some(row) = row {
 							row.get::<_, bool>(0).map_err(|source| {
 								tg::error!(
 									!source,
@@ -1402,7 +1402,7 @@ impl Server {
 							})?;
 					}
 
-					if commands_complete {
+					if children_commands_complete {
 						let params =
 							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
 						enqueue_incomplete_commands_parents_statement
@@ -1417,13 +1417,13 @@ impl Server {
 				},
 				Kind::Outputs => {
 					let params = [item.process.to_bytes().to_vec()];
-					let mut rows = outputs_complete_statement.query(params).map_err(|source| {
+					let mut rows = children_outputs_complete_statement.query(params).map_err(|source| {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
 					let row = rows.next().map_err(|source| {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
-					let mut outputs_complete = if let Some(row) = row {
+					let mut children_outputs_complete = if let Some(row) = row {
 						row.get::<_, bool>(0).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the commands complete flag")
 						})?
@@ -1431,10 +1431,10 @@ impl Server {
 						false
 					};
 
-					if !outputs_complete {
+					if !children_outputs_complete {
 						let params = [item.process.to_bytes().to_vec()];
 						let mut rows =
-							update_outputs_complete_statement
+							update_children_outputs_complete_statement
 								.query(params)
 								.map_err(|source| {
 									tg::error!(
@@ -1445,7 +1445,7 @@ impl Server {
 						let row = rows.next().map_err(|source| {
 							tg::error!(!source, "failed to execute the update complete statement")
 						})?;
-						outputs_complete = if let Some(row) = row {
+						children_outputs_complete = if let Some(row) = row {
 							row.get::<_, bool>(0).map_err(|source| {
 								tg::error!(
 									!source,
@@ -1468,7 +1468,7 @@ impl Server {
 							})?;
 					}
 
-					if outputs_complete {
+					if children_outputs_complete {
 						let params =
 							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
 						enqueue_incomplete_outputs_parents_statement

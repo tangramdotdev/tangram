@@ -127,13 +127,13 @@ impl Server {
 									complete = complete && metadata.children.count.is_some();
 									if arg.commands {
 										complete = complete
-											&& metadata.commands.count.is_some()
-											&& metadata.commands.weight.is_some();
+											&& metadata.children_commands.count.is_some()
+											&& metadata.children_commands.weight.is_some();
 									}
 									if arg.outputs {
 										complete = complete
-											&& metadata.outputs.count.is_some()
-											&& metadata.outputs.weight.is_some();
+											&& metadata.children_outputs.count.is_some()
+											&& metadata.children_outputs.weight.is_some();
 									}
 								} else {
 									if arg.commands {
@@ -178,18 +178,18 @@ impl Server {
 							*processes.get_or_insert(0) += children_count;
 						}
 						if arg.commands {
-							if let Some(commands_count) = metadata.commands.count {
+							if let Some(commands_count) = metadata.children_commands.count {
 								*objects.get_or_insert(0) += commands_count;
 							}
-							if let Some(commands_weight) = metadata.commands.weight {
+							if let Some(commands_weight) = metadata.children_commands.weight {
 								*bytes.get_or_insert(0) += commands_weight;
 							}
 						}
 						if arg.outputs {
-							if let Some(outputs_count) = metadata.outputs.count {
+							if let Some(outputs_count) = metadata.children_outputs.count {
 								*objects.get_or_insert(0) += outputs_count;
 							}
-							if let Some(outputs_weight) = metadata.outputs.weight {
+							if let Some(outputs_weight) = metadata.children_outputs.weight {
 								*bytes.get_or_insert(0) += outputs_weight;
 							}
 						}

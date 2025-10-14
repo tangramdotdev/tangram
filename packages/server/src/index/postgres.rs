@@ -214,36 +214,36 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_commands_completes = put_process_messages
+		let process_children_commands_completes = put_process_messages
 			.values()
-			.map(|message| message.complete.commands)
+			.map(|message| message.complete.children_commands)
 			.collect::<Vec<_>>();
-		let process_commands_counts = put_process_messages
+		let process_children_commands_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.commands
+					.children_commands
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_commands_depths = put_process_messages
+		let process_children_commands_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.commands
+					.children_commands
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_commands_weights = put_process_messages
+		let process_children_commands_weights = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.commands
+					.children_commands
 					.weight
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -282,36 +282,36 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_outputs_completes = put_process_messages
+		let process_children_outputs_completes = put_process_messages
 			.values()
-			.map(|message| message.complete.outputs)
+			.map(|message| message.complete.children_outputs)
 			.collect::<Vec<_>>();
-		let process_outputs_counts = put_process_messages
+		let process_children_outputs_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.outputs
+					.children_outputs
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_outputs_depths = put_process_messages
+		let process_children_outputs_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.outputs
+					.children_outputs
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_outputs_weights = put_process_messages
+		let process_children_outputs_weights = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.outputs
+					.children_outputs
 					.weight
 					.map(|value| value.to_i64().unwrap())
 			})
@@ -484,22 +484,22 @@ impl Server {
 					&process_touched_ats.as_slice(),
 					&process_children_completes.as_slice(),
 					&process_children_counts.as_slice(),
+					&process_children_commands_completes.as_slice(),
+					&process_children_commands_counts.as_slice(),
+					&process_children_commands_depths.as_slice(),
+					&process_children_commands_weights.as_slice(),
+					&process_children_outputs_completes.as_slice(),
+					&process_children_outputs_counts.as_slice(),
+					&process_children_outputs_depths.as_slice(),
+					&process_children_outputs_weights.as_slice(),
 					&process_command_completes.as_slice(),
 					&process_command_counts.as_slice(),
 					&process_command_depths.as_slice(),
 					&process_command_weights.as_slice(),
-					&process_commands_completes.as_slice(),
-					&process_commands_counts.as_slice(),
-					&process_commands_depths.as_slice(),
-					&process_commands_weights.as_slice(),
 					&process_output_completes.as_slice(),
 					&process_output_counts.as_slice(),
 					&process_output_depths.as_slice(),
 					&process_output_weights.as_slice(),
-					&process_outputs_completes.as_slice(),
-					&process_outputs_counts.as_slice(),
-					&process_outputs_depths.as_slice(),
-					&process_outputs_weights.as_slice(),
 					&process_children.as_slice(),
 					&process_child_process_indices.as_slice(),
 					&process_child_positions.as_slice(),

@@ -24,19 +24,19 @@ impl Server {
 		#[derive(serde::Deserialize)]
 		struct Row {
 			children_complete: bool,
+			children_commands_complete: bool,
+			children_outputs_complete: bool,
 			command_complete: bool,
-			commands_complete: bool,
 			output_complete: bool,
-			outputs_complete: bool,
 		}
 		let statement = indoc!(
 			"
 				select
 					children_complete,
+					children_commands_complete,
+					children_outputs_complete,
 					command_complete,
-					commands_complete,
-					output_complete,
-					outputs_complete
+					output_complete
 				from processes
 				where id = $1;
 			",
@@ -49,10 +49,10 @@ impl Server {
 			.map(|row| row.0)
 			.map(|row| Output {
 				children: row.children_complete,
+				children_commands: row.children_commands_complete,
+				children_outputs: row.children_outputs_complete,
 				command: row.command_complete,
-				commands: row.commands_complete,
 				output: row.output_complete,
-				outputs: row.outputs_complete,
 			});
 
 		// Drop the connection.
@@ -78,10 +78,10 @@ impl Server {
 				select
 					processes.id,
 					children_complete,
+					children_commands_complete,
+					children_outputs_complete,
 					command_complete,
-					commands_complete,
-					output_complete,
-					outputs_complete
+					output_complete
 				from unnest($1::bytea[]) as ids (id)
 				left join processes on processes.id = ids.id;
 			",
@@ -101,16 +101,16 @@ impl Server {
 			.map(|row| {
 				row.get::<_, Option<Vec<u8>>>(0)?;
 				let children_complete = row.get::<_, bool>(1);
-				let command_complete = row.get::<_, bool>(2);
-				let commands_complete = row.get::<_, bool>(3);
-				let output_complete = row.get::<_, bool>(4);
-				let outputs_complete = row.get::<_, bool>(5);
+				let children_commands_complete = row.get::<_, bool>(2);
+				let children_outputs_complete = row.get::<_, bool>(3);
+				let command_complete = row.get::<_, bool>(4);
+				let output_complete = row.get::<_, bool>(5);
 				let output = Output {
 					children: children_complete,
+					children_commands: children_commands_complete,
+					children_outputs: children_outputs_complete,
 					command: command_complete,
-					commands: commands_complete,
 					output: output_complete,
-					outputs: outputs_complete,
 				};
 				Some(output)
 			})
@@ -134,22 +134,22 @@ impl Server {
 		struct Row {
 			children_complete: bool,
 			children_count: Option<u64>,
+			children_commands_complete: bool,
+			children_commands_count: Option<u64>,
+			children_commands_depth: Option<u64>,
+			children_commands_weight: Option<u64>,
+			children_outputs_complete: bool,
+			children_outputs_count: Option<u64>,
+			children_outputs_depth: Option<u64>,
+			children_outputs_weight: Option<u64>,
 			command_complete: bool,
 			command_count: Option<u64>,
 			command_depth: Option<u64>,
 			command_weight: Option<u64>,
-			commands_complete: bool,
-			commands_count: Option<u64>,
-			commands_depth: Option<u64>,
-			commands_weight: Option<u64>,
 			output_complete: bool,
 			output_count: Option<u64>,
 			output_depth: Option<u64>,
 			output_weight: Option<u64>,
-			outputs_complete: bool,
-			outputs_count: Option<u64>,
-			outputs_depth: Option<u64>,
-			outputs_weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"
@@ -159,22 +159,22 @@ impl Server {
 				returning
 					children_complete,
 					children_count,
+					children_commands_complete,
+					children_commands_count,
+					children_commands_depth,
+					children_commands_weight,
+					children_outputs_complete,
+					children_outputs_count,
+					children_outputs_depth,
+					children_outputs_weight,
 					command_complete,
 					command_count,
 					command_depth,
 					command_weight,
-					commands_complete,
-					commands_count,
-					commands_depth,
-					commands_weight,
 					output_complete,
 					output_count,
 					output_depth,
-					output_weight,
-					outputs_complete,
-					outputs_count,
-					outputs_depth,
-					outputs_weight;
+					output_weight;
 			",
 		);
 		let params = db::params![touched_at, id.to_bytes()];
@@ -190,10 +190,10 @@ impl Server {
 		let output = row.map(|row| {
 			let complete = Output {
 				children: row.children_complete,
+				children_commands: row.children_commands_complete,
+				children_outputs: row.children_outputs_complete,
 				command: row.command_complete,
-				commands: row.commands_complete,
 				output: row.output_complete,
-				outputs: row.outputs_complete,
 			};
 			let children = tg::process::metadata::Children {
 				count: row.children_count,
@@ -203,27 +203,27 @@ impl Server {
 				depth: row.command_depth,
 				weight: row.command_weight,
 			};
-			let commands = tg::object::Metadata {
-				count: row.commands_count,
-				depth: row.commands_depth,
-				weight: row.commands_weight,
+			let children_commands = tg::object::Metadata {
+				count: row.children_commands_count,
+				depth: row.children_commands_depth,
+				weight: row.children_commands_weight,
 			};
 			let output = tg::object::Metadata {
 				count: row.output_count,
 				depth: row.output_depth,
 				weight: row.output_weight,
 			};
-			let outputs = tg::object::Metadata {
-				count: row.outputs_count,
-				depth: row.outputs_depth,
-				weight: row.outputs_weight,
+			let children_outputs = tg::object::Metadata {
+				count: row.children_outputs_count,
+				depth: row.children_outputs_depth,
+				weight: row.children_outputs_weight,
 			};
 			let metadata = tg::process::Metadata {
 				children,
+				children_commands,
+				children_outputs,
 				command,
-				commands,
 				output,
-				outputs,
 			};
 			(complete, metadata)
 		});
@@ -254,22 +254,22 @@ impl Server {
 					processes.id,
 					children_complete,
 					children_count,
+					children_commands_complete,
+					children_commands_count,
+					children_commands_depth,
+					children_commands_weight,
+					children_outputs_complete,
+					children_outputs_count,
+					children_outputs_depth,
+					children_outputs_weight,
 					command_complete,
 					command_count,
 					command_depth,
 					command_weight,
-					commands_complete,
-					commands_count,
-					commands_depth,
-					commands_weight,
 					output_complete,
 					output_count,
 					output_depth,
-					output_weight,
-					outputs_complete,
-					outputs_count,
-					outputs_depth,
-					outputs_weight;
+					output_weight;
 			",
 		);
 		let output = connection
@@ -291,28 +291,28 @@ impl Server {
 				let id = tg::process::Id::from_slice(&id).unwrap();
 				let children_complete = row.get::<_, bool>(1);
 				let children_count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
-				let command_complete = row.get::<_, bool>(3);
-				let command_count = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
-				let command_depth = row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
-				let command_weight = row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
-				let commands_complete = row.get::<_, bool>(7);
-				let commands_count = row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
-				let commands_depth = row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
-				let commands_weight = row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
-				let output_complete = row.get::<_, bool>(11);
-				let output_count = row.get::<_, Option<i64>>(12).map(|v| v.to_u64().unwrap());
-				let output_depth = row.get::<_, Option<i64>>(13).map(|v| v.to_u64().unwrap());
-				let output_weight = row.get::<_, Option<i64>>(14).map(|v| v.to_u64().unwrap());
-				let outputs_complete = row.get::<_, bool>(15);
-				let outputs_count = row.get::<_, Option<i64>>(16).map(|v| v.to_u64().unwrap());
-				let outputs_depth = row.get::<_, Option<i64>>(17).map(|v| v.to_u64().unwrap());
-				let outputs_weight = row.get::<_, Option<i64>>(18).map(|v| v.to_u64().unwrap());
+				let children_commands_complete = row.get::<_, bool>(3);
+				let children_commands_count = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
+				let children_commands_depth = row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
+				let children_commands_weight = row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
+				let children_outputs_complete = row.get::<_, bool>(7);
+				let children_outputs_count = row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
+				let children_outputs_depth = row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
+				let children_outputs_weight = row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
+				let command_complete = row.get::<_, bool>(11);
+				let command_count = row.get::<_, Option<i64>>(12).map(|v| v.to_u64().unwrap());
+				let command_depth = row.get::<_, Option<i64>>(13).map(|v| v.to_u64().unwrap());
+				let command_weight = row.get::<_, Option<i64>>(14).map(|v| v.to_u64().unwrap());
+				let output_complete = row.get::<_, bool>(15);
+				let output_count = row.get::<_, Option<i64>>(16).map(|v| v.to_u64().unwrap());
+				let output_depth = row.get::<_, Option<i64>>(17).map(|v| v.to_u64().unwrap());
+				let output_weight = row.get::<_, Option<i64>>(18).map(|v| v.to_u64().unwrap());
 				let complete = Output {
 					children: children_complete,
+					children_commands: children_commands_complete,
+					children_outputs: children_outputs_complete,
 					command: command_complete,
-					commands: commands_complete,
 					output: output_complete,
-					outputs: outputs_complete,
 				};
 				let children = tg::process::metadata::Children {
 					count: children_count,
@@ -322,27 +322,27 @@ impl Server {
 					depth: command_depth,
 					weight: command_weight,
 				};
-				let commands = tg::object::Metadata {
-					count: commands_count,
-					depth: commands_depth,
-					weight: commands_weight,
+				let children_commands = tg::object::Metadata {
+					count: children_commands_count,
+					depth: children_commands_depth,
+					weight: children_commands_weight,
 				};
 				let output = tg::object::Metadata {
 					count: output_count,
 					depth: output_depth,
 					weight: output_weight,
 				};
-				let outputs = tg::object::Metadata {
-					count: outputs_count,
-					depth: outputs_depth,
-					weight: outputs_weight,
+				let children_outputs = tg::object::Metadata {
+					count: children_outputs_count,
+					depth: children_outputs_depth,
+					weight: children_outputs_weight,
 				};
 				let metadata = tg::process::Metadata {
 					children,
+					children_commands,
+					children_outputs,
 					command,
-					commands,
 					output,
-					outputs,
 				};
 				(id, (complete, metadata))
 			})

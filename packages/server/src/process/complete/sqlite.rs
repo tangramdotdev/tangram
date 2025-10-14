@@ -33,10 +33,10 @@ impl Server {
 			"
 				select
 					children_complete,
+					children_commands_complete,
+					children_outputs_complete,
 					command_complete,
-					commands_complete,
-					output_complete,
-					outputs_complete
+					output_complete
 				from processes
 				where id = ?1;
 			",
@@ -55,16 +55,16 @@ impl Server {
 			return Ok(None);
 		};
 		let children_complete = row.get_unwrap(0);
-		let command_complete = row.get_unwrap(1);
-		let commands_complete = row.get_unwrap(2);
-		let output_complete = row.get_unwrap(3);
-		let outputs_complete = row.get_unwrap(4);
+		let children_commands_complete = row.get_unwrap(1);
+		let children_outputs_complete = row.get_unwrap(2);
+		let command_complete = row.get_unwrap(3);
+		let output_complete = row.get_unwrap(4);
 		let complete = Output {
 			children: children_complete,
+			children_commands: children_commands_complete,
+			children_outputs: children_outputs_complete,
 			command: command_complete,
-			commands: commands_complete,
 			output: output_complete,
-			outputs: outputs_complete,
 		};
 		Ok(Some(complete))
 	}
@@ -101,10 +101,10 @@ impl Server {
 			"
 				select
 					children_complete,
+					children_commands_complete,
+					children_outputs_complete,
 					command_complete,
-					commands_complete,
-					output_complete,
-					outputs_complete
+					output_complete
 				from processes
 				where id = ?1;
 			"
@@ -126,16 +126,16 @@ impl Server {
 				continue;
 			};
 			let children_complete = row.get_unwrap(0);
-			let command_complete = row.get_unwrap(1);
-			let commands_complete = row.get_unwrap(2);
-			let output_complete = row.get_unwrap(3);
-			let outputs_complete = row.get_unwrap(4);
+			let children_commands_complete = row.get_unwrap(1);
+			let children_outputs_complete = row.get_unwrap(2);
+			let command_complete = row.get_unwrap(3);
+			let output_complete = row.get_unwrap(4);
 			let complete = Output {
 				children: children_complete,
+				children_commands: children_commands_complete,
+				children_outputs: children_outputs_complete,
 				command: command_complete,
-				commands: commands_complete,
 				output: output_complete,
-				outputs: outputs_complete,
 			};
 			completes.push(Some(complete));
 		}
@@ -178,22 +178,22 @@ impl Server {
 				returning
 					children_complete,
 					children_count,
+					children_commands_complete,
+					children_commands_count,
+					children_commands_depth,
+					children_commands_weight,
+					children_outputs_complete,
+					children_outputs_count,
+					children_outputs_depth,
+					children_outputs_weight,
 					command_complete,
 					command_count,
 					command_depth,
 					command_weight,
-					commands_complete,
-					commands_count,
-					commands_depth,
-					commands_weight,
 					output_complete,
 					output_count,
 					output_depth,
-					output_weight,
-					outputs_complete,
-					outputs_count,
-					outputs_depth,
-					outputs_weight;
+					output_weight;
 			"
 		);
 		let mut statement = connection
@@ -216,64 +216,64 @@ impl Server {
 		let children_count = row
 			.get::<_, Option<u64>>(1)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_complete = row
+		let children_commands_complete = row
 			.get::<_, u64>(2)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
 			!= 0;
-		let command_count = row
+		let children_commands_count = row
 			.get::<_, Option<u64>>(3)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_depth = row
+		let children_commands_depth = row
 			.get::<_, Option<u64>>(4)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_weight = row
+		let children_commands_weight = row
 			.get::<_, Option<u64>>(5)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_complete = row
+		let children_outputs_complete = row
 			.get::<_, u64>(6)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
 			!= 0;
-		let commands_count = row
+		let children_outputs_count = row
 			.get::<_, Option<u64>>(7)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_depth = row
+		let children_outputs_depth = row
 			.get::<_, Option<u64>>(8)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let commands_weight = row
+		let children_outputs_weight = row
 			.get::<_, Option<u64>>(9)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_complete = row
+		let command_complete = row
 			.get::<_, u64>(10)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
 			!= 0;
-		let output_count = row
+		let command_count = row
 			.get::<_, Option<u64>>(11)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_depth = row
+		let command_depth = row
 			.get::<_, Option<u64>>(12)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_weight = row
+		let command_weight = row
 			.get::<_, Option<u64>>(13)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let outputs_complete = row
+		let output_complete = row
 			.get::<_, u64>(14)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?
 			!= 0;
-		let outputs_count = row
+		let output_count = row
 			.get::<_, Option<u64>>(15)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let outputs_depth = row
+		let output_depth = row
 			.get::<_, Option<u64>>(16)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let outputs_weight = row
+		let output_weight = row
 			.get::<_, Option<u64>>(17)
 			.map_err(|source| tg::error!(!source, "expected an integer"))?;
 		let complete = Output {
 			children: children_complete,
+			children_commands: children_commands_complete,
+			children_outputs: children_outputs_complete,
 			command: command_complete,
-			commands: commands_complete,
 			output: output_complete,
-			outputs: outputs_complete,
 		};
 		let children = tg::process::metadata::Children {
 			count: children_count,
@@ -283,27 +283,27 @@ impl Server {
 			depth: command_depth,
 			weight: command_weight,
 		};
-		let commands = tg::object::Metadata {
-			count: commands_count,
-			depth: commands_depth,
-			weight: commands_weight,
+		let children_commands = tg::object::Metadata {
+			count: children_commands_count,
+			depth: children_commands_depth,
+			weight: children_commands_weight,
 		};
 		let output = tg::object::Metadata {
 			count: output_count,
 			depth: output_depth,
 			weight: output_weight,
 		};
-		let outputs = tg::object::Metadata {
-			count: outputs_count,
-			depth: outputs_depth,
-			weight: outputs_weight,
+		let children_outputs = tg::object::Metadata {
+			count: children_outputs_count,
+			depth: children_outputs_depth,
+			weight: children_outputs_weight,
 		};
 		let metadata = tg::process::Metadata {
 			children,
+			children_commands,
+			children_outputs,
 			command,
-			commands,
 			output,
-			outputs,
 		};
 		Ok(Some((complete, metadata)))
 	}
@@ -350,22 +350,22 @@ impl Server {
 				returning
 					children_complete,
 					children_count,
+					children_commands_complete,
+					children_commands_count,
+					children_commands_depth,
+					children_commands_weight,
+					children_outputs_complete,
+					children_outputs_count,
+					children_outputs_depth,
+					children_outputs_weight,
 					command_complete,
 					command_count,
 					command_depth,
 					command_weight,
-					commands_complete,
-					commands_count,
-					commands_depth,
-					commands_weight,
 					output_complete,
 					output_count,
 					output_depth,
-					output_weight,
-					outputs_complete,
-					outputs_count,
-					outputs_depth,
-					outputs_weight;
+					output_weight;
 			"
 		);
 		let mut statement = connection
@@ -386,28 +386,28 @@ impl Server {
 			};
 			let children_complete = row.get_unwrap::<_, u64>(0) != 0;
 			let children_count = row.get_unwrap(1);
-			let command_complete = row.get_unwrap::<_, u64>(2) != 0;
-			let command_count = row.get_unwrap(3);
-			let command_depth = row.get_unwrap(4);
-			let command_weight = row.get_unwrap(5);
-			let commands_complete = row.get_unwrap::<_, u64>(6) != 0;
-			let commands_count = row.get_unwrap(7);
-			let commands_depth = row.get_unwrap(8);
-			let commands_weight = row.get_unwrap(9);
-			let output_complete = row.get_unwrap::<_, u64>(10) != 0;
-			let output_count = row.get_unwrap(11);
-			let output_depth = row.get_unwrap(12);
-			let output_weight = row.get_unwrap(13);
-			let outputs_complete = row.get_unwrap::<_, u64>(14) != 0;
-			let outputs_count = row.get_unwrap(15);
-			let outputs_depth = row.get_unwrap(16);
-			let outputs_weight = row.get_unwrap(17);
+			let children_commands_complete = row.get_unwrap::<_, u64>(2) != 0;
+			let children_commands_count = row.get_unwrap(3);
+			let children_commands_depth = row.get_unwrap(4);
+			let children_commands_weight = row.get_unwrap(5);
+			let children_outputs_complete = row.get_unwrap::<_, u64>(6) != 0;
+			let children_outputs_count = row.get_unwrap(7);
+			let children_outputs_depth = row.get_unwrap(8);
+			let children_outputs_weight = row.get_unwrap(9);
+			let command_complete = row.get_unwrap::<_, u64>(10) != 0;
+			let command_count = row.get_unwrap(11);
+			let command_depth = row.get_unwrap(12);
+			let command_weight = row.get_unwrap(13);
+			let output_complete = row.get_unwrap::<_, u64>(14) != 0;
+			let output_count = row.get_unwrap(15);
+			let output_depth = row.get_unwrap(16);
+			let output_weight = row.get_unwrap(17);
 			let complete = Output {
 				children: children_complete,
+				children_commands: children_commands_complete,
+				children_outputs: children_outputs_complete,
 				command: command_complete,
-				commands: commands_complete,
 				output: output_complete,
-				outputs: outputs_complete,
 			};
 			let children = tg::process::metadata::Children {
 				count: children_count,
@@ -417,27 +417,27 @@ impl Server {
 				depth: command_depth,
 				weight: command_weight,
 			};
-			let commands = tg::object::Metadata {
-				count: commands_count,
-				depth: commands_depth,
-				weight: commands_weight,
+			let children_commands = tg::object::Metadata {
+				count: children_commands_count,
+				depth: children_commands_depth,
+				weight: children_commands_weight,
 			};
 			let output = tg::object::Metadata {
 				count: output_count,
 				depth: output_depth,
 				weight: output_weight,
 			};
-			let outputs_ = tg::object::Metadata {
-				count: outputs_count,
-				depth: outputs_depth,
-				weight: outputs_weight,
+			let children_outputs = tg::object::Metadata {
+				count: children_outputs_count,
+				depth: children_outputs_depth,
+				weight: children_outputs_weight,
 			};
 			let metadata = tg::process::Metadata {
 				children,
+				children_commands,
+				children_outputs,
 				command,
-				commands,
 				output,
-				outputs: outputs_,
 			};
 			outputs.push(Some((complete, metadata)));
 		}

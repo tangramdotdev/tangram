@@ -205,8 +205,8 @@ impl Server {
 							let id = Either::Left(complete.id.clone());
 							let complete = if state.arg.recursive {
 								complete.children_complete
-									&& (!state.arg.commands || complete.commands_complete)
-									&& (!state.arg.outputs || complete.outputs_complete)
+									&& (!state.arg.commands || complete.children_commands_complete)
+									&& (!state.arg.outputs || complete.children_outputs_complete)
 							} else {
 								(!state.arg.commands || complete.command_complete)
 									&& (!state.arg.outputs || complete.output_complete)
@@ -286,8 +286,8 @@ impl Server {
 							return Ok(false);
 						};
 						output.children
-							&& (!arg.commands || output.commands)
-							&& (!arg.outputs || output.outputs)
+							&& (!arg.commands || output.children_commands)
+							&& (!arg.outputs || output.children_outputs)
 					} else {
 						let Some(process_data) =
 							Self::try_get_process_sqlite_sync(database, process)?
@@ -405,8 +405,8 @@ impl Server {
 							let id = Either::Left(message.id.clone());
 							let complete = if state.arg.recursive {
 								message.children_complete
-									&& (!state.arg.commands || message.commands_complete)
-									&& (!state.arg.outputs || message.outputs_complete)
+									&& (!state.arg.commands || message.children_commands_complete)
+									&& (!state.arg.outputs || message.children_outputs_complete)
 							} else {
 								(!state.arg.commands || message.command_complete)
 									&& (!state.arg.outputs || message.output_complete)
@@ -493,18 +493,18 @@ impl Server {
 						message.processes += children_count;
 					}
 					if state.arg.commands {
-						if let Some(commands_count) = metadata.commands.count {
+						if let Some(commands_count) = metadata.children_commands.count {
 							message.objects += commands_count;
 						}
-						if let Some(commands_weight) = metadata.commands.weight {
+						if let Some(commands_weight) = metadata.children_commands.weight {
 							message.bytes += commands_weight;
 						}
 					}
 					if state.arg.outputs {
-						if let Some(outputs_count) = metadata.outputs.count {
+						if let Some(outputs_count) = metadata.children_outputs.count {
 							message.objects += outputs_count;
 						}
-						if let Some(outputs_weight) = metadata.outputs.weight {
+						if let Some(outputs_weight) = metadata.children_outputs.weight {
 							message.bytes += outputs_weight;
 						}
 					}
@@ -664,18 +664,18 @@ impl Server {
 					message.processes += children_count;
 				}
 				if state.arg.commands {
-					if let Some(commands_count) = metadata.commands.count {
+					if let Some(commands_count) = metadata.children_commands.count {
 						message.objects += commands_count;
 					}
-					if let Some(commands_weight) = metadata.commands.weight {
+					if let Some(commands_weight) = metadata.children_commands.weight {
 						message.bytes += commands_weight;
 					}
 				}
 				if state.arg.outputs {
-					if let Some(outputs_count) = metadata.outputs.count {
+					if let Some(outputs_count) = metadata.children_outputs.count {
 						message.objects += outputs_count;
 					}
-					if let Some(outputs_weight) = metadata.outputs.weight {
+					if let Some(outputs_weight) = metadata.children_outputs.weight {
 						message.bytes += outputs_weight;
 					}
 				}

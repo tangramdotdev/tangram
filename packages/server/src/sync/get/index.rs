@@ -97,29 +97,29 @@ impl Server {
 				NodeInner::Process(node) => {
 					let mut complete = crate::process::complete::Output {
 						children: true,
+						children_commands: true,
+						children_outputs: true,
 						command: true,
-						commands: true,
 						output: true,
-						outputs: true,
 					};
 					let mut metadata = tg::process::Metadata {
 						children: tg::process::metadata::Children { count: Some(1) },
+						children_commands: tg::object::Metadata {
+							count: Some(0),
+							depth: Some(0),
+							weight: Some(0),
+						},
+						children_outputs: tg::object::Metadata {
+							count: Some(0),
+							depth: Some(0),
+							weight: Some(0),
+						},
 						command: tg::object::Metadata {
 							count: None,
 							depth: None,
 							weight: None,
 						},
-						commands: tg::object::Metadata {
-							count: Some(0),
-							depth: Some(0),
-							weight: Some(0),
-						},
 						output: tg::object::Metadata {
-							count: Some(0),
-							depth: Some(0),
-							weight: Some(0),
-						},
-						outputs: tg::object::Metadata {
 							count: Some(0),
 							depth: Some(0),
 							weight: Some(0),
@@ -143,37 +143,37 @@ impl Server {
 							.count
 							.zip(child_inner.and_then(|inner| inner.metadata.children.count))
 							.map(|(a, b)| a + b);
-						complete.commands = complete.commands
-							&& child_inner.is_some_and(|inner| inner.complete.commands);
-						metadata.commands.count = metadata
-							.commands
+						complete.children_commands = complete.children_commands
+							&& child_inner.is_some_and(|inner| inner.complete.children_commands);
+						metadata.children_commands.count = metadata
+							.children_commands
 							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.commands.count))
+							.zip(child_inner.and_then(|inner| inner.metadata.children_commands.count))
 							.map(|(a, b)| a + b);
-						metadata.commands.depth = metadata
-							.commands
+						metadata.children_commands.depth = metadata
+							.children_commands
 							.depth
-							.zip(child_inner.and_then(|inner| inner.metadata.commands.depth))
+							.zip(child_inner.and_then(|inner| inner.metadata.children_commands.depth))
 							.map(|(a, b)| a.max(b));
-						metadata.commands.weight = metadata
-							.commands
+						metadata.children_commands.weight = metadata
+							.children_commands
 							.weight
-							.zip(child_inner.and_then(|inner| inner.metadata.commands.weight))
+							.zip(child_inner.and_then(|inner| inner.metadata.children_commands.weight))
 							.map(|(a, b)| a + b);
-						metadata.outputs.count = metadata
-							.outputs
+						metadata.children_outputs.count = metadata
+							.children_outputs
 							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.outputs.count))
+							.zip(child_inner.and_then(|inner| inner.metadata.children_outputs.count))
 							.map(|(a, b)| a + b);
-						metadata.outputs.depth = metadata
-							.outputs
+						metadata.children_outputs.depth = metadata
+							.children_outputs
 							.depth
-							.zip(child_inner.and_then(|inner| inner.metadata.outputs.depth))
+							.zip(child_inner.and_then(|inner| inner.metadata.children_outputs.depth))
 							.map(|(a, b)| a.max(b));
-						metadata.outputs.weight = metadata
-							.outputs
+						metadata.children_outputs.weight = metadata
+							.children_outputs
 							.weight
-							.zip(child_inner.and_then(|inner| inner.metadata.outputs.weight))
+							.zip(child_inner.and_then(|inner| inner.metadata.children_outputs.weight))
 							.map(|(a, b)| a + b);
 					}
 					for (object_index, object_kind) in &node.objects {
@@ -197,20 +197,20 @@ impl Server {
 								metadata.command.weight =
 									object_inner.and_then(|inner| inner.metadata.weight);
 
-								complete.commands = complete.commands
+								complete.children_commands = complete.children_commands
 									&& object_inner.is_some_and(|inner| inner.complete);
-								metadata.commands.count = metadata
-									.commands
+								metadata.children_commands.count = metadata
+									.children_commands
 									.count
 									.zip(object_inner.and_then(|inner| inner.metadata.count))
 									.map(|(a, b)| a + b);
-								metadata.commands.depth = metadata
-									.commands
+								metadata.children_commands.depth = metadata
+									.children_commands
 									.depth
 									.zip(object_inner.and_then(|inner| inner.metadata.depth))
 									.map(|(a, b)| a.max(b));
-								metadata.commands.weight = metadata
-									.commands
+								metadata.children_commands.weight = metadata
+									.children_commands
 									.weight
 									.zip(object_inner.and_then(|inner| inner.metadata.weight))
 									.map(|(a, b)| a + b);
@@ -234,20 +234,20 @@ impl Server {
 									.zip(object_inner.and_then(|inner| inner.metadata.weight))
 									.map(|(a, b)| a + b);
 
-								complete.outputs = complete.outputs
+								complete.children_outputs = complete.children_outputs
 									&& object_inner.is_some_and(|inner| inner.complete);
-								metadata.outputs.count = metadata
-									.outputs
+								metadata.children_outputs.count = metadata
+									.children_outputs
 									.count
 									.zip(object_inner.and_then(|inner| inner.metadata.count))
 									.map(|(a, b)| a + b);
-								metadata.outputs.depth = metadata
-									.outputs
+								metadata.children_outputs.depth = metadata
+									.children_outputs
 									.depth
 									.zip(object_inner.and_then(|inner| inner.metadata.depth))
 									.map(|(a, b)| a.max(b));
-								metadata.outputs.weight = metadata
-									.outputs
+								metadata.children_outputs.weight = metadata
+									.children_outputs
 									.weight
 									.zip(object_inner.and_then(|inner| inner.metadata.weight))
 									.map(|(a, b)| a + b);
@@ -469,15 +469,15 @@ impl Server {
 				.update_process(&message.id, &data, complete.clone(), metadata);
 
 			// If the process is complete, then send a complete message.
-			if complete.children || complete.commands || complete.outputs {
+			if complete.children || complete.children_commands || complete.children_outputs {
 				let complete =
 					tg::sync::CompleteMessage::Process(tg::sync::ProcessCompleteMessage {
 						command_complete: complete.command,
-						commands_complete: complete.commands,
+						children_commands_complete: complete.children_commands,
 						children_complete: complete.children,
 						id: message.id,
 						output_complete: complete.output,
-						outputs_complete: complete.outputs,
+						children_outputs_complete: complete.children_outputs,
 					});
 				let message = tg::sync::Message::Complete(complete);
 				sender.send(Ok(message)).await.ok();
