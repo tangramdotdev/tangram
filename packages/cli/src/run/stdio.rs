@@ -6,6 +6,7 @@ use {
 		mem::MaybeUninit,
 		os::fd::{AsRawFd as _, RawFd},
 		pin::pin,
+		sync::Arc,
 	},
 	tangram_client as tg,
 	tangram_futures::task::Stop,
@@ -14,7 +15,7 @@ use {
 
 #[derive(Clone, Debug)]
 pub struct Stdio {
-	pub tty: Option<Tty>,
+	pub tty: Option<Arc<Tty>>,
 	pub remote: Option<String>,
 	pub stdin: Option<tg::process::Stdio>,
 	pub stdout: Option<tg::process::Stdio>,
@@ -69,7 +70,7 @@ where
 					let stdin_stream = stream.map(|bytes| bytes.map(tg::pty::Event::Chunk));
 
 					// Create the sigwinch stream.
-					let sigwinch_stream = sigwinch_stream(tty.fd)?;
+					let sigwinch_stream = sigwinch_stream(tty)?;
 
 					// Merge the streams.
 					let stream = stream::select(stdin_stream, sigwinch_stream)
@@ -135,8 +136,12 @@ where
 	let stderr_future = {
 		let handle = handle.clone();
 		let remote = stdio.remote.clone();
+		let stdout = stdio.stdout.clone();
 		let stderr = stdio.stderr.clone();
 		async move {
+			if stderr == stdout {
+				return Ok(());
+			}
 			let Some(stderr) = stderr else {
 				return Ok(());
 			};
@@ -196,39 +201,31 @@ where
 	Ok(())
 }
 
-/// Create a stream of window size change events.
+/// Create a stream of tty size change events.
 pub fn sigwinch_stream(
-	fd: RawFd,
+	tty: Arc<Tty>,
 ) -> tg::Result<impl Stream<Item = Result<tg::pty::Event, tg::Error>>> {
 	// Create the signal handler.
 	let signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
 
 	// Create the size stream using try_unfold.
-	let stream = stream::try_unfold(signal, move |mut signal| async move {
-		// Wait for the next signal.
-		let Some(()) = signal.recv().await else {
-			return Ok(None);
-		};
-
-		// Get the window size.
-		let size = unsafe {
-			let mut winsize: MaybeUninit<libc::winsize> = MaybeUninit::uninit();
-			let ret = libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize));
-			if ret != 0 {
+	let stream = stream::try_unfold(signal, move |mut signal| {
+		let tty = tty.clone();
+		async move {
+			// Wait for the next signal.
+			let Some(()) = signal.recv().await else {
 				return Ok(None);
-			}
-			let winsize = winsize.assume_init();
-			tg::pty::Size {
-				rows: winsize.ws_row,
-				cols: winsize.ws_col,
-			}
-		};
+			};
 
-		// Create the event.
-		let event = tg::pty::Event::Size(size);
+			// Get the size.
+			let size = tty.get_size()?;
 
-		Ok(Some((event, signal)))
+			// Create the event.
+			let event = tg::pty::Event::Size(size);
+
+			Ok(Some((event, signal)))
+		}
 	});
 
 	Ok(stream)
@@ -267,7 +264,7 @@ impl Stdio {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to open pty"))?;
 			let stdin = tg::process::Stdio::Pty(output.id);
-			(Some(tty), Some(stdin))
+			(Some(Arc::new(tty)), Some(stdin))
 		} else {
 			let arg = tg::pipe::create::Arg {
 				remote: remote.clone(),
@@ -424,8 +421,9 @@ impl Tty {
 
 	pub fn get_size(&self) -> tg::Result<tg::pty::Size> {
 		unsafe {
-			let mut winsize: MaybeUninit<libc::winsize> = MaybeUninit::zeroed();
-			if libc::ioctl(self.fd, libc::TIOCGWINSZ, winsize.as_mut_ptr()) != 0 {
+			let mut winsize = MaybeUninit::<libc::winsize>::zeroed();
+			let ret = libc::ioctl(self.fd, libc::TIOCGWINSZ, winsize.as_mut_ptr());
+			if ret != 0 {
 				let error = std::io::Error::last_os_error();
 				let error = tg::error!(!error, "failed to get the size");
 				return Err(error);
@@ -446,7 +444,8 @@ impl Tty {
 			termios.c_iflag &=
 				!(libc::IXON | libc::ICRNL | libc::BRKINT | libc::INPCK | libc::ISTRIP);
 			termios.c_oflag &= !(libc::OPOST);
-			if libc::tcsetattr(self.fd, libc::TCSADRAIN, std::ptr::addr_of!(termios)) != 0 {
+			let ret = libc::tcsetattr(self.fd, libc::TCSADRAIN, std::ptr::addr_of!(termios));
+			if ret != 0 {
 				let source = std::io::Error::last_os_error();
 				return Err(tg::error!(!source, "failed to set the tty to raw mode"));
 			}
