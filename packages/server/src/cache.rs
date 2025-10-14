@@ -227,7 +227,7 @@ impl Server {
 		let visited = im::HashSet::default();
 		let progress = progress.clone();
 		let task = self
-			.cache_task_map
+			.cache_tasks
 			.get_or_spawn_blocking(id.clone(), move |_| {
 				server.cache_dependency_inner(&id, &edge, visited, &progress)
 			});
@@ -255,7 +255,7 @@ impl Server {
 			return Ok(());
 		}
 		let task = self
-			.cache_task_map
+			.cache_tasks
 			.get_or_spawn_blocking(id.clone(), move |_| {
 				server.cache_dependency_inner(&id, &edge, visited, &progress)
 			});

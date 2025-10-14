@@ -28,6 +28,10 @@ impl Server {
 
 	pub(super) async fn checkin_cache_task_destructive(&self, state: Arc<State>) -> tg::Result<()> {
 		let node = &state.graph.nodes[0];
+		// Only process if the root node is dirty.
+		if !node.dirty {
+			return Ok(());
+		}
 		let id = node.object_id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
 		let dst = &self.cache_path().join(id.to_string());
@@ -70,6 +74,10 @@ impl Server {
 
 	fn checkin_cache_task_inner(&self, state: &State) -> tg::Result<()> {
 		for node in &state.graph.nodes {
+			// Only process dirty nodes.
+			if !node.dirty {
+				continue;
+			}
 			let Some(path) = node.path.as_ref() else {
 				continue;
 			};
@@ -119,12 +127,24 @@ impl Server {
 	}
 
 	pub(super) async fn checkin_store(&self, state: &State, touched_at: i64) -> tg::Result<()> {
+		// Collect object IDs from dirty nodes.
+		let mut dirty_object_ids = std::collections::HashSet::new();
+		for node in &state.graph.nodes {
+			if node.dirty {
+				if let Some(object_id) = &node.object_id {
+					dirty_object_ids.insert(object_id.clone());
+				}
+			}
+		}
+
+		// Only store objects that correspond to dirty nodes.
 		let args = state
 			.objects
 			.as_ref()
 			.unwrap()
-			.values()
-			.map(|object| crate::store::PutArg {
+			.iter()
+			.filter(|(id, _)| dirty_object_ids.contains(id))
+			.map(|(_, object)| crate::store::PutArg {
 				bytes: object.bytes.clone(),
 				cache_reference: object.cache_reference.clone(),
 				id: object.id.clone(),
@@ -143,30 +163,47 @@ impl Server {
 		state: &Arc<State>,
 		touched_at: i64,
 	) -> tg::Result<()> {
+		// Collect object IDs from dirty nodes.
+		let mut dirty_object_ids = std::collections::HashSet::new();
+		for node in &state.graph.nodes {
+			if node.dirty {
+				if let Some(object_id) = &node.object_id {
+					dirty_object_ids.insert(object_id.clone());
+				}
+			}
+		}
+
 		let mut messages: Vec<Bytes> = Vec::new();
 
 		// Create put cache entry messages.
 		if state.arg.options.destructive {
-			let id = state.graph.nodes[0]
-				.object_id
-				.as_ref()
-				.unwrap()
-				.clone()
-				.try_into()
-				.unwrap();
-			let message =
-				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-					id,
-					touched_at,
-				});
-			let message = message.serialize()?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			// For destructive mode, only index if the root node is dirty.
+			if state.graph.nodes[0].dirty {
+				let id = state.graph.nodes[0]
+					.object_id
+					.as_ref()
+					.unwrap()
+					.clone()
+					.try_into()
+					.unwrap();
+				let message =
+					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
+						id,
+						touched_at,
+					});
+				let message = message.serialize()?;
+				let _published = self
+					.messenger
+					.stream_publish("index".to_owned(), message)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			}
 		} else {
 			for node in &state.graph.nodes {
+				// Only process dirty file nodes.
+				if !node.dirty {
+					continue;
+				}
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
@@ -183,8 +220,11 @@ impl Server {
 			}
 		}
 
-		// Create put object messages.
+		// Create put object messages only for objects from dirty nodes.
 		for object in state.objects.as_ref().unwrap().values() {
+			if !dirty_object_ids.contains(&object.id) {
+				continue;
+			}
 			let cache_entry = object
 				.cache_reference
 				.as_ref()

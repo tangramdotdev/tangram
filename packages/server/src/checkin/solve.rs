@@ -552,6 +552,7 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			dirty: true,
 			lock_node,
 			object_id: None,
 			referrers: SmallVec::new(),
@@ -576,7 +577,7 @@ impl Server {
 	) -> tg::Result<usize> {
 		// Check if this graph node has already been added.
 		let key = (graph_id.clone(), node_index);
-		if let Some(&index) = checkpoint.graph_nodes.get(&key) {
+		if let Some(index) = checkpoint.graph_nodes.get(&key).copied() {
 			return Ok(index);
 		}
 
@@ -680,6 +681,7 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			dirty: true,
 			lock_node,
 			object_id: None,
 			referrers: SmallVec::new(),

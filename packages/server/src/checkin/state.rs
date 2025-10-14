@@ -12,6 +12,7 @@ use {
 	tangram_ignore as ignore,
 };
 
+#[derive(Debug)]
 pub struct State {
 	pub arg: tg::checkin::Arg,
 	pub artifacts_path: Option<PathBuf>,
@@ -25,6 +26,7 @@ pub struct State {
 	pub root_path: PathBuf,
 }
 
+#[derive(Debug)]
 pub struct FixupMessage {
 	pub path: PathBuf,
 	pub metadata: std::fs::Metadata,
@@ -39,6 +41,7 @@ pub struct Graph {
 #[allow(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
+	pub dirty: bool,
 	pub lock_node: Option<usize>,
 	pub object_id: Option<tg::object::Id>,
 	pub referrers: SmallVec<[usize; 1]>,
@@ -84,6 +87,23 @@ pub struct Object {
 	pub id: tg::object::Id,
 	pub metadata: Option<tg::object::Metadata>,
 	pub size: u64,
+}
+
+impl Clone for State {
+	fn clone(&self) -> Self {
+		Self {
+			arg: self.arg.clone(),
+			artifacts_path: self.artifacts_path.clone(),
+			blobs: self.blobs.clone(),
+			fixup_sender: self.fixup_sender.clone(),
+			graph: self.graph.clone(),
+			ignorer: None, // Ignorer is not Clone, and it's only needed during input collection.
+			lock: self.lock.clone(),
+			objects: self.objects.clone(),
+			progress: self.progress.clone(),
+			root_path: self.root_path.clone(),
+		}
+	}
 }
 
 impl Graph {

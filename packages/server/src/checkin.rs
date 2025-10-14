@@ -1,5 +1,5 @@
 use {
-	self::state::{FixupMessage, Graph, State},
+	self::state::{FixupMessage, Graph},
 	crate::Server,
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	indoc::indoc,
@@ -24,7 +24,9 @@ mod lock;
 mod object;
 mod output;
 mod solve;
-mod state;
+pub(crate) mod state;
+
+pub(crate) use self::state::State;
 
 impl Server {
 	pub async fn checkin(
@@ -110,45 +112,54 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Create the ignorer if necessary.
-		let ignorer = if arg.options.ignore {
-			Some(Self::checkin_create_ignorer()?)
-		} else {
-			None
-		};
-
 		// Find the root path.
 		let root_path = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
 			.unwrap_or(&arg.path)
 			.to_owned();
 
-		// Try to find the artifacts path.
-		let artifacts_path = root_path.join(".tangram/artifacts");
-		let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
-			.await
-			.is_ok_and(|exists| exists)
-		{
-			Some(artifacts_path)
+		// Get or create the state.
+		let state = self.checkins.entry(arg.clone()).or_insert(None).take();
+		let mut state = if let Some(state) = state {
+			State {
+				progress: progress.clone(),
+				..state
+			}
 		} else {
-			None
-		};
+			// Create the ignorer if necessary.
+			let ignorer = if arg.options.ignore {
+				Some(Self::checkin_create_ignorer()?)
+			} else {
+				None
+			};
 
-		// Try to get a lock.
-		let lock = Self::checkin_try_read_lock(&root_path)
-			.map_err(|source| tg::error!(!source, "failed to read the lock"))?;
+			// Try to find the artifacts path.
+			let artifacts_path = root_path.join(".tangram/artifacts");
+			let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
+				.await
+				.is_ok_and(|exists| exists)
+			{
+				Some(artifacts_path)
+			} else {
+				None
+			};
 
-		// Create the state.
-		let mut state = State {
-			arg: arg.clone(),
-			artifacts_path,
-			blobs: HashMap::default(),
-			fixup_sender: None,
-			graph: Graph::default(),
-			ignorer,
-			lock,
-			objects: None,
-			progress: progress.clone(),
-			root_path: root_path.clone(),
+			// Try to get a lock.
+			let lock = Self::checkin_try_read_lock(&root_path)
+				.map_err(|source| tg::error!(!source, "failed to read the lock"))?;
+
+			// Create the state.
+			State {
+				arg: arg.clone(),
+				artifacts_path,
+				blobs: HashMap::default(),
+				fixup_sender: None,
+				graph: Graph::default(),
+				ignorer,
+				lock,
+				objects: None,
+				progress: progress.clone(),
+				root_path: root_path.clone(),
+			}
 		};
 
 		// Spawn the fixup task.
@@ -263,6 +274,20 @@ impl Server {
 
 		// Create the output.
 		let output = tg::checkin::Output { referent };
+
+		// Retrieve the state.
+		let mut state = Arc::try_unwrap(state).unwrap();
+
+		// Mark all nodes as clean.
+		for i in 0..state.graph.nodes.len() {
+			state.graph.nodes[i].dirty = false;
+		}
+
+		// Replace the state.
+		self.checkins
+			.entry(arg.clone())
+			.or_insert(None)
+			.replace(state);
 
 		Ok(output)
 	}

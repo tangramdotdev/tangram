@@ -34,8 +34,10 @@ impl Server {
 		path: PathBuf,
 	) -> tg::Result<Option<usize>> {
 		// Check if the path has been visited.
-		if let Some(index) = state.graph.paths.get(&path) {
-			return Ok(Some(*index));
+		if let Some(index) = state.graph.paths.get(&path).copied()
+			&& !state.graph.nodes[index].dirty
+		{
+			return Ok(Some(index));
 		}
 
 		// Get the metadata.
@@ -51,6 +53,71 @@ impl Server {
 		}) {
 			return Ok(None);
 		}
+
+		// Get or create the node.
+		let index = if let Some(index) = state.graph.paths.get(&path).copied() {
+			let children = match &state.graph.nodes[index].variant {
+				Variant::Directory(directory) => directory
+					.entries
+					.values()
+					.filter_map(|edge| {
+						edge.try_unwrap_reference_ref()
+							.ok()
+							.filter(|r| r.graph.is_none())
+							.map(|r| r.node)
+					})
+					.collect::<Vec<_>>(),
+				Variant::File(file) => file
+					.dependencies
+					.values()
+					.flatten()
+					.filter_map(|referent| {
+						referent
+							.item
+							.try_unwrap_reference_ref()
+							.ok()
+							.filter(|r| r.graph.is_none())
+							.map(|r| r.node)
+					})
+					.collect::<Vec<_>>(),
+				Variant::Symlink(symlink) => symlink
+					.artifact
+					.as_ref()
+					.and_then(|edge| {
+						edge.try_unwrap_reference_ref()
+							.ok()
+							.filter(|r| r.graph.is_none())
+							.map(|r| r.node)
+					})
+					.into_iter()
+					.collect::<Vec<_>>(),
+			};
+			for child_index in children {
+				state.graph.nodes[child_index]
+					.referrers
+					.retain(|referrer| *referrer != index);
+			}
+			index
+		} else {
+			// Node doesn't exist - create it.
+			let index = state.graph.nodes.len();
+			state.graph.paths.insert(path.clone(), index);
+
+			// Create a placeholder node.
+			let node = Node {
+				dirty: true,
+				lock_node: None, // Will be set below.
+				object_id: None,
+				referrers: SmallVec::new(),
+				path: None,
+				path_metadata: None,
+				variant: Variant::Directory(Directory {
+					entries: BTreeMap::new(),
+				}), // Placeholder variant.
+			};
+			state.graph.nodes.push_back(node);
+			index
+		};
 
 		// Create the variant.
 		let variant = if metadata.is_dir() {
@@ -83,25 +150,15 @@ impl Server {
 			sender.send(message).ok();
 		}
 
-		// Get the node index.
-		let index = state.graph.nodes.len();
-
-		// Update the path.
-		state.graph.paths.insert(path.clone(), index);
-
 		// Get the lock node.
 		let lock_node = Self::checkin_get_lock_node(state, parent);
 
-		// Create the node.
-		let node = Node {
-			lock_node,
-			object_id: None,
-			referrers: SmallVec::new(),
-			path: Some(path),
-			path_metadata: Some(metadata),
-			variant,
-		};
-		state.graph.nodes.push_back(node);
+		// Update the node.
+		state.graph.nodes[index].lock_node = lock_node;
+		state.graph.nodes[index].object_id = None;
+		state.graph.nodes[index].path = Some(path);
+		state.graph.nodes[index].path_metadata = Some(metadata);
+		state.graph.nodes[index].variant = variant;
 
 		match &state.graph.nodes[index].variant {
 			Variant::Directory(_) => {

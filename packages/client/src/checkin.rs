@@ -9,7 +9,7 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(flatten)]
 	pub options: Options,
@@ -21,7 +21,7 @@ pub struct Arg {
 }
 
 #[serde_with::serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Options {
 	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]

@@ -21,6 +21,7 @@ pub struct Config {
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
 	pub watchdog: Option<Watchdog>,
+	pub watcher: Option<Watcher>,
 }
 
 #[derive(Clone, Debug)]
@@ -195,6 +196,9 @@ pub struct Watchdog {
 	pub ttl: Duration,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Watcher {}
+
 impl Config {
 	#[must_use]
 	pub fn with_directory(directory: PathBuf) -> Self {
@@ -221,6 +225,7 @@ impl Config {
 		let version = None;
 		let vfs = None;
 		let watchdog = Some(Watchdog::default());
+		let watcher = None;
 		Self {
 			advanced,
 			authentication,
@@ -238,6 +243,7 @@ impl Config {
 			version,
 			vfs,
 			watchdog,
+			watcher,
 		}
 	}
 }

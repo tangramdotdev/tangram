@@ -67,6 +67,7 @@ mod user;
 mod util;
 mod vfs;
 mod watchdog;
+mod watcher;
 
 pub use self::config::Config;
 
@@ -76,7 +77,8 @@ pub mod config;
 pub struct Server(pub Arc<Inner>);
 
 pub struct Inner {
-	cache_task_map: CacheTaskMap,
+	cache_tasks: CacheTasks,
+	checkins: Checkins,
 	#[cfg(feature = "v8")]
 	compilers: RwLock<Vec<Compiler>>,
 	config: Config,
@@ -90,20 +92,22 @@ pub struct Inner {
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
-	process_task_map: ProcessTaskMap,
+	process_tasks: ProcessTasks,
 	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-	runtimes: RwLock<HashMap<String, Runtime>>,
+	runtimes: RwLock<HashMap<String, Runtime, fnv::FnvBuildHasher>>,
 	store: Store,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 	tasks: TaskTracker,
 	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
+	watcher: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
-type CacheTaskMap =
-	tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, tg::id::BuildHasher>;
+type CacheTasks = tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, tg::id::BuildHasher>;
+
+type Checkins = DashMap<tg::checkin::Arg, Option<crate::checkin::State>, fnv::FnvBuildHasher>;
 
 struct Http {
 	url: Uri,
@@ -117,7 +121,7 @@ struct ProcessPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type ProcessTaskMap = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
+type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Server> {
@@ -126,12 +130,12 @@ impl Server {
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-		let directory = tokio::fs::canonicalize(&directory).await.map_err(
+		let path = tokio::fs::canonicalize(&directory).await.map_err(
 			|source| tg::error!(!source, %path = directory.display(), "failed to canonicalize directory path"),
 		)?;
 
 		// Lock the lock file.
-		let lock_path = directory.join("lock");
+		let lock_path = path.join("lock");
 		let mut lock_file = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
@@ -159,7 +163,7 @@ impl Server {
 		let lock_file = Mutex::new(Some(lock_file));
 
 		// Verify the version file.
-		let version_path = directory.join("version");
+		let version_path = path.join("version");
 		let version = match tokio::fs::read_to_string(&version_path).await {
 			Ok(string) => Some(
 				string
@@ -187,28 +191,31 @@ impl Server {
 		}
 
 		// Ensure the logs directory exists.
-		let logs_path = directory.join("logs");
+		let logs_path = path.join("logs");
 		tokio::fs::create_dir_all(&logs_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the logs directory"))?;
 
 		// Ensure the temp directory exists.
-		let temp_path = directory.join("tmp");
+		let temp_path = path.join("tmp");
 		tokio::fs::create_dir_all(&temp_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Remove an existing socket file.
-		let socket_path = directory.join("socket");
+		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
 		// Create the artifact cache task map.
-		let cache_task_map = tangram_futures::task::Map::default();
+		let cache_tasks = tangram_futures::task::Map::default();
+
+		// Create the checkins map.
+		let checkins = DashMap::default();
 
 		// Create the HTTP configuration.
 		let http = config.http.as_ref().map(|config| {
 			let url = config.url.clone().unwrap_or_else(|| {
-				let path = directory.join("socket");
+				let path = path.join("socket");
 				let path = path.to_str().unwrap();
 				let path = urlencoding::encode(path);
 				format!("http+unix://{path}").parse().unwrap()
@@ -226,8 +233,8 @@ impl Server {
 			.map_or(0, |process| process.concurrency);
 		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
-		// Create the process task map.
-		let process_task_map = tangram_futures::task::Map::default();
+		// Create the process tasks.
+		let process_tasks = tangram_futures::task::Map::default();
 
 		// Create the compilers.
 		#[cfg(feature = "v8")]
@@ -299,7 +306,7 @@ impl Server {
 				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
-					path: directory.join("index"),
+					path: path.join("index"),
 				};
 				let database = db::sqlite::Database::new(options)
 					.await
@@ -357,6 +364,10 @@ impl Server {
 					tg::error!(!source, "failed to ensure the index stream exists")
 				})?;
 		}
+
+		// Create the pipes and ptys.
+		let pipes = DashMap::default();
+		let ptys = DashMap::default();
 
 		// Create the remotes.
 		let remotes = DashMap::default();
@@ -419,12 +430,13 @@ impl Server {
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
-		let pipes = DashMap::default();
-		let ptys = DashMap::default();
+		// Create the watcher.
+		let watcher = Mutex::new(None);
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
-			cache_task_map,
+			cache_tasks,
+			checkins,
 			#[cfg(feature = "v8")]
 			compilers,
 			config,
@@ -434,11 +446,11 @@ impl Server {
 			index,
 			lock_file,
 			messenger,
-			path: directory,
+			path,
 			pipes,
 			process_permits,
 			process_semaphore,
-			process_task_map,
+			process_tasks,
 			ptys,
 			remotes,
 			runtimes,
@@ -448,6 +460,7 @@ impl Server {
 			temp_paths,
 			version,
 			vfs,
+			watcher,
 		}));
 
 		// Migrate the database.
@@ -682,6 +695,21 @@ impl Server {
 			})
 		});
 
+		// Spawn the watcher task.
+		let watcher_task = server.config.watcher.as_ref().map(|config| {
+			tokio::spawn({
+				let server = server.clone();
+				let config = config.clone();
+				async move {
+					server
+						.watcher_task(&config)
+						.await
+						.inspect_err(|error| tracing::error!(?error, "the watcher task failed"))
+						.ok();
+				}
+			})
+		});
+
 		// Spawn the runner task.
 		let runner_task = if server.config.runner.is_some() {
 			Some(tokio::spawn({
@@ -726,8 +754,8 @@ impl Server {
 				}
 
 				// Abort the process tasks.
-				server.process_task_map.abort_all();
-				let results = server.process_task_map.wait().await;
+				server.process_tasks.abort_all();
+				let results = server.process_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
@@ -801,12 +829,24 @@ impl Server {
 					tracing::trace!("shutdown watchdog task");
 				}
 
+				// Abort the watcher task.
+				if let Some(task) = watcher_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result {
+						if !error.is_cancelled() {
+							tracing::error!(?error, "the watcher task panicked");
+						}
+					}
+					tracing::trace!("shutdown watcher task");
+				}
+
 				// Remove the runtimes.
 				server.runtimes.write().unwrap().clear();
 
 				// Abort the artifact cache tasks.
-				server.cache_task_map.abort_all();
-				let results = server.cache_task_map.wait().await;
+				server.cache_tasks.abort_all();
+				let results = server.cache_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {

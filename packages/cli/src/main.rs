@@ -614,6 +614,7 @@ impl Cli {
 		let version = Some(version());
 		let vfs = None;
 		let watchdog = Some(tangram_server::config::Watchdog::default());
+		let watcher = None;
 		let mut config = tangram_server::Config {
 			advanced,
 			authentication,
@@ -631,6 +632,7 @@ impl Cli {
 			version,
 			vfs,
 			watchdog,
+			watcher,
 		};
 
 		// Set the advanced options.

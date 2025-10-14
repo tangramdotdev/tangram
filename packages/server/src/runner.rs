@@ -66,7 +66,7 @@ impl Server {
 
 	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
 		// Spawn the process task.
-		self.process_task_map.spawn(process.id().clone(), |_| {
+		self.process_tasks.spawn(process.id().clone(), |_| {
 			let server = self.clone();
 			let process = process.clone();
 			async move { server.process_task(&process, permit).await }
@@ -167,7 +167,7 @@ impl Server {
 			let result = self.heartbeat_process(process.id(), arg).await;
 			if let Ok(output) = result {
 				if output.status.is_finished() {
-					self.process_task_map.abort(process.id());
+					self.process_tasks.abort(process.id());
 					break;
 				}
 			}
