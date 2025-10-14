@@ -1,9 +1,14 @@
 use {
+	futures::TryFutureExt,
 	num::ToPrimitive as _,
-	std::{collections::BTreeMap, os::fd::RawFd, os::unix::io::AsRawFd, path::PathBuf},
+	std::{
+		collections::BTreeMap,
+		os::{fd::RawFd, unix::io::AsRawFd},
+		path::PathBuf,
+	},
 	tangram_client as tg,
 	tangram_futures::{read::Ext as _, write::Ext as _},
-	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	tokio::io::{AsyncReadExt, AsyncWriteExt as _},
 };
 
 pub struct Client {
@@ -116,48 +121,40 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to write argument"))?;
 
 		// Send the file descriptors using sendmsg with SCM_RIGHTS.
-		#[allow(
-			clippy::cast_possible_truncation,
-			clippy::cast_ptr_alignment,
-			clippy::useless_conversion
-		)]
-		{
-			let fd = self.stream.as_raw_fd();
-			self.stream
-				.async_io(tokio::io::Interest::WRITABLE, move || unsafe {
-					let iov = libc::iovec {
-						iov_base: std::ptr::null_mut(),
-						iov_len: 0,
-					};
-					let cmsg_space =
-						libc::CMSG_SPACE(std::mem::size_of_val(fds.as_slice()) as u32) as usize;
-					let mut cmsg_buffer = vec![0u8; cmsg_space];
-					let mut msg: libc::msghdr = std::mem::zeroed();
-					msg.msg_iov = (&raw const iov).cast_mut();
-					msg.msg_iovlen = 1;
-					msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
-					msg.msg_controllen = cmsg_space.try_into().unwrap();
-					let cmsg = libc::CMSG_FIRSTHDR(&raw const msg);
-					if cmsg.is_null() {
-						return Err(std::io::Error::other(
-							"failed to get the control message header",
-						));
-					}
-					(*cmsg).cmsg_level = libc::SOL_SOCKET;
-					(*cmsg).cmsg_type = libc::SCM_RIGHTS;
-					(*cmsg).cmsg_len =
-						libc::CMSG_LEN(std::mem::size_of_val(fds.as_slice()) as u32) as _;
-					let data = libc::CMSG_DATA(cmsg);
-					std::ptr::copy_nonoverlapping(fds.as_ptr(), data.cast(), fds.len());
-					let ret = libc::sendmsg(fd, &raw const msg, 0);
-					if ret < 0 {
-						return Err(std::io::Error::last_os_error());
-					}
-					Ok(())
-				})
-				.await
-				.map_err(|source| tg::error!(!source, "failed to send the file descriptors"))?;
-		}
+		let fd = self.stream.as_raw_fd();
+		#[allow(clippy::cast_possible_truncation)]
+		self.stream
+			.async_io(tokio::io::Interest::WRITABLE, move || unsafe {
+				let buffer = [0u8; 1];
+				let iov = libc::iovec {
+					iov_base: buffer.as_ptr() as *mut _,
+					iov_len: 1,
+				};
+				let cmsg_space = libc::CMSG_SPACE(std::mem::size_of_val(fds.as_slice()) as _);
+				let mut cmsg_buffer = vec![0u8; cmsg_space as _];
+				let mut msg: libc::msghdr = std::mem::zeroed();
+				msg.msg_iov = (&raw const iov).cast_mut();
+				msg.msg_iovlen = 1;
+				msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
+				msg.msg_controllen = cmsg_space as _;
+				let cmsg = libc::CMSG_FIRSTHDR(&raw const msg);
+				if cmsg.is_null() {
+					let error = std::io::Error::other("failed to get the control message header");
+					return Err(error);
+				}
+				(*cmsg).cmsg_level = libc::SOL_SOCKET;
+				(*cmsg).cmsg_type = libc::SCM_RIGHTS;
+				(*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of_val(fds.as_slice()) as _) as _;
+				let data = libc::CMSG_DATA(cmsg);
+				std::ptr::copy_nonoverlapping(fds.as_ptr(), data.cast(), fds.len());
+				let ret = libc::sendmsg(fd, &raw const msg, 0);
+				if ret < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
+				Ok(())
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the file descriptors"))?;
 
 		// Read the length.
 		let length = self

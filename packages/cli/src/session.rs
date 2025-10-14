@@ -25,20 +25,6 @@ impl Cli {
 	pub fn command_session_inner(args: Args) -> tg::Result<()> {
 		// Open the pty and set up the controlling tty.
 		unsafe {
-			// Open the pty.
-			let fd = libc::open(
-				std::ffi::CString::new(args.pty.as_bytes())
-					.unwrap()
-					.as_ptr(),
-				libc::O_RDWR,
-			);
-			if fd < 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to open the pty"
-				));
-			}
-
 			// Disconnect from the old controlling terminal.
 			let tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
 			if tty > 0 {
@@ -56,14 +42,21 @@ impl Cli {
 				));
 			}
 
-			// Verify that we disconnected from the controlling terminal.
-			let tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-			if tty >= 0 {
-				libc::close(tty);
-				return Err(tg::error!("failed to remove the controlling tty"));
+			// Open the pty.
+			let fd = libc::open(
+				std::ffi::CString::new(args.pty.as_bytes())
+					.unwrap()
+					.as_ptr(),
+				libc::O_RDWR,
+			);
+			if fd < 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to open the pty"
+				));
 			}
 
-			// Set the slave as the controlling tty.
+			// Set the pty as the controlling tty.
 			#[allow(clippy::useless_conversion)]
 			let ret = libc::ioctl(fd, libc::TIOCSCTTY.into(), 0);
 			if ret < 0 {
@@ -73,14 +66,7 @@ impl Cli {
 				));
 			}
 
-			// Verify that we have a controlling terminal again.
-			let verify_fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-			if verify_fd <= 0 {
-				return Err(tg::error!("failed to verify the controlling tty"));
-			}
-			libc::close(verify_fd);
-
-			// Duplicate the tty to stdin, stdout, stderr.
+			// Duplicate the pty to stdin, stdout, stderr.
 			if libc::dup2(fd, 0) < 0 || libc::dup2(fd, 1) < 0 || libc::dup2(fd, 2) < 0 {
 				return Err(tg::error!(
 					source = std::io::Error::last_os_error(),

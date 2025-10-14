@@ -10,7 +10,7 @@ use {
 	},
 	tangram_client as tg,
 	tangram_futures::{read::Ext as _, write::Ext as _},
-	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	tokio::io::{AsyncReadExt as _, AsyncWriteExt},
 };
 
 #[derive(Clone)]
@@ -64,50 +64,53 @@ impl Server {
 		};
 
 		// Receive the file descriptors using recvmsg with SCM_RIGHTS.
-		#[allow(
-			clippy::cast_possible_truncation,
-			clippy::cast_ptr_alignment,
-			clippy::useless_conversion
-		)]
-		let fds = {
-			let fd = stream.as_raw_fd();
-			stream
-				.async_io(tokio::io::Interest::READABLE, move || unsafe {
-					let iov = libc::iovec {
-						iov_base: std::ptr::null_mut(),
-						iov_len: 0,
-					};
-					let length =
-						libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as u32) as usize;
-					let mut cmsg_buffer = vec![0u8; length];
-					let mut msg: libc::msghdr = std::mem::zeroed();
-					msg.msg_iov = (&raw const iov).cast_mut();
-					msg.msg_iovlen = 1;
-					msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
-					msg.msg_controllen = cmsg_buffer.len().try_into().unwrap();
-					let ret = libc::recvmsg(fd, &raw mut msg, 0);
-					if ret < 0 {
-						return Err(std::io::Error::last_os_error());
-					}
+		let fd = stream.as_raw_fd();
+		#[allow(clippy::cast_possible_truncation)]
+		let fds = stream
+			.async_io(tokio::io::Interest::READABLE, move || unsafe {
+				// Receive the message.
+				let mut buffer = [0u8; 1];
+				let iov = libc::iovec {
+					iov_base: buffer.as_mut_ptr().cast(),
+					iov_len: 1,
+				};
+				let length = libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as _);
+				let mut cmsg_buffer = vec![0u8; length as _];
+				let mut msg: libc::msghdr = std::mem::zeroed();
+				msg.msg_iov = (&raw const iov).cast_mut();
+				msg.msg_iovlen = 1;
+				msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
+				msg.msg_controllen = cmsg_buffer.len() as _;
+				let ret = libc::recvmsg(fd, &raw mut msg, 0);
+				if ret < 0 {
+					let error = std::io::Error::last_os_error();
+					return Err(error);
+				}
 
-					let mut fds = Vec::new();
-					let cmsg = libc::CMSG_FIRSTHDR(&raw const msg);
-					if !cmsg.is_null()
-						&& (*cmsg).cmsg_level == libc::SOL_SOCKET
-						&& (*cmsg).cmsg_type == libc::SCM_RIGHTS
-					{
-						let data = libc::CMSG_DATA(cmsg);
-						let fd_count = ((*cmsg).cmsg_len as usize - libc::CMSG_LEN(0) as usize)
-							/ std::mem::size_of::<RawFd>();
-						for i in 0..fd_count {
-							fds.push(*(data.cast::<RawFd>().add(i)));
-						}
+				// Read the fds.
+				let mut fds = Vec::new();
+				let cmsg = libc::CMSG_FIRSTHDR(&raw const msg);
+				if !cmsg.is_null()
+					&& (*cmsg).cmsg_level == libc::SOL_SOCKET
+					&& (*cmsg).cmsg_type == libc::SCM_RIGHTS
+				{
+					let data = libc::CMSG_DATA(cmsg);
+					let n = ((*cmsg).cmsg_len.to_usize().unwrap()
+						- libc::CMSG_LEN(0).to_usize().unwrap())
+						/ std::mem::size_of::<RawFd>();
+					for i in 0..n {
+						fds.push(
+							data.add(i * std::mem::size_of::<RawFd>())
+								.cast::<RawFd>()
+								.read_unaligned(),
+						);
 					}
-					Ok(fds)
-				})
-				.await
-				.map_err(|source| tg::error!(!source, "failed to receive the fds"))?
-		};
+				}
+
+				Ok(fds)
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "failed to receive the fds"))?;
 
 		// Spawn the process.
 		let mut cmd = tokio::process::Command::new(&command.executable);
