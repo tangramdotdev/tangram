@@ -32,26 +32,6 @@ pub struct Wait {
 	pub output: Option<tg::Value>,
 }
 
-impl Wait {
-	pub fn into_output(self) -> tg::Result<tg::Value> {
-		if let Some(error) = self.error {
-			return Err(error);
-		}
-		match self.exit {
-			0 => (),
-			1..128 => {
-				return Err(tg::error!("the process exited with code {}", self.exit));
-			},
-			128.. => {
-				let signal = self.exit - 128;
-				return Err(tg::error!("the process exited with signal {signal}"));
-			},
-		}
-		let output = self.output.unwrap_or(tg::Value::Null);
-		Ok(output)
-	}
-}
-
 impl tg::Client {
 	pub async fn try_wait_process_future(
 		&self,
@@ -110,6 +90,26 @@ impl tg::Client {
 			})
 		});
 		Ok(Some(future))
+	}
+}
+
+impl Wait {
+	pub fn into_output(self) -> tg::Result<tg::Value> {
+		if let Some(error) = self.error {
+			return Err(error);
+		}
+		match self.exit {
+			0 => (),
+			1..128 => {
+				return Err(tg::error!("the process exited with code {}", self.exit));
+			},
+			128.. => {
+				let signal = self.exit - 128;
+				return Err(tg::error!("the process exited with signal {signal}"));
+			},
+		}
+		let output = self.output.unwrap_or(tg::Value::Null);
+		Ok(output)
 	}
 }
 

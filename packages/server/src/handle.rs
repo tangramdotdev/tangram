@@ -411,6 +411,14 @@ impl tg::handle::Pipe for Server {
 		self.close_pipe(id, arg)
 	}
 
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pipe(id, arg)
+	}
+
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
@@ -444,6 +452,14 @@ impl tg::handle::Pty for Server {
 		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.close_pty(id, arg)
+	}
+
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_pty(id, arg)
 	}
 
 	fn get_pty_size(

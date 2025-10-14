@@ -221,13 +221,13 @@ impl Writer {
 			},
 			Writer::Sha256(sha256) => {
 				let algorithm = Algorithm::Sha256;
-				let bytes = sha2::Digest::finalize(*sha256).as_slice().into();
+				let bytes = sha2::Digest::finalize(*sha256).to_vec().into();
 				let body = Body::Bytes(bytes);
 				(algorithm, body)
 			},
 			Writer::Sha512(sha512) => {
 				let algorithm = Algorithm::Sha512;
-				let bytes = sha2::Digest::finalize(*sha512).as_slice().into();
+				let bytes = sha2::Digest::finalize(*sha512).to_vec().into();
 				let body = Body::Bytes(bytes);
 				(algorithm, body)
 			},

@@ -207,9 +207,9 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
-		stderr: Option<tg::process::Stdio>,
 		stdin: Option<tg::process::Stdio>,
 		stdout: Option<tg::process::Stdio>,
+		stderr: Option<tg::process::Stdio>,
 	) -> tg::Result<Output> {
 		let handle = self.handle().await?;
 

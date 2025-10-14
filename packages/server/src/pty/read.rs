@@ -1,11 +1,12 @@
 use {
 	crate::Server,
+	bytes::Bytes,
 	futures::{Stream, StreamExt as _, future, stream},
+	num::ToPrimitive,
 	std::os::fd::AsRawFd as _,
 	tangram_client as tg,
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
-	tokio::io::unix::AsyncFd,
 };
 
 impl Server {
@@ -21,53 +22,47 @@ impl Server {
 			return Ok(stream);
 		}
 
+		let pty = self
+			.ptys
+			.get_mut(id)
+			.ok_or_else(|| tg::error!("failed to get the pty"))?;
 		let fd = if arg.master {
-			self.ptys
-				.get(id)
-				.ok_or_else(|| tg::error!("failed to get pty"))?
-				.host
-				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to get pty"))?
+			pty.master
+				.as_ref()
+				.ok_or_else(|| tg::error!("the pty master is closed"))?
+				.as_raw_fd()
 		} else {
-			self.ptys
-				.get(id)
-				.ok_or_else(|| tg::error!("failed to get pty"))?
-				.guest
-				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to get pty"))?
+			pty.slave
+				.as_ref()
+				.ok_or_else(|| tg::error!("the pty slave is closed"))?
+				.as_raw_fd()
 		};
-
-		let fd = AsyncFd::with_interest(fd, tokio::io::Interest::READABLE)
-			.map_err(|source| tg::error!(!source, "failed to read pty"))?;
+		drop(pty);
 
 		let stream = stream::try_unfold(fd, |fd| async move {
-			let Some(bytes) = fd
-				.async_io(tokio::io::Interest::READABLE, |fd| {
-					let mut buf = vec![0u8; 4096];
-					unsafe {
-						let n = libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len());
-						if n < 0 {
-							let error = std::io::Error::last_os_error();
-							if matches!(error.raw_os_error(), Some(libc::EIO)) {
-								return Ok(None);
-							}
-							return Err(error);
-						}
-						if n == 0 {
-							return Ok(None);
-						}
-						Ok(Some(tg::pty::Event::Chunk(buf.into())))
-					}
-				})
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read pty"))?
+			let Some(bytes) = tokio::task::spawn_blocking(move || unsafe {
+				let mut buffer = vec![0u8; 4096];
+				let n = libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len());
+				if n < 0 {
+					let error = std::io::Error::last_os_error();
+					return Err(error);
+				}
+				if n == 0 {
+					return Ok(None);
+				}
+				let n = n.to_usize().unwrap();
+				let bytes = Bytes::copy_from_slice(&buffer[..n]);
+				Ok(Some(tg::pty::Event::Chunk(bytes)))
+			})
+			.await
+			.unwrap()
+			.map_err(|source| tg::error!(!source, "failed to read the pty"))?
 			else {
 				return Ok::<_, tg::Error>(None);
 			};
 			Ok::<_, tg::Error>(Some((bytes, fd)))
 		})
 		.chain(stream::once(future::ok(tg::pty::Event::End)))
-		.boxed()
 		.right_stream();
 
 		Ok(stream)

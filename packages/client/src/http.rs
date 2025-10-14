@@ -22,9 +22,9 @@ pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Respons
 
 impl tg::Client {
 	pub(crate) fn service(url: &Uri, version: &str) -> (Sender, Service) {
-		let sender = Arc::new(tokio::sync::Mutex::<
-			Option<hyper::client::conn::http2::SendRequest<Body>>,
-		>::new(None));
+		let sender = Arc::new(tokio::sync::Mutex::new(
+			None::<hyper::client::conn::http2::SendRequest<Body>>,
+		));
 		let service = tower::service_fn({
 			let url = url.clone();
 			let sender = sender.clone();
@@ -196,8 +196,6 @@ impl tg::Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
-					#[allow(unused)]
-					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -234,8 +232,6 @@ impl tg::Client {
 			connection
 				.await
 				.inspect_err(|error| {
-					#[allow(unused)]
-					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -273,8 +269,6 @@ impl tg::Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
-					#[allow(unused)]
-					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -312,8 +306,6 @@ impl tg::Client {
 			connection
 				.await
 				.inspect_err(|error| {
-					#[allow(unused)]
-					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -358,8 +350,6 @@ impl tg::Client {
 				.with_upgrades()
 				.await
 				.inspect_err(|error| {
-					#[allow(unused)]
-					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();
@@ -404,8 +394,6 @@ impl tg::Client {
 			connection
 				.await
 				.inspect_err(|error| {
-					#[allow(unused)]
-					use std::file;
 					tracing::error!(error = ?error, "the connection failed");
 				})
 				.ok();

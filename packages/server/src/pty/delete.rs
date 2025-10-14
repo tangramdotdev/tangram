@@ -5,34 +5,24 @@ use {
 };
 
 impl Server {
-	pub async fn close_pty(
+	pub async fn delete_pty(
 		&self,
 		id: &tg::pty::Id,
-		mut arg: tg::pty::close::Arg,
+		mut arg: tg::pty::delete::Arg,
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			remote.close_pty(id, arg).await?;
+			remote.delete_pty(id, arg).await?;
 			return Ok(());
 		}
 
-		let mut pty = self
-			.ptys
-			.get_mut(id)
-			.ok_or_else(|| tg::error!("failed to get the pty"))?;
-		if arg.master {
-			pty.master.take();
-		} else {
-			pty.session.take();
-			pty.slave.take();
-		}
-		drop(pty);
+		self.ptys.remove(id);
 
 		Ok(())
 	}
 
-	pub(crate) async fn handle_close_pty_request<H>(
+	pub(crate) async fn handle_delete_pty_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
 		id: &str,
@@ -41,8 +31,8 @@ impl Server {
 		H: tg::Handle,
 	{
 		let id = id.parse()?;
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-		handle.close_pty(&id, arg).await?;
+		let arg = request.json().await?;
+		handle.delete_pty(&id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

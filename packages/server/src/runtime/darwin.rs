@@ -1,11 +1,14 @@
 use {
 	super::{
 		proxy::Proxy,
-		util::{render_env, render_value, signal_task, stdio_task, which},
+		run::{RunArg, run},
+		util::{cache_children, render_env, render_value, which},
 	},
 	crate::{Server, temp::Temp},
-	num::ToPrimitive as _,
-	std::{os::unix::process::ExitStatusExt as _, path::Path},
+	std::{
+		collections::BTreeMap,
+		path::{Path, PathBuf},
+	},
 	tangram_client as tg,
 	tangram_futures::task::Task,
 	tangram_uri::Uri,
@@ -37,8 +40,17 @@ impl Runtime {
 	}
 
 	pub async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
-		let config = self
-			.server
+		let server = &self.server;
+
+		let id = process.id();
+		let state = &process.load(server).await?;
+		let remote = process.remote();
+
+		let command = process.command(server).await?;
+		let command = &command.data(server).await?;
+
+		// Get the config.
+		let config = server
 			.config()
 			.runtimes
 			.get("darwin")
@@ -48,31 +60,28 @@ impl Runtime {
 			return Err(tg::error!("unsupported runtime kind"));
 		}
 
-		let state = process.load(&self.server).await?;
-		let command = process.command(&self.server).await?;
-		let command = command.data(&self.server).await?;
-		let remote = process.remote();
+		// Cache the process's children.
+		cache_children(server, process).await?;
 
-		// Checkout the process's children.
-		self.server.checkout_children(process).await?;
-
-		// Determine if the host's root is mounted.
-		let root_mount = state
+		// Determine if the root is mounted.
+		let root_mounted = state
 			.mounts
 			.iter()
 			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
 
 		// Get the artifacts path.
-		let artifacts_path = self.server.artifacts_path();
+		let artifacts_path = server.artifacts_path();
 
-		// Create the root.
-		let root = Temp::new(&self.server);
-		tokio::fs::create_dir_all(&root)
+		// Create the temp.
+		let temp = Temp::new(server);
+		tokio::fs::create_dir_all(&temp)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+
+		// Create the output directory.
+		tokio::fs::create_dir_all(temp.path().join("output"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-
-		// Create the output path.
-		let output_path = root.path().join("output");
 
 		// Render the args.
 		let args: Vec<String> = command
@@ -85,7 +94,7 @@ impl Runtime {
 		let cwd = command
 			.cwd
 			.clone()
-			.unwrap_or_else(|| root.path().join("work"));
+			.unwrap_or_else(|| temp.path().join("work"));
 		tokio::fs::create_dir_all(&cwd)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
@@ -94,10 +103,10 @@ impl Runtime {
 		let mut env = render_env(&artifacts_path, &command.env)?;
 
 		// Render the executable.
-		let executable = match command.executable {
+		let executable = match &command.executable {
 			tg::command::data::Executable::Artifact(executable) => {
 				let mut path = artifacts_path.join(executable.artifact.to_string());
-				if let Some(executable_path) = executable.path {
+				if let Some(executable_path) = &executable.path {
 					path.push(executable_path);
 				}
 				path
@@ -111,14 +120,14 @@ impl Runtime {
 		};
 
 		// Create the proxy.
-		let proxy = if root_mount {
+		let proxy = if root_mounted {
 			None
 		} else {
-			let path = root.path().join(".tangram");
+			let path = temp.path().join(".tangram");
 			tokio::fs::create_dir_all(&path)
 				.await
 				.map_err(|source| tg::error!(!source, %path = path.display(), "failed to create the proxy server directory"))?;
-			let proxy = Proxy::new(self.server.clone(), process, remote.cloned(), None);
+			let proxy = Proxy::new(server.clone(), process, remote.cloned(), None);
 			let socket_path = path.join("socket").display().to_string();
 			let mut url = if socket_path.len() >= MAX_URL_LEN {
 				let path = urlencoding::encode(&socket_path);
@@ -139,197 +148,85 @@ impl Runtime {
 		};
 
 		// Set `$OUTPUT`.
-		env.insert("OUTPUT".to_owned(), output_path.display().to_string());
+		let path = temp.path().join("output/output");
+		env.insert("OUTPUT".to_owned(), path.to_str().unwrap().to_owned());
 
 		// Set `$TANGRAM_PROCESS`.
-		env.insert("TANGRAM_PROCESS".to_owned(), process.id().to_string());
+		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
 			|| {
-				let path = self.server.path.join("socket").display().to_string();
-				let path = urlencoding::encode(&path);
+				let path = server.path.join("socket");
+				let path = path.to_str().unwrap();
+				let path = urlencoding::encode(path);
 				format!("http+unix://{path}")
 			},
 			|(_, url)| url.to_string(),
 		);
 		env.insert("TANGRAM_URL".to_owned(), url);
 
-		// Determine whether to use the sandbox.
-		let sandbox = !(root_mount && state.network);
+		// Determine if the process is sandboxed.
+		let unsandboxed = root_mounted && state.network;
 
-		// Create the command.
-		let mut cmd = if sandbox {
-			// Create the command.
-			let mut cmd = tokio::process::Command::new(config.executable);
-			cmd.args(config.args);
-			cmd.arg("-C").arg(&cwd);
-			for (name, value) in &env {
-				cmd.arg("-e").arg(format!("{name}={value}"));
-			}
-			if !root_mount {
-				cmd.arg("--mount")
-					.arg(format!("source={}", root.path().display()))
-					.arg("--mount")
-					.arg(format!("source={},ro", artifacts_path.display()))
-					.arg("--mount")
-					.arg(format!("source={}", cwd.display()));
-			}
-			for mount in &state.mounts {
-				let mount = if mount.readonly {
-					format!("source={},ro", mount.source.display())
-				} else {
-					format!("source={}", mount.source.display())
-				};
-				cmd.arg("--mount").arg(mount);
-			}
-			if state.network {
-				cmd.arg("--network");
-			}
-			cmd.arg(executable)
-				.arg("--")
-				.args(args)
-				.current_dir("/")
-				.env_clear();
-			cmd
+		// Sandbox if necessary.
+		let (args, cwd, env, executable) = if unsandboxed {
+			(args, cwd, env, executable)
 		} else {
-			let mut cmd = tokio::process::Command::new(executable);
-			cmd.args(args).env_clear().envs(env).current_dir(cwd);
-			cmd
-		};
-
-		// Create the stdio.
-		match state.stdin.as_ref() {
-			_ if command.stdin.is_some() => {
-				cmd.stdin(std::process::Stdio::piped());
-			},
-			Some(tg::process::Stdio::Pipe(pipe)) => {
-				let fd = self.server.get_pipe_fd(pipe, true)?;
-				cmd.stdin(fd);
-			},
-			Some(tg::process::Stdio::Pty(pty)) => {
-				let fd = self.server.get_pty_fd(pty, false)?;
-				cmd.stdin(fd);
-			},
-			None => {
-				cmd.stdin(std::process::Stdio::null());
-			},
-		}
-		match state.stdout.as_ref() {
-			Some(tg::process::Stdio::Pipe(pipe)) => {
-				let fd = self.server.get_pipe_fd(pipe, false)?;
-				cmd.stdout(fd);
-			},
-			Some(tg::process::Stdio::Pty(pty)) => {
-				let fd = self.server.get_pty_fd(pty, false)?;
-				cmd.stdout(fd);
-			},
-			None => {
-				cmd.stdout(std::process::Stdio::piped());
-			},
-		}
-		match state.stderr.as_ref() {
-			Some(tg::process::Stdio::Pipe(pipe)) => {
-				let fd = self.server.get_pipe_fd(pipe, false)?;
-				cmd.stderr(fd);
-			},
-			Some(tg::process::Stdio::Pty(pty)) => {
-				let fd = self.server.get_pty_fd(pty, false)?;
-				cmd.stderr(fd);
-			},
-			None => {
-				cmd.stderr(std::process::Stdio::piped());
-			},
-		}
-
-		// Spawn the process.
-		let mut child = cmd
-			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-
-		// Spawn the stdio task.
-		let stdio_task = tokio::spawn({
-			let server = self.server.clone();
-			let process = process.clone();
-			let stdin = child.stdin.take();
-			let stdout = child.stdout.take();
-			let stderr = child.stderr.take();
-			async move {
-				stdio_task(&server, &process, stdin, stdout, stderr).await?;
-				Ok::<_, tg::Error>(())
-			}
-		});
-
-		// Spawn the signal task.
-		let signal_task = tokio::spawn({
-			let server = self.server.clone();
-			let process = process.clone();
-			let pid = child.id().unwrap().to_i32().unwrap();
-			async move {
-				signal_task(&server, pid, &process)
-					.await
-					.inspect_err(|source| tracing::error!(?source, "the signal task failed"))
-					.ok();
-			}
-		});
-
-		// Wait for the process to complete.
-		let exit = child.wait().await.map_err(
-			|source| tg::error!(!source, %process = process.id(), "failed to wait for the child process"),
-		)?;
-		let exit = exit
-			.code()
-			.or(exit.signal().map(|signal| 128 + signal))
-			.unwrap()
-			.to_u8()
-			.unwrap();
-
-		// Stop and await the proxy task.
-		if let Some((task, _)) = proxy {
-			task.stop();
-			task.wait().await.unwrap();
-		}
-
-		// Abort the signal task.
-		signal_task.abort();
-
-		// Stop and await the stdio task.
-		stdio_task.await.unwrap()?;
-
-		// Create the output.
-		let exists = tokio::fs::try_exists(&output_path)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to determine if the output path exists")
-			})?;
-		let output = if exists {
-			let arg = tg::checkin::Arg {
-				options: tg::checkin::Options {
-					destructive: true,
-					deterministic: true,
-					ignore: false,
-					lock: false,
-					locked: true,
-					..Default::default()
-				},
-				path: output_path,
-				updates: Vec::new(),
+			let args = {
+				let mut args_ = vec!["sandbox".to_owned()];
+				args_.push("-C".to_owned());
+				args_.push(cwd.display().to_string());
+				for (name, value) in &env {
+					args_.push("-e".to_owned());
+					args_.push(format!("{name}={value}"));
+				}
+				if !root_mounted {
+					args_.push("--mount".to_owned());
+					args_.push(format!("source={}", temp.path().display()));
+					args_.push("--mount".to_owned());
+					args_.push(format!("source={},ro", artifacts_path.display()));
+					args_.push("--mount".to_owned());
+					args_.push(format!("source={}", cwd.display()));
+				}
+				for mount in &state.mounts {
+					let mount = if mount.readonly {
+						format!("source={},ro", mount.source.display())
+					} else {
+						format!("source={}", mount.source.display())
+					};
+					args_.push("--mount".to_owned());
+					args_.push(mount);
+				}
+				if state.network {
+					args_.push("--network".to_owned());
+				}
+				args_.push(executable.display().to_string());
+				args_.push("--".to_owned());
+				args_.extend(args);
+				args_
 			};
-			let artifact = tg::checkin(&self.server, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
-			Some(tg::Value::from(artifact))
-		} else {
-			None
+			let cwd = PathBuf::from("/");
+			let env = BTreeMap::new();
+			let executable = config.executable.clone();
+			(args, cwd, env, executable)
 		};
 
-		// Create the output.
-		let output = super::Output {
-			checksum: None,
-			error: None,
-			exit,
-			output,
+		// Run the process.
+		let arg = RunArg {
+			args,
+			command,
+			cwd,
+			env,
+			executable,
+			id,
+			proxy,
+			remote,
+			server,
+			state,
+			temp: &temp,
 		};
+		let output = run(arg).await?;
 
 		Ok(output)
 	}

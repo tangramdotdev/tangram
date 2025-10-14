@@ -84,13 +84,13 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	} else {
 		commandStdin = await currentCommand.stdin();
 	}
-	let stderr = state.stdout;
-	if ("stderr" in arg) {
-		stderr = arg.stderr;
-	}
 	let stdout = state.stdout;
 	if ("stdout" in arg) {
 		stdout = arg.stdout;
+	}
+	let stderr = state.stderr;
+	if ("stderr" in arg) {
+		stderr = arg.stderr;
 	}
 	let command = await tg.command(
 		"args" in arg ? { args: arg.args } : undefined,

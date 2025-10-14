@@ -23,28 +23,22 @@ impl Server {
 		}
 
 		let mut stream = pin!(stream);
-		let pipe = self
-			.pipes
-			.get(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?
-			.write
-			.try_clone()
-			.map_err(|source| tg::error!(!source, "failed to clone the pipe"))?;
-		pipe.set_nonblocking(true)
-			.map_err(|source| tg::error!(!source, "failed to set pipe as nonblocking"))?;
-		let mut pipe = tokio::net::UnixStream::from_std(pipe)
-			.map_err(|source| tg::error!(!source, "failed to create the unix stream"))?;
 		while let Some(event) = stream.try_next().await? {
+			let mut pipe = self
+				.pipes
+				.get_mut(id)
+				.ok_or_else(|| tg::error!("failed to find the pipe"))?;
 			match event {
 				tg::pipe::Event::Chunk(chunk) => {
-					pipe.write_all(&chunk)
+					pipe.sender
+						.as_mut()
+						.ok_or_else(|| tg::error!("the pipe is closed"))?
+						.write_all(&chunk)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
 				},
 				tg::pipe::Event::End => {
-					pipe.shutdown()
-						.await
-						.map_err(|source| tg::error!(!source, "failed to shutdown the pipe"))?;
+					return Err(tg::error!("cannot write an end event"));
 				},
 			}
 		}

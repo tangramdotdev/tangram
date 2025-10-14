@@ -1,13 +1,11 @@
 use {
-	self::signal::handle_signals,
 	crate::Cli,
 	anstream::eprintln,
 	crossterm::style::Stylize as _,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream},
-	std::{path::PathBuf, pin::pin},
+	futures::prelude::*,
+	std::path::PathBuf,
 	tangram_client::{self as tg, prelude::*},
-	tangram_futures::task::{Stop, Task},
-	tokio::io::{AsyncWrite, AsyncWriteExt as _},
+	tangram_futures::task::Task,
 };
 
 mod signal;
@@ -267,8 +265,7 @@ impl Cli {
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 
 		// Create the stdio.
-		let stdio = self
-			.create_stdio(remote.clone(), &options)
+		let stdio = stdio::Stdio::new(&handle, remote.clone(), &options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
 
@@ -278,9 +275,9 @@ impl Cli {
 				options.spawn,
 				reference,
 				trailing,
-				Some(stdio.stderr.clone()),
-				Some(stdio.stdin.clone()),
-				Some(stdio.stdout.clone()),
+				stdio.stdin.clone(),
+				stdio.stdout.clone(),
+				stdio.stderr.clone(),
 			)
 			.boxed()
 			.await?;
@@ -300,26 +297,25 @@ impl Cli {
 			eprintln!();
 		}
 
-		// Enable raw mode.
-		stdio.set_raw_mode()?;
+		// Enable raw mode if necessary.
+		if let Some(tty) = &stdio.tty {
+			tty.enable_raw_mode()?;
+		}
 
 		// Spawn the stdio task.
 		let stdio_task = Task::spawn({
 			let handle = handle.clone();
-			let stdin = stdio.stdin.clone();
-			let stdout = stdio.stdout.clone();
-			let stderr = stdio.stderr.clone();
-			let remote = stdio.remote.clone();
-			|stop| async move { stdio_task(&handle, stop, stdin, stdout, stderr, remote).await }
+			let stdio = stdio.clone();
+			|stop| async move { self::stdio::task(&handle, stop, stdio).await }
 		});
 
-		// Spawn a task to handle signals.
+		// Spawn signal task.
 		let signal_task = tokio::spawn({
 			let handle = handle.clone();
 			let process = process.item().id().clone();
 			let remote = remote.clone();
 			async move {
-				handle_signals(&handle, &process, remote).await.ok();
+				self::signal::task(&handle, &process, remote).await.ok();
 			}
 		});
 
@@ -328,15 +324,17 @@ impl Cli {
 			.item()
 			.wait(&handle)
 			.await
-			.map_err(|source| tg::error!(!source, "failed await the process"));
+			.map_err(|source| tg::error!(!source, "failed to await the process"));
 
-		// Close stdio.
+		// Close stdout and stderr.
 		stdio.close(&handle).await?;
 
 		// Stop and await the stdio task.
 		stdio_task.stop();
 		stdio_task.wait().await.unwrap()?;
-		drop(stdio);
+
+		// Delete stdio.
+		stdio.delete(&handle).await?;
 
 		// Abort the signal task.
 		signal_task.abort();
@@ -425,156 +423,4 @@ impl Cli {
 
 		Ok(())
 	}
-}
-
-async fn stdio_task<H>(
-	handle: &H,
-	stop: Stop,
-	stdin: tg::process::Stdio,
-	stdout: tg::process::Stdio,
-	stderr: tg::process::Stdio,
-	remote: Option<String>,
-) -> tg::Result<()>
-where
-	H: tg::Handle,
-{
-	// Spawn stdin task.
-	let stream = crate::util::stdio::stdin_stream();
-	let stdin_task = tokio::spawn({
-		let remote = remote.clone();
-		let handle = handle.clone();
-		async move {
-			let result = match stdin {
-				tg::process::Stdio::Pipe(id) => {
-					let stream = stream
-						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
-						.chain(stream::once(future::ok(tg::pipe::Event::End)))
-						.take_until(stop.wait())
-						.boxed();
-					let arg = tg::pipe::write::Arg { remote };
-					let handle = handle.clone();
-					async move { handle.write_pipe(&id, arg, stream).await }.boxed()
-				},
-				tg::process::Stdio::Pty(id) => {
-					let stream = stream
-						.map(|bytes| bytes.map(tg::pty::Event::Chunk))
-						.chain(stream::once(future::ok(tg::pty::Event::End)))
-						.take_until(stop.wait())
-						.boxed();
-					let arg = tg::pty::write::Arg {
-						master: true,
-						remote,
-					};
-					let handle = handle.clone();
-					async move { handle.write_pty(&id, arg, stream).await }.boxed()
-				},
-			};
-			let stop = stop.wait();
-			match future::select(pin!(result), pin!(stop)).await {
-				future::Either::Left((result, _)) => result,
-				future::Either::Right(_) => Ok(()),
-			}
-		}
-	});
-
-	// Create the stdout task.
-	let stdout_task = tokio::spawn({
-		let stdout = stdout.clone();
-		let handle = handle.clone();
-		let remote = remote.clone();
-		async move {
-			let writer = tokio::io::BufWriter::new(tokio::io::stdout());
-			stdio_task_inner(&handle, &stdout, remote, writer).await?;
-			Ok::<_, tg::Error>(())
-		}
-	});
-
-	// Create the stderr task.
-	let stderr_task = tokio::spawn({
-		let stdout = stdout.clone();
-		let stderr = stderr.clone();
-		let handle = handle.clone();
-		let remote = remote.clone();
-		async move {
-			if stdout == stderr {
-				return Ok(());
-			}
-			let writer = tokio::io::BufWriter::new(tokio::io::stderr());
-			stdio_task_inner(&handle, &stderr, remote, writer).await?;
-			Ok::<_, tg::Error>(())
-		}
-	});
-
-	// Join the stdout and stderr tasks.
-	let (stdout_result, stderr_result, stdin_result) =
-		future::join3(stdout_task, stderr_task, stdin_task).await;
-
-	// Return errors from the stdout and stderr tasks.
-	stdout_result.unwrap()?;
-	stderr_result.unwrap()?;
-	stdin_result.unwrap()?;
-
-	Ok(())
-}
-
-async fn stdio_task_inner<H>(
-	handle: &H,
-	stdio: &tg::process::Stdio,
-	remote: Option<String>,
-	mut writer: impl AsyncWrite + Unpin,
-) -> tg::Result<()>
-where
-	H: tg::Handle,
-{
-	let stream = match stdio {
-		tg::process::Stdio::Pipe(id) => {
-			let arg = tg::pipe::read::Arg { remote };
-			handle
-				.read_pipe(id, arg)
-				.await?
-				.take_while(|chunk| future::ready(!matches!(chunk, Ok(tg::pipe::Event::End))))
-				.try_filter_map(|event| {
-					future::ok({
-						if let tg::pipe::Event::Chunk(chunk) = event {
-							Some(chunk)
-						} else {
-							None
-						}
-					})
-				})
-				.left_stream()
-		},
-		tg::process::Stdio::Pty(id) => {
-			let arg = tg::pty::read::Arg {
-				master: true,
-				remote,
-			};
-			handle
-				.read_pty(id, arg)
-				.await?
-				.take_while(|chunk| future::ready(!matches!(chunk, Ok(tg::pty::Event::End))))
-				.try_filter_map(|event| {
-					future::ok({
-						if let tg::pty::Event::Chunk(chunk) = event {
-							Some(chunk)
-						} else {
-							None
-						}
-					})
-				})
-				.right_stream()
-		},
-	};
-	let mut stream = pin!(stream);
-	while let Some(chunk) = stream.try_next().await? {
-		writer
-			.write_all(&chunk)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the chunk"))?;
-		writer
-			.flush()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to flush the writer"))?;
-	}
-	Ok(())
 }

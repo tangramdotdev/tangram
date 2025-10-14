@@ -1,12 +1,11 @@
 use {
 	crate::Server,
 	futures::{Stream, StreamExt as _},
+	std::os::fd::AsFd as _,
 	tangram_client as tg,
-	tangram_futures::{stream::Ext as _, task::Stop},
+	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
-	tokio::io::AsyncReadExt as _,
-	tokio_stream::wrappers::ReceiverStream,
-	tokio_util::task::AbortOnDropHandle,
+	tokio_util::io::ReaderStream,
 };
 
 impl Server {
@@ -20,42 +19,27 @@ impl Server {
 			let stream = remote.read_pipe(id, arg).await?;
 			return Ok(stream.left_stream());
 		}
-		let (send, recv) = tokio::sync::mpsc::channel(1);
+
 		let pipe = self
 			.pipes
 			.get(id)
-			.ok_or_else(|| tg::error!("could not find pipe"))?
-			.read
-			.try_clone()
-			.map_err(|source| tg::error!(!source, "failed to clone pipe"))?;
-		pipe.set_nonblocking(true)
-			.map_err(|source| tg::error!(!source, "failed to set pipe as nonblocking"))?;
-		let mut pipe = tokio::net::UnixStream::from_std(pipe)
-			.map_err(|source| tg::error!(!source, "failed to create async pipe"))?;
-		let task = AbortOnDropHandle::new(tokio::spawn({
-			async move {
-				loop {
-					let mut buf = vec![0u8; 1024];
-					match pipe.read(&mut buf).await {
-						Ok(0) => {
-							send.send(Ok(tg::pipe::Event::End)).await.ok();
-							break;
-						},
-						Ok(n) => {
-							buf.truncate(n);
-							send.send(Ok(tg::pipe::Event::Chunk(buf.into()))).await.ok();
-						},
-						Err(source) => {
-							send.send(Err(tg::error!(!source, "failed to read pipe")))
-								.await
-								.ok();
-							break;
-						},
-					}
-				}
-			}
-		}));
-		let stream = ReceiverStream::new(recv).attach(task).right_stream();
+			.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+		let fd = pipe
+			.receiver
+			.as_fd()
+			.try_clone_to_owned()
+			.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
+		let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
+			.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
+
+		let stream = ReaderStream::new(receiver)
+			.map(|result| match result {
+				Ok(bytes) if bytes.is_empty() => Ok(tg::pipe::Event::End),
+				Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
+				Err(source) => Err(tg::error!(!source, "failed to read pipe")),
+			})
+			.right_stream();
+
 		Ok(stream)
 	}
 

@@ -1,6 +1,6 @@
 use {
 	super::Runtime,
-	crate::{runtime::util, temp::Temp},
+	crate::temp::Temp,
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
 	std::{
@@ -57,7 +57,7 @@ impl Runtime {
 
 		// Log that the download started.
 		let message = format!("downloading from \"{url}\"\n");
-		util::log(server, process, tg::process::log::Stream::Stderr, message).await;
+		crate::runtime::util::log(server, process, tg::process::log::Stream::Stderr, message).await;
 
 		// Spawn the progress and log tasks.
 		let downloaded = Arc::new(AtomicU64::new(0));
@@ -220,7 +220,7 @@ impl Runtime {
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
-		util::log(server, process, tg::process::log::Stream::Stderr, message).await;
+		crate::runtime::util::log(server, process, tg::process::log::Stream::Stderr, message).await;
 
 		let output = match mode {
 			Mode::Raw => artifact

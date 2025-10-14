@@ -1,27 +1,31 @@
 use {
-	crate::Server,
+	crate::{Server, temp::Temp},
 	std::{
 		ffi::{CStr, CString},
-		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+		os::fd::{FromRawFd as _, OwnedFd},
 	},
 	tangram_client as tg,
 };
 
 mod close;
 mod create;
+mod delete;
 mod read;
 mod size;
 mod write;
 
 pub(crate) struct Pty {
-	host: OwnedFd,
-	guest: OwnedFd,
+	master: Option<OwnedFd>,
+	slave: Option<OwnedFd>,
+	#[allow(dead_code)]
 	name: CString,
+	session: Option<tokio::process::Child>,
+	pub(crate) temp: Temp,
 }
 
 impl Pty {
-	async fn new(size: tg::pty::Size) -> tg::Result<Self> {
-		tokio::task::spawn_blocking(move || unsafe {
+	async fn new(server: &Server, size: tg::pty::Size) -> tg::Result<Self> {
+		let (master, slave, name) = unsafe {
 			// Create the pty.
 			let mut win_size = libc::winsize {
 				ws_col: size.cols,
@@ -29,64 +33,61 @@ impl Pty {
 				ws_xpixel: 0,
 				ws_ypixel: 0,
 			};
-			let mut host = 0;
-			let mut guest = 0;
+			let mut master = 0;
+			let mut slave = 0;
 			let mut name = [0; 256];
 			let ret = libc::openpty(
-				std::ptr::addr_of_mut!(host),
-				std::ptr::addr_of_mut!(guest),
+				std::ptr::addr_of_mut!(master),
+				std::ptr::addr_of_mut!(slave),
 				name.as_mut_ptr(),
 				std::ptr::null_mut(),
 				std::ptr::addr_of_mut!(win_size),
 			);
 			if ret < 0 {
-				return Err(std::io::Error::last_os_error());
+				let error = std::io::Error::last_os_error();
+				let error = tg::error!(!error, "failed to open the pty");
+				return Err(error);
 			}
-			let host = OwnedFd::from_raw_fd(host);
-			let guest = OwnedFd::from_raw_fd(guest);
+
+			let master = OwnedFd::from_raw_fd(master);
+			let master = Some(master);
+
+			let slave = OwnedFd::from_raw_fd(slave);
+			let slave = Some(slave);
+
 			let name = CStr::from_ptr(name.as_ptr().cast()).to_owned();
 
-			// Make it non-blocking.
-			let flags = libc::fcntl(host.as_raw_fd(), libc::F_GETFL);
-			if flags < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let flags = flags | libc::O_NONBLOCK;
-			let ret = libc::fcntl(host.as_raw_fd(), libc::F_SETFL, flags);
-			if ret < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
+			(master, slave, name)
+		};
 
-			let pty = Self { host, guest, name };
+		// Create a temp for the session socket.
+		let temp = Temp::new(server);
 
-			Ok(pty)
-		})
-		.await
-		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to create a pty"))
-	}
-}
+		// Spawn the session process.
+		let executable = std::env::current_exe()
+			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
+		let pty = name
+			.to_str()
+			.map_err(|source| tg::error!(!source, "failed to convert the pty name to a string"))?;
+		let session = tokio::process::Command::new(executable)
+			.kill_on_drop(true)
+			.arg("session")
+			.arg("--pty")
+			.arg(pty)
+			.arg("--path")
+			.arg(temp.path())
+			.spawn()
+			.map_err(|source| tg::error!(!source, "failed to spawn the session process"))?;
+		let session = Some(session);
 
-impl Server {
-	pub(crate) fn get_pty_fd(&self, pty: &tg::pty::Id, host: bool) -> tg::Result<OwnedFd> {
-		let pty = self
-			.ptys
-			.get(pty)
-			.ok_or_else(|| tg::error!("failed to find the pty"))?;
-		let fd = if host { &pty.host } else { &pty.guest };
-		let fd = fd
-			.try_clone()
-			.map_err(|source| tg::error!(!source, "failed to clone the fd"))?;
-		Ok(fd)
-	}
+		let pty = Self {
+			master,
+			slave,
+			name,
+			session,
+			temp,
+		};
 
-	#[allow(dead_code)]
-	pub(crate) fn get_pty_name(&self, pty: &tg::pty::Id) -> tg::Result<CString> {
-		let pty = self
-			.ptys
-			.get(pty)
-			.ok_or_else(|| tg::error!("failed to find the pty"))?;
-		let name = pty.name.clone();
-		Ok(name)
+		Ok(pty)
 	}
 }

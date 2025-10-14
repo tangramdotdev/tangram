@@ -1,6 +1,6 @@
 use {
 	super::Runtime,
-	crate::{runtime::util, temp::Temp},
+	crate::temp::Temp,
 	async_zip::base::read::stream::ZipFileReader,
 	futures::AsyncReadExt as _,
 	std::{
@@ -127,7 +127,7 @@ impl Runtime {
 
 		// Log that the extraction finished.
 		let message = "finished extracting\n";
-		util::log(
+		crate::runtime::util::log(
 			server,
 			process,
 			tg::process::log::Stream::Stderr,

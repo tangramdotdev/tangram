@@ -53,6 +53,7 @@ mod remote;
 mod run;
 mod sandbox;
 mod server;
+mod session;
 mod tag;
 mod tangram;
 mod tree;
@@ -235,6 +236,9 @@ enum Command {
 
 	Server(self::server::Args),
 
+	#[command(hide = true)]
+	Session(self::session::Args),
+
 	#[command(alias = "kill")]
 	Signal(self::process::signal::Args),
 
@@ -264,7 +268,14 @@ fn main() -> std::process::ExitCode {
 
 	// Handle the sandbox command.
 	if let Command::Sandbox(args) = args.command {
-		return tangram_sandbox::main(args.command);
+		Cli::initialize_tracing(None);
+		return Cli::command_sandbox(args);
+	}
+
+	// Handle the session command.
+	if let Command::Session(args) = args.command {
+		Cli::initialize_tracing(None);
+		return Cli::command_session(args);
 	}
 
 	// Read the config.
@@ -1174,6 +1185,7 @@ impl Cli {
 			Command::Sandbox(_) => return Err(tg::error!("unreachable")),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
+			Command::Session(_) => return Err(tg::error!("unreachable")),
 			Command::Signal(args) => self.command_process_signal(args).boxed(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
 			Command::Status(args) => self.command_process_status(args).boxed(),

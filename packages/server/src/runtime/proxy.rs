@@ -451,6 +451,10 @@ impl tg::handle::Pipe for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn delete_pipe(&self, _id: &tg::pipe::Id, _arg: tg::pipe::delete::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
@@ -476,6 +480,10 @@ impl tg::handle::Pty for Proxy {
 	}
 
 	async fn close_pty(&self, _id: &tg::pty::Id, _arg: tg::pty::close::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn delete_pty(&self, _id: &tg::pty::Id, _arg: tg::pty::delete::Arg) -> tg::Result<()> {
 		Err(tg::error!("forbidden"))
 	}
 

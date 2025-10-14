@@ -1,6 +1,5 @@
 use {
 	super::Runtime,
-	crate::runtime::util,
 	std::pin::Pin,
 	tangram_client as tg,
 	tangram_futures::{read::shared_position_reader::SharedPositionReader, stream::Ext as _},
@@ -102,7 +101,7 @@ impl Runtime {
 
 		// Log that the decompression finished.
 		let message = "finished decompressing\n";
-		util::log(
+		crate::runtime::util::log(
 			server,
 			process,
 			tg::process::log::Stream::Stderr,
