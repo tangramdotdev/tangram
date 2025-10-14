@@ -69,40 +69,44 @@ impl Server {
 			clippy::cast_ptr_alignment,
 			clippy::useless_conversion
 		)]
-		let fds = unsafe {
+		let fds = {
 			let fd = stream.as_raw_fd();
-			let iov = libc::iovec {
-				iov_base: std::ptr::null_mut(),
-				iov_len: 0,
-			};
-			let length = libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as u32) as usize;
-			let mut cmsg_buffer = vec![0u8; length];
-			let mut msg: libc::msghdr = std::mem::zeroed();
-			msg.msg_iov = (&raw const iov).cast_mut();
-			msg.msg_iovlen = 1;
-			msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
-			msg.msg_controllen = cmsg_buffer.len().try_into().unwrap();
-			let ret = libc::recvmsg(fd, &raw mut msg, 0);
-			if ret < 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to receive file descriptors"
-				));
-			}
-			let mut fds = Vec::new();
-			let cmsg = libc::CMSG_FIRSTHDR(&raw const msg);
-			if !cmsg.is_null()
-				&& (*cmsg).cmsg_level == libc::SOL_SOCKET
-				&& (*cmsg).cmsg_type == libc::SCM_RIGHTS
-			{
-				let data = libc::CMSG_DATA(cmsg);
-				let fd_count = ((*cmsg).cmsg_len as usize - libc::CMSG_LEN(0) as usize)
-					/ std::mem::size_of::<RawFd>();
-				for i in 0..fd_count {
-					fds.push(*(data.cast::<RawFd>().add(i)));
-				}
-			}
-			fds
+			stream
+				.async_io(tokio::io::Interest::READABLE, move || unsafe {
+					let iov = libc::iovec {
+						iov_base: std::ptr::null_mut(),
+						iov_len: 0,
+					};
+					let length =
+						libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as u32) as usize;
+					let mut cmsg_buffer = vec![0u8; length];
+					let mut msg: libc::msghdr = std::mem::zeroed();
+					msg.msg_iov = (&raw const iov).cast_mut();
+					msg.msg_iovlen = 1;
+					msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
+					msg.msg_controllen = cmsg_buffer.len().try_into().unwrap();
+					let ret = libc::recvmsg(fd, &raw mut msg, 0);
+					if ret < 0 {
+						return Err(std::io::Error::last_os_error());
+					}
+
+					let mut fds = Vec::new();
+					let cmsg = libc::CMSG_FIRSTHDR(&raw const msg);
+					if !cmsg.is_null()
+						&& (*cmsg).cmsg_level == libc::SOL_SOCKET
+						&& (*cmsg).cmsg_type == libc::SCM_RIGHTS
+					{
+						let data = libc::CMSG_DATA(cmsg);
+						let fd_count = ((*cmsg).cmsg_len as usize - libc::CMSG_LEN(0) as usize)
+							/ std::mem::size_of::<RawFd>();
+						for i in 0..fd_count {
+							fds.push(*(data.cast::<RawFd>().add(i)));
+						}
+					}
+					Ok(fds)
+				})
+				.await
+				.map_err(|source| tg::error!(!source, "failed to receive the fds"))?
 		};
 
 		// Spawn the process.

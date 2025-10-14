@@ -45,6 +45,12 @@ impl Server {
 				let n = libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len());
 				if n < 0 {
 					let error = std::io::Error::last_os_error();
+					#[cfg(target_os = "linux")]
+					{
+						if error.raw_os_error() == Some(libc::EIO) {
+							return Ok(None);
+						}
+					}
 					return Err(error);
 				}
 				if n == 0 {
