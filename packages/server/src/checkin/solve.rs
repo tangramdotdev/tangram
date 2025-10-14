@@ -51,11 +51,35 @@ enum ItemVariant {
 
 impl Server {
 	pub(super) async fn checkin_solve(&self, state: &mut State) -> tg::Result<()> {
+		// Detect if we have any clean nodes for incremental solving.
+		let has_clean_nodes = state.graph.nodes.iter().any(|node| !node.dirty);
+
+		// Try incremental solve first if we have clean nodes.
+		let incremental = has_clean_nodes;
+		let result = self
+			.checkin_solve_inner(state, incremental)
+			.await;
+
+		// If incremental solve failed due to backtracking, retry with full solve.
+		if incremental && result.is_err() {
+			tracing::debug!("incremental solve failed, retrying with full solve");
+			// Mark all nodes as dirty for full solve.
+			for i in 0..state.graph.nodes.len() {
+				state.graph.nodes[i].dirty = true;
+			}
+			// Retry with full solve.
+			self.checkin_solve_inner(state, false).await
+		} else {
+			result
+		}
+	}
+
+	async fn checkin_solve_inner(&self, state: &mut State, incremental: bool) -> tg::Result<()> {
 		let State {
 			arg, graph, lock, ..
 		} = state;
 
-		// Create the context
+		// Create the context.
 		let mut context = Context {
 			checkpoints: Vec::new(),
 			tags: HashMap::default(),
@@ -75,11 +99,11 @@ impl Server {
 			tags: im::HashMap::default(),
 			visited: im::HashSet::default(),
 		};
-		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, 0);
+		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, 0, incremental);
 
 		// Solve.
 		while let Some(item) = checkpoint.queue.pop_front() {
-			self.checkin_solve_visit_item(&mut context, &mut checkpoint, item)
+			self.checkin_solve_visit_item(&mut context, &mut checkpoint, item, incremental)
 				.await?;
 		}
 
@@ -94,6 +118,7 @@ impl Server {
 		context: &mut Context<'a>,
 		checkpoint: &mut Checkpoint<'a>,
 		item: Item,
+		incremental: bool,
 	) -> tg::Result<()> {
 		// If the item has been visited, then return.
 		if checkpoint.visited.insert(item.clone()).is_some() {
@@ -215,7 +240,7 @@ impl Server {
 				},
 			};
 			if let Some(destination) = destination {
-				Self::checkin_solve_enqueue_items_for_node(checkpoint, destination);
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, destination, incremental);
 			}
 			return Ok(());
 		}
@@ -236,6 +261,7 @@ impl Server {
 					item,
 					reference.clone(),
 					id.clone(),
+					incremental,
 				)
 				.await
 			},
@@ -247,6 +273,7 @@ impl Server {
 					item,
 					reference.clone(),
 					pattern.clone(),
+					incremental,
 				)
 				.await
 			},
@@ -261,6 +288,7 @@ impl Server {
 		item: Item,
 		reference: tg::Reference,
 		id: tg::object::Id,
+		incremental: bool,
 	) -> tg::Result<()> {
 		let Ok(id) = tg::artifact::Id::try_from(id) else {
 			return Ok(());
@@ -291,7 +319,7 @@ impl Server {
 		checkpoint.graph.nodes[index].referrers.push(item.node);
 
 		// Enqueue the node's items.
-		Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
+		Self::checkin_solve_enqueue_items_for_node(checkpoint, index, incremental);
 
 		Ok(())
 	}
@@ -303,6 +331,7 @@ impl Server {
 		item: Item,
 		reference: tg::Reference,
 		pattern: tg::tag::Pattern,
+		incremental: bool,
 	) -> tg::Result<()> {
 		// Get the tag.
 		let tag: tg::Tag = if pattern
@@ -351,7 +380,7 @@ impl Server {
 				.push(item.node);
 
 			// Enqueue the node's items.
-			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
+			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item, incremental);
 		} else {
 			// Backtrack.
 			*checkpoint = Self::checkin_solve_backtrack(context, &tag)
@@ -559,6 +588,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			variant,
+			visited: false,
 		};
 
 		// Insert the node into the graph.
@@ -688,6 +718,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			variant,
+			visited: false,
 		};
 
 		// Add the node to the checkin graph.
@@ -742,7 +773,15 @@ impl Server {
 		}
 	}
 
-	fn checkin_solve_enqueue_items_for_node(checkpoint: &mut Checkpoint, node: usize) {
+	fn checkin_solve_enqueue_items_for_node(
+		checkpoint: &mut Checkpoint,
+		node: usize,
+		incremental: bool,
+	) {
+		// In incremental mode, skip enqueueing items for clean nodes.
+		if incremental && !checkpoint.graph.nodes[node].dirty {
+			return;
+		}
 		match &checkpoint.graph.nodes[node].variant {
 			Variant::Directory(directory) => {
 				let items = directory.entries.keys().map(|name| Item {

@@ -231,9 +231,9 @@ impl Reader {
 			if let Some(path_) = &cache_reference.path {
 				path.push(path_);
 			}
-			let file = tokio::fs::File::open(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to open the file"))?;
+			let file = tokio::fs::File::open(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+			)?;
 			let reader = File::new(file, cache_reference.position, cache_reference.length).await?;
 			Self::File(reader)
 		} else {

@@ -127,18 +127,39 @@ impl Server {
 	}
 
 	pub(super) async fn checkin_store(&self, state: &State, touched_at: i64) -> tg::Result<()> {
-		// Collect object IDs from dirty nodes.
+		// Collect object IDs and graph IDs from dirty nodes.
 		let mut dirty_object_ids = std::collections::HashSet::new();
 		for node in &state.graph.nodes {
 			if node.dirty {
 				if let Some(object_id) = &node.object_id {
 					dirty_object_ids.insert(object_id.clone());
+					// Also include graph IDs from dirty reference artifacts.
+					if let Some(object) = state.objects.as_ref().unwrap().get(object_id) {
+						if let Some(data) = &object.data {
+							if let Some(graph_id) = match data {
+								tg::object::Data::Directory(tg::directory::Data::Reference(reference))
+								| tg::object::Data::File(tg::file::Data::Reference(reference))
+								| tg::object::Data::Symlink(tg::symlink::Data::Reference(reference)) => {
+									reference.graph.as_ref()
+								},
+								_ => None,
+							} {
+								dirty_object_ids.insert(graph_id.clone().into());
+							}
+						}
+					}
+				}
+				// Also include blob IDs from dirty file nodes.
+				if let Variant::File(file) = &node.variant {
+					if let Some(Either::Left(blob)) = &file.contents {
+						dirty_object_ids.insert(blob.id.clone().into());
+					}
 				}
 			}
 		}
 
-		// Only store objects that correspond to dirty nodes.
-		let args = state
+		// Only store objects that correspond to dirty nodes or dirty graphs.
+		let args: Vec<_> = state
 			.objects
 			.as_ref()
 			.unwrap()
@@ -163,12 +184,33 @@ impl Server {
 		state: &Arc<State>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		// Collect object IDs from dirty nodes.
+		// Collect object IDs and graph IDs from dirty nodes.
 		let mut dirty_object_ids = std::collections::HashSet::new();
 		for node in &state.graph.nodes {
 			if node.dirty {
 				if let Some(object_id) = &node.object_id {
 					dirty_object_ids.insert(object_id.clone());
+					// Also include graph IDs from dirty reference artifacts.
+					if let Some(object) = state.objects.as_ref().unwrap().get(object_id) {
+						if let Some(data) = &object.data {
+							if let Some(graph_id) = match data {
+								tg::object::Data::Directory(tg::directory::Data::Reference(reference))
+								| tg::object::Data::File(tg::file::Data::Reference(reference))
+								| tg::object::Data::Symlink(tg::symlink::Data::Reference(reference)) => {
+									reference.graph.as_ref()
+								},
+								_ => None,
+							} {
+								dirty_object_ids.insert(graph_id.clone().into());
+							}
+						}
+					}
+				}
+				// Also include blob IDs from dirty file nodes.
+				if let Variant::File(file) = &node.variant {
+					if let Some(Either::Left(blob)) = &file.contents {
+						dirty_object_ids.insert(blob.id.clone().into());
+					}
 				}
 			}
 		}
@@ -220,7 +262,7 @@ impl Server {
 			}
 		}
 
-		// Create put object messages only for objects from dirty nodes.
+		// Create put object messages only for objects from dirty nodes or dirty graphs.
 		for object in state.objects.as_ref().unwrap().values() {
 			if !dirty_object_ids.contains(&object.id) {
 				continue;

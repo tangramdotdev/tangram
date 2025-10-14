@@ -125,6 +125,7 @@ impl Server {
 				..state
 			}
 		} else {
+
 			// Create the ignorer if necessary.
 			let ignorer = if arg.options.ignore {
 				Some(Self::checkin_create_ignorer()?)
@@ -234,18 +235,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
-		// Index.
-		self.tasks.spawn({
-			let server = self.clone();
-			let state = state.clone();
-			async move {
-				let result = server.checkin_index(&state, touched_at).await;
-				if let Err(error) = result {
-					tracing::error!(?error, "the index task failed");
-				}
-			}
-		});
-
 		// Write the lock.
 		let start = Instant::now();
 		self.checkin_write_lock(&state)
@@ -272,22 +261,34 @@ impl Server {
 		let options = tg::referent::Options::with_path(arg.path.clone());
 		let referent = tg::Referent { item, options };
 
+		// Index.
+		self.tasks.spawn({
+			let server = self.clone();
+			async move {
+				let result = server.checkin_index(&state, touched_at).await;
+				if let Err(error) = result {
+					tracing::error!(?error, "the index task failed");
+				}
+
+				// Retrieve the state.
+				let mut state = Arc::try_unwrap(state).unwrap();
+
+				// Mark all nodes as clean and not visited.
+				for i in 0..state.graph.nodes.len() {
+					state.graph.nodes[i].dirty = false;
+					state.graph.nodes[i].visited = false;
+				}
+
+				// Replace the state.
+				server.checkins
+					.entry(arg.clone())
+					.or_insert(None)
+					.replace(state);
+			}
+		});
+
 		// Create the output.
 		let output = tg::checkin::Output { referent };
-
-		// Retrieve the state.
-		let mut state = Arc::try_unwrap(state).unwrap();
-
-		// Mark all nodes as clean.
-		for i in 0..state.graph.nodes.len() {
-			state.graph.nodes[i].dirty = false;
-		}
-
-		// Replace the state.
-		self.checkins
-			.entry(arg.clone())
-			.or_insert(None)
-			.replace(state);
 
 		Ok(output)
 	}

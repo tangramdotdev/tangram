@@ -19,6 +19,10 @@ impl Server {
 				if !is_file {
 					return None;
 				}
+				// Skip clean nodes - they already have their blob contents set.
+				if !node.dirty {
+					return None;
+				}
 				let path = node.path.clone()?;
 				Some((index, path))
 			})

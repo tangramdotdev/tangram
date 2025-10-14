@@ -48,6 +48,7 @@ pub struct Node {
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub variant: Variant,
+	pub visited: bool,
 }
 
 #[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]

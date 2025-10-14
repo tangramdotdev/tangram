@@ -40,6 +40,13 @@ impl Server {
 			return Ok(Some(index));
 		}
 
+		// Check if the node is currently being visited to detect cycles.
+		if let Some(index) = state.graph.paths.get(&path).copied()
+			&& state.graph.nodes[index].visited
+		{
+			return Ok(Some(index));
+		}
+
 		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(&path).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
@@ -114,10 +121,14 @@ impl Server {
 				variant: Variant::Directory(Directory {
 					entries: BTreeMap::new(),
 				}), // Placeholder variant.
+				visited: false,
 			};
 			state.graph.nodes.push_back(node);
 			index
 		};
+
+		// Mark this node as being visited to detect cycles.
+		state.graph.nodes[index].visited = true;
 
 		// Create the variant.
 		let variant = if metadata.is_dir() {

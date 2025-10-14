@@ -23,6 +23,12 @@ impl Server {
 
 		// Create objects for each strongly connected component. If the strongly connected component has only one node, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
 		for scc in &sccs {
+			// Skip SCCs that contain only clean nodes.
+			let has_dirty_node = scc.iter().any(|&index| state.graph.nodes[index].dirty);
+			if !has_dirty_node {
+				continue;
+			}
+
 			if scc.len() == 1 {
 				let index = scc[0];
 				Self::checkin_create_node_artifact(state, index)?;
@@ -440,6 +446,10 @@ impl Server {
 		for scc in sccs {
 			for index in scc {
 				let node = &state.graph.nodes[*index];
+				// Skip clean nodes - they already have their blob objects created.
+				if !node.dirty {
+					continue;
+				}
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
