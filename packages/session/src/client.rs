@@ -1,5 +1,4 @@
 use {
-	futures::TryFutureExt,
 	num::ToPrimitive as _,
 	std::{
 		collections::BTreeMap,
