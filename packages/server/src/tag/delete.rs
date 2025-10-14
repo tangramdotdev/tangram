@@ -34,9 +34,10 @@ impl Server {
 				tag: tag.to_string(),
 			});
 			let message = message.serialize()?;
-			let _published = self
-				.messenger
+			self.messenger
 				.stream_publish("index".to_owned(), message)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		}
