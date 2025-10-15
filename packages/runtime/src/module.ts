@@ -56,6 +56,11 @@ export namespace Module {
 		if (value.referent.options?.path !== undefined) {
 			params.push(`path=${encodeURIComponent(value.referent.options.path)}`);
 		}
+		if (value.referent.options?.process !== undefined) {
+			params.push(
+				`process=${encodeURIComponent(value.referent.options.process)}`,
+			);
+		}
 		if (value.referent.options?.tag !== undefined) {
 			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
 		}
@@ -87,6 +92,10 @@ export namespace Module {
 					}
 					case "path": {
 						options.path = decodeURIComponent(value);
+						break;
+					}
+					case "process": {
+						options.process = decodeURIComponent(value);
 						break;
 					}
 					case "tag": {

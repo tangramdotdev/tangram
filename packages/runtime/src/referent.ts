@@ -70,6 +70,9 @@ export namespace Referent {
 		if (value.options?.path !== undefined) {
 			params.push(`path=${encodeURIComponent(value.options.path)}`);
 		}
+		if (value.options?.process !== undefined) {
+			params.push(`process=${encodeURIComponent(value.options.process)}`);
+		}
 		if (value.options?.tag !== undefined) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
@@ -104,6 +107,10 @@ export namespace Referent {
 					}
 					case "path": {
 						options.path = decodeURIComponent(value);
+						break;
+					}
+					case "process": {
+						options.process = decodeURIComponent(value);
 						break;
 					}
 					case "tag": {
