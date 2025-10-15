@@ -128,7 +128,7 @@ fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 			if source.as_bytes() == b"overlay" {
 				break 'a true;
 			}
-			let mut stat: MaybeUninit<libc::stat> = MaybeUninit::zeroed();
+			let mut stat = MaybeUninit::<libc::stat>::zeroed();
 			if libc::stat(source.as_ptr(), stat.as_mut_ptr().cast()) < 0 {
 				abort_errno!("failed to stat source");
 			}

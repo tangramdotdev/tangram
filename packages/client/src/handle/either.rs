@@ -599,6 +599,17 @@ where
 		}
 	}
 
+	fn delete_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.delete_pipe(id, arg).left_future(),
+			Either::Right(s) => s.delete_pipe(id, arg).right_future(),
+		}
+	}
+
 	fn read_pipe(
 		&self,
 		id: &tg::pipe::Id,
@@ -653,6 +664,17 @@ where
 		match self {
 			Either::Left(s) => s.close_pty(id, arg).left_future(),
 			Either::Right(s) => s.close_pty(id, arg).right_future(),
+		}
+	}
+
+	fn delete_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.delete_pty(id, arg).left_future(),
+			Either::Right(s) => s.delete_pty(id, arg).right_future(),
 		}
 	}
 

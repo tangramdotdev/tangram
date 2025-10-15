@@ -1,7 +1,6 @@
 use {
 	crate as tg,
 	std::{ops::Deref, sync::Arc},
-	tangram_http::Body,
 	tangram_uri::Uri,
 };
 
@@ -102,7 +101,7 @@ pub struct Client(Arc<Inner>);
 #[derive(Debug)]
 pub struct Inner {
 	url: Uri,
-	sender: Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>,
+	sender: self::http::Sender,
 	service: self::http::Service,
 	version: String,
 }

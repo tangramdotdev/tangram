@@ -22,7 +22,7 @@ struct Context {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
+pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))

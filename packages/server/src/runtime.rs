@@ -2,6 +2,7 @@ use {crate::Server, futures::FutureExt as _, tangram_client as tg};
 
 mod progress;
 mod proxy;
+mod run;
 mod util;
 
 pub mod builtin;
@@ -39,7 +40,7 @@ impl Runtime {
 			#[cfg(target_os = "macos")]
 			Self::Darwin(s) => &s.server,
 			#[cfg(feature = "v8")]
-			Self::Js(s) => &s.server,
+			Self::Js(s) => &s.handle,
 			#[cfg(target_os = "linux")]
 			Self::Linux(s) => &s.server,
 		}

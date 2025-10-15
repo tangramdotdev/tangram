@@ -28,7 +28,7 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/runtime.js.m
 #[derive(Clone)]
 pub struct Runtime {
 	local_pool_handle: tokio_util::task::LocalPoolHandle,
-	pub(super) server: Server,
+	pub(super) handle: Server,
 }
 
 struct State {
@@ -39,7 +39,7 @@ struct State {
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	root: tg::module::Data,
-	server: Server,
+	handle: Server,
 }
 
 struct PromiseOutput {
@@ -56,15 +56,13 @@ struct Module {
 }
 
 impl Runtime {
-	pub fn new(server: &Server) -> Self {
+	pub fn new(handle: Server, concurrency: usize) -> Self {
 		// Create the local pool handle.
-		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(
-			server.config.runner.as_ref().unwrap().concurrency,
-		);
+		let local_pool_handle = tokio_util::task::LocalPoolHandle::new(concurrency);
 
 		Self {
 			local_pool_handle,
-			server: server.clone(),
+			handle,
 		}
 	}
 
@@ -115,9 +113,9 @@ impl Runtime {
 		isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
 	) -> tg::Result<super::Output> {
 		// Get the root module.
-		let command = process.command(&self.server).await?;
+		let command = process.command(&self.handle).await?;
 		let executable = command
-			.executable(&self.server)
+			.executable(&self.handle)
 			.await?
 			.clone()
 			.try_unwrap_module()
@@ -128,13 +126,13 @@ impl Runtime {
 		let (signal_sender, mut signal_receiver) =
 			tokio::sync::mpsc::channel::<tg::process::Signal>(1);
 		let signal_task = tokio::spawn({
-			let server = self.server.clone();
+			let handle = self.handle.clone();
 			let process = process.clone();
 			async move {
 				let arg = tg::process::signal::get::Arg {
 					remote: process.remote().cloned(),
 				};
-				let Ok(Some(stream)) = server
+				let Ok(Some(stream)) = handle
 					.try_get_process_signal_stream(process.id(), arg)
 					.await
 					.inspect_err(|error| tracing::error!(?error, "failed to get signal stream"))
@@ -163,7 +161,7 @@ impl Runtime {
 			modules: RefCell::new(Vec::new()),
 			rejection,
 			root: executable.module.to_data(),
-			server: self.server.clone(),
+			handle: self.handle.clone(),
 		});
 		scopeguard::defer! {
 			state.promises.borrow_mut().clear();

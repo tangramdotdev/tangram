@@ -96,6 +96,16 @@ impl Process {
 	}
 
 	#[must_use]
+	pub fn unwrap_state(&self) -> Arc<State> {
+		self.state
+			.read()
+			.unwrap()
+			.as_ref()
+			.expect("process state should be loaded")
+			.clone()
+	}
+
+	#[must_use]
 	pub fn metadata(&self) -> &RwLock<Option<Arc<Metadata>>> {
 		&self.metadata
 	}

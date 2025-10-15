@@ -10,13 +10,13 @@ pub async fn get(
 	args: (Serde<tg::object::Id>,),
 ) -> tg::Result<Serde<tg::object::Data>> {
 	let (Serde(id),) = args;
-	let server = state.server.clone();
+	let handle = state.handle.clone();
 	let data = state
 		.main_runtime_handle
 		.spawn({
 			let id = id.clone();
 			async move {
-				let tg::object::get::Output { bytes } = server.get_object(&id).await?;
+				let tg::object::get::Output { bytes } = handle.get_object(&id).await?;
 				let data = tg::object::Data::deserialize(id.kind(), bytes)?;
 				Ok::<_, tg::Error>(data)
 			}

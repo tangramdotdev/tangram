@@ -3,7 +3,9 @@ use crate as tg;
 pub mod get;
 pub mod post;
 
-#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone, Copy, Debug, PartialEq, Eq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
 #[repr(u8)]
 pub enum Signal {
 	SIGABRT = 6,

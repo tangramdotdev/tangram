@@ -18,7 +18,7 @@ pub async fn sync(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<()>
 	if items.is_empty() {
 		return Ok(());
 	}
-	let server = state.server.clone();
+	let handle = state.handle.clone();
 	state
 		.main_runtime_handle
 		.spawn({
@@ -37,7 +37,7 @@ pub async fn sync(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<()>
 				}
 				messages.push(Ok(tg::sync::Message::Put(None)));
 				let stream = stream::iter(messages).boxed();
-				let stream = server.sync(arg, stream).await?;
+				let stream = handle.sync(arg, stream).await?;
 				pin!(stream)
 					.try_last()
 					.await?

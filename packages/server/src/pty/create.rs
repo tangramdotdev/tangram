@@ -17,7 +17,7 @@ impl Server {
 
 		// Create the pty.
 		let id = tg::pty::Id::new();
-		let pty = super::Pty::new(arg.size).await?;
+		let pty = super::Pty::new(self, arg.size).await?;
 		self.ptys.insert(id.clone(), pty);
 
 		// Create the output.

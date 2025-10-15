@@ -14,6 +14,7 @@ members = [
   "packages/sandbox",
   "packages/serialize",
   "packages/server",
+  "packages/session",
   "packages/temp",
   "packages/uri",
   "packages/v8",
@@ -109,7 +110,7 @@ num = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
 oauth2 = "5.0.0"
-octocrab = "0.46"
+octocrab = "0.47"
 owo-colors = "4"
 petgraph = "0.8"
 pin-project = "1"
@@ -134,6 +135,7 @@ scylla = "1"
 serde = { version = "1", features = ["rc", "derive"] }
 serde_json = "1"
 serde_repr = "0.1"
+serde-untagged = "0.1"
 serde_urlencoded = "0.7"
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
@@ -166,6 +168,7 @@ tangram_messenger = { path = "packages/messenger" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server", default-features = false }
+tangram_session = { path = "packages/session", default-features = false }
 tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }
 tangram_v8 = { path = "packages/v8" }

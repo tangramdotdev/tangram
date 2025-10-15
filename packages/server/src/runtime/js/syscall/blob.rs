@@ -15,11 +15,11 @@ pub async fn read(
 	args: (Serde<tg::blob::Id>, Serde<tg::blob::read::Arg>),
 ) -> tg::Result<Bytes> {
 	let (Serde(id), Serde(arg)) = args;
-	let server = state.server.clone();
+	let handle = state.handle.clone();
 	let bytes = state
 		.main_runtime_handle
 		.spawn(async move {
-			let stream = server.read_blob(&id, arg).await?;
+			let stream = handle.read_blob(&id, arg).await?;
 			let reader = StreamReader::new(
 				stream
 					.map_ok(|chunk| chunk.bytes)
@@ -44,11 +44,11 @@ pub async fn create(
 ) -> tg::Result<Serde<tg::blob::Id>> {
 	let (bytes,) = args;
 	let reader = Cursor::new(bytes);
-	let server = state.server.clone();
+	let handle = state.handle.clone();
 	let blob = state
 		.main_runtime_handle
 		.spawn(async move {
-			let tg::blob::create::Output { blob } = server.create_blob(reader).await?;
+			let tg::blob::create::Output { blob } = handle.create_blob(reader).await?;
 			Ok::<_, tg::Error>(blob)
 		})
 		.await

@@ -582,7 +582,8 @@ impl Server {
 			#[cfg(feature = "v8")]
 			{
 				let triple = "js".to_owned();
-				let runtime = self::runtime::js::Runtime::new(&server);
+				let concurrency = server.config.runner.as_ref().unwrap().concurrency;
+				let runtime = self::runtime::js::Runtime::new(server.clone(), concurrency);
 				let runtime = self::runtime::Runtime::Js(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}

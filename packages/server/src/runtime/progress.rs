@@ -110,8 +110,8 @@ impl Server {
 		}));
 		let stream = receiver.attach(task);
 		let arg = tg::pty::write::Arg {
-			remote,
 			master: false,
+			remote,
 		};
 		self.write_pty(pty, arg, stream).await?;
 		Ok(())

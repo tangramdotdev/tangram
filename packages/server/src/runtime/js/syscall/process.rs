@@ -13,11 +13,11 @@ pub async fn get(
 	args: (Serde<tg::process::Id>, Option<String>),
 ) -> tg::Result<Serde<tg::process::Data>> {
 	let (Serde(id), _) = args;
-	let server = state.server.clone();
+	let handle = state.handle.clone();
 	let data = state
 		.main_runtime_handle
 		.spawn(async move {
-			let tg::process::get::Output { data } = server.get_process(&id).await?;
+			let tg::process::get::Output { data } = handle.get_process(&id).await?;
 			Ok::<_, tg::Error>(data)
 		})
 		.await
@@ -31,7 +31,7 @@ pub async fn spawn(
 	args: (Serde<tg::process::spawn::Arg>,),
 ) -> tg::Result<Serde<tg::process::spawn::Output>> {
 	let (Serde(arg),) = args;
-	let server = state.server.clone();
+	let handle = state.handle.clone();
 	let parent = state.process.clone();
 	let output = state
 		.main_runtime_handle
@@ -44,7 +44,7 @@ pub async fn spawn(
 					remote: Some(remote.to_owned()),
 					..Default::default()
 				};
-				let stream = server.push(arg).await?;
+				let stream = handle.push(arg).await?;
 
 				// Consume the stream and log progress.
 				let mut stream = pin!(stream);
@@ -55,7 +55,7 @@ pub async fn spawn(
 							if indicator.name == "bytes" {
 								let message = format!("{indicator}\n");
 								util::log(
-									&server,
+									&handle,
 									&parent,
 									tg::process::log::Stream::Stderr,
 									message,
@@ -72,14 +72,14 @@ pub async fn spawn(
 			}
 
 			// Spawn.
-			let retry = *parent.retry(&server).await?;
+			let retry = *parent.retry(&handle).await?;
 			let arg = tg::process::spawn::Arg {
 				parent: Some(parent.id().clone()),
 				remote: parent.remote().cloned(),
 				retry,
 				..arg
 			};
-			let output = server.spawn_process(arg).await?;
+			let output = handle.spawn_process(arg).await?;
 
 			Ok::<_, tg::Error>(output)
 		})
@@ -93,11 +93,11 @@ pub async fn wait(
 	args: (Serde<tg::process::Id>,),
 ) -> tg::Result<Serde<tg::process::wait::Output>> {
 	let (Serde(id),) = args;
-	let server = state.server.clone();
+	let handle = state.handle.clone();
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let output = server.wait_process(&id).await?;
+			let output = handle.wait_process(&id).await?;
 			Ok::<_, tg::Error>(output)
 		})
 		.await

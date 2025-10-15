@@ -2,7 +2,6 @@ use {
 	crate::Server,
 	futures::{FutureExt as _, future},
 	http_body_util::BodyExt as _,
-	hyper_util::rt::{TokioExecutor, TokioIo},
 	std::{convert::Infallible, path::Path, pin::pin, time::Duration},
 	tangram_client as tg,
 	tangram_futures::task::Stop,
@@ -56,6 +55,48 @@ impl Server {
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
 
+		// Create the service.
+		let service = tower::ServiceBuilder::new()
+			.layer(tangram_http::layer::tracing::TracingLayer::new())
+			.layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
+				60,
+			)))
+			.add_extension(stop.clone())
+			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
+			.layer(
+				tangram_http::layer::compression::ResponseCompressionLayer::new(
+					|accept_encoding, parts, _| {
+						let has_content_length =
+							parts.headers.get(http::header::CONTENT_LENGTH).is_some();
+						let is_sync = parts.headers.get(http::header::CONTENT_TYPE).is_some_and(
+							|content_type| {
+								matches!(content_type.to_str(), Ok(tg::sync::CONTENT_TYPE))
+							},
+						);
+						if (has_content_length || is_sync)
+							&& accept_encoding.is_some_and(|accept_encoding| {
+								accept_encoding.preferences.iter().any(|preference| {
+									preference.encoding == tangram_http::header::content_encoding::ContentEncoding::Zstd
+								})
+							}) {
+							Some((tangram_http::body::compression::Algorithm::Zstd, 3))
+						} else {
+							None
+						}
+					},
+				),
+			)
+			.service_fn({
+				let handle = handle.clone();
+				move |request| {
+					let handle = handle.clone();
+					async move {
+						let response = Self::handle_request(&handle, request).await;
+						Ok::<_, Infallible>(response)
+					}
+				}
+			});
+
 		loop {
 			// Accept a new connection.
 			let accept = async {
@@ -67,7 +108,7 @@ impl Server {
 						tokio_util::either::Either::Right(listener.accept().await?.0)
 					},
 				};
-				Ok::<_, std::io::Error>(TokioIo::new(stream))
+				Ok::<_, std::io::Error>(stream)
 			};
 			let stream = match future::select(pin!(accept), pin!(stop.wait())).await {
 				future::Either::Left((result, _)) => match result {
@@ -82,67 +123,29 @@ impl Server {
 				},
 			};
 
-			// Create the service.
-			let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
-			let service = tower::ServiceBuilder::new()
-				.layer(tangram_http::layer::tracing::TracingLayer::new())
-				.layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
-					60,
-				)))
-				.add_extension(stop.clone())
-				.map_response_body({
-					let idle = idle.clone();
-					move |body: Body| Body::new(tangram_http::idle::Body::new(idle.token(), body))
-				})
-				.layer(tangram_http::layer::compression::RequestDecompressionLayer)
-				.layer(
-					tangram_http::layer::compression::ResponseCompressionLayer::new(
-						|accept_encoding, parts, _| {
-							let has_content_length =
-								parts.headers.get(http::header::CONTENT_LENGTH).is_some();
-							let is_sync = parts
-								.headers
-								.get(http::header::CONTENT_TYPE)
-								.is_some_and(|content_type| {
-									matches!(content_type.to_str(), Ok(tg::sync::CONTENT_TYPE))
-								});
-							if (has_content_length || is_sync)
-								&& accept_encoding.is_some_and(|accept_encoding| {
-									accept_encoding.preferences.iter().any(|preference| {
-										preference.encoding == tangram_http::header::content_encoding::ContentEncoding::Zstd
-									})
-								}) {
-								Some((tangram_http::body::compression::Algorithm::Zstd, 3))
-							} else {
-								None
-							}
-						},
-					),
-				)
-				.service_fn({
-					let handle = handle.clone();
-					move |request| {
-						let handle = handle.clone();
-						async move {
-							let response = Self::handle_request(&handle, request).await;
-							Ok::<_, Infallible>(response)
-						}
-					}
-				});
-
 			// Spawn a task to serve the connection.
 			task_tracker.spawn({
-				let idle = idle.clone();
+				let service = service.clone();
 				let stop = stop.clone();
 				async move {
-					let mut builder =
-						hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+					let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
+					let executor = hyper_util::rt::TokioExecutor::new();
+					let mut builder = hyper_util::server::conn::auto::Builder::new(executor);
 					builder.http2().max_concurrent_streams(None);
-					let service =
-						service.map_request(|request: http::Request<hyper::body::Incoming>| {
+					let service = service
+						.map_request(|request: http::Request<hyper::body::Incoming>| {
 							request.map(Body::new)
+						})
+						.map_response({
+							let idle = idle.clone();
+							move |response: http::Response<Body>| {
+								response.map(move |body| {
+									Body::new(tangram_http::idle::Body::new(idle.token(), body))
+								})
+							}
 						});
 					let service = hyper_util::service::TowerToHyperService::new(service);
+					let stream = hyper_util::rt::TokioIo::new(stream);
 					let connection = builder.serve_connection_with_upgrades(stream, service);
 					let result = match future::select(
 						pin!(connection),
@@ -284,6 +287,9 @@ impl Server {
 			(http::Method::POST, ["pipes"]) => {
 				Self::handle_create_pipe_request(handle, request).boxed()
 			},
+			(http::Method::DELETE, ["pipes", pipe]) => {
+				Self::handle_delete_pipe_request(handle, request, pipe).boxed()
+			},
 			(http::Method::POST, ["pipes", pipe, "close"]) => {
 				Self::handle_close_pipe_request(handle, request, pipe).boxed()
 			},
@@ -297,6 +303,9 @@ impl Server {
 			// Ptys.
 			(http::Method::POST, ["ptys"]) => {
 				Self::handle_create_pty_request(handle, request).boxed()
+			},
+			(http::Method::DELETE, ["ptys", pty]) => {
+				Self::handle_delete_pty_request(handle, request, pty).boxed()
 			},
 			(http::Method::POST, ["ptys", pty, "close"]) => {
 				Self::handle_close_pty_request(handle, request, pty).boxed()
