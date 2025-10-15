@@ -148,32 +148,48 @@ impl Server {
 						metadata.children_commands.count = metadata
 							.children_commands
 							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.children_commands.count))
+							.zip(
+								child_inner
+									.and_then(|inner| inner.metadata.children_commands.count),
+							)
 							.map(|(a, b)| a + b);
 						metadata.children_commands.depth = metadata
 							.children_commands
 							.depth
-							.zip(child_inner.and_then(|inner| inner.metadata.children_commands.depth))
+							.zip(
+								child_inner
+									.and_then(|inner| inner.metadata.children_commands.depth),
+							)
 							.map(|(a, b)| a.max(b));
 						metadata.children_commands.weight = metadata
 							.children_commands
 							.weight
-							.zip(child_inner.and_then(|inner| inner.metadata.children_commands.weight))
+							.zip(
+								child_inner
+									.and_then(|inner| inner.metadata.children_commands.weight),
+							)
 							.map(|(a, b)| a + b);
 						metadata.children_outputs.count = metadata
 							.children_outputs
 							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.children_outputs.count))
+							.zip(
+								child_inner.and_then(|inner| inner.metadata.children_outputs.count),
+							)
 							.map(|(a, b)| a + b);
 						metadata.children_outputs.depth = metadata
 							.children_outputs
 							.depth
-							.zip(child_inner.and_then(|inner| inner.metadata.children_outputs.depth))
+							.zip(
+								child_inner.and_then(|inner| inner.metadata.children_outputs.depth),
+							)
 							.map(|(a, b)| a.max(b));
 						metadata.children_outputs.weight = metadata
 							.children_outputs
 							.weight
-							.zip(child_inner.and_then(|inner| inner.metadata.children_outputs.weight))
+							.zip(
+								child_inner
+									.and_then(|inner| inner.metadata.children_outputs.weight),
+							)
 							.map(|(a, b)| a + b);
 					}
 					for (object_index, object_kind) in &node.objects {

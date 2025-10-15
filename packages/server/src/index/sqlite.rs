@@ -1349,11 +1349,12 @@ impl Server {
 				},
 				Kind::Commands => {
 					let params = [item.process.to_bytes().to_vec()];
-					let mut rows = children_commands_complete_statement
-						.query(params)
-						.map_err(|source| {
-							tg::error!(!source, "failed to execute the complete statement")
-						})?;
+					let mut rows =
+						children_commands_complete_statement
+							.query(params)
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the complete statement")
+							})?;
 					let row = rows.next().map_err(|source| {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
@@ -1367,15 +1368,14 @@ impl Server {
 
 					if !children_commands_complete {
 						let params = [item.process.to_bytes().to_vec()];
-						let mut rows =
-							update_children_commands_complete_statement
-								.query(params)
-								.map_err(|source| {
-									tg::error!(
-										!source,
-										"failed to execute the update complete statement"
-									)
-								})?;
+						let mut rows = update_children_commands_complete_statement
+							.query(params)
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the update complete statement"
+								)
+							})?;
 						let row = rows.next().map_err(|source| {
 							tg::error!(!source, "failed to execute the update complete statement")
 						})?;
@@ -1417,9 +1417,12 @@ impl Server {
 				},
 				Kind::Outputs => {
 					let params = [item.process.to_bytes().to_vec()];
-					let mut rows = children_outputs_complete_statement.query(params).map_err(|source| {
-						tg::error!(!source, "failed to execute the complete statement")
-					})?;
+					let mut rows =
+						children_outputs_complete_statement
+							.query(params)
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the complete statement")
+							})?;
 					let row = rows.next().map_err(|source| {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
@@ -1433,15 +1436,14 @@ impl Server {
 
 					if !children_outputs_complete {
 						let params = [item.process.to_bytes().to_vec()];
-						let mut rows =
-							update_children_outputs_complete_statement
-								.query(params)
-								.map_err(|source| {
-									tg::error!(
-										!source,
-										"failed to execute the update complete statement"
-									)
-								})?;
+						let mut rows = update_children_outputs_complete_statement
+							.query(params)
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to execute the update complete statement"
+								)
+							})?;
 						let row = rows.next().map_err(|source| {
 							tg::error!(!source, "failed to execute the update complete statement")
 						})?;

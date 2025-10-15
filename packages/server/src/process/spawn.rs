@@ -1,13 +1,13 @@
 use {
-	crate::{database, ProcessPermit, Server},
+	crate::{ProcessPermit, Server, database},
 	bytes::Bytes,
-	futures::{future, FutureExt as _},
+	futures::{FutureExt as _, future},
 	indoc::{formatdoc, indoc},
 	std::pin::pin,
 	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
-	tangram_http::{request::Ext as _, response::builder::Ext as _, Body},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
@@ -434,8 +434,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths_sqlite(transaction, vec![id.to_string()])
-					.await?;
+				Self::update_parent_depths_sqlite(transaction, vec![id.to_string()]).await?;
 			},
 		}
 
@@ -863,8 +862,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths_sqlite(transaction, vec![child.to_string()])
-					.await?;
+				Self::update_parent_depths_sqlite(transaction, vec![child.to_string()]).await?;
 			},
 		}
 
@@ -923,7 +921,9 @@ impl Server {
 						let rows = transaction
 							.execute(statement.into(), params)
 							.await
-							.map_err(|source| tg::error!(!source, "failed to update parent depth"))?;
+							.map_err(|source| {
+								tg::error!(!source, "failed to update parent depth")
+							})?;
 
 						// If we updated this parent, track it for next iteration.
 						if rows > 0 {

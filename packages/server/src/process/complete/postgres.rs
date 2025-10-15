@@ -292,13 +292,19 @@ impl Server {
 				let children_complete = row.get::<_, bool>(1);
 				let children_count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
 				let children_commands_complete = row.get::<_, bool>(3);
-				let children_commands_count = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
-				let children_commands_depth = row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
-				let children_commands_weight = row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
+				let children_commands_count =
+					row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
+				let children_commands_depth =
+					row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
+				let children_commands_weight =
+					row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
 				let children_outputs_complete = row.get::<_, bool>(7);
-				let children_outputs_count = row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
-				let children_outputs_depth = row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
-				let children_outputs_weight = row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
+				let children_outputs_count =
+					row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
+				let children_outputs_depth =
+					row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
+				let children_outputs_weight =
+					row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
 				let command_complete = row.get::<_, bool>(11);
 				let command_count = row.get::<_, Option<i64>>(12).map(|v| v.to_u64().unwrap());
 				let command_depth = row.get::<_, Option<i64>>(13).map(|v| v.to_u64().unwrap());
