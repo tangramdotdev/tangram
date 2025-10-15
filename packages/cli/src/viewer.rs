@@ -13,7 +13,7 @@ use {
 	},
 	tangram_client as tg,
 	tangram_futures::task::Stop,
-	unicode_width::UnicodeWidthChar as _,
+	unicode_segmentation::UnicodeSegmentation as _,
 };
 
 mod data;
@@ -403,15 +403,10 @@ fn render_block_and_get_area(title: &str, focused: bool, area: Rect, buf: &mut B
 		.unwrap_or(area)
 }
 
-pub(crate) fn clip(string: &str, mut width: usize) -> &str {
+pub(crate) fn clip(string: &str, max_width: usize) -> &str {
 	let mut len = 0;
-	let mut chars = string.chars();
-	while width > 0 {
-		let Some(char) = chars.next() else {
-			break;
-		};
-		len += char.len_utf8();
-		width = width.saturating_sub(char.width().unwrap_or(0));
+	for cluster in string.graphemes(true).take(max_width) {
+		len += cluster.len();
 	}
 	&string[0..len]
 }
