@@ -3,16 +3,13 @@ use {
 	crate::temp::Temp,
 	async_zip::base::read::stream::ZipFileReader,
 	futures::AsyncReadExt as _,
-	std::{
-		os::unix::fs::PermissionsExt as _,
-		pin::{Pin, pin},
-	},
+	std::{os::unix::fs::PermissionsExt as _, pin::pin},
 	tangram_client as tg,
 	tangram_futures::{
-		read::shared_position_reader::SharedPositionReader,
+		read::{Ext as _, shared_position_reader::SharedPositionReader},
 		stream::{Ext as _, TryExt as _},
 	},
-	tokio::io::{AsyncBufReadExt as _, AsyncRead},
+	tokio::io::AsyncBufReadExt as _,
 	tokio_util::{compat::FuturesAsyncReadCompatExt as _, task::AbortOnDropHandle},
 };
 
@@ -153,20 +150,20 @@ impl Runtime {
 		reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 		compression: Option<tg::CompressionFormat>,
 	) -> tg::Result<()> {
-		let reader: Pin<Box<dyn AsyncRead + Send>> = match compression {
+		let reader = match compression {
 			Some(tg::CompressionFormat::Bz2) => {
-				Box::pin(async_compression::tokio::bufread::BzDecoder::new(reader))
+				async_compression::tokio::bufread::BzDecoder::new(reader).boxed()
 			},
 			Some(tg::CompressionFormat::Gz) => {
-				Box::pin(async_compression::tokio::bufread::GzipDecoder::new(reader))
+				async_compression::tokio::bufread::GzipDecoder::new(reader).boxed()
 			},
 			Some(tg::CompressionFormat::Xz) => {
-				Box::pin(async_compression::tokio::bufread::XzDecoder::new(reader))
+				async_compression::tokio::bufread::XzDecoder::new(reader).boxed()
 			},
 			Some(tg::CompressionFormat::Zstd) => {
-				Box::pin(async_compression::tokio::bufread::ZstdDecoder::new(reader))
+				async_compression::tokio::bufread::ZstdDecoder::new(reader).boxed()
 			},
-			None => Box::pin(reader),
+			None => reader.boxed(),
 		};
 		tokio_tar::ArchiveBuilder::new(reader)
 			.set_preserve_permissions(true)

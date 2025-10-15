@@ -1,7 +1,7 @@
 use {
 	crate::Server,
-	futures::{Stream, TryStreamExt as _, stream},
-	std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc},
+	futures::{Stream, TryStreamExt as _, stream, stream::BoxStream},
+	std::{ops::Deref, path::PathBuf, sync::Arc},
 	tangram_client as tg,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -203,7 +203,7 @@ impl tg::Handle for Proxy {
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
@@ -468,7 +468,7 @@ impl tg::handle::Pipe for Proxy {
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pipe(id, arg, stream)
 	}
@@ -508,7 +508,7 @@ impl tg::handle::Pty for Proxy {
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pty(id, arg, stream)
 	}

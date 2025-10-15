@@ -178,9 +178,7 @@ impl Server {
 		let mut stream = stream.take_until(stop).boxed().peekable();
 
 		let mut position = None;
-		if let Some(Ok(tg::blob::read::Event::Chunk(chunk))) =
-			std::pin::Pin::new(&mut stream).peek().await
-		{
+		if let Some(Ok(tg::blob::read::Event::Chunk(chunk))) = Pin::new(&mut stream).peek().await {
 			position.replace(chunk.position);
 		}
 

@@ -1,12 +1,12 @@
 use {
 	self::graph::Graph,
 	crate::Server,
-	futures::prelude::*,
+	futures::{prelude::*, stream::BoxStream},
 	rusqlite as sqlite,
 	std::{
 		collections::{BTreeSet, VecDeque},
 		path::PathBuf,
-		pin::{Pin, pin},
+		pin::pin,
 		sync::{
 			Arc, Mutex,
 			atomic::{AtomicBool, AtomicUsize},
@@ -60,7 +60,7 @@ impl Server {
 	pub(super) async fn sync_put(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::sync::Message> + Send + 'static>>,
+		stream: BoxStream<'static, tg::sync::Message>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
 		// If the database, index, and store are synchronous, and all items are complete, then put the objects synchronously.

@@ -2,8 +2,7 @@
 use futures::future;
 use {
 	crate::Server,
-	futures::Stream,
-	std::pin::Pin,
+	futures::{Stream, stream::BoxStream},
 	tangram_client as tg,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -160,7 +159,7 @@ impl tg::Handle for Server {
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
@@ -432,7 +431,7 @@ impl tg::handle::Pipe for Server {
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.write_pipe(id, arg, stream)
 	}
@@ -483,7 +482,7 @@ impl tg::handle::Pty for Server {
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.write_pty(id, arg, stream)
 	}

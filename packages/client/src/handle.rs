@@ -1,7 +1,6 @@
 use {
 	crate as tg,
-	futures::Stream,
-	std::pin::Pin,
+	futures::{Stream, stream::BoxStream},
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
@@ -104,7 +103,7 @@ pub trait Handle:
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> + Send;
@@ -319,7 +318,7 @@ pub trait Pipe: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
@@ -359,7 +358,7 @@ pub trait Pty: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
@@ -523,7 +522,7 @@ impl tg::Handle for tg::Client {
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
@@ -795,7 +794,7 @@ impl tg::handle::Pipe for tg::Client {
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pipe(id, arg, stream)
 	}
@@ -846,7 +845,7 @@ impl tg::handle::Pty for tg::Client {
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pty(id, arg, stream)
 	}

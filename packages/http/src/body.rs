@@ -122,7 +122,7 @@ impl hyper::body::Body for Body {
 	type Error = Error;
 
 	fn poll_frame(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
 		match self.get_mut() {

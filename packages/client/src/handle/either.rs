@@ -1,7 +1,6 @@
 use {
 	crate as tg,
-	futures::{FutureExt as _, Stream, TryFutureExt as _},
-	std::pin::Pin,
+	futures::{FutureExt as _, Stream, TryFutureExt as _, stream::BoxStream},
 	tangram_either::Either,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -204,7 +203,7 @@ where
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
@@ -629,7 +628,7 @@ where
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.write_pipe(id, arg, stream).left_future(),
@@ -708,7 +707,7 @@ where
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.write_pty(id, arg, stream).left_future(),

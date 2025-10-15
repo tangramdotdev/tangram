@@ -3,14 +3,11 @@ use {
 	crate::temp::Temp,
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
-	std::{
-		pin::Pin,
-		sync::{Arc, Mutex, atomic::AtomicU64},
-	},
+	std::sync::{Arc, Mutex, atomic::AtomicU64},
 	tangram_client as tg,
-	tangram_futures::stream::Ext,
+	tangram_futures::{read::Ext as _, stream::Ext},
 	tangram_uri::Uri,
-	tokio::io::{AsyncBufReadExt as _, AsyncRead},
+	tokio::io::AsyncBufReadExt as _,
 	tokio_util::{io::StreamReader, task::AbortOnDropHandle},
 };
 
@@ -154,19 +151,19 @@ impl Runtime {
 					.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
 			},
 			Mode::Decompress(format) => {
-				let mut reader: Pin<Box<dyn AsyncRead + Send>> = match format {
-					tg::CompressionFormat::Bz2 => Box::pin(
-						async_compression::tokio::bufread::BzDecoder::new(&mut reader),
-					),
-					tg::CompressionFormat::Gz => Box::pin(
-						async_compression::tokio::bufread::GzipDecoder::new(&mut reader),
-					),
-					tg::CompressionFormat::Xz => Box::pin(
-						async_compression::tokio::bufread::XzDecoder::new(&mut reader),
-					),
-					tg::CompressionFormat::Zstd => Box::pin(
-						async_compression::tokio::bufread::ZstdDecoder::new(&mut reader),
-					),
+				let mut reader = match format {
+					tg::CompressionFormat::Bz2 => {
+						async_compression::tokio::bufread::BzDecoder::new(&mut reader).boxed()
+					},
+					tg::CompressionFormat::Gz => {
+						async_compression::tokio::bufread::GzipDecoder::new(&mut reader).boxed()
+					},
+					tg::CompressionFormat::Xz => {
+						async_compression::tokio::bufread::XzDecoder::new(&mut reader).boxed()
+					},
+					tg::CompressionFormat::Zstd => {
+						async_compression::tokio::bufread::ZstdDecoder::new(&mut reader).boxed()
+					},
 				};
 				let mut file = tokio::fs::File::create(temp.path())
 					.await

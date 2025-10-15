@@ -1,9 +1,10 @@
 use {
 	super::Runtime,
-	std::pin::Pin,
 	tangram_client as tg,
-	tangram_futures::{read::shared_position_reader::SharedPositionReader, stream::Ext as _},
-	tokio::io::AsyncRead,
+	tangram_futures::{
+		read::{Ext as _, shared_position_reader::SharedPositionReader},
+		stream::Ext as _,
+	},
 	tokio_util::task::AbortOnDropHandle,
 };
 
@@ -81,18 +82,18 @@ impl Runtime {
 		};
 
 		// Compress the blob.
-		let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match format {
+		let reader = match format {
 			tg::CompressionFormat::Bz2 => {
-				Box::pin(async_compression::tokio::bufread::BzEncoder::new(reader))
+				async_compression::tokio::bufread::BzEncoder::new(reader).boxed()
 			},
 			tg::CompressionFormat::Gz => {
-				Box::pin(async_compression::tokio::bufread::GzipEncoder::new(reader))
+				async_compression::tokio::bufread::GzipEncoder::new(reader).boxed()
 			},
 			tg::CompressionFormat::Xz => {
-				Box::pin(async_compression::tokio::bufread::XzEncoder::new(reader))
+				async_compression::tokio::bufread::XzEncoder::new(reader).boxed()
 			},
 			tg::CompressionFormat::Zstd => {
-				Box::pin(async_compression::tokio::bufread::ZstdEncoder::new(reader))
+				async_compression::tokio::bufread::ZstdEncoder::new(reader).boxed()
 			},
 		};
 		let blob = tg::Blob::with_reader(server, reader).await?;
