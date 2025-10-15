@@ -8,7 +8,9 @@ export type Referent<T> = {
 export namespace Referent {
 	export type Options = {
 		id?: tg.Object.Id | undefined;
+		name?: string | undefined;
 		path?: string | undefined;
+		process?: tg.Process.Id | undefined;
 		tag?: tg.Tag | undefined;
 	};
 
@@ -21,8 +23,14 @@ export namespace Referent {
 		if (value.options?.id !== undefined) {
 			options.id = value.options.id;
 		}
+		if (value.options?.name !== undefined) {
+			options.name = value.options.name;
+		}
 		if (value.options?.path !== undefined) {
 			options.path = value.options.path;
+		}
+		if (value.options?.process !== undefined) {
+			options.process = value.options.process;
 		}
 		if (value.options?.tag !== undefined) {
 			options.tag = value.options.tag;
@@ -56,8 +64,14 @@ export namespace Referent {
 		if (value.options?.id !== undefined) {
 			params.push(`id=${encodeURIComponent(value.options.id)}`);
 		}
+		if (value.options?.name !== undefined) {
+			params.push(`name=${encodeURIComponent(value.options.name)}`);
+		}
 		if (value.options?.path !== undefined) {
 			params.push(`path=${encodeURIComponent(value.options.path)}`);
+		}
+		if (value.options?.process !== undefined) {
+			params.push(`process=${encodeURIComponent(value.options.process)}`);
 		}
 		if (value.options?.tag !== undefined) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
@@ -87,8 +101,16 @@ export namespace Referent {
 						options.id = decodeURIComponent(value);
 						break;
 					}
+					case "name": {
+						options.name = decodeURIComponent(value);
+						break;
+					}
 					case "path": {
 						options.path = decodeURIComponent(value);
+						break;
+					}
+					case "process": {
+						options.process = decodeURIComponent(value);
 						break;
 					}
 					case "tag": {
@@ -118,7 +140,9 @@ export namespace Referent {
 	export namespace Data {
 		export type Options = {
 			id?: tg.Object.Id;
+			name?: string;
 			path?: string;
+			process?: tg.Process.Id;
 			tag?: tg.Tag;
 		};
 	}

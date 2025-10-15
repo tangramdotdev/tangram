@@ -78,7 +78,9 @@ impl Server {
 						item,
 						options: tg::referent::Options {
 							id: None,
+							name: None,
 							path: None,
+							process: None,
 							tag: Some(tag),
 						},
 					},

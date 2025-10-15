@@ -68,7 +68,8 @@ impl Server {
 		{
 			let id = row
 				.get::<_, String>(0)
-				.map_err(|source| tg::error!(!source, "expected a string"))?;
+				.map_err(|source| tg::error!(!source, "expected a string"))?
+				.parse::<tg::process::Id>()?;
 			let actual_checksum = row
 				.get::<_, Option<String>>(1)
 				.map_err(|source| tg::error!(!source, "expected a string"))?
@@ -172,7 +173,7 @@ impl Server {
 				.prepare_cached(statement)
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 			let mut rows = statement
-				.query([&id])
+				.query([&id.to_string()])
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			let mut children = Vec::new();
 			while let Some(row) = rows
@@ -216,7 +217,7 @@ impl Server {
 				stdout,
 			};
 
-			let output = tg::process::get::Output { data };
+			let output = tg::process::get::Output { id, data };
 			outputs.push(output);
 		}
 

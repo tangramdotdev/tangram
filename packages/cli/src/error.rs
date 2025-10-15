@@ -30,7 +30,12 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				Self::print_error_location_basic(&location, message);
+				Self::print_error_location_basic(
+					referent.name(),
+					referent.process(),
+					&location,
+					message,
+				);
 			}
 
 			// Print the stack.
@@ -38,7 +43,12 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				Self::print_error_location_basic(&location, message);
+				Self::print_error_location_basic(
+					referent.name(),
+					referent.process(),
+					&location,
+					message,
+				);
 			}
 
 			// Add the source to the stack.
@@ -50,7 +60,12 @@ impl Cli {
 		}
 	}
 
-	fn print_error_location_basic(location: &tg::error::Location, _message: &str) {
+	fn print_error_location_basic(
+		name: Option<&str>,
+		process: Option<&tg::process::Id>,
+		location: &tg::error::Location,
+		_message: &str,
+	) {
 		match &location.file {
 			tg::error::File::Internal(path) => {
 				eprintln!(
@@ -61,43 +76,53 @@ impl Cli {
 				);
 			},
 			tg::error::File::Module(module) => {
-				Self::print_location_basic(module, &location.range);
+				Self::print_location_basic(name, process, module, &location.range);
 			},
 		}
 	}
 
-	fn print_location_basic(module: &tg::Module, range: &tg::Range) {
+	fn print_location_basic(
+		name: Option<&str>,
+		process: Option<&tg::process::Id>,
+		module: &tg::Module,
+		range: &tg::Range,
+	) {
+		let prefix = name.map(|name| format!("{name} ")).unwrap_or_default();
+		let suffix = process
+			.map(|process| format!(" {process}"))
+			.unwrap_or_default();
 		match &module.referent.item {
 			tg::module::Item::Path(path) => {
-				eprintln!(
-					"   {}:{}:{}",
+				eprint!(
+					"   {prefix}{}:{}:{}{suffix}",
 					path.display(),
 					range.start.line + 1,
 					range.start.character + 1,
 				);
 			},
 			tg::module::Item::Object(_) => {
-				let mut name = String::new();
+				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
-					write!(name, "{tag}").unwrap();
+					write!(title, "{tag}").unwrap();
 					if let Some(path) = module.referent.path() {
-						write!(name, ":{}", path.display()).unwrap();
+						write!(title, ":{}", path.display()).unwrap();
 					}
 				} else if let Some(path) = module.referent.path() {
 					if path.components().next().is_some_and(|component| {
 						matches!(component, std::path::Component::Normal(_))
 					}) {
-						write!(name, "./").unwrap();
+						write!(title, "./").unwrap();
 					}
-					write!(name, "{}", path.display()).unwrap();
+					write!(title, "{}", path.display()).unwrap();
 				} else {
-					write!(name, "<unknown>").unwrap();
+					write!(title, "<unknown>").unwrap();
 				}
-				eprintln!(
-					"   {name}:{}:{}",
+				eprint!(
+					"   {prefix}{title}:{}:{}{suffix}",
 					range.start.line + 1,
 					range.start.character + 1,
 				);
+				eprintln!();
 			},
 		}
 	}
@@ -128,8 +153,14 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				self.print_error_location(&location, message, internal)
-					.await;
+				self.print_error_location(
+					referent.name(),
+					referent.process(),
+					&location,
+					message,
+					internal,
+				)
+				.await;
 			}
 
 			// Print the stack.
@@ -137,8 +168,14 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				self.print_error_location(&location, message, internal)
-					.await;
+				self.print_error_location(
+					referent.name(),
+					referent.process(),
+					&location,
+					message,
+					internal,
+				)
+				.await;
 			}
 
 			// Add the source to the stack.
@@ -152,6 +189,8 @@ impl Cli {
 
 	async fn print_error_location(
 		&mut self,
+		name: Option<&str>,
+		process: Option<&tg::process::Id>,
 		location: &tg::error::Location,
 		message: &str,
 		internal: bool,
@@ -172,7 +211,7 @@ impl Cli {
 					module: module.to_data(),
 					range: location.range,
 				};
-				self.print_location(&location, message).await;
+				self.print_location(name, process, &location, message).await;
 			},
 		}
 	}
@@ -187,48 +226,69 @@ impl Cli {
 		};
 		eprintln!("{severity} {}", diagnostic.message);
 		if let Some(location) = &diagnostic.location {
-			Box::pin(self.print_location(location, &diagnostic.message)).await;
+			Box::pin(self.print_location(
+				referent.name(),
+				referent.process(),
+				location,
+				&diagnostic.message,
+			))
+			.await;
 		}
 	}
 
-	async fn print_location(&mut self, location: &tg::Location, message: &str) {
+	async fn print_location(
+		&mut self,
+		name: Option<&str>,
+		process: Option<&tg::process::Id>,
+		location: &tg::Location,
+		message: &str,
+	) {
+		let prefix = name.map(|name| format!("{name} ")).unwrap_or_default();
+		let suffix = process
+			.map(|process| format!(" {process}"))
+			.unwrap_or_default();
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
 			tg::module::data::Item::Path(path) => {
-				let mut name = String::new();
-				write!(name, "{}", path.display()).unwrap();
 				if true {
-					Self::print_code_path(&name, range, message, path).await;
+					if !(prefix.is_empty() && suffix.is_empty()) {
+						eprintln!("   {prefix}{suffix}");
+					}
+					Self::print_code_path(&path.display().to_string(), range, message, path).await;
 				} else {
 					eprintln!(
-						"   {name}:{}:{}",
+						"   {prefix}{}:{}:{}{suffix}",
+						path.display(),
 						location.range.start.line + 1,
 						location.range.start.character + 1,
 					);
 				}
 			},
 			tg::module::data::Item::Object(object) => {
-				let mut name = String::new();
+				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
-					write!(name, "{tag}").unwrap();
+					write!(title, "{tag}").unwrap();
 					if let Some(path) = module.referent.path() {
-						write!(name, ":{}", path.display()).unwrap();
+						write!(title, ":{}", path.display()).unwrap();
 					}
 				} else if let Some(path) = module.referent.path() {
 					if path.components().next().is_some_and(|component| {
 						matches!(component, std::path::Component::Normal(_))
 					}) {
-						write!(name, "./").unwrap();
+						write!(title, "./").unwrap();
 					}
-					write!(name, "{}", path.display()).unwrap();
+					write!(title, "{}", path.display()).unwrap();
 				} else {
-					write!(name, "<unknown>").unwrap();
+					write!(title, "<unknown>").unwrap();
 				}
 				if true {
-					self.print_code_object(&name, range, message, object).await;
+					if !(prefix.is_empty() && suffix.is_empty()) {
+						eprintln!("   {prefix}{suffix}");
+					}
+					self.print_code_object(&title, range, message, object).await;
 				} else {
 					eprintln!(
-						"   {name}:{}:{}",
+						"   {title}:{}:{}",
 						location.range.start.line + 1,
 						location.range.start.character + 1,
 					);
@@ -237,7 +297,7 @@ impl Cli {
 		}
 	}
 
-	async fn print_code_path(name: &str, range: &tg::Range, message: &str, path: &Path) {
+	async fn print_code_path(title: &str, range: &tg::Range, message: &str, path: &Path) {
 		let Ok(file) = tokio::fs::File::open(path).await else {
 			return;
 		};
@@ -247,12 +307,12 @@ impl Cli {
 		let Ok(text) = String::from_utf8(buffer) else {
 			return;
 		};
-		Self::print_code(name, range, message, text);
+		Self::print_code(title, range, message, text);
 	}
 
 	async fn print_code_object(
 		&mut self,
-		name: &str,
+		title: &str,
 		range: &tg::Range,
 		message: &str,
 		object: &tg::object::Id,
@@ -266,14 +326,14 @@ impl Cli {
 		let Ok(text) = tg::File::with_id(file).text(&handle).await else {
 			return;
 		};
-		Self::print_code(name, range, message, text);
+		Self::print_code(title, range, message, text);
 	}
 
-	fn print_code(name: &str, range: &tg::Range, message: &str, text: String) {
+	fn print_code(title: &str, range: &tg::Range, message: &str, text: String) {
 		let range = range.to_byte_range_in_string(&text);
 		let label = miette::LabeledSpan::new_with_span(Some(message.to_owned()), range);
-		let code = miette::NamedSource::new(name, text).with_language("JavaScript");
-		let diagnostic = miette::diagnostic!(labels = vec![label], "");
+		let code = miette::NamedSource::new(title, text).with_language("JavaScript");
+		let diagnostic = miette::diagnostic!(labels = vec![label], "hello world wow");
 		let report = miette::Report::new(diagnostic).with_source_code(code);
 		let mut string = String::new();
 		write!(string, "{report:?}").unwrap();

@@ -710,7 +710,7 @@ impl Server {
 		}
 
 		// Get the process
-		let tg::process::get::Output { data } =
+		let tg::process::get::Output { data, .. } =
 			Self::try_get_process_sqlite_sync(&state.database, &process)?
 				.ok_or_else(|| tg::error!("failed to find the process"))?;
 

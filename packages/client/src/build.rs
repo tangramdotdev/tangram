@@ -10,6 +10,7 @@ pub struct Arg {
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
 	pub mounts: Vec<tg::command::Mount>,
+	pub name: Option<String>,
 	pub network: bool,
 	pub parent: Option<tg::process::Id>,
 	pub remote: Option<String>,
@@ -37,7 +38,10 @@ where
 	builder = builder.user(arg.user);
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
-	let command = tg::Referent::with_item(command_id);
+	let mut command = tg::Referent::with_item(command_id);
+	if let Some(name) = arg.name {
+		command.options.name.replace(name);
+	}
 	if arg.network && arg.checksum.is_none() {
 		return Err(tg::error!(
 			"a checksum is required to build with network enabled"

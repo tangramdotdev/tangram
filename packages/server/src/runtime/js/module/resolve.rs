@@ -120,7 +120,9 @@ where
 				.map_or_else(|| path.into(), |p| p.join(path));
 			let options = tg::referent::Options {
 				id: referent.id().cloned(),
+				name: None,
 				path: Some(path),
+				process: referent.process().cloned(),
 				tag: referent.tag().cloned(),
 			};
 			let referent = tg::Referent { item, options };

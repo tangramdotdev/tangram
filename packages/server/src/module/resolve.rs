@@ -177,7 +177,9 @@ impl Server {
 					.map_or_else(|| path.into(), |p| p.join(path));
 				let options = tg::referent::Options {
 					id: referent.id().cloned(),
+					name: referent.name().map(ToOwned::to_owned),
 					path: Some(path),
+					process: referent.process().cloned(),
 					tag: referent.tag().cloned(),
 				};
 				let referent = tg::Referent { item, options };

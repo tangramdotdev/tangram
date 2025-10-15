@@ -47,13 +47,17 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		},
 		...args,
 	);
-	let sourceOptions: tg.Referent.Options = {};
+	let sourceOptions: tg.Referent.Options =
+		"name" in arg ? { name: arg.name } : {};
 	if (
 		"executable" in arg &&
 		typeof arg.executable === "object" &&
 		"module" in arg.executable
 	) {
-		sourceOptions = arg.executable.module.referent.options;
+		sourceOptions = {
+			...arg.executable.module.referent.options,
+			...sourceOptions,
+		};
 		arg.executable.module.referent.options = {};
 	}
 	let checksum = arg.checksum;
@@ -126,6 +130,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		remote: spawnOutput.remote,
 		state: undefined,
 	});
+	sourceOptions.process = spawnOutput.process;
 	let wait = await process.wait();
 	if (wait.error !== undefined) {
 		let error = wait.error;
@@ -137,10 +142,20 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		});
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
-		throw new Error(`the process exited with code ${wait.exit}`);
+		throw tg.error("the child process failed", {
+			source: {
+				item: tg.error(`the process exited with code ${wait.exit}`),
+				options: sourceOptions,
+			},
+		});
 	}
 	if (wait.exit >= 128) {
-		throw new Error(`the process exited with signal ${wait.exit - 128}`);
+		throw tg.error(`the child process exited with signal ${wait.exit - 128}`, {
+			source: {
+				item: tg.error(`the process exited with code ${wait.exit}`),
+				options: sourceOptions,
+			},
+		});
 	}
 	return wait.output;
 }
@@ -289,6 +304,11 @@ export class RunBuilder<
 		>
 	): this {
 		this.#args.push(...mounts.map((mounts) => ({ mounts })));
+		return this;
+	}
+
+	named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+		this.#args.push({ name });
 		return this;
 	}
 

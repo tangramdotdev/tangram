@@ -527,7 +527,8 @@ impl Cli {
 		let remote = output.remote.clone();
 		let token = output.token.clone();
 		let process = tg::Process::new(id, None, remote, None, token);
-		let process = referent.replace(process).0;
+		let mut process = referent.replace(process).0;
+		process.options.process.replace(output.process.clone());
 		let output = Output { process, output };
 
 		Ok(output)
