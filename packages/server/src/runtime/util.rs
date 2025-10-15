@@ -36,24 +36,24 @@ pub(super) async fn cache_children(server: &Server, process: &tg::Process) -> tg
 }
 
 pub(crate) async fn log(
-	server: &Server,
+	handle: &Server,
 	process: &tg::Process,
 	stream: tg::process::log::Stream,
 	message: String,
 ) {
-	let state = process.load(server).await.unwrap();
+	let state = process.load(handle).await.unwrap();
 	let stdout = state.stdout.as_ref();
 	let stderr = state.stderr.as_ref();
 
 	if let (tg::process::log::Stream::Stdout, Some(stdout)) = (stream, stdout) {
-		log_inner(server, stdout, message, process.remote())
+		log_inner(handle, stdout, message, process.remote())
 			.await
 			.ok();
 		return;
 	}
 
 	if let (tg::process::log::Stream::Stderr, Some(stderr)) = (stream, stderr) {
-		log_inner(server, stderr, message, process.remote())
+		log_inner(handle, stderr, message, process.remote())
 			.await
 			.ok();
 		return;
@@ -65,7 +65,7 @@ pub(crate) async fn log(
 		remote: process.remote().cloned(),
 		stream,
 	};
-	server
+	handle
 		.post_process_log(process.id(), arg)
 		.await
 		.inspect_err(|error| tracing::error!(?error, "failed to post process log"))

@@ -1,4 +1,5 @@
 use {
+	self::{load::load_module, resolve::resolve_module},
 	super::{Module, State, error},
 	crate::Server,
 	num::ToPrimitive as _,
@@ -7,6 +8,9 @@ use {
 	tangram_client as tg,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
+
+mod load;
+mod resolve;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ImportKind {
@@ -52,18 +56,17 @@ pub fn host_import_module_dynamically_callback<'s>(
 
 	// Resolve the module.
 	let promise = state.create_promise(scope, {
-		let state = state.clone();
+		let handle = state.handle.clone();
+		let root = state.root.clone();
 		async move {
 			let module = if let (Some(referrer), Some(import)) = (referrer, import) {
-				state
-					.server
-					.resolve_module(&referrer, &import)
+				resolve_module(&handle, &referrer, &import)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
 					})?
 			} else {
-				state.root.clone()
+				root
 			};
 			Ok(Serde(module))
 		}
@@ -93,9 +96,9 @@ pub fn host_import_module_dynamically_callback<'s>(
 				return_value.set(index.into());
 			} else {
 				let promise = state.create_promise(scope, {
-					let state = state.clone();
+					let handle = state.handle.clone();
 					async move {
-						let text = state.server.load_module(&module).await.map_err(|source| {
+						let text = load_module(&handle, &module).await.map_err(|source| {
 							tg::error!(!source, ?module, "failed to load the module")
 						})?;
 						Ok(Serde((module, text)))
@@ -261,11 +264,11 @@ fn resolve_module_sync(
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let server = state.server.clone();
+		let handle = state.handle.clone();
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let result = server.resolve_module(&referrer, &import).await;
+			let result = resolve_module(&handle, &referrer, &import).await;
 			sender.send(result).unwrap();
 		}
 	});
@@ -290,10 +293,10 @@ fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> O
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let server = state.server.clone();
+		let handle = state.handle.clone();
 		let module = module.clone();
 		async move {
-			let result = server.load_module(&module).await;
+			let result = load_module(&handle, &module).await;
 			sender.send(result).unwrap();
 		}
 	});

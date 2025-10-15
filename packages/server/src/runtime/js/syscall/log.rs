@@ -8,10 +8,10 @@ pub fn log(
 	let (Serde(stream), string) = args;
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let server = state.server.clone();
+		let handle = state.handle.clone();
 		let process = state.process.clone();
 		async move {
-			util::log(&server, &process, stream, string).await;
+			util::log(&handle, &process, stream, string).await;
 			sender.send(()).unwrap();
 		}
 	});
