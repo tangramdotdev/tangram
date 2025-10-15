@@ -106,6 +106,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		remote: spawnOutput.remote,
 		state: undefined,
 	});
+	sourceOptions.process = spawnOutput.process;
 	let wait = await process.wait();
 	if (wait.error !== undefined) {
 		let error = wait.error;
@@ -117,10 +118,20 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		});
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
-		throw new Error(`the process exited with code ${wait.exit}`);
+		throw tg.error("the child process failed", {
+			source: {
+				item: tg.error(`the process exited with code ${wait.exit}`),
+				options: sourceOptions,
+			},
+		});
 	}
 	if (wait.exit >= 128) {
-		throw new Error(`the process exited with signal ${wait.exit - 128}`);
+		throw tg.error(`the child process exited with signal ${wait.exit - 128}`, {
+			source: {
+				item: tg.error(`the process exited with code ${wait.exit}`),
+				options: sourceOptions,
+			},
+		});
 	}
 	return wait.output;
 }

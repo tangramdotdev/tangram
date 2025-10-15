@@ -88,13 +88,13 @@ impl Cli {
 		range: &tg::Range,
 	) {
 		let mut title = name.map(|name| format!("{name} ")).unwrap_or_default();
-		let suffix = process
-			.map(|process| format!(" {process}"))
+		let prefix = process
+			.map(|process| format!("{process} "))
 			.unwrap_or_default();
 		match &module.referent.item {
 			tg::module::Item::Path(path) => {
 				eprint!(
-					"   {title}{}:{}:{}{suffix}",
+					"   {prefix}{title}{}:{}:{}",
 					path.display(),
 					range.start.line + 1,
 					range.start.character + 1,
@@ -117,7 +117,7 @@ impl Cli {
 					write!(title, "<unknown>").unwrap();
 				}
 				eprint!(
-					"   {title}:{}:{}{suffix}",
+					"   {prefix}{title}:{}:{}",
 					range.start.line + 1,
 					range.start.character + 1,
 				);
@@ -243,24 +243,27 @@ impl Cli {
 		message: &str,
 	) {
 		let mut title = name.map(|name| format!("{name} ")).unwrap_or_default();
-		let suffix = process
-			.map(|process| format!(" {process}"))
+		let prefix = process
+			.map(|process| format!("{process} "))
 			.unwrap_or_default();
+
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
 			tg::module::data::Item::Path(path) => {
+				write!(title, "{prefix}").unwrap();
 				write!(title, "{}", path.display()).unwrap();
 				if true {
 					Self::print_code_path(&title, range, message, path).await;
 				} else {
 					eprintln!(
-						"   {title}:{}:{}{suffix}",
+						"   {title}:{}:{}",
 						location.range.start.line + 1,
 						location.range.start.character + 1,
 					);
 				}
 			},
 			tg::module::data::Item::Object(object) => {
+				write!(title, "{prefix}").unwrap();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
 					if let Some(path) = module.referent.path() {
@@ -280,7 +283,7 @@ impl Cli {
 					self.print_code_object(&title, range, message, object).await;
 				} else {
 					eprintln!(
-						"   {title}:{}:{}{suffix}",
+						"   {title}:{}:{}",
 						location.range.start.line + 1,
 						location.range.start.character + 1,
 					);
