@@ -5,7 +5,9 @@ use {
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
+pub mod dynamic;
 mod either;
+pub mod erased;
 mod ext;
 
 pub use self::ext::Ext;
@@ -130,7 +132,7 @@ pub trait Handle:
 	> + Send;
 }
 
-pub trait Object {
+pub trait Object: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
@@ -156,7 +158,7 @@ pub trait Object {
 	) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
-pub trait Process {
+pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn list_processes(
 		&self,
 		arg: tg::process::list::Arg,
@@ -287,7 +289,7 @@ pub trait Process {
 	> + Send;
 }
 
-pub trait Pipe {
+pub trait Pipe: Clone + Unpin + Send + Sync + 'static {
 	fn create_pipe(
 		&self,
 		arg: tg::pipe::create::Arg,
@@ -321,7 +323,7 @@ pub trait Pipe {
 	) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
-pub trait Pty {
+pub trait Pty: Clone + Unpin + Send + Sync + 'static {
 	fn create_pty(
 		&self,
 		arg: tg::pty::create::Arg,
@@ -361,7 +363,7 @@ pub trait Pty {
 	) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
-pub trait Remote {
+pub trait Remote: Clone + Unpin + Send + Sync + 'static {
 	fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,
@@ -381,7 +383,7 @@ pub trait Remote {
 	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
-pub trait Tag {
+pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 	fn list_tags(
 		&self,
 		arg: tg::tag::list::Arg,
@@ -404,7 +406,7 @@ pub trait Tag {
 	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> + Send;
 }
 
-pub trait User {
+pub trait User: Clone + Unpin + Send + Sync + 'static {
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
 }
 
@@ -416,7 +418,7 @@ impl tg::Handle for tg::Client {
 		Output = crate::Result<
 			impl Stream<Item = crate::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		self.cache(arg)
 	}
 
@@ -452,7 +454,7 @@ impl tg::Handle for tg::Client {
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		self.clean()
 	}
 
@@ -477,7 +479,7 @@ impl tg::Handle for tg::Client {
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		self.index()
 	}
 
@@ -550,7 +552,7 @@ impl tg::Handle for tg::Client {
 			+ Send
 			+ 'static,
 		>,
-	> + Send {
+	> {
 		self.try_get(reference, arg)
 	}
 }
@@ -593,7 +595,7 @@ impl tg::handle::Process for tg::Client {
 	fn list_processes(
 		&self,
 		arg: tg::process::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send {
+	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
 		self.list_processes(arg)
 	}
 
@@ -645,7 +647,7 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.cancel_process(id, arg)
 	}
 
@@ -676,7 +678,7 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.post_process_signal(id, arg)
 	}
 
@@ -794,7 +796,7 @@ impl tg::handle::Pipe for tg::Client {
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pipe(id, arg, stream)
 	}
 }
@@ -845,7 +847,7 @@ impl tg::handle::Pty for tg::Client {
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
 		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		self.write_pty(id, arg, stream)
 	}
 }

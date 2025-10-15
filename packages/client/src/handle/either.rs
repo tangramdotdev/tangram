@@ -31,10 +31,7 @@ where
 		}
 	}
 
-	fn check(
-		&self,
-		arg: tg::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::check::Output>> + Send {
+	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		match self {
 			Either::Left(s) => s.check(arg).left_future(),
 			Either::Right(s) => s.check(arg).right_future(),
@@ -87,7 +84,7 @@ where
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		match self {
 			Either::Left(s) => s
 				.clean()
@@ -103,14 +100,14 @@ where
 	fn document(
 		&self,
 		arg: tg::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send {
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
 		match self {
 			Either::Left(s) => s.document(arg).left_future(),
 			Either::Right(s) => s.document(arg).right_future(),
 		}
 	}
 
-	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> + Send {
+	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.format(arg).left_future(),
 			Either::Right(s) => s.format(arg).right_future(),
@@ -130,7 +127,7 @@ where
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		match self {
 			Either::Left(s) => s
 				.index()
@@ -254,7 +251,7 @@ where
 			+ Send
 			+ 'static,
 		>,
-	> + Send {
+	> {
 		match self {
 			Either::Left(s) => s
 				.try_get(reference, arg.clone())
@@ -457,7 +454,7 @@ where
 		&self,
 		id: &crate::process::Id,
 		arg: crate::process::cancel::Arg,
-	) -> impl Future<Output = crate::Result<()>> + Send {
+	) -> impl Future<Output = crate::Result<()>> {
 		match self {
 			Either::Left(s) => s.cancel_process(id, arg).left_future(),
 			Either::Right(s) => s.cancel_process(id, arg).right_future(),
@@ -489,7 +486,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send {
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
 		match self {
 			Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
 			Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
@@ -511,7 +508,7 @@ where
 		&self,
 		id: &crate::process::Id,
 		arg: crate::process::signal::post::Arg,
-	) -> impl Future<Output = crate::Result<()>> + Send {
+	) -> impl Future<Output = crate::Result<()>> {
 		match self {
 			Either::Left(s) => s.signal_process(id, arg).left_future(),
 			Either::Right(s) => s.signal_process(id, arg).right_future(),
@@ -532,7 +529,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.start_process(id, arg).left_future(),
 			Either::Right(s) => s.start_process(id, arg).right_future(),
@@ -543,7 +540,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.touch_process(id, arg).left_future(),
 			Either::Right(s) => s.touch_process(id, arg).right_future(),
