@@ -87,20 +87,21 @@ impl Cli {
 		module: &tg::Module,
 		range: &tg::Range,
 	) {
-		let mut title = name.map(|name| format!("{name} ")).unwrap_or_default();
-		let prefix = process
-			.map(|process| format!("{process} "))
+		let prefix = name.map(|name| format!("{name} ")).unwrap_or_default();
+		let suffix = process
+			.map(|process| format!(" {process}"))
 			.unwrap_or_default();
 		match &module.referent.item {
 			tg::module::Item::Path(path) => {
 				eprint!(
-					"   {prefix}{title}{}:{}:{}",
+					"   {prefix}{}:{}:{}{suffix}",
 					path.display(),
 					range.start.line + 1,
 					range.start.character + 1,
 				);
 			},
 			tg::module::Item::Object(_) => {
+				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
 					if let Some(path) = module.referent.path() {
@@ -117,7 +118,7 @@ impl Cli {
 					write!(title, "<unknown>").unwrap();
 				}
 				eprint!(
-					"   {prefix}{title}:{}:{}",
+					"   {prefix}{title}:{}:{}{suffix}",
 					range.start.line + 1,
 					range.start.character + 1,
 				);
@@ -242,28 +243,29 @@ impl Cli {
 		location: &tg::Location,
 		message: &str,
 	) {
-		let mut title = name.map(|name| format!("{name} ")).unwrap_or_default();
-		let prefix = process
-			.map(|process| format!("{process} "))
+		let prefix = name.map(|name| format!("{name} ")).unwrap_or_default();
+		let suffix = process
+			.map(|process| format!(" {process}"))
 			.unwrap_or_default();
-
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
 			tg::module::data::Item::Path(path) => {
-				write!(title, "{prefix}").unwrap();
-				write!(title, "{}", path.display()).unwrap();
 				if true {
-					Self::print_code_path(&title, range, message, path).await;
+					if !(prefix.is_empty() && suffix.is_empty()) {
+						eprintln!("   {prefix}{suffix}");
+					}
+					Self::print_code_path(&path.display().to_string(), range, message, path).await;
 				} else {
 					eprintln!(
-						"   {title}:{}:{}",
+						"   {prefix}{}:{}:{}{suffix}",
+						path.display(),
 						location.range.start.line + 1,
 						location.range.start.character + 1,
 					);
 				}
 			},
 			tg::module::data::Item::Object(object) => {
-				write!(title, "{prefix}").unwrap();
+				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
 					if let Some(path) = module.referent.path() {
@@ -280,6 +282,9 @@ impl Cli {
 					write!(title, "<unknown>").unwrap();
 				}
 				if true {
+					if !(prefix.is_empty() && suffix.is_empty()) {
+						eprintln!("   {prefix}{suffix}");
+					}
 					self.print_code_object(&title, range, message, object).await;
 				} else {
 					eprintln!(
