@@ -73,11 +73,12 @@ impl Server {
 					return Ok::<_, tg::Error>(stream.boxed());
 				};
 				let item = item.ok_or_else(|| tg::error!("expected the tag to have an item"))?;
+				let id = item.as_ref().right().cloned();
 				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,
 						options: tg::referent::Options {
-							id: None,
+							id,
 							name: None,
 							path: None,
 							tag: Some(tag),

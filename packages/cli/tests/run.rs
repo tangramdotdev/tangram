@@ -8,7 +8,7 @@ use {
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
-struct Tag {
+struct TagArgs {
 	artifact: temp::Artifact,
 	options: Vec<String>,
 	path: Option<PathBuf>,
@@ -179,7 +179,7 @@ async fn assertion_failure_in_tag_dependency() {
 		"#)
 	}
 	.into();
-	let tags = vec![Tag {
+	let tags = vec![TagArgs {
 		artifact: foo,
 		path: None,
 		options: Vec::new(),
@@ -238,7 +238,7 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 		}
 	}
 	.into();
-	let tags = vec![Tag {
+	let tags = vec![TagArgs {
 		artifact: foo,
 		options: Vec::new(),
 		path: Some("foo".into()),
@@ -288,13 +288,13 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 
 async fn test(
 	artifact: temp::Artifact,
-	tags: Vec<Tag>,
+	tags: Vec<TagArgs>,
 	reference: &str,
 	args: Vec<String>,
 ) -> std::process::Output {
 	let server = Server::new(TG).await.unwrap();
 	for tag in tags {
-		let Tag {
+		let TagArgs {
 			artifact,
 			options,
 			path,
