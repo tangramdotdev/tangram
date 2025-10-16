@@ -137,9 +137,7 @@ impl Server {
 				Variant::File(file) => {
 					let mut dependencies = BTreeMap::new();
 					for (reference, referent) in &file.dependencies {
-						if let Some(referent) = referent {
-							dependencies.insert(reference.clone(), referent.clone());
-						}
+						dependencies.insert(reference.clone(), referent.clone());
 					}
 					let data = tg::graph::data::File {
 						contents: None,
@@ -179,6 +177,9 @@ impl Server {
 				let node = &lock.nodes[index];
 				if let tg::graph::data::Node::File(file) = node {
 					for referent in file.dependencies.values() {
+						let Some(referent) = referent else {
+							continue;
+						};
 						if let Ok(reference) = referent.item.try_unwrap_reference_ref() {
 							marks[reference.node] |= referent.tag().is_some();
 						}
@@ -200,7 +201,9 @@ impl Server {
 						tg::graph::data::Node::File(file) => file
 							.dependencies
 							.values()
-							.filter_map(|referent| referent.item.try_unwrap_reference_ref().ok())
+							.filter_map(|referent| {
+								referent.as_ref()?.item.try_unwrap_reference_ref().ok()
+							})
 							.any(|reference| marks[reference.node]),
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
@@ -242,6 +245,9 @@ impl Server {
 				},
 				tg::graph::data::Node::File(file) => {
 					file.dependencies.retain(|_name, referent| {
+						let Some(referent) = referent else {
+							return true; // retain unresolved references in lockfiles.
+						};
 						let edge = &referent.item;
 						match edge {
 							tg::graph::data::Edge::Reference(reference) => marks[reference.node],
@@ -249,6 +255,9 @@ impl Server {
 						}
 					});
 					for referent in file.dependencies.values_mut() {
+						let Some(referent) = referent else {
+							continue;
+						};
 						let edge = &mut referent.item;
 						if let tg::graph::data::Edge::Reference(reference) = edge {
 							reference.node = map.get(&reference.node).copied().unwrap();
@@ -317,6 +326,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.values()
 				.filter_map(|referent| {
 					referent
+						.as_ref()?
 						.item
 						.try_unwrap_reference_ref()
 						.ok()

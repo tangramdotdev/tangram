@@ -481,6 +481,7 @@ impl Server {
 				.ok()?
 				.dependencies
 				.get(reference)?
+				.as_ref()?
 				.options()
 		} else {
 			return None;
@@ -531,7 +532,7 @@ impl Server {
 						if reference.item().is_tag() {
 							(reference, None)
 						} else {
-							(reference, Some(referent))
+							(reference, referent)
 						}
 					})
 					.collect();
@@ -623,6 +624,15 @@ impl Server {
 				let contents = file.contents.as_ref().map(|id| Either::Right(id.clone()));
 				let mut dependencies = std::collections::BTreeMap::new();
 				for (reference, referent) in &file.dependencies {
+					let Some(referent) = referent else {
+						if !reference.item().is_tag() {
+							return Err(
+								tg::error!(%reference, "unresolved reference in file dependencies"),
+							);
+						};
+						dependencies.insert(reference.clone(), None);
+						continue;
+					};
 					if referent.options.tag.is_some() {
 						dependencies.insert(reference.clone(), None);
 					} else {
@@ -711,6 +721,7 @@ impl Server {
 					.ok()?
 					.dependencies
 					.get(reference)?
+					.as_ref()?
 					.item()
 					.try_unwrap_reference_ref()
 					.ok()?

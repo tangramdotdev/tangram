@@ -319,6 +319,11 @@ where
 				for (reference, referent) in &file.dependencies {
 					s.map_entry(&reference.to_string(), |s| {
 						s.start_map()?;
+						let Some(referent) = referent else {
+							s.map_entry("item", |s| s.null())?;
+							s.finish_map()?;
+							return Ok(());
+						};
 						s.map_entry("item", |s| s.graph_edge_object(referent.item()))?;
 						if let Some(path) = referent.path() {
 							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;

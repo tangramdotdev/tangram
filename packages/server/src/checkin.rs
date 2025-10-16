@@ -183,9 +183,11 @@ impl Server {
 		state.ignorer.take();
 
 		// Solve.
-		let start = Instant::now();
-		self.checkin_solve(&mut state).await?;
-		tracing::trace!(elapsed = ?start.elapsed(), "solve");
+		if state.arg.options.solve {
+			let start = Instant::now();
+			self.checkin_solve(&mut state).await?;
+			tracing::trace!(elapsed = ?start.elapsed(), "solve");
+		}
 
 		// Create blobs.
 		let start = Instant::now();

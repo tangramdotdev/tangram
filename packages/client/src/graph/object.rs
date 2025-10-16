@@ -25,7 +25,7 @@ pub struct Directory {
 #[derive(Clone, Debug)]
 pub struct File {
 	pub contents: tg::Blob,
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<Edge<tg::Object>>>,
+	pub dependencies: BTreeMap<tg::Reference, Option<tg::Referent<Edge<tg::Object>>>>,
 	pub executable: bool,
 }
 
@@ -161,7 +161,9 @@ impl File {
 			.map(|(reference, referent)| {
 				(
 					reference.clone(),
-					referent.clone().map(|edge| edge.to_data()),
+					referent
+						.clone()
+						.map(|referent| referent.clone().map(|edge| edge.to_data())),
 				)
 			})
 			.collect();
@@ -182,7 +184,9 @@ impl File {
 			.dependencies
 			.into_iter()
 			.map(|(reference, referent)| {
-				let referent = referent.try_map(Edge::try_from_data)?;
+				let referent = referent
+					.map(|referent| referent.try_map(Edge::try_from_data))
+					.transpose()?;
 				Ok((reference, referent))
 			})
 			.collect::<tg::Result<_>>()?;
@@ -201,6 +205,7 @@ impl File {
 		let dependencies = self
 			.dependencies
 			.values()
+			.filter_map(|referent| referent.as_ref())
 			.flat_map(|referent| referent.item.children());
 		std::iter::once(contents).chain(dependencies).collect()
 	}

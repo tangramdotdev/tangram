@@ -425,6 +425,7 @@ impl Server {
 					.ok()?
 					.dependencies
 					.get(&reference)?
+					.as_ref()?
 					.item()
 					.try_unwrap_reference_ref()
 					.ok()?
