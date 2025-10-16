@@ -454,9 +454,9 @@ declare namespace tg {
 				contents: tg.Blob.Arg;
 				dependencies?:
 					| {
-							[reference: string]: tg.MaybeReferent<
-								tg.Graph.Arg.Edge<tg.Object>
-							>;
+							[reference: string]:
+								| tg.MaybeReferent<tg.Graph.Arg.Edge<tg.Object>>
+								| undefined;
 					  }
 					| undefined;
 				executable?: boolean | undefined;
