@@ -80,7 +80,6 @@ impl Server {
 							id: None,
 							name: None,
 							path: None,
-							process: None,
 							tag: Some(tag),
 						},
 					},

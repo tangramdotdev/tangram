@@ -54,10 +54,6 @@ pub struct Options {
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
-	pub process: Option<tg::process::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Tag>,
 }
@@ -92,10 +88,6 @@ impl<T> Referent<T> {
 
 	pub fn path(&self) -> Option<&Path> {
 		self.options.path.as_deref()
-	}
-
-	pub fn process(&self) -> Option<&tg::process::Id> {
-		self.options.process.as_ref()
 	}
 
 	pub fn tag(&self) -> Option<&tg::Tag> {
@@ -221,14 +213,6 @@ where
 									.into(),
 							);
 						},
-						"process" => {
-							options.process.replace(
-								urlencoding::decode(value)
-									.map_err(|_| tg::error!("failed to decode the process"))?
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the process id"))?,
-							);
-						},
 						"tag" => {
 							options.tag.replace(
 								urlencoding::decode(value)
@@ -253,7 +237,6 @@ impl Options {
 			id: None,
 			name: None,
 			path: Some(path.into()),
-			process: None,
 			tag: None,
 		}
 	}

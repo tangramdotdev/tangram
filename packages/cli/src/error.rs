@@ -30,12 +30,7 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				Self::print_error_location_basic(
-					referent.name(),
-					referent.process(),
-					&location,
-					message,
-				);
+				Self::print_error_location_basic(&location, message);
 			}
 
 			// Print the stack.
@@ -43,12 +38,7 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				Self::print_error_location_basic(
-					referent.name(),
-					referent.process(),
-					&location,
-					message,
-				);
+				Self::print_error_location_basic(&location, message);
 			}
 
 			// Add the source to the stack.
@@ -60,12 +50,7 @@ impl Cli {
 		}
 	}
 
-	fn print_error_location_basic(
-		name: Option<&str>,
-		process: Option<&tg::process::Id>,
-		location: &tg::error::Location,
-		_message: &str,
-	) {
+	fn print_error_location_basic(location: &tg::error::Location, _message: &str) {
 		match &location.file {
 			tg::error::File::Internal(path) => {
 				eprintln!(
@@ -76,25 +61,16 @@ impl Cli {
 				);
 			},
 			tg::error::File::Module(module) => {
-				Self::print_location_basic(name, process, module, &location.range);
+				Self::print_location_basic(module, &location.range);
 			},
 		}
 	}
 
-	fn print_location_basic(
-		name: Option<&str>,
-		process: Option<&tg::process::Id>,
-		module: &tg::Module,
-		range: &tg::Range,
-	) {
-		let prefix = name.map(|name| format!("{name} ")).unwrap_or_default();
-		let suffix = process
-			.map(|process| format!(" {process}"))
-			.unwrap_or_default();
+	fn print_location_basic(module: &tg::Module, range: &tg::Range) {
 		match &module.referent.item {
 			tg::module::Item::Path(path) => {
 				eprint!(
-					"   {prefix}{}:{}:{}{suffix}",
+					"   {}:{}:{}",
 					path.display(),
 					range.start.line + 1,
 					range.start.character + 1,
@@ -118,7 +94,7 @@ impl Cli {
 					write!(title, "<unknown>").unwrap();
 				}
 				eprint!(
-					"   {prefix}{title}:{}:{}{suffix}",
+					"   {title}:{}:{}",
 					range.start.line + 1,
 					range.start.character + 1,
 				);
@@ -153,14 +129,8 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				self.print_error_location(
-					referent.name(),
-					referent.process(),
-					&location,
-					message,
-					internal,
-				)
-				.await;
+				self.print_error_location(&location, message, internal)
+					.await;
 			}
 
 			// Print the stack.
@@ -168,14 +138,8 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				self.print_error_location(
-					referent.name(),
-					referent.process(),
-					&location,
-					message,
-					internal,
-				)
-				.await;
+				self.print_error_location(&location, message, internal)
+					.await;
 			}
 
 			// Add the source to the stack.
@@ -189,8 +153,6 @@ impl Cli {
 
 	async fn print_error_location(
 		&mut self,
-		name: Option<&str>,
-		process: Option<&tg::process::Id>,
 		location: &tg::error::Location,
 		message: &str,
 		internal: bool,
@@ -211,7 +173,7 @@ impl Cli {
 					module: module.to_data(),
 					range: location.range,
 				};
-				self.print_location(name, process, &location, message).await;
+				self.print_location(&location, message).await;
 			},
 		}
 	}
@@ -226,38 +188,19 @@ impl Cli {
 		};
 		eprintln!("{severity} {}", diagnostic.message);
 		if let Some(location) = &diagnostic.location {
-			Box::pin(self.print_location(
-				referent.name(),
-				referent.process(),
-				location,
-				&diagnostic.message,
-			))
-			.await;
+			Box::pin(self.print_location(location, &diagnostic.message)).await;
 		}
 	}
 
-	async fn print_location(
-		&mut self,
-		name: Option<&str>,
-		process: Option<&tg::process::Id>,
-		location: &tg::Location,
-		message: &str,
-	) {
-		let prefix = name.map(|name| format!("{name} ")).unwrap_or_default();
-		let suffix = process
-			.map(|process| format!(" {process}"))
-			.unwrap_or_default();
+	async fn print_location(&mut self, location: &tg::Location, message: &str) {
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
 			tg::module::data::Item::Path(path) => {
 				if true {
-					if !(prefix.is_empty() && suffix.is_empty()) {
-						eprintln!("   {prefix}{suffix}");
-					}
 					Self::print_code_path(&path.display().to_string(), range, message, path).await;
 				} else {
 					eprintln!(
-						"   {prefix}{}:{}:{}{suffix}",
+						"   {}:{}:{}",
 						path.display(),
 						location.range.start.line + 1,
 						location.range.start.character + 1,
@@ -282,9 +225,6 @@ impl Cli {
 					write!(title, "<unknown>").unwrap();
 				}
 				if true {
-					if !(prefix.is_empty() && suffix.is_empty()) {
-						eprintln!("   {prefix}{suffix}");
-					}
 					self.print_code_object(&title, range, message, object).await;
 				} else {
 					eprintln!(

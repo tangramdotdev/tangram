@@ -47,8 +47,11 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		},
 		...args,
 	);
-	let sourceOptions: tg.Referent.Options =
-		"name" in arg ? { name: arg.name } : {};
+
+	let sourceOptions: tg.Referent.Options = {};
+	if ("name" in arg) {
+		sourceOptions.name = arg.name;
+	}
 	if (
 		"executable" in arg &&
 		typeof arg.executable === "object" &&
@@ -60,6 +63,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		};
 		arg.executable.module.referent.options = {};
 	}
+
 	let commandMounts: Array<tg.Command.Mount> | undefined;
 	if ("mounts" in arg && arg.mounts !== undefined) {
 		commandMounts = arg.mounts;
@@ -78,6 +82,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 		commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 	);
+
 	let checksum = arg.checksum;
 	let network = "network" in arg ? arg.network : false;
 	if (network === true && checksum === undefined) {
@@ -106,33 +111,61 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		remote: spawnOutput.remote,
 		state: undefined,
 	});
-	sourceOptions.process = spawnOutput.process;
+
 	let wait = await process.wait();
+
 	if (wait.error !== undefined) {
 		let error = wait.error;
+		const source = {
+			item: error,
+			options: sourceOptions,
+		};
+		const values: { [key: string]: string } = {
+			id: process.id,
+		};
+		if (sourceOptions.name !== undefined) {
+			values.name = sourceOptions.name;
+		}
 		throw tg.error("the child process failed", {
-			source: {
-				item: error,
-				options: sourceOptions,
-			},
+			source,
+			values,
 		});
 	}
 	if (wait.exit >= 1 && wait.exit < 128) {
+		const error = tg.error(`the process exited with code ${wait.exit}`);
+		const source = {
+			item: error,
+			options: sourceOptions,
+		};
+		const values: { [key: string]: string } = {
+			id: process.id,
+		};
+		if (sourceOptions.name !== undefined) {
+			values.name = sourceOptions.name;
+		}
 		throw tg.error("the child process failed", {
-			source: {
-				item: tg.error(`the process exited with code ${wait.exit}`),
-				options: sourceOptions,
-			},
+			source,
+			values,
 		});
 	}
 	if (wait.exit >= 128) {
+		const error = tg.error(`the process exited with code ${wait.exit}`);
+		const source = {
+			item: error,
+			options: sourceOptions,
+		};
+		const values: { [key: string]: string } = {
+			id: process.id,
+		};
+		if (sourceOptions.name !== undefined) {
+			values.name = sourceOptions.name;
+		}
 		throw tg.error(`the child process exited with signal ${wait.exit - 128}`, {
-			source: {
-				item: tg.error(`the process exited with code ${wait.exit}`),
-				options: sourceOptions,
-			},
+			source,
+			values,
 		});
 	}
+
 	return wait.output;
 }
 

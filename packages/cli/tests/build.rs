@@ -1034,17 +1034,17 @@ async fn signal_cacheable_processs() {
 		.await
 		.unwrap();
 	assert_failure!(output);
-	let error_msg = String::from_utf8(output.stderr).unwrap();
+	let stderr = String::from_utf8(output.stderr).unwrap();
 
 	insta::with_settings!({
 		filters => vec![(process.as_str(), "[PROCESS]")],
 	}, {
-		assert_snapshot!(error_msg, @r"
-		error an error occurred
-		-> failed to post process signal
-		-> cannot signal cacheable processes
-		   id = [PROCESS]
-		");
+	assert_snapshot!(stderr, @r"
+	error an error occurred
+	-> failed to post process signal
+	-> cannot signal cacheable processes
+	   id = [PROCESS]
+	");
 	});
 }
 

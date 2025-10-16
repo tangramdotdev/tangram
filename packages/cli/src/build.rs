@@ -215,6 +215,7 @@ impl Cli {
 			let error = tg::Error {
 				message: Some("the process failed".to_owned()),
 				source: Some(process.clone().map(|_| Box::new(error))),
+				values: [("id".to_owned(), process.item().id().to_string())].into(),
 				..Default::default()
 			};
 			return Err(error);

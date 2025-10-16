@@ -179,7 +179,6 @@ impl Server {
 					id: referent.id().cloned(),
 					name: referent.name().map(ToOwned::to_owned),
 					path: Some(path),
-					process: referent.process().cloned(),
 					tag: referent.tag().cloned(),
 				};
 				let referent = tg::Referent { item, options };

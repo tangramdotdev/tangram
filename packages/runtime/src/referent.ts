@@ -10,7 +10,6 @@ export namespace Referent {
 		id?: tg.Object.Id | undefined;
 		name?: string | undefined;
 		path?: string | undefined;
-		process?: tg.Process.Id | undefined;
 		tag?: tg.Tag | undefined;
 	};
 
@@ -28,9 +27,6 @@ export namespace Referent {
 		}
 		if (value.options?.path !== undefined) {
 			options.path = value.options.path;
-		}
-		if (value.options?.process !== undefined) {
-			options.process = value.options.process;
 		}
 		if (value.options?.tag !== undefined) {
 			options.tag = value.options.tag;
@@ -70,9 +66,6 @@ export namespace Referent {
 		if (value.options?.path !== undefined) {
 			params.push(`path=${encodeURIComponent(value.options.path)}`);
 		}
-		if (value.options?.process !== undefined) {
-			params.push(`process=${encodeURIComponent(value.options.process)}`);
-		}
 		if (value.options?.tag !== undefined) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
@@ -109,10 +102,6 @@ export namespace Referent {
 						options.path = decodeURIComponent(value);
 						break;
 					}
-					case "process": {
-						options.process = decodeURIComponent(value);
-						break;
-					}
 					case "tag": {
 						options.tag = decodeURIComponent(value);
 						break;
@@ -142,7 +131,6 @@ export namespace Referent {
 			id?: tg.Object.Id;
 			name?: string;
 			path?: string;
-			process?: tg.Process.Id;
 			tag?: tg.Tag;
 		};
 	}

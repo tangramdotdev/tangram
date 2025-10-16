@@ -122,7 +122,6 @@ where
 				id: referent.id().cloned(),
 				name: None,
 				path: Some(path),
-				process: referent.process().cloned(),
 				tag: referent.tag().cloned(),
 			};
 			let referent = tg::Referent { item, options };

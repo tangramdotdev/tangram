@@ -47,9 +47,13 @@ async fn assertion_failure() {
 	let output = test(artifact, tags, reference, args).await;
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	insta::with_settings!({
+		filters => vec![("pcs_00[0-9a-z]{26}", "[PROCESS]")],
+	}, {
 	assert_snapshot!(stderr, @r#"
 	error an error occurred
 	-> the process failed
+	   id = [PROCESS]
 	-> Uncaught Error: failed assertion
 	   ╭─[./tangram.ts:2:22]
 	 1 │ import foo from "./foo.tg.ts";
@@ -63,6 +67,7 @@ async fn assertion_failure() {
 	   ·                         ╰── Uncaught Error: failed assertion
 	   ╰────
 	"#);
+	});
 }
 
 #[tokio::test]
@@ -87,10 +92,15 @@ async fn assertion_failure_out_of_tree() {
 	let output = test(artifact, tags, reference, args).await;
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	insta::with_settings!({
+		filters => vec![("pcs_00[0-9a-z]{26}", "[PROCESS]")],
+	}, {
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> the process failed
+	   id = [PROCESS]
 	-> the child process failed
+	   id = [PROCESS]
 	-> Uncaught Error: failed assertion
 	   ╭─[./bar/tangram.ts:1:25]
 	 1 │ export default () => tg.assert(false);
@@ -98,6 +108,7 @@ async fn assertion_failure_out_of_tree() {
 	   ·                         ╰── Uncaught Error: failed assertion
 	   ╰────
 	");
+	});
 }
 
 #[tokio::test]
@@ -122,9 +133,13 @@ async fn assertion_failure_in_path_dependency() {
 	let output = test(artifact, tags, reference, args).await;
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	insta::with_settings!({
+		filters => vec![("pcs_00[0-9a-z]{26}", "[PROCESS]")],
+	}, {
 	assert_snapshot!(stderr, @r#"
 	error an error occurred
 	-> the process failed
+	   id = [PROCESS]
 	-> Uncaught Error: error
 	   ╭─[./foo/tangram.ts:2:22]
 	 1 │ import foo from "../bar";
@@ -138,6 +153,7 @@ async fn assertion_failure_in_path_dependency() {
 	   ·                         ╰── Uncaught Error: error
 	   ╰────
 	"#);
+	});
 }
 
 #[tokio::test]
@@ -161,9 +177,13 @@ async fn assertion_failure_in_tag_dependency() {
 	let output = test(artifact, tags, reference, args).await;
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	insta::with_settings!({
+		filters => vec![("pcs_00[0-9a-z]{26}", "[PROCESS]")],
+	}, {
 	assert_snapshot!(stderr, @r#"
 	error an error occurred
 	-> the process failed
+	   id = [PROCESS]
 	-> Uncaught Error: error in foo
 	   ╭─[./tangram.ts:2:22]
 	 1 │ import foo from "foo";
@@ -177,6 +197,7 @@ async fn assertion_failure_in_tag_dependency() {
 	   ·                         ╰── Uncaught Error: error in foo
 	   ╰────
 	"#);
+	});
 }
 
 #[tokio::test]
@@ -210,9 +231,13 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 	let output = test(artifact, tags, reference, args).await;
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
+	insta::with_settings!({
+		filters => vec![("pcs_00[0-9a-z]{26}", "[PROCESS]")],
+	}, {
 	assert_snapshot!(stderr, @r#"
 	error an error occurred
 	-> the process failed
+	   id = [PROCESS]
 	-> Uncaught Error: failure in foo
 	   ╭─[./tangram.ts:2:22]
 	 1 │ import foo from "foo";
@@ -240,6 +265,7 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 	   ·                                 ╰── Uncaught Error: failure in foo
 	   ╰────
 	"#);
+	});
 }
 
 async fn test(
