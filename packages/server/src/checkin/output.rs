@@ -81,6 +81,10 @@ impl Server {
 			let Some(path) = node.path.as_ref() else {
 				continue;
 			};
+			// Skip nodes whose paths were deleted.
+			if !state.graph.paths.contains_key(path) {
+				continue;
+			}
 			let metadata = node.path_metadata.as_ref().unwrap();
 			if !metadata.is_file() {
 				continue;

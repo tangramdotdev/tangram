@@ -62,7 +62,20 @@ impl Server {
 		}
 
 		// Get or create the node.
-		let index = if let Some(index) = state.graph.paths.get(&path).copied() {
+		let (index, old_dir_entries) = if let Some(index) = state.graph.paths.get(&path).copied() {
+			// Capture old directory entries for deletion detection.
+			let old_dir_entries = if metadata.is_dir() {
+				state.graph.nodes[index]
+					.variant
+					.try_unwrap_directory_ref()
+					.ok()
+					.map(|dir| {
+						dir.entries.keys().cloned().collect::<Vec<_>>()
+					})
+			} else {
+				None
+			};
+
 			let children = match &state.graph.nodes[index].variant {
 				Variant::Directory(directory) => directory
 					.entries
@@ -104,7 +117,7 @@ impl Server {
 					.referrers
 					.retain(|referrer| *referrer != index);
 			}
-			index
+			(index, old_dir_entries)
 		} else {
 			// Node doesn't exist - create it.
 			let index = state.graph.nodes.len();
@@ -124,7 +137,7 @@ impl Server {
 				visited: false,
 			};
 			state.graph.nodes.push_back(node);
-			index
+			(index, None)
 		};
 
 		// Mark this node as being visited to detect cycles.
@@ -173,7 +186,7 @@ impl Server {
 
 		match &state.graph.nodes[index].variant {
 			Variant::Directory(_) => {
-				self.checkin_visit_directory(state, index)?;
+				self.checkin_visit_directory(state, index, old_dir_entries)?;
 			},
 			Variant::File(_) => {
 				self.checkin_visit_file(state, index)?;
@@ -186,7 +199,12 @@ impl Server {
 		Ok(Some(index))
 	}
 
-	fn checkin_visit_directory(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_directory(
+		&self,
+		state: &mut State,
+		index: usize,
+		old_dir_entries: Option<Vec<String>>,
+	) -> tg::Result<()> {
 		// Read the entries.
 		let path = state.graph.nodes[index].path.as_ref().unwrap();
 		let read_dir = std::fs::read_dir(path).map_err(
@@ -211,12 +229,12 @@ impl Server {
 		names.sort_unstable();
 
 		// Visit the children.
-		for name in names {
+		for name in &names {
 			let parent = Parent {
 				node: index,
 				variant: ParentVariant::DirectoryEntry(name.clone()),
 			};
-			let path = state.graph.nodes[index].path.as_ref().unwrap().join(&name);
+			let path = state.graph.nodes[index].path.as_ref().unwrap().join(name);
 			let Some(child_index) = self.checkin_visit(state, Some(parent), path)? else {
 				continue;
 			};
@@ -229,7 +247,17 @@ impl Server {
 				.variant
 				.unwrap_directory_mut()
 				.entries
-				.insert(name, edge);
+				.insert(name.clone(), edge);
+		}
+
+		// Find entries that were removed (in old but not visited from disk).
+		if let Some(old_entries) = old_dir_entries {
+			for old_entry in old_entries {
+				if !names.contains(&old_entry) {
+					let deleted_path = state.graph.nodes[index].path.as_ref().unwrap().join(&old_entry);
+					state.graph.paths.remove(&deleted_path);
+				}
+			}
 		}
 
 		Ok(())

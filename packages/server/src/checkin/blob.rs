@@ -24,6 +24,10 @@ impl Server {
 					return None;
 				}
 				let path = node.path.clone()?;
+				// Check if the path is still in graph.paths (wasn't deleted).
+				if !state.graph.paths.contains_key(&path) {
+					return None;
+				}
 				Some((index, path))
 			})
 			.collect::<Vec<_>>();
