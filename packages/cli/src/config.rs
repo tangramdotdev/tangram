@@ -68,6 +68,10 @@ pub struct Config {
 	/// Configure the watchdog task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub watchdog: Option<Either<bool, Watchdog>>,
+
+	/// Configure the watcher task.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub watcher: Option<Either<bool, Watcher>>,
 }
 
 #[serde_as]
@@ -382,3 +386,7 @@ pub struct Watchdog {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
 }
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Watcher {}

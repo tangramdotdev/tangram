@@ -225,7 +225,7 @@ impl Config {
 		let version = None;
 		let vfs = None;
 		let watchdog = Some(Watchdog::default());
-		let watcher = None;
+		let watcher = Some(Watcher::default());
 		Self {
 			advanced,
 			authentication,

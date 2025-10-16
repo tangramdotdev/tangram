@@ -2405,3 +2405,192 @@ async fn test_inner(
 
 	(object, metadata, lock)
 }
+
+#[tokio::test]
+async fn incremental_modify_file_preserves_dependencies() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag a dependency package.
+	let dependency = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export default () => "dependency";
+		"#),
+	};
+	let dep_temp = Temp::new();
+	dependency.to_path(dep_temp.path()).await.unwrap();
+
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("mylib/1.0.0")
+		.arg(dep_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Create initial package with a file that has a dependency.
+	let temp = Temp::new();
+	let initial = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import lib from "mylib/^1";
+			export default () => tg.run(lib);
+		"#),
+		"other.ts" => indoc!(r#"
+			export default () => "other";
+		"#),
+	};
+	initial.to_path(temp.path()).await.unwrap();
+
+	// First checkin.
+	let output = server
+		.tg()
+		.arg("checkin")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Index to mark nodes as clean.
+	let index_output = server.tg().arg("index").output().await.unwrap();
+	assert_success!(index_output);
+
+	// Modify the other.ts file (without dependencies).
+	tokio::fs::write(
+		temp.path().join("other.ts"),
+		indoc!(r#"
+			export default () => "other modified";
+		"#),
+	)
+	.await
+	.unwrap();
+
+	// Second checkin (should use incremental solving).
+	let output = server
+		.tg()
+		.arg("checkin")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Read the lock file.
+	let lock = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.map(|bytes| serde_json::from_slice::<tg::graph::Data>(&bytes))
+		.transpose()
+		.map_err(|source| tg::error!(!source, "failed to deserialize lock"))
+		.unwrap();
+
+	// Verify the lock file still has the dependency (incremental solving should preserve it).
+	assert!(lock.is_some());
+	let lock = lock.unwrap();
+
+	let has_mylib_dependency = lock.nodes.iter().any(|node| {
+		if let tg::graph::data::Node::File(file) = node {
+			file.dependencies.keys().any(|k| k.to_string().contains("mylib"))
+		} else {
+			false
+		}
+	});
+	assert!(
+		has_mylib_dependency,
+		"Lock file should still contain dependency on mylib/^1 after incremental checkin"
+	);
+}
+
+#[tokio::test]
+async fn incremental_add_file_to_existing_directory() {
+	let config = serde_json::json!({
+		"remotes": [],
+		"watcher": true,
+	});
+	let server = tangram_cli_test::Server::with_config(TG, config).await.unwrap();
+
+	// Create initial directory with one file.
+	let temp = Temp::new();
+	let initial = temp::directory! {
+		"subdir" => temp::directory! {
+			"existing.txt" => "existing file",
+		},
+	};
+	initial.to_path(temp.path()).await.unwrap();
+
+	// First checkin.
+	let output = server
+		.tg()
+		.arg("checkin")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Index to mark nodes as clean.
+	let index_output = server.tg().arg("index").output().await.unwrap();
+	assert_success!(index_output);
+
+	// Add a new file to the existing directory.
+	tokio::fs::write(
+		temp.path().join("subdir/new.txt"),
+		"new file",
+	)
+	.await
+	.unwrap();
+
+	// Give the file watcher time to process the event.
+	tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+	// Second checkin (should use incremental solving but detect the new file).
+	let output = server
+		.tg()
+		.arg("checkin")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different because we added a file.
+	assert_ne!(
+		first_id, second_id,
+		"The artifact ID should change when a file is added to an existing directory"
+	);
+
+	// Get the checked-in artifact and verify it contains both files.
+	let object_output = server
+		.tg()
+		.arg("object")
+		.arg("get")
+		.arg(second_id)
+		.arg("--format=tgon")
+		.arg("--print-blobs")
+		.arg("--print-depth=inf")
+		.arg("--print-pretty=true")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(object_output);
+	let object = std::str::from_utf8(&object_output.stdout).unwrap();
+
+	// Verify both files are present in the artifact.
+	assert!(
+		object.contains("existing.txt"),
+		"The artifact should contain the existing file"
+	);
+	assert!(
+		object.contains("new.txt"),
+		"The artifact should contain the newly added file"
+	);
+}

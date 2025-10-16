@@ -30,7 +30,26 @@ impl Server {
 					let Some(state) = entry.value_mut().as_mut() else {
 						continue;
 					};
-					if let Some(index) = state.graph.paths.get(&path).copied() {
+
+					// Try to find the path in the graph. If not found, walk up the directory tree
+					// to find the nearest ancestor that exists in the graph.
+					let index = if let Some(index) = state.graph.paths.get(&path).copied() {
+						Some(index)
+					} else {
+						// Walk up the directory tree to find an ancestor.
+						let mut current_path = path.clone();
+						loop {
+							let Some(parent_path) = current_path.parent() else {
+								break None;
+							};
+							if let Some(index) = state.graph.paths.get(parent_path).copied() {
+								break Some(index);
+							}
+							current_path = parent_path.to_path_buf();
+						}
+					};
+
+					if let Some(index) = index {
 						let mut queue = vec![index];
 						let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
 						while let Some(index) = queue.pop() {

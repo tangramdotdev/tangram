@@ -174,6 +174,12 @@ impl Server {
 			None
 		};
 
+		// Add the root path to the watcher.
+		if self.watcher.lock().unwrap().is_some() {
+			self.watcher_add_path(&root_path)
+				.map_err(|source| tg::error!(!source, "failed to add path to watcher"))?;
+		}
+
 		// Collect input.
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({

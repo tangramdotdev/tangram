@@ -614,7 +614,7 @@ impl Cli {
 		let version = Some(version());
 		let vfs = None;
 		let watchdog = Some(tangram_server::config::Watchdog::default());
-		let watcher = None;
+		let watcher = Some(tangram_server::config::Watcher::default());
 		let mut config = tangram_server::Config {
 			advanced,
 			authentication,
@@ -994,6 +994,21 @@ impl Cli {
 					new.ttl = ttl;
 				}
 				config.watchdog = Some(new);
+			},
+		}
+
+		// Set the watcher config.
+		match self
+			.config
+			.as_ref()
+			.and_then(|config| config.watcher.clone())
+		{
+			None => (),
+			Some(Either::Left(false)) => {
+				config.watcher = None;
+			},
+			Some(Either::Left(true) | Either::Right(_)) => {
+				config.watcher = Some(tangram_server::config::Watcher::default());
 			},
 		}
 
