@@ -477,6 +477,9 @@ where
 					.into_iter()
 					.map(async |(reference, referent)| {
 						let mut map = BTreeMap::new();
+						let Some(referent) = referent else {
+							return Ok::<_, tg::Error>((reference.to_string(), tg::Value::Null));
+						};
 						let item = match referent.item() {
 							tg::graph::object::Edge::Reference(reference) => {
 								reference.get(handle).await?.into()
@@ -566,6 +569,12 @@ where
 							.dependencies
 							.into_iter()
 							.map(async |(reference, referent)| {
+								let Some(referent) = referent else {
+									return Ok::<_, tg::Error>((
+										reference.to_string(),
+										tg::Value::Null,
+									));
+								};
 								let mut map = BTreeMap::new();
 								let item = match referent.item() {
 									tg::graph::object::Edge::Reference(reference) => {

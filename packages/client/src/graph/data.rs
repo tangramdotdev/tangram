@@ -82,10 +82,11 @@ pub struct File {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
 
-	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
+	#[serde_as(as = "BTreeMap<_, Option<PickFirst<(_, DisplayFromStr)>>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub dependencies: BTreeMap<tg::Reference, tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
+	pub dependencies:
+		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
@@ -221,7 +222,7 @@ impl File {
 		if let Some(contents) = &self.contents {
 			children.insert(contents.clone().into());
 		}
-		for referent in self.dependencies.values() {
+		for referent in self.dependencies.values().flatten() {
 			referent.item.children(children);
 		}
 	}

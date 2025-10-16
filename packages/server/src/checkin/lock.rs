@@ -137,9 +137,7 @@ impl Server {
 				Variant::File(file) => {
 					let mut dependencies = BTreeMap::new();
 					for (reference, referent) in &file.dependencies {
-						if let Some(referent) = referent {
-							dependencies.insert(reference.clone(), referent.clone());
-						}
+						dependencies.insert(reference.clone(), referent.clone());
 					}
 					let data = tg::graph::data::File {
 						contents: None,
@@ -172,22 +170,8 @@ impl Server {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
-		// Mark nodes that are tagged.
+		// Mark nodes that refer to tagged items.
 		let mut marks = vec![false; lock.nodes.len()];
-		for scc in &sccs {
-			for index in scc.iter().copied() {
-				let node = &lock.nodes[index];
-				if let tg::graph::data::Node::File(file) = node {
-					for referent in file.dependencies.values() {
-						if let Ok(reference) = referent.item.try_unwrap_reference_ref() {
-							marks[reference.node] |= referent.tag().is_some();
-						}
-					}
-				}
-			}
-		}
-
-		// Mark nodes whose children are marked.
 		for scc in &sccs {
 			let marked = scc.iter().copied().any(|index| {
 				marks[index]
@@ -199,9 +183,17 @@ impl Server {
 							.any(|reference| marks[reference.node]),
 						tg::graph::data::Node::File(file) => file
 							.dependencies
-							.values()
-							.filter_map(|referent| referent.item.try_unwrap_reference_ref().ok())
-							.any(|reference| marks[reference.node]),
+							.iter()
+							.filter_map(|(reference, referent)| {
+								let item =
+									referent.as_ref()?.item().try_unwrap_reference_ref().ok()?;
+								Some((reference, item))
+							})
+							.any(|(reference, item)| {
+								marks[item.node]
+									|| (reference.options().local.is_none()
+										&& reference.item().is_tag())
+							}),
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
 							.as_ref()
@@ -241,17 +233,32 @@ impl Server {
 					}
 				},
 				tg::graph::data::Node::File(file) => {
-					file.dependencies.retain(|_name, referent| {
-						let edge = &referent.item;
-						match edge {
-							tg::graph::data::Edge::Reference(reference) => marks[reference.node],
-							tg::graph::data::Edge::Object(_) => true,
-						}
+					file.dependencies.retain(|reference, referent| {
+						let Some(node) = referent
+							.as_ref()
+							.and_then(|r| Some(r.item().try_unwrap_reference_ref().ok()?.node))
+						else {
+							return true;
+						};
+						marks[node]
+							|| (reference.options().local.is_none() && reference.item().is_tag())
 					});
 					for referent in file.dependencies.values_mut() {
+						let Some(referent) = referent else {
+							continue;
+						};
 						let edge = &mut referent.item;
-						if let tg::graph::data::Edge::Reference(reference) = edge {
-							reference.node = map.get(&reference.node).copied().unwrap();
+						match edge {
+							tg::graph::data::Edge::Reference(reference)
+								if marks[reference.node] =>
+							{
+								reference.node = map.get(&reference.node).copied().unwrap();
+							},
+							tg::graph::data::Edge::Reference(_) => {
+								let id = referent.options.id.take().unwrap();
+								referent.item = tg::graph::data::Edge::Object(id);
+							},
+							tg::graph::data::Edge::Object(_) => (),
 						}
 					}
 				},
@@ -317,6 +324,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.values()
 				.filter_map(|referent| {
 					referent
+						.as_ref()?
 						.item
 						.try_unwrap_reference_ref()
 						.ok()

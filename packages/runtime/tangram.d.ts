@@ -315,7 +315,7 @@ declare namespace tg {
 
 		/** Get this file's dependencies. */
 		dependencies(): Promise<{
-			[reference: tg.Reference]: tg.Referent<tg.Object>;
+			[reference: tg.Reference]: tg.Referent<tg.Object> | undefined;
 		}>;
 
 		/** Get this file's dependencies as an array. */

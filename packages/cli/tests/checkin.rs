@@ -1084,18 +1084,12 @@ async fn tagged_object() {
 	      "kind": "file",
 	      "dependencies": {
 	        "hello": {
-	          "item": {
-	            "node": 2
-	          },
+	          "item": "fil_01sp9ta6qgjk4msgsw7fxck19fxxeqec551wbsc8w9gjvm59vs9w00",
 	          "options": {
-	            "id": "fil_01sp9ta6qgjk4msgsw7fxck19fxxeqec551wbsc8w9gjvm59vs9w00",
 	            "tag": "hello"
 	          }
 	        }
 	      }
-	    },
-	    {
-	      "kind": "file"
 	    }
 	  ]
 	}
@@ -1157,18 +1151,12 @@ async fn simple_tagged_package() {
 	      "kind": "file",
 	      "dependencies": {
 	        "a": {
-	          "item": {
-	            "node": 2
-	          },
+	          "item": "dir_01va3y2d84s8st8xbsnka859w7rf90yc9kvsbb5zskhq5nn8q0vnsg",
 	          "options": {
-	            "id": "dir_01va3y2d84s8st8xbsnka859w7rf90yc9kvsbb5zskhq5nn8q0vnsg",
 	            "tag": "a"
 	          }
 	        }
 	      }
-	    },
-	    {
-	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -1289,18 +1277,12 @@ async fn tagged_package_with_cyclic_dependency() {
 	      "kind": "file",
 	      "dependencies": {
 	        "a": {
-	          "item": {
-	            "node": 2
-	          },
+	          "item": "dir_010c0ty66164s1qxzc6c8f6wr364pns1gfwkczzr9za6bnd1ftev7g",
 	          "options": {
-	            "id": "dir_010c0ty66164s1qxzc6c8f6wr364pns1gfwkczzr9za6bnd1ftev7g",
 	            "tag": "a"
 	          }
 	        }
 	      }
-	    },
-	    {
-	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -1318,7 +1300,7 @@ async fn tag_dependency_not_exist() {
 	let tags = vec![];
 	let path = Path::new("");
 	let destructive = false;
-	let (stdout, stderr) = test_failure(artifact, path, destructive, tags).await;
+	let (stdout, stderr) = test_failure(artifact, path, destructive, true, tags).await;
 	eprintln!("stdout: {stdout:?}");
 	eprintln!("stderr: {stderr:?}");
 	assert_snapshot!(stderr, @r"
@@ -1374,7 +1356,7 @@ async fn tag_dependency_no_solution() {
 	];
 	let path = Path::new("");
 	let destructive = false;
-	let (stdout, stderr) = test_failure(artifact, path, destructive, tags).await;
+	let (stdout, stderr) = test_failure(artifact, path, destructive, true, tags).await;
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> failed to find a matching tag for 'c'
@@ -1836,11 +1818,8 @@ async fn tag_diamond_dependency() {
 	      "kind": "file",
 	      "dependencies": {
 	        "d/%5E1": {
-	          "item": {
-	            "node": 6
-	          },
+	          "item": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	          "options": {
-	            "id": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	            "tag": "d/1.1.0"
 	          }
 	        }
@@ -1850,18 +1829,12 @@ async fn tag_diamond_dependency() {
 	      "kind": "file",
 	      "dependencies": {
 	        "d/%5E1.0": {
-	          "item": {
-	            "node": 6
-	          },
+	          "item": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	          "options": {
-	            "id": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	            "tag": "d/1.1.0"
 	          }
 	        }
 	      }
-	    },
-	    {
-	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -1931,6 +1904,7 @@ async fn tagged_package_reproducible_checkin() {
 		artifact.clone(),
 		path,
 		destructive,
+		true,
 		tags.clone(),
 		true,
 	)
@@ -1940,6 +1914,7 @@ async fn tagged_package_reproducible_checkin() {
 		artifact.clone(),
 		path,
 		destructive,
+		true,
 		tags,
 		true,
 	)
@@ -1996,8 +1971,16 @@ async fn tag_dependencies_after_clean() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (output1, _, _) =
-		test_inner(&server2, referrer.clone(), path, destructive, tags, true).await;
+	let (output1, _, _) = test_inner(
+		&server2,
+		referrer.clone(),
+		path,
+		destructive,
+		true,
+		tags,
+		true,
+	)
+	.await;
 
 	// Clean up server 2.
 	server2.stop().await;
@@ -2019,8 +2002,16 @@ async fn tag_dependencies_after_clean() {
 	let path = Path::new("");
 	let destructive = false;
 	let tags = vec![];
-	let (output2, _, _) =
-		test_inner(&server2, referrer.clone(), path, destructive, tags, true).await;
+	let (output2, _, _) = test_inner(
+		&server2,
+		referrer.clone(),
+		path,
+		destructive,
+		true,
+		tags,
+		true,
+	)
+	.await;
 
 	// Confirm the outputs are the same.
 	assert_eq!(output1, output2);
@@ -2090,18 +2081,12 @@ async fn update_tagged_package() {
 	      "kind": "file",
 	      "dependencies": {
 	        "a/%5E1": {
-	          "item": {
-	            "node": 2
-	          },
+	          "item": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
 	          "options": {
-	            "id": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
 	            "tag": "a/1.0.0"
 	          }
 	        }
 	      }
-	    },
-	    {
-	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -2157,18 +2142,12 @@ async fn update_tagged_package() {
 	      "kind": "file",
 	      "dependencies": {
 	        "a/%5E1": {
-	          "item": {
-	            "node": 2
-	          },
+	          "item": "dir_01q46gmjms1bbs1hqz1jwq076c3w8gyghm5anbj8nx9sffephf8nyg",
 	          "options": {
-	            "id": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
-	            "tag": "a/1.0.0"
+	            "tag": "a/1.1.0"
 	          }
 	        }
 	      }
-	    },
-	    {
-	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -2205,18 +2184,12 @@ async fn update_tagged_package() {
 	      "kind": "file",
 	      "dependencies": {
 	        "a/%5E1": {
-	          "item": {
-	            "node": 2
-	          },
+	          "item": "dir_01q46gmjms1bbs1hqz1jwq076c3w8gyghm5anbj8nx9sffephf8nyg",
 	          "options": {
-	            "id": "dir_01q46gmjms1bbs1hqz1jwq076c3w8gyghm5anbj8nx9sffephf8nyg",
 	            "tag": "a/1.1.0"
 	          }
 	        }
 	      }
-	    },
-	    {
-	      "kind": "directory"
 	    }
 	  ]
 	}
@@ -2280,6 +2253,31 @@ async fn cyclic_tag_dependency() {
 	assert_success!(output);
 }
 
+#[tokio::test]
+async fn missing_dependency_in_tag() {
+	let foo = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import bar from "bar";
+			export default () => bar();
+		"#),
+	}
+	.into();
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import foo from "foo";
+			export default () => foo();
+		"#),
+	}
+	.into();
+
+	let tags = vec![("foo".into(), foo)];
+	let (_, stderr) = test_failure(artifact, ".".as_ref(), false, false, tags).await;
+	assert_snapshot!(stderr, @r"
+	error an error occurred
+	-> foo:tangram.ts requires 'bar' but no matching tags were found
+	");
+}
+
 async fn test(
 	artifact: temp::Artifact,
 	path: &Path,
@@ -2287,17 +2285,19 @@ async fn test(
 	tags: Vec<(String, temp::Artifact)>,
 ) -> (String, String, Option<tg::graph::Data>) {
 	let server = Server::new(TG).await.unwrap();
-	test_inner(&server, artifact, path, destructive, tags, true).await
+	test_inner(&server, artifact, path, destructive, true, tags, true).await
 }
 
 async fn test_failure(
 	artifact: temp::Artifact,
 	path: &Path,
 	destructive: bool,
+	solve: bool,
 	tags: Vec<(String, temp::Artifact)>,
 ) -> (String, String) {
 	let server = Server::new(TG).await.unwrap();
-	let (stdout, stderr, _) = test_inner(&server, artifact, path, destructive, tags, false).await;
+	let (stdout, stderr, _) =
+		test_inner(&server, artifact, path, destructive, solve, tags, false).await;
 	(stdout, stderr)
 }
 
@@ -2306,6 +2306,7 @@ async fn test_inner(
 	artifact: temp::Artifact,
 	path: &Path,
 	destructive: bool,
+	solve: bool,
 	tags: Vec<(String, temp::Artifact)>,
 	expect_success: bool,
 ) -> (String, String, Option<tg::graph::Data>) {
@@ -2315,14 +2316,12 @@ async fn test_inner(
 		artifact.to_path(&temp).await.unwrap();
 
 		// Tag the dependency
-		let output = server
-			.tg()
-			.arg("tag")
-			.arg(tag)
-			.arg(temp.path())
-			.output()
-			.await
-			.unwrap();
+		let mut command = server.tg();
+		command.arg("tag").arg(tag).arg(temp.path());
+		if !solve {
+			command.arg("--no-solve");
+		}
+		let output = command.output().await.unwrap();
 		assert_success!(output);
 	}
 

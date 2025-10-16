@@ -318,6 +318,10 @@ where
 				s.start_map()?;
 				for (reference, referent) in &file.dependencies {
 					s.map_entry(&reference.to_string(), |s| {
+						let Some(referent) = referent else {
+							s.null()?;
+							return Ok(());
+						};
 						s.start_map()?;
 						s.map_entry("item", |s| s.graph_edge_object(referent.item()))?;
 						if let Some(path) = referent.path() {

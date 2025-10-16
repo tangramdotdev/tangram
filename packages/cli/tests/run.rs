@@ -8,6 +8,14 @@ use {
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
+struct TagArgs {
+	artifact: temp::Artifact,
+	options: Vec<String>,
+	path: Option<PathBuf>,
+	#[allow(clippy::struct_field_names)]
+	tag: String,
+}
+
 #[tokio::test]
 async fn hello_world() {
 	let artifact = temp::directory! {
@@ -171,7 +179,12 @@ async fn assertion_failure_in_tag_dependency() {
 		"#)
 	}
 	.into();
-	let tags = vec![("foo".into(), foo, None)];
+	let tags = vec![TagArgs {
+		artifact: foo,
+		path: None,
+		options: Vec::new(),
+		tag: "foo".into(),
+	}];
 	let reference = "./tangram.ts";
 	let args = vec![];
 	let output = test(artifact, tags, reference, args).await;
@@ -225,7 +238,12 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 		}
 	}
 	.into();
-	let tags = vec![("foo".into(), foo, Some("foo".into()))];
+	let tags = vec![TagArgs {
+		artifact: foo,
+		options: Vec::new(),
+		path: Some("foo".into()),
+		tag: "foo".into(),
+	}];
 	let reference = "./tangram.ts";
 	let args = vec![];
 	let output = test(artifact, tags, reference, args).await;
@@ -270,12 +288,18 @@ async fn assertion_failure_in_tagged_cyclic_dependency() {
 
 async fn test(
 	artifact: temp::Artifact,
-	tags: Vec<(String, temp::Artifact, Option<PathBuf>)>,
+	tags: Vec<TagArgs>,
 	reference: &str,
 	args: Vec<String>,
 ) -> std::process::Output {
 	let server = Server::new(TG).await.unwrap();
-	for (tag, artifact, path) in tags {
+	for tag in tags {
+		let TagArgs {
+			artifact,
+			options,
+			path,
+			tag,
+		} = tag;
 		let temp = Temp::new();
 		artifact.to_path(temp.as_ref()).await.unwrap();
 		let path = if let Some(path) = path {
@@ -288,6 +312,7 @@ async fn test(
 			.arg("tag")
 			.arg(tag)
 			.arg(&path)
+			.args(options)
 			.output()
 			.await
 			.unwrap();

@@ -245,6 +245,9 @@ impl Server {
 			.dependencies
 			.iter()
 			.map(|(reference, referent)| {
+				let Some(referent) = referent else {
+					return Ok::<_, tg::Error>((reference.clone(), None));
+				};
 				let edge = match referent.item.clone() {
 					tg::graph::data::Edge::Reference(mut reference) => {
 						if reference.graph.is_none() {
@@ -278,7 +281,7 @@ impl Server {
 						node,
 					})
 				});
-				Ok::<_, tg::Error>((reference.clone(), referent))
+				Ok::<_, tg::Error>((reference.clone(), Some(referent)))
 			})
 			.collect::<tg::Result<_>>()?;
 		let file = tg::graph::data::File {

@@ -46,6 +46,10 @@ pub struct Options {
 	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub locked: bool,
+
+	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub solve: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -126,6 +130,7 @@ impl Default for Options {
 			local_dependencies: true,
 			lock: true,
 			locked: false,
+			solve: true,
 		}
 	}
 }

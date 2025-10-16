@@ -47,6 +47,9 @@ export class Graph {
 					let contents = await tg.blob(node.contents);
 					let dependencies = Object.fromEntries(
 						Object.entries(node.dependencies ?? {}).map(([key, value]) => {
+							if (!value) {
+								return [key, undefined];
+							}
 							let referent: tg.Referent<tg.Graph.Edge<tg.Object>>;
 							if (
 								typeof value === "number" ||
@@ -295,9 +298,9 @@ export namespace Graph {
 			contents?: tg.Blob.Arg | undefined;
 			dependencies?:
 				| {
-						[reference: tg.Reference]: tg.MaybeReferent<
-							tg.Graph.Arg.Edge<tg.Object>
-						>;
+						[reference: tg.Reference]:
+							| tg.MaybeReferent<tg.Graph.Arg.Edge<tg.Object>>
+							| undefined;
 				  }
 				| undefined;
 			executable?: boolean | undefined;
@@ -461,7 +464,9 @@ export namespace Graph {
 	export type File = {
 		contents: tg.Blob;
 		dependencies: {
-			[reference: tg.Reference]: tg.Referent<tg.Graph.Edge<tg.Object>>;
+			[reference: tg.Reference]:
+				| tg.Referent<tg.Graph.Edge<tg.Object>>
+				| undefined;
 		};
 		executable: boolean;
 	};
@@ -474,6 +479,9 @@ export namespace Graph {
 				data.dependencies = globalThis.Object.fromEntries(
 					globalThis.Object.entries(object.dependencies).map(
 						([reference, referent]) => {
+							if (!referent) {
+								return [reference, undefined];
+							}
 							return [
 								reference,
 								tg.Referent.toData(referent, (item) =>
@@ -497,6 +505,9 @@ export namespace Graph {
 				dependencies: globalThis.Object.fromEntries(
 					globalThis.Object.entries(data.dependencies ?? {}).map(
 						([reference, referent]) => {
+							if (!referent) {
+								return [reference, undefined];
+							}
 							return [
 								reference,
 								tg.Referent.fromData(referent, (item) =>
@@ -511,9 +522,9 @@ export namespace Graph {
 		};
 
 		export let children = (object: tg.Graph.File): Array<tg.Object> => {
-			let dependencies = globalThis.Object.entries(object.dependencies).flatMap(
-				([_, referent]) => tg.Graph.Edge.children(referent.item),
-			);
+			let dependencies = globalThis.Object.entries(object.dependencies)
+				.filter(([_, referent]) => referent !== undefined)
+				.flatMap(([_, referent]) => tg.Graph.Edge.children(referent!.item));
 			return [object.contents, ...dependencies];
 		};
 	}
@@ -730,9 +741,9 @@ export namespace Graph {
 		export type File = {
 			contents?: tg.Blob.Id;
 			dependencies?: {
-				[reference: tg.Reference]: tg.Referent.Data<
-					tg.Graph.Data.Edge<tg.Object.Id>
-				>;
+				[reference: tg.Reference]:
+					| tg.Referent.Data<tg.Graph.Data.Edge<tg.Object.Id>>
+					| undefined;
 			};
 			executable?: boolean;
 		};

@@ -552,6 +552,9 @@ impl Server {
 	) -> tg::Result<()> {
 		// Cache the dependencies.
 		for referent in node.dependencies.values() {
+			let Some(referent) = referent else {
+				continue;
+			};
 			// Skip object edges.
 			let mut edge = match referent.item.clone() {
 				tg::graph::data::Edge::Reference(graph) => tg::graph::data::Edge::Reference(graph),

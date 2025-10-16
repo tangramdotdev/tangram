@@ -77,15 +77,15 @@ export class File {
 		let contents = await tg.blob(arg.contents);
 		let dependencies = Object.fromEntries(
 			Object.entries(arg.dependencies ?? {}).map(([key, value]) => {
-				let referent: tg.Referent<tg.Graph.Edge<tg.Object>>;
+				let referent: tg.Referent<tg.Graph.Edge<tg.Object>> | undefined;
 				if (
 					typeof value === "number" ||
-					"node" in value ||
+					(value && "node" in value) ||
 					tg.Object.is(value)
 				) {
 					let item = tg.Graph.Edge.fromArg(value);
 					referent = { item, options: {} };
-				} else {
+				} else if (value) {
 					let item = tg.Graph.Edge.fromArg(value.item);
 					referent = { item, options: value.options };
 				}
@@ -190,7 +190,7 @@ export class File {
 	}
 
 	async dependencies(): Promise<{
-		[reference: tg.Reference]: tg.Referent<tg.Object>;
+		[reference: tg.Reference]: tg.Referent<tg.Object> | undefined;
 	}> {
 		let object = await this.object();
 		if ("node" in object) {
@@ -204,6 +204,9 @@ export class File {
 			return Object.fromEntries(
 				await Promise.all(
 					Object.entries(dependencies).map(async ([reference, referent]) => {
+						if (!referent) {
+							return [reference, undefined];
+						}
 						let object: tg.Object | undefined;
 						if (typeof referent.item === "number") {
 							object = await graph.get(referent.item);
@@ -227,6 +230,9 @@ export class File {
 			return Object.fromEntries(
 				await Promise.all(
 					Object.entries(dependencies).map(async ([reference, referent]) => {
+						if (!referent) {
+							return [reference, undefined];
+						}
 						let object: tg.Object | undefined;
 						tg.assert(typeof referent.item === "object");
 						if ("node" in referent.item) {
@@ -251,7 +257,13 @@ export class File {
 		if (dependencies === undefined) {
 			return [];
 		} else {
-			return Object.values(dependencies).map((d) => d.item);
+			let items = [];
+			for (let dependency of Object.values(dependencies)) {
+				if (dependency) {
+					items.push(dependency.item);
+				}
+			}
+			return items;
 		}
 	}
 

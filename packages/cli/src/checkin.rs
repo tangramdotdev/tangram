@@ -46,6 +46,37 @@ pub struct Options {
 	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
 	pub locked: bool,
+
+	#[command(flatten)]
+	pub solve: Solve,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Solve {
+	/// Whether to solve dependencies
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_solve",
+		require_equals = true,
+	)]
+	solve: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "solve",
+		require_equals = true,
+	)]
+	no_solve: Option<bool>,
+}
+
+impl Solve {
+	pub fn get(&self) -> bool {
+		self.solve.or(self.no_solve.map(|v| !v)).unwrap_or(true)
+	}
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -173,6 +204,7 @@ impl Options {
 			local_dependencies: self.local_dependencies.get(),
 			lock: self.lock.get(),
 			locked: self.locked,
+			solve: self.solve.get(),
 		}
 	}
 }
