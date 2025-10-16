@@ -2317,7 +2317,6 @@ async fn test_inner(
 
 		// Tag the dependency
 		let mut command = server.tg();
-
 		command.arg("tag").arg(tag).arg(temp.path());
 		if !solve {
 			command.arg("--no-solve");

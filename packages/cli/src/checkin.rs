@@ -73,6 +73,12 @@ pub struct Solve {
 	no_solve: Option<bool>,
 }
 
+impl Solve {
+	pub fn get(&self) -> bool {
+		self.solve.or(self.no_solve.map(|v| !v)).unwrap_or(true)
+	}
+}
+
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Ignore {
 	/// Whether to use ignore files.
@@ -198,11 +204,7 @@ impl Options {
 			local_dependencies: self.local_dependencies.get(),
 			lock: self.lock.get(),
 			locked: self.locked,
-			solve: self
-				.solve
-				.solve
-				.or(self.solve.no_solve.map(|s| !s))
-				.unwrap_or(true),
+			solve: self.solve.get(),
 		}
 	}
 }

@@ -173,7 +173,7 @@ impl Server {
 		// Mark nodes that refer to tagged items.
 		let mut marks = vec![false; lock.nodes.len()];
 		for scc in &sccs {
-			let is_marked = scc.iter().copied().any(|index| {
+			let marked = scc.iter().copied().any(|index| {
 				marks[index]
 					|| match &lock.nodes[index] {
 						tg::graph::data::Node::Directory(directory) => directory
@@ -185,8 +185,8 @@ impl Server {
 							.dependencies
 							.iter()
 							.filter_map(|(reference, referent)| {
-								let referent = referent.as_ref()?;
-								let item = referent.item().try_unwrap_reference_ref().ok()?;
+								let item =
+									referent.as_ref()?.item().try_unwrap_reference_ref().ok()?;
 								Some((reference, item))
 							})
 							.any(|(reference, item)| reference.item().is_tag() || marks[item.node]),
@@ -197,7 +197,7 @@ impl Server {
 							.is_some_and(|reference| marks[reference.node]),
 					}
 			});
-			if is_marked {
+			if marked {
 				for index in scc.iter().copied() {
 					marks[index] = true;
 				}
@@ -230,25 +230,21 @@ impl Server {
 				},
 				tg::graph::data::Node::File(file) => {
 					for referent in file.dependencies.values_mut() {
-						// Retain unresolved references.
 						let Some(referent) = referent else {
 							continue;
 						};
 						let edge = &mut referent.item;
 						match edge {
-							// Remap if the node is retained.
 							tg::graph::data::Edge::Reference(reference)
 								if marks[reference.node] =>
 							{
 								reference.node = map.get(&reference.node).copied().unwrap();
 							},
-							// Otherwise swap with the id in the referent.options
 							tg::graph::data::Edge::Reference(_) => {
 								let id = referent.options.id.take().unwrap();
 								referent.item = tg::graph::data::Edge::Object(id);
 							},
-							// Leave objects as-is
-							_ => (),
+							tg::graph::data::Edge::Object(_) => (),
 						}
 					}
 				},

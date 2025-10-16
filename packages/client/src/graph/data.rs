@@ -222,10 +222,8 @@ impl File {
 		if let Some(contents) = &self.contents {
 			children.insert(contents.clone().into());
 		}
-		for referent in self.dependencies.values() {
-			if let Some(referent) = referent {
-				referent.item.children(children);
-			}
+		for referent in self.dependencies.values().flatten() {
+			referent.item.children(children);
 		}
 	}
 }

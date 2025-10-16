@@ -629,7 +629,7 @@ impl Server {
 							return Err(
 								tg::error!(%reference, "unresolved reference in file dependencies"),
 							);
-						};
+						}
 						dependencies.insert(reference.clone(), None);
 						continue;
 					};
