@@ -170,27 +170,10 @@ impl Server {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
-		// Mark nodes that are tagged.
+		// Mark nodes that refer to tagged items.
 		let mut marks = vec![false; lock.nodes.len()];
 		for scc in &sccs {
-			for index in scc.iter().copied() {
-				let node = &lock.nodes[index];
-				if let tg::graph::data::Node::File(file) = node {
-					for referent in file.dependencies.values() {
-						let Some(referent) = referent else {
-							continue;
-						};
-						if let Ok(reference) = referent.item.try_unwrap_reference_ref() {
-							marks[reference.node] |= referent.tag().is_some();
-						}
-					}
-				}
-			}
-		}
-
-		// Mark nodes whose children are marked.
-		for scc in &sccs {
-			let marked = scc.iter().copied().any(|index| {
+			let is_marked = scc.iter().copied().any(|index| {
 				marks[index]
 					|| match &lock.nodes[index] {
 						tg::graph::data::Node::Directory(directory) => directory
@@ -200,11 +183,13 @@ impl Server {
 							.any(|reference| marks[reference.node]),
 						tg::graph::data::Node::File(file) => file
 							.dependencies
-							.values()
-							.filter_map(|referent| {
-								referent.as_ref()?.item.try_unwrap_reference_ref().ok()
+							.iter()
+							.filter_map(|(reference, referent)| {
+								let referent = referent.as_ref()?;
+								let item = referent.item().try_unwrap_reference_ref().ok()?;
+								Some((reference, item))
 							})
-							.any(|reference| marks[reference.node]),
+							.any(|(reference, item)| reference.item().is_tag() || marks[item.node]),
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
 							.as_ref()
@@ -212,7 +197,7 @@ impl Server {
 							.is_some_and(|reference| marks[reference.node]),
 					}
 			});
-			if marked {
+			if is_marked {
 				for index in scc.iter().copied() {
 					marks[index] = true;
 				}
@@ -244,23 +229,26 @@ impl Server {
 					}
 				},
 				tg::graph::data::Node::File(file) => {
-					file.dependencies.retain(|_name, referent| {
-						let Some(referent) = referent else {
-							return true; // retain unresolved references in lockfiles.
-						};
-						let edge = &referent.item;
-						match edge {
-							tg::graph::data::Edge::Reference(reference) => marks[reference.node],
-							tg::graph::data::Edge::Object(_) => true,
-						}
-					});
 					for referent in file.dependencies.values_mut() {
+						// Retain unresolved references.
 						let Some(referent) = referent else {
 							continue;
 						};
 						let edge = &mut referent.item;
-						if let tg::graph::data::Edge::Reference(reference) = edge {
-							reference.node = map.get(&reference.node).copied().unwrap();
+						match edge {
+							// Remap if the node is retained.
+							tg::graph::data::Edge::Reference(reference)
+								if marks[reference.node] =>
+							{
+								reference.node = map.get(&reference.node).copied().unwrap();
+							},
+							// Otherwise swap with the id in the referent.options
+							tg::graph::data::Edge::Reference(_) => {
+								let id = referent.options.id.take().unwrap();
+								referent.item = tg::graph::data::Edge::Object(id);
+							},
+							// Leave objects as-is
+							_ => (),
 						}
 					}
 				},
