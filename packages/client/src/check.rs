@@ -13,7 +13,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub diagnostics: Vec<tg::Diagnostic>,
+	pub diagnostics: Vec<tg::diagnostic::Data>,
 }
 
 impl tg::Client {

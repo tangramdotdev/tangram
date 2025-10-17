@@ -73,7 +73,13 @@ impl Server {
 
 		let health = tg::Health {
 			database: Some(database),
-			diagnostics: self.diagnostics.lock().unwrap().clone(),
+			diagnostics: self
+				.diagnostics
+				.lock()
+				.unwrap()
+				.iter()
+				.map(tg::Diagnostic::to_data)
+				.collect(),
 			pipes: Some(self.pipes.iter().map(|entry| entry.key().clone()).collect()),
 			processes: Some(processes),
 			ptys: Some(self.ptys.iter().map(|entry| entry.key().clone()).collect()),

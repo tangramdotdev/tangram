@@ -163,6 +163,31 @@ impl Value {
 		}
 	}
 
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		let value = match data {
+			Data::Null => Self::Null,
+			Data::Bool(bool) => Self::Bool(bool),
+			Data::Number(number) => Self::Number(number),
+			Data::String(string) => Self::String(string),
+			Data::Array(array) => Self::Array(
+				array
+					.into_iter()
+					.map(Self::try_from_data)
+					.collect::<tg::Result<_>>()?,
+			),
+			Data::Map(map) => Self::Map(
+				map.into_iter()
+					.map(|(key, value)| Ok::<_, tg::Error>((key, Self::try_from_data(value)?)))
+					.collect::<tg::Result<_>>()?,
+			),
+			Data::Object(id) => Self::Object(tg::object::Handle::with_id(id)),
+			Data::Bytes(bytes) => Self::Bytes(bytes),
+			Data::Mutation(mutation) => Self::Mutation(tg::Mutation::try_from_data(mutation)?),
+			Data::Template(template) => Self::Template(tg::Template::try_from_data(template)?),
+		};
+		Ok(value)
+	}
+
 	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
 	where
 		H: tg::Handle,
@@ -294,27 +319,7 @@ impl TryFrom<Data> for Value {
 	type Error = tg::Error;
 
 	fn try_from(data: Data) -> Result<Self, Self::Error> {
-		Ok(match data {
-			Data::Null => Self::Null,
-			Data::Bool(bool) => Self::Bool(bool),
-			Data::Number(number) => Self::Number(number),
-			Data::String(string) => Self::String(string),
-			Data::Array(array) => Self::Array(
-				array
-					.into_iter()
-					.map(TryInto::try_into)
-					.collect::<tg::Result<_>>()?,
-			),
-			Data::Map(map) => Self::Map(
-				map.into_iter()
-					.map(|(key, value)| Ok::<_, tg::Error>((key, value.try_into()?)))
-					.collect::<tg::Result<_>>()?,
-			),
-			Data::Object(id) => Self::Object(tg::object::Handle::with_id(id)),
-			Data::Bytes(bytes) => Self::Bytes(bytes),
-			Data::Mutation(mutation) => Self::Mutation(mutation.try_into()?),
-			Data::Template(template) => Self::Template(template.try_into()?),
-		})
+		Self::try_from_data(data)
 	}
 }
 

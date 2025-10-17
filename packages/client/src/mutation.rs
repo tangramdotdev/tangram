@@ -84,6 +84,50 @@ impl Mutation {
 		}
 	}
 
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		Ok(match data {
+			Data::Unset => Self::Unset,
+			Data::Set { value } => Self::Set {
+				value: Box::new((*value).try_into()?),
+			},
+			Data::SetIfUnset { value } => Self::SetIfUnset {
+				value: Box::new((*value).try_into()?),
+			},
+			Data::Prepend { values } => Self::Prepend {
+				values: values
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<_>>()?,
+			},
+			Data::Append { values } => Self::Append {
+				values: values
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<_>>()?,
+			},
+			Data::Prefix {
+				template,
+				separator,
+			} => Self::Prefix {
+				template: tg::Template::try_from_data(template)?,
+				separator,
+			},
+			Data::Suffix {
+				template,
+				separator,
+			} => Self::Suffix {
+				template: tg::Template::try_from_data(template)?,
+				separator,
+			},
+			Data::Merge { value } => Self::Merge {
+				value: value
+					.into_iter()
+					.map(|(k, v)| Ok::<_, tg::Error>((k, v.try_into()?)))
+					.collect::<tg::Result<_>>()?,
+			},
+		})
+	}
+
 	pub fn apply(&self, map: &mut tg::value::Map, key: &str) -> tg::Result<()> {
 		match (self, map.get_mut(key)) {
 			(Self::Unset, _) => {
@@ -217,54 +261,6 @@ impl Mutation {
 			},
 		}
 		Ok(())
-	}
-}
-
-impl TryFrom<Data> for Mutation {
-	type Error = tg::Error;
-
-	fn try_from(data: Data) -> Result<Self, Self::Error> {
-		Ok(match data {
-			Data::Unset => Self::Unset,
-			Data::Set { value } => Self::Set {
-				value: Box::new((*value).try_into()?),
-			},
-			Data::SetIfUnset { value } => Self::SetIfUnset {
-				value: Box::new((*value).try_into()?),
-			},
-			Data::Prepend { values } => Self::Prepend {
-				values: values
-					.into_iter()
-					.map(TryInto::try_into)
-					.collect::<tg::Result<_>>()?,
-			},
-			Data::Append { values } => Self::Append {
-				values: values
-					.into_iter()
-					.map(TryInto::try_into)
-					.collect::<tg::Result<_>>()?,
-			},
-			Data::Prefix {
-				template,
-				separator,
-			} => Self::Prefix {
-				template: template.try_into()?,
-				separator,
-			},
-			Data::Suffix {
-				template,
-				separator,
-			} => Self::Suffix {
-				template: template.try_into()?,
-				separator,
-			},
-			Data::Merge { value } => Self::Merge {
-				value: value
-					.into_iter()
-					.map(|(k, v)| Ok::<_, tg::Error>((k, v.try_into()?)))
-					.collect::<tg::Result<_>>()?,
-			},
-		})
 	}
 }
 

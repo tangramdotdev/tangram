@@ -16,10 +16,11 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[serde(try_from = "Data")]
 pub struct Error {
 	pub code: Option<tg::error::Code>,
-	pub message: Option<String>,
+	pub diagnostics: Option<Vec<tg::Diagnostic>>,
 	pub location: Option<tg::error::Location>,
-	pub stack: Option<Vec<tg::error::Location>>,
+	pub message: Option<String>,
 	pub source: Option<tg::Referent<Box<tg::Error>>>,
+	pub stack: Option<Vec<tg::error::Location>>,
 	pub values: BTreeMap<String, String>,
 }
 
@@ -61,7 +62,34 @@ pub enum File {
 
 impl Error {
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
-		data.try_into()
+		let code = data.code;
+		let diagnostics = data
+			.diagnostics
+			.map(|diagnostics| diagnostics.into_iter().map(TryInto::try_into).try_collect())
+			.transpose()?;
+		let location = data.location.map(TryInto::try_into).transpose()?;
+		let message = data.message;
+		let stack = data
+			.stack
+			.map(|stack| stack.into_iter().map(TryInto::try_into).try_collect())
+			.transpose()?;
+		let source = data
+			.source
+			.map(|referent| {
+				referent.try_map(|item| Ok::<_, tg::Error>(Box::new((*item).try_into()?)))
+			})
+			.transpose()?;
+		let values = data.values;
+		let value = Self {
+			code,
+			diagnostics,
+			location,
+			message,
+			source,
+			stack,
+			values,
+		};
+		Ok(value)
 	}
 
 	#[must_use]
@@ -74,13 +102,24 @@ impl Error {
 					.into_iter()
 					.flatten(),
 			)
+			.chain(
+				self.diagnostics
+					.as_ref()
+					.into_iter()
+					.flatten()
+					.flat_map(tg::Diagnostic::children),
+			)
 			.collect()
 	}
 
 	pub fn to_data(&self) -> Data {
 		let code = self.code;
-		let message = self.message.clone();
+		let diagnostics = self
+			.diagnostics
+			.as_ref()
+			.map(|diagnostics| diagnostics.iter().map(tg::Diagnostic::to_data).collect());
 		let location = self.location.as_ref().map(Location::to_data);
+		let message = self.message.clone();
 		let source = self
 			.source
 			.as_ref()
@@ -92,10 +131,11 @@ impl Error {
 		let values = self.values.clone();
 		Data {
 			code,
-			message,
+			diagnostics,
 			location,
-			stack,
+			message,
 			source,
+			stack,
 			values,
 		}
 	}
@@ -153,30 +193,8 @@ pub fn ok<T>(value: T) -> Result<T> {
 impl TryFrom<Data> for Error {
 	type Error = tg::Error;
 
-	fn try_from(value: Data) -> Result<Self, Self::Error> {
-		let code = value.code;
-		let message = value.message;
-		let location = value.location.map(TryInto::try_into).transpose()?;
-		let stack = value
-			.stack
-			.map(|stack| stack.into_iter().map(TryInto::try_into).try_collect())
-			.transpose()?;
-		let source = value
-			.source
-			.map(|referent| {
-				referent.try_map(|item| Ok::<_, tg::Error>(Box::new((*item).try_into()?)))
-			})
-			.transpose()?;
-		let values = value.values;
-		let value = Self {
-			code,
-			message,
-			location,
-			stack,
-			source,
-			values,
-		};
-		Ok(value)
+	fn try_from(data: Data) -> Result<Self, Self::Error> {
+		Self::try_from_data(data)
 	}
 }
 
@@ -233,6 +251,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 					.map(Into::into)
 					.map(|error| tg::Referent::with_item(Box::new(error))),
 				values: BTreeMap::new(),
+				diagnostics: None,
 			},
 		}
 	}
@@ -250,6 +269,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 				.map(Into::into)
 				.map(|error| tg::Referent::with_item(Box::new(error))),
 			values: BTreeMap::new(),
+			diagnostics: None,
 		}
 	}
 }
@@ -371,24 +391,29 @@ macro_rules! error {
 		$error.stack.replace($stack);
 		$crate::error!({ $error }, $($arg)*)
 	};
+	({ $error:ident }, diagnostics = $diagnostics:expr, $($arg:tt)*) => {
+		$error.diagnostics.replace($diagnostics);
+		$crate::error!({ $error }, $($arg)*)
+	};
 	({ $error:ident }, $($arg:tt)*) => {
 		$error.message = Some(format!($($arg)*));
 	};
 	($($arg:tt)*) => {{
 		let mut error = $crate::Error {
 			code: None,
-			message: Some(String::new()),
+			diagnostics: None,
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
 				file: $crate::error::File::Internal(format!("{}", ::std::file!()).parse().unwrap()),
-				range: tg::Range {
-					start: tg::Position { line: line!() - 1, character: column!() - 1 },
-					end: tg::Position { line: line!() - 1, character: column!() - 1 }
+				range: $crate::Range {
+					start: $crate::Position { line: line!() - 1, character: column!() - 1 },
+					end: $crate::Position { line: line!() - 1, character: column!() - 1 }
 				}
 			}),
+			message: Some(String::new()),
 			source: None,
 			stack: None,
-			values: std::collections::BTreeMap::new(),
+			values: ::std::collections::BTreeMap::new(),
 		};
 		$crate::error!({ error }, $($arg)*);
 		error

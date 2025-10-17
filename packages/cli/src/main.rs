@@ -422,6 +422,7 @@ impl Cli {
 		let health = handle.health().await?;
 		if !self.args.quiet {
 			for diagnostic in health.diagnostics {
+				let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
 				let diagnostic = tg::Referent::with_item(diagnostic);
 				self.print_diagnostic(diagnostic).await;
 			}

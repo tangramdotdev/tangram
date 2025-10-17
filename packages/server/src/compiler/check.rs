@@ -9,7 +9,7 @@ pub struct Request {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	pub diagnostics: Vec<tg::Diagnostic>,
+	pub diagnostics: Vec<tg::diagnostic::Data>,
 }
 
 impl Compiler {
@@ -21,6 +21,13 @@ impl Compiler {
 		// Perform the request.
 		let response = self.request(request).await?.unwrap_check();
 
-		Ok(response.diagnostics)
+		// Convert diagnostics from data to the non-serializable form.
+		let diagnostics = response
+			.diagnostics
+			.into_iter()
+			.map(TryInto::try_into)
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(diagnostics)
 	}
 }

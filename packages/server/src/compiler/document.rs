@@ -158,7 +158,9 @@ impl Compiler {
 		let text = document.text.as_mut().unwrap();
 		for change in &params.content_changes {
 			let range = if let Some(range) = change.range {
-				tg::Range::from(range).to_byte_range_in_string(text)
+				tg::Range::from(range)
+					.try_to_byte_range_in_string(text)
+					.ok_or_else(|| tg::error!("invalid range"))?
 			} else {
 				0..text.len()
 			};

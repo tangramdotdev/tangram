@@ -241,15 +241,8 @@ impl Server {
 				kind,
 				referent: tg::Referent::with_item(tg::module::data::Item::Path(path.clone())),
 			};
-			let analysis = Self::analyze_module(&module, text).map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to analyze the module"),
-			)?;
-			for error in analysis.errors {
-				let diagnostic = tg::Diagnostic {
-					location: None,
-					message: error.to_string(),
-					severity: tg::diagnostic::Severity::Error,
-				};
+			let analysis = Self::analyze_module(&module, &text);
+			for diagnostic in analysis.diagnostics {
 				state.progress.diagnostic(diagnostic);
 			}
 

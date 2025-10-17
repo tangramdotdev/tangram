@@ -14,6 +14,9 @@ export function error(
 			if ("code" in secondArg) {
 				arg.code = secondArg.code;
 			}
+			if ("diagnostics" in secondArg) {
+				arg.diagnostics = secondArg.diagnostics;
+			}
 			if ("location" in secondArg) {
 				arg.location = secondArg.location;
 			}
@@ -33,6 +36,9 @@ export function error(
 	} else if (firstArg !== undefined && typeof firstArg === "object") {
 		if ("code" in firstArg) {
 			arg.code = firstArg.code;
+		}
+		if ("diagnostics" in firstArg) {
+			arg.diagnostics = firstArg.diagnostics;
 		}
 		if ("location" in firstArg) {
 			arg.location = firstArg.location;
@@ -60,6 +66,7 @@ export function error(
 // biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 export class Error {
 	code: string | undefined;
+	diagnostics: Array<tg.Diagnostic> | undefined;
 	location: tg.Error.Location | undefined;
 	message: string | undefined;
 	source: tg.Referent<tg.Error> | undefined;
@@ -69,6 +76,9 @@ export class Error {
 	constructor(arg: Error.Arg) {
 		if ("code" in arg) {
 			this.code = arg.code;
+		}
+		if ("diagnostics" in arg) {
+			this.diagnostics = arg.diagnostics;
 		}
 		if ("location" in arg) {
 			this.location = arg.location;
@@ -92,6 +102,7 @@ export class Error {
 export namespace Error {
 	export type Arg = {
 		code?: string | undefined;
+		diagnostics?: Array<tg.Diagnostic> | undefined;
 		location?: tg.Error.Location | undefined;
 		message?: string;
 		source?: tg.Referent<tg.Error> | undefined;
@@ -111,6 +122,7 @@ export namespace Error {
 
 	export type Data = {
 		code?: string;
+		diagnostics?: Array<tg.Diagnostic.Data>;
 		location?: tg.Error.Data.Location;
 		message?: string;
 		source?: tg.Referent.Data<tg.Error.Data>;
@@ -135,6 +147,9 @@ export namespace Error {
 		if (value.code !== undefined) {
 			data.code = value.code;
 		}
+		if (value.diagnostics !== undefined) {
+			data.diagnostics = value.diagnostics.map(tg.Diagnostic.toData);
+		}
 		if (value.location !== undefined) {
 			data.location = tg.Error.Location.toData(value.location);
 		}
@@ -157,6 +172,9 @@ export namespace Error {
 		let arg: tg.Error.Arg = {};
 		if ("code" in data) {
 			arg.code = data.code;
+		}
+		if ("diagnostics" in data) {
+			arg.diagnostics = data.diagnostics?.map(tg.Diagnostic.fromData);
 		}
 		if ("location" in data) {
 			arg.location = tg.Error.Location.fromData(data.location);

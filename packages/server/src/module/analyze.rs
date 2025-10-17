@@ -1,242 +1,257 @@
 use {
 	crate::Server,
-	std::{
-		collections::{BTreeMap, HashSet},
-		rc::Rc,
+	oxc::{
+		ast::ast::{
+			ExportAllDeclaration, ExportNamedDeclaration, Expression, ImportAttributeKey,
+			ImportDeclaration, ObjectPropertyKind, PropertyKey, WithClause,
+		},
+		ast_visit::Visit as _,
+		span::Span,
 	},
-	swc::ecma::{ast, visit::VisitWith},
-	swc_core as swc, tangram_client as tg,
+	std::collections::{BTreeMap, HashSet},
+	tangram_client as tg,
 };
 
 #[derive(Clone, Debug)]
 pub struct Analysis {
-	pub errors: Vec<Error>,
+	pub diagnostics: Vec<tg::diagnostic::Data>,
 	pub imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Error {
-	pub message: String,
-	pub line: usize,
-	pub column: usize,
 }
 
 impl Server {
 	/// Analyze a module.
-	pub fn analyze_module(module: &tg::module::Data, text: String) -> tg::Result<Analysis> {
+	#[must_use]
+	pub fn analyze_module(module: &tg::module::Data, text: &str) -> Analysis {
+		let allocator = oxc::allocator::Allocator::default();
+
+		let mut diagnostics = Vec::new();
+
 		// Parse the text.
-		let super::parse::Output {
-			program,
-			source_map,
-		} = Self::parse_module(module, text)
-			.map_err(|source| tg::error!(!source, "failed to parse the module"))?;
+		let source_type = oxc::span::SourceType::ts();
+		let output = oxc::parser::Parser::new(&allocator, text, source_type).parse();
+		for error in &output.errors {
+			diagnostics.push(Self::convert_diagnostic(error, module, text));
+		}
 
 		// Create the visitor and visit the module.
-		let mut visitor = Visitor::new(source_map);
-		program.visit_with(&mut visitor);
+		let mut visitor = Visitor::new(module, text);
+		visitor.visit_program(&output.program);
+		diagnostics.extend(visitor.diagnostics);
+		let imports = visitor.imports;
 
-		// Create the output.
-		let output = Analysis {
-			imports: visitor.imports,
-			errors: visitor.errors,
-		};
-
-		Ok(output)
-	}
-}
-
-impl Error {
-	pub fn new(message: impl std::fmt::Display, loc: &swc::common::Loc) -> Self {
-		let line = loc.line - 1;
-		let column = loc.col_display;
-		Self {
-			message: message.to_string(),
-			line,
-			column,
+		Analysis {
+			diagnostics,
+			imports,
 		}
 	}
 }
 
-impl std::fmt::Display for Error {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let line = self.line + 1;
-		let column = self.column + 1;
-		let message = &self.message;
-		write!(f, "{line}:{column} {message}").unwrap();
-		Ok(())
-	}
-}
-
-#[derive(Default)]
-struct Visitor {
-	errors: Vec<Error>,
+struct Visitor<'a> {
+	diagnostics: Vec<tg::diagnostic::Data>,
 	imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
-	source_map: Rc<swc::common::SourceMap>,
+	module: &'a tg::module::Data,
+	text: &'a str,
 }
 
-impl Visitor {
-	fn new(source_map: Rc<swc::common::SourceMap>) -> Self {
+impl<'a> Visitor<'a> {
+	fn new(module: &'a tg::module::Data, text: &'a str) -> Self {
 		Self {
-			source_map,
-			..Default::default()
-		}
-	}
-}
-
-impl swc::ecma::visit::Visit for Visitor {
-	fn visit_export_decl(&mut self, n: &ast::ExportDecl) {
-		n.visit_children_with(self);
-	}
-
-	fn visit_import_decl(&mut self, n: &ast::ImportDecl) {
-		self.add_import(&n.src.value, n.with.as_deref(), n.span);
-	}
-
-	fn visit_named_export(&mut self, n: &ast::NamedExport) {
-		if let Some(src) = n.src.as_deref() {
-			self.add_import(&src.value, n.with.as_deref(), n.span);
+			diagnostics: Vec::new(),
+			imports: HashSet::default(),
+			module,
+			text,
 		}
 	}
 
-	fn visit_export_all(&mut self, n: &ast::ExportAll) {
-		self.add_import(&n.src.value, n.with.as_deref(), n.span);
+	fn get_import_attributes_from_with_clause(
+		with_clause: &WithClause<'a>,
+	) -> BTreeMap<String, String> {
+		let mut attributes = BTreeMap::new();
+		for entry in &with_clause.with_entries {
+			let key = match &entry.key {
+				ImportAttributeKey::Identifier(ident) => ident.name.to_string(),
+				ImportAttributeKey::StringLiteral(lit) => lit.value.to_string(),
+			};
+			let value = entry.value.value.to_string();
+			attributes.insert(key, value);
+		}
+		attributes
 	}
 
-	fn visit_call_expr(&mut self, n: &ast::CallExpr) {
-		match &n.callee {
-			// Handle a dynamic import.
-			ast::Callee::Import(_) => {
-				let Some(ast::Lit::Str(arg)) = n.args.first().and_then(|arg| arg.expr.as_lit())
-				else {
-					let loc = self.source_map.lookup_char_pos(n.span.lo);
-					self.errors.push(Error::new(
-						"the argument to the import function must be a string literal",
-						&loc,
-					));
-					return;
+	fn get_import_attributes_from_import_expression_options(
+		options: &Expression<'a>,
+	) -> Option<BTreeMap<String, String>> {
+		let Expression::ObjectExpression(obj) = options else {
+			return None;
+		};
+		for property in &obj.properties {
+			let ObjectPropertyKind::ObjectProperty(prop) = property else {
+				continue;
+			};
+			let is_with = match &prop.key {
+				PropertyKey::StaticIdentifier(ident) => ident.name == "with",
+				PropertyKey::StringLiteral(lit) => lit.value == "with",
+				_ => false,
+			};
+			if !is_with {
+				continue;
+			}
+			let Expression::ObjectExpression(attrs_obj) = &prop.value else {
+				continue;
+			};
+			let mut attributes = BTreeMap::new();
+			for kind in &attrs_obj.properties {
+				let ObjectPropertyKind::ObjectProperty(property) = kind else {
+					continue;
 				};
-				let with = n
-					.args
-					.get(1)
-					.and_then(|arg| arg.expr.as_object())
-					.and_then(|object| {
-						object.props.iter().find_map(|prop| {
-							let ast::PropOrSpread::Prop(prop) = prop else {
-								return None;
-							};
-							let ast::Prop::KeyValue(prop) = prop.as_ref() else {
-								return None;
-							};
-							match &prop.key {
-								ast::PropName::Ident(ident) if ident.sym.as_ref() == "with" => {
-									prop.value.as_object()
-								},
-								ast::PropName::Str(str) if str.value.as_ref() == "with" => {
-									prop.value.as_object()
-								},
-								_ => None,
-							}
-						})
-					});
-				self.add_import(&arg.value, with, n.span);
-			},
-
-			// Ignore other calls.
-			_ => {
-				n.visit_children_with(self);
-			},
+				let key = match &property.key {
+					PropertyKey::StaticIdentifier(identifier) => identifier.name.to_string(),
+					PropertyKey::StringLiteral(literal) => literal.value.to_string(),
+					_ => continue,
+				};
+				if let Expression::StringLiteral(value) = &property.value {
+					attributes.insert(key, value.value.to_string());
+				}
+			}
+			return Some(attributes);
 		}
+		None
 	}
-}
 
-impl Visitor {
 	fn add_import(
 		&mut self,
 		specifier: &str,
-		attributes: Option<&ast::ObjectLit>,
-		span: swc::common::Span,
+		attributes: Option<&BTreeMap<String, String>>,
+		span: Span,
 	) {
-		// Get the attributes.
-		let attributes = if let Some(attributes) = attributes {
-			let mut map = BTreeMap::new();
-			let loc = self.source_map.lookup_char_pos(attributes.span.lo);
-			for prop in &attributes.props {
-				let Some(prop) = prop.as_prop() else {
-					self.errors
-						.push(Error::new("spread properties are not allowed", &loc));
-					continue;
-				};
-				let Some(key_value) = prop.as_key_value() else {
-					self.errors
-						.push(Error::new("only key-value properties are allowed", &loc));
-					continue;
-				};
-				let key = match &key_value.key {
-					ast::PropName::Ident(ident) => ident.sym.to_string(),
-					ast::PropName::Str(value) => value.value.to_string(),
-					_ => {
-						self.errors
-							.push(Error::new("all keys must be strings", &loc));
-						continue;
-					},
-				};
-				let value = if let ast::Expr::Lit(ast::Lit::Str(value)) = key_value.value.as_ref() {
-					value.value.to_string()
-				} else {
-					self.errors
-						.push(Error::new("all values must be strings", &loc));
-					continue;
-				};
-				map.insert(key, value);
-			}
-			Some(map)
-		} else {
-			None
-		};
-
-		// Parse the import.
-		let import = match tg::module::Import::with_specifier_and_attributes(specifier, attributes)
-		{
-			Ok(import) => import,
-			Err(error) => {
-				let loc = self.source_map.lookup_char_pos(span.lo());
-				let message = format!("failed to parse the import {specifier:#?}: {error}");
-				self.errors.push(Error::new(message, &loc));
-				return;
+		let result =
+			tg::module::Import::with_specifier_and_attributes(specifier, attributes.cloned());
+		match result {
+			Ok(import) => {
+				self.imports.insert(import);
 			},
-		};
+			Err(error) => {
+				let byte_range = span.start as usize..span.end as usize;
+				let range = tg::Range::try_from_byte_range_in_string(self.text, byte_range)
+					.unwrap_or(tg::Range {
+						start: tg::Position {
+							line: 0,
+							character: 0,
+						},
+						end: tg::Position {
+							line: 0,
+							character: 0,
+						},
+					});
+				let location = Some(tg::location::Data {
+					module: self.module.clone(),
+					range,
+				});
+				let diagnostic = tg::diagnostic::Data {
+					location,
+					message: error
+						.message
+						.unwrap_or_else(|| "failed to parse import".to_owned()),
+					severity: tg::diagnostic::Severity::Error,
+				};
+				self.diagnostics.push(diagnostic);
+			},
+		}
+	}
+}
 
-		// Add the import.
-		self.imports.insert(import);
+impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
+	fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'a>) {
+		let specifier = declaration.source.value.as_str();
+		let attributes = declaration
+			.with_clause
+			.as_ref()
+			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
+		self.add_import(specifier, attributes.as_ref(), declaration.span);
+	}
+
+	fn visit_export_named_declaration(&mut self, declaration: &ExportNamedDeclaration<'a>) {
+		if let Some(source) = &declaration.source {
+			let specifier = source.value.as_str();
+			let attributes = declaration
+				.with_clause
+				.as_ref()
+				.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
+			self.add_import(specifier, attributes.as_ref(), declaration.span);
+		}
+		oxc::ast_visit::walk::walk_export_named_declaration(self, declaration);
+	}
+
+	fn visit_export_all_declaration(&mut self, declaration: &ExportAllDeclaration<'a>) {
+		let specifier = declaration.source.value.as_str();
+		let attributes = declaration
+			.with_clause
+			.as_ref()
+			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
+		self.add_import(specifier, attributes.as_ref(), declaration.span);
+	}
+
+	fn visit_import_expression(&mut self, expression: &oxc::ast::ast::ImportExpression<'a>) {
+		if let Expression::StringLiteral(literal) = &expression.source {
+			let attributes = expression.options.as_ref().and_then(|import_attributes| {
+				Self::get_import_attributes_from_import_expression_options(import_attributes)
+			});
+			self.add_import(literal.value.as_str(), attributes.as_ref(), expression.span);
+		} else {
+			self.diagnostics.push(tg::diagnostic::Data {
+				message: "the argument to the import function must be a string literal".to_owned(),
+				location: {
+					let byte_range = expression.span.start as usize..expression.span.end as usize;
+					let range = tg::Range::try_from_byte_range_in_string(self.text, byte_range)
+						.unwrap_or(tg::Range {
+							start: tg::Position {
+								line: 0,
+								character: 0,
+							},
+							end: tg::Position {
+								line: 0,
+								character: 0,
+							},
+						});
+					Some(tg::location::Data {
+						module: self.module.clone(),
+						range,
+					})
+				},
+				severity: tg::diagnostic::Severity::Error,
+			});
+		}
+		oxc::ast_visit::walk::walk_import_expression(self, expression);
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use indoc::indoc;
 
 	#[test]
 	fn analyze() {
-		let text = r#"
-			import defaultImport from "default_import";
-			import { namedImport } from "./named_import.tg.js";
-			import * as namespaceImport from "namespace_import";
-			let dynamicImport = import("./dynamic_import.tg.ts");
-			let include = import("./include.txt");
-			export let nested = () => {
-				let nestedDynamicImport = import("nested_dynamic_import");
-				let nestedInclude = import("./nested_include.txt");
-			};
-			export { namedExport } from "named_export";
-			export * as namespaceExport from "./namespace_export.ts";
-		"#;
+		let text = indoc!(
+			r#"
+				import defaultImport from "default_import";
+				import { namedImport } from "./named_import.tg.js";
+				import * as namespaceImport from "namespace_import";
+				let dynamicImport = import("./dynamic_import.tg.ts");
+				let include = import("./include.txt");
+				export let nested = () => {
+					let nestedDynamicImport = import("nested_dynamic_import");
+					let nestedInclude = import("./nested_include.txt");
+				};
+				export { namedExport } from "named_export";
+				export * as namespaceExport from "./namespace_export.ts";
+			"#
+		);
 		let module = tg::module::Data {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent::with_item(tg::module::data::Item::Path("test.tg.ts".into())),
 		};
-		let found = Server::analyze_module(&module, text.to_owned())
-			.unwrap()
-			.imports;
+		let found = Server::analyze_module(&module, text).imports;
 		let expected = [
 			"default_import",
 			"./named_import.tg.js",

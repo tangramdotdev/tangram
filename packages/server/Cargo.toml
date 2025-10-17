@@ -14,12 +14,7 @@ version = { workspace = true }
 workspace = true
 
 [features]
-default = ["format", "v8"]
-format = [
-  "dep:biome_js_formatter",
-  "dep:biome_js_parser",
-  "dep:biome_js_syntax",
-]
+default = ["v8"]
 foundationdb = ["dep:foundationdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
@@ -41,9 +36,8 @@ async-nats = { workspace = true, optional = true }
 async_zip = { workspace = true }
 aws-credential-types = { workspace = true }
 aws-sigv4 = { workspace = true }
-biome_js_formatter = { workspace = true, optional = true }
-biome_js_parser = { workspace = true, optional = true }
-biome_js_syntax = { workspace = true, optional = true }
+oxc = { workspace = true }
+oxc_formatter = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
@@ -92,7 +86,6 @@ serde_with = { workspace = true }
 serde_yaml = { workspace = true }
 smallvec = { workspace = true }
 sourcemap = { workspace = true }
-swc_core = { workspace = true }
 sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
 tangram_database = { workspace = true }

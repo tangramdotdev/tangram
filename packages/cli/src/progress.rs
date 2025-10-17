@@ -119,8 +119,15 @@ impl Cli {
 			},
 
 			tg::progress::Event::Diagnostic(diagnostic) => {
-				self.print_diagnostic(tg::Referent::with_item(diagnostic))
-					.await;
+				match diagnostic.try_into() {
+					Ok(diagnostic) => {
+						self.print_diagnostic(tg::Referent::with_item(diagnostic))
+							.await;
+					},
+					Err(error) => {
+						eprintln!("Failed to convert diagnostic: {error}");
+					},
+				}
 			},
 
 			tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {

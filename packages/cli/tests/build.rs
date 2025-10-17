@@ -1216,7 +1216,7 @@ async fn watchdog_heartbeat_expiration() {
 			export let foo = async () => {
 				await tg.sleep(2);
 				return 'done';
-			});
+			};
 		")
 	};
 	let temp = Temp::new();

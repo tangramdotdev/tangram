@@ -69,6 +69,7 @@ pub(super) fn from_exception<'s>(
 		stack,
 		source,
 		values,
+		diagnostics: None,
 	}
 }
 

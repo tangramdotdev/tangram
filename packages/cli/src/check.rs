@@ -43,6 +43,7 @@ impl Cli {
 
 		// Print the diagnostics.
 		for diagnostic in output.diagnostics {
+			let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
 			let mut diagnostic = tg::Referent::with_item(diagnostic);
 			diagnostic.inherit(&referent);
 			self.print_diagnostic(diagnostic).await;

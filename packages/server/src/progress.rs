@@ -50,7 +50,7 @@ impl<T> Handle<T> {
 	}
 
 	#[allow(dead_code)]
-	pub fn diagnostic(&self, diagnostic: tg::Diagnostic) {
+	pub fn diagnostic(&self, diagnostic: tg::diagnostic::Data) {
 		let event = tg::progress::Event::Diagnostic(diagnostic);
 		self.sender.try_send(Ok(event)).ok();
 	}

@@ -143,6 +143,7 @@ pub(super) fn from_exception<'s>(
 		stack,
 		source,
 		values: BTreeMap::new(),
+		diagnostics: None,
 	})
 }
 

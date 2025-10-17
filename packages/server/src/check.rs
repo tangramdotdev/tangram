@@ -24,6 +24,7 @@ impl Server {
 		let diagnostics = compiler.check(vec![arg.module]).await?;
 
 		// Create the output.
+		let diagnostics = diagnostics.iter().map(tg::Diagnostic::to_data).collect();
 		let output = tg::check::Output { diagnostics };
 
 		// Stop and await the compiler.

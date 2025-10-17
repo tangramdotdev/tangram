@@ -133,7 +133,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 					Serde::<(tg::module::Data, String)>::deserialize(scope, value).unwrap();
 
 				// Compile the module.
-				let Some(v8_module) = compile_module(scope, &module, text) else {
+				let Some(v8_module) = compile_module(scope, &module, &text) else {
 					return;
 				};
 
@@ -246,7 +246,7 @@ fn resolve_module_callback<'s>(
 		let text = load_module_sync(scope, &module)?;
 
 		// Compile the module.
-		let module = compile_module(scope, &module, text)?;
+		let module = compile_module(scope, &module, &text)?;
 
 		Some(module)
 	}?;
@@ -319,29 +319,28 @@ fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> O
 fn compile_module<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	module: &tg::module::Data,
-	text: String,
+	text: &str,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Transpile the module.
-	let crate::module::transpile::Output {
-		transpiled_text,
-		source_map,
-	} = match Server::transpile_module(text, module)
-		.map_err(|source| tg::error!(!source, "failed to transpile the module"))
-	{
-		Ok(output) => output,
-		Err(error) => {
-			let exception = error::to_exception(scope, &error)?;
-			scope.throw_exception(exception);
-			return None;
-		},
-	};
+	let output = Server::transpile_module(text, module);
+	if !output.diagnostics.is_empty() {
+		let diagnostics = output
+			.diagnostics
+			.into_iter()
+			.filter_map(|diagnostic| diagnostic.try_into().ok())
+			.collect();
+		let error = tg::error!(diagnostics = diagnostics, "failed to transpile the module");
+		let exception = error::to_exception(scope, &error)?;
+		scope.throw_exception(exception);
+		return None;
+	}
 
 	// Parse the source map.
-	let source_map = match SourceMap::from_slice(source_map.as_bytes())
+	let source_map = match SourceMap::from_slice(output.source_map.as_bytes())
 		.map_err(|source| tg::error!(!source, "failed to parse the source map"))
 	{
 		Ok(source_map) => source_map,
@@ -389,7 +388,7 @@ fn compile_module<'s>(
 	);
 
 	// Compile the module.
-	let source = v8::String::new(scope, &transpiled_text).unwrap();
+	let source = v8::String::new(scope, &output.text).unwrap();
 	let mut source = v8::script_compiler::Source::new(source, Some(&origin));
 	let module = v8::script_compiler::compile_module(scope, &mut source)?;
 	let module_global = v8::Global::new(scope, module);

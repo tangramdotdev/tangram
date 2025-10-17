@@ -14,7 +14,7 @@ use {crate as tg, num::ToPrimitive as _};
 #[unwrap(ref)]
 pub enum Event<T> {
 	Log(Log),
-	Diagnostic(tg::Diagnostic),
+	Diagnostic(tg::diagnostic::Data),
 	Start(Indicator),
 	Update(Indicator),
 	Finish(Indicator),

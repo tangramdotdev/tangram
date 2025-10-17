@@ -57,16 +57,13 @@ unused_async = "allow"
 [workspace.dependencies]
 anstream = "0.6"
 astral-tokio-tar = "0.5"
-async_zip = { version = "0.0.18", features = ["full"] }
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.44"
+async_zip = { version = "0.0.18", features = ["full"] }
 aws-credential-types = "1"
 aws-sigv4 = "1"
-biome_js_formatter = { git = "https://github.com/biomejs/biome" }
-biome_js_parser = { git = "https://github.com/biomejs/biome" }
-biome_js_syntax = { git = "https://github.com/biomejs/biome" }
 blake3 = "1"
 byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"
@@ -112,6 +109,8 @@ num-traits = "0.2"
 oauth2 = "5.0.0"
 octocrab = "0.47"
 owo-colors = "4"
+oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
+oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
 petgraph = "0.8"
 pin-project = "1"
 pretty_assertions = "1"
@@ -122,38 +121,21 @@ rand = "0.9"
 ratatui = "0.29"
 reflink-copy = "0.1"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = [
-  "blocking",
-  "json",
-  "stream",
-  "rustls-tls",
-] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
 rusqlite = { version = "0.37", features = ["blob", "bundled", "functions"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 scopeguard = "1"
 scylla = "1"
 serde = { version = "1", features = ["rc", "derive"] }
+serde-untagged = "0.1"
 serde_json = "1"
 serde_repr = "0.1"
-serde-untagged = "0.1"
 serde_urlencoded = "0.7"
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-swc_core = { version = "44", features = [
-  "common",
-  "common_sourcemap",
-  "ecma_ast",
-  "ecma_codegen",
-  "ecma_parser",
-  "ecma_parser_typescript",
-  "ecma_transforms",
-  "ecma_transforms_module",
-  "ecma_transforms_typescript",
-  "ecma_visit",
-] }
 syn = "2"
 sync_wrapper = "1"
 tangram_cli_test = { path = "packages/cli/test" }
@@ -176,10 +158,7 @@ tangram_version = { path = "packages/version" }
 tangram_vfs = { path = "packages/vfs" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }
-tokio-postgres = { version = "0.7", features = [
-  "runtime",
-  "with-serde_json-1",
-] }
+tokio-postgres = { version = "0.7", features = ["runtime", "with-serde_json-1"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }

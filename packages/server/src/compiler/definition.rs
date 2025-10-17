@@ -14,7 +14,7 @@ pub struct Request {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	pub locations: Option<Vec<tg::Location>>,
+	pub locations: Option<Vec<tg::location::Data>>,
 }
 
 impl Compiler {
@@ -37,7 +37,18 @@ impl Compiler {
 			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.locations)
+		// Convert locations from data to the non-serializable form.
+		let locations = response
+			.locations
+			.map(|locations| {
+				locations
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<Vec<_>>>()
+			})
+			.transpose()?;
+
+		Ok(locations)
 	}
 
 	pub async fn type_definition(
@@ -59,7 +70,18 @@ impl Compiler {
 			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.locations)
+		// Convert locations from data to the non-serializable form.
+		let locations = response
+			.locations
+			.map(|locations| {
+				locations
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<Vec<_>>>()
+			})
+			.transpose()?;
+
+		Ok(locations)
 	}
 }
 
@@ -90,7 +112,7 @@ impl Compiler {
 				let compiler = self.clone();
 				async move {
 					Ok::<_, tg::Error>(lsp::Location {
-						uri: compiler.lsp_uri_for_module(&location.module).await?,
+						uri: compiler.lsp_uri_for_module(&location.module.to_data()).await?,
 						range: location.range.into(),
 					})
 				}
@@ -130,7 +152,7 @@ impl Compiler {
 				let compiler = self.clone();
 				async move {
 					Ok::<_, tg::Error>(lsp::Location {
-						uri: compiler.lsp_uri_for_module(&location.module).await?,
+						uri: compiler.lsp_uri_for_module(&location.module.to_data()).await?,
 						range: location.range.into(),
 					})
 				}

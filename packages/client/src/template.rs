@@ -66,6 +66,15 @@ impl Template {
 		Data { components }
 	}
 
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		let components = data
+			.components
+			.into_iter()
+			.map(TryInto::try_into)
+			.collect::<tg::Result<_>>()?;
+		Ok(Self { components })
+	}
+
 	pub fn try_render_sync<'a, F>(&'a self, mut f: F) -> tg::Result<String>
 	where
 		F: (FnMut(&'a Component) -> tg::Result<Cow<'a, str>>) + 'a,
@@ -198,19 +207,6 @@ impl Component {
 			Self::String(string) => tg::template::data::Component::String(string.clone()),
 			Self::Artifact(artifact) => tg::template::data::Component::Artifact(artifact.id()),
 		}
-	}
-}
-
-impl TryFrom<Data> for Template {
-	type Error = tg::Error;
-
-	fn try_from(data: Data) -> Result<Self, Self::Error> {
-		let components = data
-			.components
-			.into_iter()
-			.map(TryInto::try_into)
-			.collect::<tg::Result<_>>()?;
-		Ok(Self { components })
 	}
 }
 

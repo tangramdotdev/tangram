@@ -10,7 +10,7 @@ pub struct Request {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
-	pub locations: Option<Vec<tg::Location>>,
+	pub locations: Option<Vec<tg::location::Data>>,
 }
 
 impl Compiler {
@@ -40,10 +40,10 @@ impl Compiler {
 		let mut edit = HashMap::<lsp::Uri, lsp::TextDocumentEdit>::new();
 		for location in locations {
 			// Create the URI.
-			let uri = self.lsp_uri_for_module(&location.module).await?;
+			let uri = self.lsp_uri_for_module(&location.module.to_data()).await?;
 
 			// Get the version.
-			let version = self.get_module_version(&location.module).await?;
+			let version = self.get_module_version(&location.module.to_data()).await?;
 
 			if edit.get_mut(&uri).is_none() {
 				edit.insert(
@@ -97,6 +97,17 @@ impl Compiler {
 			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.locations)
+		// Convert locations from data to the non-serializable form.
+		let locations = response
+			.locations
+			.map(|locations| {
+				locations
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<Vec<_>>>()
+			})
+			.transpose()?;
+
+		Ok(locations)
 	}
 }

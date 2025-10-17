@@ -21,25 +21,20 @@ pub struct Range {
 
 impl Range {
 	#[must_use]
-	pub fn from_byte_range_in_string(string: &str, byte_range: std::ops::Range<usize>) -> Self {
-		let start = tg::Position::try_from_byte_index_in_string(string, byte_range.start)
-			.unwrap_or_else(|| tg::Position::past_end(string));
-		let end = tg::Position::try_from_byte_index_in_string(string, byte_range.end)
-			.unwrap_or_else(|| tg::Position::past_end(string));
-		Self { start, end }
+	pub fn try_from_byte_range_in_string(
+		string: &str,
+		range: std::ops::Range<usize>,
+	) -> Option<Self> {
+		let start = tg::Position::try_from_byte_index_in_string(string, range.start)?;
+		let end = tg::Position::try_from_byte_index_in_string(string, range.end)?;
+		Some(Self { start, end })
 	}
 
 	#[must_use]
-	pub fn to_byte_range_in_string(self, string: &str) -> std::ops::Range<usize> {
-		let start = self
-			.start
-			.try_to_byte_index_in_string(string)
-			.unwrap_or(string.len());
-		let end = self
-			.end
-			.try_to_byte_index_in_string(string)
-			.unwrap_or(string.len());
-		start..end
+	pub fn try_to_byte_range_in_string(self, string: &str) -> Option<std::ops::Range<usize>> {
+		let start = self.start.try_to_byte_index_in_string(string)?;
+		let end = self.end.try_to_byte_index_in_string(string)?;
+		Some(start..end)
 	}
 }
 

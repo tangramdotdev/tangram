@@ -1,8 +1,8 @@
 use {crate::Server, std::path::Path, tangram_client as tg};
 
 pub mod analyze;
+pub mod diagnostic;
 pub mod load;
-pub mod parse;
 pub mod resolve;
 pub mod transpile;
 

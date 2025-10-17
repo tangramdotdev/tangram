@@ -21,29 +21,34 @@ pub struct Error {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub code: Option<tg::error::Code>,
 
-	/// The error's message.
+	/// Diagnostics associated with the error.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
-	pub message: Option<String>,
+	pub diagnostics: Option<Vec<tg::diagnostic::Data>>,
 
 	/// The location where the error occurred.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<Location>,
 
-	/// A stack trace associated with the error.
+	/// The error's message.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub stack: Option<Vec<Location>>,
+	pub message: Option<String>,
 
 	/// The error's source.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<tg::Referent<Box<tg::error::Data>>>,
 
+	/// A stack trace associated with the error.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
+	pub stack: Option<Vec<Location>>,
+
 	/// Values associated with the error.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(id = 6, default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub values: BTreeMap<String, String>,
 }
 
@@ -87,6 +92,11 @@ pub enum File {
 
 impl Error {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Some(diagnostics) = &self.diagnostics {
+			for diagnostic in diagnostics {
+				diagnostic.children(children);
+			}
+		}
 		if let Some(location) = &self.location {
 			location.children(children);
 		}

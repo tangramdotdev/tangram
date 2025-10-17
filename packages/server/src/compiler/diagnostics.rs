@@ -9,7 +9,7 @@ pub struct DocumentRequest {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentResponse {
-	pub diagnostics: Vec<tg::Diagnostic>,
+	pub diagnostics: Vec<tg::diagnostic::Data>,
 }
 
 impl Compiler {
@@ -28,6 +28,12 @@ impl Compiler {
 			return Err(tg::error!("unexpected response type"));
 		};
 		let DocumentResponse { diagnostics } = response;
+
+		// Convert diagnostics from data to the non-serializable form.
+		let diagnostics = diagnostics
+			.into_iter()
+			.map(TryInto::try_into)
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(diagnostics)
 	}

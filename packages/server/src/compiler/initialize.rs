@@ -9,12 +9,13 @@ impl Compiler {
 			.workspace_folders
 			.into_iter()
 			.flatten()
-			.map(|folder| folder.uri)
+			.map(|workspace_folder| workspace_folder.uri)
 			.collect();
 		self.update_workspaces(workspaces, Vec::new()).await.ok();
 
 		let output = lsp::InitializeResult {
 			capabilities: lsp::ServerCapabilities {
+				position_encoding: Some(lsp::PositionEncodingKind::UTF8),
 				completion_provider: Some(lsp::CompletionOptions::default()),
 				definition_provider: Some(lsp::OneOf::Left(true)),
 				diagnostic_provider: Some(lsp::DiagnosticServerCapabilities::Options(

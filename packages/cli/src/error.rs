@@ -41,6 +41,23 @@ impl Cli {
 				Self::print_error_location_basic(&location, message);
 			}
 
+			// Print the diagnostics.
+			for mut diagnostic in error.diagnostics.into_iter().flatten() {
+				if let Some(location) = &mut diagnostic.location {
+					location.module.referent.inherit(&referent);
+				}
+				let severity = match diagnostic.severity {
+					tg::diagnostic::Severity::Error => "error",
+					tg::diagnostic::Severity::Warning => "warning",
+					tg::diagnostic::Severity::Info => "info",
+					tg::diagnostic::Severity::Hint => "hint",
+				};
+				eprintln!("{} {}", severity, diagnostic.message);
+				if let Some(location) = &diagnostic.location {
+					Self::print_location_basic(&location.module, &location.range);
+				}
+			}
+
 			// Add the source to the stack.
 			if let Some(source) = error.source {
 				let mut source = source.map(|item| *item);
@@ -142,6 +159,15 @@ impl Cli {
 					.await;
 			}
 
+			// Print the diagnostics.
+			for mut diagnostic in error.diagnostics.into_iter().flatten() {
+				if let Some(location) = &mut diagnostic.location {
+					location.module.referent.inherit(&referent);
+				}
+				let diagnostic_referent = tg::Referent::with_item(diagnostic);
+				self.print_diagnostic(diagnostic_referent).await;
+			}
+
 			// Add the source to the stack.
 			if let Some(source) = error.source {
 				let mut source = source.map(|item| *item);
@@ -170,7 +196,7 @@ impl Cli {
 			},
 			tg::error::File::Module(module) => {
 				let location = tg::Location {
-					module: module.to_data(),
+					module: module.clone(),
 					range: location.range,
 				};
 				self.print_location(&location, message).await;
@@ -195,7 +221,7 @@ impl Cli {
 	async fn print_location(&mut self, location: &tg::Location, message: &str) {
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
-			tg::module::data::Item::Path(path) => {
+			tg::module::Item::Path(path) => {
 				if true {
 					Self::print_code_path(&path.display().to_string(), range, message, path).await;
 				} else {
@@ -207,7 +233,7 @@ impl Cli {
 					);
 				}
 			},
-			tg::module::data::Item::Object(object) => {
+			tg::module::Item::Object(object) => {
 				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
@@ -225,7 +251,8 @@ impl Cli {
 					write!(title, "<unknown>").unwrap();
 				}
 				if true {
-					self.print_code_object(&title, range, message, object).await;
+					self.print_code_object(&title, range, message, &object.id())
+						.await;
 				} else {
 					eprintln!(
 						"   {title}:{}:{}",
@@ -270,7 +297,9 @@ impl Cli {
 	}
 
 	fn print_code(title: &str, range: &tg::Range, message: &str, text: String) {
-		let range = range.to_byte_range_in_string(&text);
+		let range = range
+			.try_to_byte_range_in_string(&text)
+			.unwrap_or(0..text.len());
 		let label = miette::LabeledSpan::new_with_span(Some(message.to_owned()), range);
 		let code = miette::NamedSource::new(title, text).with_language("JavaScript");
 		let diagnostic = miette::diagnostic!(labels = vec![label], "hello world wow");

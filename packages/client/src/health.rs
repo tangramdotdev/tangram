@@ -9,7 +9,7 @@ pub struct Health {
 	pub database: Option<Database>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub diagnostics: Vec<tg::Diagnostic>,
+	pub diagnostics: Vec<tg::diagnostic::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pipes: Option<Vec<tg::pipe::Id>>,
