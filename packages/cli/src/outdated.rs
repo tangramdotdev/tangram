@@ -69,7 +69,7 @@ where
 					pattern: pattern.clone(),
 					length: Some(1),
 					remote: None,
-					reverse: false,
+					reverse: true,
 				})
 				.await?
 				.data

@@ -458,7 +458,7 @@ async fn outdated() {
 	assert_snapshot!(stdout, @r#"
 	[
 	  {
-	    "compatible": "hello/1.0.0",
+	    "compatible": "hello/1.1.0",
 	    "current": "hello/1.1.0",
 	    "latest": "hello/2.0.0"
 	  }
