@@ -2,9 +2,11 @@ pub use self::{
 	data::Object as Data, handle::Object as Handle, id::Id, kind::Kind, metadata::Metadata,
 	object::Object, state::State,
 };
-use crate as tg;
-use futures::future;
-use std::{collections::HashSet, future::Future};
+use {
+	crate as tg,
+	futures::future,
+	std::{collections::HashSet, future::Future},
+};
 
 pub mod data;
 pub mod get;
