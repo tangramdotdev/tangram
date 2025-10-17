@@ -377,10 +377,12 @@ impl Server {
 				}
 				#[cfg(feature = "foundationdb")]
 				{
-					Store::new_fdb(fdb)?
+					Store::new_fdb(fdb)
+						.map_err(|error| tg::error!(!error, "failed to create the store"))?
 				}
 			},
-			config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)?,
+			config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)
+				.map_err(|error| tg::error!(!error, "failed to create the store"))?,
 			config::Store::S3(s3) => Store::new_s3(s3),
 			config::Store::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
@@ -392,7 +394,9 @@ impl Server {
 				}
 				#[cfg(feature = "scylla")]
 				{
-					Store::new_scylla(scylla).await?
+					Store::new_scylla(scylla)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to create the store"))?
 				}
 			},
 		};

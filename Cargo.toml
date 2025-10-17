@@ -15,6 +15,7 @@ members = [
   "packages/serialize",
   "packages/server",
   "packages/session",
+  "packages/store",
   "packages/temp",
   "packages/uri",
   "packages/v8",
@@ -151,6 +152,7 @@ tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server", default-features = false }
 tangram_session = { path = "packages/session", default-features = false }
+tangram_store = { path = "packages/store", default-features = false }
 tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }
 tangram_v8 = { path = "packages/v8" }

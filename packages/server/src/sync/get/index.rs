@@ -10,6 +10,7 @@ use {
 	},
 	tangram_client as tg,
 	tangram_messenger::prelude::*,
+	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -70,8 +71,11 @@ impl Server {
 		// Join the futures.
 		future::try_join(process_future, object_future).await?;
 
-		// Sync the store.
-		self.store.sync().await?;
+		// Flush the store.
+		self.store
+			.flush()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
 		// Create the messages.
 		let messages = Self::sync_get_index_create_messages(&mut graph.lock().unwrap())?;

@@ -9,6 +9,7 @@ use {
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::Messenger as _,
+	tangram_store::prelude::*,
 	tokio_util::task::AbortOnDropHandle,
 };
 
@@ -212,7 +213,10 @@ impl Server {
 			.cloned()
 			.map(|id| crate::store::DeleteArg { id, now, ttl })
 			.collect();
-		self.store.delete_batch(args).await?;
+		self.store
+			.delete_batch(args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
 		// Get a database connection.
 		let connection = self

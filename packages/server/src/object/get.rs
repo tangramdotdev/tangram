@@ -12,6 +12,7 @@ use {
 	},
 	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_store::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
@@ -42,7 +43,11 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Attempt to get the bytes from the store.
-		let mut bytes = self.store.try_get(id).await?;
+		let mut bytes = self
+			.store
+			.try_get(id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the object"))?;
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		if bytes.is_none() {
@@ -121,7 +126,8 @@ impl Server {
 		let mut outputs = self
 			.store
 			.try_get_batch(ids)
-			.await?
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get objects"))?
 			.into_iter()
 			.map(|option| option.map(|bytes| tg::object::get::Output { bytes }))
 			.collect::<Vec<_>>();
@@ -185,7 +191,8 @@ impl Server {
 		let cache_reference = self
 			.store
 			.try_get_cache_reference(&id.clone().into())
-			.await?;
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the cache reference"))?;
 		let Some(cache_reference) = cache_reference else {
 			return Ok(None);
 		};

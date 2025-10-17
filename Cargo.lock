@@ -5627,6 +5627,7 @@ dependencies = [
  "tangram_messenger",
  "tangram_serialize",
  "tangram_session",
+ "tangram_store",
  "tangram_uri",
  "tangram_v8",
  "tangram_vfs",
@@ -5658,6 +5659,35 @@ dependencies = [
  "serde_json",
  "tangram_client",
  "tangram_futures",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_store"
+version = "0.0.0"
+dependencies = [
+ "aws-credential-types",
+ "aws-sigv4",
+ "byteorder",
+ "bytes",
+ "dashmap",
+ "derive_more",
+ "foundationdb",
+ "foundationdb-tuple",
+ "futures",
+ "heed",
+ "http 1.3.1",
+ "indoc",
+ "num",
+ "reqwest",
+ "scylla",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_serialize",
+ "tangram_uri",
+ "time",
  "tokio",
  "tracing",
 ]

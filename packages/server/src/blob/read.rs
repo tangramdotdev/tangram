@@ -14,6 +14,7 @@ use {
 	tangram_client::{self as tg, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_store::prelude::*,
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek,
 		AsyncSeekExt as _,
@@ -218,7 +219,11 @@ impl Server {
 impl Reader {
 	pub async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let cache_reference = server.store.try_get_cache_reference(&id.into()).await?;
+		let cache_reference = server
+			.store
+			.try_get_cache_reference(&id.into())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the cache reference"))?;
 		let reader = if let Some(cache_reference) = cache_reference {
 			let mut path = server
 				.cache_path()

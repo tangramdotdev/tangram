@@ -8,6 +8,7 @@ use {
 		sync::{Arc, Mutex},
 	},
 	tangram_client as tg,
+	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::task::AbortOnDropHandle,
 };
@@ -169,7 +170,10 @@ impl Server {
 				})
 			})
 			.collect::<tg::Result<_>>()?;
-		self.store.put_batch(args).await?;
+		self.store
+			.put_batch(args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
 
 		// Mark the nodes as stored.
 		let mut graph = graph.lock().unwrap();

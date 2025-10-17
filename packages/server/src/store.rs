@@ -1,263 +1,195 @@
-use {byteorder::ReadBytesExt as _, bytes::Bytes, std::path::PathBuf, tangram_client as tg};
+use {bytes::Bytes, tangram_client as tg, tangram_store as store};
 
-#[cfg(feature = "foundationdb")]
-mod fdb;
-mod lmdb;
-mod memory;
-mod s3;
-#[cfg(feature = "scylla")]
-mod scylla;
-
-#[cfg(feature = "foundationdb")]
-pub use self::fdb::Fdb;
-#[cfg(feature = "scylla")]
-pub use self::scylla::Scylla;
-pub use self::{lmdb::Lmdb, memory::Memory, s3::S3};
+pub use store::{CacheReference, DeleteArg, PutArg};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Store {
 	#[cfg(feature = "foundationdb")]
-	Fdb(Fdb),
-	Lmdb(Lmdb),
-	Memory(Memory),
-	S3(S3),
+	Fdb(store::fdb::Store),
+	Lmdb(store::lmdb::Store),
+	Memory(store::memory::Store),
+	S3(store::s3::Store),
 	#[cfg(feature = "scylla")]
-	Scylla(Scylla),
+	Scylla(store::scylla::Store),
 }
 
-#[derive(Clone, Debug)]
-pub struct PutArg {
-	pub bytes: Option<Bytes>,
-	pub cache_reference: Option<CacheReference>,
-	pub id: tg::object::Id,
-	pub touched_at: i64,
-}
-
-#[derive(Clone, Debug)]
-pub struct DeleteArg {
-	pub id: tg::object::Id,
-	pub now: i64,
-	pub ttl: u64,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Serialize,
-	serde::Deserialize,
-	tangram_serialize::Serialize,
-	tangram_serialize::Deserialize,
-)]
-pub struct CacheReference {
-	#[tangram_serialize(id = 0)]
-	pub artifact: tg::artifact::Id,
-
-	#[tangram_serialize(id = 1)]
-	pub length: u64,
-
-	#[tangram_serialize(id = 2)]
-	pub position: u64,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
+#[derive(Debug, derive_more::Display, derive_more::From, derive_more::Error)]
+pub enum Error {
+	#[cfg(feature = "foundationdb")]
+	Fdb(store::fdb::Error),
+	Lmdb(store::lmdb::Error),
+	Memory(store::memory::Error),
+	S3(store::s3::Error),
+	#[cfg(feature = "scylla")]
+	Scylla(store::scylla::Error),
+	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl Store {
 	#[cfg(feature = "foundationdb")]
-	pub fn new_fdb(config: &crate::config::FdbStore) -> tg::Result<Self> {
-		let fdb = Fdb::new(config)?;
+	pub fn new_fdb(config: &crate::config::FdbStore) -> Result<Self, Error> {
+		let config = store::fdb::Config {
+			path: config.path.clone(),
+		};
+		let fdb = store::fdb::Store::new(&config)?;
 		Ok(Self::Fdb(fdb))
 	}
 
-	pub fn new_lmdb(config: &crate::config::LmdbStore) -> tg::Result<Self> {
-		let lmdb = Lmdb::new(config)?;
+	pub fn new_lmdb(config: &crate::config::LmdbStore) -> Result<Self, Error> {
+		let config = store::lmdb::Config {
+			path: config.path.clone(),
+		};
+		let lmdb = store::lmdb::Store::new(&config)?;
 		Ok(Self::Lmdb(lmdb))
 	}
 
 	pub fn new_memory() -> Self {
-		Self::Memory(Memory::new())
+		Self::Memory(store::memory::Store::new())
 	}
 
 	pub fn new_s3(config: &crate::config::S3Store) -> Self {
-		Self::S3(S3::new(config))
+		let config = store::s3::Config {
+			access_key: config.access_key.clone(),
+			bucket: config.bucket.clone(),
+			region: config.region.clone(),
+			secret_key: config.secret_key.clone(),
+			url: config.url.clone(),
+		};
+		Self::S3(store::s3::Store::new(&config))
 	}
 
 	#[cfg(feature = "scylla")]
-	pub async fn new_scylla(config: &crate::config::ScyllaStore) -> tg::Result<Self> {
-		let scylla = Scylla::new(config).await?;
+	pub async fn new_scylla(config: &crate::config::ScyllaStore) -> Result<Self, Error> {
+		let config = store::scylla::Config {
+			addr: config.addr.clone(),
+			keyspace: config.keyspace.clone(),
+			password: config.password.clone(),
+			username: config.username.clone(),
+		};
+		let scylla = store::scylla::Store::new(&config)
+			.await
+			.map_err(Error::Scylla)?;
 		Ok(Self::Scylla(scylla))
-	}
-
-	pub async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.try_get(id).await,
-			Self::Lmdb(lmdb) => lmdb.try_get(id).await,
-			Self::Memory(memory) => Ok(memory.try_get(id)),
-			Self::S3(s3) => s3.try_get(id).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get(id).await,
-		}
-	}
-
-	pub async fn try_get_batch(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.try_get_batch(ids).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await,
-			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
-			Self::S3(s3) => s3.try_get_batch(ids).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_batch(ids).await,
-		}
-	}
-
-	pub async fn try_get_cache_reference(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<CacheReference>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.try_get_cache_reference(id).await,
-			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference(id).await,
-			Self::Memory(memory) => Ok(memory.try_get_cache_reference(id)),
-			Self::S3(s3) => s3.try_get_cache_reference(id).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_cache_reference(id).await,
-		}
-	}
-
-	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => {
-				fdb.put(arg).await?;
-			},
-			Self::Lmdb(lmdb) => {
-				lmdb.put(arg).await?;
-			},
-			Self::Memory(memory) => {
-				memory.put(arg);
-			},
-			Self::S3(s3) => {
-				s3.put(arg).await?;
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => {
-				scylla.put(arg).await?;
-			},
-		}
-		Ok(())
-	}
-
-	pub async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => {
-				fdb.put_batch(args).await?;
-			},
-			Self::Lmdb(lmdb) => {
-				lmdb.put_batch(args).await?;
-			},
-			Self::Memory(memory) => {
-				memory.put_batch(args);
-			},
-			Self::S3(s3) => {
-				s3.put_batch(args).await?;
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => {
-				scylla.put_batch(args).await?;
-			},
-		}
-		Ok(())
-	}
-
-	#[allow(dead_code)]
-	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => {
-				fdb.delete(arg).await?;
-			},
-			Self::Lmdb(lmdb) => {
-				lmdb.delete(arg).await?;
-			},
-			Self::Memory(memory) => {
-				memory.delete(arg);
-			},
-			Self::S3(s3) => {
-				s3.delete(arg).await?;
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => {
-				scylla.delete(arg).await?;
-			},
-		}
-		Ok(())
-	}
-
-	pub async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => {
-				fdb.delete_batch(args).await?;
-			},
-			Self::Lmdb(lmdb) => {
-				lmdb.delete_batch(args).await?;
-			},
-			Self::Memory(memory) => {
-				memory.delete_batch(args);
-			},
-			Self::S3(s3) => {
-				s3.delete_batch(args).await?;
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => {
-				scylla.delete_batch(args).await?;
-			},
-		}
-		Ok(())
-	}
-
-	pub async fn sync(&self) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.sync().await?,
-			Self::Lmdb(lmdb) => lmdb.sync().await?,
-			Self::Memory(memory) => memory.sync().await?,
-			Self::S3(s3) => s3.sync().await?,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.sync().await?,
-		}
-		Ok(())
 	}
 }
 
-impl CacheReference {
-	pub fn serialize(&self) -> tg::Result<Bytes> {
-		let mut bytes = Vec::new();
-		bytes.push(0);
-		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize"))?;
-		Ok(bytes.into())
+impl store::Store for Store {
+	type Error = Error;
+
+	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get(id).await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.try_get(id).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => store::Store::try_get(memory, id)
+				.await
+				.map_err(Error::Memory),
+			Self::S3(s3) => s3.try_get(id).await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get(id).await.map_err(Error::Scylla),
+		}
 	}
 
-	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
-		let bytes = bytes.into();
-		let mut reader = std::io::Cursor::new(bytes.as_ref());
-		let format = reader
-			.read_u8()
-			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
-		match format {
-			0 => tangram_serialize::from_reader(&mut reader)
-				.map_err(|source| tg::error!(!source, "failed to deserialize")),
-			b'{' => serde_json::from_slice(&bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize")),
-			_ => Err(tg::error!("invalid format")),
+	async fn try_get_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> Result<Vec<Option<Bytes>>, Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_batch(ids).await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => memory.try_get_batch(ids).await.map_err(Error::Memory),
+			Self::S3(s3) => s3.try_get_batch(ids).await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_batch(ids).await.map_err(Error::Scylla),
 		}
+	}
+
+	async fn try_get_cache_reference(
+		&self,
+		id: &tg::object::Id,
+	) -> Result<Option<CacheReference>, Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_cache_reference(id).await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference(id).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => store::Store::try_get_cache_reference(memory, id)
+				.await
+				.map_err(Error::Memory),
+			Self::S3(s3) => s3.try_get_cache_reference(id).await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_get_cache_reference(id)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.put(arg).await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.put(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => memory.put(arg).await.map_err(Error::Memory),
+			Self::S3(s3) => s3.put(arg).await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.put(arg).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.put_batch(args).await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.put_batch(args).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => memory.put_batch(args).await.map_err(Error::Memory),
+			Self::S3(s3) => s3.put_batch(args).await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.put_batch(args).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.delete(arg).await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.delete(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => memory.delete(arg).await.map_err(Error::Memory),
+			Self::S3(s3) => s3.delete(arg).await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.delete(arg).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.delete_batch(args).await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.delete_batch(args).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => memory.delete_batch(args).await.map_err(Error::Memory),
+			Self::S3(s3) => s3.delete_batch(args).await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.delete_batch(args).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn flush(&self) -> Result<(), Self::Error> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.flush().await.map_err(Error::Fdb),
+			Self::Lmdb(lmdb) => lmdb.flush().await.map_err(Error::Lmdb),
+			Self::Memory(memory) => memory.flush().await.map_err(Error::Memory),
+			Self::S3(s3) => s3.flush().await.map_err(Error::S3),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.flush().await.map_err(Error::Scylla),
+		}
+	}
+}
+
+impl store::Error for Error {
+	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+		Self::Other(error.into())
 	}
 }

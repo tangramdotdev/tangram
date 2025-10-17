@@ -5,6 +5,7 @@ use {
 	tangram_client as tg,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
+	tangram_store::prelude::*,
 };
 
 impl Server {
@@ -21,7 +22,10 @@ impl Server {
 			touched_at: now,
 			cache_reference: None,
 		};
-		self.store.put(put_arg).await?;
+		self.store
+			.put(put_arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 		let mut children = BTreeSet::new();

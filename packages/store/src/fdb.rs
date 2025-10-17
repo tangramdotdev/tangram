@@ -1,5 +1,5 @@
 use {
-	super::{CacheReference, DeleteArg, PutArg},
+	crate::{CacheReference, DeleteArg, PutArg},
 	bytes::Bytes,
 	foundationdb::{self as fdb, FdbBindingError},
 	foundationdb_tuple::TuplePack as _,
@@ -12,22 +12,37 @@ use {
 /// The maximum size of a value.
 const VALUE_SIZE_LIMIT: usize = 10_240;
 
-pub struct Fdb {
+#[derive(Clone, Debug)]
+pub struct Config {
+	pub path: Option<std::path::PathBuf>,
+}
+
+pub struct Store {
 	database: fdb::Database,
 }
 
-impl Fdb {
-	pub fn new(config: &crate::config::FdbStore) -> tg::Result<Self> {
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
+pub enum Error {
+	Fdb(fdb::FdbError),
+	FdbBinding(fdb::FdbBindingError),
+	Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl Store {
+	pub fn new(config: &Config) -> Result<Self, Error> {
 		let path = config
 			.path
 			.as_ref()
 			.map(|path| path.as_os_str().to_str().unwrap());
-		let database = fdb::Database::new(path)
-			.map_err(|source| tg::error!(!source, "failed to open the database"))?;
+		let database = fdb::Database::new(path)?;
 		Ok(Self { database })
 	}
+}
 
-	pub async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+impl crate::Store for Store {
+	type Error = Error;
+
+	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
 		let bytes = self
 			.database
 			.run(|transaction, _| async move {
@@ -51,12 +66,14 @@ impl Fdb {
 				}
 				Ok(Some(bytes.into()))
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+			.await?;
 		Ok(bytes)
 	}
 
-	pub async fn try_get_batch(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+	async fn try_get_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> Result<Vec<Option<Bytes>>, Self::Error> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
@@ -94,15 +111,14 @@ impl Fdb {
 					.await?;
 				Ok(result)
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+			.await?;
 		Ok(batch)
 	}
 
-	pub async fn try_get_cache_reference(
+	async fn try_get_cache_reference(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<CacheReference>> {
+	) -> Result<Option<CacheReference>, Self::Error> {
 		let reference = self
 			.database
 			.run(|transaction, _| async move {
@@ -116,12 +132,11 @@ impl Fdb {
 				})?;
 				Ok(Some(reference))
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+			.await?;
 		Ok(reference)
 	}
 
-	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
+	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
@@ -152,12 +167,11 @@ impl Fdb {
 				}
 				Ok(())
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+			.await?;
 		Ok(())
 	}
 
-	pub async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
+	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -192,12 +206,11 @@ impl Fdb {
 				}
 				Ok(())
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+			.await?;
 		Ok(())
 	}
 
-	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
+	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
 		let arg = &arg;
 		self.database
 			.run(|transaction, _| async move {
@@ -218,12 +231,11 @@ impl Fdb {
 				}
 				Ok(())
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+			.await?;
 		Ok(())
 	}
 
-	pub async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -253,12 +265,17 @@ impl Fdb {
 				.await?;
 				Ok(())
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "the transaction failed"))?;
+			.await?;
 		Ok(())
 	}
 
-	pub async fn sync(&self) -> tg::Result<()> {
+	async fn flush(&self) -> Result<(), Self::Error> {
 		Ok(())
+	}
+}
+
+impl crate::Error for Error {
+	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+		Self::Other(error.into())
 	}
 }

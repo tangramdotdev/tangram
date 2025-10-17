@@ -1,5 +1,5 @@
 use {
-	super::{CacheReference, DeleteArg, PutArg},
+	crate::{CacheReference, DeleteArg, Error as _, PutArg},
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
@@ -7,7 +7,12 @@ use {
 	tangram_client as tg,
 };
 
-pub struct Lmdb {
+#[derive(Clone, Debug)]
+pub struct Config {
+	pub path: std::path::PathBuf,
+}
+
+pub struct Store {
 	db: Db,
 	env: lmdb::Env,
 	sender: RequestSender,
@@ -40,15 +45,21 @@ struct Delete {
 	ttl: u64,
 }
 
-impl Lmdb {
-	pub fn new(config: &crate::config::LmdbStore) -> tg::Result<Self> {
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
+pub enum Error {
+	Lmdb(lmdb::Error),
+	Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl Store {
+	pub fn new(config: &Config) -> Result<Self, Error> {
 		std::fs::OpenOptions::new()
 			.create(true)
 			.truncate(false)
 			.read(true)
 			.write(true)
 			.open(&config.path)
-			.map_err(|source| tg::error!(!source, "failed to create or open the database file"))?;
+			.map_err(Error::other)?;
 		let env = unsafe {
 			lmdb::EnvOpenOptions::new()
 				.map_size(1_099_511_627_776)
@@ -59,16 +70,11 @@ impl Lmdb {
 						| lmdb::EnvFlags::WRITE_MAP
 						| lmdb::EnvFlags::MAP_ASYNC,
 				)
-				.open(&config.path)
-				.map_err(|source| tg::error!(!source, "failed to open the database"))?
+				.open(&config.path)?
 		};
 		let mut transaction = env.write_txn().unwrap();
-		let db = env
-			.create_database(&mut transaction, None)
-			.map_err(|source| tg::error!(!source, "failed to open the database"))?;
-		transaction
-			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		let db = env.create_database(&mut transaction, None)?;
+		transaction.commit()?;
 
 		// Create the thread.
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
@@ -78,64 +84,6 @@ impl Lmdb {
 		});
 
 		Ok(Self { db, env, sender })
-	}
-
-	pub async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tg::Error> {
-		let bytes = tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let id = id.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let id = id.to_bytes();
-				let key = (0, id.as_ref(), 0);
-				let Some(bytes) = db
-					.get(&transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, "failed to get the value"))?
-				else {
-					return Ok(None);
-				};
-				let bytes = Bytes::copy_from_slice(bytes);
-				Ok::<_, tg::Error>(Some(bytes))
-			}
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the task panicked"))?
-		.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
-		Ok(bytes)
-	}
-
-	pub async fn try_get_batch(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let bytes = tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let ids = ids.to_owned();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let mut outputs = Vec::with_capacity(ids.len());
-				for id in ids {
-					let id = id.to_bytes();
-					let key = (0, id.as_ref(), 0);
-					let bytes = db
-						.get(&transaction, &key.pack_to_vec())
-						.map_err(|source| tg::error!(!source, "failed to get the value"))?
-						.map(Bytes::copy_from_slice);
-					outputs.push(bytes);
-				}
-				Ok::<_, tg::Error>(outputs)
-			}
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the task panicked"))?
-		.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
-		Ok(bytes)
 	}
 
 	pub fn try_get_sync(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tg::Error> {
@@ -195,37 +143,6 @@ impl Lmdb {
 		Ok(Some(data))
 	}
 
-	pub async fn try_get_cache_reference(
-		&self,
-		id: &tg::object::Id,
-	) -> Result<Option<CacheReference>, tg::Error> {
-		let reference = tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let id = id.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let id = id.to_bytes();
-				let key = (0, id.as_ref(), 2);
-				let Some(bytes) = db
-					.get(&transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, "failed to get the value"))?
-				else {
-					return Ok(None);
-				};
-				let reference = CacheReference::deserialize(bytes)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
-				Ok::<_, tg::Error>(Some(reference))
-			}
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the task panicked"))?
-		.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
-		Ok(reference)
-	}
-
 	pub fn try_get_cache_reference_sync(
 		&self,
 		id: &tg::object::Id,
@@ -246,103 +163,6 @@ impl Lmdb {
 		let reference = CacheReference::deserialize(bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
 		Ok::<_, tg::Error>(Some(reference))
-	}
-
-	pub async fn put(&self, arg: super::PutArg) -> tg::Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Put(Put {
-			bytes: arg.bytes,
-			cache_reference: arg.cache_reference,
-			id: arg.id,
-			touched_at: arg.touched_at,
-		});
-		self.sender
-			.send((request, sender))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(())
-	}
-
-	pub async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::PutBatch(
-			args.into_iter()
-				.map(|arg| Put {
-					bytes: arg.bytes,
-					cache_reference: arg.cache_reference,
-					id: arg.id,
-					touched_at: arg.touched_at,
-				})
-				.collect(),
-		);
-		self.sender
-			.send((request, sender))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(())
-	}
-
-	pub async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::DeleteBatch(
-			args.into_iter()
-				.map(|arg| Delete {
-					id: arg.id,
-					now: arg.now,
-					ttl: arg.ttl,
-				})
-				.collect(),
-		);
-		self.sender
-			.send((request, sender))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(())
-	}
-
-	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Delete(Delete {
-			id: arg.id,
-			now: arg.now,
-			ttl: arg.ttl,
-		});
-		self.sender
-			.send((request, sender))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		Ok(())
-	}
-
-	pub async fn sync(&self) -> tg::Result<()> {
-		tokio::task::spawn_blocking({
-			let env = self.env.clone();
-			move || {
-				env.force_sync()
-					.map_err(|source| tg::error!(!source, "failed to sync"))
-			}
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the task panicked"))??;
-		Ok(())
 	}
 
 	fn task(env: &lmdb::Env, db: &Db, mut receiver: RequestReceiver) {
@@ -472,5 +292,209 @@ impl Lmdb {
 				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
 		}
 		Ok(())
+	}
+}
+
+impl crate::Store for Store {
+	type Error = Error;
+
+	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
+		let bytes = tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			let id = id.clone();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				let id = id.to_bytes();
+				let key = (0, id.as_ref(), 0);
+				let Some(bytes) = db
+					.get(&transaction, &key.pack_to_vec())
+					.map_err(|source| tg::error!(!source, "failed to get the value"))?
+				else {
+					return Ok(None);
+				};
+				let bytes = Bytes::copy_from_slice(bytes);
+				Ok::<_, tg::Error>(Some(bytes))
+			}
+		})
+		.await
+		.map_err(Error::other)?
+		.map_err(Error::other)?;
+		Ok(bytes)
+	}
+
+	async fn try_get_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> Result<Vec<Option<Bytes>>, Self::Error> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let bytes = tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			let ids = ids.to_owned();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				let mut outputs = Vec::with_capacity(ids.len());
+				for id in ids {
+					let id = id.to_bytes();
+					let key = (0, id.as_ref(), 0);
+					let bytes = db
+						.get(&transaction, &key.pack_to_vec())
+						.map_err(|source| tg::error!(!source, "failed to get the value"))?
+						.map(Bytes::copy_from_slice);
+					outputs.push(bytes);
+				}
+				Ok::<_, tg::Error>(outputs)
+			}
+		})
+		.await
+		.map_err(Error::other)?
+		.map_err(Error::other)?;
+		Ok(bytes)
+	}
+
+	async fn try_get_cache_reference(
+		&self,
+		id: &tg::object::Id,
+	) -> Result<Option<CacheReference>, Self::Error> {
+		let reference = tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			let id = id.clone();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				let id = id.to_bytes();
+				let key = (0, id.as_ref(), 2);
+				let Some(bytes) = db
+					.get(&transaction, &key.pack_to_vec())
+					.map_err(|source| tg::error!(!source, "failed to get the value"))?
+				else {
+					return Ok(None);
+				};
+				let reference = CacheReference::deserialize(bytes)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
+				Ok::<_, tg::Error>(Some(reference))
+			}
+		})
+		.await
+		.map_err(Error::other)?
+		.map_err(Error::other)?;
+		Ok(reference)
+	}
+
+	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Put(Put {
+			bytes: arg.bytes,
+			cache_reference: arg.cache_reference,
+			id: arg.id,
+			touched_at: arg.touched_at,
+		});
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(Error::other)?;
+		receiver
+			.await
+			.map_err(|_| Error::other("task panicked"))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::PutBatch(
+			args.into_iter()
+				.map(|arg| Put {
+					bytes: arg.bytes,
+					cache_reference: arg.cache_reference,
+					id: arg.id,
+					touched_at: arg.touched_at,
+				})
+				.collect(),
+		);
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(Error::other)?;
+		receiver
+			.await
+			.map_err(|_| Error::other("task panicked"))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Delete(Delete {
+			id: arg.id,
+			now: arg.now,
+			ttl: arg.ttl,
+		});
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(Error::other)?;
+		receiver
+			.await
+			.map_err(|_| Error::other("task panicked"))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::DeleteBatch(
+			args.into_iter()
+				.map(|arg| Delete {
+					id: arg.id,
+					now: arg.now,
+					ttl: arg.ttl,
+				})
+				.collect(),
+		);
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(Error::other)?;
+		receiver
+			.await
+			.map_err(|_| Error::other("task panicked"))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn flush(&self) -> Result<(), Self::Error> {
+		tokio::task::spawn_blocking({
+			let env = self.env.clone();
+			move || {
+				env.force_sync()
+					.map_err(|source| tg::error!(!source, "failed to sync"))
+			}
+		})
+		.await
+		.map_err(Error::other)?
+		.map_err(Error::other)?;
+		Ok(())
+	}
+}
+
+impl crate::Error for Error {
+	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+		Self::Other(error.into())
 	}
 }

@@ -6,6 +6,7 @@ use {
 	tangram_client as tg,
 	tangram_either::Either,
 	tangram_messenger::Messenger as _,
+	tangram_store::prelude::*,
 };
 
 impl Server {
