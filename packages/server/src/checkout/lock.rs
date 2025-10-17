@@ -4,6 +4,7 @@ struct State {
 	dependencies: bool,
 	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	nodes: Vec<Option<tg::graph::data::Node>>,
+	ids: Vec<tg::object::Id>,
 	visited: HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
 }
 
@@ -51,6 +52,7 @@ impl Server {
 		let mut state = State {
 			dependencies,
 			graphs: HashMap::default(),
+			ids: Vec::new(),
 			nodes: Vec::new(),
 			visited: HashMap::default(),
 		};
@@ -63,7 +65,7 @@ impl Server {
 			.into_iter()
 			.enumerate()
 			.map(|(index, node)| {
-				node.ok_or_else(
+				node.clone().ok_or_else(
 					|| tg::error!(%node = index, "invalid graph, failed to create lock node"),
 				)
 			})
@@ -73,7 +75,7 @@ impl Server {
 		let lock = tg::graph::Data { nodes };
 
 		// Strip the lock.
-		let lock = Self::strip_lock(lock);
+		let lock = Self::strip_lock(lock, &state.ids);
 
 		Ok(lock)
 	}
@@ -167,6 +169,7 @@ impl Server {
 
 		let index = state.nodes.len();
 		state.visited.insert(id.clone(), index);
+		state.ids.push(id.clone().into());
 		state.nodes.push(None);
 		let lock_node = match node {
 			tg::graph::data::Node::Directory(node) => {

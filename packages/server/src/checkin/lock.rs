@@ -123,7 +123,9 @@ impl Server {
 	fn checkin_create_lock(state: &State) -> tg::graph::Data {
 		// Create the nodes.
 		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
+		let mut ids = Vec::with_capacity(state.graph.nodes.len());
 		for node in &state.graph.nodes {
+			ids.push(node.object_id.clone().unwrap());
 			let node = match &node.variant {
 				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();
@@ -155,7 +157,6 @@ impl Server {
 					tg::graph::data::Node::Symlink(data)
 				},
 			};
-
 			nodes.push(node);
 		}
 
@@ -163,10 +164,10 @@ impl Server {
 		let lock = tg::graph::Data { nodes };
 
 		// Strip the lock.
-		Self::strip_lock(lock)
+		Self::strip_lock(lock, &ids)
 	}
 
-	pub(crate) fn strip_lock(lock: tg::graph::Data) -> tg::graph::Data {
+	pub(crate) fn strip_lock(lock: tg::graph::Data, ids: &[tg::object::Id]) -> tg::graph::Data {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
@@ -254,8 +255,8 @@ impl Server {
 							{
 								reference.node = map.get(&reference.node).copied().unwrap();
 							},
-							tg::graph::data::Edge::Reference(_) => {
-								let id = referent.options.id.take().unwrap();
+							tg::graph::data::Edge::Reference(reference) => {
+								let id = ids[reference.node].clone();
 								referent.item = tg::graph::data::Edge::Object(id);
 							},
 							tg::graph::data::Edge::Object(_) => (),
