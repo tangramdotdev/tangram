@@ -1,4 +1,5 @@
 use {
+	indoc::indoc,
 	insta::{assert_json_snapshot, assert_snapshot},
 	tangram_cli_test::{Server, assert_failure, assert_success},
 	tangram_client as tg,
@@ -402,4 +403,65 @@ async fn delete() {
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
 	assert!(stderr.contains("cannot delete an empty pattern"));
+}
+
+#[tokio::test]
+async fn outdated() {
+	// Create a server.
+	let server = Server::new(TG).await.unwrap();
+
+	// Write the artifact to a temp.
+	let artifact: temp::Artifact = temp::file!("Hello, World!").into();
+	let temp = Temp::new();
+	let path = temp.path();
+	artifact.to_path(path).await.unwrap();
+
+	// Check in.
+	let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
+	assert_success!(output);
+	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+
+	// Tag it a couple times.
+	for version in ["1.0.0", "1.1.0", "2.0.0"] {
+		let output = server
+			.tg()
+			.arg("tag")
+			.arg(format!("hello/{version}"))
+			.arg(id)
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+	}
+
+	// Create something that uses it.
+	let artifact: temp::Artifact = temp::directory! {
+		"tangram.ts" => temp::file!(indoc!(r#"
+			import hello from "hello/^1.0";
+		"#)),
+	}
+	.into();
+	let temp = Temp::new();
+	let path = temp.path();
+	artifact.to_path(path).await.unwrap();
+
+	// Get the outdated.
+	let output = server
+		.tg()
+		.arg("outdated")
+		.arg(path)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"
+	[
+	  {
+	    "compatible": "hello/1.1.0",
+	    "current": "hello/1.1.0",
+	    "latest": "hello/2.0.0"
+	  }
+	]
+	"#);
 }
