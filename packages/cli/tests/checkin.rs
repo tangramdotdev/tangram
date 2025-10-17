@@ -2594,3 +2594,56 @@ async fn incremental_add_file_to_existing_directory() {
 		"The artifact should contain the newly added file"
 	);
 }
+
+#[tokio::test]
+async fn incremental_delete_imported_file() {
+	let config = serde_json::json!({
+		"remotes": [],
+		"watcher": true,
+	});
+	let server = tangram_cli_test::Server::with_config(TG, config).await.unwrap();
+
+	// Create initial directory with two files, one importing the other.
+	let temp = Temp::new();
+	let initial = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import lib from "./lib.ts";
+			export default () => lib;
+		"#),
+		"lib.ts" => indoc!(r#"
+			export default "library";
+		"#),
+	};
+	initial.to_path(temp.path()).await.unwrap();
+
+	// First checkin.
+	let output = server
+		.tg()
+		.arg("checkin")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Index to mark nodes as clean.
+	let index_output = server.tg().arg("index").output().await.unwrap();
+	assert_success!(index_output);
+
+	// Delete lib.ts that is still imported by main.ts.
+	tokio::fs::remove_file(temp.path().join("lib.ts"))
+		.await
+		.unwrap();
+
+	// Second checkin (should fail because lib.ts is missing but still imported).
+	let output = server
+		.tg()
+		.arg("checkin")
+		.arg(temp.path())
+		.output()
+		.await
+		.unwrap();
+
+	// The checkin should fail with an error.
+	assert_failure!(output);
+}
