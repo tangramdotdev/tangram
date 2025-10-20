@@ -558,7 +558,7 @@ where
 			let Some(blob) = stdin_blob else {
 				return Ok(());
 			};
-			let mut reader = blob.read(&server, tg::blob::read::Arg::default()).await?;
+			let mut reader = blob.read(&server, tg::read::Options::default()).await?;
 			tokio::io::copy(&mut reader, &mut stdin)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the blob to stdin"))?;

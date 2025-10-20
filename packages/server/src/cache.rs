@@ -227,7 +227,7 @@ impl Server {
 		let visited = im::HashSet::default();
 		let progress = progress.clone();
 		let task = self
-			.cache_task_map
+			.cache_tasks
 			.get_or_spawn_blocking(id.clone(), move |_| {
 				server.cache_dependency_inner(&id, &edge, visited, &progress)
 			});
@@ -255,7 +255,7 @@ impl Server {
 			return Ok(());
 		}
 		let task = self
-			.cache_task_map
+			.cache_tasks
 			.get_or_spawn_blocking(id.clone(), move |_| {
 				server.cache_dependency_inner(&id, &edge, visited, &progress)
 			});
@@ -609,7 +609,7 @@ impl Server {
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing contents"))?;
 				let mut reader = tg::Blob::with_id(contents.clone())
-					.read(&server, tg::blob::read::Arg::default())
+					.read(&server, tg::read::Options::default())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
 				let mut file = tokio::fs::File::create(dst).await.map_err(
@@ -686,7 +686,8 @@ impl Server {
 				.parent()
 				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 			let dst = &target;
-			tg::util::path::diff(src, dst)?
+			tangram_util::path::diff(src, dst)
+				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
 		} else if let Some(path) = &node.path {
 			path.clone()
 		} else {

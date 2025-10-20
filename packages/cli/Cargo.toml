@@ -15,12 +15,14 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["v8"]
+compiler = ["v8", "tangram_server/compiler"]
+default = ["compiler", "js"]
 foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
+js = ["v8", "tangram_server/js"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
 scylla = ["tangram_server/scylla"]
-v8 = ["dep:v8", "tangram_server/v8"]
+v8 = ["dep:v8"]
 
 [lints]
 workspace = true
@@ -54,12 +56,13 @@ serde_with = { workspace = true }
 tangram_client = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
-tangram_http = { workspace = true }
+tangram_js = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }
 tangram_session = { workspace = true }
 tangram_temp = { workspace = true }
 tangram_uri = { workspace = true }
+tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }

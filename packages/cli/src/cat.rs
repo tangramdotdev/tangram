@@ -23,7 +23,7 @@ impl Cli {
 				return Err(tg::error!("expected an object"));
 			};
 			if let Ok(blob) = tg::Blob::try_from(object.clone()) {
-				let reader = blob.read(&handle, tg::blob::read::Arg::default()).await?;
+				let reader = blob.read(&handle, tg::read::Options::default()).await?;
 				tokio::io::copy(&mut pin!(reader), &mut stdout)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write the blob to stdout"))?;
@@ -59,7 +59,7 @@ impl Cli {
 				};
 
 				// Create a reader.
-				let reader = blob.read(&handle, tg::blob::read::Arg::default()).await?;
+				let reader = blob.read(&handle, tg::read::Options::default()).await?;
 
 				// Copy from the reader to stdout.
 				tokio::io::copy(&mut pin!(reader), &mut stdout)

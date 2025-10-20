@@ -248,15 +248,18 @@ impl vfs::Provider for Provider {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 
-		// Create the blob stream.
-		let arg = tg::blob::read::Arg {
-			position: Some(std::io::SeekFrom::Start(position)),
-			length: Some(length),
-			size: None,
+		// Create the stream.
+		let arg = tg::read::Arg {
+			blob: file_handle.blob.clone(),
+			options: tg::read::Options {
+				position: Some(std::io::SeekFrom::Start(position)),
+				length: Some(length),
+				size: None,
+			},
 		};
 		let stream = self
 			.server
-			.try_read_blob(&file_handle.blob, arg)
+			.try_read(arg)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, "failed to read the blob");

@@ -1,0 +1,13 @@
+{
+	"main": "src/index.ts",
+	"name": "@tangramdotdev/client",
+	"private": true,
+	"scripts": {
+		"check": "tsc && biome check src",
+		"format": "biome check --write tangram.d.ts src"
+	},
+	"type": "module",
+	"dependencies": {
+		"immutable": "^4.3.7"
+	}
+}

@@ -417,12 +417,12 @@ impl File {
 	pub async fn read<H>(
 		&self,
 		handle: &H,
-		arg: tg::blob::read::Arg,
+		options: tg::read::Options,
 	) -> tg::Result<impl AsyncBufRead + Send + use<H>>
 	where
 		H: tg::Handle,
 	{
-		self.contents(handle).await?.read(handle, arg).await
+		self.contents(handle).await?.read(handle, options).await
 	}
 
 	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>

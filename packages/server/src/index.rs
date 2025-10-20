@@ -44,9 +44,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
 				// Wait for outstanding tasks to complete.
-				server.tasks.close();
 				server.tasks.wait().await;
-				server.tasks.reopen();
 
 				// Wait for the index stream's first sequence to reach the current last sequence.
 				let info = stream

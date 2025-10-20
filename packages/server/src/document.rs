@@ -1,10 +1,18 @@
 use {
-	crate::{Server, compiler::Compiler},
+	crate::Server,
 	tangram_client as tg,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
+	#[cfg(not(feature = "compiler"))]
+	pub async fn document(&self, _arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+		Err(tg::error!(
+			"this version of tangram was not compiled with compiler support"
+		))
+	}
+
+	#[cfg(feature = "compiler")]
 	pub async fn document(&self, mut arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
@@ -18,14 +26,14 @@ impl Server {
 		}
 
 		// Create the compiler.
-		let compiler = Compiler::new(self, tokio::runtime::Handle::current());
+		let compiler = self.create_compiler();
 
 		// Document the module.
 		let output = compiler.document(&arg.module).await?;
 
 		// Stop and await the compiler.
 		compiler.stop();
-		compiler.wait().await;
+		compiler.wait().await.unwrap();
 
 		Ok(output)
 	}

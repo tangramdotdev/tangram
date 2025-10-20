@@ -1,9 +1,10 @@
 use {
-	crate::{self as tg, util::serde::BytesBase64},
 	byteorder::{ReadBytesExt as _, WriteBytesExt as _},
 	bytes::Bytes,
+	crate as tg,
 	serde_with::serde_as,
 	std::{collections::BTreeSet, io::Write as _},
+	tangram_util::serde::BytesBase64,
 };
 
 #[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]

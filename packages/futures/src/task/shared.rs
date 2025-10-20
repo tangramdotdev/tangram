@@ -5,10 +5,12 @@ use {
 };
 
 #[derive(Clone)]
-pub struct Task<T> {
-	abort: Arc<tokio::task::AbortHandle>,
-	stop: Stop,
+pub struct Task<T>(Arc<Inner<T>>);
+
+struct Inner<T> {
+	abort_handle: tokio::task::AbortHandle,
 	future: future::Shared<BoxFuture<'static, Result<T, Arc<tokio::task::JoinError>>>>,
+	stop: Stop,
 }
 
 impl<T> Task<T>
@@ -22,13 +24,13 @@ where
 	{
 		let stop = Stop::new();
 		let task = tokio::spawn(f(stop.clone()));
-		let abort = Arc::new(task.abort_handle());
+		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
-		Self {
-			abort,
-			stop,
+		Self(Arc::new(Inner {
+			abort_handle,
 			future,
-		}
+			stop,
+		}))
 	}
 
 	pub fn spawn_local<F, Fut>(f: F) -> Self
@@ -38,13 +40,13 @@ where
 	{
 		let stop = Stop::new();
 		let task = tokio::task::spawn_local(f(stop.clone()));
-		let abort = Arc::new(task.abort_handle());
+		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
-		Self {
-			abort,
-			stop,
+		Self(Arc::new(Inner {
+			abort_handle,
 			future,
-		}
+			stop,
+		}))
 	}
 
 	pub fn spawn_blocking<F>(f: F) -> Self
@@ -56,29 +58,35 @@ where
 			let stop = stop.clone();
 			move || f(stop)
 		});
-		let abort = Arc::new(task.abort_handle());
+		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
-		Self {
-			abort,
-			stop,
+		Self(Arc::new(Inner {
+			abort_handle,
 			future,
-		}
+			stop,
+		}))
 	}
 
 	#[must_use]
 	pub fn id(&self) -> tokio::task::Id {
-		self.abort.id()
+		self.0.abort_handle.id()
 	}
 
 	pub fn abort(&self) {
-		self.abort.abort();
+		self.0.abort_handle.abort();
 	}
 
 	pub fn stop(&self) {
-		self.stop.stop();
+		self.0.stop.stop();
 	}
 
 	pub async fn wait(&self) -> Result<T, Arc<tokio::task::JoinError>> {
-		self.future.clone().await
+		self.0.future.clone().await
+	}
+}
+
+impl<T> Drop for Inner<T> {
+	fn drop(&mut self) {
+		self.abort_handle.abort();
 	}
 }

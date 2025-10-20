@@ -3,7 +3,7 @@ use {
 	bytes::Bytes,
 	pin_project::pin_project,
 	std::{
-		pin::pin,
+		pin::{Pin, pin},
 		sync::{Arc, Mutex},
 		time::Duration,
 	},
@@ -115,7 +115,7 @@ where
 	type Error = Error;
 
 	fn poll_frame(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
 		let this = self.project();

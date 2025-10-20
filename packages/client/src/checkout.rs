@@ -1,12 +1,10 @@
 use {
-	crate::{
-		self as tg,
-		util::serde::{is_false, is_true, return_true},
-	},
+	crate as tg,
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future},
 	std::path::PathBuf,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::{is_false, is_true, return_true},
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

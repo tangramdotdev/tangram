@@ -1,11 +1,12 @@
 use {
 	crate::Server,
+	std::pin::Pin,
 	tangram_client as tg,
 	tokio::io::{AsyncRead, AsyncSeek},
 };
 
 pub enum Reader {
-	Blob(crate::blob::Reader),
+	Blob(crate::read::Reader),
 	File(tokio::fs::File),
 }
 
@@ -18,7 +19,7 @@ impl Reader {
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 		if let Some(log) = output.data.log {
 			let blob = tg::Blob::with_id(log);
-			let reader = crate::blob::Reader::new(server, blob).await?;
+			let reader = crate::read::Reader::new(server, blob).await?;
 			return Ok(Self::Blob(reader));
 		}
 
@@ -42,35 +43,32 @@ impl Reader {
 
 impl AsyncRead for Reader {
 	fn poll_read(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 		buf: &mut tokio::io::ReadBuf<'_>,
 	) -> std::task::Poll<std::io::Result<()>> {
 		match self.get_mut() {
-			Reader::Blob(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
-			Reader::File(reader) => std::pin::Pin::new(reader).poll_read(cx, buf),
+			Reader::Blob(reader) => Pin::new(reader).poll_read(cx, buf),
+			Reader::File(reader) => Pin::new(reader).poll_read(cx, buf),
 		}
 	}
 }
 
 impl AsyncSeek for Reader {
-	fn start_seek(
-		self: std::pin::Pin<&mut Self>,
-		position: std::io::SeekFrom,
-	) -> std::io::Result<()> {
+	fn start_seek(self: Pin<&mut Self>, position: std::io::SeekFrom) -> std::io::Result<()> {
 		match self.get_mut() {
-			Reader::Blob(reader) => std::pin::Pin::new(reader).start_seek(position),
-			Reader::File(reader) => std::pin::Pin::new(reader).start_seek(position),
+			Reader::Blob(reader) => Pin::new(reader).start_seek(position),
+			Reader::File(reader) => Pin::new(reader).start_seek(position),
 		}
 	}
 
 	fn poll_complete(
-		self: std::pin::Pin<&mut Self>,
+		self: Pin<&mut Self>,
 		cx: &mut std::task::Context<'_>,
 	) -> std::task::Poll<std::io::Result<u64>> {
 		match self.get_mut() {
-			Reader::Blob(reader) => std::pin::Pin::new(reader).poll_complete(cx),
-			Reader::File(reader) => std::pin::Pin::new(reader).poll_complete(cx),
+			Reader::Blob(reader) => Pin::new(reader).poll_complete(cx),
+			Reader::File(reader) => Pin::new(reader).poll_complete(cx),
 		}
 	}
 }

@@ -30,7 +30,6 @@ pub struct Advanced {
 	pub preserve_temp_directories: bool,
 	pub process_dequeue_timeout: Duration,
 	pub shared_directory: bool,
-	pub write_process_logs_to_stderr: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -250,7 +249,6 @@ impl Default for Advanced {
 			process_dequeue_timeout: Duration::from_secs(3600),
 			preserve_temp_directories: false,
 			shared_directory: true,
-			write_process_logs_to_stderr: false,
 		}
 	}
 }

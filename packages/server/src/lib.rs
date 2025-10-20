@@ -1,13 +1,10 @@
-#[cfg(feature = "v8")]
-use self::compiler::Compiler;
 #[cfg(feature = "nats")]
 use async_nats as nats;
-use tokio_util::task::TaskTracker;
 use {
 	self::{
 		database::Database, index::Index, messenger::Messenger, runtime::Runtime, store::Store,
-		util::fs::remove,
 	},
+	crate::temp::Temp,
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
@@ -24,31 +21,26 @@ use {
 	tangram_futures::task::Task,
 	tangram_messenger::prelude::*,
 	tangram_uri::Uri,
+	tangram_util::fs::remove,
 	tokio::io::AsyncWriteExt as _,
 };
 
-mod blob;
 mod cache;
-#[cfg(feature = "v8")]
 mod check;
 mod checkin;
 mod checkout;
 mod checksum;
 mod clean;
-#[cfg(feature = "v8")]
-mod compiler;
 mod database;
-#[cfg(feature = "v8")]
 mod document;
-#[cfg(feature = "v8")]
 mod format;
 mod get;
 mod handle;
 mod health;
 mod http;
 mod index;
+mod lsp;
 mod messenger;
-mod module;
 mod object;
 mod pipe;
 mod process;
@@ -56,6 +48,7 @@ mod progress;
 mod pty;
 mod pull;
 mod push;
+mod read;
 mod remote;
 mod runner;
 mod runtime;
@@ -64,46 +57,51 @@ mod sync;
 mod tag;
 mod temp;
 mod user;
-mod util;
 mod vfs;
 mod watchdog;
+mod write;
 
 pub use self::config::Config;
 
 pub mod config;
 
 #[derive(Clone)]
-pub struct Server(pub Arc<Inner>);
+pub struct Handle(Arc<Inner>);
 
 pub struct Inner {
-	cache_task_map: CacheTaskMap,
-	#[cfg(feature = "v8")]
-	compilers: RwLock<Vec<Compiler>>,
+	server: Server,
+	task: tangram_futures::task::Shared<()>,
+}
+
+#[derive(Clone)]
+pub struct Server(Arc<State>);
+
+pub struct State {
+	cache_tasks: CacheTasks,
 	config: Config,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	http: Option<Http>,
 	index: Index,
-	lock_file: Mutex<Option<tokio::fs::File>>,
+	library: Mutex<Option<Arc<Temp>>>,
+	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
-	process_task_map: ProcessTaskMap,
+	process_tasks: ProcessTasks,
 	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
-	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
-	tasks: TaskTracker,
-	temp_paths: DashSet<PathBuf, fnv::FnvBuildHasher>,
+	tasks: tangram_futures::task::Set<()>,
+	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
 }
 
-type CacheTaskMap =
-	tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, tg::id::BuildHasher>;
+type CacheTasks = tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, tg::id::BuildHasher>;
 
 struct Http {
 	url: Uri,
@@ -117,22 +115,32 @@ struct ProcessPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type ProcessTaskMap = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
+type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
+
+impl Handle {
+	pub fn stop(&self) {
+		self.task.stop();
+	}
+
+	pub async fn wait(&self) -> Result<(), Arc<tokio::task::JoinError>> {
+		self.task.wait().await
+	}
+}
 
 impl Server {
-	pub async fn start(config: Config) -> tg::Result<Server> {
+	pub async fn start(config: Config) -> tg::Result<Handle> {
 		// Ensure the directory exists.
 		let directory = config.directory.clone();
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-		let directory = tokio::fs::canonicalize(&directory).await.map_err(
+		let path = tokio::fs::canonicalize(&directory).await.map_err(
 			|source| tg::error!(!source, %path = directory.display(), "failed to canonicalize directory path"),
 		)?;
 
-		// Lock the lock file.
-		let lock_path = directory.join("lock");
-		let mut lock_file = tokio::fs::OpenOptions::new()
+		// Lock.
+		let lock_path = path.join("lock");
+		let mut lock = tokio::fs::OpenOptions::new()
 			.read(true)
 			.write(true)
 			.create(true)
@@ -140,7 +148,7 @@ impl Server {
 			.open(lock_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the lock file"))?;
-		let ret = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+		let ret = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
 			return Err(tg::error!(
 				source = std::io::Error::last_os_error(),
@@ -148,18 +156,16 @@ impl Server {
 			));
 		}
 		let pid = std::process::id();
-		lock_file
-			.set_len(0)
+		lock.set_len(0)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to truncate the lock file"))?;
-		lock_file
-			.write_all(pid.to_string().as_bytes())
+		lock.write_all(pid.to_string().as_bytes())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
-		let lock_file = Mutex::new(Some(lock_file));
+		let lock = Mutex::new(Some(lock));
 
 		// Verify the version file.
-		let version_path = directory.join("version");
+		let version_path = path.join("version");
 		let version = match tokio::fs::read_to_string(&version_path).await {
 			Ok(string) => Some(
 				string
@@ -187,28 +193,28 @@ impl Server {
 		}
 
 		// Ensure the logs directory exists.
-		let logs_path = directory.join("logs");
+		let logs_path = path.join("logs");
 		tokio::fs::create_dir_all(&logs_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the logs directory"))?;
 
 		// Ensure the temp directory exists.
-		let temp_path = directory.join("tmp");
+		let temp_path = path.join("tmp");
 		tokio::fs::create_dir_all(&temp_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Remove an existing socket file.
-		let socket_path = directory.join("socket");
+		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
-		// Create the artifact cache task map.
-		let cache_task_map = tangram_futures::task::Map::default();
+		// Create the cache tasks.
+		let cache_tasks = tangram_futures::task::Map::default();
 
 		// Create the HTTP configuration.
 		let http = config.http.as_ref().map(|config| {
 			let url = config.url.clone().unwrap_or_else(|| {
-				let path = directory.join("socket");
+				let path = path.join("socket");
 				let path = path.to_str().unwrap();
 				let path = urlencoding::encode(path);
 				format!("http+unix://{path}").parse().unwrap()
@@ -226,12 +232,8 @@ impl Server {
 			.map_or(0, |process| process.concurrency);
 		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
-		// Create the process task map.
-		let process_task_map = tangram_futures::task::Map::default();
-
-		// Create the compilers.
-		#[cfg(feature = "v8")]
-		let compilers = RwLock::new(Vec::new());
+		// Create the process tasks.
+		let process_tasks = tangram_futures::task::Map::default();
 
 		// Create the database.
 		let database = match &config.database {
@@ -296,10 +298,11 @@ impl Server {
 			},
 			self::config::Index::Sqlite(options) => {
 				let initialize = Arc::new(self::index::sqlite::initialize);
+				let path = path.join("index");
 				let options = db::sqlite::DatabaseOptions {
 					connections: options.connections,
 					initialize,
-					path: directory.join("index"),
+					path,
 				};
 				let database = db::sqlite::Database::new(options)
 					.await
@@ -307,6 +310,9 @@ impl Server {
 				Index::Sqlite(database)
 			},
 		};
+
+		// Create the library.
+		let library = Mutex::new(None);
 
 		// Create the messenger.
 		let messenger = match &config.messenger {
@@ -401,14 +407,11 @@ impl Server {
 			},
 		};
 
-		// Create the task.
-		let task = Mutex::new(None);
-
 		// Create the tasks.
-		let tasks = TaskTracker::new();
+		let tasks = tangram_futures::task::Set::default();
 
 		// Create the temp paths.
-		let temp_paths = DashSet::default();
+		let temps = DashSet::default();
 
 		// Get the version.
 		let version = config
@@ -423,29 +426,27 @@ impl Server {
 		let ptys = DashMap::default();
 
 		// Create the server.
-		let server = Self(Arc::new(Inner {
-			cache_task_map,
-			#[cfg(feature = "v8")]
-			compilers,
+		let server = Self(Arc::new(State {
+			cache_tasks,
 			config,
 			database,
 			diagnostics,
 			http,
 			index,
-			lock_file,
+			library,
+			lock,
 			messenger,
-			path: directory,
+			path,
 			pipes,
 			process_permits,
 			process_semaphore,
-			process_task_map,
+			process_tasks,
 			ptys,
 			remotes,
 			runtimes,
 			store,
-			task,
 			tasks,
-			temp_paths,
+			temps,
 			version,
 			vfs,
 		}));
@@ -579,45 +580,70 @@ impl Server {
 		if server.config.runner.is_some() {
 			{
 				let triple = "builtin".to_owned();
-				let runtime = self::runtime::builtin::Runtime::new(&server);
+				let runtime = self::runtime::builtin::Runtime {
+					server: server.clone(),
+				};
 				let runtime = self::runtime::Runtime::Builtin(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}
-			#[cfg(feature = "v8")]
+			#[cfg(feature = "js")]
 			{
 				let triple = "js".to_owned();
 				let concurrency = server.config.runner.as_ref().unwrap().concurrency;
-				let runtime = self::runtime::js::Runtime::new(server.clone(), concurrency);
+				let local_pool_handle = tokio_util::task::LocalPoolHandle::new(concurrency);
+				let logger = Arc::new({
+					let server = server.clone();
+					move |process: &tg::Process, stream, string| {
+						let server = server.clone();
+						let process = process.clone();
+						async move {
+							crate::runtime::util::log(&server, &process, stream, string).await
+						}.boxed()
+					}
+				});
+				let main_runtime_handle = tokio::runtime::Handle::current();
+				let runtime = self::runtime::js::Runtime {
+					local_pool_handle,
+					logger,
+					main_runtime_handle,
+					server: server.clone(),
+				};
 				let runtime = self::runtime::Runtime::Js(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}
 			#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 			{
 				let triple = "aarch64-darwin".to_owned();
-				let runtime = self::runtime::darwin::Runtime::new(&server);
+				let runtime = self::runtime::darwin::Runtime {
+					server: server.clone(),
+				};
 				let runtime = self::runtime::Runtime::Darwin(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}
 			#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
 			{
 				let triple = "aarch64-linux".to_owned();
-				let runtime = self::runtime::linux::Runtime::new(&server).await?;
+				let runtime = self::runtime::linux::Runtime {
+					server: server.clone(),
+				};
 				let runtime = self::runtime::Runtime::Linux(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}
 			#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 			{
 				let triple = "x86_64-darwin".to_owned();
-				let runtime = self::runtime::darwin::Runtime::new(&server);
+				let runtime = self::runtime::darwin::Runtime {
+					server: server.clone(),
+				};
 				let runtime = self::runtime::Runtime::Darwin(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}
 			#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 			{
 				let triple = "x86_64-linux".to_owned();
-				let runtime = self::runtime::linux::Runtime::new(&server)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the linux runtime"))?;
+				let runtime = self::runtime::linux::Runtime {
+					server: server.clone(),
+				};
 				let runtime = self::runtime::Runtime::Linux(runtime);
 				server.runtimes.write().unwrap().insert(triple, runtime);
 			}
@@ -726,8 +752,8 @@ impl Server {
 				}
 
 				// Abort the process tasks.
-				server.process_task_map.abort_all();
-				let results = server.process_task_map.wait().await;
+				server.process_tasks.abort_all();
+				let results = server.process_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
@@ -736,17 +762,6 @@ impl Server {
 					}
 				}
 				tracing::trace!("shutdown process tasks");
-
-				// Stop the compilers.
-				#[cfg(feature = "v8")]
-				{
-					let compilers = server.compilers.read().unwrap().clone();
-					for compiler in compilers {
-						compiler.stop();
-						compiler.wait().await;
-					}
-					tracing::trace!("shutdown compiler tasks");
-				}
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
@@ -804,21 +819,21 @@ impl Server {
 				// Remove the runtimes.
 				server.runtimes.write().unwrap().clear();
 
-				// Abort the artifact cache tasks.
-				server.cache_task_map.abort_all();
-				let results = server.cache_task_map.wait().await;
+				// Abort the cache tasks.
+				server.cache_tasks.abort_all();
+				let results = server.cache_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result {
 						if !error.is_cancelled() {
-							tracing::error!(?error, "an artifact cache task panicked");
+							tracing::error!(?error, "an cache task panicked");
 						}
 					}
 				}
 				tracing::trace!("shutdown cache tasks");
 
-				// Await the tasks.
-				server.tasks.close();
-				server.tasks.wait().await;
+				// Abort the tasks.
+				server.tasks.abort_all();
+				let _ = server.tasks.wait().await;
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();
@@ -830,7 +845,7 @@ impl Server {
 
 				// Remove the temp paths.
 				server
-					.temp_paths
+					.temps
 					.iter()
 					.map(|entry| remove(entry.key().clone()).map(|_| ()))
 					.collect::<FuturesUnordered<_>>()
@@ -838,10 +853,10 @@ impl Server {
 					.await;
 				tracing::trace!("removed temps");
 
-				// Unlock the lock file.
-				let lock_file = server.lock_file.lock().unwrap().take();
-				if let Some(lock_file) = lock_file {
-					lock_file.set_len(0).await.ok();
+				// Unlock.
+				let lock = server.lock.lock().unwrap().take();
+				if let Some(lock) = lock {
+					lock.set_len(0).await.ok();
 					tracing::trace!("released lock file");
 				}
 
@@ -854,18 +869,21 @@ impl Server {
 			stop.wait().await;
 			shutdown.await;
 		});
-		server.task.lock().unwrap().replace(task);
 
-		Ok(server)
+		let handle = Handle(Arc::new(Inner { server, task }));
+
+		Ok(handle)
 	}
 
-	pub fn stop(&self) {
-		self.task.lock().unwrap().as_ref().unwrap().stop();
-	}
-
-	pub async fn wait(&self) {
-		let task = self.task.lock().unwrap().clone().unwrap();
-		task.wait().await.unwrap();
+	#[cfg(feature = "compiler")]
+	fn create_compiler(&self) -> tangram_compiler::Handle {
+		tangram_compiler::Compiler::start(
+			tg::handle::dynamic::Handle::new(self.clone()),
+			self.cache_path(),
+			self.library_path(),
+			tokio::runtime::Handle::current(),
+			self.version.clone(),
+		)
 	}
 
 	#[must_use]
@@ -903,6 +921,17 @@ impl Server {
 	}
 
 	#[must_use]
+	pub fn library_path(&self) -> PathBuf {
+		let library = self
+			.library
+			.lock()
+			.unwrap()
+			.get_or_insert_with(|| Arc::new(Temp::new(self)))
+			.clone();
+		library.path().to_owned()
+	}
+
+	#[must_use]
 	pub fn logs_path(&self) -> PathBuf {
 		self.path.join("logs")
 	}
@@ -913,10 +942,37 @@ impl Server {
 	}
 }
 
-impl Deref for Server {
+impl Deref for Handle {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+impl Deref for Inner {
+	type Target = Server;
+
+	fn deref(&self) -> &Self::Target {
+		&self.server
+	}
+}
+
+impl Deref for Server {
+	type Target = State;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl Drop for Handle {
+	fn drop(&mut self) {
+		self.cache_tasks.abort_all();
+		self.library.lock().unwrap().take();
+		self.process_tasks.abort_all();
+		self.runtimes.write().unwrap().clear();
+		self.tasks.abort_all();
+		self.vfs.lock().unwrap().take();
 	}
 }

@@ -2,9 +2,9 @@ use {
 	super::Runtime,
 	crate::Server,
 	futures::future,
-	std::{path::Path, pin::Pin},
+	std::path::Path,
 	tangram_client as tg,
-	tokio::io::AsyncRead,
+	tangram_futures::read::Ext as _,
 	tokio_util::compat::{FuturesAsyncWriteCompatExt as _, TokioAsyncWriteCompatExt as _},
 };
 
@@ -99,20 +99,24 @@ async fn tar(
 	};
 
 	// If compression is requested, use the appropriate encoder.
-	let reader: Pin<Box<dyn AsyncRead + Send + 'static>> = match compression {
-		Some(tg::CompressionFormat::Bz2) => Box::pin(
-			async_compression::tokio::bufread::BzEncoder::new(tokio::io::BufReader::new(reader)),
-		),
-		Some(tg::CompressionFormat::Gz) => Box::pin(
-			async_compression::tokio::bufread::GzipEncoder::new(tokio::io::BufReader::new(reader)),
-		),
-		Some(tg::CompressionFormat::Xz) => Box::pin(
-			async_compression::tokio::bufread::XzEncoder::new(tokio::io::BufReader::new(reader)),
-		),
-		Some(tg::CompressionFormat::Zstd) => Box::pin(
-			async_compression::tokio::bufread::ZstdEncoder::new(tokio::io::BufReader::new(reader)),
-		),
-		None => Box::pin(reader),
+	let reader = match compression {
+		Some(tg::CompressionFormat::Bz2) => {
+			async_compression::tokio::bufread::BzEncoder::new(tokio::io::BufReader::new(reader))
+				.boxed()
+		},
+		Some(tg::CompressionFormat::Gz) => {
+			async_compression::tokio::bufread::GzipEncoder::new(tokio::io::BufReader::new(reader))
+				.boxed()
+		},
+		Some(tg::CompressionFormat::Xz) => {
+			async_compression::tokio::bufread::XzEncoder::new(tokio::io::BufReader::new(reader))
+				.boxed()
+		},
+		Some(tg::CompressionFormat::Zstd) => {
+			async_compression::tokio::bufread::ZstdEncoder::new(tokio::io::BufReader::new(reader))
+				.boxed()
+		},
+		None => reader.boxed(),
 	};
 
 	// Create the blob future.
@@ -161,7 +165,7 @@ where
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
 			let size = file.length(server).await?;
-			let reader = file.read(server, tg::blob::read::Arg::default()).await?;
+			let reader = file.read(server, tg::read::Options::default()).await?;
 			let executable = file.executable(server).await?;
 			let mut header = tokio_tar::Header::new_gnu();
 			header.set_size(size);
@@ -287,7 +291,7 @@ where
 				.await
 				.unwrap()
 				.compat_write();
-			let mut file_reader = file.read(server, tg::blob::read::Arg::default()).await?;
+			let mut file_reader = file.read(server, tg::read::Options::default()).await?;
 			tokio::io::copy(&mut file_reader, &mut entry_writer)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the file entry"))?;

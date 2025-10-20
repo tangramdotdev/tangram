@@ -74,7 +74,7 @@ impl Server {
 		}
 
 		// Canonicalize the path's parent.
-		arg.path = crate::util::fs::canonicalize_parent(&arg.path)
+		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, %path = &arg.path.display(), "failed to canonicalize the path's parent"))?;
 
@@ -224,7 +224,7 @@ impl Server {
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
 		// Index.
-		self.tasks.spawn({
+		self.tasks.spawn(|_| {
 			let server = self.clone();
 			let state = state.clone();
 			async move {

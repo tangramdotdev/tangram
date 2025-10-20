@@ -1,11 +1,8 @@
 use {
 	crate::Server,
-	futures::prelude::*,
+	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
-	std::{
-		panic::AssertUnwindSafe,
-		pin::{Pin, pin},
-	},
+	std::{panic::AssertUnwindSafe, pin::pin},
 	tangram_client as tg,
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Stop, write::Ext},
 	tangram_http::{Body, request::Ext as _},
@@ -21,7 +18,7 @@ impl Server {
 	pub async fn sync(
 		&self,
 		mut arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
@@ -79,7 +76,7 @@ impl Server {
 	async fn sync_inner(
 		&self,
 		arg: tg::sync::Arg,
-		mut stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
 		let (get_sender, get_receiver) = tokio::sync::mpsc::channel::<tg::sync::Message>(256);

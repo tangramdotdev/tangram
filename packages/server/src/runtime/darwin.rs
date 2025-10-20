@@ -18,16 +18,10 @@ const MAX_URL_LEN: usize = 100;
 
 #[derive(Clone)]
 pub struct Runtime {
-	pub(crate) server: Server,
+	pub server: Server,
 }
 
 impl Runtime {
-	pub fn new(server: &Server) -> Self {
-		Self {
-			server: server.clone(),
-		}
-	}
-
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
 		self.run_inner(process)
 			.await

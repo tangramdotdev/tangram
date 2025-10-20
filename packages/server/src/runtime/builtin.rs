@@ -11,16 +11,10 @@ mod util;
 
 #[derive(Clone)]
 pub struct Runtime {
-	pub(super) server: Server,
+	pub server: Server,
 }
 
 impl Runtime {
-	pub fn new(server: &Server) -> Self {
-		Self {
-			server: server.clone(),
-		}
-	}
-
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
 		self.run_inner(process)
 			.await

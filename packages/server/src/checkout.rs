@@ -215,7 +215,7 @@ impl Server {
 			.ok_or_else(|| tg::error!("expected the path to be set"))?;
 
 		// Canonicalize the path's parent.
-		let path = crate::util::fs::canonicalize_parent(path)
+		let path = tangram_util::fs::canonicalize_parent(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
@@ -238,7 +238,7 @@ impl Server {
 
 		// If an artifact exists, and this is a forced checkout, then return an error.
 		if exists && arg.force {
-			crate::util::fs::remove(&path).await.ok();
+			tangram_util::fs::remove(&path).await.ok();
 		}
 
 		let task = tokio::task::spawn_blocking({
@@ -277,7 +277,7 @@ impl Server {
 
 		// Delete the partially constructed output if checkout failed.
 		if let Err(error) = task.await.unwrap() {
-			crate::util::fs::remove(&path).await.ok();
+			tangram_util::fs::remove(&path).await.ok();
 			return Err(error);
 		}
 
@@ -524,7 +524,7 @@ impl Server {
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing contents"))?;
 				let mut reader = tg::Blob::with_id(contents.clone())
-					.read(&server, tg::blob::read::Arg::default())
+					.read(&server, tg::read::Options::default())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
 				let mut reader = InspectReader::new(&mut reader, {
@@ -617,7 +617,8 @@ impl Server {
 				.parent()
 				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 			let dst = &target;
-			tg::util::path::diff(src, dst)?
+			tangram_util::path::diff(src, dst)
+				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
 		} else if let Some(path_) = path_.clone() {
 			path_
 		} else {

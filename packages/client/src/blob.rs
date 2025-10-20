@@ -5,7 +5,6 @@ pub use self::{
 	object::{Blob as Object, Child},
 };
 
-pub mod create;
 pub mod data;
 pub mod handle;
 pub mod id;

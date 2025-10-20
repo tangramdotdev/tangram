@@ -10,13 +10,12 @@ use std::{
 };
 use tangram_client::{self as tg, Client, prelude::*};
 use tangram_either::Either;
-use tangram_server::Server;
+use tangram_server::Handle as Server;
 use tangram_uri::Uri;
 use tokio::io::AsyncWriteExt as _;
 use tracing_subscriber::prelude::*;
 
 mod archive;
-mod blob;
 mod build;
 mod bundle;
 mod cache;
@@ -39,6 +38,7 @@ mod health;
 mod id;
 mod index;
 mod init;
+mod js;
 mod lsp;
 mod metadata;
 mod new;
@@ -61,6 +61,7 @@ mod update;
 mod util;
 mod view;
 mod viewer;
+mod write;
 
 pub use self::config::Config;
 
@@ -145,8 +146,6 @@ enum Mode {
 enum Command {
 	Archive(self::archive::Args),
 
-	Blob(self::blob::Args),
-
 	#[command(alias = "b")]
 	Build(self::build::Args),
 
@@ -195,6 +194,9 @@ enum Command {
 	Index(self::index::Args),
 
 	Init(self::init::Args),
+
+	#[command(hide = true)]
+	Js(self::js::Args),
 
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
@@ -259,12 +261,20 @@ enum Command {
 	View(self::view::Args),
 
 	Wait(self::process::wait::Args),
+
+	Write(self::write::Args),
 }
 
 fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
+
+	// Handle the js command.
+	if let Command::Js(args) = args.command {
+		Cli::initialize_tracing(None);
+		return Cli::command_js(args);
+	}
 
 	// Handle the sandbox command.
 	if let Command::Sandbox(args) = args.command {
@@ -389,7 +399,7 @@ fn main() -> std::process::ExitCode {
 			},
 			Some(Either::Right(server)) => {
 				server.stop();
-				server.wait().await;
+				server.wait().await.unwrap();
 			},
 			None => (),
 		}
@@ -415,9 +425,6 @@ impl Cli {
 			Mode::Server => Either::Right(self.server().await?),
 		};
 
-		// Set the handle.
-		self.handle.replace(handle.clone());
-
 		// Get the health and print diagnostics.
 		let health = handle.health().await?;
 		if !self.args.quiet {
@@ -427,6 +434,9 @@ impl Cli {
 				self.print_diagnostic(diagnostic).await;
 			}
 		}
+
+		// Set the handle.
+		self.handle.replace(handle.clone());
 
 		Ok(handle)
 	}
@@ -545,7 +555,7 @@ impl Cli {
 		Ok(client)
 	}
 
-	async fn server(&self) -> tg::Result<Server> {
+	async fn server(&self) -> tg::Result<tangram_server::Handle> {
 		// Create the default config.
 		let directory = self.directory_path();
 		let parallelism = std::thread::available_parallelism().unwrap().into();
@@ -649,9 +659,6 @@ impl Cli {
 			}
 			if let Some(shared_directory) = advanced.shared_directory {
 				config.advanced.shared_directory = shared_directory;
-			}
-			if let Some(write_process_logs_to_stderr) = advanced.write_process_logs_to_stderr {
-				config.advanced.write_process_logs_to_stderr = write_process_logs_to_stderr;
 			}
 		}
 
@@ -1144,8 +1151,8 @@ impl Cli {
 	// Run the command.
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Js(_) | Command::Sandbox(_) | Command::Session(_) => unreachable!(),
 			Command::Archive(args) => self.command_archive(args).boxed(),
-			Command::Blob(args) => self.command_blob(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Bundle(args) => self.command_bundle(args).boxed(),
 			Command::Cache(args) => self.command_cache(args).boxed(),
@@ -1183,10 +1190,8 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
-			Command::Sandbox(_) => return Err(tg::error!("unreachable")),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
-			Command::Session(_) => return Err(tg::error!("unreachable")),
 			Command::Signal(args) => self.command_process_signal(args).boxed(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
 			Command::Status(args) => self.command_process_status(args).boxed(),
@@ -1196,6 +1201,7 @@ impl Cli {
 			Command::Update(args) => self.command_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),
 			Command::Wait(args) => self.command_process_wait(args).boxed(),
+			Command::Write(args) => self.command_write(args).boxed(),
 		}
 		.await
 	}
@@ -1359,7 +1365,8 @@ impl Cli {
 		{
 			let current_dir = std::env::current_dir()
 				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
-			let path = tg::util::path::diff(&current_dir, path)?;
+			let path = tangram_util::path::diff(&current_dir, path)
+				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
 			referent.options.path = Some(path);
 		}
 

@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg, util::serde::is_default},
+	crate::{self as tg},	tangram_util::serde::is_default,
 	std::path::{Path, PathBuf},
 	tangram_uri::Uri,
 };
@@ -129,7 +129,7 @@ impl<T> Referent<T> {
 				},
 				(Some(self_path), Some(parent_path)) => {
 					let path = parent_path.parent().unwrap().join(self_path);
-					let path = tg::util::path::normalize(&path);
+					let path = tangram_util::path::normalize(&path);
 					self.options.path = Some(path);
 				},
 				_ => (),

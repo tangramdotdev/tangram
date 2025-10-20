@@ -36,11 +36,6 @@ impl Server {
 			return Err(tg::error!("failed to find the process"));
 		}
 
-		// Write logs to stderr if necessary.
-		if self.config.advanced.write_process_logs_to_stderr {
-			tokio::io::stderr().write_all(&arg.bytes).await.ok();
-		}
-
 		// Write to the log file.
 		self.post_process_log_to_file(id, arg.bytes.clone()).await?;
 

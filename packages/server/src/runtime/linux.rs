@@ -19,7 +19,7 @@ use {
 
 #[derive(Clone)]
 pub struct Runtime {
-	pub(super) server: Server,
+	pub server: Server,
 }
 
 struct SandboxArg<'a> {
@@ -46,11 +46,6 @@ struct SandboxOutput {
 }
 
 impl Runtime {
-	pub async fn new(server: &Server) -> tg::Result<Self> {
-		let server = server.clone();
-		Ok(Self { server })
-	}
-
 	pub async fn run(&self, process: &tg::Process) -> super::Output {
 		self.run_inner(process)
 			.await

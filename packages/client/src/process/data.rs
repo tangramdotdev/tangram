@@ -1,9 +1,7 @@
 use {
-	crate::{
-		self as tg,
-		util::serde::{is_false, is_true, return_true},
-	},
+	crate as tg,
 	std::path::PathBuf,
+	tangram_util::serde::{is_false, is_true, return_true},
 };
 
 #[derive(

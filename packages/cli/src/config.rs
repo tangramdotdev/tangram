@@ -1,9 +1,10 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::{path::PathBuf, time::Duration},
-	tangram_client::{self as tg, util::serde::is_false},
+	tangram_client as tg,
 	tangram_either::Either,
 	tangram_uri::Uri,
+	tangram_util::serde::is_false,
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -102,10 +103,6 @@ pub struct Advanced {
 	/// Whether to enable publishing of data to tokio console.
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
-
-	/// Whether to write process logs to the server's stderr.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_process_logs_to_stderr: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

@@ -1,0 +1,12 @@
+{
+	"name": "@tangramdotdev/js",
+	"private": true,
+	"scripts": {
+		"check": "tsc && biome check ./src/main.ts",
+		"format": "biome check --write ./src/tangram.d.ts ./src/main.ts"
+	},
+	"type": "module",
+	"dependencies": {
+		"@tangramdotdev/client": "workspace:*"
+	}
+}

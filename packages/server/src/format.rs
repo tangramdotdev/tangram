@@ -1,15 +1,23 @@
 use {
-	crate::{Server, compiler::Compiler},
-	std::path::Path,
+	crate::Server,
 	tangram_client as tg,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
-	tangram_ignore as ignore,
 };
+#[cfg(feature = "compiler")]
+use {std::path::Path, tangram_ignore as ignore};
 
 impl Server {
+	#[cfg(not(feature = "compiler"))]
+	pub async fn format(&self, _arg: tg::format::Arg) -> tg::Result<()> {
+		Err(tg::error!(
+			"this version of tangram was not compiled with compiler support"
+		))
+	}
+
+	#[cfg(feature = "compiler")]
 	pub async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
 		// Canonicalize the path's parent.
-		let path = crate::util::fs::canonicalize_parent(&arg.path)
+		let path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
@@ -27,6 +35,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "compiler")]
 	fn format_inner(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
 		let metadata = std::fs::metadata(path)
 			.map_err(|source| tg::error!(!source, "failed to read the metadata"))?;
@@ -38,6 +47,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "compiler")]
 	fn format_directory(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
 		// Read the directory entries.
 		let mut entries = Vec::new();
@@ -77,13 +87,14 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "compiler")]
 	fn format_file(path: &Path) -> tg::Result<()> {
 		// Get the text.
 		let text = std::fs::read_to_string(path)
 			.map_err(|source| tg::error!(!source, "failed to read the module"))?;
 
 		// Format the text.
-		let text = Compiler::format(&text).map_err(
+		let text = tangram_compiler::Compiler::format(&text).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to format the module"),
 		)?;
 

@@ -1,7 +1,6 @@
 use {
 	crate as tg,
-	futures::{FutureExt as _, Stream, TryFutureExt as _},
-	std::pin::Pin,
+	futures::{FutureExt as _, Stream, TryFutureExt as _, stream::BoxStream},
 	tangram_either::Either,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -31,10 +30,7 @@ where
 		}
 	}
 
-	fn check(
-		&self,
-		arg: tg::check::Arg,
-	) -> impl Future<Output = tg::Result<tg::check::Output>> + Send {
+	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		match self {
 			Either::Left(s) => s.check(arg).left_future(),
 			Either::Right(s) => s.check(arg).right_future(),
@@ -87,7 +83,7 @@ where
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		match self {
 			Either::Left(s) => s
 				.clean()
@@ -103,14 +99,14 @@ where
 	fn document(
 		&self,
 		arg: tg::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> + Send {
+	) -> impl Future<Output = tg::Result<serde_json::Value>> {
 		match self {
 			Either::Left(s) => s.document(arg).left_future(),
 			Either::Right(s) => s.document(arg).right_future(),
 		}
 	}
 
-	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> + Send {
+	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.format(arg).left_future(),
 			Either::Right(s) => s.format(arg).right_future(),
@@ -130,7 +126,7 @@ where
 		Output = tg::Result<
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
-	> + Send {
+	> {
 		match self {
 			Either::Left(s) => s
 				.index()
@@ -194,20 +190,10 @@ where
 		}
 	}
 
-	fn create_blob(
-		&self,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
-		match self {
-			Either::Left(s) => s.create_blob(reader).left_future(),
-			Either::Right(s) => s.create_blob(reader).right_future(),
-		}
-	}
-
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
@@ -223,27 +209,6 @@ where
 		}
 	}
 
-	fn try_read_blob_stream(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::read::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
-		>,
-	> {
-		match self {
-			Either::Left(s) => s
-				.try_read_blob_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			Either::Right(s) => s
-				.try_read_blob_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
-		}
-	}
-
 	fn try_get(
 		&self,
 		reference: &tg::Reference,
@@ -254,7 +219,7 @@ where
 			+ Send
 			+ 'static,
 		>,
-	> + Send {
+	> {
 		match self {
 			Either::Left(s) => s
 				.try_get(reference, arg.clone())
@@ -264,6 +229,36 @@ where
 				.try_get(reference, arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
+		}
+	}
+
+	fn try_read_stream(
+		&self,
+		arg: tg::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>,
+		>,
+	> {
+		match self {
+			Either::Left(s) => s
+				.try_read_stream(arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			Either::Right(s) => s
+				.try_read_stream(arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
+	fn write(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<tg::write::Output>> {
+		match self {
+			Either::Left(s) => s.write(reader).left_future(),
+			Either::Right(s) => s.write(reader).right_future(),
 		}
 	}
 }
@@ -457,7 +452,7 @@ where
 		&self,
 		id: &crate::process::Id,
 		arg: crate::process::cancel::Arg,
-	) -> impl Future<Output = crate::Result<()>> + Send {
+	) -> impl Future<Output = crate::Result<()>> {
 		match self {
 			Either::Left(s) => s.cancel_process(id, arg).left_future(),
 			Either::Right(s) => s.cancel_process(id, arg).right_future(),
@@ -489,7 +484,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send {
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
 		match self {
 			Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
 			Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
@@ -511,7 +506,7 @@ where
 		&self,
 		id: &crate::process::Id,
 		arg: crate::process::signal::post::Arg,
-	) -> impl Future<Output = crate::Result<()>> + Send {
+	) -> impl Future<Output = crate::Result<()>> {
 		match self {
 			Either::Left(s) => s.signal_process(id, arg).left_future(),
 			Either::Right(s) => s.signal_process(id, arg).right_future(),
@@ -532,7 +527,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.start_process(id, arg).left_future(),
 			Either::Right(s) => s.start_process(id, arg).right_future(),
@@ -543,7 +538,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.touch_process(id, arg).left_future(),
 			Either::Right(s) => s.touch_process(id, arg).right_future(),
@@ -632,7 +627,7 @@ where
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.write_pipe(id, arg, stream).left_future(),
@@ -711,7 +706,7 @@ where
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			Either::Left(s) => s.write_pty(id, arg, stream).left_future(),

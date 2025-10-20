@@ -4,10 +4,10 @@ use {
 		progress::Progress,
 	},
 	crate::Server,
-	futures::prelude::*,
+	futures::{prelude::*, stream::BoxStream},
 	std::{
 		collections::{BTreeSet, VecDeque},
-		pin::{Pin, pin},
+		pin::pin,
 		sync::{Arc, Mutex},
 		time::Duration,
 	},
@@ -26,7 +26,7 @@ impl Server {
 	pub(super) async fn sync_get(
 		&self,
 		arg: tg::sync::Arg,
-		mut stream: Pin<Box<dyn Stream<Item = tg::sync::Message> + Send + 'static>>,
+		mut stream: BoxStream<'static, tg::sync::Message>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
 		// Create the progress.
@@ -54,7 +54,7 @@ impl Server {
 		}));
 
 		// Spawn the index task.
-		self.tasks.spawn({
+		self.tasks.spawn(|_| {
 			let server = self.clone();
 			let graph = graph.clone();
 			let sender = sender.clone();

@@ -28,7 +28,6 @@ bytes = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
-fnv = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
@@ -49,9 +48,9 @@ sha2 = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
-tangram_itertools = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
+tangram_util = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }

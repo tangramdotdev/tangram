@@ -1,17 +1,14 @@
 use {
-	crate::{
-		self as tg,
-		util::serde::{CommaSeparatedString, is_false},
-	},
 	bytes::Bytes,
-	futures::prelude::*,
+	crate as tg,
+	futures::{prelude::*, stream::BoxStream},
 	http_body_util::BodyStream,
 	num::ToPrimitive as _,
 	serde_with::serde_as,
-	std::pin::Pin,
 	tangram_either::Either,
 	tangram_futures::{read::Ext, stream::Ext as _, write::Ext as _},
 	tangram_http::{Body, response::Ext as _},
+	tangram_util::serde::{CommaSeparatedString, is_false},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::{io::StreamReader, task::AbortOnDropHandle},
@@ -175,7 +172,7 @@ impl tg::Client {
 	pub async fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();

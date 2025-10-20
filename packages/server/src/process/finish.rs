@@ -25,11 +25,11 @@ impl Server {
 
 		// If the task for the process is not the current task, then abort it.
 		if self
-			.process_task_map
+			.process_tasks
 			.get_task_id(id)
 			.is_some_and(|task_id| task_id != tokio::task::id())
 		{
-			self.process_task_map.abort(id);
+			self.process_tasks.abort(id);
 		}
 
 		let tg::process::finish::Arg {

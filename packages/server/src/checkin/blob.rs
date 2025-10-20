@@ -30,7 +30,7 @@ impl Server {
 					let mut file = tokio::fs::File::open(&path).await.map_err(
 						|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
 					)?;
-					let blob = server.create_blob_inner(&mut file, None).await.map_err(
+					let blob = server.write_inner(&mut file, None).await.map_err(
 						|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
 					)?;
 					Ok::<_, tg::Error>((index, blob))

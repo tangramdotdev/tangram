@@ -1,4 +1,4 @@
-use {crate::util::serde::BytesBase64, bytes::Bytes, serde_with::serde_as};
+use {tangram_util::serde::BytesBase64, bytes::Bytes, serde_with::serde_as};
 
 pub use self::{id::Id, size::Size};
 

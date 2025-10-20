@@ -1,8 +1,9 @@
 use {std::future::Future, tokio_util::task::AbortOnDropHandle};
 
-pub use self::{map::Map, shared::Task as Shared, stop::Stop};
+pub use self::{map::Map, set::Set, shared::Task as Shared, stop::Stop};
 
 pub mod map;
+pub mod set;
 pub mod shared;
 pub mod stop;
 

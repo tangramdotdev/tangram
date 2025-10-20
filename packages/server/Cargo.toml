@@ -14,19 +14,13 @@ version = { workspace = true }
 workspace = true
 
 [features]
-default = ["v8"]
-foundationdb = ["dep:foundationdb", "tangram_store/foundationdb"]
+default = ["js"]
+compiler = ["dep:tangram_compiler"]
+foundationdb = ["tangram_store/foundationdb"]
+js = ["dep:tangram_js"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
-scylla = ["dep:scylla", "tangram_store/scylla"]
-v8 = ["dep:v8", "dep:tangram_v8"]
-
-[build-dependencies]
-data-encoding = { workspace = true }
-glob = { workspace = true }
-reqwest = { workspace = true }
-serde_json = { workspace = true }
-v8 = { workspace = true, optional = true }
+scylla = ["tangram_store/scylla"]
 
 [dependencies]
 astral-tokio-tar = { workspace = true }
@@ -34,10 +28,6 @@ async-channel = { workspace = true }
 async-compression = { workspace = true }
 async-nats = { workspace = true, optional = true }
 async_zip = { workspace = true }
-aws-credential-types = { workspace = true }
-aws-sigv4 = { workspace = true }
-oxc = { workspace = true }
-oxc_formatter = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
@@ -49,21 +39,16 @@ derive_more = { workspace = true }
 fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
-foundationdb = { workspace = true, optional = true }
-foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
-heed = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 im = { workspace = true }
-include_dir = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
-lsp-types = { workspace = true }
 mime = { workspace = true }
 moka = { workspace = true }
 notify = { workspace = true }
@@ -73,33 +58,31 @@ num-traits = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
 petgraph = { workspace = true }
-radix_trie = { workspace = true }
 reflink-copy = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 scopeguard = { workspace = true }
-scylla = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_repr = { workspace = true }
 serde_with = { workspace = true }
-serde_yaml = { workspace = true }
 smallvec = { workspace = true }
 sourcemap = { workspace = true }
 sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
+tangram_compiler = { workspace = true, optional = true }
 tangram_database = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
-tangram_itertools = { workspace = true }
+tangram_js = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
+tangram_module = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_session = { workspace = true }
 tangram_store = { workspace = true, features = ["lmdb"] }
 tangram_uri = { workspace = true }
-tangram_v8 = { workspace = true, optional = true }
+tangram_util = { workspace = true }
 tangram_vfs = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
@@ -113,5 +96,4 @@ tracing = { workspace = true }
 unicode-width = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true }
-v8 = { workspace = true }
 xattr = { workspace = true }

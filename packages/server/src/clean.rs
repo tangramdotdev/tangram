@@ -42,7 +42,7 @@ impl Server {
 			let server = self.clone();
 			async move {
 				// Clean the temporary directory.
-				crate::util::fs::remove(server.temp_path())
+				tangram_util::fs::remove(server.temp_path())
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to remove the temporary directory")
@@ -195,7 +195,7 @@ impl Server {
 			move || {
 				for artifact in &cache_entries {
 					let path = server.cache_path().join(artifact.to_string());
-					crate::util::fs::remove_sync(&path).map_err(
+					tangram_util::fs::remove_sync(&path).map_err(
 						|source| tg::error!(!source, %path = path.display(), "failed to remove the file"),
 					)?;
 				}

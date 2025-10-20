@@ -117,6 +117,14 @@ where
 	}
 }
 
+impl<K, T, H> Clone for Map<K, T, H> {
+	fn clone(&self) -> Self {
+		Self {
+			map: self.map.clone(),
+		}
+	}
+}
+
 impl<K, T, H> Default for Map<K, T, H>
 where
 	K: Hash + Eq + Clone + Send + Sync + 'static,

@@ -23,10 +23,8 @@ impl Cli {
 		tg::object::visit(&handle, &mut visitor, [object])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to walk objects"))?;
-		let entries = visitor.entries.into_iter().collect::<Vec<_>>();
-		let output = serde_json::to_string_pretty(&entries)
-			.map_err(|source| tg::error!(!source, "failed to serialize entries"))?;
-		println!("{output}");
+		let output = visitor.entries.into_iter().collect::<Vec<_>>();
+		Self::print_json(&output, None).await?;
 		Ok(())
 	}
 }
@@ -38,8 +36,8 @@ struct Visitor {
 
 #[derive(serde::Serialize, Debug, PartialEq, Eq, Hash)]
 struct Entry {
-	compatible: Option<tg::Tag>,
 	current: tg::Tag,
+	compatible: Option<tg::Tag>,
 	latest: Option<tg::Tag>,
 }
 
@@ -63,6 +61,7 @@ where
 				let tag = referent?.options.tag.take()?;
 				Some((pattern, tag))
 			});
+
 		for (pattern, current) in dependencies {
 			let compatible = handle
 				.list_tags(tg::tag::list::Arg {
@@ -93,13 +92,16 @@ where
 				.into_iter()
 				.map(|o| o.tag)
 				.next();
+
 			let entry = Entry {
 				current,
 				compatible,
 				latest,
 			};
+
 			self.entries.insert(entry);
 		}
+
 		Ok(())
 	}
 }

@@ -13,37 +13,34 @@ use {
 };
 
 pub trait Ext: tg::Handle {
-	fn read_blob(
+	fn read(
 		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::read::Arg,
+		arg: tg::read::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::blob::read::Chunk>> + Send + 'static>,
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::read::Chunk>> + Send + 'static>,
 	> + Send {
-		self.try_read_blob(id, arg).map(|result| {
+		self.try_read(arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the blob")))
 		})
 	}
 
-	fn try_read_blob(
+	fn try_read(
 		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::read::Arg,
+		arg: tg::read::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::blob::read::Chunk>> + Send + 'static>,
+			Option<impl Stream<Item = tg::Result<tg::read::Chunk>> + Send + 'static>,
 		>,
 	> + Send {
 		async move {
 			let handle = self.clone();
-			let id = id.clone();
-			let Some(stream) = handle.try_read_blob_stream(&id, arg.clone()).await? else {
+			let Some(stream) = handle.try_read_stream(arg.clone()).await? else {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
 			struct State {
-				stream: Option<BoxStream<'static, tg::Result<tg::blob::read::Event>>>,
-				arg: tg::blob::read::Arg,
+				stream: Option<BoxStream<'static, tg::Result<tg::read::Event>>>,
+				arg: tg::read::Arg,
 				end: bool,
 			}
 			let state = State {
@@ -54,7 +51,6 @@ pub trait Ext: tg::Handle {
 			let state = Arc::new(Mutex::new(state));
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
-				let id = id.clone();
 				async move {
 					if state.lock().unwrap().end {
 						return Ok(None);
@@ -64,19 +60,15 @@ pub trait Ext: tg::Handle {
 						stream
 					} else {
 						let arg = state.lock().unwrap().arg.clone();
-						handle
-							.try_read_blob_stream(&id, arg)
-							.await?
-							.unwrap()
-							.boxed()
+						handle.try_read_stream(arg).await?.unwrap().boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
 				}
 			})
 			.try_flatten()
-			.take_while(|event| future::ready(!matches!(event, Ok(tg::blob::read::Event::End))))
+			.take_while(|event| future::ready(!matches!(event, Ok(tg::read::Event::End))))
 			.map(|event| match event {
-				Ok(tg::blob::read::Event::Chunk(chunk)) => Ok(chunk),
+				Ok(tg::read::Event::Chunk(chunk)) => Ok(chunk),
 				Err(e) => Err(e),
 				_ => unreachable!(),
 			})
@@ -84,16 +76,16 @@ pub trait Ext: tg::Handle {
 				let mut state = state.lock().unwrap();
 
 				// Compute the end condition.
-				state.end = chunk.bytes.is_empty() || matches!(state.arg.length, Some(0));
+				state.end = chunk.bytes.is_empty() || matches!(state.arg.options.length, Some(0));
 
 				// Update the length argument.
-				if let Some(length) = &mut state.arg.length {
+				if let Some(length) = &mut state.arg.options.length {
 					*length -= chunk.bytes.len().to_u64().unwrap().min(*length);
 				}
 
 				// Update the position argument.
 				let position = chunk.position + chunk.bytes.len().to_u64().unwrap();
-				state.arg.position = Some(SeekFrom::Start(position));
+				state.arg.options.position = Some(SeekFrom::Start(position));
 			});
 			Ok(Some(stream))
 		}

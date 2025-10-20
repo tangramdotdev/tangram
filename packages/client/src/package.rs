@@ -6,6 +6,19 @@ pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
 /// The file name of a lockfile.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
+pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Kind> {
+	let path = path.as_ref();
+	if path.ends_with(".d.ts") {
+		Ok(tg::module::Kind::Dts)
+	} else if path.extension().is_some_and(|ext| ext == "ts") {
+		Ok(tg::module::Kind::Ts)
+	} else if path.extension().is_some_and(|ext| ext == "js") {
+		Ok(tg::module::Kind::Js)
+	} else {
+		Err(tg::error!(%path = path.display(), "unknown or missing file extension"))
+	}
+}
+
 #[must_use]
 pub fn is_module_path(path: &Path) -> bool {
 	let Some(name) = path.file_name() else {

@@ -10,7 +10,7 @@ impl Server {
 		algorithm: tg::checksum::Algorithm,
 	) -> tg::Result<tg::Checksum> {
 		let mut writer = tg::checksum::Writer::new(algorithm);
-		let mut reader = blob.read(self, tg::blob::read::Arg::default()).await?;
+		let mut reader = blob.read(self, tg::read::Options::default()).await?;
 		tokio::io::copy(&mut reader, &mut writer)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
@@ -68,7 +68,7 @@ impl Server {
 				}
 				let executable = file.executable(self).await?;
 				let length = file.length(self).await?;
-				let mut reader = file.read(self, tg::blob::read::Arg::default()).await?;
+				let mut reader = file.read(self, tg::read::Options::default()).await?;
 				writer
 					.write_uvarint(1)
 					.await

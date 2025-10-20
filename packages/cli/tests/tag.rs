@@ -455,13 +455,5 @@ async fn outdated() {
 		.unwrap();
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"
-	[
-	  {
-	    "compatible": "hello/1.1.0",
-	    "current": "hello/1.1.0",
-	    "latest": "hello/2.0.0"
-	  }
-	]
-	"#);
+	assert_snapshot!(stdout, @r#"[{"current":"hello/1.1.0","compatible":"hello/1.1.0","latest":"hello/2.0.0"}]"#);
 }

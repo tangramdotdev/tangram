@@ -146,7 +146,7 @@ impl Blob {
 	where
 		H: tg::Handle,
 	{
-		let output = handle.create_blob(reader).boxed().await?;
+		let output = handle.write(reader).boxed().await?;
 		let blob = Self::with_id(output.blob);
 		Ok(blob)
 	}
@@ -168,7 +168,7 @@ impl Blob {
 		H: tg::Handle,
 	{
 		let mut bytes = Vec::new();
-		let reader = self.read(handle, tg::blob::read::Arg::default()).await?;
+		let reader = self.read(handle, tg::read::Options::default()).await?;
 		pin!(reader)
 			.read_to_end(&mut bytes)
 			.await

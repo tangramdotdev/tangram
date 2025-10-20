@@ -1,7 +1,6 @@
 use {
 	crate as tg,
-	futures::{Stream, StreamExt as _},
-	std::pin::Pin,
+	futures::{StreamExt as _, stream::BoxStream},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
@@ -18,7 +17,7 @@ impl tg::Client {
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(arg).unwrap();

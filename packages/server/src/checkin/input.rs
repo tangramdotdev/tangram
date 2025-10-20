@@ -205,7 +205,8 @@ impl Server {
 						continue;
 					};
 					state.graph.nodes[index].referrers.push(referrer);
-					let path = tg::util::path::diff(path.parent().unwrap(), &referent)?;
+					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
+						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
 					let path = if path.as_os_str().is_empty() {
 						".".into()
 					} else {
@@ -236,12 +237,12 @@ impl Server {
 			)?;
 
 			// Analyze.
-			let kind = crate::module::infer_module_kind(&path)?;
+			let kind = tg::package::module_kind_for_path(&path)?;
 			let module = tg::module::Data {
 				kind,
 				referent: tg::Referent::with_item(tg::module::data::Item::Path(path.clone())),
 			};
-			let analysis = Self::analyze_module(&module, &text);
+			let analysis = tangram_module::analyze(&module, &text);
 			for diagnostic in analysis.diagnostics {
 				state.progress.diagnostic(diagnostic);
 			}
@@ -267,7 +268,7 @@ impl Server {
 					};
 					let referent = path.parent().unwrap().join(reference_path);
 					let referent = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
-						crate::util::fs::canonicalize_parent_sync(&referent).map_err(
+						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
 							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize path"),
 						)?
 					} else {
@@ -280,7 +281,8 @@ impl Server {
 						continue;
 					};
 					state.graph.nodes[index].referrers.push(referrer);
-					let path = tg::util::path::diff(path.parent().unwrap(), &referent)?;
+					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
+						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
 					let path = if path.as_os_str().is_empty() {
 						".".into()
 					} else {
@@ -336,7 +338,7 @@ impl Server {
 
 		// If the target is in the artifacts directory, then treat it as an artifact symlink.
 		let Ok(absolute_target) =
-			crate::util::fs::canonicalize_parent_sync(path.parent().unwrap().join(&target))
+			tangram_util::fs::canonicalize_parent_sync(path.parent().unwrap().join(&target))
 		else {
 			return Ok(());
 		};

@@ -76,6 +76,7 @@ pub mod pty;
 pub mod pull;
 pub mod push;
 pub mod range;
+pub mod read;
 pub mod reference;
 pub mod referent;
 pub mod remote;
@@ -85,8 +86,8 @@ pub mod sync;
 pub mod tag;
 pub mod template;
 pub mod user;
-pub mod util;
 pub mod value;
+pub mod write;
 
 pub mod prelude {
 	pub use super::handle::{
@@ -96,10 +97,10 @@ pub mod prelude {
 }
 
 #[derive(Clone, Debug)]
-pub struct Client(Arc<Inner>);
+pub struct Client(Arc<State>);
 
 #[derive(Debug)]
-pub struct Inner {
+pub struct State {
 	url: Uri,
 	sender: self::http::Sender,
 	service: self::http::Service,
@@ -111,7 +112,7 @@ impl Client {
 	pub fn new(url: Uri, version: Option<String>) -> Self {
 		let version = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 		let (sender, service) = Self::service(&url, &version);
-		Self(Arc::new(Inner {
+		Self(Arc::new(State {
 			url,
 			sender,
 			service,
@@ -157,7 +158,7 @@ impl Client {
 }
 
 impl Deref for Client {
-	type Target = Inner;
+	type Target = State;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0

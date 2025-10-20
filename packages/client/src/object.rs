@@ -34,7 +34,7 @@ where
 	let mut stack = objects.into_iter().collect::<Vec<_>>();
 
 	// Keep track of objects we've visited already.
-	let mut visited = HashSet::<_, fnv::FnvBuildHasher>::default();
+	let mut visited = HashSet::<_, tg::id::BuildHasher>::default();
 
 	// Recursive DFS.
 	while let Some(object) = stack.pop() {

@@ -3,7 +3,7 @@ use {
 	crate::Server,
 	std::{collections::BTreeMap, path::Path},
 	tangram_client as tg,
-	tangram_itertools::IteratorExt as _,
+	tangram_util::iter::Ext as _,
 };
 
 impl Server {
@@ -79,7 +79,7 @@ impl Server {
 				let lockfile_path = state.root_path.join(tg::package::LOCKFILE_FILE_NAME);
 
 				// Remove an existing lockfile.
-				crate::util::fs::remove(&lockfile_path).await.ok();
+				tangram_util::fs::remove(&lockfile_path).await.ok();
 
 				// Do not write an empty lock.
 				if lock.nodes.is_empty() {

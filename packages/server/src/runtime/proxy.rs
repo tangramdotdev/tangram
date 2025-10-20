@@ -1,7 +1,7 @@
 use {
 	crate::Server,
-	futures::{Stream, TryStreamExt as _, stream},
-	std::{ops::Deref, path::PathBuf, pin::Pin, sync::Arc},
+	futures::{Stream, TryStreamExt as _, stream, stream::BoxStream},
+	std::{ops::Deref, path::PathBuf, sync::Arc},
 	tangram_client as tg,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -193,33 +193,14 @@ impl tg::Handle for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
-	fn create_blob(
-		&self,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::blob::create::Output>> {
-		self.server.create_blob(reader)
-	}
-
 	fn sync(
 		&self,
 		arg: tg::sync::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
 		self.server.sync(arg, stream)
-	}
-
-	fn try_read_blob_stream(
-		&self,
-		id: &tg::blob::Id,
-		arg: tg::blob::read::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::blob::read::Event>> + Send + 'static>,
-		>,
-	> {
-		self.server.try_read_blob_stream(id, arg)
 	}
 
 	async fn try_get(
@@ -230,6 +211,24 @@ impl tg::Handle for Proxy {
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		Err::<stream::Empty<_>, _>(tg::error!("forbidden"))
+	}
+
+	fn try_read_stream(
+		&self,
+		arg: tg::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>,
+		>,
+	> {
+		self.server.try_read_stream(arg)
+	}
+
+	fn write(
+		&self,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<tg::write::Output>> {
+		self.server.write(reader)
 	}
 }
 
@@ -468,7 +467,7 @@ impl tg::handle::Pipe for Proxy {
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pipe(id, arg, stream)
 	}
@@ -508,7 +507,7 @@ impl tg::handle::Pty for Proxy {
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: Pin<Box<dyn Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>,
+		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.server.write_pty(id, arg, stream)
 	}

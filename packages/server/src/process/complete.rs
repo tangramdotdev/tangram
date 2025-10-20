@@ -1,6 +1,7 @@
 use {
 	crate::Server,
-	tangram_client::{self as tg, util::serde::is_false},
+	tangram_client as tg,
+	tangram_util::serde::is_false,
 };
 
 #[cfg(feature = "postgres")]

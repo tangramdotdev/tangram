@@ -1086,6 +1086,7 @@ async fn tagged_object() {
 	        "hello": {
 	          "item": "fil_01sp9ta6qgjk4msgsw7fxck19fxxeqec551wbsc8w9gjvm59vs9w00",
 	          "options": {
+	            "id": "fil_01sp9ta6qgjk4msgsw7fxck19fxxeqec551wbsc8w9gjvm59vs9w00",
 	            "tag": "hello"
 	          }
 	        }
@@ -1153,6 +1154,7 @@ async fn simple_tagged_package() {
 	        "a": {
 	          "item": "dir_01va3y2d84s8st8xbsnka859w7rf90yc9kvsbb5zskhq5nn8q0vnsg",
 	          "options": {
+	            "id": "dir_01va3y2d84s8st8xbsnka859w7rf90yc9kvsbb5zskhq5nn8q0vnsg",
 	            "tag": "a"
 	          }
 	        }
@@ -1279,6 +1281,7 @@ async fn tagged_package_with_cyclic_dependency() {
 	        "a": {
 	          "item": "dir_010c0ty66164s1qxzc6c8f6wr364pns1gfwkczzr9za6bnd1ftev7g",
 	          "options": {
+	            "id": "dir_010c0ty66164s1qxzc6c8f6wr364pns1gfwkczzr9za6bnd1ftev7g",
 	            "tag": "a"
 	          }
 	        }
@@ -1820,6 +1823,7 @@ async fn tag_diamond_dependency() {
 	        "d/%5E1": {
 	          "item": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	          "options": {
+	            "id": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	            "tag": "d/1.1.0"
 	          }
 	        }
@@ -1831,6 +1835,7 @@ async fn tag_diamond_dependency() {
 	        "d/%5E1.0": {
 	          "item": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	          "options": {
+	            "id": "dir_01pxhm32h8qysrdjmpwastx1p1qqtnvkzq4n27gkwwgj50vmzs28a0",
 	            "tag": "d/1.1.0"
 	          }
 	        }
@@ -2083,6 +2088,7 @@ async fn update_tagged_package() {
 	        "a/%5E1": {
 	          "item": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
 	          "options": {
+	            "id": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
 	            "tag": "a/1.0.0"
 	          }
 	        }
@@ -2142,9 +2148,10 @@ async fn update_tagged_package() {
 	      "kind": "file",
 	      "dependencies": {
 	        "a/%5E1": {
-	          "item": "dir_01q46gmjms1bbs1hqz1jwq076c3w8gyghm5anbj8nx9sffephf8nyg",
+	          "item": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
 	          "options": {
-	            "tag": "a/1.1.0"
+	            "id": "dir_0183znhfqkp82txvn009a7ahnemg9fvkfztm7qrk2k74dx17mjm2gg",
+	            "tag": "a/1.0.0"
 	          }
 	        }
 	      }
@@ -2186,6 +2193,7 @@ async fn update_tagged_package() {
 	        "a/%5E1": {
 	          "item": "dir_01q46gmjms1bbs1hqz1jwq076c3w8gyghm5anbj8nx9sffephf8nyg",
 	          "options": {
+	            "id": "dir_01q46gmjms1bbs1hqz1jwq076c3w8gyghm5anbj8nx9sffephf8nyg",
 	            "tag": "a/1.1.0"
 	          }
 	        }

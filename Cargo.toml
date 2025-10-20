@@ -4,13 +4,15 @@ members = [
   "packages/cli",
   "packages/cli/test",
   "packages/client",
+  "packages/compiler",
   "packages/database",
   "packages/either",
   "packages/futures",
   "packages/http",
   "packages/ignore",
-  "packages/itertools",
+  "packages/js",
   "packages/messenger",
+  "packages/module",
   "packages/sandbox",
   "packages/serialize",
   "packages/server",
@@ -18,6 +20,7 @@ members = [
   "packages/store",
   "packages/temp",
   "packages/uri",
+  "packages/util",
   "packages/v8",
   "packages/version",
   "packages/vfs",
@@ -117,7 +120,6 @@ pin-project = "1"
 pretty_assertions = "1"
 proc-macro2 = "1"
 quote = "1"
-radix_trie = "0.3"
 rand = "0.9"
 ratatui = "0.29"
 reflink-copy = "0.1"
@@ -141,13 +143,15 @@ syn = "2"
 sync_wrapper = "1"
 tangram_cli_test = { path = "packages/cli/test" }
 tangram_client = { path = "packages/client" }
+tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }
 tangram_either = { path = "packages/either" }
 tangram_futures = { path = "packages/futures" }
 tangram_http = { path = "packages/http" }
 tangram_ignore = { path = "packages/ignore" }
-tangram_itertools = { path = "packages/itertools" }
+tangram_js = { path = "packages/js" }
 tangram_messenger = { path = "packages/messenger" }
+tangram_module = { path = "packages/module" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server", default-features = false }
@@ -155,6 +159,7 @@ tangram_session = { path = "packages/session", default-features = false }
 tangram_store = { path = "packages/store", default-features = false }
 tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }
+tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }
 tangram_version = { path = "packages/version" }
 tangram_vfs = { path = "packages/vfs" }

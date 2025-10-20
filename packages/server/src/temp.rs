@@ -1,6 +1,7 @@
 use {
-	crate::{Server, util::fs::remove},
+	crate::Server,
 	std::path::{Path, PathBuf},
+	tangram_util::fs::remove,
 };
 
 pub struct Temp {
@@ -45,7 +46,7 @@ impl Drop for Temp {
 				let path = self.path.clone();
 				async move {
 					remove(&path).await.ok();
-					server.temp_paths.remove(&path);
+					server.temps.remove(&path);
 				}
 			});
 		}

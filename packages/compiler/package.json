@@ -1,9 +1,0 @@
-{
-	"name": "@tangramdotdev/compiler",
-	"private": true,
-	"scripts": {
-		"check": "tsc && biome check src",
-		"format": "biome check --write src"
-	},
-	"type": "module"
-}

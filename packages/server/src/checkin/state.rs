@@ -1,5 +1,5 @@
 use {
-	crate::blob::create::Blob,
+	crate::write::Output,
 	bytes::Bytes,
 	indexmap::IndexMap,
 	smallvec::SmallVec,
@@ -15,7 +15,7 @@ use {
 pub struct State {
 	pub arg: tg::checkin::Arg,
 	pub artifacts_path: Option<PathBuf>,
-	pub blobs: HashMap<tg::blob::Id, Blob, tg::id::BuildHasher>,
+	pub blobs: HashMap<tg::blob::Id, Output, tg::id::BuildHasher>,
 	pub fixup_sender: Option<std::sync::mpsc::Sender<FixupMessage>>,
 	pub graph: Graph,
 	pub ignorer: Option<ignore::Ignorer>,
@@ -63,7 +63,7 @@ pub struct Directory {
 
 #[derive(Clone, Debug)]
 pub struct File {
-	pub contents: Option<Either<crate::blob::create::Blob, tg::blob::Id>>,
+	pub contents: Option<Either<crate::write::Output, tg::blob::Id>>,
 	pub dependencies:
 		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 	pub executable: bool,
@@ -106,7 +106,7 @@ impl Graph {
 		}
 
 		// Compute the relative path.
-		tg::util::path::diff(referrer_path, referent_path).ok()
+		tangram_util::path::diff(referrer_path, referent_path).ok()
 	}
 }
 

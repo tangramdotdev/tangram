@@ -1,13 +1,10 @@
 use {
-	crate::{
-		self as tg,
-		prelude::*,
-		util::serde::{BytesBase64, SeekFromNumberOrString},
-	},
+	crate::{self as tg, prelude::*},
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _, future},
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::{BytesBase64, SeekFromNumberOrString},
 };
 
 #[serde_as]

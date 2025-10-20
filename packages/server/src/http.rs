@@ -181,7 +181,6 @@ impl Server {
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
 			(http::Method::POST, ["cache"]) => Self::handle_cache_request(handle, request).boxed(),
-			#[cfg(feature = "v8")]
 			(http::Method::POST, ["check"]) => Self::handle_check_request(handle, request).boxed(),
 			(http::Method::POST, ["checkin"]) => {
 				Self::handle_checkin_request(handle, request).boxed()
@@ -192,23 +191,22 @@ impl Server {
 			(http::Method::POST, ["clean"]) => {
 				Self::handle_server_clean_request(handle, request).boxed()
 			},
-			#[cfg(feature = "v8")]
-			(http::Method::POST, ["document"]) => Self::handle_document_request(handle, request).boxed(),
-			#[cfg(feature = "v8")]
-			(http::Method::POST, ["format"]) => Self::handle_format_request(handle, request).boxed(),
+			(http::Method::POST, ["document"]) => {
+				Self::handle_document_request(handle, request).boxed()
+			},
+			(http::Method::POST, ["format"]) => {
+				Self::handle_format_request(handle, request).boxed()
+			},
 			(http::Method::GET, ["health"]) => {
 				Self::handle_server_health_request(handle, request).boxed()
 			},
 			(http::Method::POST, ["index"]) => Self::handle_index_request(handle, request).boxed(),
-			#[cfg(feature = "v8")]
 			(http::Method::POST, ["lsp"]) => Self::handle_lsp_request(handle, request).boxed(),
 			(http::Method::POST, ["pull"]) => Self::handle_pull_request(handle, request).boxed(),
 			(http::Method::POST, ["push"]) => Self::handle_push_request(handle, request).boxed(),
+			(http::Method::GET, ["read"]) => Self::handle_read_request(handle, request).boxed(),
 			(http::Method::POST, ["sync"]) => Self::handle_sync_request(handle, request).boxed(),
-			(http::Method::POST, ["blobs"]) => Self::handle_blob_request(handle, request).boxed(),
-			(http::Method::GET, ["blobs", blob, "read"]) => {
-				Self::handle_read_request(handle, request, blob).boxed()
-			},
+			(http::Method::POST, ["write"]) => Self::handle_write_request(handle, request).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => {
 				Self::handle_get_request(handle, request, path).boxed()
 			},
