@@ -32,6 +32,7 @@ fn main() {
 
 	// Build the js.
 	println!("cargo:rerun-if-changed=../../packages/clients/js");
+	println!("cargo:rerun-if-changed=./src");
 	std::process::Command::new("bun")
 		.args(["run", "check"])
 		.status()

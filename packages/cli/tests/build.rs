@@ -1239,6 +1239,20 @@ async fn watchdog_heartbeat_expiration() {
 	);
 }
 
+#[tokio::test]
+async fn uint8array() {
+	let artifact = temp::directory! {
+		"tangram.ts" => r"export default () => new Uint8Array([1,2,3]);",
+	}
+	.into();
+	let reference = ".";
+	let args = vec![];
+	let output = test(artifact, reference, args).await;
+	assert_success!(output);
+	let stdout = std::str::from_utf8(&output.stdout).unwrap();
+	assert_snapshot!(stdout, @r#"tg.bytes("AQID")"#);
+}
+
 async fn test(
 	artifact: temp::Artifact,
 	reference: &str,

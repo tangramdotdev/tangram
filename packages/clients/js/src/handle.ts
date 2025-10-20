@@ -80,28 +80,28 @@ export namespace Handle {
 
 		encoding: {
 			base64: {
-				encode: (value: Uint8Array) => string;
 				decode: (value: string) => Uint8Array;
+				encode: (value: Uint8Array) => string;
 			};
 			hex: {
-				encode: (value: Uint8Array) => string;
 				decode: (value: string) => Uint8Array;
+				encode: (value: Uint8Array) => string;
 			};
 			json: {
-				encode: (value: unknown) => string;
 				decode: (value: string) => unknown;
+				encode: (value: unknown) => string;
 			};
 			toml: {
-				encode: (value: unknown) => string;
 				decode: (value: string) => unknown;
+				encode: (value: unknown) => string;
 			};
 			utf8: {
-				encode: (value: string) => Uint8Array;
 				decode: (value: Uint8Array) => string;
+				encode: (value: string) => Uint8Array;
 			};
 			yaml: {
-				encode: (value: unknown) => string;
 				decode: (value: string) => unknown;
+				encode: (value: unknown) => string;
 			};
 		};
 

@@ -211,24 +211,16 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	{
 		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(self.value)
 			.map_err(|_| Error::custom("expected a uint8array"))?;
-		let bytes = if let Some(data) = uint8_array
-			.get_backing_store()
-			.and_then(|backing_store| backing_store.data())
-		{
-			let offset = uint8_array.byte_offset();
-			let length = uint8_array.byte_length();
-			let slice = unsafe {
-				std::slice::from_raw_parts(data.cast::<u8>().as_ptr().add(offset), length)
-			};
-			slice.to_owned()
-		} else {
-			let length = uint8_array.byte_length();
-			if length > 0 {
-				return Err(Error::custom("invalid uint8array"));
-			}
-			Vec::new()
-		};
-		visitor.visit_byte_buf(bytes)
+
+		let length = uint8_array.byte_length();
+		let mut buffer = vec![0u8; length];
+		let copied = uint8_array.copy_contents(&mut buffer);
+
+		if copied != length {
+			return Err(Error::custom("failed to copy all bytes from uint8array"));
+		}
+
+		visitor.visit_byte_buf(buffer)
 	}
 
 	fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>

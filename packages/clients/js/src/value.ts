@@ -26,7 +26,7 @@ export namespace Value {
 		} else if (tg.Object.is(value)) {
 			return { kind: "object", value: value.id };
 		} else if (value instanceof Uint8Array) {
-			return { kind: "bytes", value: value };
+			return { kind: "bytes", value: tg.encoding.base64.encode(value) };
 		} else if (value instanceof tg.Mutation) {
 			return { kind: "mutation", value: tg.Mutation.toData(value) };
 		} else if (value instanceof tg.Template) {
@@ -63,7 +63,7 @@ export namespace Value {
 		} else if (data.kind === "object") {
 			return tg.Object.withId(data.value);
 		} else if (data.kind === "bytes") {
-			return data.value;
+			return tg.encoding.base64.decode(data.value);
 		} else if (data.kind === "mutation") {
 			return tg.Mutation.fromData(data.value);
 		} else if (data.kind === "template") {
@@ -189,7 +189,7 @@ export namespace Value {
 		| Array<tg.Value.Data>
 		| { kind: "map"; value: { [key: string]: tg.Value.Data } }
 		| { kind: "object"; value: tg.Object.Id }
-		| { kind: "bytes"; value: Uint8Array }
+		| { kind: "bytes"; value: string }
 		| { kind: "mutation"; value: tg.Mutation.Data }
 		| { kind: "template"; value: tg.Template.Data };
 }

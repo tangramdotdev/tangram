@@ -37,51 +37,51 @@ tg.setHandle({
 	},
 	encoding: {
 		base64: {
-			encode(value: Uint8Array): string {
-				return syscall("encoding_base64_encode", value);
-			},
 			decode(value: string): Uint8Array {
 				return syscall("encoding_base64_decode", value);
 			},
+			encode(value: Uint8Array): string {
+				return syscall("encoding_base64_encode", value);
+			},
 		},
 		hex: {
-			encode(value: Uint8Array): string {
-				return syscall("encoding_hex_encode", value);
-			},
 			decode(value: string): Uint8Array {
 				return syscall("encoding_hex_decode", value);
 			},
+			encode(value: Uint8Array): string {
+				return syscall("encoding_hex_encode", value);
+			},
 		},
 		json: {
-			encode(value: unknown): string {
-				return syscall("encoding_json_encode", value);
-			},
 			decode(value: string): unknown {
 				return syscall("encoding_json_decode", value);
 			},
+			encode(value: unknown): string {
+				return syscall("encoding_json_encode", value);
+			},
 		},
 		toml: {
-			encode(value: unknown): string {
-				return syscall("encoding_toml_encode", value);
-			},
 			decode(value: string): unknown {
 				return syscall("encoding_toml_decode", value);
 			},
+			encode(value: unknown): string {
+				return syscall("encoding_toml_encode", value);
+			},
 		},
 		utf8: {
-			encode(value: string): Uint8Array {
-				return syscall("encoding_utf8_encode", value);
-			},
 			decode(value: Uint8Array): string {
 				return syscall("encoding_utf8_decode", value);
 			},
+			encode(value: string): Uint8Array {
+				return syscall("encoding_utf8_encode", value);
+			},
 		},
 		yaml: {
-			encode(value: unknown): string {
-				return syscall("encoding_yaml_encode", value);
-			},
 			decode(value: string): unknown {
 				return syscall("encoding_yaml_decode", value);
+			},
+			encode(value: unknown): string {
+				return syscall("encoding_yaml_encode", value);
 			},
 		},
 	},

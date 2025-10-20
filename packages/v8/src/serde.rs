@@ -8,6 +8,7 @@ use {
 mod deserializer;
 mod serializer;
 
+#[derive(Clone, Debug)]
 pub struct Serde<T>(pub T);
 
 impl<T> Deref for Serde<T> {
@@ -44,10 +45,9 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let deserializer = Deserializer::new(scope, value);
-		let value =
-			Self(T::deserialize(deserializer).map_err(|source| {
-				tg::error!(!source, "failed to deserialize the value from v8")
-			})?);
+		let value = T::deserialize(deserializer)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the value from v8"))?;
+		let value = Self(value);
 		Ok(value)
 	}
 }

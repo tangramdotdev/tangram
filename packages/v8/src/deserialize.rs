@@ -471,23 +471,15 @@ impl<'a> Deserialize<'a> for Bytes {
 	) -> tg::Result<Self> {
 		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(value)
 			.map_err(|source| tg::error!(!source, "expected a Uint8Array"))?;
-		let bytes = if let Some(data) = uint8_array
-			.get_backing_store()
-			.and_then(|backing_store| backing_store.data())
-		{
-			let offset = uint8_array.byte_offset();
-			let length = uint8_array.byte_length();
-			let slice = unsafe {
-				std::slice::from_raw_parts(data.cast::<u8>().as_ptr().add(offset), length)
-			};
-			Bytes::copy_from_slice(slice)
-		} else {
-			let length = uint8_array.byte_length();
-			if length > 0 {
-				return Err(tg::error!("invalid uint8array"));
-			}
-			Bytes::new()
-		};
-		Ok(bytes)
+
+		let length = uint8_array.byte_length();
+		let mut buffer = vec![0u8; length];
+		let copied = uint8_array.copy_contents(&mut buffer);
+
+		if copied != length {
+			return Err(tg::error!("failed to copy all bytes from uint8array"));
+		}
+
+		Ok(buffer.into())
 	}
 }

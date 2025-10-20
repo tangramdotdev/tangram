@@ -227,6 +227,20 @@ impl<'de> serde::Deserialize<'de> for Data {
 				Ok(Data::String(value))
 			}
 
+			fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(Data::Bytes(Bytes::copy_from_slice(value)))
+			}
+
+			fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(Data::Bytes(value.into()))
+			}
+
 			fn visit_seq<A>(self, mut seq: A) -> tg::Result<Self::Value, A::Error>
 			where
 				A: serde::de::SeqAccess<'de>,
