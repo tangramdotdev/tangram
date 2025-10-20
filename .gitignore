@@ -1,7 +1,6 @@
 *.pending-snap
 .DS_Store
 /.claude
-/node_modules
-/packages/*/node_modules
 /release
 /target
+node_modules
