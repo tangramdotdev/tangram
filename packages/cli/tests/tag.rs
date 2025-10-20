@@ -113,10 +113,12 @@ async fn multiple() {
 	let tags = [
 		"foo",
 		"bar",
+		"test/0.0.1/foo/bar",
 		"test/1.0.0",
 		"test/1.1.0",
 		"test/1.2.0",
 		"test/10.0.0",
+		"test/foo/bar/baz",
 		"test/hello/1.0.0",
 		"test/world/1.0.0",
 	];
@@ -137,6 +139,19 @@ async fn multiple() {
 	}
 
 	// List.
+	let pattern = "";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg(pattern)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"bar","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"foo","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test"}]"#);
+
+	// List.
 	let pattern = "test";
 	let output = server
 		.tg()
@@ -147,7 +162,20 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+
+	// List.
+	let pattern = "test/*/*";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg(pattern)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo/bar"},{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/0.0.1/foo"}]"#);
 
 	// List.
 	let pattern = "test/*";
@@ -160,7 +188,74 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+
+	// List.
+	let pattern = "test/=0.0.1/*";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg(pattern)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/0.0.1/foo"}]"#);
+
+	// List.
+	let pattern = "test/=0.0.1";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg(pattern)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/0.0.1"}]"#);
+
+	// List.
+	let pattern = "test/*";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg(pattern)
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+
+	// List.
+	let pattern = "test/*";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg(pattern)
+		.arg("--recursive")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/foo/bar"},{"tag":"test/foo/bar/baz","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/hello"},{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/0.0.1"},{"tag":"test/0.0.1/foo"},{"tag":"test/0.0.1/foo/bar","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+
+	// List.
+	let pattern = "test";
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg(pattern)
+		.arg("--recursive")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test"},{"tag":"test/foo"},{"tag":"test/foo/bar"},{"tag":"test/foo/bar/baz","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/hello"},{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/0.0.1"},{"tag":"test/0.0.1/foo"},{"tag":"test/0.0.1/foo/bar","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
 
 	// Get.
 	let pattern = "test";
@@ -403,6 +498,116 @@ async fn delete() {
 	assert_failure!(output);
 	let stderr = std::str::from_utf8(&output.stderr).unwrap();
 	assert!(stderr.contains("cannot delete an empty pattern"));
+}
+
+#[tokio::test]
+async fn delete_recursive() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag an artifact.
+	let artifact: temp::Artifact = temp::file!("test").into();
+	let temp = Temp::new();
+	let path = temp.path();
+	artifact.to_path(path).await.unwrap();
+
+	let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
+	assert_success!(output);
+	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+
+	// Create a nested tag structure: test/a/b/c, test/a/b/d, test/a/e
+	let tags = ["test/a/b/c", "test/a/b/d", "test/a/e"];
+	for tag in tags {
+		let output = server
+			.tg()
+			.arg("tag")
+			.arg("put")
+			.arg(tag)
+			.arg(id)
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+	}
+
+	// Verify tags exist.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg("test/*")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Recursively delete from the root - should delete all children in correct order.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("--recursive")
+		.arg("test/*")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"deleted":["test/a/b/c","test/a/b/d","test/a/b","test/a/e","test/a"]}"#);
+
+	// Verify all tags are deleted.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("list")
+		.arg("test/*")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @"[]");
+}
+
+#[tokio::test]
+async fn delete_recursive_deep_hierarchy() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag an artifact.
+	let artifact: temp::Artifact = temp::file!("test").into();
+	let temp = Temp::new();
+	let path = temp.path();
+	artifact.to_path(path).await.unwrap();
+
+	let output = server.tg().arg("checkin").arg(path).output().await.unwrap();
+	assert_success!(output);
+	let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+
+	// Create a deep hierarchy to test sorting by length.
+	let tags = ["test/1/2/3/4/5"];
+	for tag in tags {
+		let output = server
+			.tg()
+			.arg("tag")
+			.arg("put")
+			.arg(tag)
+			.arg(id)
+			.output()
+			.await
+			.unwrap();
+		assert_success!(output);
+	}
+
+	// Recursively delete - should process in order from deepest to shallowest.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("--recursive")
+		.arg("test/*")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+	// Verify the order: longest paths first (children before parents).
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"deleted":["test/1/2/3/4/5","test/1/2/3/4","test/1/2/3","test/1/2","test/1"]}"#);
 }
 
 #[tokio::test]

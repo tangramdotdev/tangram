@@ -7,6 +7,7 @@ impl Server {
 	pub(crate) async fn delete_tag_postgres(
 		database: &tangram_database::postgres::Database,
 		pattern: &tg::tag::Pattern,
+		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
 		if pattern.is_empty() {
 			return Err(tg::error!("cannot delete an empty pattern"));
@@ -24,7 +25,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Get all tags matching the pattern.
-		let matches = Self::match_tags_postgres(&transaction, pattern).await?;
+		let mut matches = Self::match_tags_postgres(&transaction, pattern, recursive).await?;
+
+		// Sort by tag length descending to delete leaves before branches.
+		matches.sort_by_key(|m| std::cmp::Reverse(m.tag.as_str().len()));
 
 		// Validate and delete each match.
 		let mut deleted = Vec::new();
@@ -45,7 +49,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				deleted.push(m.tag);
 			} else {
-				// This is a branch tag, check if it has children.
+				// This is a branch tag.
 				let statement = indoc!(
 					"
 						select count(*) from tags

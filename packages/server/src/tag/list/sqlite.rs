@@ -51,55 +51,54 @@ impl Server {
 		arg: &tg::tag::list::Arg,
 	) -> tg::Result<tg::tag::list::Output> {
 		// Get all tags matching the pattern.
-		let matches = Self::match_tags_sqlite_sync(transaction, &arg.pattern)?;
+		let matches = Self::match_tags_sqlite_sync(transaction, &arg.pattern, arg.recursive)?;
 
-		// Expand.
-		let mut expanded = Vec::new();
-		for m in matches {
-			if m.item.is_none() {
-				// This is a branch tag, get its children.
-				let statement = indoc!(
-					"
-						select id, component, item
-						from tags
-						where parent = ?1;
-					"
-				);
-				let mut statement = transaction
-					.prepare_cached(statement)
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-				let params = sqlite::params![m.id];
-				let mut rows = statement
-					.query(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				while let Some(row) = rows
-					.next()
-					.map_err(|source| tg::error!(!source, "failed to get the next row"))?
-				{
-					let id = row
-						.get::<_, u64>(0)
-						.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-					let component = row
-						.get::<_, String>(1)
-						.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-					let item = row
-						.get::<_, Option<String>>(2)
-						.map_err(|source| tg::error!(!source, "failed to get the item"))?
-						.map(|s| s.parse())
-						.transpose()
-						.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
-					let mut tag = m.tag.clone();
-					tag.push(&component);
-					let m = Match { id, tag, item };
-					expanded.push(m);
-				}
-			} else {
-				// This is a leaf tag, keep it as is.
+		let mut output = matches;
+
+		// Expand the directory if the pattern doesn't contain wildcards or operators and matches exactly one directory.
+		if !arg.recursive && !arg.pattern.as_str().contains(['*', '=', '>', '<', '^']) && !arg.pattern.is_empty() && output.len() == 1
+			&& let Some(m) = output.first()
+			&& m.item.is_none()
+		{
+			// This is a branch tag, get its children.
+			let statement = indoc!(
+				"
+					select id, component, item
+					from tags
+					where parent = ?1;
+			"
+			);
+			let mut statement = transaction
+				.prepare_cached(statement)
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![m.id];
+			let mut rows = statement
+				.query(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let mut expanded = Vec::new();
+			while let Some(row) = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+			{
+				let id = row
+					.get::<_, u64>(0)
+					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+				let component = row
+					.get::<_, String>(1)
+					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+				let item = row
+					.get::<_, Option<String>>(2)
+					.map_err(|source| tg::error!(!source, "failed to get the item"))?
+					.map(|s| s.parse())
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+				let mut tag = m.tag.clone();
+				tag.push(&component);
+				let m = Match { id, tag, item };
 				expanded.push(m);
 			}
+			output = expanded;
 		}
-
-		let mut output = expanded;
 
 		// Sort the matches.
 		output.sort_by(|a, b| a.tag.cmp(&b.tag));
@@ -131,7 +130,48 @@ impl Server {
 	pub fn match_tags_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		pattern: &tg::tag::Pattern,
+		recursive: bool,
 	) -> tg::Result<Vec<Match>> {
+		// If the pattern is empty, return all root-level tags.
+		if pattern.is_empty() {
+			let statement = indoc!(
+				"
+					select id, component, item
+					from tags
+					where parent = 0;
+				"
+			);
+			let mut statement = transaction
+				.prepare_cached(statement)
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let mut rows = statement
+				.query([])
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let mut matches = Vec::new();
+			while let Some(row) = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+			{
+				let id = row
+					.get::<_, u64>(0)
+					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+				let component = row
+					.get::<_, String>(1)
+					.map_err(|source| tg::error!(!source, "failed to get the component"))?;
+				let item = row
+					.get::<_, Option<String>>(2)
+					.map_err(|source| tg::error!(!source, "failed to get the item"))?
+					.map(|s| s.parse())
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+				let mut tag = tg::Tag::empty();
+				tag.push(&component);
+				let m = Match { id, tag, item };
+				matches.push(m);
+			}
+			return Ok(matches);
+		}
+
 		let mut matches: Vec<Option<Match>> = vec![None];
 		for pattern in pattern.components() {
 			let mut new = Vec::new();
@@ -249,7 +289,56 @@ impl Server {
 			matches = new;
 		}
 
-		let output = matches.into_iter().flatten().collect::<Vec<_>>();
+		let mut output = matches.into_iter().flatten().collect::<Vec<_>>();
+
+		// Recursively expand branches if requested.
+		if recursive {
+			let mut to_explore: Vec<Match> = output.clone();
+
+			while let Some(m) = to_explore.pop() {
+				if m.item.is_none() {
+					// This is a branch tag, get its children.
+					let statement = indoc!(
+						"
+							select id, component, item
+							from tags
+							where parent = ?1;
+						"
+					);
+					let mut statement = transaction
+						.prepare_cached(statement)
+						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					let params = sqlite::params![m.id];
+					let mut rows = statement
+						.query(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+					while let Some(row) = rows
+						.next()
+						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+					{
+						let id = row
+							.get::<_, u64>(0)
+							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+						let component = row
+							.get::<_, String>(1)
+							.map_err(|source| tg::error!(!source, "failed to get the component"))?;
+						let item = row
+							.get::<_, Option<String>>(2)
+							.map_err(|source| tg::error!(!source, "failed to get the item"))?
+							.map(|s| s.parse())
+							.transpose()
+							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+						let mut tag = m.tag.clone();
+						tag.push(&component);
+						let child = Match { id, tag, item };
+						output.push(child.clone());
+						to_explore.push(child);
+					}
+				}
+			}
+		}
+
 		Ok(output)
 	}
 }

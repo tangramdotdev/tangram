@@ -65,8 +65,9 @@ where
 		for (pattern, current) in dependencies {
 			let compatible = handle
 				.list_tags(tg::tag::list::Arg {
-					pattern: pattern.clone(),
 					length: Some(1),
+					pattern: pattern.clone(),
+					recursive: false,
 					remote: None,
 					reverse: true,
 				})
@@ -82,8 +83,9 @@ where
 			let pattern = tg::tag::Pattern::new(components.join("/"));
 			let latest = handle
 				.list_tags(tg::tag::list::Arg {
-					pattern: pattern.clone(),
 					length: Some(1),
+					pattern: pattern.clone(),
+					recursive: false,
 					remote: None,
 					reverse: true,
 				})
