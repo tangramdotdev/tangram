@@ -14,8 +14,8 @@ pub struct Args {
 	pub options: Options,
 
 	/// The reference to the command.
-	#[arg(index = 1)]
-	pub reference: Option<tg::Reference>,
+	#[arg(default_value = ".", index = 1)]
+	pub reference: tg::Reference,
 
 	/// Set arguments.
 	#[arg(index = 2, trailing_var_arg = true)]
@@ -193,9 +193,15 @@ pub struct Output {
 
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
 		let Output { output, .. } = self
-			.spawn(args.options, reference, args.trailing, None, None, None)
+			.spawn(
+				args.options,
+				args.reference,
+				args.trailing,
+				None,
+				None,
+				None,
+			)
 			.boxed()
 			.await?;
 		Self::print_json(&output, None).await?;

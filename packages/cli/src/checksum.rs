@@ -30,7 +30,7 @@ impl Cli {
 			let reference = tg::Reference::with_object(command.into());
 			let args = crate::build::Args {
 				options: args.build,
-				reference: Some(reference),
+				reference,
 				trailing: Vec::new(),
 			};
 			self.command_build(args).await?;
@@ -41,7 +41,7 @@ impl Cli {
 			let reference = tg::Reference::with_object(command.into());
 			let args = crate::build::Args {
 				options: args.build,
-				reference: Some(reference),
+				reference,
 				trailing: Vec::new(),
 			};
 			self.command_build(args).await?;

@@ -16,8 +16,8 @@ pub struct Args {
 	pub options: Options,
 
 	/// The reference to the command.
-	#[arg(index = 1)]
-	pub reference: Option<tg::Reference>,
+	#[arg(default_value = ".", index = 1)]
+	pub reference: tg::Reference,
 
 	/// Set arguments.
 	#[arg(index = 2, trailing_var_arg = true)]
@@ -78,9 +78,6 @@ impl Cli {
 			reference,
 			trailing,
 		} = args;
-
-		// Get the reference.
-		let reference = reference.unwrap_or_else(|| ".".parse().unwrap());
 
 		// Spawn the process.
 		let sandbox =
