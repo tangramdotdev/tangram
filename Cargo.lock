@@ -5577,6 +5577,7 @@ dependencies = [
  "indoc",
  "oxc",
  "oxc_formatter",
+ "scopeguard",
  "tangram_client",
  "tangram_either",
  "tangram_util",

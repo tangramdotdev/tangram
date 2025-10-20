@@ -15,6 +15,7 @@ workspace = true
 
 [build-dependencies]
 glob = { workspace = true }
+scopeguard = { workspace = true }
 
 [dependencies]
 fnv = { workspace = true }

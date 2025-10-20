@@ -17,6 +17,7 @@ workspace = true
 data-encoding = { workspace = true }
 glob = { workspace = true }
 reqwest = { workspace = true }
+scopeguard = { workspace = true }
 serde_json = { workspace = true }
 v8 = { workspace = true }
 

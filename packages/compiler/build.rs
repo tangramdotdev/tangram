@@ -10,6 +10,17 @@ fn main() {
 	println!("cargo:rerun-if-env-changed=NODE_PATH");
 	if std::env::var("NODE_PATH").ok().is_none() {
 		println!("cargo:rerun-if-changed=../../bun.lock");
+
+		// Acquire an exclusive lock on the node_modules.lock file to ensure only one build script runs bun install at a time.
+		let lock_path = Path::new("../../node_modules.lock");
+		let lock_file = std::fs::File::create(lock_path).unwrap();
+		lock_file.lock().unwrap();
+
+		// Ensure the lock file is deleted when we're done.
+		let _guard = scopeguard::guard((), |()| {
+			let _ = std::fs::remove_file(lock_path);
+		});
+
 		std::process::Command::new("bun")
 			.args(["install", "--frozen-lockfile"])
 			.status()
