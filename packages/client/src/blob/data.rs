@@ -1,7 +1,7 @@
 use {
+	crate as tg,
 	byteorder::{ReadBytesExt as _, WriteBytesExt as _},
 	bytes::Bytes,
-	crate as tg,
 	serde_with::serde_as,
 	std::{collections::BTreeSet, io::Write as _},
 	tangram_util::serde::BytesBase64,

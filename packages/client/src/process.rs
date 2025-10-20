@@ -1,9 +1,10 @@
 use {
-	crate::{self as tg, prelude::*},	tangram_util::arc::Ext as _,
+	crate::{self as tg, prelude::*},
 	std::{
 		ops::Deref,
 		sync::{Arc, Mutex, RwLock},
 	},
+	tangram_util::arc::Ext as _,
 };
 
 pub use self::{

@@ -1,7 +1,8 @@
 use {
 	super::{Builder, Data, Id, Object},
-	crate::{self as tg},	tangram_util::arc::Ext as _,
+	crate::{self as tg},
 	std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc},
+	tangram_util::arc::Ext as _,
 };
 
 #[derive(Clone, Debug)]

@@ -43,7 +43,9 @@ impl Compiler {
 				let compiler = self.clone();
 				async move {
 					Ok::<_, tg::Error>(lsp::Location {
-						uri: compiler.lsp_uri_for_module(&location.module.to_data()).await?,
+						uri: compiler
+							.lsp_uri_for_module(&location.module.to_data())
+							.await?,
 						range: location.range.into(),
 					})
 				}

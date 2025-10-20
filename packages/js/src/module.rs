@@ -93,9 +93,12 @@ pub fn host_import_module_dynamically_callback<'s>(
 				let promise = state.create_promise(scope, {
 					let handle = state.handle.clone();
 					async move {
-						let text = tangram_module::load(&handle, &module).await.map_err(|source| {
-							tg::error!(!source, ?module, "failed to load the module")
-						})?;
+						let text =
+							tangram_module::load(&handle, &module)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, ?module, "failed to load the module")
+								})?;
 						Ok(Serde((module, text)))
 					}
 				});

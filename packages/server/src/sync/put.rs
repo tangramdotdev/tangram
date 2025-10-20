@@ -610,11 +610,12 @@ impl Server {
 				objects.push(data.command.clone().into());
 			}
 			if state.arg.outputs
-				&& let Some(output) = &data.output {
-					let mut children = BTreeSet::new();
-					output.children(&mut children);
-					objects.extend(children);
-				}
+				&& let Some(output) = &data.output
+			{
+				let mut children = BTreeSet::new();
+				output.children(&mut children);
+				objects.extend(children);
+			}
 			state
 				.queue_counter
 				.fetch_add(objects.len(), std::sync::atomic::Ordering::SeqCst);

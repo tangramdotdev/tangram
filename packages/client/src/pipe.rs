@@ -1,4 +1,4 @@
-use {tangram_util::serde::BytesBase64, bytes::Bytes, serde_with::serde_as};
+use {bytes::Bytes, serde_with::serde_as, tangram_util::serde::BytesBase64};
 
 pub mod close;
 pub mod create;

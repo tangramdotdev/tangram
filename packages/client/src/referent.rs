@@ -1,7 +1,8 @@
 use {
-	crate::{self as tg},	tangram_util::serde::is_default,
+	crate::{self as tg},
 	std::path::{Path, PathBuf},
 	tangram_uri::Uri,
+	tangram_util::serde::is_default,
 };
 
 #[derive(
