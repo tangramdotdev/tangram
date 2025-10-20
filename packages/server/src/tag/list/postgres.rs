@@ -28,52 +28,56 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Get all tags matching the pattern.
-		let matches = Self::match_tags_postgres(&transaction, &arg.pattern).await?;
+		let matches = Self::match_tags_postgres(&transaction, &arg.pattern, arg.recursive).await?;
 
-		// Auto-expand all directories (like ls on directories).
-		let mut expanded = Vec::new();
-		for m in matches {
-			if m.item.is_none() {
-				// This is a branch tag, get its children.
-				let statement = indoc!(
-					"
+		let mut output = matches;
+
+		// Expand directories if the pattern doesn't end with a wildcard.
+		let pattern_ends_with_wildcard = arg.pattern.components().last() == Some("*");
+		if !arg.recursive && !pattern_ends_with_wildcard {
+			let mut expanded = Vec::new();
+			for m in output {
+				if m.item.is_none() {
+					// This is a branch tag, get its children.
+					let statement = indoc!(
+						"
 						select id, component, item
 						from tags
 						where parent = $1;
 					"
-				);
-				let rows = transaction
-					.inner()
-					.query(statement, &[&m.id.to_i64().unwrap()])
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				for row in rows {
-					let id = row
-						.try_get::<_, i64>(0)
-						.map_err(|source| tg::error!(!source, "failed to get the id"))?
-						.to_u64()
-						.unwrap();
-					let component = row
-						.try_get::<_, String>(1)
-						.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-					let item = row
-						.try_get::<_, Option<String>>(2)
-						.map_err(|source| tg::error!(!source, "failed to get the item"))?
-						.map(|s| s.parse())
-						.transpose()
-						.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
-					let mut tag = m.tag.clone();
-					tag.push(&component);
-					let m = Match { id, tag, item };
+					);
+					let rows = transaction
+						.inner()
+						.query(statement, &[&m.id.to_i64().unwrap()])
+						.await
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					for row in rows {
+						let id = row
+							.try_get::<_, i64>(0)
+							.map_err(|source| tg::error!(!source, "failed to get the id"))?
+							.to_u64()
+							.unwrap();
+						let component = row
+							.try_get::<_, String>(1)
+							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+						let item = row
+							.try_get::<_, Option<String>>(2)
+							.map_err(|source| tg::error!(!source, "failed to get the item"))?
+							.map(|s| s.parse())
+							.transpose()
+							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+						let mut tag = m.tag.clone();
+						tag.push(&component);
+						let m = Match { id, tag, item };
+						expanded.push(m);
+					}
+				} else {
+					// This is a leaf tag, keep it as is.
 					expanded.push(m);
 				}
-			} else {
-				// This is a leaf tag, keep it as is.
-				expanded.push(m);
 			}
+			output = expanded;
 		}
-
-		let mut output = expanded;
 
 		// Sort the matches.
 		output.sort_by(|a, b| a.tag.cmp(&b.tag));
@@ -105,6 +109,7 @@ impl Server {
 	pub async fn match_tags_postgres(
 		transaction: &tangram_database::postgres::Transaction<'_>,
 		pattern: &tg::tag::Pattern,
+		recursive: bool,
 	) -> tg::Result<Vec<Match>> {
 		let mut matches: Vec<Option<Match>> = vec![None];
 		for pattern in pattern.components() {
@@ -225,7 +230,51 @@ impl Server {
 			matches = new;
 		}
 
-		let output = matches.into_iter().flatten().collect::<Vec<_>>();
+		let mut output = matches.into_iter().flatten().collect::<Vec<_>>();
+
+		// Recursively expand branches if requested.
+		if recursive {
+			let mut to_explore: Vec<Match> = output.clone();
+
+			while let Some(m) = to_explore.pop() {
+				// This is a branch tag, get its children.
+				let statement = indoc!(
+					"
+						select id, component, item
+						from tags
+						where parent = $1;
+					"
+				);
+				let rows = transaction
+					.inner()
+					.query(statement, &[&m.id.to_i64().unwrap()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				for row in rows {
+					let id = row
+						.try_get::<_, i64>(0)
+						.map_err(|source| tg::error!(!source, "failed to get the id"))?
+						.to_u64()
+						.unwrap();
+					let component = row
+						.try_get::<_, String>(1)
+						.map_err(|source| tg::error!(!source, "failed to get the component"))?;
+					let item = row
+						.try_get::<_, Option<String>>(2)
+						.map_err(|source| tg::error!(!source, "failed to get the item"))?
+						.map(|s| s.parse())
+						.transpose()
+						.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+					let mut tag = m.tag.clone();
+					tag.push(&component);
+					let child = Match { id, tag, item };
+					output.push(child.clone());
+					to_explore.push(child);
+				}
+			}
+		}
+
 		Ok(output)
 	}
 }

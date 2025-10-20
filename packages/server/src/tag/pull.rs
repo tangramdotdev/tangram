@@ -14,8 +14,9 @@ impl Server {
 		let list = self
 			.list_tags(tg::tag::list::Arg {
 				length: None,
-				remote: remote.clone(),
 				pattern,
+				recursive: false,
+				remote: remote.clone(),
 				reverse: false,
 			})
 			.await?

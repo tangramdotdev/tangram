@@ -9,6 +9,7 @@ impl Server {
 	pub(crate) async fn delete_tag_sqlite(
 		database: &db::sqlite::Database,
 		pattern: &tg::tag::Pattern,
+		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
 		// Get a database connection.
 		let connection = database
@@ -26,7 +27,7 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 					// Delete tags matching the pattern.
-					let output = Self::delete_tag_sqlite_sync(&transaction, &pattern)?;
+					let output = Self::delete_tag_sqlite_sync(&transaction, &pattern, recursive)?;
 
 					// Commit the transaction.
 					transaction.commit().map_err(|source| {
@@ -44,13 +45,17 @@ impl Server {
 	pub(crate) fn delete_tag_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		pattern: &tg::tag::Pattern,
+		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
 		if pattern.is_empty() {
 			return Err(tg::error!("cannot delete an empty pattern"));
 		}
 
 		// Get all tags matching the pattern.
-		let matches = Self::match_tags_sqlite_sync(transaction, pattern)?;
+		let mut matches = Self::match_tags_sqlite_sync(transaction, pattern, recursive)?;
+
+		// Sort by tag length descending to delete leaves before branches.
+		matches.sort_by_key(|m| std::cmp::Reverse(m.tag.as_str().len()));
 
 		// Validate and delete each match.
 		let mut deleted = Vec::new();
@@ -73,7 +78,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				deleted.push(m.tag);
 			} else {
-				// This is a branch tag, check if it has children.
+				// This is a branch tag.
 				let statement = indoc!(
 					"
 						select count(*) from tags

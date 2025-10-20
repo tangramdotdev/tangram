@@ -12,6 +12,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "tg::tag::Pattern::is_empty")]
 	pub pattern: tg::tag::Pattern,
 
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub recursive: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 

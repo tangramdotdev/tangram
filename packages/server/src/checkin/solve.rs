@@ -441,6 +441,7 @@ impl Server {
 			.list_tags(tg::tag::list::Arg {
 				length: None,
 				pattern: pattern.clone(),
+				recursive: false,
 				remote: None,
 				reverse: false,
 			})
