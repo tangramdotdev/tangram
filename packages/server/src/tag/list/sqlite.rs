@@ -55,8 +55,11 @@ impl Server {
 
 		let mut output = matches;
 
-		// Expand the directory if the pattern doesn't contain wildcards or operators and matches exactly one directory.
-		if !arg.recursive && !arg.pattern.as_str().contains(['*', '=', '>', '<', '^']) && !arg.pattern.is_empty() && output.len() == 1
+		// Expand the directory if necessary.
+		if !arg.recursive
+			&& !arg.pattern.as_str().contains(['*', '=', '>', '<', '^'])
+			&& !arg.pattern.is_empty()
+			&& output.len() == 1
 			&& let Some(m) = output.first()
 			&& m.item.is_none()
 		{
@@ -66,7 +69,7 @@ impl Server {
 					select id, component, item
 					from tags
 					where parent = ?1;
-			"
+				"
 			);
 			let mut statement = transaction
 				.prepare_cached(statement)

@@ -387,7 +387,7 @@ impl Directory {
 				},
 			};
 
-			// Get the artifact. If it doesn't exist, then return `None`.
+			// Get the artifact. If it does not exist, then return `None`.
 			let directory = artifact
 				.try_unwrap_directory()
 				.ok()

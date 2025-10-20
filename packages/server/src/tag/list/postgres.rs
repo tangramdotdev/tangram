@@ -32,18 +32,21 @@ impl Server {
 
 		let mut output = matches;
 
-		// Expand the directory if the pattern doesn't contain wildcards or operators and matches exactly one directory.
-		if !arg.recursive && !arg.pattern.as_str().contains(['*', '=', '>', '<', '^']) && !arg.pattern.is_empty() && output.len() == 1
+		// Expand the directory if necessary.
+		if !arg.recursive
+			&& !arg.pattern.as_str().contains(['*', '=', '>', '<', '^'])
+			&& !arg.pattern.is_empty()
+			&& output.len() == 1
 			&& let Some(m) = output.first()
 			&& m.item.is_none()
 		{
 			// This is a branch tag, get its children.
 			let statement = indoc!(
 				"
-				select id, component, item
-				from tags
-				where parent = $1;
-			"
+					select id, component, item
+					from tags
+					where parent = $1;
+				"
 			);
 			let rows = transaction
 				.inner()
@@ -284,7 +287,7 @@ impl Server {
 						.query(statement, &[&m.id.to_i64().unwrap()])
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-	
+
 					for row in rows {
 						let id = row
 							.try_get::<_, i64>(0)
