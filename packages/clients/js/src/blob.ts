@@ -205,7 +205,7 @@ export class Blob {
 
 	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
 		let id = await this.store();
-		const arg = { blob: id, options: options ?? {} };
+		const arg = { blob: id, ...options };
 		return await tg.handle.read(arg);
 	}
 

@@ -19,8 +19,7 @@ export type Handle = {
 export namespace Handle {
 	export type ReadArg = {
 		blob: tg.Blob.Id;
-		options: tg.Handle.ReadOptions;
-	};
+	} & tg.Handle.ReadOptions;
 
 	export type ReadOptions = {
 		position?: number | string | undefined;

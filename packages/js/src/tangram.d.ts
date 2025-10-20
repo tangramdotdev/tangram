@@ -304,7 +304,7 @@ declare namespace tg {
 		length(): Promise<number>;
 
 		/** Read from this file. */
-		read(arg?: tg.Blob.ReadOptions): Promise<Uint8Array>;
+		read(options?: tg.Blob.ReadOptions): Promise<Uint8Array>;
 
 		/** Get this file's contents as a `Uint8Array`. */
 		bytes(): Promise<Uint8Array>;

@@ -18,6 +18,6 @@
 		"verbatimModuleSyntax": true
 	},
 	"exclude": [
-		"tangram.d.ts"
+		"./src/tangram.d.ts"
 	]
 }
