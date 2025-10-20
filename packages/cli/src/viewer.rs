@@ -114,19 +114,19 @@ where
 				ct::event::MouseEventKind::ScrollUp => {
 					if self.data.hit_test(event.column, event.row) {
 						self.data.up();
-					} else if let Some(log) = &self.log {
-						if log.hit_test(event.column, event.row) {
-							log.up();
-						}
+					} else if let Some(log) = &self.log
+						&& log.hit_test(event.column, event.row)
+					{
+						log.up();
 					}
 				},
 				ct::event::MouseEventKind::ScrollDown => {
 					if self.data.hit_test(event.column, event.row) {
 						self.data.down();
-					} else if let Some(log) = &self.log {
-						if log.hit_test(event.column, event.row) {
-							log.down();
-						}
+					} else if let Some(log) = &self.log
+						&& log.hit_test(event.column, event.row)
+					{
+						log.down();
 					}
 				},
 				_ => (),

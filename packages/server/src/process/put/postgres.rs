@@ -160,35 +160,35 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Insert the children.
-		if let Some(children) = &arg.data.children {
-			if !children.is_empty() {
-				let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
-				let statement = indoc!(
-					"
+		if let Some(children) = &arg.data.children
+			&& !children.is_empty()
+		{
+			let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
+			let statement = indoc!(
+				"
 						insert into process_children (process, position, child, options)
 						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[])
 						on conflict (process, child) do nothing;
 					"
-				);
-				transaction
-					.execute(
-						statement,
-						&[
-							&id.to_string(),
-							&positions.as_slice(),
-							&children
-								.iter()
-								.map(|referent| referent.item.to_string())
-								.collect::<Vec<_>>(),
-							&children
-								.iter()
-								.map(|referent| serde_json::to_string(referent.options()).unwrap())
-								.collect::<Vec<_>>(),
-						],
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
+			);
+			transaction
+				.execute(
+					statement,
+					&[
+						&id.to_string(),
+						&positions.as_slice(),
+						&children
+							.iter()
+							.map(|referent| referent.item.to_string())
+							.collect::<Vec<_>>(),
+						&children
+							.iter()
+							.map(|referent| serde_json::to_string(referent.options()).unwrap())
+							.collect::<Vec<_>>(),
+					],
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Commit the transaction.

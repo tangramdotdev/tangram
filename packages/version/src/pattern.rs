@@ -96,15 +96,15 @@ impl Component {
 		if version.major != self.major {
 			return false;
 		}
-		if let Some(minor) = self.minor {
-			if version.minor.unwrap_or(0) != minor {
-				return false;
-			}
+		if let Some(minor) = self.minor
+			&& version.minor.unwrap_or(0) != minor
+		{
+			return false;
 		}
-		if let Some(patch) = self.patch {
-			if version.patch.unwrap_or(0) != patch {
-				return false;
-			}
+		if let Some(patch) = self.patch
+			&& version.patch.unwrap_or(0) != patch
+		{
+			return false;
 		}
 		true
 	}
@@ -171,10 +171,10 @@ impl Component {
 		if version.major != self.major {
 			return false;
 		}
-		if let Some(minor) = self.minor {
-			if version.minor.unwrap_or(0) != minor {
-				return false;
-			}
+		if let Some(minor) = self.minor
+			&& version.minor.unwrap_or(0) != minor
+		{
+			return false;
 		}
 		if let Some(patch) = self.patch {
 			let version_patch = version.patch.unwrap_or(0);

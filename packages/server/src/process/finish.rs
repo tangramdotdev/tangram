@@ -97,45 +97,45 @@ impl Server {
 			.await;
 
 		// Verify the checksum if one was provided.
-		if let Some(expected) = &data.expected_checksum {
-			if exit == 0 {
-				let actual = arg
-					.checksum
-					.as_ref()
-					.ok_or_else(|| tg::error!(%id, "the actual checksum was not set"))?;
-				if expected != actual {
-					error = Some(
-						tg::error!(
-							code = tg::error::Code::ChecksumMismatch,
-							%expected,
-							%actual,
-							"checksum mismatch",
-						)
-						.to_data(),
-					);
-					exit = 1;
-				}
+		if let Some(expected) = &data.expected_checksum
+			&& exit == 0
+		{
+			let actual = arg
+				.checksum
+				.as_ref()
+				.ok_or_else(|| tg::error!(%id, "the actual checksum was not set"))?;
+			if expected != actual {
+				error = Some(
+					tg::error!(
+						code = tg::error::Code::ChecksumMismatch,
+						%expected,
+						%actual,
+						"checksum mismatch",
+					)
+					.to_data(),
+				);
+				exit = 1;
 			}
 		}
 
 		// Remove internal error locations if necessary.
-		if !self.config.advanced.internal_error_locations {
-			if let Some(error) = &mut error {
-				let mut stack = vec![error];
-				while let Some(error) = stack.pop() {
-					if let Some(location) = &mut error.location {
-						if matches!(location.file, tg::error::data::File::Internal(_)) {
-							error.location = None;
-						}
-					}
-					if let Some(stack) = &mut error.stack {
-						stack.retain(|location| {
-							!matches!(location.file, tg::error::data::File::Internal(_))
-						});
-					}
-					if let Some(source) = &mut error.source {
-						stack.push(&mut *source.item);
-					}
+		if !self.config.advanced.internal_error_locations
+			&& let Some(error) = &mut error
+		{
+			let mut stack = vec![error];
+			while let Some(error) = stack.pop() {
+				if let Some(location) = &mut error.location
+					&& matches!(location.file, tg::error::data::File::Internal(_))
+				{
+					error.location = None;
+				}
+				if let Some(stack) = &mut error.stack {
+					stack.retain(|location| {
+						!matches!(location.file, tg::error::data::File::Internal(_))
+					});
+				}
+				if let Some(source) = &mut error.source {
+					stack.push(&mut *source.item);
 				}
 			}
 		}

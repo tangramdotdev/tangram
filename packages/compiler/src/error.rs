@@ -113,10 +113,10 @@ pub fn prepare_stack_trace_callback<'s>(
 		};
 
 		// Convert to location using the get_location function.
-		if let (Some(line), Some(column)) = (line_number, column_number) {
-			if let Some(location) = get_location(line, column, line, column) {
-				stack.push(location);
-			}
+		if let (Some(line), Some(column)) = (line_number, column_number)
+			&& let Some(location) = get_location(line, column, line, column)
+		{
+			stack.push(location);
 		}
 	}
 

@@ -109,8 +109,8 @@ impl Server {
 		};
 
 		// If the process is remote, then push the output.
-		if let Some(remote) = process.remote() {
-			if let Some(output) = &output {
+		if let Some(remote) = process.remote()
+			&& let Some(output) = &output {
 				let mut objects = BTreeSet::new();
 				output.children(&mut objects);
 				let arg = tg::push::Arg {
@@ -121,7 +121,6 @@ impl Server {
 				let stream = self.push(arg).await?;
 				self.log_progress_stream(process, stream).await?;
 			}
-		}
 
 		// Finish the process.
 		let arg = tg::process::finish::Arg {
@@ -165,12 +164,11 @@ impl Server {
 				remote: process.remote().cloned(),
 			};
 			let result = self.heartbeat_process(process.id(), arg).await;
-			if let Ok(output) = result {
-				if output.status.is_finished() {
+			if let Ok(output) = result
+				&& output.status.is_finished() {
 					self.process_tasks.abort(process.id());
 					break;
 				}
-			}
 			tokio::time::sleep(config.heartbeat_interval).await;
 		}
 		Ok(())

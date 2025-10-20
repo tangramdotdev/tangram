@@ -96,15 +96,15 @@ pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {
 	if let Ok(string) = value.try_unwrap_string_ref() {
 		return string.clone();
 	}
-	if let Ok(object) = value.try_unwrap_object_ref() {
-		if let Ok(artifact) = tg::artifact::Id::try_from(object.clone()) {
-			let string = artifacts_path
-				.join(artifact.to_string())
-				.to_str()
-				.unwrap()
-				.to_owned();
-			return string;
-		}
+	if let Ok(object) = value.try_unwrap_object_ref()
+		&& let Ok(artifact) = tg::artifact::Id::try_from(object.clone())
+	{
+		let string = artifacts_path
+			.join(artifact.to_string())
+			.to_str()
+			.unwrap()
+			.to_owned();
+		return string;
 	}
 	if let Ok(template) = value.try_unwrap_template_ref() {
 		let string = template.render(|component| match component {

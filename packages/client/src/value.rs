@@ -240,10 +240,10 @@ impl Value {
 					Some(depth) => Some(depth - 1),
 					None => None,
 				};
-				if let Self::Object(object) = &value {
-					if !blobs && object.is_blob() {
-						continue;
-					}
+				if let Self::Object(object) = &value
+					&& !blobs && object.is_blob()
+				{
+					continue;
 				}
 				let permit = semaphore.clone().acquire_owned().await.unwrap();
 				let handle = handle.clone();

@@ -562,12 +562,12 @@ impl Server {
 
 		// Attempt to acquire a permit immediately.
 		let permit = 'a: {
-			if let Some(parent_id) = &arg.parent {
-				if let Some(parent_permit) = self.process_permits.get(parent_id) {
-					let parent_permit = parent_permit.clone();
-					if let Ok(guard) = parent_permit.try_lock_owned() {
-						break 'a Some(ProcessPermit(Either::Right(guard)));
-					}
+			if let Some(parent_id) = &arg.parent
+				&& let Some(parent_permit) = self.process_permits.get(parent_id)
+			{
+				let parent_permit = parent_permit.clone();
+				if let Ok(guard) = parent_permit.try_lock_owned() {
+					break 'a Some(ProcessPermit(Either::Right(guard)));
 				}
 			}
 			if let Ok(server_permit) = self.process_semaphore.clone().try_acquire_owned() {

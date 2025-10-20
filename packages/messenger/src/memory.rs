@@ -305,15 +305,15 @@ impl Stream {
 		// Publish as many messages as possible.
 		let mut sequences = Vec::new();
 		for payload in payloads {
-			if let Some(max_messages) = state.config.max_messages {
-				if state.messages.len().to_u64().unwrap() + 1 > max_messages {
-					break;
-				}
+			if let Some(max_messages) = state.config.max_messages
+				&& state.messages.len().to_u64().unwrap() + 1 > max_messages
+			{
+				break;
 			}
-			if let Some(max_bytes) = state.config.max_bytes {
-				if state.bytes + payload.len().to_u64().unwrap() > max_bytes {
-					break;
-				}
+			if let Some(max_bytes) = state.config.max_bytes
+				&& state.bytes + payload.len().to_u64().unwrap() > max_bytes
+			{
+				break;
 			}
 			state.sequence += 1;
 			let sequence = state.sequence;

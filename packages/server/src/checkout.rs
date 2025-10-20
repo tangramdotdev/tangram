@@ -462,10 +462,10 @@ impl Server {
 		// Recurse into the entries.
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-				if reference.graph.is_none() {
-					reference.graph = graph.cloned();
-				}
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge
+				&& reference.graph.is_none()
+			{
+				reference.graph = graph.cloned();
 			}
 			let path = path.join(name);
 			self.checkout_inner(state, &path, &edge)?;
@@ -494,10 +494,10 @@ impl Server {
 					Err(_) => continue,
 				},
 			};
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-				if reference.graph.is_none() {
-					reference.graph = graph.cloned();
-				}
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge
+				&& reference.graph.is_none()
+			{
+				reference.graph = graph.cloned();
 			}
 			let (id, _, _) = self.checkout_get_node(state, &edge)?;
 			if id != state.artifact {
@@ -583,10 +583,10 @@ impl Server {
 			let mut target = PathBuf::new();
 
 			// Set the graph if necessary.
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-				if reference.graph.is_none() {
-					reference.graph = graph.cloned();
-				}
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge
+				&& reference.graph.is_none()
+			{
+				reference.graph = graph.cloned();
 			}
 
 			// Get the id.

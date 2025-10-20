@@ -111,15 +111,13 @@ where
 			&& matches!(
 				import.kind,
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
-			) {
-			if let Some(root_module_name) =
-				tg::package::try_get_root_module_file_name(handle, Either::Right(&path)).await?
-			{
-				let path = path.join(root_module_name);
-				let item = tg::module::data::Item::Path(path);
-				let referent = tg::Referent::with_item(item);
-				return Ok(referent);
-			}
+			) && let Some(root_module_name) =
+			tg::package::try_get_root_module_file_name(handle, Either::Right(&path)).await?
+		{
+			let path = path.join(root_module_name);
+			let item = tg::module::data::Item::Path(path);
+			let referent = tg::Referent::with_item(item);
+			return Ok(referent);
 		}
 		let item = tg::module::data::Item::Path(path);
 		let referent = tg::Referent::with_item(item);

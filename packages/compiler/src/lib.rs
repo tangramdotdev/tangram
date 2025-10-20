@@ -891,10 +891,10 @@ impl Compiler {
 	/// Load a module.
 	pub async fn load_module(&self, module: &tg::module::Data) -> tg::Result<String> {
 		// If there is an opened document, then return its contents.
-		if let Some(document) = self.documents.get(module) {
-			if document.open {
-				return Ok(document.text.clone().unwrap());
-			}
+		if let Some(document) = self.documents.get(module)
+			&& document.open
+		{
+			return Ok(document.text.clone().unwrap());
 		}
 
 		// Otherwise, load the module.

@@ -181,21 +181,20 @@ impl Server {
 						if arg.commands && !complete.command {
 							queue.push_back(Either::Right(data.command.clone().into()));
 						}
-						if arg.outputs && !complete.output {
-							if let Some(output) = data.output {
-								let mut children = BTreeSet::new();
-								output.children(&mut children);
-								queue.extend(children.into_iter().map(Either::Right));
-							}
-						}
-						if (arg.recursive && !complete.children)
-							|| (arg.commands && !complete.children_commands)
-							|| (arg.outputs && !complete.children_outputs)
+						if (arg.outputs && !complete.output)
+							&& let Some(output) = data.output
 						{
-							if let Some(children) = data.children {
-								for referent in children {
-									queue.push_back(Either::Left(referent.item));
-								}
+							let mut children = BTreeSet::new();
+							output.children(&mut children);
+							queue.extend(children.into_iter().map(Either::Right));
+						}
+						if ((arg.recursive && !complete.children)
+							|| (arg.commands && !complete.children_commands)
+							|| (arg.outputs && !complete.children_outputs))
+							&& let Some(children) = data.children
+						{
+							for referent in children {
+								queue.push_back(Either::Left(referent.item));
 							}
 						}
 					} else {

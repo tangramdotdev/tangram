@@ -220,10 +220,10 @@ impl Server {
 			.iter()
 			.map(|(name, edge)| {
 				let mut edge = edge.clone();
-				if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-					if reference.graph.is_none() {
-						reference.graph = graph.cloned();
-					}
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge
+					&& reference.graph.is_none()
+				{
+					reference.graph = graph.cloned();
 				}
 				let node = self.checkout_create_lock_inner(state, &edge)?;
 				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
@@ -307,10 +307,10 @@ impl Server {
 			.as_ref()
 			.map(|edge| {
 				let mut edge = edge.clone();
-				if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-					if reference.graph.is_none() {
-						reference.graph = graph.cloned();
-					}
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge
+					&& reference.graph.is_none()
+				{
+					reference.graph = graph.cloned();
 				}
 				self.checkout_create_lock_inner(state, &edge)
 			})

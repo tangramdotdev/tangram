@@ -522,10 +522,10 @@ impl Server {
 		// Recurse into the entries.
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-				if reference.graph.is_none() {
-					reference.graph = graph.cloned();
-				}
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge
+				&& reference.graph.is_none()
+			{
+				reference.graph = graph.cloned();
 			}
 			let path = path.join(name);
 			state.depth += 1;
@@ -565,10 +565,10 @@ impl Server {
 			};
 
 			// Update the graph if necessarsy.
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-				if reference.graph.is_none() {
-					reference.graph = graph.cloned();
-				}
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge
+				&& reference.graph.is_none()
+			{
+				reference.graph = graph.cloned();
 			}
 
 			// Get the underlying node ID.
@@ -656,10 +656,10 @@ impl Server {
 			let mut target = PathBuf::new();
 
 			// Update the graph if necessary.
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge {
-				if reference.graph.is_none() {
-					reference.graph = graph.cloned();
-				}
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge
+				&& reference.graph.is_none()
+			{
+				reference.graph = graph.cloned();
 			}
 
 			// Get the id.

@@ -677,16 +677,16 @@ impl Cli {
 			},
 			Some(Either::Right(authentication)) => {
 				let mut authentication_ = config.authentication.unwrap_or_default();
-				if let Some(providers) = authentication.providers.as_ref() {
-					if let Some(github) = providers.github.as_ref() {
-						authentication_.providers.github = Some(tangram_server::config::Oauth {
-							auth_url: github.auth_url.clone(),
-							client_id: github.client_id.clone(),
-							client_secret: github.client_secret.clone(),
-							redirect_url: github.redirect_url.clone(),
-							token_url: github.token_url.clone(),
-						});
-					}
+				if let Some(providers) = authentication.providers.as_ref()
+					&& let Some(github) = providers.github.as_ref()
+				{
+					authentication_.providers.github = Some(tangram_server::config::Oauth {
+						auth_url: github.auth_url.clone(),
+						client_id: github.client_id.clone(),
+						client_secret: github.client_secret.clone(),
+						redirect_url: github.redirect_url.clone(),
+						token_url: github.token_url.clone(),
+					});
 				}
 				config.authentication = Some(authentication_);
 			},

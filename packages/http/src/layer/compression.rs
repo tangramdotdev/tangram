@@ -51,17 +51,16 @@ where
 				let (mut parts, mut body) = request.into_parts();
 				let has_content_encoding =
 					parts.headers.contains_key(http::header::CONTENT_ENCODING);
-				if !has_content_encoding {
-					if let Some(predicate) = &layer.predicate {
-						if let Some((algorithm, level)) = (predicate)(&parts, &body) {
-							parts.headers.remove(http::header::CONTENT_LENGTH);
-							parts.headers.insert(
-								http::header::CONTENT_ENCODING,
-								http::HeaderValue::from_str(&algorithm.to_string()).unwrap(),
-							);
-							body = Body::new(Compression::new(body, algorithm, level));
-						}
-					}
+				if !has_content_encoding
+					&& let Some(predicate) = &layer.predicate
+					&& let Some((algorithm, level)) = (predicate)(&parts, &body)
+				{
+					parts.headers.remove(http::header::CONTENT_LENGTH);
+					parts.headers.insert(
+						http::header::CONTENT_ENCODING,
+						http::HeaderValue::from_str(&algorithm.to_string()).unwrap(),
+					);
+					body = Body::new(Compression::new(body, algorithm, level));
 				}
 				let request = Request::from_parts(parts, body);
 				let response = service.ready().await?.call(request).await?;
@@ -165,19 +164,16 @@ where
 				let (mut parts, mut body) = response.into_parts();
 				let has_content_encoding =
 					parts.headers.contains_key(http::header::CONTENT_ENCODING);
-				if !has_content_encoding {
-					if let Some(predicate) = &layer.predicate {
-						if let Some((algorithm, level)) =
-							(predicate)(accept_encoding, &parts, &body)
-						{
-							parts.headers.remove(http::header::CONTENT_LENGTH);
-							parts.headers.insert(
-								http::header::CONTENT_ENCODING,
-								http::HeaderValue::from_str(&algorithm.to_string()).unwrap(),
-							);
-							body = Body::new(Compression::new(body, algorithm, level));
-						}
-					}
+				if !has_content_encoding
+					&& let Some(predicate) = &layer.predicate
+					&& let Some((algorithm, level)) = (predicate)(accept_encoding, &parts, &body)
+				{
+					parts.headers.remove(http::header::CONTENT_LENGTH);
+					parts.headers.insert(
+						http::header::CONTENT_ENCODING,
+						http::HeaderValue::from_str(&algorithm.to_string()).unwrap(),
+					);
+					body = Body::new(Compression::new(body, algorithm, level));
 				}
 				let response = Response::from_parts(parts, body);
 				Ok(response)

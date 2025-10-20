@@ -304,17 +304,17 @@ impl Server {
 								return Ok(false);
 							}
 						}
-						if arg.outputs {
-							if let Some(output) = process_data.data.output {
-								let mut children = std::collections::BTreeSet::new();
-								output.children(&mut children);
-								for child in children {
-									let child_complete =
-										Self::try_get_object_complete_sqlite_sync(index, &child)?
-											.unwrap_or(false);
-									if !child_complete {
-										return Ok(false);
-									}
+						if arg.outputs
+							&& let Some(output) = process_data.data.output
+						{
+							let mut children = std::collections::BTreeSet::new();
+							output.children(&mut children);
+							for child in children {
+								let child_complete =
+									Self::try_get_object_complete_sqlite_sync(index, &child)?
+										.unwrap_or(false);
+								if !child_complete {
+									return Ok(false);
 								}
 							}
 						}
@@ -609,13 +609,12 @@ impl Server {
 			if state.arg.commands {
 				objects.push(data.command.clone().into());
 			}
-			if state.arg.outputs {
-				if let Some(output) = &data.output {
+			if state.arg.outputs
+				&& let Some(output) = &data.output {
 					let mut children = BTreeSet::new();
 					output.children(&mut children);
 					objects.extend(children);
 				}
-			}
 			state
 				.queue_counter
 				.fetch_add(objects.len(), std::sync::atomic::Ordering::SeqCst);
@@ -730,12 +729,12 @@ impl Server {
 		if state.arg.commands {
 			objects.push(data.command.clone().into());
 		}
-		if state.arg.outputs {
-			if let Some(output) = &data.output {
-				let mut children = BTreeSet::new();
-				output.children(&mut children);
-				objects.extend(children);
-			}
+		if state.arg.outputs
+			&& let Some(output) = &data.output
+		{
+			let mut children = BTreeSet::new();
+			output.children(&mut children);
+			objects.extend(children);
 		}
 		for child in objects {
 			let item = ObjectQueueItem {

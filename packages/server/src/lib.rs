@@ -743,10 +743,10 @@ impl Server {
 				if let Some(task) = runner_task {
 					task.abort();
 					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the runner task panicked");
-						}
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the runner task panicked");
 					}
 					tracing::trace!("shutdown runner task");
 				}
@@ -755,10 +755,10 @@ impl Server {
 				server.process_tasks.abort_all();
 				let results = server.process_tasks.wait().await;
 				for result in results {
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "a process task panicked");
-						}
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a process task panicked");
 					}
 				}
 				tracing::trace!("shutdown process tasks");
@@ -767,10 +767,10 @@ impl Server {
 				if let Some(task) = http_task {
 					task.stop();
 					let result = task.wait().await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the http task panicked");
-						}
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the http task panicked");
 					}
 					tracing::trace!("shutdown http task");
 				}
@@ -784,10 +784,10 @@ impl Server {
 				if let Some(task) = cleaner_task {
 					task.abort();
 					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the clean task panicked");
-						}
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the clean task panicked");
 					}
 					tracing::trace!("shutdown cleaner task");
 				}
@@ -796,10 +796,10 @@ impl Server {
 				if let Some(task) = indexer_task {
 					task.abort();
 					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the index task panicked");
-						}
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the index task panicked");
 					}
 					tracing::trace!("shutdown indexer task");
 				}
@@ -808,10 +808,10 @@ impl Server {
 				if let Some(task) = watchdog_task {
 					task.abort();
 					let result = task.await;
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "the watchdog task panicked");
-						}
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the watchdog task panicked");
 					}
 					tracing::trace!("shutdown watchdog task");
 				}
@@ -823,10 +823,10 @@ impl Server {
 				server.cache_tasks.abort_all();
 				let results = server.cache_tasks.wait().await;
 				for result in results {
-					if let Err(error) = result {
-						if !error.is_cancelled() {
-							tracing::error!(?error, "an cache task panicked");
-						}
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "an cache task panicked");
 					}
 				}
 				tracing::trace!("shutdown cache tasks");

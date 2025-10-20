@@ -50,10 +50,10 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to get the object"))?;
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
-		if bytes.is_none() {
-			if let Ok(id) = id.try_unwrap_blob_ref() {
-				bytes = self.try_read_blob_from_cache(id).await?;
-			}
+		if bytes.is_none()
+			&& let Ok(id) = id.try_unwrap_blob_ref()
+		{
+			bytes = self.try_read_blob_from_cache(id).await?;
 		}
 
 		// If the bytes were not found, then return None.
@@ -82,10 +82,10 @@ impl Server {
 		};
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
-		if bytes.is_none() {
-			if let Ok(id) = id.try_unwrap_blob_ref() {
-				bytes = self.try_read_blob_from_cache_sync(id, file)?;
-			}
+		if bytes.is_none()
+			&& let Ok(id) = id.try_unwrap_blob_ref()
+		{
+			bytes = self.try_read_blob_from_cache_sync(id, file)?;
 		}
 
 		// If the bytes were not found, then return None.
@@ -134,12 +134,12 @@ impl Server {
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		for (id, output) in std::iter::zip(ids, outputs.iter_mut()) {
-			if output.is_none() {
-				if let Ok(id) = id.try_unwrap_blob_ref() {
-					let bytes = self.try_read_blob_from_cache(id).await?;
-					if let Some(bytes) = bytes {
-						output.replace(tg::object::get::Output { bytes });
-					}
+			if output.is_none()
+				&& let Ok(id) = id.try_unwrap_blob_ref()
+			{
+				let bytes = self.try_read_blob_from_cache(id).await?;
+				if let Some(bytes) = bytes {
+					output.replace(tg::object::get::Output { bytes });
 				}
 			}
 		}
