@@ -55,52 +55,47 @@ impl Server {
 
 		let mut output = matches;
 
-		// Expand directories if the pattern doesn't end with a wildcard.
-		let pattern_ends_with_wildcard = arg.pattern.components().last() == Some("*");
-		if !arg.recursive && !pattern_ends_with_wildcard {
+		// Expand the directory if the pattern doesn't contain wildcards or operators and matches exactly one directory.
+		if !arg.recursive && !arg.pattern.as_str().contains(['*', '=', '>', '<', '^']) && !arg.pattern.is_empty() && output.len() == 1
+			&& let Some(m) = output.first()
+			&& m.item.is_none()
+		{
+			// This is a branch tag, get its children.
+			let statement = indoc!(
+				"
+					select id, component, item
+					from tags
+					where parent = ?1;
+			"
+			);
+			let mut statement = transaction
+				.prepare_cached(statement)
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![m.id];
+			let mut rows = statement
+				.query(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			let mut expanded = Vec::new();
-			for m in output {
-				if m.item.is_none() {
-					// This is a branch tag, get its children.
-					let statement = indoc!(
-						"
-							select id, component, item
-							from tags
-							where parent = ?1;
-					"
-					);
-					let mut statement = transaction
-						.prepare_cached(statement)
-						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-					let params = sqlite::params![m.id];
-					let mut rows = statement
-						.query(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					while let Some(row) = rows
-						.next()
-						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
-					{
-						let id = row
-							.get::<_, u64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let component = row
-							.get::<_, String>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let item = row
-							.get::<_, Option<String>>(2)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
-						let mut tag = m.tag.clone();
-						tag.push(&component);
-						let m = Match { id, tag, item };
-						expanded.push(m);
-					}
-				} else {
-					// This is a leaf tag, keep it as is.
-					expanded.push(m);
-				}
+			while let Some(row) = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+			{
+				let id = row
+					.get::<_, u64>(0)
+					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+				let component = row
+					.get::<_, String>(1)
+					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+				let item = row
+					.get::<_, Option<String>>(2)
+					.map_err(|source| tg::error!(!source, "failed to get the item"))?
+					.map(|s| s.parse())
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+				let mut tag = m.tag.clone();
+				tag.push(&component);
+				let m = Match { id, tag, item };
+				expanded.push(m);
 			}
 			output = expanded;
 		}
@@ -137,6 +132,46 @@ impl Server {
 		pattern: &tg::tag::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<Match>> {
+		// If the pattern is empty, return all root-level tags.
+		if pattern.is_empty() {
+			let statement = indoc!(
+				"
+					select id, component, item
+					from tags
+					where parent = 0;
+				"
+			);
+			let mut statement = transaction
+				.prepare_cached(statement)
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let mut rows = statement
+				.query([])
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let mut matches = Vec::new();
+			while let Some(row) = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+			{
+				let id = row
+					.get::<_, u64>(0)
+					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+				let component = row
+					.get::<_, String>(1)
+					.map_err(|source| tg::error!(!source, "failed to get the component"))?;
+				let item = row
+					.get::<_, Option<String>>(2)
+					.map_err(|source| tg::error!(!source, "failed to get the item"))?
+					.map(|s| s.parse())
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+				let mut tag = tg::Tag::empty();
+				tag.push(&component);
+				let m = Match { id, tag, item };
+				matches.push(m);
+			}
+			return Ok(matches);
+		}
+
 		let mut matches: Vec<Option<Match>> = vec![None];
 		for pattern in pattern.components() {
 			let mut new = Vec::new();
