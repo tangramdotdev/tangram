@@ -106,7 +106,7 @@ impl Compiler {
 		let tg::module::data::Item::Path(path) = &module.referent.item else {
 			return Ok(());
 		};
-		let metadata = tokio::fs::metadata(&path)
+		let metadata = tokio::fs::symlink_metadata(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 		let modified = metadata.modified().map_err(|error| {

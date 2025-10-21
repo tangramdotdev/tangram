@@ -230,7 +230,12 @@ impl Cli {
 
 		// If the reference is a path to a directory and the path does not contain a root module, then init.
 		if let Ok(path) = reference.item().try_unwrap_path_ref() {
-			let metadata = tokio::fs::metadata(&path).await.map_err(
+			let path = std::path::absolute(path)
+				.map_err(|source| tg::error!(!source, "failed to make the path absolute"))?;
+			let path = tangram_util::fs::canonicalize_parent(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
 				|source| tg::error!(!source, ?path = path.display(), "failed to get the metadata"),
 			)?;
 			if metadata.is_dir() {

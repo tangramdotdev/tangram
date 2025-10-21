@@ -93,18 +93,17 @@ async fn resolve_module_with_path_referrer<H>(
 where
 	H: tg::Handle,
 {
-	// Resolve path dependencies.
-	if let Some(path) = import.reference.options().local.as_ref().or(import
+	let path = import.reference.options().local.as_ref().or(import
 		.reference
 		.item()
 		.try_unwrap_path_ref()
-		.ok())
-	{
+		.ok());
+	if let Some(path) = path {
 		let path =
 			tangram_util::fs::canonicalize_parent(&referrer.item.parent().unwrap().join(path))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-		let metadata = tokio::fs::metadata(&path)
+		let metadata = tokio::fs::symlink_metadata(&path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
 		if metadata.is_dir()

@@ -37,7 +37,7 @@ impl Server {
 
 	#[cfg(feature = "compiler")]
 	fn format_inner(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
-		let metadata = std::fs::metadata(path)
+		let metadata = std::fs::symlink_metadata(path)
 			.map_err(|source| tg::error!(!source, "failed to read the metadata"))?;
 		if metadata.is_dir() {
 			self.format_directory(path, ignore)?;

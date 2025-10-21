@@ -833,7 +833,7 @@ impl Compiler {
 					tokio::fs::write(&path, contents)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
-					let metadata = tokio::fs::metadata(&path)
+					let metadata = tokio::fs::symlink_metadata(&path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
 					let mut permissions = metadata.permissions();
