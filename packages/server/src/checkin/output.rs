@@ -22,9 +22,9 @@ impl Server {
 				.nodes
 				.iter()
 				.filter_map(|node| {
-					if !node.variant.is_file() {
+					if node.path.is_none() || node.path_metadata.as_ref().is_none_or(|m| !m.is_file()){
 						return None;
-					};
+					}
 					let task = AbortOnDropHandle::new(tokio::task::spawn_blocking({
 						let server = self.clone();
 						let node = node.clone();
