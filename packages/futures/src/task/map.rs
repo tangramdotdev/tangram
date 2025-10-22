@@ -24,17 +24,20 @@ where
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		let map = self.map.clone();
-		self.map
-			.entry(key.clone())
-			.or_insert_with(move || {
-				Shared::spawn(move |stop| {
-					f(stop).inspect(move |_| {
-						map.remove(&key);
-					})
-				})
-			})
-			.value()
-			.clone()
+		let value = Shared::spawn({
+			let key = key.clone();
+			move |stop| {
+				let future = f(stop);
+				async move {
+					let result = future.await;
+					let id = tokio::task::id();
+					map.remove_if(&key, |_, task| task.id() == id);
+					result
+				}
+			}
+		});
+		self.map.insert(key, value.clone());
+		value
 	}
 
 	pub fn get_or_spawn<F, Fut>(&self, key: K, f: F) -> Shared<T>
@@ -47,9 +50,13 @@ where
 			.entry(key.clone())
 			.or_insert_with(move || {
 				Shared::spawn(move |stop| {
-					f(stop).inspect(move |_| {
-						map.remove(&key);
-					})
+					let future = f(stop);
+					async move {
+						let result = future.await;
+						let id = tokio::task::id();
+						map.remove_if(&key, |_, task| task.id() == id);
+						result
+					}
 				})
 			})
 			.value()
@@ -65,9 +72,10 @@ where
 			.entry(key.clone())
 			.or_insert_with(move || {
 				Shared::spawn_blocking(move |stop| {
-					let output = f(stop);
-					map.remove(&key);
-					output
+					let result = f(stop);
+					let id = tokio::task::id();
+					map.remove_if(&key, |_, task| task.id() == id);
+					result
 				})
 			})
 			.value()
