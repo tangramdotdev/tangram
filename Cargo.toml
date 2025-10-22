@@ -24,6 +24,7 @@ members = [
   "packages/v8",
   "packages/version",
   "packages/vfs",
+  "packages/zed",
 ]
 resolver = "2"
 
@@ -184,6 +185,7 @@ webbrowser = "1"
 webpki-roots = "1"
 winnow = "0.7"
 xattr = { version = "1" }
+zed_extension_api = "0.7"
 zerocopy = { version = "0.8", features = ["derive"] }
 zstd = "0.13"
 

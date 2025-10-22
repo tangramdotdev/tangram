@@ -1,0 +1,20 @@
+authors = ["tangramdotdev"]
+description = "Tangram extension for Zed."
+id = "tangram"
+name = "Tangram"
+repository = "https://github.com/tangramdotdev/tangram"
+schema_version = 1
+version = "0.0.0"
+
+[grammars.javascript]
+repository = "https://github.com/tree-sitter/tree-sitter-javascript"
+rev = "58404d8cf191d69f2674a8fd507bd5776f46cb11"
+
+[grammars.typescript]
+repository = "https://github.com/tree-sitter/tree-sitter-typescript"
+rev = "75b3874edb2dc714fb1fd77a32013d0f8699989f"
+path = "typescript"
+
+[language_servers.tangram]
+name = "Tangram"
+languages = ["Tangram JavaScript", "Tangram TypeScript"]
