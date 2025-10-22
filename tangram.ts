@@ -47,10 +47,10 @@ export const build = async (arg?: Arg) => {
 	}
 
 	// Set up node_modules.
+	const nodeModulesArtifact = nodeModules(build);
 	let pre = tg`
-			mkdir node_modules
-			cp -R ${nodeModules(build)}/. node_modules
-			export NODE_PATH=$PWD/node_modules
+			cp -R ${nodeModulesArtifact}/. "$SOURCE"
+			export NODE_PATH="$SOURCE/node_modules"
 			export PATH=$PATH:$NODE_PATH/.bin
 	`;
 
@@ -151,34 +151,46 @@ export const cloud = async (arg?: CloudArg) => {
 export const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? (await std.triple.host());
 	const hostOs = std.triple.os(host);
+
+	// Create subset of source relevant for bun install.
 	const packageJson = source.get("package.json").then(tg.File.expect);
 	const bunLock = source.get("bun.lock").then(tg.File.expect);
-	const compiler = source.get("packages/compiler").then(tg.Directory.expect);
-	const runtime = source.get("packages/runtime").then(tg.Directory.expect);
+	const clientsJs = source.get("packages/clients/js").then(tg.Directory.expect);
+	const js = source.get("packages/js").then(tg.Directory.expect);
+	const typescript = source.get("packages/typescript").then(tg.Directory.expect);
 	const vscode = source.get("packages/vscode").then(tg.Directory.expect);
-	const env = std.env.arg(bunEnvArg(host));
+
+	const workspaceSource = tg.directory({
+		"package.json": packageJson,
+		"bun.lock": bunLock,
+		packages: {
+			clients: {
+				js: clientsJs,
+			},
+			js,
+			typescript,
+			vscode,
+		},
+	});
+
 	let output = await $`
-		mkdir work
-		cd work
-		cp ${packageJson} package.json
-		cp ${bunLock} bun.lock
-		mkdir packages
-		cp -R ${compiler} packages/compiler
-		cp -R ${runtime} packages/runtime
-		cp -R ${vscode} packages/vscode
-		bun install --frozen-lockfile
-		mv node_modules $OUTPUT
+			cp -R ${workspaceSource}/. $OUTPUT
+			cd $OUTPUT
+			bun install --frozen-lockfile || true
+			mkdir -p packages/js/node_modules/@tangramdotdev
+			ln -sf ../../../../clients/js packages/js/node_modules/@tangramdotdev/client
 		`
 		.checksum("sha256:any")
 		.network(true)
-		.env(env)
+		.env(bunEnvArg(host))
 		.then(tg.Directory.expect);
 
 	// On Linux, we need to wrap the biome executable.
 	if (hostOs === "linux") {
 		const hostArch = std.triple.arch(host);
 		const pathArch = hostArch === "aarch64" ? "arm64" : "x64";
-		const path = `@biomejs/cli-linux-${pathArch}/biome`;
+		const biomeVersion = await getBiomeVersion(await bunLock);
+		const path = `node_modules/.bun/@biomejs+biome@${biomeVersion}/node_modules/@biomejs/cli-linux-${pathArch}/biome`;
 		const unwrapped = await output.get(path).then(tg.File.expect);
 		const wrapped = await std.wrap(unwrapped);
 		output = await tg.directory(output, {
@@ -259,6 +271,15 @@ const getRustyV8Version = async (lockfile: tg.File) => {
 
 type CargoLock = {
 	package: Array<{ name: string; version: string }>;
+};
+
+const getBiomeVersion = async (lockfile: tg.File) => {
+	const text = await lockfile.text();
+	const match = text.match(/"@biomejs\/biome":\s*\[\s*"@biomejs\/biome@([^"]+)"/);
+	if (!match) {
+		throw new Error("Could not find @biomejs/biome version in lockfile.");
+	}
+	return match[1];
 };
 
 export const test = async () => {
