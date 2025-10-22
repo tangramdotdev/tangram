@@ -204,6 +204,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
+		// Ensure the tags directory exists.
+		let tags_path = path.join("tags");
+		tokio::fs::create_dir_all(&tags_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the tags directory"))?;
+
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
@@ -833,7 +839,7 @@ impl Server {
 
 				// Abort the tasks.
 				server.tasks.abort_all();
-				let _ = server.tasks.wait().await;
+				server.tasks.wait().await;
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();
@@ -880,6 +886,7 @@ impl Server {
 		tangram_compiler::Compiler::start(
 			tg::handle::dynamic::Handle::new(self.clone()),
 			self.cache_path(),
+			self.tags_path(),
 			self.library_path(),
 			tokio::runtime::Handle::current(),
 			self.version.clone(),
@@ -934,6 +941,11 @@ impl Server {
 	#[must_use]
 	pub fn logs_path(&self) -> PathBuf {
 		self.path.join("logs")
+	}
+
+	#[must_use]
+	pub fn tags_path(&self) -> PathBuf {
+		self.path.join("tags")
 	}
 
 	#[must_use]

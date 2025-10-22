@@ -298,7 +298,7 @@ impl Cli {
 
 	fn print_code(title: &str, range: &tg::Range, message: &str, text: String) {
 		let range = range
-			.try_to_byte_range_in_string(&text)
+			.try_to_byte_range_in_string(&text, tg::position::Encoding::Utf8)
 			.unwrap_or(0..text.len());
 		let label = miette::LabeledSpan::new_with_span(Some(message.to_owned()), range);
 		let code = miette::NamedSource::new(title, text).with_language("JavaScript");

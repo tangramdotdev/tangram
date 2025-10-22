@@ -19,9 +19,20 @@ pub struct Position {
 	pub character: u32,
 }
 
+/// The encoding used for character offsets in positions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Encoding {
+	Utf8,
+	Utf16,
+}
+
 impl Position {
 	#[must_use]
-	pub fn try_from_byte_index_in_string(string: &str, index: usize) -> Option<Self> {
+	pub fn try_from_byte_index_in_string(
+		string: &str,
+		index: usize,
+		encoding: Encoding,
+	) -> Option<Self> {
 		// Check if the index is valid.
 		if index > string.len() {
 			return None;
@@ -35,12 +46,15 @@ impl Position {
 			.try_into()
 			.ok()?;
 
-		// Find the byte offset from the last newline to get the character position.
+		// Find the character offset from the last newline to get the character position.
 		let character: u32 = string[..index]
 			.chars()
 			.rev()
 			.take_while(|&c| c != '\n')
-			.map(char::len_utf8)
+			.map(|c| match encoding {
+				Encoding::Utf8 => c.len_utf8(),
+				Encoding::Utf16 => c.len_utf16(),
+			})
 			.sum::<usize>()
 			.try_into()
 			.ok()?;
@@ -51,33 +65,39 @@ impl Position {
 	}
 
 	#[must_use]
-	pub fn try_to_byte_index_in_string(self, string: &str) -> Option<usize> {
+	pub fn try_to_byte_index_in_string(self, string: &str, encoding: Encoding) -> Option<usize> {
 		let mut current_line = 0;
-		let mut line_start_index = 0;
+		let mut character_offset = 0;
 
 		for (index, c) in string.char_indices() {
 			// Check if we've reached the target line.
 			if current_line == self.line {
-				// Check if we've advanced enough bytes on this line.
-				let bytes_from_line_start = index - line_start_index;
-				if bytes_from_line_start >= self.character as usize {
-					return Some(line_start_index + self.character as usize);
+				// Check if we've advanced enough characters on this line.
+				if character_offset >= self.character as usize {
+					return Some(index);
 				}
 			}
 
 			// Move to next line if we encounter a newline.
 			if c == '\n' {
+				// Check if position is at the end of the current line.
+				if current_line == self.line && character_offset == self.character as usize {
+					return Some(index);
+				}
 				current_line += 1;
-				line_start_index = index + c.len_utf8();
+				character_offset = 0;
+			} else if current_line == self.line {
+				// Count characters on the target line.
+				character_offset += match encoding {
+					Encoding::Utf8 => c.len_utf8(),
+					Encoding::Utf16 => c.len_utf16(),
+				};
 			}
 		}
 
 		// Check if position is at the end of the target line.
-		if current_line == self.line {
-			let bytes_from_line_start = string.len() - line_start_index;
-			if bytes_from_line_start >= self.character as usize {
-				return Some(line_start_index + self.character as usize);
-			}
+		if current_line == self.line && character_offset == self.character as usize {
+			return Some(string.len());
 		}
 
 		None

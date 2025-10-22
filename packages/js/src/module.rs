@@ -55,7 +55,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 		let root = state.root.clone();
 		async move {
 			let module = if let (Some(referrer), Some(import)) = (referrer, import) {
-				tangram_module::resolve(&handle, &referrer, &import)
+				tangram_module::resolve(&handle, &referrer, &import, None)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
@@ -266,7 +266,7 @@ fn resolve_module_sync(
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let result = tangram_module::resolve(&handle, &referrer, &import).await;
+			let result = tangram_module::resolve(&handle, &referrer, &import, None).await;
 			sender.send(result).unwrap();
 		}
 	});

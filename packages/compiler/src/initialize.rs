@@ -13,9 +13,35 @@ impl Compiler {
 			.collect();
 		self.update_workspaces(workspaces, Vec::new()).await.ok();
 
+		// Negotiate position encoding with the client.
+		let position_encoding = params
+			.capabilities
+			.general
+			.and_then(|general| general.position_encodings)
+			.and_then(|encodings| {
+				if encodings.contains(&lsp::PositionEncodingKind::UTF8) {
+					Some(lsp::PositionEncodingKind::UTF8)
+				} else if encodings.contains(&lsp::PositionEncodingKind::UTF16) {
+					Some(lsp::PositionEncodingKind::UTF16)
+				} else {
+					None
+				}
+			})
+			.unwrap_or(lsp::PositionEncodingKind::UTF16);
+
+		// Store the negotiated encoding.
+		*self.position_encoding.write().unwrap() =
+			if position_encoding == lsp::PositionEncodingKind::UTF8 {
+				tg::position::Encoding::Utf8
+			} else if position_encoding == lsp::PositionEncodingKind::UTF16 {
+				tg::position::Encoding::Utf16
+			} else {
+				unreachable!()
+			};
+
 		let output = lsp::InitializeResult {
 			capabilities: lsp::ServerCapabilities {
-				position_encoding: Some(lsp::PositionEncodingKind::UTF8),
+				position_encoding: Some(position_encoding),
 				completion_provider: Some(lsp::CompletionOptions::default()),
 				definition_provider: Some(lsp::OneOf::Left(true)),
 				diagnostic_provider: Some(lsp::DiagnosticServerCapabilities::Options(
@@ -35,6 +61,7 @@ impl Compiler {
 					lsp::TextDocumentSyncOptions {
 						open_close: Some(true),
 						change: Some(lsp::TextDocumentSyncKind::INCREMENTAL),
+						save: Some(lsp::TextDocumentSyncSaveOptions::Supported(true)),
 						..Default::default()
 					},
 				)),

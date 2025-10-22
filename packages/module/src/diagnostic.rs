@@ -17,7 +17,12 @@ pub fn convert(
 			)
 		});
 	let byte_range = span.start as usize..span.end as usize;
-	let range = tg::Range::try_from_byte_range_in_string(text, byte_range).unwrap_or(tg::Range {
+	let range = tg::Range::try_from_byte_range_in_string(
+		text,
+		byte_range,
+		tg::position::Encoding::Utf8,
+	)
+	.unwrap_or(tg::Range {
 		start: tg::Position {
 			line: 0,
 			character: 0,

@@ -125,7 +125,7 @@ async fn test(artifact: temp::Artifact) {
 		.output()
 		.await
 		.unwrap();
-	let _ = remote_server.tg().arg("index").output().await;
+	remote_server.tg().arg("index").output().await.ok();
 	let remote_metadata_output = remote_server
 		.tg()
 		.arg("object")

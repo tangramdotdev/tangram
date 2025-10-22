@@ -1,10 +1,16 @@
-use {std::path::Path, tangram_client as tg, tangram_either::Either};
+use {
+	dashmap::DashMap,
+	std::path::{Path, PathBuf},
+	tangram_client as tg,
+	tangram_either::Either,
+};
 
 /// Resolve an import from a module.
 pub async fn resolve<H>(
 	handle: &H,
 	referrer: &tg::module::Data,
 	import: &tg::module::Import,
+	locks: Option<&DashMap<PathBuf, (tg::graph::Data, u64)>>,
 ) -> tg::Result<tg::module::Data>
 where
 	H: tg::Handle,
@@ -15,7 +21,7 @@ where
 	let referent = match referrer.referent.item() {
 		tg::module::data::Item::Path(path) => {
 			let referrer = referrer.referent.clone().map(|_| path.as_ref());
-			resolve_module_with_path_referrer(handle, &referrer, import).await?
+			resolve_module_with_path_referrer(handle, &referrer, import, locks).await?
 		},
 		tg::module::data::Item::Object(object) => {
 			let referrer = referrer.referent.clone().map(|_| object);
@@ -89,6 +95,7 @@ async fn resolve_module_with_path_referrer<H>(
 	handle: &H,
 	referrer: &tg::Referent<&Path>,
 	import: &tg::module::Import,
+	locks: Option<&DashMap<PathBuf, (tg::graph::Data, u64)>>,
 ) -> tg::Result<tg::Referent<tg::module::data::Item>>
 where
 	H: tg::Handle,
@@ -123,7 +130,118 @@ where
 		return Ok(referent);
 	}
 
-	Err(tg::error!("cannot resolve non-path dependency from path"))
+	// Find the lockfile by searching ancestor directories.
+	let referrer_path = referrer.item;
+	let mut lockfile_path = None;
+	for ancestor in referrer_path.parent().unwrap().ancestors() {
+		let candidate = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
+		if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
+			lockfile_path = Some(candidate);
+			break;
+		}
+	}
+	let lockfile_path = lockfile_path.ok_or_else(|| tg::error!("failed to find a lockfile"))?;
+	let package_path = lockfile_path.parent().unwrap();
+
+	// Get the lockfile mtime.
+	let metadata = tokio::fs::metadata(&lockfile_path)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to get the lockfile metadata"))?;
+	let mtime = metadata
+		.modified()
+		.map_err(|source| tg::error!(!source, "failed to get the mtime"))?
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_err(|source| tg::error!(!source, "failed to compute the duration"))?
+		.as_secs();
+
+	// Try to get the lock from the cache.
+	let lock = if let Some(locks) = locks {
+		if let Some(entry) = locks.get(&lockfile_path) {
+			let (cached_lock, cached_mtime) = entry.value();
+			if *cached_mtime == mtime {
+				cached_lock.clone()
+			} else {
+				let contents = tokio::fs::read(&lockfile_path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read the lockfile"))?;
+				let lock = tg::graph::Data::deserialize(contents.as_slice())
+					.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?;
+				locks.insert(lockfile_path.clone(), (lock.clone(), mtime));
+				lock
+			}
+		} else {
+			let contents = tokio::fs::read(&lockfile_path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read the lockfile"))?;
+			let lock = tg::graph::Data::deserialize(contents.as_slice())
+				.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?;
+			locks.insert(lockfile_path.clone(), (lock.clone(), mtime));
+			lock
+		}
+	} else {
+		let contents = tokio::fs::read(&lockfile_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the lockfile"))?;
+		tg::graph::Data::deserialize(contents.as_slice())
+			.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?
+	};
+
+	// Find the node in the lock that corresponds to the referrer's path.
+	let mut current_node = 0;
+	let relative_path = referrer_path
+		.strip_prefix(package_path)
+		.map_err(|source| tg::error!(!source, "failed to get the relative path"))?;
+	for component in relative_path.components() {
+		let name = component
+			.as_os_str()
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid path component"))?;
+		let node = &lock.nodes[current_node];
+		let directory = node
+			.try_unwrap_directory_ref()
+			.map_err(|_| tg::error!("expected a directory node"))?;
+		let edge = directory
+			.entries
+			.get(name)
+			.ok_or_else(|| tg::error!("the path was not found in the lock"))?;
+		let reference = edge
+			.try_unwrap_reference_ref()
+			.map_err(|_| tg::error!("expected a reference"))?;
+		current_node = reference.node;
+	}
+
+	// Look up the reference in the file node's dependencies.
+	let node = &lock.nodes[current_node];
+	let file = node
+		.try_unwrap_file_ref()
+		.map_err(|_| tg::error!("expected a file node"))?;
+	let referent = file
+		.dependencies
+		.get(&import.reference)
+		.ok_or_else(|| tg::error!("the dependency was not found in the lock"))?
+		.as_ref()
+		.ok_or_else(|| tg::error!("the dependency is None"))?;
+
+	// Get the object from the edge.
+	let object_id = match referent.item() {
+		tg::graph::data::Edge::Reference(_) => {
+			return Err(tg::error!(
+				"unexpected reference in the lockfile dependency"
+			));
+		},
+		tg::graph::data::Edge::Object(object_id) => object_id.clone(),
+	};
+
+	// Create an object referent and resolve to the root module if it's a directory.
+	let object = tg::Object::with_id(object_id);
+	let object_referent = tg::Referent {
+		item: object,
+		options: referent.options().clone(),
+	};
+	let resolved = try_resolve_module_with_kind(handle, import.kind, object_referent).await?;
+	let result = resolved.map(|item| tg::module::data::Item::Object(item.id()));
+
+	Ok(result)
 }
 
 async fn resolve_module_with_object_referrer<H>(

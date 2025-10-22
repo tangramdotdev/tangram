@@ -18,6 +18,7 @@ glob = { workspace = true }
 scopeguard = { workspace = true }
 
 [dependencies]
+dashmap = { workspace = true }
 fnv = { workspace = true }
 include_dir = { workspace = true }
 indoc = { workspace = true }

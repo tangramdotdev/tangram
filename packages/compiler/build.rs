@@ -15,10 +15,8 @@ fn main() {
 		let lock_path = Path::new("../../node_modules.lock");
 		let lock_file = std::fs::File::create(lock_path).unwrap();
 		lock_file.lock().unwrap();
-
-		// Ensure the lock file is deleted when we're done.
 		let _guard = scopeguard::guard((), |()| {
-			let _ = std::fs::remove_file(lock_path);
+			std::fs::remove_file(lock_path).ok();
 		});
 
 		std::process::Command::new("bun")

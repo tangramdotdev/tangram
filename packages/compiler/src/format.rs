@@ -32,7 +32,8 @@ impl Compiler {
 		let text = self.load_module(&module).await?;
 
 		// Get the text range.
-		let range = tg::Range::try_from_byte_range_in_string(&text, 0..text.len())
+		let encoding = *self.position_encoding.read().unwrap();
+		let range = tg::Range::try_from_byte_range_in_string(&text, 0..text.len(), encoding)
 			.ok_or_else(|| tg::error!("failed to create range"))?;
 
 		// Format the text.

@@ -24,16 +24,21 @@ impl Range {
 	pub fn try_from_byte_range_in_string(
 		string: &str,
 		range: std::ops::Range<usize>,
+		encoding: tg::position::Encoding,
 	) -> Option<Self> {
-		let start = tg::Position::try_from_byte_index_in_string(string, range.start)?;
-		let end = tg::Position::try_from_byte_index_in_string(string, range.end)?;
+		let start = tg::Position::try_from_byte_index_in_string(string, range.start, encoding)?;
+		let end = tg::Position::try_from_byte_index_in_string(string, range.end, encoding)?;
 		Some(Self { start, end })
 	}
 
 	#[must_use]
-	pub fn try_to_byte_range_in_string(self, string: &str) -> Option<std::ops::Range<usize>> {
-		let start = self.start.try_to_byte_index_in_string(string)?;
-		let end = self.end.try_to_byte_index_in_string(string)?;
+	pub fn try_to_byte_range_in_string(
+		self,
+		string: &str,
+		encoding: tg::position::Encoding,
+	) -> Option<std::ops::Range<usize>> {
+		let start = self.start.try_to_byte_index_in_string(string, encoding)?;
+		let end = self.end.try_to_byte_index_in_string(string, encoding)?;
 		Some(start..end)
 	}
 }
