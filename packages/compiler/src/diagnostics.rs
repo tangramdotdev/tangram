@@ -21,10 +21,7 @@ impl Compiler {
 		let request = super::Request::DocumentDiagnostics(DocumentRequest { modules });
 
 		// Perform the request.
-		let response =
-			tokio::time::timeout(std::time::Duration::from_secs(3), self.request(request))
-				.await
-				.unwrap()?;
+		let response = self.request(request).await?;
 
 		// Get the response.
 		let super::Response::DocumentDiagnostics(response) = response else {
