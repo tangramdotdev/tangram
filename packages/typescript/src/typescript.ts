@@ -81,7 +81,7 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	hasInvalidatedResolutions: (fileName) => {
 		try {
 			let module = moduleFromFileName(fileName);
-			return syscall("has_invalidated_resolutions", module);
+			return syscall("module_invalidated_resolutions", module);
 		} catch (error) {
 			log(error);
 			return false;
@@ -93,7 +93,7 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	resolveModuleNameLiterals: (imports, fileName) => {
-		return imports.map((import_) => {
+		let output = imports.map((import_) => {
 			let specifier = import_.text;
 			let parent = import_.parent;
 			let attributes: { [key: string]: string } | undefined;
@@ -137,6 +137,13 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 				},
 			};
 		});
+		try {
+			let module = moduleFromFileName(fileName);
+			syscall("module_validate_resolutions", module);
+		} catch (error) {
+			log(error);
+		}
+		return output;
 	},
 
 	useCaseSensitiveFileNames: () => {

@@ -31,12 +31,13 @@ pub fn syscall<'s>(
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
 		"log" => sync(scope, &args, self::log::log),
+		"module_invalidated_resolutions" => {
+			sync(scope, &args, self::module::invalidated_resolutions)
+		},
 		"module_load" => sync(scope, &args, self::module::load),
 		"module_resolve" => sync(scope, &args, self::module::resolve),
+		"module_validate_resolutions" => sync(scope, &args, self::module::validate_resolutions),
 		"module_version" => sync(scope, &args, self::module::version),
-		"has_invalidated_resolutions" => {
-			sync(scope, &args, self::module::has_invalidated_resolutions)
-		},
 		_ => unreachable!(r#"unknown syscall "{name}""#),
 	};
 

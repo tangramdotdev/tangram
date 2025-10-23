@@ -43,6 +43,9 @@ impl Compiler {
 			tg::error!(source = error, "failed to get the last modification time")
 		})?;
 
+		// Find the lockfile.
+		let lockfile = self.find_lockfile_for_path(path).await;
+
 		// Get or create the document.
 		let mut document = entry.or_insert(Document {
 			dirty: false,
@@ -50,6 +53,7 @@ impl Compiler {
 			open: false,
 			text: None,
 			version: 0,
+			lockfile,
 		});
 
 		// Update the modified time if necessary.

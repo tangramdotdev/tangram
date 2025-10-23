@@ -1200,6 +1200,33 @@ impl Compiler {
 
 		Ok(module)
 	}
+
+	/// Find the lockfile for a given path.
+	pub async fn find_lockfile_for_path(&self, path: &Path) -> Option<document::Lockfile> {
+		// Search ancestors for the lockfile.
+		let mut lockfile_path = None;
+		for ancestor in path.parent()?.ancestors() {
+			let candidate = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
+			if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
+				lockfile_path = Some(candidate);
+				break;
+			}
+		}
+
+		// Get the lockfile's mtime.
+		let path = lockfile_path?;
+		let metadata = tokio::fs::symlink_metadata(&path).await.ok()?;
+		let mtime = metadata
+			.modified()
+			.ok()?
+			.duration_since(std::time::UNIX_EPOCH)
+			.ok()?
+			.as_secs();
+
+		let lockfile = document::Lockfile { path, mtime };
+
+		Some(lockfile)
+	}
 }
 
 impl Deref for Handle {

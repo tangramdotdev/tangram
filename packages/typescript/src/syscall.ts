@@ -36,6 +36,12 @@ declare global {
 	/** Write to the log. */
 	function syscall(syscall: "log", value: string): void;
 
+	/** Return if a module's resolutions are invalidated. */
+	function syscall(
+		syscall: "module_invalidated_resolutions",
+		mode: Module,
+	): boolean;
+
 	/** Load a module. */
 	function syscall(syscall: "module_load", module: Module): string;
 
@@ -47,12 +53,12 @@ declare global {
 		attributes: { [key: string]: string } | undefined,
 	): Module;
 
+	/** Mark that a module's resolutions have been validated. */
+	function syscall(
+		syscall: "module_validate_resolutions",
+		module: Module,
+	): void;
+
 	/** Get the version of a module. */
 	function syscall(syscall: "module_version", module: Module): string;
-
-	/** Return if a module's resolutions are out of date */
-	function syscall(
-		syscall: "has_invalidated_resolutions",
-		mode: Module,
-	): boolean;
 }

@@ -135,15 +135,15 @@ impl<'a> Visitor<'a> {
 					tg::position::Encoding::Utf8,
 				)
 				.unwrap_or(tg::Range {
-						start: tg::Position {
-							line: 0,
-							character: 0,
-						},
-						end: tg::Position {
-							line: 0,
-							character: 0,
-						},
-					});
+					start: tg::Position {
+						line: 0,
+						character: 0,
+					},
+					end: tg::Position {
+						line: 0,
+						character: 0,
+					},
+				});
 				let location = Some(tg::location::Data {
 					module: self.module.clone(),
 					range,
@@ -209,15 +209,15 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 						tg::position::Encoding::Utf8,
 					)
 					.unwrap_or(tg::Range {
-							start: tg::Position {
-								line: 0,
-								character: 0,
-							},
-							end: tg::Position {
-								line: 0,
-								character: 0,
-							},
-						});
+						start: tg::Position {
+							line: 0,
+							character: 0,
+						},
+						end: tg::Position {
+							line: 0,
+							character: 0,
+						},
+					});
 					Some(tg::location::Data {
 						module: self.module.clone(),
 						range,

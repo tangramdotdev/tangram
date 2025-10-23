@@ -39,11 +39,19 @@ impl Compiler {
 /// A document.
 #[derive(Clone, Debug)]
 pub struct Document {
-	pub open: bool,
 	pub dirty: bool,
-	pub version: i32,
+	pub lockfile: Option<Lockfile>,
 	pub modified: Option<std::time::SystemTime>,
+	pub open: bool,
 	pub text: Option<String>,
+	pub version: i32,
+}
+
+/// The lockfile associated with a document.
+#[derive(Clone, Debug)]
+pub struct Lockfile {
+	pub path: std::path::PathBuf,
+	pub mtime: u64,
 }
 
 impl Compiler {
@@ -63,12 +71,21 @@ impl Compiler {
 		version: i32,
 		text: String,
 	) -> tg::Result<()> {
+		// Find the lockfile if this is a path module.
+		let lockfile = if let Ok(path) = module.referent.item().try_unwrap_path_ref() {
+			self.find_lockfile_for_path(path).await
+		} else {
+			None
+		};
+
+		// Create the document.
 		let document = Document {
 			open: true,
 			dirty: false,
 			version,
 			modified: None,
 			text: Some(text),
+			lockfile,
 		};
 
 		// Insert the document.
@@ -98,7 +115,7 @@ impl Compiler {
 
 		// Ensure the document is open.
 		if !document.open {
-			return Err(tg::error!("expected the document to open"));
+			return Err(tg::error!("expected the document to be open"));
 		}
 
 		// Mark the document as closed.

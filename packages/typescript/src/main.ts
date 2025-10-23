@@ -4,7 +4,6 @@ import * as definition from "./definition.ts";
 import * as diagnostics from "./diagnostics.ts";
 import * as document from "./document.ts";
 import * as hover from "./hover.ts";
-import { log } from "./log.ts";
 import * as references from "./references.ts";
 import * as rename from "./rename.ts";
 import * as symbols from "./symbols.ts";
@@ -52,9 +51,7 @@ let handle = ({ kind, request }: Request): Response => {
 			return { kind: "document", response };
 		}
 		case "document_diagnostics": {
-			log("got document diagnostics request");
 			let response = diagnostics.handle(request);
-			log("returning document diagnostics response");
 			return { kind: "document_diagnostics", response };
 		}
 		case "hover": {
