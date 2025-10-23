@@ -1,4 +1,3 @@
-import * as path from "node:path";
 import type { OutputChannel } from "vscode";
 import * as vscode from "vscode";
 import {
@@ -60,11 +59,19 @@ class TangramLanguageClient {
 
 		let tangramConfig = vscode.workspace.getConfiguration("tangram");
 
-		let defaultPath = path.join(process.env.HOME!, ".tangram/bin/tangram");
+		// Get the command array from configuration.
+		let commandArray = tangramConfig.get<string[]>("command", [
+			"tangram",
+			"lsp",
+		]);
+
+		// Extract the command and arguments.
+		let command = commandArray[0] ?? "tangram";
+		let args = commandArray.slice(1);
 
 		let serverOptions: ServerOptions = {
-			command: tangramConfig.get<string>("path", defaultPath),
-			args: ["lsp"],
+			command,
+			args,
 			options: {
 				env: {
 					...process.env,

@@ -1,4 +1,5 @@
 import type { Location } from "./location.ts";
+import { log } from "./log.ts";
 import type { Module } from "./module.ts";
 import * as typescript from "./typescript.ts";
 
@@ -23,6 +24,7 @@ export let handle = (request: Request): Response => {
 	let diagnostics = request.modules
 		.flatMap((module) => {
 			let fileName = typescript.fileNameFromModule(module);
+			log(fileName);
 			return [
 				...typescript.languageService.getSyntacticDiagnostics(fileName),
 				...typescript.languageService.getSemanticDiagnostics(fileName),

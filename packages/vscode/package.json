@@ -16,11 +16,14 @@
 					"scope": "window",
 					"type": "boolean"
 				},
-				"tangram.path": {
-					"default": "tangram",
-					"description": "Specify the path to the Tangram binary.",
+				"tangram.command": {
+					"default": ["tangram", "lsp"],
+					"description": "The command and arguments to start the Tangram Language Server. Example: [\"tangram\", \"lsp\", \"--log-level\", \"debug\"]",
 					"scope": "window",
-					"type": "string"
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
 				}
 			},
 			"title": "Tangram"
@@ -28,12 +31,12 @@
 		"configurationDefaults": {
 			"[tangram-javascript]": {
 				"editor.detectIndentation": false,
-				"editor.insertSpaces": false,
+				"editor.insertSpaces": true,
 				"editor.tabSize": 2
 			},
 			"[tangram-typescript]": {
 				"editor.detectIndentation": false,
-				"editor.insertSpaces": false,
+				"editor.insertSpaces": true,
 				"editor.tabSize": 2
 			}
 		},

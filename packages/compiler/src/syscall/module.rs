@@ -7,10 +7,13 @@ pub fn load(
 ) -> tg::Result<String> {
 	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
-		let text = compiler
-			.load_module(&module)
-			.await
-			.map_err(|source| tg::error!(!source, ?module, "failed to load the module"))?;
+		let text = tokio::time::timeout(
+			std::time::Duration::from_secs(1),
+			compiler.load_module(&module),
+		)
+		.await
+		.unwrap()
+		.map_err(|source| tg::error!(!source, ?module, "failed to load the module"))?;
 		Ok(text)
 	})
 }
@@ -28,17 +31,20 @@ pub fn resolve(
 	let import = tg::module::Import::with_specifier_and_attributes(&specifier, attributes)
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
-		let module =
-			tangram_module::resolve(&compiler.handle, &referrer, &import, Some(&compiler.locks))
-				.await
-				.map_err(|error| {
-					tg::error!(
-						source = error,
-						?referrer,
-						%specifier,
-						"failed to resolve specifier relative to the module"
-					)
-				})?;
+		let module = tokio::time::timeout(
+			std::time::Duration::from_secs(1),
+			tangram_module::resolve(&compiler.handle, &referrer, &import, Some(&compiler.locks)),
+		)
+		.await
+		.unwrap()
+		.map_err(|error| {
+			tg::error!(
+				source = error,
+				?referrer,
+				%specifier,
+				"failed to resolve specifier relative to the module"
+			)
+		})?;
 		Ok(Serde(module))
 	})
 }

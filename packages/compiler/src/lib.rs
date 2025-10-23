@@ -68,7 +68,7 @@ pub struct State {
 	library_path: PathBuf,
 
 	/// The lock cache.
-	locks: DashMap<PathBuf, (tg::graph::Data, u64)>,
+	locks: DashMap<PathBuf, (Arc<tg::graph::Data>, u64)>,
 
 	/// A handle to the main tokio runtime.
 	main_runtime_handle: tokio::runtime::Handle,
@@ -789,7 +789,7 @@ impl Compiler {
 			let request = match result {
 				Ok(request) => request,
 				Err(error) => {
-					response_sender.send(Err(error)).unwrap();
+					response_sender.send(Err(error)).ok();
 					continue;
 				},
 			};
@@ -801,7 +801,7 @@ impl Compiler {
 			// Handle an error.
 			if let Some(exception) = scope.exception() {
 				let error = error::from_exception(scope, exception);
-				response_sender.send(Err(error)).unwrap();
+				response_sender.send(Err(error)).ok();
 				continue;
 			}
 			let response = response.unwrap();
@@ -813,13 +813,13 @@ impl Compiler {
 			let response = match result {
 				Ok(response) => response,
 				Err(error) => {
-					response_sender.send(Err(error)).unwrap();
+					response_sender.send(Err(error)).ok();
 					continue;
 				},
 			};
 
 			// Send the response.
-			response_sender.send(Ok(response)).unwrap();
+			response_sender.send(Ok(response)).ok();
 		}
 	}
 
@@ -948,8 +948,8 @@ impl Compiler {
 
 			// The symlink target is a relative path to the artifact.
 			let artifact_path = symlink_path.parent().unwrap().join(symlink_target);
-			let artifact_path = artifact_path
-				.canonicalize()
+			let artifact_path = tokio::fs::canonicalize(artifact_path)
+				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 			// Extract the directory ID from the artifact path.
@@ -967,7 +967,12 @@ impl Compiler {
 				.ok_or_else(|| tg::error!("invalid artifact ID"))?;
 
 			// Determine the module kind.
-			let kind = self.module_kind_for_path(path).await?;
+			let path = if relative_path.as_os_str().is_empty() {
+				artifact_path.clone()
+			} else {
+				artifact_path.join(&relative_path)
+			};
+			let kind = self.module_kind_for_path(&path).await?;
 
 			// Get the object.
 			let object = if relative_path.as_os_str().is_empty() {

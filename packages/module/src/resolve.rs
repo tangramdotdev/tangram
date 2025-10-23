@@ -1,6 +1,9 @@
 use {
 	dashmap::DashMap,
-	std::path::{Path, PathBuf},
+	std::{
+		path::{Path, PathBuf},
+		sync::Arc,
+	},
 	tangram_client as tg,
 	tangram_either::Either,
 };
@@ -10,7 +13,7 @@ pub async fn resolve<H>(
 	handle: &H,
 	referrer: &tg::module::Data,
 	import: &tg::module::Import,
-	locks: Option<&DashMap<PathBuf, (tg::graph::Data, u64)>>,
+	locks: Option<&DashMap<PathBuf, (Arc<tg::graph::Data>, u64)>>,
 ) -> tg::Result<tg::module::Data>
 where
 	H: tg::Handle,
@@ -95,7 +98,7 @@ async fn resolve_module_with_path_referrer<H>(
 	handle: &H,
 	referrer: &tg::Referent<&Path>,
 	import: &tg::module::Import,
-	locks: Option<&DashMap<PathBuf, (tg::graph::Data, u64)>>,
+	locks: Option<&DashMap<PathBuf, (Arc<tg::graph::Data>, u64)>>,
 ) -> tg::Result<tg::Referent<tg::module::data::Item>>
 where
 	H: tg::Handle,
@@ -154,36 +157,37 @@ where
 		.map_err(|source| tg::error!(!source, "failed to compute the duration"))?
 		.as_secs();
 
-	// Try to get the lock from the cache.
-	let lock = if let Some(locks) = locks {
-		if let Some(entry) = locks.get(&lockfile_path) {
+	// Try to get a fresh entry from the cache.
+	let cached_lock = if let Some(locks) = locks {
+		locks.get(&lockfile_path).and_then(|entry| {
 			let (cached_lock, cached_mtime) = entry.value();
 			if *cached_mtime == mtime {
-				cached_lock.clone()
+				Some(cached_lock.clone())
 			} else {
-				let contents = tokio::fs::read(&lockfile_path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to read the lockfile"))?;
-				let lock = tg::graph::Data::deserialize(contents.as_slice())
-					.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?;
-				locks.insert(lockfile_path.clone(), (lock.clone(), mtime));
-				lock
+				None
 			}
-		} else {
-			let contents = tokio::fs::read(&lockfile_path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read the lockfile"))?;
-			let lock = tg::graph::Data::deserialize(contents.as_slice())
-				.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?;
-			locks.insert(lockfile_path.clone(), (lock.clone(), mtime));
-			lock
-		}
+		})
+	} else {
+		None
+	};
+
+	// If we have a fresh cached value, use it; otherwise read from disk.
+	let lock = if let Some(lock) = cached_lock {
+		lock
 	} else {
 		let contents = tokio::fs::read(&lockfile_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the lockfile"))?;
-		tg::graph::Data::deserialize(contents.as_slice())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?
+		let lock = tg::graph::Data::deserialize(contents.as_slice())
+			.map_err(|source| tg::error!(!source, "failed to deserialize the lockfile"))?;
+		let lock = Arc::new(lock);
+
+		// Update the cache if we have one.
+		if let Some(locks) = locks {
+			locks.insert(lockfile_path.clone(), (lock.clone(), mtime));
+		}
+
+		lock
 	};
 
 	// Find the node in the lock that corresponds to the referrer's path.

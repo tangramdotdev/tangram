@@ -16,6 +16,5 @@ brackets = [
 ]
 word_characters = ["$", "#"]
 tab_size = 2
-hard_tabs = true
 debuggers = ["JavaScript"]
 import_path_strip_regex = "(?:/index)?\\.[jt]s$"
