@@ -1,6 +1,5 @@
 use {
 	crate::Server,
-	indoc::indoc,
 	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
 };
@@ -28,7 +27,7 @@ impl Server {
 				item: item.clone(),
 				remote: None,
 			};
-			Self::put_tag_postgres_inner(&mut transaction, &tag, &arg)
+			Self::put_tag_postgres_inner(&mut transaction, tag, &arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to perform the transaction"))?;
 		}

@@ -31,7 +31,7 @@ impl Server {
 							item: item.clone(),
 							remote: None,
 						};
-						Self::put_tag_sqlite_sync(&transaction, &tag, &arg)
+						Self::put_tag_sqlite_sync(&transaction, tag, &arg)
 							.map_err(|source| tg::error!(!source, %tag, "failed to put tag"))?;
 					}
 					// Commit the transaction.

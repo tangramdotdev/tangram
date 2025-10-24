@@ -214,7 +214,7 @@ async fn try_get_package_tag(
 			// Get the root file name.
 			let Some(name) = tg::package::try_get_root_module_file_name(
 				handle,
-				Either::Left(&directory.clone().into()),
+				Either::Left(&directory.clone()),
 			)
 			.await?
 			else {
@@ -245,7 +245,7 @@ async fn try_get_package_tag(
 	};
 
 	// Create a module for the item.
-	let referent = tg::Referent::with_item(tg::module::Item::Object(object.into()));
+	let referent = tg::Referent::with_item(tg::module::Item::Object(object));
 	let module = tg::Module { kind, referent };
 	let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
 		module,
@@ -282,7 +282,7 @@ impl State {
 		// Edge case: make sure the root is added if it is on the local file system.
 		if root.path().is_some() {
 			self.local_packages.push(root.clone());
-			self.add_package(root.clone());
+			self.add_package(&root.clone());
 		}
 
 		// Visit all the objects.
@@ -351,14 +351,9 @@ impl State {
 				// - It is referred to by another package
 				// - It is a bare file that isn't contained by any directories.
 				let publishable = index == 0
-					|| self
-						.local_packages
-						.iter()
-						.find(|referent| {
-							(*referent).clone().map(|r| r.id())
-								== node.package.clone().map(|r| r.id())
-						})
-						.is_some() || !node
+					|| self.local_packages.iter().any(|referent| {
+						(*referent).clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
+					}) || !node
 					.incoming
 					.iter()
 					.copied()
@@ -407,7 +402,8 @@ impl State {
 					{
 						continue;
 					}
-					// Otherwise we need to check this local package in twice.
+
+					// Otherwise, we need to check this local package in twice.
 					plan.push(Item {
 						checkin: Some(tg::checkin::Options {
 							local_dependencies: false,
@@ -417,7 +413,7 @@ impl State {
 						}),
 						push: false,
 						..item.clone()
-					})
+					});
 				}
 			}
 			plan.extend(items);
@@ -437,7 +433,7 @@ impl State {
 		})
 	}
 
-	fn add_package(&mut self, referent: tg::Referent<tg::Object>) {
+	fn add_package(&mut self, referent: &tg::Referent<tg::Object>) {
 		if self
 			.all_packages
 			.iter()
@@ -485,7 +481,7 @@ where
 			.await?
 			.is_some()
 		{
-			self.add_package(directory.clone().map(|d| d.clone().into()));
+			self.add_package(&directory.clone().map(|d| d.clone().into()));
 		}
 
 		Ok(true)
@@ -508,13 +504,13 @@ where
 			let Some(mut dependency) = dependency else {
 				continue;
 			};
+
 			// Make sure to inherit the dependency.
 			dependency.inherit(&file);
 			if reference.options().local.is_some() {
 				self.local_packages.push(dependency.clone());
-				self.add_package(dependency);
-				continue;
-			};
+				self.add_package(&dependency);
+			}
 		}
 		Ok(true)
 	}

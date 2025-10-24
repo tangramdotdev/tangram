@@ -345,7 +345,7 @@ pub trait Tag: Send + Sync + 'static {
 		arg: tg::tag::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn post_tags_batch<'a>(&'a self, arg: tg::tag::post::Arg) -> BoxFuture<'a, tg::Result<()>>;
+	fn post_tags_batch(&self, arg: tg::tag::post::Arg) -> BoxFuture<'_, tg::Result<()>>;
 
 	fn delete_tag(
 		&self,
@@ -850,7 +850,7 @@ where
 		self.put_tag(tag, arg).boxed()
 	}
 
-	fn post_tags_batch<'a>(&'a self, arg: tg::tag::post::Arg) -> BoxFuture<'a, tg::Result<()>> {
+	fn post_tags_batch(&self, arg: tg::tag::post::Arg) -> BoxFuture<'_, tg::Result<()>> {
 		self.post_tags_batch(arg).boxed()
 	}
 

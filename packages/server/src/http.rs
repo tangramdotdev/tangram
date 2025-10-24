@@ -339,7 +339,7 @@ impl Server {
 			(http::Method::GET, ["tags", pattern @ ..]) => {
 				Self::handle_get_tag_request(handle, request, pattern).boxed()
 			},
-			(http::Method::POST, ["tags", "batch" ]) => {
+			(http::Method::POST, ["tags", "batch"]) => {
 				Self::handle_post_tags_batch_request(handle, request).boxed()
 			},
 			(http::Method::PUT, ["tags", tag @ ..]) => {

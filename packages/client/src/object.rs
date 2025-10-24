@@ -105,20 +105,16 @@ where
 				.entries(handle)
 				.await?
 				.into_iter()
-				.map(|(name, object)| {
-					let child = tg::Referent {
-						item: object.into(),
-						options: tg::referent::Options {
-							path: Some(
-								referent
-									.path()
-									.map(|p| p.join(&name))
-									.unwrap_or_else(|| name.into()),
-							),
-							..tg::referent::Options::default()
-						},
-					};
-					child
+				.map(|(name, object)| tg::Referent {
+					item: object.into(),
+					options: tg::referent::Options {
+						path: Some(
+							referent
+								.path()
+								.map_or_else(|| name.clone().into(), |p| p.join(&name)),
+						),
+						..tg::referent::Options::default()
+					},
 				})
 				.collect::<Vec<_>>(),
 			tg::Object::File(file) => file

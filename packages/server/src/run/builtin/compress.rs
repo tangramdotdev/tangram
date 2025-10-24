@@ -9,7 +9,10 @@ use {
 };
 
 impl Server {
-	pub async fn run_builtin_compress(&self, process: &tg::Process) -> tg::Result<crate::run::Output> {
+	pub async fn run_builtin_compress(
+		&self,
+		process: &tg::Process,
+	) -> tg::Result<crate::run::Output> {
 		let command = process.command(self).await?;
 
 		// Get the args.

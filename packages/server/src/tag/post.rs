@@ -2,7 +2,7 @@ use {
 	crate::{Database, Server},
 	itertools::Itertools as _,
 	tangram_client as tg,
-	tangram_http::{request::Ext as _, response::builder::Ext as _, Body},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::Messenger,
 };
 mod sqlite;
