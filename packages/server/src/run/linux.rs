@@ -1,7 +1,6 @@
 use {
 	super::{
 		proxy::Proxy,
-		run::{RunArg, run},
 		util::{cache_children, render_env, render_value, which, whoami},
 	},
 	crate::{Server, temp::Temp},
@@ -17,15 +16,9 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone)]
-pub struct Runtime {
-	pub server: Server,
-}
-
 struct SandboxArg<'a> {
 	args: &'a [String],
 	command: &'a tg::command::Data,
-	config: &'a crate::config::Runtime,
 	cwd: &'a Path,
 	env: &'a BTreeMap<String, String>,
 	executable: &'a Path,
@@ -45,44 +38,20 @@ struct SandboxOutput {
 	root: PathBuf,
 }
 
-impl Runtime {
-	pub async fn run(&self, process: &tg::Process) -> super::Output {
-		self.run_inner(process)
-			.await
-			.unwrap_or_else(|error| super::Output {
-				checksum: None,
-				error: Some(error),
-				exit: 1,
-				output: None,
-			})
-	}
-
-	async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
-		let server = &self.server;
-
+impl Server {
+	pub(crate) async fn run_linux(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let id = process.id();
-		let state = &process.load(server).await?;
+		let state = &process.load(self).await?;
 		let remote = process.remote();
 
-		let command = process.command(server).await?;
-		let command = &command.data(server).await?;
-
-		// Get the config.
-		let config = server
-			.config()
-			.runtimes
-			.get("linux")
-			.ok_or_else(|| tg::error!("server has no runtime configured for linux"))
-			.cloned()?;
-		if !matches!(config.kind, crate::config::RuntimeKind::Tangram) {
-			return Err(tg::error!("unsupported sandbox kind"));
-		}
+		let command = process.command(self).await?;
+		let command = &command.data(self).await?;
 
 		// Cache the process's chidlren.
-		cache_children(server, process).await?;
+		cache_children(self, process).await?;
 
 		// Create the temp.
-		let temp = Temp::new(server);
+		let temp = Temp::new(self);
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
@@ -100,7 +69,7 @@ impl Runtime {
 
 		// Get the artifacts path.
 		let artifacts_path = if root_mounted {
-			server.artifacts_path()
+			self.artifacts_path()
 		} else {
 			"/.tangram/artifacts".into()
 		};
@@ -158,7 +127,7 @@ impl Runtime {
 
 		// Set `$TANGRAM_URL`.
 		let path = if root_mounted {
-			server.path.join("socket")
+			self.path.join("socket")
 		} else {
 			Path::new("/.tangram/socket").to_owned()
 		};
@@ -167,16 +136,14 @@ impl Runtime {
 		let url = format!("http+unix://{path}");
 		env.insert("TANGRAM_URL".to_owned(), url);
 
+		// Get the server's user.
+		let whoami = whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
+
 		// Determine if the process is sandboxed.
-		let user_matches = command.user.as_ref().is_none_or(|user| {
-			let Ok(whoami) =
-				whoami().inspect_err(|error| tracing::error!(?error, "failed to get username"))
-			else {
-				return false;
-			};
-			user == &whoami
-		});
-		let unsandboxed = root_mounted && (mounts.len() == 1) && state.network && user_matches;
+		let unsandboxed = root_mounted
+			&& (command.mounts.is_empty() && state.mounts.len() == 1)
+			&& state.network
+			&& command.user.as_ref().is_none_or(|user| user == &whoami);
 
 		// Sandbox if necessary.
 		let (args, cwd, env, executable, root) = if unsandboxed {
@@ -186,14 +153,13 @@ impl Runtime {
 			let arg = SandboxArg {
 				args: &args,
 				command,
-				config: &config,
 				cwd: &cwd,
 				env: &env,
 				executable: &executable,
 				id,
 				mounts: &mounts,
 				root_mounted,
-				server,
+				server: self,
 				state,
 				temp: &temp,
 			};
@@ -213,7 +179,7 @@ impl Runtime {
 			None
 		} else {
 			// Create the path map.
-			let path_map = crate::runtime::proxy::PathMap {
+			let path_map = crate::run::proxy::PathMap {
 				output_host: temp.path().join("output"),
 				output_guest: "/output".into(),
 				root_host: root,
@@ -240,7 +206,7 @@ impl Runtime {
 
 			// Start the proxy server.
 			let proxy = Proxy::new(
-				server.clone(),
+				self.clone(),
 				process,
 				process.remote().cloned(),
 				Some(path_map),
@@ -251,7 +217,7 @@ impl Runtime {
 		};
 
 		// Run the process.
-		let arg = RunArg {
+		let arg = crate::run::common::Arg {
 			args,
 			command,
 			cwd,
@@ -260,11 +226,11 @@ impl Runtime {
 			id,
 			proxy,
 			remote,
-			server,
+			server: self,
 			state,
 			temp: &temp,
 		};
-		let output = run(arg).await?;
+		let output = crate::run::common::run(arg).await?;
 
 		Ok(output)
 	}
@@ -272,7 +238,6 @@ impl Runtime {
 
 async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 	let SandboxArg {
-		config,
 		args,
 		cwd,
 		env,
@@ -292,10 +257,11 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 	// Initialize the output with all fields.
 	let mut output = SandboxOutput {
 		root: temp.path().join("root"),
-		args: config.args.clone(),
+		args: vec!["sandbox".to_owned()],
 		cwd: PathBuf::from("/"),
 		env: BTreeMap::new(),
-		executable: config.executable.clone(),
+		executable: std::env::current_exe()
+			.map_err(|source| tg::error!(!source, "failed to get the current executable"))?,
 	};
 
 	let mut overlays = HashMap::new();

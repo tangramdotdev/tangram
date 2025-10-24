@@ -167,7 +167,6 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Pat
 	Err(tg::error!(%path = exe.display(), "failed to find the executable"))
 }
 
-#[cfg(target_os = "linux")]
 pub fn whoami() -> tg::Result<String> {
 	unsafe {
 		let uid = libc::getuid();
@@ -176,7 +175,7 @@ pub fn whoami() -> tg::Result<String> {
 			let source = std::io::Error::last_os_error();
 			return Err(tg::error!(!source, "failed to get username"));
 		}
-		let username = std::ffi::CString::from_raw((*pwd).pw_name)
+		let username = std::ffi::CStr::from_ptr((*pwd).pw_name)
 			.to_str()
 			.map_err(|source| tg::error!(!source, "non-utf8 username"))?
 			.to_owned();

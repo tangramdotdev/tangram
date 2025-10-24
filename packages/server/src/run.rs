@@ -1,10 +1,32 @@
 use {
-	crate::{ProcessPermit, Server, runtime},
+	crate::{ProcessPermit, Server},
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::{collections::BTreeSet, sync::Arc, time::Duration},
 	tangram_client::{self as tg, prelude::*},
 	tangram_either::Either,
 };
+
+mod common;
+mod progress;
+mod proxy;
+pub mod util;
+
+pub mod builtin;
+#[cfg(target_os = "macos")]
+pub mod darwin;
+#[cfg(feature = "js")]
+pub mod js;
+#[cfg(target_os = "linux")]
+pub mod linux;
+
+#[derive(Clone, Debug)]
+pub struct Output {
+	pub checksum: Option<tg::Checksum>,
+	pub error: Option<tg::Error>,
+	pub exit: u8,
+	#[allow(clippy::struct_field_names)]
+	pub output: Option<tg::Value>,
+}
 
 impl Server {
 	pub(crate) async fn runner_task(&self) {
@@ -97,7 +119,7 @@ impl Server {
 		}
 
 		// Run.
-		let wait = self.process_task_inner(process).await?;
+		let wait = self.run(process).await?;
 
 		// Store the output.
 		let output = if let Some(output) = &wait.output {
@@ -136,28 +158,6 @@ impl Server {
 		Ok::<_, tg::Error>(())
 	}
 
-	async fn process_task_inner(&self, process: &tg::Process) -> tg::Result<runtime::Output> {
-		// Get the host.
-		let command = process.command(self).await?;
-		let host = command.host(self).await?;
-
-		// Get the runtime.
-		let runtime = self
-			.runtimes
-			.read()
-			.unwrap()
-			.get(&*host)
-			.ok_or_else(
-				|| tg::error!(?id = process, ?host = &*host, "failed to find a runtime for the process"),
-			)?
-			.clone();
-
-		// Run the process.
-		let output = runtime.run(process).await;
-
-		Ok(output)
-	}
-
 	async fn heartbeat_task(&self, process: &tg::Process) -> tg::Result<()> {
 		let config = self.config.runner.clone().unwrap_or_default();
 		loop {
@@ -174,5 +174,76 @@ impl Server {
 			tokio::time::sleep(config.heartbeat_interval).await;
 		}
 		Ok(())
+	}
+
+	async fn run(&self, process: &tg::Process) -> tg::Result<Output> {
+		// Ensure the process is loaded.
+		let state = process.load(self).await.map_err(
+			|source| tg::error!(!source, %process = process.id(), "failed to load the process"),
+		)?;
+
+		// Get the host.
+		let command = process.command(self).await?;
+		let host = command.host(self).await?;
+
+		let result = {
+			match host.as_str() {
+				"builtin" => self.run_builtin(process).await,
+
+				#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+				"aarch64-darwin" => self.run_darwin(process).await,
+
+				#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+				"x86_64-darwin" => self.run_darwin(process).await,
+
+				#[cfg(feature = "js")]
+				"js" => self.run_js(process).await,
+
+				#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+				"aarch64-linux" => self.run_linux(process).await,
+
+				#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+				"x86_64-linux" => self.run_linux(process).await,
+
+				_ => Err(tg::error!(%host, "cannot run process with host")),
+			}
+		};
+
+		let mut output = match result {
+			Ok(output) => output,
+			Err(error) => Output {
+				checksum: None,
+				error: Some(error),
+				exit: 1,
+				output: None,
+			},
+		};
+
+		// Compute the checksum if necessary.
+		if let (Some(checksum), None, Some(value)) =
+			(&state.expected_checksum, &output.checksum, &output.output)
+		{
+			let algorithm = checksum.algorithm();
+			let checksum = self.compute_checksum(value, algorithm).await?;
+			output.checksum = Some(checksum);
+		}
+
+		Ok(output)
+	}
+
+	async fn compute_checksum(
+		&self,
+		value: &tg::Value,
+		algorithm: tg::checksum::Algorithm,
+	) -> tg::Result<tg::Checksum> {
+		if let Ok(blob) = value.clone().try_into() {
+			self.checksum_blob(&blob, algorithm).await
+		} else if let Ok(artifact) = value.clone().try_into() {
+			self.checksum_artifact(&artifact, algorithm).await
+		} else {
+			Err(tg::error!(
+				"cannot checksum a value that is not a blob or an artifact"
+			))
+		}
 	}
 }

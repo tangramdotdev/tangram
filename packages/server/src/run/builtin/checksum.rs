@@ -1,12 +1,11 @@
-use {super::Runtime, tangram_client as tg};
+use {crate::Server, tangram_client as tg};
 
-impl Runtime {
-	pub async fn checksum(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
-		let server = &self.server;
-		let command = process.command(server).await?;
+impl Server {
+	pub async fn run_builtin_checksum(&self, process: &tg::Process) -> tg::Result<crate::run::Output> {
+		let command = process.command(self).await?;
 
 		// Get the args.
-		let args = command.args(server).await?;
+		let args = command.args(self).await?;
 
 		// Get the object.
 		let object = args
@@ -29,16 +28,16 @@ impl Runtime {
 
 		// Compute the checksum.
 		let checksum = if let Ok(blob) = tg::Blob::try_from(object.clone()) {
-			self.server.checksum_blob(&blob, algorithm).await?
+			self.checksum_blob(&blob, algorithm).await?
 		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
-			self.server.checksum_artifact(&artifact, algorithm).await?
+			self.checksum_artifact(&artifact, algorithm).await?
 		} else {
 			return Err(tg::error!("invalid object"));
 		};
 
 		let output = checksum.to_string().into();
 
-		let output = crate::runtime::Output {
+		let output = crate::run::Output {
 			checksum: None,
 			error: None,
 			exit: 0,

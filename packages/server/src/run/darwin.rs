@@ -1,10 +1,9 @@
 use {
 	super::{
 		proxy::Proxy,
-		run::{RunArg, run},
 		util::{cache_children, render_env, render_value, which},
 	},
-	crate::{Server, temp::Temp},
+	crate::{Server, run::util::whoami, temp::Temp},
 	std::{
 		collections::BTreeMap,
 		path::{Path, PathBuf},
@@ -16,46 +15,17 @@ use {
 
 const MAX_URL_LEN: usize = 100;
 
-#[derive(Clone)]
-pub struct Runtime {
-	pub server: Server,
-}
-
-impl Runtime {
-	pub async fn run(&self, process: &tg::Process) -> super::Output {
-		self.run_inner(process)
-			.await
-			.unwrap_or_else(|error| super::Output {
-				checksum: None,
-				error: Some(error),
-				exit: 1,
-				output: None,
-			})
-	}
-
-	pub async fn run_inner(&self, process: &tg::Process) -> tg::Result<super::Output> {
-		let server = &self.server;
-
+impl Server {
+	pub(crate) async fn run_darwin(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let id = process.id();
-		let state = &process.load(server).await?;
+		let state = &process.load(self).await?;
 		let remote = process.remote();
 
-		let command = process.command(server).await?;
-		let command = &command.data(server).await?;
-
-		// Get the config.
-		let config = server
-			.config()
-			.runtimes
-			.get("darwin")
-			.ok_or_else(|| tg::error!("server has no runtime configured for darwin"))
-			.cloned()?;
-		if !matches!(config.kind, crate::config::RuntimeKind::Tangram) {
-			return Err(tg::error!("unsupported runtime kind"));
-		}
+		let command = process.command(self).await?;
+		let command = &command.data(self).await?;
 
 		// Cache the process's children.
-		cache_children(server, process).await?;
+		cache_children(self, process).await?;
 
 		// Determine if the root is mounted.
 		let root_mounted = state
@@ -64,10 +34,10 @@ impl Runtime {
 			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
 
 		// Get the artifacts path.
-		let artifacts_path = server.artifacts_path();
+		let artifacts_path = self.artifacts_path();
 
 		// Create the temp.
-		let temp = Temp::new(server);
+		let temp = Temp::new(self);
 		tokio::fs::create_dir_all(&temp)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
@@ -121,7 +91,7 @@ impl Runtime {
 			tokio::fs::create_dir_all(&path)
 				.await
 				.map_err(|source| tg::error!(!source, %path = path.display(), "failed to create the proxy server directory"))?;
-			let proxy = Proxy::new(server.clone(), process, remote.cloned(), None);
+			let proxy = Proxy::new(self.clone(), process, remote.cloned(), None);
 			let socket_path = path.join("socket").display().to_string();
 			let mut url = if socket_path.len() >= MAX_URL_LEN {
 				let path = urlencoding::encode(&socket_path);
@@ -151,7 +121,7 @@ impl Runtime {
 		// Set `$TANGRAM_URL`.
 		let url = proxy.as_ref().map_or_else(
 			|| {
-				let path = server.path.join("socket");
+				let path = self.path.join("socket");
 				let path = path.to_str().unwrap();
 				let path = urlencoding::encode(path);
 				format!("http+unix://{path}")
@@ -160,8 +130,14 @@ impl Runtime {
 		);
 		env.insert("TANGRAM_URL".to_owned(), url);
 
+		// Get the server's user.
+		let whoami = whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
+
 		// Determine if the process is sandboxed.
-		let unsandboxed = root_mounted && state.network;
+		let unsandboxed = root_mounted
+			&& (command.mounts.is_empty() && state.mounts.len() == 1)
+			&& state.network
+			&& command.user.as_ref().is_none_or(|user| user == &whoami);
 
 		// Sandbox if necessary.
 		let (args, cwd, env, executable) = if unsandboxed {
@@ -202,12 +178,13 @@ impl Runtime {
 			};
 			let cwd = PathBuf::from("/");
 			let env = BTreeMap::new();
-			let executable = config.executable.clone();
+			let executable = std::env::current_exe()
+				.map_err(|source| tg::error!(!source, "failed to get the current executable"))?;
 			(args, cwd, env, executable)
 		};
 
 		// Run the process.
-		let arg = RunArg {
+		let arg = crate::run::common::Arg {
 			args,
 			command,
 			cwd,
@@ -216,11 +193,11 @@ impl Runtime {
 			id,
 			proxy,
 			remote,
-			server,
+			server: self,
 			state,
 			temp: &temp,
 		};
-		let output = run(arg).await?;
+		let output = crate::run::common::run(arg).await?;
 
 		Ok(output)
 	}

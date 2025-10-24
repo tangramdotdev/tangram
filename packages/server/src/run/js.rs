@@ -1,24 +1,27 @@
-use {crate::Server, futures::FutureExt as _, tangram_client as tg};
+use {crate::Server, futures::FutureExt as _, std::sync::Arc, tangram_client as tg};
 
-#[derive(Clone)]
-pub struct Runtime {
-	pub local_pool_handle: tokio_util::task::LocalPoolHandle,
-	pub logger: tangram_js::Logger,
-	pub main_runtime_handle: tokio::runtime::Handle,
-	pub server: Server,
-}
+impl Server {
+	pub async fn run_js(&self, process: &tg::Process) -> tg::Result<super::Output> {
+		let main_runtime_handle = tokio::runtime::Handle::current();
 
-impl Runtime {
-	pub async fn run(&self, process: &tg::Process) -> super::Output {
+		// Create the logger.
+		let logger = Arc::new({
+			let server = self.clone();
+			move |process: &tg::Process, stream, string| {
+				let server = server.clone();
+				let process = process.clone();
+				async move { crate::run::util::log(&server, &process, stream, string).await }
+					.boxed()
+			}
+		});
+
 		// Create a channel to receive the isolate handle.
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = self.local_pool_handle.spawn_pinned({
-			let server = self.server.clone();
+		let task = self.local_pool_handle.as_ref().unwrap().spawn_pinned({
+			let server = self.clone();
 			let process = process.clone();
-			let logger = self.logger.clone();
-			let main_runtime_handle = self.main_runtime_handle.clone();
 			move || async move {
 				tangram_js::run(
 					&server,
@@ -42,7 +45,7 @@ impl Runtime {
 		};
 
 		// Get the output.
-		match task.await.unwrap() {
+		let output = match task.await.unwrap() {
 			Ok(output) => super::Output {
 				checksum: output.checksum,
 				error: output.error,
@@ -55,6 +58,8 @@ impl Runtime {
 				exit: 1,
 				output: None,
 			},
-		}
+		};
+
+		Ok(output)
 	}
 }

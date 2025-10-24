@@ -1,6 +1,5 @@
 use {
-	super::Runtime,
-	crate::temp::Temp,
+	crate::{Server, temp::Temp},
 	async_zip::base::read::stream::ZipFileReader,
 	futures::AsyncReadExt as _,
 	std::{os::unix::fs::PermissionsExt as _, pin::pin},
@@ -13,13 +12,15 @@ use {
 	tokio_util::{compat::FuturesAsyncReadCompatExt as _, task::AbortOnDropHandle},
 };
 
-impl Runtime {
-	pub async fn extract(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
-		let server = &self.server;
-		let command = process.command(server).await?;
+impl Server {
+	pub async fn run_builtin_extract(
+		&self,
+		process: &tg::Process,
+	) -> tg::Result<crate::run::Output> {
+		let command = process.command(self).await?;
 
 		// Get the args.
-		let args = command.args(server).await?;
+		let args = command.args(self).await?;
 
 		// Get the blob.
 		let input = args
@@ -27,14 +28,14 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?;
 		let blob = match input {
 			tg::Value::Object(tg::Object::Blob(blob)) => blob.clone(),
-			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
+			tg::Value::Object(tg::Object::File(file)) => file.contents(self).await?,
 			_ => {
 				return Err(tg::error!("expected a blob or a file"));
 			},
 		};
 
 		// Create the reader.
-		let reader = crate::read::Reader::new(&self.server, blob.clone()).await?;
+		let reader = crate::read::Reader::new(self, blob.clone()).await?;
 		let mut reader = SharedPositionReader::with_reader_and_position(reader, 0)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
@@ -49,7 +50,7 @@ impl Runtime {
 
 		// Spawn a task to log progress.
 		let position = reader.shared_position();
-		let size = blob.length(server).await?;
+		let size = blob.length(self).await?;
 		let (sender, receiver) =
 			async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
 		let progress_task = AbortOnDropHandle::new(tokio::spawn({
@@ -75,7 +76,7 @@ impl Runtime {
 		}));
 		let stream = receiver.attach(progress_task);
 		let log_task = tokio::spawn({
-			let server = server.clone();
+			let server = self.clone();
 			let process = process.clone();
 			async move { server.log_progress_stream(&process, stream).await.ok() }
 		});
@@ -85,21 +86,21 @@ impl Runtime {
 		};
 
 		// Create a temp.
-		let temp = Temp::new(&self.server);
+		let temp = Temp::new(self);
 
 		// Extract to the temp.
 		match format {
 			tg::ArchiveFormat::Tar => {
-				self.extract_tar(&temp, &mut reader, compression).await?;
+				self.run_builtin_extract_tar(&temp, &mut reader, compression)
+					.await?;
 			},
 			tg::ArchiveFormat::Zip => {
-				self.extract_zip(&temp, &mut reader).await?;
+				self.run_builtin_extract_zip(&temp, &mut reader).await?;
 			},
 		}
 
 		// Check in the temp.
 		let stream = self
-			.server
 			.checkin(tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -124,8 +125,8 @@ impl Runtime {
 
 		// Log that the extraction finished.
 		let message = "finished extracting\n";
-		crate::runtime::util::log(
-			server,
+		crate::run::util::log(
+			self,
 			process,
 			tg::process::log::Stream::Stderr,
 			message.to_owned(),
@@ -134,7 +135,7 @@ impl Runtime {
 
 		let output = artifact.into();
 
-		let output = crate::runtime::Output {
+		let output = crate::run::Output {
 			checksum: None,
 			error: None,
 			exit: 0,
@@ -144,7 +145,7 @@ impl Runtime {
 		Ok(output)
 	}
 
-	pub(super) async fn extract_tar(
+	pub(super) async fn run_builtin_extract_tar(
 		&self,
 		temp: &Temp,
 		reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
@@ -174,7 +175,7 @@ impl Runtime {
 		Ok(())
 	}
 
-	pub(super) async fn extract_zip(
+	pub(super) async fn run_builtin_extract_zip(
 		&self,
 		temp: &Temp,
 		reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),

@@ -18,7 +18,7 @@ use {
 	tokio_util::{io::ReaderStream, task::AbortOnDropHandle},
 };
 
-pub struct RunArg<'a> {
+pub struct Arg<'a> {
 	pub args: Vec<String>,
 	pub command: &'a tg::command::Data,
 	pub cwd: PathBuf,
@@ -32,7 +32,7 @@ pub struct RunArg<'a> {
 	pub temp: &'a Temp,
 }
 
-pub async fn run(mut arg: RunArg<'_>) -> tg::Result<super::Output> {
+pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	let pty = None
 		.or_else(|| {
 			arg.state.stdin.as_ref().and_then(|stdio| match stdio {
@@ -106,8 +106,8 @@ pub async fn run(mut arg: RunArg<'_>) -> tg::Result<super::Output> {
 	Ok(output)
 }
 
-async fn run_session(arg: RunArg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
-	let RunArg {
+async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
+	let Arg {
 		server,
 		id,
 		remote,
@@ -329,8 +329,8 @@ async fn run_session(arg: RunArg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	Ok(exit)
 }
 
-async fn run_inner(arg: RunArg<'_>) -> tg::Result<u8> {
-	let RunArg {
+async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
+	let Arg {
 		server,
 		id,
 		remote,

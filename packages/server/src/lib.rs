@@ -1,19 +1,16 @@
 #[cfg(feature = "nats")]
 use async_nats as nats;
 use {
-	self::{
-		database::Database, index::Index, messenger::Messenger, runtime::Runtime, store::Store,
-	},
+	self::{database::Database, index::Index, messenger::Messenger, store::Store},
 	crate::temp::Temp,
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
 	std::{
-		collections::HashMap,
 		ops::Deref,
 		os::fd::AsRawFd as _,
 		path::PathBuf,
-		sync::{Arc, Mutex, RwLock},
+		sync::{Arc, Mutex},
 	},
 	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
@@ -50,8 +47,7 @@ mod pull;
 mod push;
 mod read;
 mod remote;
-mod runner;
-mod runtime;
+mod run;
 mod store;
 mod sync;
 mod tag;
@@ -84,6 +80,7 @@ pub struct State {
 	http: Option<Http>,
 	index: Index,
 	library: Mutex<Option<Arc<Temp>>>,
+	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
@@ -93,7 +90,6 @@ pub struct State {
 	process_tasks: ProcessTasks,
 	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-	runtimes: RwLock<HashMap<String, Runtime>>,
 	store: Store,
 	tasks: tangram_futures::task::Set<()>,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
@@ -320,6 +316,12 @@ impl Server {
 		// Create the library.
 		let library = Mutex::new(None);
 
+		// Create the local pool.
+		let local_pool_handle = config
+			.runner
+			.as_ref()
+			.map(|config| tokio_util::task::LocalPoolHandle::new(config.concurrency));
+
 		// Create the messenger.
 		let messenger = match &config.messenger {
 			self::config::Messenger::Memory => {
@@ -372,9 +374,6 @@ impl Server {
 
 		// Create the remotes.
 		let remotes = DashMap::default();
-
-		// Create the runtimes.
-		let runtimes = RwLock::new(HashMap::default());
 
 		// Create the store.
 		let store = match &config.store {
@@ -440,6 +439,7 @@ impl Server {
 			http,
 			index,
 			library,
+			local_pool_handle,
 			lock,
 			messenger,
 			path,
@@ -449,7 +449,6 @@ impl Server {
 			process_tasks,
 			ptys,
 			remotes,
-			runtimes,
 			store,
 			tasks,
 			temps,
@@ -580,79 +579,6 @@ impl Server {
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the artifacts directory")
 				})?;
-		}
-
-		// Add the runtimes if the runner is enabled.
-		if server.config.runner.is_some() {
-			{
-				let triple = "builtin".to_owned();
-				let runtime = self::runtime::builtin::Runtime {
-					server: server.clone(),
-				};
-				let runtime = self::runtime::Runtime::Builtin(runtime);
-				server.runtimes.write().unwrap().insert(triple, runtime);
-			}
-			#[cfg(feature = "js")]
-			{
-				let triple = "js".to_owned();
-				let concurrency = server.config.runner.as_ref().unwrap().concurrency;
-				let local_pool_handle = tokio_util::task::LocalPoolHandle::new(concurrency);
-				let logger = Arc::new({
-					let server = server.clone();
-					move |process: &tg::Process, stream, string| {
-						let server = server.clone();
-						let process = process.clone();
-						async move {
-							crate::runtime::util::log(&server, &process, stream, string).await
-						}.boxed()
-					}
-				});
-				let main_runtime_handle = tokio::runtime::Handle::current();
-				let runtime = self::runtime::js::Runtime {
-					local_pool_handle,
-					logger,
-					main_runtime_handle,
-					server: server.clone(),
-				};
-				let runtime = self::runtime::Runtime::Js(runtime);
-				server.runtimes.write().unwrap().insert(triple, runtime);
-			}
-			#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-			{
-				let triple = "aarch64-darwin".to_owned();
-				let runtime = self::runtime::darwin::Runtime {
-					server: server.clone(),
-				};
-				let runtime = self::runtime::Runtime::Darwin(runtime);
-				server.runtimes.write().unwrap().insert(triple, runtime);
-			}
-			#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
-			{
-				let triple = "aarch64-linux".to_owned();
-				let runtime = self::runtime::linux::Runtime {
-					server: server.clone(),
-				};
-				let runtime = self::runtime::Runtime::Linux(runtime);
-				server.runtimes.write().unwrap().insert(triple, runtime);
-			}
-			#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
-			{
-				let triple = "x86_64-darwin".to_owned();
-				let runtime = self::runtime::darwin::Runtime {
-					server: server.clone(),
-				};
-				let runtime = self::runtime::Runtime::Darwin(runtime);
-				server.runtimes.write().unwrap().insert(triple, runtime);
-			}
-			#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-			{
-				let triple = "x86_64-linux".to_owned();
-				let runtime = self::runtime::linux::Runtime {
-					server: server.clone(),
-				};
-				let runtime = self::runtime::Runtime::Linux(runtime);
-				server.runtimes.write().unwrap().insert(triple, runtime);
-			}
 		}
 
 		// Spawn the diagnostics task.
@@ -822,9 +748,6 @@ impl Server {
 					tracing::trace!("shutdown watchdog task");
 				}
 
-				// Remove the runtimes.
-				server.runtimes.write().unwrap().clear();
-
 				// Abort the cache tasks.
 				server.cache_tasks.abort_all();
 				let results = server.cache_tasks.wait().await;
@@ -983,7 +906,6 @@ impl Drop for Handle {
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.process_tasks.abort_all();
-		self.runtimes.write().unwrap().clear();
 		self.tasks.abort_all();
 		self.vfs.lock().unwrap().take();
 	}

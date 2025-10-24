@@ -1,6 +1,5 @@
 use {
-	super::Runtime,
-	crate::temp::Temp,
+	crate::{Server, temp::Temp},
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
 	std::sync::{Arc, Mutex, atomic::AtomicU64},
@@ -17,18 +16,20 @@ enum Mode {
 	Extract(tg::ArchiveFormat, Option<tg::CompressionFormat>),
 }
 
-impl Runtime {
-	pub async fn download(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
-		let server = &self.server;
-		let command = process.command(server).await?;
+impl Server {
+	pub async fn run_builtin_download(
+		&self,
+		process: &tg::Process,
+	) -> tg::Result<crate::run::Output> {
+		let command = process.command(self).await?;
 
 		// Get the expected checksum.
-		let Some(expected_checksum) = process.load(server).await?.expected_checksum.clone() else {
+		let Some(expected_checksum) = process.load(self).await?.expected_checksum.clone() else {
 			return Err(tg::error!("a download must have a checksum"));
 		};
 
 		// Get the args.
-		let args = command.args(server).await?;
+		let args = command.args(self).await?;
 		let url: Uri = args
 			.first()
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?
@@ -54,8 +55,7 @@ impl Runtime {
 
 		// Log that the download started.
 		let message = format!("downloading from \"{url}\"\n");
-		crate::runtime::util::log(server, process, tg::process::log::Stream::Stderr, message)
-			.await?;
+		crate::run::util::log(self, process, tg::process::log::Stream::Stderr, message).await?;
 
 		// Spawn the progress and log tasks.
 		let downloaded = Arc::new(AtomicU64::new(0));
@@ -85,7 +85,7 @@ impl Runtime {
 		}));
 		let stream = receiver.attach(progress_task);
 		let log_task = tokio::spawn({
-			let server = server.clone();
+			let server = self.clone();
 			let process = process.clone();
 			async move { server.log_progress_stream(&process, stream).await.ok() }
 		});
@@ -141,7 +141,7 @@ impl Runtime {
 		};
 
 		// Download.
-		let temp = Temp::new(server);
+		let temp = Temp::new(self);
 		match mode {
 			Mode::Raw => {
 				let mut file = tokio::fs::File::create(temp.path())
@@ -175,10 +175,11 @@ impl Runtime {
 			},
 			Mode::Extract(format, compression) => match format {
 				tg::ArchiveFormat::Tar => {
-					self.extract_tar(&temp, &mut reader, compression).await?;
+					self.run_builtin_extract_tar(&temp, &mut reader, compression)
+						.await?;
 				},
 				tg::ArchiveFormat::Zip => {
-					self.extract_zip(&temp, &mut reader).await?;
+					self.run_builtin_extract_zip(&temp, &mut reader).await?;
 				},
 			},
 		}
@@ -208,7 +209,7 @@ impl Runtime {
 			path: temp.path().to_owned(),
 			updates: Vec::new(),
 		};
-		let artifact = tg::checkin(server, arg)
+		let artifact = tg::checkin(self, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?;
 
@@ -218,21 +219,20 @@ impl Runtime {
 
 		// Log that the download finished.
 		let message = format!("finished download from \"{url}\"\n");
-		crate::runtime::util::log(server, process, tg::process::log::Stream::Stderr, message)
-			.await?;
+		crate::run::util::log(self, process, tg::process::log::Stream::Stderr, message).await?;
 
 		let output = match mode {
 			Mode::Raw => artifact
 				.try_unwrap_file()
 				.map_err(|_| tg::error!("expected a file"))?
-				.contents(server)
+				.contents(self)
 				.await?
 				.into(),
 
 			_ => artifact.into(),
 		};
 
-		let output = crate::runtime::Output {
+		let output = crate::run::Output {
 			checksum: Some(checksum),
 			error: None,
 			exit: 0,

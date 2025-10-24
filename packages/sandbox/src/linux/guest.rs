@@ -7,10 +7,10 @@ use {
 pub fn main(mut context: Context) -> ! {
 	unsafe {
 		// Set hostname.
-		if let Some(hostname) = context.hostname.take() {
-			if libc::sethostname(hostname.as_ptr(), hostname.as_bytes().len()) != 0 {
-				abort_errno!("failed to set hostname");
-			}
+		if let Some(hostname) = context.hostname.take()
+			&& libc::sethostname(hostname.as_ptr(), hostname.as_bytes().len()) != 0
+		{
+			abort_errno!("failed to set hostname");
 		}
 
 		// Wait for the notification from the host process to continue.

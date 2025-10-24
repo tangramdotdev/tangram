@@ -586,41 +586,6 @@ impl Cli {
 			remotes: Vec::new(),
 		});
 
-		// Create the runtimes.
-		let runtimes = if cfg!(target_os = "linux") {
-			let name = "linux".to_owned();
-			let executable = std::env::current_exe()
-				.map_err(|source| tg::error!(!source, "failed to get the executable path"))?;
-			let args = vec!["sandbox".to_owned()];
-			[(
-				name,
-				tangram_server::config::Runtime {
-					kind: tangram_server::config::RuntimeKind::Tangram,
-					executable,
-					args,
-				},
-			)]
-			.into_iter()
-			.collect()
-		} else if cfg!(target_os = "macos") {
-			let name = "darwin".to_owned();
-			let executable = std::env::current_exe()
-				.map_err(|source| tg::error!(!source, "failed to get the executable path"))?;
-			let args = vec!["sandbox".to_owned()];
-			[(
-				name,
-				tangram_server::config::Runtime {
-					kind: tangram_server::config::RuntimeKind::Tangram,
-					executable,
-					args,
-				},
-			)]
-			.into_iter()
-			.collect()
-		} else {
-			[].into_iter().collect()
-		};
-
 		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
 			path: directory.join("store"),
 		});
@@ -639,7 +604,6 @@ impl Cli {
 			directory,
 			remotes,
 			runner,
-			runtimes,
 			store,
 			version,
 			vfs,

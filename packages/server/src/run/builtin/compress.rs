@@ -1,21 +1,19 @@
 use {
-	super::Runtime,
+	crate::Server,
 	tangram_client as tg,
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
 		stream::Ext as _,
 	},
-	tokio::io::AsyncBufReadExt as _,
 	tokio_util::task::AbortOnDropHandle,
 };
 
-impl Runtime {
-	pub async fn decompress(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
-		let server = &self.server;
-		let command = process.command(server).await?;
+impl Server {
+	pub async fn run_builtin_compress(&self, process: &tg::Process) -> tg::Result<crate::run::Output> {
+		let command = process.command(self).await?;
 
 		// Get the args.
-		let args = command.args(server).await?;
+		let args = command.args(self).await?;
 
 		// Get the blob.
 		let input = args
@@ -23,29 +21,31 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("invalid number of arguments"))?;
 		let blob = match input {
 			tg::Value::Object(tg::Object::Blob(blob)) => blob.clone(),
-			tg::Value::Object(tg::Object::File(file)) => file.contents(server).await?,
+			tg::Value::Object(tg::Object::File(file)) => file.contents(self).await?,
 			_ => {
 				return Err(tg::error!("expected a blob or a file"));
 			},
 		};
 
+		// Get the format.
+		let format = args
+			.get(1)
+			.ok_or_else(|| tg::error!("invalid number of arguments"))?
+			.try_unwrap_string_ref()
+			.ok()
+			.ok_or_else(|| tg::error!("expected a string"))?
+			.parse::<tg::CompressionFormat>()
+			.map_err(|source| tg::error!(!source, "invalid format"))?;
+
 		// Create the reader.
-		let reader = blob.read(server, tg::read::Options::default()).await?;
-		let mut reader = SharedPositionReader::with_reader_and_position(reader, 0)
+		let reader = blob.read(self, tg::read::Options::default()).await?;
+		let reader = SharedPositionReader::with_reader_and_position(reader, 0)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
 
-		// Detect the compression format.
-		let buffer = reader
-			.fill_buf()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to fill the buffer"))?;
-		let format = super::util::detect_compression_format(buffer)?
-			.ok_or_else(|| tg::error!("invalid compression format"))?;
-
 		// Spawn a task to log progress.
 		let position = reader.shared_position();
-		let size = blob.length(server).await?;
+		let size = blob.length(self).await?;
 		let (sender, receiver) =
 			async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
 		let progress_task = AbortOnDropHandle::new(tokio::spawn({
@@ -57,7 +57,7 @@ impl Runtime {
 						current: Some(current),
 						format: tg::progress::IndicatorFormat::Bytes,
 						name: String::new(),
-						title: "decompressing".to_owned(),
+						title: "compressing".to_owned(),
 						total: Some(size),
 					};
 					let event = tg::progress::Event::Update::<()>(indicator);
@@ -71,7 +71,7 @@ impl Runtime {
 		}));
 		let stream = receiver.attach(progress_task);
 		let log_task = tokio::spawn({
-			let server = server.clone();
+			let server = self.clone();
 			let process = process.clone();
 			async move { server.log_progress_stream(&process, stream).await.ok() }
 		});
@@ -80,31 +80,31 @@ impl Runtime {
 			log_task_abort_handle.abort();
 		};
 
-		// Decompress the blob.
+		// Compress the blob.
 		let reader = match format {
 			tg::CompressionFormat::Bz2 => {
-				async_compression::tokio::bufread::BzDecoder::new(reader).boxed()
+				async_compression::tokio::bufread::BzEncoder::new(reader).boxed()
 			},
 			tg::CompressionFormat::Gz => {
-				async_compression::tokio::bufread::GzipDecoder::new(reader).boxed()
+				async_compression::tokio::bufread::GzipEncoder::new(reader).boxed()
 			},
 			tg::CompressionFormat::Xz => {
-				async_compression::tokio::bufread::XzDecoder::new(reader).boxed()
+				async_compression::tokio::bufread::XzEncoder::new(reader).boxed()
 			},
 			tg::CompressionFormat::Zstd => {
-				async_compression::tokio::bufread::ZstdDecoder::new(reader).boxed()
+				async_compression::tokio::bufread::ZstdEncoder::new(reader).boxed()
 			},
 		};
-		let blob = tg::Blob::with_reader(server, reader).await?;
+		let blob = tg::Blob::with_reader(self, reader).await?;
 
 		// Abort and await the log task.
 		log_task.abort();
 		log_task.await.ok();
 
-		// Log that the decompression finished.
-		let message = "finished decompressing\n";
-		crate::runtime::util::log(
-			server,
+		// Log that the compression finished.
+		let message = "finished compressing\n";
+		crate::run::util::log(
+			self,
 			process,
 			tg::process::log::Stream::Stderr,
 			message.to_owned(),
@@ -119,7 +119,7 @@ impl Runtime {
 			unreachable!()
 		};
 
-		let output = crate::runtime::Output {
+		let output = crate::run::Output {
 			checksum: None,
 			error: None,
 			exit: 0,

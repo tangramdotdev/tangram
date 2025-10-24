@@ -1,6 +1,5 @@
 use {
-	super::Runtime,
-	crate::database::Transaction,
+	crate::{Server, database::Transaction},
 	futures::{TryStreamExt as _, stream::FuturesOrdered},
 	std::path::{Path, PathBuf},
 	tangram_client as tg,
@@ -8,13 +7,15 @@ use {
 
 static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
-impl Runtime {
-	pub async fn bundle(&self, process: &tg::Process) -> tg::Result<crate::runtime::Output> {
-		let server = &self.server;
-		let command = process.command(server).await?;
+impl Server {
+	pub async fn run_builtin_bundle(
+		&self,
+		process: &tg::Process,
+	) -> tg::Result<crate::run::Output> {
+		let command = process.command(self).await?;
 
 		// Get the args.
-		let args = command.args(server).await?;
+		let args = command.args(self).await?;
 
 		// Get the artifact.
 		let artifact: tg::Artifact = args
@@ -26,12 +27,12 @@ impl Runtime {
 			.ok_or_else(|| tg::error!("expected an artifact"))?;
 
 		// Collect the artifact's recursive artifact dependencies.
-		let dependencies = Box::pin(artifact.recursive_dependencies(server)).await?;
+		let dependencies = Box::pin(artifact.recursive_dependencies(self)).await?;
 
 		// If there are no dependencies, then return the artifact.
 		if dependencies.is_empty() {
 			let output = artifact.into();
-			let output = crate::runtime::Output {
+			let output = crate::run::Output {
 				checksum: None,
 				error: None,
 				exit: 0,
@@ -74,10 +75,10 @@ impl Runtime {
 
 		// Add the artifacts directory to the bundled artifact at `.tangram/artifacts`.
 		let output = output
-			.builder(server)
+			.builder(self)
 			.await?
 			.add(
-				server,
+				self,
 				TANGRAM_ARTIFACTS_PATH.as_ref(),
 				artifacts_directory.into(),
 			)
@@ -85,7 +86,7 @@ impl Runtime {
 			.build();
 		let output = output.into();
 
-		let output = crate::runtime::Output {
+		let output = crate::run::Output {
 			checksum: None,
 			error: None,
 			exit: 0,
@@ -102,13 +103,12 @@ impl Runtime {
 		depth: usize,
 		transaction: Option<&Transaction<'_>>,
 	) -> tg::Result<tg::Artifact> {
-		let server = &self.server;
 		match artifact {
 			// If the artifact is a directory, then recurse to remove dependencies from its entries.
 			tg::Artifact::Directory(directory) => {
 				let entries = Box::pin(async move {
 					directory
-						.entries(server)
+						.entries(self)
 						.await?
 						.iter()
 						.map(|(name, artifact)| async move {
@@ -129,16 +129,16 @@ impl Runtime {
 
 			// If the artifact is a file, then return the file without any dependencies.
 			tg::Artifact::File(file) => {
-				let contents = file.contents(server).await?.clone();
-				let executable = file.executable(server).await?;
+				let contents = file.contents(self).await?.clone();
+				let executable = file.executable(self).await?;
 				let file = tg::File::builder(contents).executable(executable).build();
 				Ok(file.into())
 			},
 
 			// If the artifact is a symlink with an artifact, then replace it with a symlink pointing to `.tangram/artifacts/<id>`.
 			tg::Artifact::Symlink(symlink) => {
-				let artifact = symlink.artifact(server).await?;
-				let path = symlink.path(server).await?;
+				let artifact = symlink.artifact(self).await?;
+				let path = symlink.path(self).await?;
 				let mut target = PathBuf::new();
 				if let Some(artifact) = artifact {
 					for _ in 0..depth - 1 {
