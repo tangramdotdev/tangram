@@ -164,6 +164,15 @@ impl Server {
 		};
 		cmd.stderr(stderr);
 
+		// Set up signal handling.
+		unsafe {
+			cmd.pre_exec(|| {
+				libc::signal(libc::SIGINT, libc::SIG_DFL);
+				libc::signal(libc::SIGHUP, libc::SIG_DFL);
+				Ok(())
+			});
+		}
+
 		// Spawn the process.
 		let mut child = cmd
 			.spawn()
