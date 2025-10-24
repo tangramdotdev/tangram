@@ -497,6 +497,13 @@ impl tg::handle::Tag for Handle {
 		self.0.put_tag(tag, arg)
 	}
 
+	fn post_tags_batch(
+		&self,
+		arg: tg::tag::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		self.0.post_tags_batch(arg)
+	}
+
 	fn delete_tag(
 		&self,
 		arg: tg::tag::delete::Arg,
@@ -1001,6 +1008,10 @@ impl tg::handle::Tag for Server {
 		arg: tg::tag::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_tag(tag, arg)
+	}
+
+	fn post_tags_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
+		self.post_tags_batch(arg)
 	}
 
 	fn delete_tag(

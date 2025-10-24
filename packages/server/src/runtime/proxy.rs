@@ -550,6 +550,10 @@ impl tg::handle::Tag for Proxy {
 		Err(tg::error!("forbidden"))
 	}
 
+	async fn post_tags_batch(&self, _arg: tg::tag::post::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+
 	async fn delete_tag(&self, _arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
 		Err(tg::error!("forbidden"))
 	}

@@ -795,6 +795,13 @@ where
 		}
 	}
 
+	fn post_tags_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			Either::Left(s) => s.post_tags_batch(arg).left_future(),
+			Either::Right(s) => s.post_tags_batch(arg).right_future(),
+		}
+	}
+
 	fn delete_tag(
 		&self,
 		arg: tg::tag::delete::Arg,

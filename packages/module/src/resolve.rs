@@ -283,8 +283,7 @@ where
 			tg::Object::Directory(directory),
 		) => {
 			let path =
-				tg::package::try_get_root_module_file_name(handle, Either::Left(referent.item()))
-					.await?;
+				tg::package::try_get_root_module_file_name(handle, Either::Left(directory)).await?;
 			let (item, path) = if let Some(path) = path {
 				let file = directory
 					.get(handle, path)

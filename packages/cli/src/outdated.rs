@@ -11,16 +11,12 @@ pub struct Args {
 impl Cli {
 	pub async fn command_outdated(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let object = self
-			.get_reference(&args.reference)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get reference"))?
-			.item()
-			.clone()
-			.right()
-			.ok_or_else(|| tg::error!(%reference = args.reference, "expected an object"))?;
 		let mut visitor = Visitor::default();
-		tg::object::visit(&handle, &mut visitor, [object])
+		let referent = self
+			.get_reference(&args.reference)
+			.await?
+			.try_map(|item| item.right().ok_or_else(|| tg::error!("expected an object")))?;
+		tg::object::visit(&handle, &mut visitor, &referent)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to walk objects"))?;
 		let output = visitor.entries.into_iter().collect::<Vec<_>>();
@@ -45,11 +41,25 @@ impl<H> tg::object::Visitor<H> for Visitor
 where
 	H: tg::Handle,
 {
-	async fn visit_file(
+	async fn visit_directory(
 		&mut self,
-		handle: &H,
-		file: &tangram_client::File,
-	) -> tangram_client::Result<()> {
+		_handle: &H,
+		_directory: tg::Referent<&tg::Directory>,
+	) -> tg::Result<bool> {
+		Ok(true)
+	}
+
+	async fn visit_symlink(
+		&mut self,
+		_handle: &H,
+		_symlink: tg::Referent<&tg::Symlink>,
+	) -> tg::Result<bool> {
+		Ok(true)
+	}
+
+	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
+		let file = file.item;
+
 		// Get the file's dependencies.
 		let dependencies = file
 			.dependencies(handle)
@@ -104,6 +114,6 @@ where
 			self.entries.insert(entry);
 		}
 
-		Ok(())
+		Ok(true)
 	}
 }
