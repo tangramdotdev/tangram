@@ -6,7 +6,7 @@ use {
 		syscall::syscall,
 	},
 	futures::{
-		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+		FutureExt as _, StreamExt as _, TryFutureExt as _,
 		future::{self, BoxFuture, LocalBoxFuture},
 		stream::FuturesUnordered,
 	},
@@ -70,7 +70,7 @@ pub async fn run<H>(
 	process: &tg::Process,
 	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
-	isolate_handle_sender: tokio::sync::watch::Sender<Option<v8::IsolateHandle>>,
+	isolate_handle_sender: Option<tokio::sync::watch::Sender<Option<v8::IsolateHandle>>>,
 ) -> tg::Result<Output>
 where
 	H: tg::Handle,
@@ -84,34 +84,6 @@ where
 		.try_unwrap_module()
 		.ok()
 		.ok_or_else(|| tg::error!("expected the executable to be a module"))?;
-
-	// Create the signal task.
-	let (signal_sender, mut signal_receiver) = tokio::sync::mpsc::channel::<tg::process::Signal>(1);
-	let signal_task = tokio::spawn({
-		let handle = handle.clone();
-		let process = process.clone();
-		async move {
-			let arg = tg::process::signal::get::Arg {
-				remote: process.remote().cloned(),
-			};
-			let Ok(Some(stream)) = handle
-				.try_get_process_signal_stream(process.id(), arg)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to get signal stream"))
-			else {
-				return;
-			};
-			let mut stream = pin!(stream);
-			while let Ok(Some(tg::process::signal::get::Event::Signal(signal))) =
-				stream.try_next().await
-			{
-				signal_sender.send(signal).await.ok();
-			}
-		}
-	});
-	scopeguard::defer! {
-		signal_task.abort();
-	}
 
 	// Create the state.
 	let (rejection, _) = tokio::sync::watch::channel(None);
@@ -141,7 +113,9 @@ where
 	unsafe { isolate.enter() };
 
 	// Send the isolate handle.
-	isolate_handle_sender.send_replace(Some(isolate.thread_safe_handle()));
+	if let Some(isolate_handle_sender) = isolate_handle_sender {
+		isolate_handle_sender.send_replace(Some(isolate.thread_safe_handle()));
+	}
 
 	// Set the microtask policy.
 	isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
@@ -383,28 +357,18 @@ where
 		.wait_for(Option::is_some)
 		.map_ok(|option| option.as_ref().unwrap().clone())
 		.map(Result::unwrap);
-	let signal = signal_receiver.recv();
 	let rejection = pin!(rejection);
-	let signal = pin!(signal);
-	let error_or_signal = future::select(rejection, signal);
-	let output = match future::select(pin!(future), pin!(error_or_signal)).await {
+	let output = match future::select(pin!(future), rejection).await {
 		future::Either::Left((Ok(output), _)) => Output {
 			checksum: None,
 			error: None,
 			exit: 0,
 			output: Some(tg::Value::try_from(output)?),
 		},
-		future::Either::Left((Err(error), _))
-		| future::Either::Right((future::Either::Left((error, _)), _)) => Output {
+		future::Either::Left((Err(error), _)) | future::Either::Right((error, _)) => Output {
 			checksum: None,
 			error: Some(error),
 			exit: 1,
-			output: None,
-		},
-		future::Either::Right((future::Either::Right((signal, _)), _)) => Output {
-			checksum: None,
-			error: Some(tg::error!(?signal, "process terminated with signal")),
-			exit: signal.map_or(1, |signal| 128u8 + signal as u8),
 			output: None,
 		},
 	};

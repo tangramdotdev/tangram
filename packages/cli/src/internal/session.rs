@@ -11,8 +11,8 @@ pub struct Args {
 
 impl Cli {
 	#[must_use]
-	pub fn command_session(args: Args) -> std::process::ExitCode {
-		let result = Self::command_session_inner(args);
+	pub fn command_internal_session(args: Args) -> std::process::ExitCode {
+		let result = Self::command_internal_session_inner(args);
 		match result {
 			Ok(()) => 0.into(),
 			Err(error) => {
@@ -22,7 +22,7 @@ impl Cli {
 		}
 	}
 
-	pub fn command_session_inner(args: Args) -> tg::Result<()> {
+	pub fn command_internal_session_inner(args: Args) -> tg::Result<()> {
 		// Open the pty and set up the controlling tty.
 		unsafe {
 			// Ignore SIGINT and SIGHUP signals.

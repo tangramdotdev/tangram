@@ -69,12 +69,41 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 		task.wait().await.unwrap();
 	}
 
-	// Check in the output.
+	// Create the output.
+	let mut output = super::Output {
+		checksum: None,
+		error: None,
+		exit,
+		output: None,
+	};
+
+	// Get the output path.
 	let path = temp.path().join("output/output");
 	let exists = tokio::fs::try_exists(&path)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to determine if the output path exists"))?;
-	let output = if exists {
+
+	// Try to read the user.tangram.output xattr.
+	if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
+		let tgon = String::from_utf8(bytes)
+			.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
+		output.output = Some(
+			tgon.parse::<tg::Value>()
+				.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?,
+		);
+	}
+
+	// Try to read the user.tangram.error xattr.
+	if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.error") {
+		let error = serde_json::from_slice::<tg::error::Data>(&bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the error xattr"))?;
+		let error = tg::Error::try_from(error)
+			.map_err(|source| tg::error!(!source, "failed to convert the error data"))?;
+		output.error = Some(error);
+	}
+
+	// Check in the output.
+	if output.output.is_none() && exists {
 		let arg = tg::checkin::Arg {
 			options: tg::checkin::Options {
 				destructive: true,
@@ -90,18 +119,8 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 		let artifact = tg::checkin(server, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
-		Some(tg::Value::from(artifact))
-	} else {
-		None
-	};
-
-	// Create the output.
-	let output = super::Output {
-		checksum: None,
-		error: None,
-		exit,
-		output,
-	};
+		output.output = Some(tg::Value::from(artifact));
+	}
 
 	Ok(output)
 }

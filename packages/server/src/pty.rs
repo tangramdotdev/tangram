@@ -71,6 +71,7 @@ impl Pty {
 			.map_err(|source| tg::error!(!source, "failed to convert the pty name to a string"))?;
 		let session = tokio::process::Command::new(executable)
 			.kill_on_drop(true)
+			.arg("internal")
 			.arg("session")
 			.arg("--pty")
 			.arg(pty)

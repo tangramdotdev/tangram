@@ -1,7 +1,7 @@
 use {crate::Server, futures::FutureExt as _, std::sync::Arc, tangram_client as tg};
 
 impl Server {
-	pub async fn run_js(&self, process: &tg::Process) -> tg::Result<super::Output> {
+	pub(crate) async fn run_js(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
 		// Create the logger.
@@ -28,7 +28,7 @@ impl Server {
 					&process,
 					logger,
 					main_runtime_handle,
-					isolate_handle_sender,
+					Some(isolate_handle_sender),
 				)
 				.boxed_local()
 				.await

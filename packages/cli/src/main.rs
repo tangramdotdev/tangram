@@ -38,7 +38,7 @@ mod health;
 mod id;
 mod index;
 mod init;
-mod js;
+mod internal;
 mod lsp;
 mod metadata;
 mod new;
@@ -52,9 +52,7 @@ mod push;
 mod put;
 mod remote;
 mod run;
-mod sandbox;
 mod server;
-mod session;
 mod tag;
 mod tangram;
 mod tree;
@@ -197,7 +195,7 @@ enum Command {
 	Init(self::init::Args),
 
 	#[command(hide = true)]
-	Js(self::js::Args),
+	Internal(self::internal::Args),
 
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
@@ -234,15 +232,9 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::run::Args),
 
-	#[command(hide = true)]
-	Sandbox(self::sandbox::Args),
-
 	Serve(self::server::run::Args),
 
 	Server(self::server::Args),
-
-	#[command(hide = true)]
-	Session(self::session::Args),
 
 	#[command(alias = "kill")]
 	Signal(self::process::signal::Args),
@@ -273,22 +265,13 @@ fn main() -> std::process::ExitCode {
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
 
-	// Handle the js command.
-	if let Command::Js(args) = args.command {
-		Cli::initialize_tracing(None);
-		return Cli::command_js(args);
-	}
-
-	// Handle the sandbox command.
-	if let Command::Sandbox(args) = args.command {
-		Cli::initialize_tracing(None);
-		return Cli::command_sandbox(args);
-	}
-
-	// Handle the session command.
-	if let Command::Session(args) = args.command {
-		Cli::initialize_tracing(None);
-		return Cli::command_session(args);
+	// Handle the internal command.
+	if let Command::Internal(args) = args.command {
+		#[cfg(feature = "v8")]
+		if matches!(args.command, self::internal::Command::Run(_),) {
+			Cli::initialize_v8();
+		}
+		return Cli::command_internal(args);
 	}
 
 	// Read the config.
@@ -1118,7 +1101,6 @@ impl Cli {
 	// Run the command.
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			Command::Js(_) | Command::Sandbox(_) | Command::Session(_) => unreachable!(),
 			Command::Archive(args) => self.command_archive(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Bundle(args) => self.command_bundle(args).boxed(),
@@ -1142,6 +1124,7 @@ impl Cli {
 			Command::Id(args) => self.command_id(args).boxed(),
 			Command::Index(args) => self.command_index(args).boxed(),
 			Command::Init(args) => self.command_init(args).boxed(),
+			Command::Internal(_) => unreachable!(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_process_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),

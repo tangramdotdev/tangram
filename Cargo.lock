@@ -5342,6 +5342,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 
 [[package]]
+name = "tangram_builtin"
+version = "0.0.0"
+dependencies = [
+ "astral-tokio-tar",
+ "async-channel",
+ "async-compression",
+ "async_zip",
+ "blake3",
+ "bytes",
+ "data-encoding",
+ "filetime",
+ "futures",
+ "num",
+ "reqwest",
+ "scopeguard",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tangram_client",
+ "tangram_futures",
+ "tangram_temp",
+ "tangram_uri",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "xattr",
+]
+
+[[package]]
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
@@ -5369,6 +5398,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "tangram_builtin",
  "tangram_cli_test",
  "tangram_client",
  "tangram_either",
@@ -5391,6 +5421,7 @@ dependencies = [
  "urlencoding",
  "v8",
  "webbrowser",
+ "xattr",
 ]
 
 [[package]]
@@ -5734,6 +5765,7 @@ dependencies = [
  "smallvec",
  "sourcemap",
  "sync_wrapper",
+ "tangram_builtin",
  "tangram_client",
  "tangram_compiler",
  "tangram_database",

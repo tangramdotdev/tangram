@@ -48,11 +48,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
 
 		// Render the args.
-		let args: Vec<String> = command
+		let mut args = command
 			.args
 			.iter()
 			.map(|value| render_value(&artifacts_path, value))
-			.collect();
+			.collect::<Vec<_>>();
 
 		// Create the working directory.
 		let cwd = command
@@ -76,7 +76,16 @@ impl Server {
 				path
 			},
 			tg::command::data::Executable::Module(_) => {
-				return Err(tg::error!("invalid executable"));
+				let executable = std::env::current_exe().map_err(|source| {
+					tg::error!(!source, "failed to get the current executable")
+				})?;
+				args = vec![
+					"internal".to_owned(),
+					"run".to_owned(),
+					"--host".to_owned(),
+					command.host.clone(),
+				];
+				executable
 			},
 			tg::command::data::Executable::Path(executable) => {
 				which(&executable.path, &env).await?
@@ -144,7 +153,7 @@ impl Server {
 			(args, cwd, env, executable)
 		} else {
 			let args = {
-				let mut args_ = vec!["sandbox".to_owned()];
+				let mut args_ = vec!["internal".to_owned(), "sandbox".to_owned()];
 				args_.push("-C".to_owned());
 				args_.push(cwd.display().to_string());
 				for (name, value) in &env {

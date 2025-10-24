@@ -68,6 +68,7 @@ serde_with = { workspace = true }
 smallvec = { workspace = true }
 sourcemap = { workspace = true }
 sync_wrapper = { workspace = true }
+tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true, optional = true }
 tangram_database = { workspace = true }

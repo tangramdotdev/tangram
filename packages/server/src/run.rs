@@ -1,7 +1,7 @@
 use {
 	crate::{ProcessPermit, Server},
 	futures::{FutureExt as _, TryFutureExt as _, future},
-	std::{collections::BTreeSet, sync::Arc, time::Duration},
+	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
 	tangram_client::{self as tg, prelude::*},
 	tangram_either::Either,
 };
@@ -186,18 +186,45 @@ impl Server {
 		let command = process.command(self).await?;
 		let host = command.host(self).await?;
 
+		// Determine if the root is mounted.
+		let root_mounted = state
+			.mounts
+			.iter()
+			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
+
+		// Get the server's user.
+		let whoami =
+			util::whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
+
+		// Determine if the process is unsandboxed.
+		let unsandboxed = root_mounted
+			&& (command.mounts(self).await?.is_empty() && state.mounts.len() == 1)
+			&& state.network
+			&& command
+				.user(self)
+				.await?
+				.as_ref()
+				.is_none_or(|user| user == &whoami);
+		let sandboxed = !unsandboxed;
+
 		let result = {
 			match host.as_str() {
-				"builtin" => self.run_builtin(process).await,
+				"builtin" if sandboxed => self.run_builtin(process).await,
+
+				#[cfg(feature = "js")]
+				"js" if sandboxed => self.run_js(process).await,
+
+				#[cfg(all(feature = "js", target_os = "macos"))]
+				"js" => self.run_darwin(process).await,
+
+				#[cfg(all(feature = "js", target_os = "linux"))]
+				"js" => self.run_linux(process).await,
 
 				#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 				"aarch64-darwin" => self.run_darwin(process).await,
 
 				#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
 				"x86_64-darwin" => self.run_darwin(process).await,
-
-				#[cfg(feature = "js")]
-				"js" => self.run_js(process).await,
 
 				#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
 				"aarch64-linux" => self.run_linux(process).await,

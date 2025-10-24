@@ -1,6 +1,6 @@
 use tangram_client as tg;
 
-pub fn detect_archive_format(
+pub(crate) fn detect_archive_format(
 	bytes: &[u8],
 ) -> tg::Result<Option<(tg::ArchiveFormat, Option<tg::CompressionFormat>)>> {
 	// Detect zip.
@@ -58,7 +58,7 @@ pub fn detect_archive_format(
 	Ok(None)
 }
 
-pub fn detect_compression_format(bytes: &[u8]) -> tg::Result<Option<tg::CompressionFormat>> {
+pub(crate) fn detect_compression_format(bytes: &[u8]) -> tg::Result<Option<tg::CompressionFormat>> {
 	// Gz
 	let n = bytes
 		.get(..2)

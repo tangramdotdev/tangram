@@ -196,7 +196,7 @@ impl Cli {
 	}
 }
 
-//. Given an object, get the tag from its internal metadata.
+/// Given an object, get the tag from its internal metadata.
 async fn try_get_package_tag(
 	handle: &impl tg::Handle,
 	object: &tg::Object,
@@ -205,7 +205,7 @@ async fn try_get_package_tag(
 	let (kind, object) = match object {
 		// Use the file directly
 		tg::Object::File(_) => {
-			// Assume ts. future TODO: add .ts or .js kind to metadata? We also have the referent here.
+			// Assume ts.
 			let kind = tg::module::Kind::Ts;
 			(kind, object.clone())
 		},

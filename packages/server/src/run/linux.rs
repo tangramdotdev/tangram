@@ -75,7 +75,7 @@ impl Server {
 		};
 
 		// Render the args.
-		let args = command
+		let mut args = command
 			.args
 			.iter()
 			.map(|value| render_value(&artifacts_path, value))
@@ -101,7 +101,16 @@ impl Server {
 				path
 			},
 			tg::command::data::Executable::Module(_) => {
-				return Err(tg::error!("invalid executable"));
+				let executable = std::env::current_exe().map_err(|source| {
+					tg::error!(!source, "failed to get the current executable")
+				})?;
+				args = vec![
+					"internal".to_owned(),
+					"run".to_owned(),
+					"--host".to_owned(),
+					command.host.clone(),
+				];
+				executable
 			},
 			tg::command::data::Executable::Path(executable) => {
 				which(&executable.path, &env).await?
@@ -257,7 +266,7 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 	// Initialize the output with all fields.
 	let mut output = SandboxOutput {
 		root: temp.path().join("root"),
-		args: vec!["sandbox".to_owned()],
+		args: vec!["internal".to_owned(), "sandbox".to_owned()],
 		cwd: PathBuf::from("/"),
 		env: BTreeMap::new(),
 		executable: std::env::current_exe()

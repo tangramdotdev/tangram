@@ -270,11 +270,11 @@ fn resolve_module_sync(
 			sender.send(result).unwrap();
 		}
 	});
-	let module = match receiver
+	let result = receiver
 		.recv()
 		.unwrap()
-		.map_err(|source| tg::error!(!source, ?referrer, ?import, "failed to resolve"))
-	{
+		.map_err(|source| tg::error!(!source, ?referrer, ?import, "failed to resolve"));
+	let module = match result {
 		Ok(module) => module,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error)?;

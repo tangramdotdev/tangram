@@ -186,6 +186,13 @@ impl Command {
 	{
 		Ok(self.object(handle).await?.map(|object| &object.stdin))
 	}
+
+	pub async fn user<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = Option<String>>>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object(handle).await?.map(|object| &object.user))
+	}
 }
 
 impl std::fmt::Display for Command {

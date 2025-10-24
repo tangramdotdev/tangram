@@ -55,6 +55,7 @@ ratatui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
+tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
@@ -76,3 +77,4 @@ unicode-width = { workspace = true }
 urlencoding = { workspace = true }
 v8 = { workspace = true, optional = true }
 webbrowser = { workspace = true }
+xattr = { workspace = true }
