@@ -34,7 +34,12 @@ pub struct Output {
 	pub output: Option<tg::Value>,
 }
 
-pub async fn run<H>(handle: &H, process: &tg::Process, logger: Logger) -> tg::Result<Output>
+pub async fn run<H>(
+	handle: &H,
+	process: &tg::Process,
+	logger: Logger,
+	temp_path: &std::path::Path,
+) -> tg::Result<Output>
 where
 	H: tg::Handle,
 {
@@ -55,8 +60,8 @@ where
 		"checksum" => checksum(handle, process, logger).boxed(),
 		"compress" => compress(handle, process, logger).boxed(),
 		"decompress" => decompress(handle, process, logger).boxed(),
-		"download" => download(handle, process, logger).boxed(),
-		"extract" => extract(handle, process, logger).boxed(),
+		"download" => download(handle, process, logger, temp_path).boxed(),
+		"extract" => extract(handle, process, logger, temp_path).boxed(),
 		_ => {
 			return Err(tg::error!("invalid executable"));
 		},

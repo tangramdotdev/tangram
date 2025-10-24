@@ -11,7 +11,7 @@ impl Server {
 					.boxed()
 			},
 		);
-		let output = tangram_builtin::run(self, process, logger).await?;
+		let output = tangram_builtin::run(self, process, logger, &self.temp_path()).await?;
 		let output = super::Output {
 			checksum: output.checksum,
 			error: output.error,

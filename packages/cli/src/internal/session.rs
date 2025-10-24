@@ -25,9 +25,10 @@ impl Cli {
 	pub fn command_internal_session_inner(args: Args) -> tg::Result<()> {
 		// Open the pty and set up the controlling tty.
 		unsafe {
-			// Ignore SIGINT and SIGHUP signals.
-			libc::signal(libc::SIGINT, libc::SIG_IGN);
+			// Ignore signals.
 			libc::signal(libc::SIGHUP, libc::SIG_IGN);
+			libc::signal(libc::SIGINT, libc::SIG_IGN);
+			libc::signal(libc::SIGQUIT, libc::SIG_IGN);
 
 			// Disconnect from the old controlling terminal.
 			let tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);

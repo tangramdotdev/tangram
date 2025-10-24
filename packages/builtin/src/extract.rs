@@ -15,6 +15,7 @@ pub(crate) async fn extract<H>(
 	handle: &H,
 	process: &tg::Process,
 	logger: crate::Logger,
+	temp_path: &std::path::Path,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
@@ -91,7 +92,7 @@ where
 	};
 
 	// Create a temp.
-	let temp = tangram_temp::Temp::new();
+	let temp = tangram_temp::Temp::new_in(temp_path);
 
 	// Extract to the temp.
 	match format {

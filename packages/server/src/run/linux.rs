@@ -109,6 +109,8 @@ impl Server {
 					"run".to_owned(),
 					"--host".to_owned(),
 					command.host.clone(),
+					"--temp-path".to_owned(),
+					self.temp_path().to_string_lossy().to_string(),
 				];
 				executable
 			},

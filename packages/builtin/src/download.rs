@@ -19,6 +19,7 @@ pub(crate) async fn download<H>(
 	handle: &H,
 	process: &tg::Process,
 	logger: crate::Logger,
+	temp_path: &std::path::Path,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
@@ -110,7 +111,7 @@ where
 	};
 
 	// Download.
-	let temp = tangram_temp::Temp::new();
+	let temp = tangram_temp::Temp::new_in(temp_path);
 	match mode {
 		Mode::Raw => {
 			let mut file = tokio::fs::File::create(temp.path())

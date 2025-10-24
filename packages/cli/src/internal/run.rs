@@ -5,6 +5,9 @@ use {crate::Cli, futures::FutureExt as _, tangram_client as tg};
 pub struct Args {
 	#[arg(long)]
 	host: String,
+
+	#[arg(long)]
+	temp_path: std::path::PathBuf,
 }
 
 impl Cli {
@@ -21,7 +24,7 @@ impl Cli {
 	}
 
 	fn command_internal_run_inner(args: Args) -> tg::Result<std::process::ExitCode> {
-		let Args { host } = args;
+		let Args { host, temp_path } = args;
 
 		// Create the client.
 		let client = tg::Client::with_env()?;
@@ -57,7 +60,8 @@ impl Cli {
 					.map_err(|error| {
 						tg::error!(source = error, "failed to create the tokio runtime")
 					})?;
-				let output = runtime.block_on(tangram_builtin::run(&client, &process, logger))?;
+				let output =
+				runtime.block_on(tangram_builtin::run(&client, &process, logger, &temp_path))?;
 				(output.checksum, output.error, output.exit, output.output)
 			},
 

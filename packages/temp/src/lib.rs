@@ -27,12 +27,17 @@ impl Temp {
 		} else {
 			unreachable!()
 		};
+		Self::new_in(temp_path)
+	}
+
+	#[must_use]
+	pub fn new_in(base: &Path) -> Self {
 		let name = rand::rng()
 			.sample_iter(&Alphanumeric)
 			.take(16)
 			.map(char::from)
 			.collect::<String>();
-		let path = temp_path.join(name);
+		let path = base.join(name);
 		Self {
 			path: Some(path),
 			preserve: false.into(),

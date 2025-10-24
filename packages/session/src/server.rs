@@ -167,8 +167,9 @@ impl Server {
 		// Set up signal handling.
 		unsafe {
 			cmd.pre_exec(|| {
-				libc::signal(libc::SIGINT, libc::SIG_DFL);
 				libc::signal(libc::SIGHUP, libc::SIG_DFL);
+				libc::signal(libc::SIGINT, libc::SIG_DFL);
+				libc::signal(libc::SIGQUIT, libc::SIG_DFL);
 				Ok(())
 			});
 		}
