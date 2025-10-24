@@ -1635,7 +1635,7 @@ let convertObjectType = (
 	// Get the properties.
 	let properties = typeChecker.getPropertiesOfType(type).map((property) => {
 		// Convert the property.
-		let declaration = property.getDeclarations()?.[0]!;
+		let declaration = property.getDeclarations()![0]!;
 		let type: Type;
 		if (ts.isPropertySignature(declaration) && declaration.type) {
 			type = convertTypeNode(
