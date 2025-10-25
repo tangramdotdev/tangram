@@ -75,7 +75,7 @@ impl Server {
 		let lock = tg::graph::Data { nodes };
 
 		// Strip the lock.
-		let lock = Self::strip_lock(lock, &state.ids);
+		let (lock, _map) = Self::strip_lock(lock, &state.ids);
 
 		Ok(lock)
 	}

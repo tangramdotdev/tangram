@@ -33,9 +33,12 @@ impl Server {
 		parent: Option<Parent>,
 		path: PathBuf,
 	) -> tg::Result<Option<usize>> {
-		// Check if the path has been visited.
-		if let Some(index) = state.graph.paths.get(&path) {
-			return Ok(Some(*index));
+		// Check if the path is not dirty or has been visited.
+		if let Some(index) = state.graph.paths.get(&path).copied()
+			&& (!state.graph.nodes.get(&index).unwrap().dirty
+				|| state.graph.nodes.get(&index).unwrap().visited)
+		{
+			return Ok(Some(index));
 		}
 
 		// Get the metadata.
@@ -51,6 +54,90 @@ impl Server {
 		}) {
 			return Ok(None);
 		}
+
+		// Get or create the node.
+		let (node_id, previous_entries) = if let Some(index) = state.graph.paths.get(&path).copied()
+		{
+			let previous_entries = if metadata.is_dir() {
+				state
+					.graph
+					.nodes
+					.get(&index)
+					.unwrap()
+					.variant
+					.try_unwrap_directory_ref()
+					.ok()
+					.map(|directory| directory.entries.keys().cloned().collect::<Vec<_>>())
+			} else {
+				None
+			};
+			let children = match &state.graph.nodes.get(&index).unwrap().variant {
+				Variant::Directory(directory) => directory
+					.entries
+					.values()
+					.filter_map(|edge| {
+						edge.try_unwrap_reference_ref()
+							.ok()
+							.filter(|reference| reference.graph.is_none())
+							.map(|reference| reference.node)
+					})
+					.collect::<Vec<_>>(),
+				Variant::File(file) => file
+					.dependencies
+					.values()
+					.flatten()
+					.filter_map(|referent| {
+						referent
+							.item
+							.try_unwrap_reference_ref()
+							.ok()
+							.filter(|reference| reference.graph.is_none())
+							.map(|reference| reference.node)
+					})
+					.collect::<Vec<_>>(),
+				Variant::Symlink(symlink) => symlink
+					.artifact
+					.as_ref()
+					.and_then(|edge| {
+						edge.try_unwrap_reference_ref()
+							.ok()
+							.filter(|reference| reference.graph.is_none())
+							.map(|reference| reference.node)
+					})
+					.into_iter()
+					.collect::<Vec<_>>(),
+			};
+			for child_index in children {
+				state
+					.graph
+					.nodes
+					.get_mut(&child_index)
+					.unwrap()
+					.referrers
+					.retain(|referrer| *referrer != index);
+			}
+			(index, previous_entries)
+		} else {
+			let index = state.graph.next_node_id;
+			state.graph.next_node_id += 1;
+			state.graph.paths.insert(path.clone(), index);
+			let node = Node {
+				dirty: true,
+				lock_node: None,
+				object_id: None,
+				referrers: SmallVec::new(),
+				path: None,
+				path_metadata: None,
+				variant: Variant::Directory(Directory {
+					entries: BTreeMap::new(),
+				}),
+				visited: false,
+			};
+			state.graph.nodes.insert(index, node);
+			(index, None)
+		};
+
+		state.graph.nodes.get_mut(&node_id).unwrap().visited = true;
 
 		// Create the variant.
 		let variant = if metadata.is_dir() {
@@ -83,44 +170,46 @@ impl Server {
 			sender.send(message).ok();
 		}
 
-		// Get the node index.
-		let index = state.graph.nodes.len();
-
-		// Update the path.
-		state.graph.paths.insert(path.clone(), index);
-
 		// Get the lock node.
 		let lock_node = Self::checkin_get_lock_node(state, parent);
 
-		// Create the node.
-		let node = Node {
-			lock_node,
-			object_id: None,
-			referrers: SmallVec::new(),
-			path: Some(path),
-			path_metadata: Some(metadata),
-			variant,
-		};
-		state.graph.nodes.push_back(node);
+		// Update the node.
+		state.graph.nodes.get_mut(&node_id).unwrap().lock_node = lock_node;
+		state.graph.nodes.get_mut(&node_id).unwrap().object_id = None;
+		state.graph.nodes.get_mut(&node_id).unwrap().path = Some(path);
+		state.graph.nodes.get_mut(&node_id).unwrap().path_metadata = Some(metadata);
+		state.graph.nodes.get_mut(&node_id).unwrap().variant = variant;
 
-		match &state.graph.nodes[index].variant {
+		match &state.graph.nodes.get(&node_id).unwrap().variant {
 			Variant::Directory(_) => {
-				self.checkin_visit_directory(state, index)?;
+				self.checkin_visit_directory(state, node_id, previous_entries)?;
 			},
 			Variant::File(_) => {
-				self.checkin_visit_file(state, index)?;
+				self.checkin_visit_file(state, node_id)?;
 			},
 			Variant::Symlink(_) => {
-				self.checkin_visit_symlink(state, index)?;
+				self.checkin_visit_symlink(state, node_id)?;
 			},
 		}
 
-		Ok(Some(index))
+		Ok(Some(node_id))
 	}
 
-	fn checkin_visit_directory(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_directory(
+		&self,
+		state: &mut State,
+		index: usize,
+		previous_entries: Option<Vec<String>>,
+	) -> tg::Result<()> {
 		// Read the entries.
-		let path = state.graph.nodes[index].path.as_ref().unwrap();
+		let path = state
+			.graph
+			.nodes
+			.get(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap();
 		let read_dir = std::fs::read_dir(path).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to read the directory"),
 		)?;
@@ -143,169 +232,227 @@ impl Server {
 		names.sort_unstable();
 
 		// Visit the children.
-		for name in names {
+		for name in &names {
 			let parent = Parent {
 				node: index,
 				variant: ParentVariant::DirectoryEntry(name.clone()),
 			};
-			let path = state.graph.nodes[index].path.as_ref().unwrap().join(&name);
+			let path = state
+				.graph
+				.nodes
+				.get(&index)
+				.unwrap()
+				.path
+				.as_ref()
+				.unwrap()
+				.join(name);
 			let Some(child_index) = self.checkin_visit(state, Some(parent), path)? else {
 				continue;
 			};
-			state.graph.nodes[child_index].referrers.push(index);
+			state
+				.graph
+				.nodes
+				.get_mut(&child_index)
+				.unwrap()
+				.referrers
+				.push(index);
 			let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 				graph: None,
 				node: child_index,
 			});
-			state.graph.nodes[index]
+			state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
 				.variant
 				.unwrap_directory_mut()
 				.entries
-				.insert(name, edge);
+				.insert(name.clone(), edge);
+		}
+
+		if let Some(previous_entries) = previous_entries {
+			for old_entry in previous_entries {
+				if !names.contains(&old_entry) {
+					let deleted_path = state
+						.graph
+						.nodes
+						.get(&index)
+						.unwrap()
+						.path
+						.as_ref()
+						.unwrap()
+						.join(&old_entry);
+					if let Some(deleted_node_id) = state.graph.paths.remove(&deleted_path) {
+						state.graph.nodes.remove(&deleted_node_id);
+					}
+				}
+			}
 		}
 
 		Ok(())
 	}
 
 	fn checkin_visit_file(&self, state: &mut State, index: usize) -> tg::Result<()> {
-		let path = state.graph.nodes[index].path.as_ref().unwrap().to_owned();
+		let path = state
+			.graph
+			.nodes
+			.get(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap()
+			.to_owned();
 
 		// Read and visit the dependencies.
-		let dependencies = if let Ok(Some(contents)) =
-			xattr::get(&path, tg::file::DEPENDENCIES_XATTR_NAME)
-		{
-			// Read the dependencies xattr.
-			let references = serde_json::from_slice::<Vec<tg::Reference>>(&contents)
-				.map_err(|source| tg::error!(!source, "failed to deserialize dependencies"))?;
+		let dependencies =
+			if let Ok(Some(contents)) = xattr::get(&path, tg::file::DEPENDENCIES_XATTR_NAME) {
+				// Read the dependencies xattr.
+				let references = serde_json::from_slice::<Vec<tg::Reference>>(&contents)
+					.map_err(|source| tg::error!(!source, "failed to deserialize dependencies"))?;
 
-			// Create the dependencies and visit the path dependencies.
-			let mut dependencies = BTreeMap::new();
-			let referrer = index;
-			for reference in references {
-				let reference_path = if state.arg.options.local_dependencies {
-					reference
-						.options()
-						.local
-						.as_ref()
-						.or(reference.item().try_unwrap_path_ref().ok())
-				} else {
-					reference.item().try_unwrap_path_ref().ok()
-				};
-				let referent = if let Some(reference_path) = reference_path {
-					let parent = Parent {
-						node: index,
-						variant: ParentVariant::FileDependency(reference.clone()),
-					};
-					let referent = path.parent().unwrap().join(reference_path);
-					let referent = referent.canonicalize().map_err(
-						|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
-					)?;
-					let Some(index) = self.checkin_visit(state, Some(parent), referent.clone())?
-					else {
-						continue;
-					};
-					state.graph.nodes[index].referrers.push(referrer);
-					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
-						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
-					let path = if path.as_os_str().is_empty() {
-						".".into()
+				// Create the dependencies and visit the path dependencies.
+				let mut dependencies = BTreeMap::new();
+				let referrer = index;
+				for reference in references {
+					let reference_path = if state.arg.options.local_dependencies {
+						reference
+							.options()
+							.local
+							.as_ref()
+							.or(reference.item().try_unwrap_path_ref().ok())
 					} else {
-						path
+						reference.item().try_unwrap_path_ref().ok()
 					};
-					let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-						graph: None,
-						node: index,
-					});
-					let item = edge;
-					let options = tg::referent::Options::with_path(path);
-					let referent = tg::Referent { item, options };
-					Some(referent)
-				} else {
-					None
-				};
-				dependencies.insert(reference, referent);
-			}
-
-			dependencies
-		} else if tg::package::is_module_path(&path) {
-			// Read the module.
-			let contents = std::fs::read(&path).map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to read the module"),
-			)?;
-			let text = String::from_utf8(contents).map_err(
-				|source| tg::error!(!source, %path = path.display(), "the module is not valid utf-8"),
-			)?;
-
-			// Analyze.
-			let kind = tg::package::module_kind_for_path(&path)?;
-			let module = tg::module::Data {
-				kind,
-				referent: tg::Referent::with_item(tg::module::data::Item::Path(path.clone())),
-			};
-			let analysis = tangram_module::analyze(&module, &text);
-			for diagnostic in analysis.diagnostics {
-				state.progress.diagnostic(diagnostic);
-			}
-
-			// Create the dependencies and visit the path dependencies.
-			let mut dependencies = BTreeMap::new();
-			let referrer = index;
-			for import in analysis.imports {
-				let reference = import.reference;
-				let reference_path = if state.arg.options.local_dependencies {
-					reference
-						.options()
-						.local
-						.as_ref()
-						.or(reference.item().try_unwrap_path_ref().ok())
-				} else {
-					reference.item().try_unwrap_path_ref().ok()
-				};
-				let referent = if let Some(reference_path) = reference_path {
-					let parent = Parent {
-						node: index,
-						variant: ParentVariant::FileDependency(reference.clone()),
-					};
-					let referent = path.parent().unwrap().join(reference_path);
-					let referent = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
-						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
-							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize path"),
-						)?
-					} else {
-						referent.canonicalize().map_err(
+					let referent = if let Some(reference_path) = reference_path {
+						let parent = Parent {
+							node: index,
+							variant: ParentVariant::FileDependency(reference.clone()),
+						};
+						let referent = path.parent().unwrap().join(reference_path);
+						let referent = referent.canonicalize().map_err(
 							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
-						)?
-					};
-					let Some(index) = self.checkin_visit(state, Some(parent), referent.clone())?
-					else {
-						continue;
-					};
-					state.graph.nodes[index].referrers.push(referrer);
-					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
-						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
-					let path = if path.as_os_str().is_empty() {
-						".".into()
+						)?;
+						let Some(child_index) =
+							self.checkin_visit(state, Some(parent), referent.clone())?
+						else {
+							continue;
+						};
+						state
+							.graph
+							.nodes
+							.get_mut(&child_index)
+							.unwrap()
+							.referrers
+							.push(referrer);
+						let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
+							.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
+						let path = if path.as_os_str().is_empty() {
+							".".into()
+						} else {
+							path
+						};
+						let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							graph: None,
+							node: child_index,
+						});
+						let item = edge;
+						let options = tg::referent::Options::with_path(path);
+						let referent = tg::Referent { item, options };
+						Some(referent)
 					} else {
-						path
+						None
 					};
-					let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-						graph: None,
-						node: index,
-					});
-					let item = edge;
-					let options = tg::referent::Options::with_path(path);
-					let referent = tg::Referent { item, options };
-					Some(referent)
-				} else {
-					None
-				};
-				dependencies.insert(reference, referent);
-			}
+					dependencies.insert(reference, referent);
+				}
 
-			dependencies
-		} else {
-			BTreeMap::new()
-		};
+				dependencies
+			} else if tg::package::is_module_path(&path) {
+				// Read the module.
+				let contents = std::fs::read(&path).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to read the module"),
+				)?;
+				let text = String::from_utf8(contents).map_err(
+					|source| tg::error!(!source, %path = path.display(), "the module is not valid utf-8"),
+				)?;
+
+				// Analyze.
+				let kind = tg::package::module_kind_for_path(&path)?;
+				let module = tg::module::Data {
+					kind,
+					referent: tg::Referent::with_item(tg::module::data::Item::Path(path.clone())),
+				};
+				let analysis = tangram_module::analyze(&module, &text);
+				for diagnostic in analysis.diagnostics {
+					state.progress.diagnostic(diagnostic);
+				}
+
+				// Create the dependencies and visit the path dependencies.
+				let mut dependencies = BTreeMap::new();
+				let referrer = index;
+				for import in analysis.imports {
+					let reference = import.reference;
+					let reference_path = if state.arg.options.local_dependencies {
+						reference
+							.options()
+							.local
+							.as_ref()
+							.or(reference.item().try_unwrap_path_ref().ok())
+					} else {
+						reference.item().try_unwrap_path_ref().ok()
+					};
+					let referent = if let Some(reference_path) = reference_path {
+						let parent = Parent {
+							node: index,
+							variant: ParentVariant::FileDependency(reference.clone()),
+						};
+						let referent = path.parent().unwrap().join(reference_path);
+						let referent = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
+							tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
+								|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize path"),
+							)?
+						} else {
+							referent.canonicalize().map_err(
+								|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
+							)?
+						};
+						let Some(child_index) =
+							self.checkin_visit(state, Some(parent), referent.clone())?
+						else {
+							continue;
+						};
+						state
+							.graph
+							.nodes
+							.get_mut(&child_index)
+							.unwrap()
+							.referrers
+							.push(referrer);
+						let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
+							.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
+						let path = if path.as_os_str().is_empty() {
+							".".into()
+						} else {
+							path
+						};
+						let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							graph: None,
+							node: child_index,
+						});
+						let item = edge;
+						let options = tg::referent::Options::with_path(path);
+						let referent = tg::Referent { item, options };
+						Some(referent)
+					} else {
+						None
+					};
+					dependencies.insert(reference, referent);
+				}
+
+				dependencies
+			} else {
+				BTreeMap::new()
+			};
 
 		// Spawn tasks to pull the tag dependencies.
 		for reference in dependencies.keys() {
@@ -322,7 +469,11 @@ impl Server {
 		}
 
 		// Update the graph.
-		state.graph.nodes[index]
+		state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
 			.variant
 			.unwrap_file_mut()
 			.dependencies = dependencies;
@@ -332,7 +483,14 @@ impl Server {
 
 	fn checkin_visit_symlink(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Read the symlink.
-		let path = state.graph.nodes[index].path.as_ref().unwrap();
+		let path = state
+			.graph
+			.nodes
+			.get(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap();
 		let target = std::fs::read_link(path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
 
@@ -366,7 +524,13 @@ impl Server {
 			let artifact = self
 				.checkin_visit(state, Some(parent), path)?
 				.ok_or_else(|| tg::error!("failed to visit dependency"))?;
-			state.graph.nodes[artifact].referrers.push(index);
+			state
+				.graph
+				.nodes
+				.get_mut(&artifact)
+				.unwrap()
+				.referrers
+				.push(index);
 
 			// Get the path.
 			let path = components.collect();
@@ -381,7 +545,13 @@ impl Server {
 				graph: None,
 				node: artifact,
 			});
-			let variant = state.graph.nodes[index].variant.unwrap_symlink_mut();
+			let variant = state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
+				.variant
+				.unwrap_symlink_mut();
 			variant.artifact.replace(edge);
 			variant.path = path;
 
@@ -389,7 +559,14 @@ impl Server {
 		}
 
 		// Update the symlink.
-		state.graph.nodes[index].variant.unwrap_symlink_mut().path = Some(target);
+		state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.variant
+			.unwrap_symlink_mut()
+			.path = Some(target);
 
 		Ok(())
 	}
@@ -401,7 +578,7 @@ impl Server {
 		let Some(parent) = parent else {
 			return if lock.nodes.is_empty() { None } else { Some(0) };
 		};
-		let parent_index = state.graph.nodes[parent.node].lock_node?;
+		let parent_index = state.graph.nodes.get(&parent.node).unwrap().lock_node?;
 		let parent_node = &lock.nodes[parent_index];
 		match parent.variant {
 			ParentVariant::DirectoryEntry(name) => Some(

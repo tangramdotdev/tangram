@@ -6,6 +6,8 @@ use {
 	tangram_either::Either,
 };
 
+const CONCURRENCY: usize = 8;
+
 impl Server {
 	pub(super) async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {
 		let server = self.clone();
@@ -13,18 +15,23 @@ impl Server {
 			.graph
 			.nodes
 			.iter()
-			.enumerate()
-			.filter_map(|(index, node)| {
+			.filter_map(|(node_id, node)| {
 				let is_file = node.variant.is_file();
 				if !is_file {
 					return None;
 				}
+				if !node.dirty {
+					return None;
+				}
 				let path = node.path.clone()?;
-				Some((index, path))
+				if !state.graph.paths.contains_key(&path) {
+					return None;
+				}
+				Some((*node_id, path))
 			})
 			.collect::<Vec<_>>();
 		let blobs = stream::iter(nodes)
-			.map(|(index, path)| {
+			.map(|(node_id, path)| {
 				let server = server.clone();
 				async move {
 					let mut file = tokio::fs::File::open(&path).await.map_err(
@@ -33,15 +40,19 @@ impl Server {
 					let blob = server.write_inner(&mut file, None).await.map_err(
 						|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
 					)?;
-					Ok::<_, tg::Error>((index, blob))
+					Ok::<_, tg::Error>((node_id, blob))
 				}
 			})
-			.buffer_unordered(8)
+			.buffer_unordered(CONCURRENCY)
 			.try_collect::<Vec<_>>()
 			.await?;
-		for (index, blob) in blobs {
+		for (node_id, blob) in blobs {
 			state.blobs.insert(blob.id.clone(), blob.clone());
-			state.graph.nodes[index]
+			state
+				.graph
+				.nodes
+				.get_mut(&node_id)
+				.unwrap()
 				.variant
 				.unwrap_file_mut()
 				.contents

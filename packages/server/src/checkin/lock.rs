@@ -53,14 +53,26 @@ impl Server {
 		Ok(Some(lock))
 	}
 
-	pub(super) async fn checkin_write_lock(&self, state: &State) -> tg::Result<()> {
+	pub(super) async fn checkin_write_lock(&self, state: &mut State) -> tg::Result<()> {
 		// Do not create a lock if this is a destructive checkin or the user did not request one.
 		if state.arg.options.destructive || !state.arg.options.lock {
 			return Ok(());
 		}
 
-		// Create the lock.
-		let lock = Self::checkin_create_lock(state);
+		// Create the unstripped lock and strip it to get the mapping.
+		let (lock, index_map) = Self::checkin_create_lock_with_mapping(state);
+
+		// Update lock_node fields in the graph nodes using the mapping.
+		for (node_id, node) in state.graph.nodes.iter_mut() {
+			if let Some(&new_index) = index_map.get(node_id) {
+				node.lock_node = Some(new_index);
+			} else {
+				node.lock_node = None;
+			}
+		}
+
+		// Update the state's lock to the stripped lock.
+		state.lock = Some(lock.clone());
 
 		// If this is a locked checkin, then verify the lock is unchanged.
 		if state.arg.options.locked
@@ -73,7 +85,7 @@ impl Server {
 		}
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
-		match state.graph.nodes[0].variant {
+		match state.graph.nodes.get(&0).unwrap().variant {
 			Variant::Directory(_) => {
 				// Determine the lockfile path.
 				let lockfile_path = state.root_path.join(tg::package::LOCKFILE_FILE_NAME);
@@ -120,13 +132,21 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_create_lock(state: &State) -> tg::graph::Data {
-		// Create the nodes.
+	fn checkin_create_lock_with_mapping(
+		state: &State,
+	) -> (tg::graph::Data, BTreeMap<usize, usize>) {
+		// Create the nodes, sorted by usize to ensure deterministic ordering.
+		let mut sorted_nodes: Vec<_> = state.graph.nodes.iter().collect();
+		sorted_nodes.sort_by_key(|(node_id, _)| *node_id);
+
 		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
 		let mut ids = Vec::with_capacity(state.graph.nodes.len());
-		for node in &state.graph.nodes {
+		let mut node_id_to_index = BTreeMap::new();
+		for (node_id, node) in sorted_nodes {
+			let index = nodes.len();
+			node_id_to_index.insert(*node_id, index);
 			ids.push(node.object_id.clone().unwrap());
-			let node = match &node.variant {
+			let lock_node = match &node.variant {
 				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();
 					for (name, edge) in &directory.entries {
@@ -157,17 +177,36 @@ impl Server {
 					tg::graph::data::Node::Symlink(data)
 				},
 			};
-			nodes.push(node);
+			nodes.push(lock_node);
 		}
 
 		// Create the lock.
 		let lock = tg::graph::Data { nodes };
 
-		// Strip the lock.
-		Self::strip_lock(lock, &ids)
+		// Strip the lock and get the index mapping.
+		let (stripped_lock, index_to_index_map) = Self::strip_lock(lock, &ids);
+
+		// Convert the mapping from index-to-index to NodeId-to-index.
+		let mut node_id_to_stripped_index = BTreeMap::new();
+		for (node_id, original_index) in node_id_to_index {
+			if let Some(&stripped_index) = index_to_index_map.get(&original_index) {
+				node_id_to_stripped_index.insert(node_id, stripped_index);
+			}
+		}
+
+		(stripped_lock, node_id_to_stripped_index)
 	}
 
-	pub(crate) fn strip_lock(lock: tg::graph::Data, ids: &[tg::object::Id]) -> tg::graph::Data {
+	#[allow(dead_code)]
+	fn checkin_create_lock(state: &State) -> tg::graph::Data {
+		let (lock, _map) = Self::checkin_create_lock_with_mapping(state);
+		lock
+	}
+
+	pub(crate) fn strip_lock(
+		lock: tg::graph::Data,
+		ids: &[tg::object::Id],
+	) -> (tg::graph::Data, BTreeMap<usize, usize>) {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
@@ -272,7 +311,7 @@ impl Server {
 			}
 		}
 
-		tg::graph::Data { nodes }
+		(tg::graph::Data { nodes }, map)
 	}
 }
 
