@@ -1,10 +1,11 @@
 use {
-	super::state::State,
+	super::state::{CacheReferenceRange, Object, State},
 	crate::Server,
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	tangram_client as tg,
-	tangram_either::Either,
 };
+
+const CONCURRENCY: usize = 8;
 
 impl Server {
 	pub(super) async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {
@@ -35,11 +36,44 @@ impl Server {
 					Ok::<_, tg::Error>((index, blob))
 				}
 			})
-			.buffer_unordered(8)
+			.buffer_unordered(CONCURRENCY)
 			.try_collect::<Vec<_>>()
 			.await?;
+
+		// Convert blobs to objects and collect them.
+		let mut objects = Vec::new();
+		for (_, blob) in &blobs {
+			let mut stack = vec![blob];
+			while let Some(blob) = stack.pop() {
+				let metadata = tg::object::Metadata {
+					count: Some(blob.count),
+					depth: Some(blob.depth),
+					weight: Some(blob.weight),
+				};
+				let cache_reference_range = CacheReferenceRange {
+					position: blob.position,
+					length: blob.length,
+				};
+				let object = Object {
+					bytes: blob.bytes.clone(),
+					cache_reference: None,
+					cache_reference_range: Some(cache_reference_range),
+					complete: true,
+					data: blob.data.clone().map(Into::into),
+					id: blob.id.clone().into(),
+					metadata: Some(metadata),
+					size: blob.size,
+				};
+				objects.push((object.id.clone(), object));
+				stack.extend(&blob.children);
+			}
+		}
+
+		// Add the objects in reverse topological order.
+		state.objects.extend(objects.into_iter().rev());
+
+		// Update file node contents to reference the blob IDs.
 		for (index, blob) in blobs {
-			state.blobs.insert(blob.id.clone(), blob.clone());
 			state
 				.graph
 				.nodes
@@ -47,9 +81,9 @@ impl Server {
 				.unwrap()
 				.variant
 				.unwrap_file_mut()
-				.contents
-				.replace(Either::Left(blob));
+				.contents = Some(blob.id);
 		}
+
 		Ok(())
 	}
 }

@@ -4,7 +4,6 @@ use {
 	bytes::Bytes,
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client as tg,
-	tangram_either::Either,
 	tangram_messenger::Messenger as _,
 };
 
@@ -45,9 +44,15 @@ impl Server {
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
-				let Some(Either::Left(_)) = &file.contents else {
+				let Some(blob_id) = &file.contents else {
 					continue;
 				};
+				// Only index files with blobs that were created during this checkin.
+				let blob_object_id: tg::object::Id = blob_id.clone().into();
+				let blob_object = state.objects.get(&blob_object_id);
+				if blob_object.is_none() || blob_object.unwrap().cache_reference_range.is_none() {
+					continue;
+				}
 				let message =
 					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
 						id: node.object_id.as_ref().unwrap().clone().try_into().unwrap(),

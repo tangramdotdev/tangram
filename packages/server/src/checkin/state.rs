@@ -2,16 +2,13 @@ use {
 	bytes::Bytes,
 	smallvec::SmallVec,
 	std::{collections::BTreeMap, path::PathBuf},
-	tangram_client as tg,
-	tangram_either::Either,
-	tangram_ignore as ignore,
+	tangram_client as tg, tangram_ignore as ignore,
 };
 
 #[derive(Debug)]
 pub struct State {
 	pub arg: tg::checkin::Arg,
 	pub artifacts_path: Option<PathBuf>,
-	pub blobs: im::HashMap<tg::blob::Id, crate::write::Output, tg::id::BuildHasher>,
 	pub fixup_sender: Option<std::sync::mpsc::Sender<FixupMessage>>,
 	pub graph: Graph,
 	pub ignorer: Option<ignore::Ignorer>,
@@ -61,7 +58,7 @@ pub struct Directory {
 
 #[derive(Clone, Debug)]
 pub struct File {
-	pub contents: Option<Either<crate::write::Output, tg::blob::Id>>,
+	pub contents: Option<tg::blob::Id>,
 	pub dependencies:
 		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 	pub executable: bool,
@@ -83,6 +80,7 @@ pub struct Objects {
 pub struct Object {
 	pub bytes: Option<Bytes>,
 	pub cache_reference: Option<crate::store::CacheReference>,
+	pub cache_reference_range: Option<CacheReferenceRange>,
 	pub complete: bool,
 	pub data: Option<tg::object::Data>,
 	pub id: tg::object::Id,
@@ -90,10 +88,22 @@ pub struct Object {
 	pub size: u64,
 }
 
+#[derive(Clone, Debug)]
+pub struct CacheReferenceRange {
+	pub position: u64,
+	pub length: u64,
+}
+
 impl Objects {
 	pub fn get(&self, id: &tg::object::Id) -> Option<&Object> {
 		let index = self.map.get(id)?;
 		let (_, object) = self.vec.get(*index)?;
+		Some(object)
+	}
+
+	pub fn get_mut(&mut self, id: &tg::object::Id) -> Option<&mut Object> {
+		let index = *self.map.get(id)?;
+		let (_, object) = self.vec.get_mut(index)?;
 		Some(object)
 	}
 

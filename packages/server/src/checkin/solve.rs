@@ -6,7 +6,6 @@ use {
 	smallvec::SmallVec,
 	std::collections::HashMap,
 	tangram_client::{self as tg, handle::Ext as _},
-	tangram_either::Either,
 };
 
 struct Context<'a> {
@@ -555,7 +554,7 @@ impl Server {
 				})
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
-				let contents = file.contents.map(Either::Right);
+				let contents = file.contents;
 				let dependencies = file
 					.dependencies
 					.into_iter()
@@ -653,7 +652,7 @@ impl Server {
 				Variant::Directory(Directory { entries })
 			},
 			tg::graph::data::Node::File(file) => {
-				let contents = file.contents.as_ref().map(|id| Either::Right(id.clone()));
+				let contents = file.contents.clone();
 				let mut dependencies = std::collections::BTreeMap::new();
 				for (reference, referent) in &file.dependencies {
 					let Some(referent) = referent else {

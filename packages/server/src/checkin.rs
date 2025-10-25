@@ -144,7 +144,6 @@ impl Server {
 			State {
 				arg: state.arg.clone(),
 				artifacts_path: state.artifacts_path.clone(),
-				blobs: im::HashMap::default(),
 				fixup_sender: None,
 				graph: state.graph.clone(),
 				ignorer,
@@ -180,7 +179,6 @@ impl Server {
 			State {
 				arg: arg.clone(),
 				artifacts_path,
-				blobs: im::HashMap::default(),
 				fixup_sender: None,
 				graph: Graph::default(),
 				ignorer,

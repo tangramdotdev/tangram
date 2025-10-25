@@ -1,11 +1,9 @@
 use {
 	super::state::{Object, State, Variant},
 	crate::Server,
-	indexmap::IndexMap,
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
 	tangram_client as tg,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -28,9 +26,8 @@ impl Server {
 			}
 		}
 
-		// Create objects for the blobs.
-		let objects = Self::checkin_create_blob_objects(state, &sccs);
-		state.objects.extend(objects);
+		// Update blob cache references now that artifact IDs are known.
+		Self::checkin_update_blob_cache_references(state, &sccs);
 
 		Ok(())
 	}
@@ -75,12 +72,8 @@ impl Server {
 			Variant::File(file) => {
 				let contents = file
 					.contents
-					.as_ref()
+					.clone()
 					.ok_or_else(|| tg::error!("expected the blob to be set"))?;
-				let contents = match contents {
-					Either::Left(blob) => blob.id.clone(),
-					Either::Right(id) => id.clone(),
-				};
 				let dependencies = file
 					.dependencies
 					.iter()
@@ -237,12 +230,8 @@ impl Server {
 			Variant::File(file) => {
 				let contents = file
 					.contents
-					.as_ref()
+					.clone()
 					.ok_or_else(|| tg::error!("expected the blob to be set"))?;
-				let contents = match contents {
-					Either::Left(blob) => blob.id.clone(),
-					Either::Right(id) => id.clone(),
-				};
 				let dependencies = file
 					.dependencies
 					.iter()
@@ -387,18 +376,7 @@ impl Server {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let children = children.into_iter().map(|id| {
-			if let Ok(id) = id.try_unwrap_blob_ref()
-				&& let Some(blob) = state.blobs.get(id)
-				&& id == &blob.id
-			{
-				let complete = true;
-				let metadata = Some(tg::object::Metadata {
-					count: Some(blob.count),
-					depth: Some(blob.depth),
-					weight: Some(blob.weight),
-				});
-				(complete, metadata)
-			} else if let Some(object) = state.objects.get(&id) {
+			if let Some(object) = state.objects.get(&id) {
 				let complete = object.complete;
 				let metadata = object.metadata.clone();
 				(complete, metadata)
@@ -430,6 +408,7 @@ impl Server {
 		let object = Object {
 			bytes: Some(bytes.clone()),
 			cache_reference: None,
+			cache_reference_range: None,
 			complete,
 			data: Some(data),
 			id: id.clone(),
@@ -439,10 +418,7 @@ impl Server {
 		Ok((id, object))
 	}
 
-	fn checkin_create_blob_objects(
-		state: &mut State,
-		sccs: &Vec<Vec<usize>>,
-	) -> IndexMap<tg::object::Id, Object> {
+	fn checkin_update_blob_cache_references(state: &mut State, sccs: &[Vec<usize>]) {
 		let root = state
 			.graph
 			.nodes
@@ -452,61 +428,71 @@ impl Server {
 			.as_ref()
 			.unwrap()
 			.clone();
-		let mut objects = IndexMap::default();
 		for scc in sccs {
 			for index in scc {
 				let node = state.graph.nodes.get(index).unwrap();
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
-				let Some(Either::Left(blob)) = &file.contents else {
+				let Some(blob) = &file.contents else {
 					continue;
 				};
-				let mut stack = vec![blob];
-				while let Some(blob) = stack.pop() {
-					let (artifact, path) = if state.arg.options.destructive {
-						let path = node
-							.path
-							.as_ref()
-							.unwrap()
-							.strip_prefix(&state.root_path)
-							.unwrap()
-							.to_owned();
-						let path = if path == Path::new("") {
-							None
-						} else {
-							Some(path)
-						};
-						(root.clone().try_into().unwrap(), path)
+				let (artifact, path) = if state.arg.options.destructive {
+					let path = node
+						.path
+						.as_ref()
+						.unwrap()
+						.strip_prefix(&state.root_path)
+						.unwrap()
+						.to_owned();
+					let path = if path == Path::new("") {
+						None
 					} else {
-						let id = node.object_id.as_ref().unwrap().clone().try_into().unwrap();
-						(id, None)
+						Some(path)
 					};
+					(root.clone().try_into().unwrap(), path)
+				} else {
+					let id: tg::artifact::Id =
+						node.object_id.as_ref().unwrap().clone().try_into().unwrap();
+					(id, None)
+				};
+
+				// Update cache references for the blob and its children.
+				let mut stack = vec![blob.clone()];
+				while let Some(blob) = stack.pop() {
+					let id: tg::object::Id = blob.clone().into();
+
+					let Some(object) = state.objects.get(&id) else {
+						continue;
+					};
+					let Some(cache_reference_range) = &object.cache_reference_range else {
+						continue;
+					};
+
+					let position = cache_reference_range.position;
+					let length = cache_reference_range.length;
+					let children =
+						if let Some(tg::object::Data::Blob(tg::blob::Data::Branch(branch))) =
+							&object.data
+						{
+							branch.children.iter().map(|c| c.blob.clone()).collect()
+						} else {
+							Vec::new()
+						};
+
+					// Create and set the cache reference.
 					let cache_reference = crate::store::CacheReference {
-						artifact,
-						path,
-						position: blob.position,
-						length: blob.length,
+						artifact: artifact.clone(),
+						path: path.clone(),
+						position,
+						length,
 					};
-					let metadata = tg::object::Metadata {
-						count: Some(blob.count),
-						depth: Some(blob.depth),
-						weight: Some(blob.weight),
-					};
-					let object = Object {
-						bytes: blob.bytes.clone(),
-						cache_reference: Some(cache_reference),
-						complete: true,
-						data: blob.data.clone().map(Into::into),
-						id: blob.id.clone().into(),
-						metadata: Some(metadata),
-						size: blob.size,
-					};
-					objects.insert(object.id.clone(), object);
-					stack.extend(&blob.children);
+					state.objects.get_mut(&id).unwrap().cache_reference = Some(cache_reference);
+
+					// Add children to the stack.
+					stack.extend(children);
 				}
 			}
 		}
-		objects
 	}
 }
