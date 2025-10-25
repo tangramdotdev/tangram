@@ -1,6 +1,5 @@
 use {
 	bytes::Bytes,
-	indexmap::IndexMap,
 	smallvec::SmallVec,
 	std::{collections::BTreeMap, path::PathBuf},
 	tangram_client as tg,
@@ -17,7 +16,7 @@ pub struct State {
 	pub graph: Graph,
 	pub ignorer: Option<ignore::Ignorer>,
 	pub lock: Option<tg::graph::Data>,
-	pub objects: IndexMap<tg::object::Id, Object, tg::id::BuildHasher>,
+	pub objects: Objects,
 	pub progress: crate::progress::Handle<tg::checkin::Output>,
 	pub root_path: PathBuf,
 }
@@ -76,6 +75,12 @@ pub struct Symlink {
 	pub path: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Objects {
+	map: im::HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
+	vec: im::Vector<(tg::object::Id, Object)>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Object {
 	pub bytes: Option<Bytes>,
@@ -85,6 +90,32 @@ pub struct Object {
 	pub id: tg::object::Id,
 	pub metadata: Option<tg::object::Metadata>,
 	pub size: u64,
+}
+
+impl Objects {
+	pub fn get(&self, id: &tg::object::Id) -> Option<&Object> {
+		let index = self.map.get(id)?;
+		let (_, object) = self.vec.get(*index)?;
+		Some(object)
+	}
+
+	pub fn insert(&mut self, id: tg::object::Id, object: Object) {
+		let index = self.vec.len();
+		self.vec.push_back((id.clone(), object));
+		self.map.insert(id, index);
+	}
+
+	pub fn values(&self) -> impl Iterator<Item = &Object> {
+		self.vec.iter().map(|(_, object)| object)
+	}
+}
+
+impl std::iter::Extend<(tg::object::Id, Object)> for Objects {
+	fn extend<I: IntoIterator<Item = (tg::object::Id, Object)>>(&mut self, iter: I) {
+		for (id, object) in iter {
+			self.insert(id, object);
+		}
+	}
 }
 
 impl petgraph::visit::GraphBase for Graph {

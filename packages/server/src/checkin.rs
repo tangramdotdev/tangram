@@ -2,7 +2,6 @@ use {
 	self::state::{FixupMessage, Graph},
 	crate::{Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
-	indexmap::IndexMap,
 	indoc::indoc,
 	std::{
 		os::unix::fs::PermissionsExt as _,
@@ -150,7 +149,7 @@ impl Server {
 				graph: state.graph.clone(),
 				ignorer,
 				lock: state.lock.clone(),
-				objects: IndexMap::default(),
+				objects: state.objects.clone(),
 				progress: progress.clone(),
 				root_path: state.root_path.clone(),
 			}
@@ -186,7 +185,7 @@ impl Server {
 				graph: Graph::default(),
 				ignorer,
 				lock,
-				objects: IndexMap::default(),
+				objects: state::Objects::default(),
 				progress: progress.clone(),
 				root_path: root.clone(),
 			}
