@@ -1,10 +1,10 @@
 use {
-	self::state::{FixupMessage, Graph, State},
-	crate::Server,
+	self::state::{FixupMessage, Graph},
+	crate::{Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
+	indexmap::IndexMap,
 	indoc::indoc,
 	std::{
-		collections::HashMap,
 		os::unix::fs::PermissionsExt as _,
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
@@ -19,12 +19,16 @@ use {
 };
 
 mod blob;
+mod cache;
+mod index;
 mod input;
 mod lock;
 mod object;
-mod output;
 mod solve;
 mod state;
+mod store;
+
+pub(crate) use self::state::State;
 
 impl Server {
 	pub async fn checkin(
@@ -110,45 +114,82 @@ impl Server {
 			return Ok(output);
 		}
 
-		// Create the ignorer if necessary.
-		let ignorer = if arg.options.ignore {
-			Some(Self::checkin_create_ignorer()?)
-		} else {
-			None
-		};
-
-		// Find the root path.
-		let root_path = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
+		// Find the root.
+		let root = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
 			.unwrap_or(&arg.path)
 			.to_owned();
 
-		// Try to find the artifacts path.
-		let artifacts_path = root_path.join(".tangram/artifacts");
-		let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
-			.await
-			.is_ok_and(|exists| exists)
-		{
-			Some(artifacts_path)
+		// Capture the watch version at the start of the checkin.
+		let version = if arg.options.watch {
+			self.watches
+				.get(&root)
+				.map(|watch| watch.version.load(std::sync::atomic::Ordering::SeqCst))
 		} else {
 			None
 		};
 
-		// Try to get a lock.
-		let lock = Self::checkin_try_read_lock(&root_path)
-			.map_err(|source| tg::error!(!source, "failed to read the lock"))?;
+		// Clone or create the state.
+		let mut state = if arg.options.watch
+			&& let Some(watch) = self.watches.get(&root)
+		{
+			let state = watch.value().state.lock().unwrap();
 
-		// Create the state.
-		let mut state = State {
-			arg: arg.clone(),
-			artifacts_path,
-			blobs: HashMap::default(),
-			fixup_sender: None,
-			graph: Graph::default(),
-			ignorer,
-			lock,
-			objects: None,
-			progress: progress.clone(),
-			root_path: root_path.clone(),
+			// Create the ignorer if necessary.
+			let ignorer = if arg.options.ignore {
+				Some(Self::checkin_create_ignorer()?)
+			} else {
+				None
+			};
+
+			// Clone the state.
+			State {
+				arg: state.arg.clone(),
+				artifacts_path: state.artifacts_path.clone(),
+				blobs: state.blobs.clone(),
+				fixup_sender: None,
+				graph: state.graph.clone(),
+				ignorer,
+				lock: state.lock.clone(),
+				objects: IndexMap::default(),
+				progress: progress.clone(),
+				root_path: state.root_path.clone(),
+			}
+		} else {
+			// Create the ignorer if necessary.
+			let ignorer = if arg.options.ignore {
+				Some(Self::checkin_create_ignorer()?)
+			} else {
+				None
+			};
+
+			// Try to find the artifacts path.
+			let artifacts_path = root.join(".tangram/artifacts");
+			let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
+				.await
+				.is_ok_and(|exists| exists)
+			{
+				Some(artifacts_path)
+			} else {
+				None
+			};
+
+			// Try to get a lock.
+			let lock = Self::checkin_try_read_lock(&root)
+				.map_err(|source| tg::error!(!source, "failed to read the lock"))?;
+
+			// Create the state.
+			State {
+				arg: arg.clone(),
+				artifacts_path,
+				blobs: im::HashMap::default(),
+				fixup_sender: None,
+				graph: Graph::default(),
+				ignorer,
+				lock,
+				objects: IndexMap::default(),
+				progress: progress.clone(),
+				root_path: root.clone(),
+			}
 		};
 
 		// Spawn the fixup task.
@@ -166,7 +207,7 @@ impl Server {
 		let start = Instant::now();
 		let mut state = tokio::task::spawn_blocking({
 			let server = self.clone();
-			let root = root_path.clone();
+			let root = root.clone();
 			move || {
 				server.checkin_input(&mut state, root)?;
 				Ok::<_, tg::Error>(state)
@@ -199,10 +240,12 @@ impl Server {
 		Self::checkin_create_objects(&mut state)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
-		// Await the fixup task.
-		if let Some(task) = fixup_task {
-			task.await?;
-		}
+		// Write the lock.
+		let start = Instant::now();
+		self.checkin_write_lock(&state)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
 
 		let state = Arc::new(state);
 
@@ -210,6 +253,9 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Cache.
+		if let Some(task) = fixup_task {
+			task.await?;
+		}
 		let start = Instant::now();
 		self.checkin_cache(state.clone())
 			.await
@@ -223,25 +269,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
-		// Index.
-		self.tasks.spawn(|_| {
-			let server = self.clone();
-			let state = state.clone();
-			async move {
-				let result = server.checkin_index(&state, touched_at).await;
-				if let Err(error) = result {
-					tracing::error!(?error, "the index task failed");
-				}
-			}
-		});
-
-		// Write the lock.
-		let start = Instant::now();
-		self.checkin_write_lock(&state)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
-		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
-
 		// Find the item.
 		let node = state
 			.graph
@@ -251,7 +278,11 @@ impl Server {
 			.ok_or_else(|| tg::error!("failed to get the item"))?;
 
 		// Create the referent.
-		let item = state.graph.nodes[node]
+		let item = state
+			.graph
+			.nodes
+			.get(&node)
+			.unwrap()
 			.object_id
 			.as_ref()
 			.unwrap()
@@ -260,6 +291,63 @@ impl Server {
 			.unwrap();
 		let options = tg::referent::Options::with_path(arg.path.clone());
 		let referent = tg::Referent { item, options };
+
+		// Index and return the state.
+		self.tasks.spawn({
+			let server = self.clone();
+			move |_| {
+				async move {
+					// Index.
+					server.checkin_index(&state, touched_at).await?;
+
+					// Retrieve the state.
+					let mut state = Arc::try_unwrap(state).unwrap();
+
+					// Mark all nodes as clean and not visited.
+					for (_, node) in state.graph.nodes.iter_mut() {
+						node.dirty = false;
+						node.visited = false;
+					}
+
+					// If the watch option is enabled, then update the state of an existing watch or add a new watch.
+					if state.arg.options.watch {
+						let entry = server.watches.entry(root.clone());
+						match entry {
+							dashmap::Entry::Occupied(mut entry) => {
+								// Check if the path was modified during the checkin.
+								if let Some(version) = version {
+									let current = entry
+										.get()
+										.version
+										.load(std::sync::atomic::Ordering::SeqCst);
+									if current != version {
+										return Err(tg::error!(
+											"files were modified during checkin"
+										));
+									}
+								}
+
+								// Update the state.
+								*entry.get_mut().state.lock().unwrap() = state;
+							},
+							dashmap::Entry::Vacant(entry) => {
+								let watch = Watch::new(&root, state).map_err(|source| {
+									tg::error!(!source, "failed to create the watch")
+								})?;
+								entry.insert(watch);
+							},
+						}
+					}
+
+					Ok::<_, tg::Error>(())
+				}
+				.map(|result| {
+					if let Err(error) = result {
+						tracing::error!(?error, "the index task failed");
+					}
+				})
+			}
+		});
 
 		// Create the output.
 		let output = tg::checkin::Output { referent };

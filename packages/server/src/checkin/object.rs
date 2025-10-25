@@ -10,9 +10,6 @@ use {
 
 impl Server {
 	pub(super) fn checkin_create_objects(state: &mut State) -> tg::Result<()> {
-		// Create the objects.
-		state.objects = Some(IndexMap::new());
-
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
 		let mut sccs = petgraph::algo::tarjan_scc(&state.graph);
 		for scc in &mut sccs {
@@ -32,16 +29,15 @@ impl Server {
 		}
 
 		// Create objects for the blobs.
-		let mut blobs = Self::checkin_create_blob_objects(state, &sccs);
-		blobs.extend(state.objects.take().unwrap());
-		state.objects.replace(blobs);
+		let objects = Self::checkin_create_blob_objects(state, &sccs);
+		state.objects.extend(objects);
 
 		Ok(())
 	}
 
 	fn checkin_create_node_artifact(state: &mut State, index: usize) -> tg::Result<()> {
 		// Get the node.
-		let node = &state.graph.nodes[index];
+		let node = state.graph.nodes.get(&index).unwrap();
 
 		// Create the object.
 		let data = match &node.variant {
@@ -54,7 +50,7 @@ impl Server {
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
-									let node = &state.graph.nodes[reference.node];
+									let node = state.graph.nodes.get(&reference.node).unwrap();
 									let id = node.object_id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
@@ -97,7 +93,7 @@ impl Server {
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
-									let node = &state.graph.nodes[reference.node];
+									let node = state.graph.nodes.get(&reference.node).unwrap();
 									let id = node.object_id.as_ref().unwrap().clone();
 									tg::graph::data::Edge::Object(id)
 								} else {
@@ -128,7 +124,7 @@ impl Server {
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
-									let node = &state.graph.nodes[reference.node];
+									let node = state.graph.nodes.get(&reference.node).unwrap();
 									let id = node.object_id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
@@ -156,10 +152,16 @@ impl Server {
 		let (id, object) = Self::checkin_create_object(state, data)?;
 
 		// Add the object.
-		state.objects.as_mut().unwrap().insert(id.clone(), object);
+		state.objects.insert(id.clone(), object);
 
 		// Update the node.
-		state.graph.nodes[index].object_id.replace(id.clone());
+		state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.object_id
+			.replace(id.clone());
 
 		Ok(())
 	}
@@ -174,7 +176,7 @@ impl Server {
 		// Create the graph object.
 		let data = tg::graph::Data { nodes }.into();
 		let (id, object) = Self::checkin_create_object(state, data)?;
-		state.objects.as_mut().unwrap().insert(id.clone(), object);
+		state.objects.insert(id.clone(), object);
 
 		// Create reference artifacts.
 		let id = tg::graph::Id::try_from(id).unwrap();
@@ -191,7 +193,7 @@ impl Server {
 		nodes: &mut Vec<tg::graph::data::Node>,
 		index: usize,
 	) -> tg::Result<()> {
-		let node = &state.graph.nodes[index];
+		let node = state.graph.nodes.get(&index).unwrap();
 		let node = match &node.variant {
 			Variant::Directory(directory) => {
 				let entries = directory
@@ -209,7 +211,7 @@ impl Server {
 											tg::graph::data::Reference { graph: None, node },
 										)
 									} else {
-										let node = &state.graph.nodes[reference.node];
+										let node = state.graph.nodes.get(&reference.node).unwrap();
 										let id = node.object_id.as_ref().unwrap().clone();
 										let id = id
 											.try_into()
@@ -259,7 +261,7 @@ impl Server {
 											tg::graph::data::Reference { graph: None, node },
 										)
 									} else {
-										let node = &state.graph.nodes[reference.node];
+										let node = state.graph.nodes.get(&reference.node).unwrap();
 										let id = node.object_id.as_ref().unwrap().clone();
 										tg::graph::data::Edge::Object(id)
 									}
@@ -301,7 +303,7 @@ impl Server {
 										node,
 									})
 								} else {
-									let node = &state.graph.nodes[reference.node];
+									let node = state.graph.nodes.get(&reference.node).unwrap();
 									let id = node.object_id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
@@ -337,7 +339,7 @@ impl Server {
 		local: usize,
 		global: usize,
 	) -> tg::Result<()> {
-		let node = &state.graph.nodes[global];
+		let node = state.graph.nodes.get(&global).unwrap();
 		let data = match &node.variant {
 			Variant::Directory(_) => {
 				let reference = tg::graph::data::Reference {
@@ -362,8 +364,14 @@ impl Server {
 			},
 		};
 		let (id, object) = Self::checkin_create_object(state, data)?;
-		state.objects.as_mut().unwrap().insert(id.clone(), object);
-		state.graph.nodes[global].object_id.replace(id);
+		state.objects.insert(id.clone(), object);
+		state
+			.graph
+			.nodes
+			.get_mut(&global)
+			.unwrap()
+			.object_id
+			.replace(id);
 		Ok(())
 	}
 
@@ -390,7 +398,7 @@ impl Server {
 					weight: Some(blob.weight),
 				});
 				(complete, metadata)
-			} else if let Some(object) = state.objects.as_ref().unwrap().get(&id) {
+			} else if let Some(object) = state.objects.get(&id) {
 				let complete = object.complete;
 				let metadata = object.metadata.clone();
 				(complete, metadata)
@@ -435,11 +443,19 @@ impl Server {
 		state: &mut State,
 		sccs: &Vec<Vec<usize>>,
 	) -> IndexMap<tg::object::Id, Object> {
-		let root = state.graph.nodes[0].object_id.as_ref().unwrap().clone();
+		let root = state
+			.graph
+			.nodes
+			.get(&0)
+			.unwrap()
+			.object_id
+			.as_ref()
+			.unwrap()
+			.clone();
 		let mut objects = IndexMap::default();
 		for scc in sccs {
 			for index in scc {
-				let node = &state.graph.nodes[*index];
+				let node = state.graph.nodes.get(index).unwrap();
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};

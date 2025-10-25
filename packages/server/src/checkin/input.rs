@@ -84,7 +84,8 @@ impl Server {
 		}
 
 		// Get the node index.
-		let index = state.graph.nodes.len();
+		let index = state.graph.next;
+		state.graph.next += 1;
 
 		// Update the path.
 		state.graph.paths.insert(path.clone(), index);
@@ -94,16 +95,18 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
+			dirty: false,
 			lock_node,
 			object_id: None,
-			referrers: SmallVec::new(),
 			path: Some(path),
 			path_metadata: Some(metadata),
+			referrers: SmallVec::new(),
 			variant,
+			visited: false,
 		};
-		state.graph.nodes.push_back(node);
+		state.graph.nodes.insert(index, node);
 
-		match &state.graph.nodes[index].variant {
+		match &state.graph.nodes.get(&index).unwrap().variant {
 			Variant::Directory(_) => {
 				self.checkin_visit_directory(state, index)?;
 			},
@@ -120,7 +123,14 @@ impl Server {
 
 	fn checkin_visit_directory(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Read the entries.
-		let path = state.graph.nodes[index].path.as_ref().unwrap();
+		let path = state
+			.graph
+			.nodes
+			.get(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap();
 		let read_dir = std::fs::read_dir(path).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to read the directory"),
 		)?;
@@ -148,16 +158,34 @@ impl Server {
 				node: index,
 				variant: ParentVariant::DirectoryEntry(name.clone()),
 			};
-			let path = state.graph.nodes[index].path.as_ref().unwrap().join(&name);
+			let path = state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
+				.path
+				.as_ref()
+				.unwrap()
+				.join(&name);
 			let Some(child_index) = self.checkin_visit(state, Some(parent), path)? else {
 				continue;
 			};
-			state.graph.nodes[child_index].referrers.push(index);
+			state
+				.graph
+				.nodes
+				.get_mut(&child_index)
+				.unwrap()
+				.referrers
+				.push(index);
 			let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 				graph: None,
 				node: child_index,
 			});
-			state.graph.nodes[index]
+			state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
 				.variant
 				.unwrap_directory_mut()
 				.entries
@@ -168,7 +196,15 @@ impl Server {
 	}
 
 	fn checkin_visit_file(&self, state: &mut State, index: usize) -> tg::Result<()> {
-		let path = state.graph.nodes[index].path.as_ref().unwrap().to_owned();
+		let path = state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap()
+			.to_owned();
 
 		// Read and visit the dependencies.
 		let dependencies = if let Ok(Some(contents)) =
@@ -204,7 +240,13 @@ impl Server {
 					else {
 						continue;
 					};
-					state.graph.nodes[index].referrers.push(referrer);
+					state
+						.graph
+						.nodes
+						.get_mut(&index)
+						.unwrap()
+						.referrers
+						.push(referrer);
 					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
 						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
 					let path = if path.as_os_str().is_empty() {
@@ -280,7 +322,13 @@ impl Server {
 					else {
 						continue;
 					};
-					state.graph.nodes[index].referrers.push(referrer);
+					state
+						.graph
+						.nodes
+						.get_mut(&index)
+						.unwrap()
+						.referrers
+						.push(referrer);
 					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
 						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
 					let path = if path.as_os_str().is_empty() {
@@ -322,7 +370,11 @@ impl Server {
 		}
 
 		// Update the graph.
-		state.graph.nodes[index]
+		state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
 			.variant
 			.unwrap_file_mut()
 			.dependencies = dependencies;
@@ -332,7 +384,14 @@ impl Server {
 
 	fn checkin_visit_symlink(&self, state: &mut State, index: usize) -> tg::Result<()> {
 		// Read the symlink.
-		let path = state.graph.nodes[index].path.as_ref().unwrap();
+		let path = state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.path
+			.as_ref()
+			.unwrap();
 		let target = std::fs::read_link(path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
 
@@ -366,7 +425,13 @@ impl Server {
 			let artifact = self
 				.checkin_visit(state, Some(parent), path)?
 				.ok_or_else(|| tg::error!("failed to visit dependency"))?;
-			state.graph.nodes[artifact].referrers.push(index);
+			state
+				.graph
+				.nodes
+				.get_mut(&artifact)
+				.unwrap()
+				.referrers
+				.push(index);
 
 			// Get the path.
 			let path = components.collect();
@@ -381,7 +446,13 @@ impl Server {
 				graph: None,
 				node: artifact,
 			});
-			let variant = state.graph.nodes[index].variant.unwrap_symlink_mut();
+			let variant = state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
+				.variant
+				.unwrap_symlink_mut();
 			variant.artifact.replace(edge);
 			variant.path = path;
 
@@ -389,7 +460,14 @@ impl Server {
 		}
 
 		// Update the symlink.
-		state.graph.nodes[index].variant.unwrap_symlink_mut().path = Some(target);
+		state
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.variant
+			.unwrap_symlink_mut()
+			.path = Some(target);
 
 		Ok(())
 	}
@@ -401,7 +479,7 @@ impl Server {
 		let Some(parent) = parent else {
 			return if lock.nodes.is_empty() { None } else { Some(0) };
 		};
-		let parent_index = state.graph.nodes[parent.node].lock_node?;
+		let parent_index = state.graph.nodes.get(&parent.node).unwrap().lock_node?;
 		let parent_node = &lock.nodes[parent_index];
 		match parent.variant {
 			ParentVariant::DirectoryEntry(name) => Some(

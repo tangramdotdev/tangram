@@ -73,7 +73,7 @@ impl Server {
 		}
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
-		match state.graph.nodes[0].variant {
+		match state.graph.nodes.get(&0).unwrap().variant {
 			Variant::Directory(_) => {
 				// Determine the lockfile path.
 				let lockfile_path = state.root_path.join(tg::package::LOCKFILE_FILE_NAME);
@@ -124,7 +124,10 @@ impl Server {
 		// Create the nodes.
 		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
 		let mut ids = Vec::with_capacity(state.graph.nodes.len());
-		for node in &state.graph.nodes {
+		let mut keys: Vec<_> = state.graph.nodes.keys().copied().collect();
+		keys.sort();
+		for key in keys {
+			let node = &state.graph.nodes.get(&key).unwrap();
 			ids.push(node.object_id.clone().unwrap());
 			let node = match &node.variant {
 				Variant::Directory(directory) => {

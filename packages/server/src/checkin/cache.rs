@@ -1,12 +1,8 @@
 use {
-	super::state::{State, Variant},
+	super::state::State,
 	crate::{Server, temp::Temp},
-	bytes::Bytes,
-	std::{collections::BTreeSet, os::unix::fs::PermissionsExt as _, sync::Arc},
+	std::{os::unix::fs::PermissionsExt as _, sync::Arc},
 	tangram_client as tg,
-	tangram_either::Either,
-	tangram_messenger::Messenger as _,
-	tangram_store::prelude::*,
 };
 
 impl Server {
@@ -27,7 +23,7 @@ impl Server {
 	}
 
 	pub(super) async fn checkin_cache_task_destructive(&self, state: Arc<State>) -> tg::Result<()> {
-		let node = &state.graph.nodes[0];
+		let node = state.graph.nodes.get(&0).unwrap();
 		let id = node.object_id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
 		let dst = &self.cache_path().join(id.to_string());
@@ -69,7 +65,7 @@ impl Server {
 	}
 
 	fn checkin_cache_task_inner(&self, state: &State) -> tg::Result<()> {
-		for node in &state.graph.nodes {
+		for (_, node) in &state.graph.nodes {
 			let Some(path) = node.path.as_ref() else {
 				continue;
 			};
@@ -114,106 +110,6 @@ impl Server {
 				)?;
 			}
 		}
-
-		Ok(())
-	}
-
-	pub(super) async fn checkin_store(&self, state: &State, touched_at: i64) -> tg::Result<()> {
-		let args = state
-			.objects
-			.as_ref()
-			.unwrap()
-			.values()
-			.map(|object| crate::store::PutArg {
-				bytes: object.bytes.clone(),
-				cache_reference: object.cache_reference.clone(),
-				id: object.id.clone(),
-				touched_at,
-			})
-			.collect();
-		self.store
-			.put_batch(args)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
-		Ok(())
-	}
-
-	pub(super) async fn checkin_index(
-		&self,
-		state: &Arc<State>,
-		touched_at: i64,
-	) -> tg::Result<()> {
-		let mut messages: Vec<Bytes> = Vec::new();
-
-		// Create put cache entry messages.
-		if state.arg.options.destructive {
-			let id = state.graph.nodes[0]
-				.object_id
-				.as_ref()
-				.unwrap()
-				.clone()
-				.try_into()
-				.unwrap();
-			let message =
-				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-					id,
-					touched_at,
-				});
-			let message = message.serialize()?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-		} else {
-			for node in &state.graph.nodes {
-				let Variant::File(file) = &node.variant else {
-					continue;
-				};
-				let Some(Either::Left(_)) = &file.contents else {
-					continue;
-				};
-				let message =
-					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-						id: node.object_id.as_ref().unwrap().clone().try_into().unwrap(),
-						touched_at,
-					});
-				let message = message.serialize()?;
-				messages.push(message);
-			}
-		}
-
-		// Create put object messages.
-		for object in state.objects.as_ref().unwrap().values() {
-			let cache_entry = object
-				.cache_reference
-				.as_ref()
-				.map(|cache_reference| cache_reference.artifact.clone());
-			let mut children = BTreeSet::new();
-			if let Some(data) = &object.data {
-				data.children(&mut children);
-			}
-			let complete = object.complete;
-			let metadata = object.metadata.clone().unwrap_or_default();
-			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
-				cache_entry,
-				children,
-				complete,
-				id: object.id.clone(),
-				metadata,
-				size: object.size,
-				touched_at,
-			});
-			let message = message.serialize()?;
-			messages.push(message);
-		}
-
-		self.messenger
-			.stream_batch_publish("index".to_owned(), messages.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
 
 		Ok(())
 	}

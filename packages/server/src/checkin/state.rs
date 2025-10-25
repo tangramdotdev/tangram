@@ -1,30 +1,28 @@
 use {
-	crate::write::Output,
 	bytes::Bytes,
 	indexmap::IndexMap,
 	smallvec::SmallVec,
-	std::{
-		collections::{BTreeMap, HashMap},
-		path::PathBuf,
-	},
+	std::{collections::BTreeMap, path::PathBuf},
 	tangram_client as tg,
 	tangram_either::Either,
 	tangram_ignore as ignore,
 };
 
+#[derive(Debug)]
 pub struct State {
 	pub arg: tg::checkin::Arg,
 	pub artifacts_path: Option<PathBuf>,
-	pub blobs: HashMap<tg::blob::Id, Output, tg::id::BuildHasher>,
+	pub blobs: im::HashMap<tg::blob::Id, crate::write::Output, tg::id::BuildHasher>,
 	pub fixup_sender: Option<std::sync::mpsc::Sender<FixupMessage>>,
 	pub graph: Graph,
 	pub ignorer: Option<ignore::Ignorer>,
 	pub lock: Option<tg::graph::Data>,
-	pub objects: Option<IndexMap<tg::object::Id, Object>>,
+	pub objects: IndexMap<tg::object::Id, Object, tg::id::BuildHasher>,
 	pub progress: crate::progress::Handle<tg::checkin::Output>,
 	pub root_path: PathBuf,
 }
 
+#[derive(Debug)]
 pub struct FixupMessage {
 	pub path: PathBuf,
 	pub metadata: std::fs::Metadata,
@@ -32,19 +30,22 @@ pub struct FixupMessage {
 
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
-	pub nodes: im::Vector<Node>,
+	pub next: usize,
+	pub nodes: im::HashMap<usize, Node, fnv::FnvBuildHasher>,
 	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
 }
 
 #[allow(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
+	pub dirty: bool,
 	pub lock_node: Option<usize>,
 	pub object_id: Option<tg::object::Id>,
-	pub referrers: SmallVec<[usize; 1]>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
+	pub referrers: SmallVec<[usize; 1]>,
 	pub variant: Variant,
+	pub visited: bool,
 }
 
 #[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -86,30 +87,6 @@ pub struct Object {
 	pub size: u64,
 }
 
-impl Graph {
-	// Given a referrer and referent, find the "path" that corresponds to it.
-	pub fn referent_path(&self, referrer: usize, referent: usize) -> Option<PathBuf> {
-		// Get the path of the referrer.
-		let mut referrer_path = self.nodes[referrer].path.as_deref()?;
-
-		// If the referrer is a module, use its parent.
-		if tg::package::is_module_path(referrer_path) {
-			referrer_path = referrer_path.parent()?;
-		}
-
-		// Get the path of the referent.
-		let referent_path = self.nodes[referent].path.as_deref()?;
-
-		// Skip any imports of self.
-		if referent_path == referrer_path {
-			return None;
-		}
-
-		// Compute the relative path.
-		tangram_util::path::diff(referrer_path, referent_path).ok()
-	}
-}
-
 impl petgraph::visit::GraphBase for Graph {
 	type EdgeId = (usize, usize);
 
@@ -117,24 +94,12 @@ impl petgraph::visit::GraphBase for Graph {
 }
 
 impl petgraph::visit::IntoNodeIdentifiers for &Graph {
-	type NodeIdentifiers = std::ops::Range<usize>;
+	type NodeIdentifiers = std::vec::IntoIter<usize>;
 
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
-		0..self.nodes.len()
-	}
-}
-
-impl petgraph::visit::NodeIndexable for Graph {
-	fn from_index(&self, index: usize) -> Self::NodeId {
-		index
-	}
-
-	fn node_bound(&self) -> usize {
-		self.nodes.len()
-	}
-
-	fn to_index(&self, id: Self::NodeId) -> usize {
-		id
+		let mut keys = self.nodes.keys().copied().collect::<Vec<_>>();
+		keys.sort_unstable();
+		keys.into_iter()
 	}
 }
 
@@ -142,7 +107,10 @@ impl petgraph::visit::IntoNeighbors for &Graph {
 	type Neighbors = std::vec::IntoIter<usize>;
 
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
-		match &self.nodes[id].variant {
+		let Some(node) = self.nodes.get(&id) else {
+			return Vec::new().into_iter();
+		};
+		match &node.variant {
 			Variant::Directory(directory) => directory
 				.entries
 				.values()
@@ -179,5 +147,19 @@ impl petgraph::visit::IntoNeighbors for &Graph {
 				.collect::<Vec<_>>()
 				.into_iter(),
 		}
+	}
+}
+
+impl petgraph::visit::NodeIndexable for &Graph {
+	fn node_bound(&self) -> usize {
+		self.next
+	}
+
+	fn to_index(&self, id: Self::NodeId) -> usize {
+		id
+	}
+
+	fn from_index(&self, index: usize) -> Self::NodeId {
+		index
 	}
 }
