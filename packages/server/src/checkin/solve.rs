@@ -113,7 +113,7 @@ impl Server {
 								reference.node,
 							)
 							.await?;
-						let node = &mut checkpoint.graph.nodes[item.node];
+						let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
 						match &item.variant {
 							ItemVariant::DirectoryEntry(name) => {
 								let edge =
@@ -152,7 +152,13 @@ impl Server {
 									edge;
 							},
 						}
-						checkpoint.graph.nodes[index].referrers.push(item.node);
+						checkpoint
+							.graph
+							.nodes
+							.get_mut(&index)
+							.unwrap()
+							.referrers
+							.push(item.node);
 						Some(index)
 					} else {
 						Some(reference.node)
@@ -168,7 +174,7 @@ impl Server {
 						None
 					};
 					if let Some(index) = index {
-						let node = &mut checkpoint.graph.nodes[item.node];
+						let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
 						match &item.variant {
 							ItemVariant::DirectoryEntry(name) => {
 								let edge =
@@ -207,7 +213,13 @@ impl Server {
 									edge;
 							},
 						}
-						checkpoint.graph.nodes[index].referrers.push(item.node);
+						checkpoint
+							.graph
+							.nodes
+							.get_mut(&index)
+							.unwrap()
+							.referrers
+							.push(item.node);
 						Some(index)
 					} else {
 						None
@@ -280,7 +292,11 @@ impl Server {
 			graph: None,
 			node: index,
 		});
-		checkpoint.graph.nodes[item.node]
+		checkpoint
+			.graph
+			.nodes
+			.get_mut(&item.node)
+			.unwrap()
 			.variant
 			.unwrap_file_mut()
 			.dependencies
@@ -288,7 +304,13 @@ impl Server {
 			.unwrap()
 			.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
 			.item = edge.clone();
-		checkpoint.graph.nodes[index].referrers.push(item.node);
+		checkpoint
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.referrers
+			.push(item.node);
 
 		// Enqueue the node's items.
 		Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
@@ -333,7 +355,11 @@ impl Server {
 			context.checkpoints.push(checkpoint.clone());
 
 			// Create the edge.
-			checkpoint.graph.nodes[item.node]
+			checkpoint
+				.graph
+				.nodes
+				.get_mut(&item.node)
+				.unwrap()
 				.variant
 				.unwrap_file_mut()
 				.dependencies
@@ -346,7 +372,11 @@ impl Server {
 						node: item,
 					})
 				}));
-			checkpoint.graph.nodes[referent.item]
+			checkpoint
+				.graph
+				.nodes
+				.get_mut(&referent.item)
+				.unwrap()
 				.referrers
 				.push(item.node);
 
@@ -457,7 +487,7 @@ impl Server {
 				Some(candidate)
 			})
 			.collect::<im::Vector<_>>();
-		if let Some(lock_index) = checkpoint.graph.nodes[item.node].lock_node
+		if let Some(lock_index) = checkpoint.graph.nodes.get(&item.node).unwrap().lock_node
 			&& let Some(candidate) =
 				Self::checkin_solve_get_candidate_from_lock(checkpoint, item, lock_index)
 			&& !context
@@ -553,17 +583,20 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			dirty: false,
 			lock_node,
 			object_id: None,
-			referrers: SmallVec::new(),
 			path: None,
 			path_metadata: None,
+			referrers: SmallVec::new(),
 			variant,
+			visited: false,
 		};
 
 		// Insert the node into the graph.
-		let index = checkpoint.graph.nodes.len();
-		checkpoint.graph.nodes.push_back(node);
+		let index = checkpoint.graph.next;
+		checkpoint.graph.next += 1;
+		checkpoint.graph.nodes.insert(index, node);
 
 		Ok(index)
 	}
@@ -681,17 +714,20 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			dirty: false,
 			lock_node,
 			object_id: None,
-			referrers: SmallVec::new(),
 			path: None,
 			path_metadata: None,
+			referrers: SmallVec::new(),
 			variant,
+			visited: false,
 		};
 
 		// Add the node to the checkin graph.
-		let index = checkpoint.graph.nodes.len();
-		checkpoint.graph.nodes.push_back(node);
+		let index = checkpoint.graph.next;
+		checkpoint.graph.next += 1;
+		checkpoint.graph.nodes.insert(index, node);
 
 		// Cache the mapping.
 		checkpoint.graph_nodes.insert(key, index);
@@ -703,8 +739,8 @@ impl Server {
 		let Some(lock) = &checkpoint.lock else {
 			return None;
 		};
-		let parent_index = checkpoint.graph.nodes[item.node].lock_node?;
-		let parent_node = &lock.nodes[parent_index];
+		let parent_index = checkpoint.graph.nodes.get(&item.node).unwrap().lock_node?;
+		let parent_node = lock.nodes.get(parent_index).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => Some(
 				parent_node
@@ -742,7 +778,7 @@ impl Server {
 	}
 
 	fn checkin_solve_enqueue_items_for_node(checkpoint: &mut Checkpoint, node: usize) {
-		match &checkpoint.graph.nodes[node].variant {
+		match &checkpoint.graph.nodes.get(&node).unwrap().variant {
 			Variant::Directory(directory) => {
 				let items = directory.entries.keys().map(|name| Item {
 					node,
@@ -771,7 +807,7 @@ impl Server {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<tg::graph::data::Edge<tg::object::Id>> {
-		let node = &checkpoint.graph.nodes[item.node];
+		let node = checkpoint.graph.nodes.get(&item.node).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
 				let directory = node.variant.unwrap_directory_ref();
@@ -843,11 +879,11 @@ fn explain(context: &Context, graph: &Graph, tag: &tg::Tag) -> tg::Error {
 }
 
 fn format_dependency(graph: &Graph, node: usize, pattern: &tg::tag::Pattern) -> String {
-	let referrer = &graph.nodes[node];
+	let referrer = graph.nodes.get(&node).unwrap();
 	if let Some(path) = &referrer.path {
 		return format!("{} requires '{pattern}'", path.display());
 	}
-	if let Some(id) = &graph.nodes[node].object_id {
+	if let Some(id) = &graph.nodes.get(&node).unwrap().object_id {
 		return format!("{id} requires '{pattern}'");
 	}
 	let mut tag = None;
@@ -855,8 +891,14 @@ fn format_dependency(graph: &Graph, node: usize, pattern: &tg::tag::Pattern) -> 
 	let mut components = vec![];
 	let mut current = node;
 	while tag.is_none() && id.is_none() {
-		let parent = *graph.nodes[current].referrers.first().unwrap();
-		match &graph.nodes[parent].variant {
+		let parent = *graph
+			.nodes
+			.get(&current)
+			.unwrap()
+			.referrers
+			.first()
+			.unwrap();
+		match &graph.nodes.get(&parent).unwrap().variant {
 			Variant::Directory(directory) => {
 				let name = directory
 					.entries

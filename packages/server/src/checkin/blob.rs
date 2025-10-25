@@ -13,14 +13,13 @@ impl Server {
 			.graph
 			.nodes
 			.iter()
-			.enumerate()
 			.filter_map(|(index, node)| {
 				let is_file = node.variant.is_file();
 				if !is_file {
 					return None;
 				}
 				let path = node.path.clone()?;
-				Some((index, path))
+				Some((*index, path))
 			})
 			.collect::<Vec<_>>();
 		let blobs = stream::iter(nodes)
@@ -41,7 +40,11 @@ impl Server {
 			.await?;
 		for (index, blob) in blobs {
 			state.blobs.insert(blob.id.clone(), blob.clone());
-			state.graph.nodes[index]
+			state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
 				.variant
 				.unwrap_file_mut()
 				.contents
