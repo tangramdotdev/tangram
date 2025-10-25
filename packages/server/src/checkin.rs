@@ -144,12 +144,12 @@ impl Server {
 			State {
 				arg: state.arg.clone(),
 				artifacts_path: state.artifacts_path.clone(),
-				blobs: state.blobs.clone(),
+				blobs: im::HashMap::default(),
 				fixup_sender: None,
 				graph: state.graph.clone(),
 				ignorer,
 				lock: state.lock.clone(),
-				objects: state.objects.clone(),
+				objects: state::Objects::default(),
 				progress: progress.clone(),
 				root_path: state.root_path.clone(),
 			}
@@ -300,13 +300,7 @@ impl Server {
 					server.checkin_index(&state, touched_at).await?;
 
 					// Retrieve the state.
-					let mut state = Arc::try_unwrap(state).unwrap();
-
-					// Mark all nodes as clean and not visited.
-					for (_, node) in state.graph.nodes.iter_mut() {
-						node.dirty = false;
-						node.visited = false;
-					}
+					let state = Arc::try_unwrap(state).unwrap();
 
 					// If the watch option is enabled, then update the state of an existing watch or add a new watch.
 					if state.arg.options.watch {

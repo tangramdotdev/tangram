@@ -34,8 +34,8 @@ impl Server {
 		path: PathBuf,
 	) -> tg::Result<Option<usize>> {
 		// Check if the path has been visited.
-		if let Some(index) = state.graph.paths.get(&path) {
-			return Ok(Some(*index));
+		if let Some(index) = state.graph.paths.get(&path).copied() {
+			return Ok(Some(index));
 		}
 
 		// Get the metadata.
@@ -95,14 +95,12 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
-			dirty: false,
 			lock_node,
 			object_id: None,
 			path: Some(path),
 			path_metadata: Some(metadata),
 			referrers: SmallVec::new(),
 			variant,
-			visited: false,
 		};
 		state.graph.nodes.insert(index, node);
 

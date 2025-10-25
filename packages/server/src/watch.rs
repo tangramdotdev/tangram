@@ -40,27 +40,30 @@ impl Watch {
 				let mut state = state.lock().unwrap();
 
 				// Update the nodes for the affected paths along with their ancestors.
-				let mut modified = false;
+				let mut update = false;
 				for path in event.paths {
 					let Some(index) = state.graph.paths.get(&path).copied() else {
 						continue;
 					};
+					update = true;
 					let mut queue = vec![index];
 					let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
 					while let Some(index) = queue.pop() {
 						if !visited.insert(index) {
 							continue;
 						}
-						state.graph.nodes.get_mut(&index).unwrap().dirty = true;
-						modified = true;
-						for &referrer_index in &state.graph.nodes.get(&index).unwrap().referrers {
-							queue.push(referrer_index);
+						let node = state.graph.nodes.remove(&index).unwrap();
+						if let Some(path) = &node.path {
+							state.graph.paths.remove(path).unwrap();
+						}
+						for referrer in node.referrers {
+							queue.push(referrer);
 						}
 					}
 				}
 
-				// Increment the version if any nodes were modified.
-				if modified {
+				// Increment the version if any nodes were removed.
+				if update {
 					version.fetch_add(1, Ordering::SeqCst);
 				}
 			}

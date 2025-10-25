@@ -37,14 +37,12 @@ pub struct Graph {
 #[allow(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
-	pub dirty: bool,
 	pub lock_node: Option<usize>,
 	pub object_id: Option<tg::object::Id>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub referrers: SmallVec<[usize; 1]>,
 	pub variant: Variant,
-	pub visited: bool,
 }
 
 #[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]

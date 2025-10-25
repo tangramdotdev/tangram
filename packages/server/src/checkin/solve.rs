@@ -583,14 +583,12 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
-			dirty: false,
 			lock_node,
 			object_id: None,
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
 			variant,
-			visited: false,
 		};
 
 		// Insert the node into the graph.
@@ -714,14 +712,12 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
-			dirty: false,
 			lock_node,
 			object_id: None,
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
 			variant,
-			visited: false,
 		};
 
 		// Add the node to the checkin graph.
