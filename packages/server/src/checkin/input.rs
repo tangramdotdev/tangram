@@ -95,8 +95,10 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
+			complete: false,
 			lock_node,
-			object_id: None,
+			metadata: None,
+			id: None,
 			path: Some(path),
 			path_metadata: Some(metadata),
 			referrers: SmallVec::new(),

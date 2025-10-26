@@ -128,7 +128,7 @@ impl Server {
 		keys.sort();
 		for key in keys {
 			let node = &state.graph.nodes.get(&key).unwrap();
-			ids.push(node.object_id.clone().unwrap());
+			ids.push(node.id.clone().unwrap());
 			let node = match &node.variant {
 				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();

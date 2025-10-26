@@ -22,7 +22,7 @@ impl Server {
 				.nodes
 				.get(&0)
 				.unwrap()
-				.object_id
+				.id
 				.as_ref()
 				.unwrap()
 				.clone()
@@ -55,7 +55,7 @@ impl Server {
 				}
 				let message =
 					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-						id: node.object_id.as_ref().unwrap().clone().try_into().unwrap(),
+						id: node.id.as_ref().unwrap().clone().try_into().unwrap(),
 						touched_at,
 					});
 				let message = message.serialize()?;

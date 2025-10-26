@@ -24,7 +24,7 @@ impl Server {
 
 	pub(super) async fn checkin_cache_task_destructive(&self, state: Arc<State>) -> tg::Result<()> {
 		let node = state.graph.nodes.get(&0).unwrap();
-		let id = node.object_id.as_ref().unwrap();
+		let id = node.id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
 		let dst = &self.cache_path().join(id.to_string());
 		if id.is_directory() {
@@ -73,7 +73,7 @@ impl Server {
 			if !metadata.is_file() {
 				continue;
 			}
-			let id = node.object_id.as_ref().unwrap();
+			let id = node.id.as_ref().unwrap();
 
 			// Copy the file to a temp.
 			let src = path;

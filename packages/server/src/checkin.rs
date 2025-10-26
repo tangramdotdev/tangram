@@ -280,7 +280,7 @@ impl Server {
 			.nodes
 			.get(&node)
 			.unwrap()
-			.object_id
+			.id
 			.as_ref()
 			.unwrap()
 			.clone()

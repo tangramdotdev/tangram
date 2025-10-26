@@ -48,7 +48,7 @@ impl Server {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
 									let node = state.graph.nodes.get(&reference.node).unwrap();
-									let id = node.object_id.as_ref().unwrap().clone();
+									let id = node.id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
 										.map_err(|_| tg::error!("expected an artifact"))?;
@@ -87,7 +87,7 @@ impl Server {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
 									let node = state.graph.nodes.get(&reference.node).unwrap();
-									let id = node.object_id.as_ref().unwrap().clone();
+									let id = node.id.as_ref().unwrap().clone();
 									tg::graph::data::Edge::Object(id)
 								} else {
 									let reference = reference.clone();
@@ -118,7 +118,7 @@ impl Server {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
 									let node = state.graph.nodes.get(&reference.node).unwrap();
-									let id = node.object_id.as_ref().unwrap().clone();
+									let id = node.id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
 										.map_err(|_| tg::error!("expected an artifact"))?;
@@ -144,17 +144,15 @@ impl Server {
 		};
 		let (id, object) = Self::checkin_create_object(state, data)?;
 
+		// Update the node.
+		let node = state.graph.nodes.get_mut(&index).unwrap();
+		node.complete = object.complete;
+		node.metadata = object.metadata.clone();
+		node.id.replace(id.clone());
+		state.graph.ids.insert(id.clone(), index);
+
 		// Add the object.
 		state.objects.insert(id.clone(), object);
-
-		// Update the node.
-		state
-			.graph
-			.nodes
-			.get_mut(&index)
-			.unwrap()
-			.object_id
-			.replace(id.clone());
 
 		Ok(())
 	}
@@ -205,7 +203,7 @@ impl Server {
 										)
 									} else {
 										let node = state.graph.nodes.get(&reference.node).unwrap();
-										let id = node.object_id.as_ref().unwrap().clone();
+										let id = node.id.as_ref().unwrap().clone();
 										let id = id
 											.try_into()
 											.map_err(|_| tg::error!("expected an artifact"))?;
@@ -251,7 +249,7 @@ impl Server {
 										)
 									} else {
 										let node = state.graph.nodes.get(&reference.node).unwrap();
-										let id = node.object_id.as_ref().unwrap().clone();
+										let id = node.id.as_ref().unwrap().clone();
 										tg::graph::data::Edge::Object(id)
 									}
 								} else {
@@ -293,7 +291,7 @@ impl Server {
 									})
 								} else {
 									let node = state.graph.nodes.get(&reference.node).unwrap();
-									let id = node.object_id.as_ref().unwrap().clone();
+									let id = node.id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
 										.map_err(|_| tg::error!("expected an artifact"))?;
@@ -353,14 +351,16 @@ impl Server {
 			},
 		};
 		let (id, object) = Self::checkin_create_object(state, data)?;
-		state.objects.insert(id.clone(), object);
-		state
-			.graph
-			.nodes
-			.get_mut(&global)
-			.unwrap()
-			.object_id
-			.replace(id);
+
+		// Update the node.
+		let node = state.graph.nodes.get_mut(&global).unwrap();
+		node.complete = object.complete;
+		node.metadata = object.metadata.clone();
+		node.id.replace(id.clone());
+		state.graph.ids.insert(id.clone(), global);
+
+		// Add the object.
+		state.objects.insert(id, object);
 		Ok(())
 	}
 
@@ -376,7 +376,15 @@ impl Server {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let children = children.into_iter().map(|id| {
-			if let Some(object) = state.objects.get(&id) {
+			// Try to find a graph node with this object_id first.
+			let from_node = state.graph.ids.get(&id).and_then(|&index| {
+				let node = state.graph.nodes.get(&index)?;
+				Some((node.complete, node.metadata.clone()))
+			});
+			// Fall back to state.objects for objects without graph nodes (like blobs).
+			if let Some((complete, metadata)) = from_node {
+				(complete, metadata)
+			} else if let Some(object) = state.objects.get(&id) {
 				let complete = object.complete;
 				let metadata = object.metadata.clone();
 				(complete, metadata)
@@ -424,7 +432,7 @@ impl Server {
 			.nodes
 			.get(&0)
 			.unwrap()
-			.object_id
+			.id
 			.as_ref()
 			.unwrap()
 			.clone();
@@ -453,7 +461,7 @@ impl Server {
 					(root.clone().try_into().unwrap(), path)
 				} else {
 					let id: tg::artifact::Id =
-						node.object_id.as_ref().unwrap().clone().try_into().unwrap();
+						node.id.as_ref().unwrap().clone().try_into().unwrap();
 					(id, None)
 				};
 

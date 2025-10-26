@@ -582,8 +582,10 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			complete: false,
 			lock_node,
-			object_id: None,
+			metadata: None,
+			id: None,
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
@@ -607,7 +609,7 @@ impl Server {
 	) -> tg::Result<usize> {
 		// Check if this graph node has already been added.
 		let key = (graph_id.clone(), node_index);
-		if let Some(&index) = checkpoint.graph_nodes.get(&key) {
+		if let Some(index) = checkpoint.graph_nodes.get(&key).copied() {
 			return Ok(index);
 		}
 
@@ -711,8 +713,10 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			complete: false,
 			lock_node,
-			object_id: None,
+			metadata: None,
+			id: None,
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
@@ -878,7 +882,7 @@ fn format_dependency(graph: &Graph, node: usize, pattern: &tg::tag::Pattern) -> 
 	if let Some(path) = &referrer.path {
 		return format!("{} requires '{pattern}'", path.display());
 	}
-	if let Some(id) = &graph.nodes.get(&node).unwrap().object_id {
+	if let Some(id) = &graph.nodes.get(&node).unwrap().id {
 		return format!("{id} requires '{pattern}'");
 	}
 	let mut tag = None;

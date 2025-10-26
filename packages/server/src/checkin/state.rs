@@ -26,6 +26,7 @@ pub struct FixupMessage {
 
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
+	pub ids: im::HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
 	pub next: usize,
 	pub nodes: im::HashMap<usize, Node, fnv::FnvBuildHasher>,
 	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
@@ -34,8 +35,10 @@ pub struct Graph {
 #[allow(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
+	pub complete: bool,
+	pub id: Option<tg::object::Id>,
 	pub lock_node: Option<usize>,
-	pub object_id: Option<tg::object::Id>,
+	pub metadata: Option<tg::object::Metadata>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub referrers: SmallVec<[usize; 1]>,
@@ -72,8 +75,9 @@ pub struct Symlink {
 
 #[derive(Clone, Debug, Default)]
 pub struct Objects {
-	map: im::HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
-	vec: im::Vector<(tg::object::Id, Object)>,
+	lookup: im::HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
+	map: im::OrdMap<usize, (tg::object::Id, Object)>,
+	next: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -96,25 +100,41 @@ pub struct CacheReferenceRange {
 
 impl Objects {
 	pub fn get(&self, id: &tg::object::Id) -> Option<&Object> {
-		let index = self.map.get(id)?;
-		let (_, object) = self.vec.get(*index)?;
+		let index = self.lookup.get(id)?;
+		let (_, object) = self.map.get(index)?;
 		Some(object)
 	}
 
 	pub fn get_mut(&mut self, id: &tg::object::Id) -> Option<&mut Object> {
-		let index = *self.map.get(id)?;
-		let (_, object) = self.vec.get_mut(index)?;
+		let index = self.lookup.get(id)?;
+		let (_, object) = self.map.get_mut(index)?;
 		Some(object)
 	}
 
 	pub fn insert(&mut self, id: tg::object::Id, object: Object) {
-		let index = self.vec.len();
-		self.vec.push_back((id.clone(), object));
-		self.map.insert(id, index);
+		let index = if let Some(index) = self.lookup.get(&id).copied() {
+			index
+		} else {
+			let index = self.next;
+			self.next += 1;
+			index
+		};
+		self.lookup.insert(id.clone(), index);
+		self.map.insert(index, (id, object));
+	}
+
+	pub fn remove(&mut self, id: &tg::object::Id) -> Option<Object> {
+		if let Some(index) = self.lookup.get(id).copied() {
+			self.lookup.remove(id).unwrap();
+			let (_, object) = self.map.remove(&index).unwrap();
+			Some(object)
+		} else {
+			None
+		}
 	}
 
 	pub fn values(&self) -> impl Iterator<Item = &Object> {
-		self.vec.iter().map(|(_, object)| object)
+		self.map.values().map(|(_, object)| object)
 	}
 }
 

@@ -56,6 +56,9 @@ impl Watch {
 						if let Some(path) = &node.path {
 							state.graph.paths.remove(path).unwrap();
 						}
+						if let Some(id) = &node.id {
+							state.objects.remove(id);
+						}
 						for referrer in node.referrers {
 							queue.push(referrer);
 						}
