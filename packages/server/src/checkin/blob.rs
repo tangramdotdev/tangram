@@ -74,14 +74,20 @@ impl Server {
 
 		// Update file node contents to reference the blob IDs.
 		for (index, blob) in blobs {
-			state
+			let metadata = tg::object::Metadata {
+				count: Some(blob.count),
+				depth: Some(blob.depth),
+				weight: Some(blob.weight),
+			};
+			let file = state
 				.graph
 				.nodes
 				.get_mut(&index)
 				.unwrap()
 				.variant
-				.unwrap_file_mut()
-				.contents = Some(blob.id);
+				.unwrap_file_mut();
+			file.contents_metadata = Some(metadata);
+			file.contents = Some(blob.id);
 		}
 
 		Ok(())

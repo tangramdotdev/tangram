@@ -569,6 +569,7 @@ impl Server {
 				let executable = file.executable;
 				Variant::File(File {
 					contents,
+					contents_metadata: None,
 					dependencies,
 					executable,
 				})
@@ -690,6 +691,7 @@ impl Server {
 				}
 				Variant::File(File {
 					contents,
+					contents_metadata: None,
 					dependencies,
 					executable: file.executable,
 				})

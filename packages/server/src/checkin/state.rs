@@ -62,6 +62,7 @@ pub struct Directory {
 #[derive(Clone, Debug)]
 pub struct File {
 	pub contents: Option<tg::blob::Id>,
+	pub contents_metadata: Option<tg::object::Metadata>,
 	pub dependencies:
 		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 	pub executable: bool,

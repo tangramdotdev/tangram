@@ -142,7 +142,7 @@ impl Server {
 				tg::symlink::Data::Node(data).into()
 			},
 		};
-		let (id, object) = Self::checkin_create_object(state, data)?;
+		let (id, object) = Self::checkin_create_object(state, data, Some(index))?;
 
 		// Update the node.
 		let node = state.graph.nodes.get_mut(&index).unwrap();
@@ -166,7 +166,7 @@ impl Server {
 
 		// Create the graph object.
 		let data = tg::graph::Data { nodes }.into();
-		let (id, object) = Self::checkin_create_object(state, data)?;
+		let (id, object) = Self::checkin_create_object(state, data, None)?;
 		state.objects.insert(id.clone(), object);
 
 		// Create reference artifacts.
@@ -350,7 +350,7 @@ impl Server {
 				tg::symlink::Data::Reference(reference).into()
 			},
 		};
-		let (id, object) = Self::checkin_create_object(state, data)?;
+		let (id, object) = Self::checkin_create_object(state, data, Some(global))?;
 
 		// Update the node.
 		let node = state.graph.nodes.get_mut(&global).unwrap();
@@ -367,6 +367,7 @@ impl Server {
 	fn checkin_create_object(
 		state: &State,
 		data: tg::object::Data,
+		index: Option<usize>,
 	) -> tg::Result<(tg::object::Id, Object)> {
 		let kind = data.kind();
 		let bytes = data
@@ -376,18 +377,24 @@ impl Server {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let children = children.into_iter().map(|id| {
-			// Try to find a graph node with this object_id first.
-			let from_node = state.graph.ids.get(&id).and_then(|&index| {
-				let node = state.graph.nodes.get(&index)?;
-				Some((node.complete, node.metadata.clone()))
-			});
-			// Fall back to state.objects for objects without graph nodes (like blobs).
-			if let Some((complete, metadata)) = from_node {
-				(complete, metadata)
-			} else if let Some(object) = state.objects.get(&id) {
-				let complete = object.complete;
-				let metadata = object.metadata.clone();
-				(complete, metadata)
+			if let Some(&index) = state.graph.ids.get(&id) {
+				let node = state.graph.nodes.get(&index).unwrap();
+				(node.complete, node.metadata.clone())
+			} else if let Ok(id) = id.try_unwrap_blob_ref() {
+				let metadata = index.and_then(|index| {
+					let node = state.graph.nodes.get(&index)?;
+					let file = node.variant.try_unwrap_file_ref().ok()?;
+					if file
+						.contents
+						.as_ref()
+						.is_some_and(|contents| contents == id)
+					{
+						file.contents_metadata.clone()
+					} else {
+						None
+					}
+				});
+				(true, metadata)
 			} else {
 				(false, None)
 			}
