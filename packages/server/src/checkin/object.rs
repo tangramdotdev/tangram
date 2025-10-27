@@ -142,7 +142,7 @@ impl Server {
 				tg::symlink::Data::Node(data).into()
 			},
 		};
-		let (id, object) = Self::checkin_create_object(state, data, Some(index))?;
+		let (id, object) = Self::checkin_create_object(state, data, &[index])?;
 
 		// Update the node.
 		let node = state.graph.nodes.get_mut(&index).unwrap();
@@ -166,7 +166,7 @@ impl Server {
 
 		// Create the graph object.
 		let data = tg::graph::Data { nodes }.into();
-		let (id, object) = Self::checkin_create_object(state, data, None)?;
+		let (id, object) = Self::checkin_create_object(state, data, scc)?;
 		state.objects.insert(id.clone(), object);
 
 		// Create reference artifacts.
@@ -350,7 +350,7 @@ impl Server {
 				tg::symlink::Data::Reference(reference).into()
 			},
 		};
-		let (id, object) = Self::checkin_create_object(state, data, Some(global))?;
+		let (id, object) = Self::checkin_create_object(state, data, &[global])?;
 
 		// Update the node.
 		let node = state.graph.nodes.get_mut(&global).unwrap();
@@ -367,7 +367,7 @@ impl Server {
 	fn checkin_create_object(
 		state: &State,
 		data: tg::object::Data,
-		index: Option<usize>,
+		scc: &[usize],
 	) -> tg::Result<(tg::object::Id, Object)> {
 		let kind = data.kind();
 		let bytes = data
@@ -377,17 +377,17 @@ impl Server {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let children = children.into_iter().map(|id| {
-			if let Some(&index) = state.graph.ids.get(&id) {
-				let node = state.graph.nodes.get(&index).unwrap();
+			if let Some(&child_index) = state.graph.ids.get(&id) {
+				let node = state.graph.nodes.get(&child_index).unwrap();
 				(node.complete, node.metadata.clone())
-			} else if let Ok(id) = id.try_unwrap_blob_ref() {
-				let metadata = index.and_then(|index| {
-					let node = state.graph.nodes.get(&index)?;
+			} else if let Ok(blob_id) = id.try_unwrap_blob_ref() {
+				let metadata = scc.iter().find_map(|&node_index| {
+					let node = state.graph.nodes.get(&node_index)?;
 					let file = node.variant.try_unwrap_file_ref().ok()?;
 					if file
 						.contents
 						.as_ref()
-						.is_some_and(|contents| contents == id)
+						.is_some_and(|contents| contents == blob_id)
 					{
 						file.contents_metadata.clone()
 					} else {
