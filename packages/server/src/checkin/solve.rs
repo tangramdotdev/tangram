@@ -1,14 +1,14 @@
 use {
 	crate::{
 		Server,
-		checkin::state::{Directory, File, Graph, Node, State, Symlink, Variant},
+		checkin::state::{Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
 	std::collections::HashMap,
 	tangram_client::{self as tg, handle::Ext as _},
 };
 
-struct Context<'a> {
+struct State<'a> {
 	checkpoints: Vec<Checkpoint<'a>>,
 	tags: HashMap<tg::Tag, Vec<(usize, tg::tag::Pattern)>, fnv::FnvBuildHasher>,
 	updates: &'a [tg::tag::Pattern],
@@ -49,13 +49,14 @@ enum ItemVariant {
 }
 
 impl Server {
-	pub(super) async fn checkin_solve(&self, state: &mut State) -> tg::Result<()> {
-		let State {
-			arg, graph, lock, ..
-		} = state;
-
-		// Create the context
-		let mut context = Context {
+	pub(super) async fn checkin_solve(
+		&self,
+		arg: &tg::checkin::Arg,
+		graph: Graph,
+		lock: Option<&tg::graph::Data>,
+	) -> tg::Result<Graph> {
+		// Create the state
+		let mut state = State {
 			checkpoints: Vec::new(),
 			tags: HashMap::default(),
 			updates: &arg.updates,
@@ -69,7 +70,7 @@ impl Server {
 			graphs: im::HashMap::default(),
 			graph_nodes: im::HashMap::default(),
 			ids: im::HashMap::default(),
-			lock: lock.as_deref(),
+			lock,
 			queue: im::Vector::new(),
 			tags: im::HashMap::default(),
 			visited: im::HashSet::default(),
@@ -78,19 +79,16 @@ impl Server {
 
 		// Solve.
 		while let Some(item) = checkpoint.queue.pop_front() {
-			self.checkin_solve_visit_item(&mut context, &mut checkpoint, item)
+			self.checkin_solve_visit_item(&mut state, &mut checkpoint, item)
 				.await?;
 		}
 
-		// Use the graph from the checkpoint.
-		state.graph = checkpoint.graph;
-
-		Ok(())
+		Ok(checkpoint.graph)
 	}
 
 	async fn checkin_solve_visit_item<'a>(
 		&self,
-		context: &mut Context<'a>,
+		state: &mut State<'a>,
 		checkpoint: &mut Checkpoint<'a>,
 		item: Item,
 	) -> tg::Result<()> {
@@ -253,7 +251,7 @@ impl Server {
 
 			tg::reference::Item::Tag(pattern) => {
 				self.checkin_solve_visit_item_with_tag(
-					context,
+					state,
 					checkpoint,
 					item,
 					reference.clone(),
@@ -319,7 +317,7 @@ impl Server {
 
 	async fn checkin_solve_visit_item_with_tag<'a>(
 		&self,
-		context: &mut Context<'a>,
+		state: &mut State<'a>,
 		checkpoint: &mut Checkpoint<'a>,
 		item: Item,
 		reference: tg::Reference,
@@ -337,7 +335,7 @@ impl Server {
 		};
 
 		// Insert the tag.
-		context
+		state
 			.tags
 			.entry(tag.clone())
 			.or_default()
@@ -345,13 +343,13 @@ impl Server {
 
 		// Solve the item.
 		let result = self
-			.checkin_solve_visit_item_with_tag_inner(context, checkpoint, &item, &tag, &pattern)
+			.checkin_solve_visit_item_with_tag_inner(state, checkpoint, &item, &tag, &pattern)
 			.await?;
 
 		// Handle the result.
 		if let Ok(referent) = result {
 			// Checkpoint.
-			context.checkpoints.push(checkpoint.clone());
+			state.checkpoints.push(checkpoint.clone());
 
 			// Create the edge.
 			checkpoint
@@ -383,8 +381,8 @@ impl Server {
 			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
 		} else {
 			// Backtrack.
-			*checkpoint = Self::checkin_solve_backtrack(context, &tag)
-				.ok_or_else(|| explain(context, &checkpoint.graph, &tag))?;
+			*checkpoint = Self::checkin_solve_backtrack(state, &tag)
+				.ok_or_else(|| explain(state, &checkpoint.graph, &tag))?;
 
 			return Ok(());
 		}
@@ -397,7 +395,7 @@ impl Server {
 
 	async fn checkin_solve_visit_item_with_tag_inner(
 		&self,
-		context: &Context<'_>,
+		state: &State<'_>,
 		checkpoint: &mut Checkpoint<'_>,
 		item: &Item,
 		tag: &tg::Tag,
@@ -416,7 +414,7 @@ impl Server {
 		if checkpoint.candidates.is_none() {
 			// Try to get an initial list of candidates.
 			let candidates = self
-				.checkin_solve_get_candidates(context, checkpoint, item, pattern)
+				.checkin_solve_get_candidates(state, checkpoint, item, pattern)
 				.await
 				.inspect_err(|e| {
 					tracing::error!(?e, "failed to get matching tags for {pattern}");
@@ -461,7 +459,7 @@ impl Server {
 
 	async fn checkin_solve_get_candidates(
 		&self,
-		context: &Context<'_>,
+		state: &State<'_>,
 		checkpoint: &Checkpoint<'_>,
 		item: &Item,
 		pattern: &tg::tag::Pattern,
@@ -489,7 +487,7 @@ impl Server {
 		if let Some(lock_index) = checkpoint.graph.nodes.get(&item.node).unwrap().lock_node
 			&& let Some(candidate) =
 				Self::checkin_solve_get_candidate_from_lock(checkpoint, item, lock_index)
-			&& !context
+			&& !state
 				.updates
 				.iter()
 				.any(|pattern| pattern.matches(&candidate.tag))
@@ -861,15 +859,12 @@ impl Server {
 		}
 	}
 
-	fn checkin_solve_backtrack<'a>(
-		context: &mut Context<'a>,
-		tag: &tg::Tag,
-	) -> Option<Checkpoint<'a>> {
-		let position = context
+	fn checkin_solve_backtrack<'a>(state: &mut State<'a>, tag: &tg::Tag) -> Option<Checkpoint<'a>> {
+		let position = state
 			.checkpoints
 			.iter()
 			.position(|checkpoint| checkpoint.tags.contains_key(tag))?;
-		if context.checkpoints[position]
+		if state.checkpoints[position]
 			.candidates
 			.as_ref()
 			.unwrap()
@@ -877,17 +872,17 @@ impl Server {
 		{
 			return None;
 		}
-		context.checkpoints.truncate(position);
-		let mut checkpoint = context.checkpoints.pop()?;
+		state.checkpoints.truncate(position);
+		let mut checkpoint = state.checkpoints.pop()?;
 		checkpoint.tags.remove(tag);
-		context.tags.remove(tag);
+		state.tags.remove(tag);
 		Some(checkpoint)
 	}
 }
 
-fn explain(context: &Context, graph: &Graph, tag: &tg::Tag) -> tg::Error {
+fn explain(state: &State, graph: &Graph, tag: &tg::Tag) -> tg::Error {
 	let mut source = None;
-	let referrers = context.tags.get(tag).unwrap();
+	let referrers = state.tags.get(tag).unwrap();
 	for (node, pattern) in referrers {
 		let mut error = tg::error!("{}", format_dependency(graph, *node, pattern));
 		if let Some(source) = source.take() {

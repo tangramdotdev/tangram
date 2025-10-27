@@ -124,16 +124,6 @@ impl Objects {
 		self.map.insert(index, (id, object));
 	}
 
-	pub fn remove(&mut self, id: &tg::object::Id) -> Option<Object> {
-		if let Some(index) = self.lookup.get(id).copied() {
-			self.lookup.remove(id).unwrap();
-			let (_, object) = self.map.remove(&index).unwrap();
-			Some(object)
-		} else {
-			None
-		}
-	}
-
 	pub fn values(&self) -> impl Iterator<Item = &Object> {
 		self.map.values().map(|(_, object)| object)
 	}

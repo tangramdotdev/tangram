@@ -196,7 +196,8 @@ impl Server {
 		// Solve.
 		if state.arg.options.solve {
 			let start = Instant::now();
-			self.checkin_solve(&mut state).await?;
+			self.checkin_solve(&state.arg, state.graph.clone(), state.lock.as_deref())
+				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
