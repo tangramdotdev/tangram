@@ -1,19 +1,22 @@
 use {
-	super::state::State,
-	crate::{Server, temp::Temp},
-	std::{os::unix::fs::PermissionsExt as _, sync::Arc},
+	crate::{Server, checkin::Graph, temp::Temp},
+	std::os::unix::fs::PermissionsExt as _,
 	tangram_client as tg,
 };
 
 impl Server {
-	pub(super) async fn checkin_cache(&self, state: Arc<State>) -> tg::Result<()> {
-		if state.arg.options.destructive {
-			self.checkin_cache_task_destructive(state).await?;
+	pub(super) async fn checkin_cache(
+		&self,
+		arg: &tg::checkin::Arg,
+		graph: &Graph,
+	) -> tg::Result<()> {
+		if arg.options.destructive {
+			self.checkin_cache_task_destructive(graph).await?;
 		} else {
 			tokio::task::spawn_blocking({
 				let server = self.clone();
-				let state = state.clone();
-				move || server.checkin_cache_task_inner(&state)
+				let graph = graph.clone();
+				move || server.checkin_cache_task_inner(&graph)
 			})
 			.await
 			.unwrap()
@@ -22,8 +25,8 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn checkin_cache_task_destructive(&self, state: Arc<State>) -> tg::Result<()> {
-		let node = state.graph.nodes.get(&0).unwrap();
+	async fn checkin_cache_task_destructive(&self, graph: &Graph) -> tg::Result<()> {
+		let node = graph.nodes.get(&0).unwrap();
 		let id = node.id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
 		let dst = &self.cache_path().join(id.to_string());
@@ -64,8 +67,8 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_cache_task_inner(&self, state: &State) -> tg::Result<()> {
-		for (_, node) in &state.graph.nodes {
+	fn checkin_cache_task_inner(&self, graph: &Graph) -> tg::Result<()> {
+		for (_, node) in &graph.nodes {
 			let Some(path) = node.path.as_ref() else {
 				continue;
 			};

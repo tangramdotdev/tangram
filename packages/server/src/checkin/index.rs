@@ -1,8 +1,11 @@
 use {
-	super::state::{State, Variant},
-	crate::Server,
+	super::state::Variant,
+	crate::{
+		Server,
+		checkin::{Graph, state::Objects},
+	},
 	bytes::Bytes,
-	std::{collections::BTreeSet, sync::Arc},
+	std::collections::BTreeSet,
 	tangram_client as tg,
 	tangram_messenger::Messenger as _,
 };
@@ -10,15 +13,16 @@ use {
 impl Server {
 	pub(super) async fn checkin_index(
 		&self,
-		state: &Arc<State>,
+		arg: &tg::checkin::Arg,
+		graph: &Graph,
+		objects: &Objects,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		let mut messages: Vec<Bytes> = Vec::new();
 
 		// Create put cache entry messages.
-		if state.arg.options.destructive {
-			let id = state
-				.graph
+		if arg.options.destructive {
+			let id = graph
 				.nodes
 				.get(&0)
 				.unwrap()
@@ -40,7 +44,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		} else {
-			for (_, node) in &state.graph.nodes {
+			for (_, node) in &graph.nodes {
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
@@ -48,7 +52,7 @@ impl Server {
 					continue;
 				};
 				let blob_object_id: tg::object::Id = blob_id.clone().into();
-				let blob_object = state.objects.get(&blob_object_id);
+				let blob_object = objects.get(&blob_object_id);
 				if blob_object.is_none() || blob_object.unwrap().cache_reference_range.is_none() {
 					continue;
 				}
@@ -63,7 +67,7 @@ impl Server {
 		}
 
 		// Create put object messages.
-		for object in state.objects.values() {
+		for object in objects.values() {
 			let cache_entry = object
 				.cache_reference
 				.as_ref()

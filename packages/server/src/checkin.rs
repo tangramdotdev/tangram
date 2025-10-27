@@ -196,7 +196,8 @@ impl Server {
 		// Solve.
 		if state.arg.options.solve {
 			let start = Instant::now();
-			self.checkin_solve(&state.arg, state.graph.clone(), state.lock.as_deref())
+			state.graph = self
+				.checkin_solve(&state.arg, state.graph.clone(), state.lock.as_deref())
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
@@ -213,12 +214,15 @@ impl Server {
 
 		// Write the lock.
 		let start = Instant::now();
-		self.checkin_write_lock(&state)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+		self.checkin_write_lock(
+			&state.arg,
+			&state.graph,
+			state.lock.as_deref(),
+			&state.root_path,
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
-
-		let state = Arc::new(state);
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -228,14 +232,14 @@ impl Server {
 			task.await?;
 		}
 		let start = Instant::now();
-		self.checkin_cache(state.clone())
+		self.checkin_cache(&state.arg, &state.graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "cache");
 
 		// Store.
 		let start = Instant::now();
-		self.checkin_store(&state, touched_at)
+		self.checkin_store(&state.objects, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
@@ -269,10 +273,11 @@ impl Server {
 			move |_| {
 				async move {
 					// Index.
-					server.checkin_index(&state, touched_at).await?;
+					server
+						.checkin_index(&state.arg, &state.graph, &state.objects, touched_at)
+						.await?;
 
 					// Retrieve the state.
-					let state = Arc::try_unwrap(state).unwrap();
 					let State { graph, lock, .. } = state;
 
 					// If the watch option is enabled, then update the state of an existing watch or add a new watch.
@@ -333,14 +338,14 @@ impl Server {
 
 	fn checkin_fixup_task(receiver: &std::sync::mpsc::Receiver<FixupMessage>) -> tg::Result<()> {
 		while let Ok(message) = receiver.recv() {
-			Self::set_permissions_and_times(&message.path, &message.metadata).map_err(
+			Self::checkin_fixup_task_inner(&message.path, &message.metadata).map_err(
 				|source| tg::error!(!source, %path = message.path.display(), "failed to set permissions"),
 			)?;
 		}
 		Ok::<_, tg::Error>(())
 	}
 
-	fn set_permissions_and_times(path: &Path, metadata: &std::fs::Metadata) -> tg::Result<()> {
+	fn checkin_fixup_task_inner(path: &Path, metadata: &std::fs::Metadata) -> tg::Result<()> {
 		if !metadata.is_symlink() {
 			let mode = metadata.permissions().mode();
 			let executable = mode & 0o111 != 0;

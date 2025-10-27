@@ -1,6 +1,6 @@
 use {
-	super::state::{State, Variant},
-	crate::Server,
+	super::state::Variant,
+	crate::{Server, checkin::Graph},
 	std::{collections::BTreeMap, path::Path},
 	tangram_client as tg,
 	tangram_util::iter::Ext as _,
@@ -53,30 +53,31 @@ impl Server {
 		Ok(Some(lock))
 	}
 
-	pub(super) async fn checkin_write_lock(&self, state: &State) -> tg::Result<()> {
+	pub(super) async fn checkin_write_lock(
+		&self,
+		arg: &tg::checkin::Arg,
+		graph: &Graph,
+		lock_: Option<&tg::graph::Data>,
+		root_path: &Path,
+	) -> tg::Result<()> {
 		// Do not create a lock if this is a destructive checkin or the user did not request one.
-		if state.arg.options.destructive || !state.arg.options.lock {
+		if arg.options.destructive || !arg.options.lock {
 			return Ok(());
 		}
 
 		// Create the lock.
-		let lock = Self::checkin_create_lock(state);
+		let lock = Self::checkin_create_lock(graph);
 
 		// If this is a locked checkin, then verify the lock is unchanged.
-		if state.arg.options.locked
-			&& state
-				.lock
-				.as_ref()
-				.is_some_and(|existing| existing.nodes != lock.nodes)
-		{
+		if arg.options.locked && lock_.is_some_and(|existing| existing.nodes != lock.nodes) {
 			return Err(tg::error!("the lock is out of date"));
 		}
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
-		match state.graph.nodes.get(&0).unwrap().variant {
+		match graph.nodes.get(&0).unwrap().variant {
 			Variant::Directory(_) => {
 				// Determine the lockfile path.
-				let lockfile_path = state.root_path.join(tg::package::LOCKFILE_FILE_NAME);
+				let lockfile_path = root_path.join(tg::package::LOCKFILE_FILE_NAME);
 
 				// Remove an existing lockfile.
 				tangram_util::fs::remove(&lockfile_path).await.ok();
@@ -98,7 +99,7 @@ impl Server {
 
 			Variant::File(_) => {
 				// Remove an existing lockattr.
-				xattr::remove(&state.root_path, tg::file::LOCKATTR_XATTR_NAME).ok();
+				xattr::remove(root_path, tg::file::LOCKATTR_XATTR_NAME).ok();
 
 				// Do not write an empty lock.
 				if lock.nodes.is_empty() {
@@ -110,7 +111,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 
 				// Write the lockattr.
-				xattr::set(&state.root_path, tg::file::LOCKATTR_XATTR_NAME, &contents)
+				xattr::set(root_path, tg::file::LOCKATTR_XATTR_NAME, &contents)
 					.map_err(|source| tg::error!(!source, "failed to write the lockatttr"))?;
 			},
 
@@ -120,13 +121,13 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_create_lock(state: &State) -> tg::graph::Data {
+	fn checkin_create_lock(graph: &Graph) -> tg::graph::Data {
 		// Create the nodes.
-		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
-		let mut ids = Vec::with_capacity(state.graph.nodes.len());
-		let keys: Vec<_> = state.graph.nodes.keys().copied().collect();
+		let mut nodes = Vec::with_capacity(graph.nodes.len());
+		let mut ids = Vec::with_capacity(graph.nodes.len());
+		let keys: Vec<_> = graph.nodes.keys().copied().collect();
 		for key in keys {
-			let node = &state.graph.nodes.get(&key).unwrap();
+			let node = &graph.nodes.get(&key).unwrap();
 			ids.push(node.id.clone().unwrap());
 			let node = match &node.variant {
 				Variant::Directory(directory) => {
