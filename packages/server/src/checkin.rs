@@ -1,5 +1,5 @@
 use {
-	self::state::{FixupMessage, Graph},
+	self::state::{FixupMessage, State},
 	crate::{Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	indoc::indoc,
@@ -27,7 +27,7 @@ mod solve;
 mod state;
 mod store;
 
-pub(crate) use self::state::State;
+pub(crate) use self::state::Graph;
 
 impl Server {
 	pub async fn checkin(
@@ -118,75 +118,48 @@ impl Server {
 			.unwrap_or(&arg.path)
 			.to_owned();
 
-		// Capture the watch version at the start of the checkin.
-		let version = if arg.options.watch {
-			self.watches
-				.get(&root)
-				.map(|watch| watch.version.load(std::sync::atomic::Ordering::SeqCst))
+		// Try to find the artifacts path.
+		let artifacts_path = root.join(".tangram/artifacts");
+		let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
+			.await
+			.is_ok_and(|exists| exists)
+		{
+			Some(artifacts_path)
 		} else {
 			None
 		};
 
-		// Clone or create the state.
-		let mut state = if arg.options.watch
+		// Attempt to get the graph and lock from a watcher.
+		let (graph, lock, version) = if arg.options.watch
 			&& let Some(watch) = self.watches.get(&root)
 		{
 			let state = watch.value().state.lock().unwrap();
-
-			// Create the ignorer if necessary.
-			let ignorer = if arg.options.ignore {
-				Some(Self::checkin_create_ignorer()?)
-			} else {
-				None
-			};
-
-			// Clone the state.
-			State {
-				arg: state.arg.clone(),
-				artifacts_path: state.artifacts_path.clone(),
-				fixup_sender: None,
-				graph: state.graph.clone(),
-				ignorer,
-				lock: state.lock.clone(),
-				objects: state::Objects::default(),
-				progress: progress.clone(),
-				root_path: state.root_path.clone(),
-			}
+			(state.graph.clone(), state.lock.clone(), Some(state.version))
 		} else {
-			// Create the ignorer if necessary.
-			let ignorer = if arg.options.ignore {
-				Some(Self::checkin_create_ignorer()?)
-			} else {
-				None
-			};
-
-			// Try to find the artifacts path.
-			let artifacts_path = root.join(".tangram/artifacts");
-			let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
-				.await
-				.is_ok_and(|exists| exists)
-			{
-				Some(artifacts_path)
-			} else {
-				None
-			};
-
-			// Try to get a lock.
 			let lock = Self::checkin_try_read_lock(&root)
-				.map_err(|source| tg::error!(!source, "failed to read the lock"))?;
+				.map_err(|source| tg::error!(!source, "failed to read the lock"))?
+				.map(Arc::new);
+			(Graph::default(), lock, None)
+		};
 
-			// Create the state.
-			State {
-				arg: arg.clone(),
-				artifacts_path,
-				fixup_sender: None,
-				graph: Graph::default(),
-				ignorer,
-				lock,
-				objects: state::Objects::default(),
-				progress: progress.clone(),
-				root_path: root.clone(),
-			}
+		// Create the ignorer if necessary.
+		let ignorer = if arg.options.ignore {
+			Some(Self::checkin_create_ignorer()?)
+		} else {
+			None
+		};
+
+		// Create the state.
+		let mut state = State {
+			arg: arg.clone(),
+			artifacts_path,
+			fixup_sender: None,
+			graph,
+			ignorer,
+			lock,
+			objects: state::Objects::default(),
+			progress: progress.clone(),
+			root_path: root.clone(),
 		};
 
 		// Spawn the fixup task.
@@ -299,30 +272,27 @@ impl Server {
 
 					// Retrieve the state.
 					let state = Arc::try_unwrap(state).unwrap();
+					let State { graph, lock, .. } = state;
 
 					// If the watch option is enabled, then update the state of an existing watch or add a new watch.
 					if state.arg.options.watch {
 						let entry = server.watches.entry(root.clone());
 						match entry {
-							dashmap::Entry::Occupied(mut entry) => {
-								// Check if the path was modified during the checkin.
+							dashmap::Entry::Occupied(entry) => {
+								let mut state = entry.get().state.lock().unwrap();
 								if let Some(version) = version {
-									let current = entry
-										.get()
-										.version
-										.load(std::sync::atomic::Ordering::SeqCst);
+									let current = state.version;
 									if current != version {
 										return Err(tg::error!(
 											"files were modified during checkin"
 										));
 									}
 								}
-
-								// Update the state.
-								*entry.get_mut().state.lock().unwrap() = state;
+								state.graph = graph;
+								state.lock = lock;
 							},
 							dashmap::Entry::Vacant(entry) => {
-								let watch = Watch::new(&root, state).map_err(|source| {
+								let watch = Watch::new(&root, graph, lock).map_err(|source| {
 									tg::error!(!source, "failed to create the watch")
 								})?;
 								entry.insert(watch);

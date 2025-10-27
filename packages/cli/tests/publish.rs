@@ -9,7 +9,7 @@ const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
 #[tokio::test]
 async fn simple_package() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	let content = indoc!(
 		r#"
@@ -20,22 +20,22 @@ async fn simple_package() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
 
-	let output = ctx.publish_with_output(&temp).await;
+	let output = context.publish_with_output(&temp).await;
 	assert_success!(output);
 
 	let tag = "test-pkg/1.0.0";
-	ctx.assert_tag_on_local(tag, &package_id).await;
-	ctx.assert_tag_on_remote(tag, &package_id).await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
+	context.assert_tag_on_local(tag, &package_id).await;
+	context.assert_tag_on_remote(tag, &package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
 }
 
 #[tokio::test]
 async fn package_with_dependency_pre_publish() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create and publish the dependency package.
 	let content = indoc!(
@@ -47,8 +47,8 @@ async fn package_with_dependency_pre_publish() {
 			};
 		"#
 	);
-	let (dep_temp, dep_package_id) = ctx.create_package(content.to_owned()).await;
-	ctx.publish(&dep_temp).await;
+	let (dep_temp, dep_package_id) = context.create_package(content.to_owned()).await;
+	context.publish(&dep_temp).await;
 
 	// Create a package that depends on the first package.
 	let content = indoc!(
@@ -62,28 +62,32 @@ async fn package_with_dependency_pre_publish() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
-	ctx.publish(&temp).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
+	context.publish(&temp).await;
 
 	// Verify tags and objects for both packages.
-	ctx.assert_tag_on_local("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_local("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_local("test-dep/1.0.0", &dep_package_id)
+	context
+		.assert_tag_on_local("test-dep/1.0.0", &dep_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+	context
+		.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&dep_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&dep_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&dep_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context.assert_metadata_synced(&dep_package_id).await;
 }
 
 #[tokio::test]
 async fn package_with_unpublished_dependency() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create a dependency package but DON'T publish it yet.
 	let content = indoc!(
@@ -95,10 +99,10 @@ async fn package_with_unpublished_dependency() {
 			};
 		"#
 	);
-	let (_dep_temp, dep_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_dep_temp, dep_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the dependency on the local server so it can be resolved.
-	ctx.create_tag("test-dep/1.0.0", &dep_package_id).await;
+	context.create_tag("test-dep/1.0.0", &dep_package_id).await;
 
 	// Create a package that depends on the unpublished package.
 	let content = indoc!(
@@ -112,26 +116,28 @@ async fn package_with_unpublished_dependency() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should also publish the dependency.
-	ctx.publish(&temp).await;
+	context.publish(&temp).await;
 
 	// Verify both packages are tagged and synced on the remote.
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+	context
+		.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&dep_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&dep_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&dep_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context.assert_metadata_synced(&dep_package_id).await;
 }
 
 #[tokio::test]
 async fn package_with_transitive_dependency() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create the transitive dependency (C) - no dependencies.
 	let content = indoc!(
@@ -143,10 +149,12 @@ async fn package_with_transitive_dependency() {
 			};
 		"#
 	);
-	let (_transitive_temp, transitive_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_transitive_temp, transitive_package_id) =
+		context.create_package(content.to_owned()).await;
 
 	// Create a tag for the transitive dependency on the local server so it can be resolved.
-	ctx.create_tag("test-transitive/1.0.0", &transitive_package_id)
+	context
+		.create_tag("test-transitive/1.0.0", &transitive_package_id)
 		.await;
 
 	// Create the intermediate dependency (B) - depends on C.
@@ -161,10 +169,10 @@ async fn package_with_transitive_dependency() {
 			};
 		"#
 	);
-	let (_dep_temp, dep_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_dep_temp, dep_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the dependency on the local server so it can be resolved.
-	ctx.create_tag("test-dep/1.0.0", &dep_package_id).await;
+	context.create_tag("test-dep/1.0.0", &dep_package_id).await;
 
 	// Create the main package (A) - depends on B.
 	let content = indoc!(
@@ -178,30 +186,33 @@ async fn package_with_transitive_dependency() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should publish C, then B, then A.
-	ctx.publish(&temp).await;
+	context.publish(&temp).await;
 
 	// Verify all three packages are tagged and synced on the remote.
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+	context
+		.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-transitive/1.0.0", &transitive_package_id)
+	context
+		.assert_tag_on_remote("test-transitive/1.0.0", &transitive_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&dep_package_id).await;
-	ctx.assert_object_synced(&transitive_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&dep_package_id).await;
-	ctx.assert_metadata_synced(&transitive_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&dep_package_id).await;
+	context.assert_object_synced(&transitive_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context.assert_metadata_synced(&dep_package_id).await;
+	context.assert_metadata_synced(&transitive_package_id).await;
 }
 
 #[tokio::test]
 async fn package_with_local_transitive_dependency() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create a shared temp directory with all three packages as siblings.
 	let shared_artifact = temp::directory! {
@@ -244,7 +255,7 @@ async fn package_with_local_transitive_dependency() {
 	let main_path = shared_temp.path().join("main");
 
 	// Publish the main package - this should publish C, then B, then A.
-	let publish_output = ctx
+	let publish_output = context
 		.local_server
 		.tg()
 		.current_dir(&main_path)
@@ -272,23 +283,26 @@ async fn package_with_local_transitive_dependency() {
 	let package_id = extract_published_id("test-main/1.0.0");
 
 	// Verify all three packages are tagged and synced on the remote.
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+	context
+		.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-transitive/1.0.0", &transitive_package_id)
+	context
+		.assert_tag_on_remote("test-transitive/1.0.0", &transitive_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&dep_package_id).await;
-	ctx.assert_object_synced(&transitive_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&dep_package_id).await;
-	ctx.assert_metadata_synced(&transitive_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&dep_package_id).await;
+	context.assert_object_synced(&transitive_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context.assert_metadata_synced(&dep_package_id).await;
+	context.assert_metadata_synced(&transitive_package_id).await;
 
 	// Verify that all published packages were re-checked in without local dependencies.
 	// The main package should have tag-based dependencies, not local path dependencies.
-	let main_object_output = ctx
+	let main_object_output = context
 		.local_server
 		.tg()
 		.arg("get")
@@ -307,7 +321,7 @@ async fn package_with_local_transitive_dependency() {
 	);
 
 	// The dep package should also have tag-based dependencies.
-	let dep_object_output = ctx
+	let dep_object_output = context
 		.local_server
 		.tg()
 		.arg("get")
@@ -326,7 +340,7 @@ async fn package_with_local_transitive_dependency() {
 	);
 
 	// The transitive package has no dependencies, but verify it doesn't have path fields.
-	let transitive_object_output = ctx
+	let transitive_object_output = context
 		.local_server
 		.tg()
 		.arg("get")
@@ -347,7 +361,7 @@ async fn package_with_local_transitive_dependency() {
 
 #[tokio::test]
 async fn package_with_diamond_dependency() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create the bottom package (D) - no dependencies.
 	let content = indoc!(
@@ -359,10 +373,11 @@ async fn package_with_diamond_dependency() {
 			};
 		"#
 	);
-	let (_bottom_temp, bottom_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_bottom_temp, bottom_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the bottom package on the local server so it can be resolved.
-	ctx.create_tag("test-bottom/1.0.0", &bottom_package_id)
+	context
+		.create_tag("test-bottom/1.0.0", &bottom_package_id)
 		.await;
 
 	// Create the left package (A) - depends on bottom.
@@ -377,10 +392,12 @@ async fn package_with_diamond_dependency() {
 			};
 		"#
 	);
-	let (_left_temp, left_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_left_temp, left_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the left package on the local server so it can be resolved.
-	ctx.create_tag("test-left/1.0.0", &left_package_id).await;
+	context
+		.create_tag("test-left/1.0.0", &left_package_id)
+		.await;
 
 	// Create the right package (B) - depends on bottom.
 	let content = indoc!(
@@ -394,10 +411,12 @@ async fn package_with_diamond_dependency() {
 			};
 		"#
 	);
-	let (_right_temp, right_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_right_temp, right_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the right package on the local server so it can be resolved.
-	ctx.create_tag("test-right/1.0.0", &right_package_id).await;
+	context
+		.create_tag("test-right/1.0.0", &right_package_id)
+		.await;
 
 	// Create the main package - depends on both left and right.
 	let content = indoc!(
@@ -412,10 +431,10 @@ async fn package_with_diamond_dependency() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should publish bottom, then left and right, then main.
-	let publish_output = ctx.publish_with_output(&temp).await;
+	let publish_output = context.publish_with_output(&temp).await;
 
 	// Verify publish order by checking stderr output.
 	let stderr = String::from_utf8_lossy(&publish_output.stderr);
@@ -433,28 +452,32 @@ async fn package_with_diamond_dependency() {
 	assert!(main_pos.is_some(), "test-main should be published");
 
 	// Verify all four packages are tagged and synced on the remote.
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-left/1.0.0", &left_package_id)
+	context
+		.assert_tag_on_remote("test-left/1.0.0", &left_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-right/1.0.0", &right_package_id)
+	context
+		.assert_tag_on_remote("test-right/1.0.0", &right_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-bottom/1.0.0", &bottom_package_id)
+	context
+		.assert_tag_on_remote("test-bottom/1.0.0", &bottom_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&left_package_id).await;
-	ctx.assert_object_synced(&right_package_id).await;
-	ctx.assert_object_synced(&bottom_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&left_package_id).await;
-	ctx.assert_metadata_synced(&right_package_id).await;
-	ctx.assert_metadata_synced(&bottom_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&left_package_id).await;
+	context.assert_object_synced(&right_package_id).await;
+	context.assert_object_synced(&bottom_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context.assert_metadata_synced(&left_package_id).await;
+	context.assert_metadata_synced(&right_package_id).await;
+	context.assert_metadata_synced(&bottom_package_id).await;
 }
 
 #[tokio::test]
 async fn package_with_diamond_dependency_and_shared_import() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create the bottom package (D) - no dependencies.
 	let content = indoc!(
@@ -466,10 +489,11 @@ async fn package_with_diamond_dependency_and_shared_import() {
 			};
 		"#
 	);
-	let (_bottom_temp, bottom_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_bottom_temp, bottom_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the bottom package on the local server so it can be resolved.
-	ctx.create_tag("test-bottom/1.0.0", &bottom_package_id)
+	context
+		.create_tag("test-bottom/1.0.0", &bottom_package_id)
 		.await;
 
 	// Create the left package (A) - depends on bottom.
@@ -484,10 +508,12 @@ async fn package_with_diamond_dependency_and_shared_import() {
 			};
 		"#
 	);
-	let (_left_temp, left_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_left_temp, left_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the left package on the local server so it can be resolved.
-	ctx.create_tag("test-left/1.0.0", &left_package_id).await;
+	context
+		.create_tag("test-left/1.0.0", &left_package_id)
+		.await;
 
 	// Create the right package (B) - depends on bottom.
 	let content = indoc!(
@@ -501,10 +527,12 @@ async fn package_with_diamond_dependency_and_shared_import() {
 			};
 		"#
 	);
-	let (_right_temp, right_package_id) = ctx.create_package(content.to_owned()).await;
+	let (_right_temp, right_package_id) = context.create_package(content.to_owned()).await;
 
 	// Create a tag for the right package on the local server so it can be resolved.
-	ctx.create_tag("test-right/1.0.0", &right_package_id).await;
+	context
+		.create_tag("test-right/1.0.0", &right_package_id)
+		.await;
 
 	// Create the main package - depends on left, right, AND bottom directly.
 	let content = indoc!(
@@ -520,10 +548,10 @@ async fn package_with_diamond_dependency_and_shared_import() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
 
 	// Publish the main package - this should publish bottom, then left and right, then main.
-	let publish_output = ctx.publish_with_output(&temp).await;
+	let publish_output = context.publish_with_output(&temp).await;
 
 	// Verify publish order by checking stderr output.
 	let stderr = String::from_utf8_lossy(&publish_output.stderr);
@@ -541,28 +569,32 @@ async fn package_with_diamond_dependency_and_shared_import() {
 	assert!(main_pos.is_some(), "test-main should be published");
 
 	// Verify all four packages are tagged and synced on the remote.
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-left/1.0.0", &left_package_id)
+	context
+		.assert_tag_on_remote("test-left/1.0.0", &left_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-right/1.0.0", &right_package_id)
+	context
+		.assert_tag_on_remote("test-right/1.0.0", &right_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-bottom/1.0.0", &bottom_package_id)
+	context
+		.assert_tag_on_remote("test-bottom/1.0.0", &bottom_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&left_package_id).await;
-	ctx.assert_object_synced(&right_package_id).await;
-	ctx.assert_object_synced(&bottom_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&left_package_id).await;
-	ctx.assert_metadata_synced(&right_package_id).await;
-	ctx.assert_metadata_synced(&bottom_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&left_package_id).await;
+	context.assert_object_synced(&right_package_id).await;
+	context.assert_object_synced(&bottom_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context.assert_metadata_synced(&left_package_id).await;
+	context.assert_metadata_synced(&right_package_id).await;
+	context.assert_metadata_synced(&bottom_package_id).await;
 }
 
 #[tokio::test]
 async fn package_with_local_path_import() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create a shared temp directory with both packages as siblings.
 	let shared_artifact = temp::directory! {
@@ -595,7 +627,7 @@ async fn package_with_local_path_import() {
 	let main_path = shared_temp.path().join("main");
 
 	// Checkin the dep package to get its ID, but don't create a tag.
-	let dep_checkin_output = ctx
+	let dep_checkin_output = context
 		.local_server
 		.tg()
 		.current_dir(&dep_path)
@@ -607,7 +639,7 @@ async fn package_with_local_path_import() {
 	assert_success!(dep_checkin_output);
 
 	// Checkin the main package to get its ID, but don't create a tag.
-	let main_checkin_output = ctx
+	let main_checkin_output = context
 		.local_server
 		.tg()
 		.current_dir(&main_path)
@@ -620,7 +652,7 @@ async fn package_with_local_path_import() {
 
 	// Publish the main package without having created tags beforehand.
 	// This should discover the local dep, create its tag, publish it, then publish main.
-	let publish_output = ctx
+	let publish_output = context
 		.local_server
 		.tg()
 		.current_dir(&main_path)
@@ -651,24 +683,28 @@ async fn package_with_local_path_import() {
 	let published_main_id = extract_published_id("test-main/1.0.0");
 
 	// Verify both packages are tagged on local and remote servers with the published IDs.
-	ctx.assert_tag_on_local("test-dep/1.0.0", &published_dep_id)
+	context
+		.assert_tag_on_local("test-dep/1.0.0", &published_dep_id)
 		.await;
-	ctx.assert_tag_on_local("test-main/1.0.0", &published_main_id)
+	context
+		.assert_tag_on_local("test-main/1.0.0", &published_main_id)
 		.await;
-	ctx.assert_tag_on_remote("test-dep/1.0.0", &published_dep_id)
+	context
+		.assert_tag_on_remote("test-dep/1.0.0", &published_dep_id)
 		.await;
-	ctx.assert_tag_on_remote("test-main/1.0.0", &published_main_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &published_main_id)
 		.await;
 
 	// Verify both packages are synced using the published IDs.
-	ctx.assert_object_synced(&published_dep_id).await;
-	ctx.assert_object_synced(&published_main_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&published_dep_id).await;
-	ctx.assert_metadata_synced(&published_main_id).await;
+	context.assert_object_synced(&published_dep_id).await;
+	context.assert_object_synced(&published_main_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&published_dep_id).await;
+	context.assert_metadata_synced(&published_main_id).await;
 
 	// Verify that main package has dependency on dep by tag, not by local path.
-	let main_object_output = ctx
+	let main_object_output = context
 		.local_server
 		.tg()
 		.arg("get")
@@ -695,7 +731,7 @@ async fn package_with_local_path_import() {
 
 #[tokio::test]
 async fn package_with_dependency_cycle() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create an import cycle but NOT a process cycle:
 	let shared_artifact = temp::directory! {
@@ -724,7 +760,7 @@ async fn package_with_dependency_cycle() {
 	shared_temp_artifact.to_path(&shared_temp).await.unwrap();
 
 	let b_path = shared_temp.path().join("b");
-	let output = ctx
+	let output = context
 		.local_server
 		.tg()
 		.current_dir(&b_path)
@@ -752,26 +788,30 @@ async fn package_with_dependency_cycle() {
 		.expect("test-b should be published");
 
 	// Verify both packages are tagged correctly.
-	ctx.assert_tag_on_local("test-a/1.0.0", &a_published_id)
+	context
+		.assert_tag_on_local("test-a/1.0.0", &a_published_id)
 		.await;
-	ctx.assert_tag_on_local("test-b/1.0.0", &b_published_id)
+	context
+		.assert_tag_on_local("test-b/1.0.0", &b_published_id)
 		.await;
-	ctx.assert_tag_on_remote("test-a/1.0.0", &a_published_id)
+	context
+		.assert_tag_on_remote("test-a/1.0.0", &a_published_id)
 		.await;
-	ctx.assert_tag_on_remote("test-b/1.0.0", &b_published_id)
+	context
+		.assert_tag_on_remote("test-b/1.0.0", &b_published_id)
 		.await;
 
 	// Verify objects are synced to remote.
-	ctx.assert_object_synced(&a_published_id).await;
-	ctx.assert_object_synced(&b_published_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&a_published_id).await;
-	ctx.assert_metadata_synced(&b_published_id).await;
+	context.assert_object_synced(&a_published_id).await;
+	context.assert_object_synced(&b_published_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&a_published_id).await;
+	context.assert_metadata_synced(&b_published_id).await;
 }
 
 #[tokio::test]
 async fn package_with_cycles_and_non_cycles() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create a complex graph with both cycles and non-cycles:
 	//
@@ -858,7 +898,7 @@ async fn package_with_cycles_and_non_cycles() {
 	let main_path = shared_temp.path().join("main");
 
 	// Publish the main package - this should handle both cycles and non-cycles.
-	let output = ctx
+	let output = context
 		.local_server
 		.tg()
 		.current_dir(&main_path)
@@ -896,13 +936,13 @@ async fn package_with_cycles_and_non_cycles() {
 		("test-cycle-b/1.0.0", &cycle_b_id),
 		("test-main/1.0.0", &main_id),
 	] {
-		ctx.assert_tag_on_local(tag, id).await;
-		ctx.assert_tag_on_remote(tag, id).await;
-		ctx.assert_object_synced(id).await;
+		context.assert_tag_on_local(tag, id).await;
+		context.assert_tag_on_remote(tag, id).await;
+		context.assert_object_synced(id).await;
 	}
 
 	// Verify metadata is synced for all packages.
-	ctx.index_servers().await;
+	context.index_servers().await;
 	for id in [
 		&leaf1_id,
 		&leaf2_id,
@@ -911,30 +951,30 @@ async fn package_with_cycles_and_non_cycles() {
 		&cycle_b_id,
 		&main_id,
 	] {
-		ctx.assert_metadata_synced(id).await;
+		context.assert_metadata_synced(id).await;
 	}
 }
 
 #[tokio::test]
 async fn single_file_package() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create a single file (not a directory).
 	let file = temp::file!(indoc!(
 		r#"
-		export default () => "I am a single-file package!";
+			export default () => "I am a single-file package!";
 
-		export let metadata = {
-			tag: "test-single-file/1.0.0",
-		};
-	"#
+			export let metadata = {
+				tag: "test-single-file/1.0.0",
+			};
+		"#
 	));
 	let temp = Temp::new();
 	let artifact: temp::Artifact = file.into();
 	artifact.to_path(&temp).await.unwrap();
 
 	// Checkin the file.
-	let checkin_output = ctx
+	let checkin_output = context
 		.local_server
 		.tg()
 		.arg("checkin")
@@ -950,7 +990,7 @@ async fn single_file_package() {
 		.to_owned();
 
 	// Publish from the temp directory.
-	let publish_output = ctx
+	let publish_output = context
 		.local_server
 		.tg()
 		.arg("publish")
@@ -962,16 +1002,16 @@ async fn single_file_package() {
 
 	// Verify ids.
 	let tag = "test-single-file/1.0.0";
-	ctx.assert_tag_on_local(tag, &package_id).await;
-	ctx.assert_tag_on_remote(tag, &package_id).await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
+	context.assert_tag_on_local(tag, &package_id).await;
+	context.assert_tag_on_remote(tag, &package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
 }
 
 #[tokio::test]
 async fn simple_package_with_tag() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	let content = indoc!(
 		r#"
@@ -982,11 +1022,11 @@ async fn simple_package_with_tag() {
 			};
 		"#
 	);
-	let (_temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (_temp, package_id) = context.create_package(content.to_owned()).await;
 
 	let tag = "test-pkg/1.0.0";
-	ctx.create_tag(tag, &package_id).await;
-	let output = ctx
+	context.create_tag(tag, &package_id).await;
+	let output = context
 		.local_server
 		.tg()
 		.arg("publish")
@@ -995,16 +1035,16 @@ async fn simple_package_with_tag() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	ctx.assert_tag_on_local(tag, &package_id).await;
-	ctx.assert_tag_on_remote(tag, &package_id).await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
+	context.assert_tag_on_local(tag, &package_id).await;
+	context.assert_tag_on_remote(tag, &package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
 }
 
 #[tokio::test]
 async fn simple_package_with_tag_override() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	let content = indoc!(
 		r#"
@@ -1015,10 +1055,10 @@ async fn simple_package_with_tag_override() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
 
 	let override_tag = "overridden-pkg/2.0.0";
-	let output = ctx
+	let output = context
 		.local_server
 		.tg()
 		.current_dir(temp.path())
@@ -1030,14 +1070,16 @@ async fn simple_package_with_tag_override() {
 		.unwrap();
 	assert_success!(output);
 
-	ctx.assert_tag_on_local(override_tag, &package_id).await;
-	ctx.assert_tag_on_remote(override_tag, &package_id).await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
+	context.assert_tag_on_local(override_tag, &package_id).await;
+	context
+		.assert_tag_on_remote(override_tag, &package_id)
+		.await;
+	context.assert_object_synced(&package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
 
 	let original_tag = "test-pkg/1.0.0";
-	let local_tag_output = ctx
+	let local_tag_output = context
 		.local_server
 		.tg()
 		.arg("tag")
@@ -1055,17 +1097,17 @@ async fn simple_package_with_tag_override() {
 
 #[tokio::test]
 async fn package_with_single_file_and_multi_file_dependencies() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Create a single-file package.
 	let single_file = temp::file!(indoc!(
 		r#"
-		export default () => "I am a single-file package!";
+			export default () => "I am a single-file package!";
 
-		export let metadata = {
-			tag: "test-single-file/1.0.0",
-		};
-	"#
+			export let metadata = {
+				tag: "test-single-file/1.0.0",
+			};
+		"#
 	));
 	let single_file_temp = Temp::new();
 	let single_file_artifact: temp::Artifact = single_file.into();
@@ -1074,7 +1116,7 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 		.await
 		.unwrap();
 
-	let single_file_checkin_output = ctx
+	let single_file_checkin_output = context
 		.local_server
 		.tg()
 		.arg("checkin")
@@ -1087,7 +1129,8 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 		.unwrap()
 		.trim()
 		.to_owned();
-	ctx.create_tag("test-single-file/1.0.0", &single_file_package_id)
+	context
+		.create_tag("test-single-file/1.0.0", &single_file_package_id)
 		.await;
 
 	// Create a multi-file package with submodules.
@@ -1117,7 +1160,7 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 		.to_path(&multi_file_temp)
 		.await
 		.unwrap();
-	let multi_file_checkin_output = ctx
+	let multi_file_checkin_output = context
 		.local_server
 		.tg()
 		.current_dir(multi_file_temp.path())
@@ -1131,7 +1174,8 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 		.unwrap()
 		.trim()
 		.to_owned();
-	ctx.create_tag("test-multi-file/1.0.0", &multi_file_package_id)
+	context
+		.create_tag("test-multi-file/1.0.0", &multi_file_package_id)
 		.await;
 
 	// Create a main package that imports both.
@@ -1147,10 +1191,10 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 			};
 		"#
 	);
-	let (temp, package_id) = ctx.create_package(content.to_owned()).await;
+	let (temp, package_id) = context.create_package(content.to_owned()).await;
 
 	// Publish and capture the output to check what gets published.
-	let publish_output = ctx.publish_with_output(&temp).await;
+	let publish_output = context.publish_with_output(&temp).await;
 	assert_success!(publish_output);
 
 	// Extract the stderr to verify what was published.
@@ -1184,30 +1228,38 @@ async fn package_with_single_file_and_multi_file_dependencies() {
 	);
 
 	// Verify all packages are tagged and synced.
-	ctx.assert_tag_on_local("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_local("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_local("test-single-file/1.0.0", &single_file_package_id)
+	context
+		.assert_tag_on_local("test-single-file/1.0.0", &single_file_package_id)
 		.await;
-	ctx.assert_tag_on_local("test-multi-file/1.0.0", &multi_file_package_id)
+	context
+		.assert_tag_on_local("test-multi-file/1.0.0", &multi_file_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-single-file/1.0.0", &single_file_package_id)
+	context
+		.assert_tag_on_remote("test-single-file/1.0.0", &single_file_package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-multi-file/1.0.0", &multi_file_package_id)
+	context
+		.assert_tag_on_remote("test-multi-file/1.0.0", &multi_file_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&single_file_package_id).await;
-	ctx.assert_object_synced(&multi_file_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&single_file_package_id).await;
-	ctx.assert_metadata_synced(&multi_file_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&single_file_package_id).await;
+	context.assert_object_synced(&multi_file_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context
+		.assert_metadata_synced(&single_file_package_id)
+		.await;
+	context.assert_metadata_synced(&multi_file_package_id).await;
 }
 
 #[tokio::test]
 async fn package_with_dependency_in_submodule() {
-	let ctx = TestContext::new().await;
+	let context = Context::new().await;
 
 	// Import a dependency in a submodule (helper.ts), not in the root tangram.ts.
 	// Also import another internal submodule to verify it's not treated as a separate package.
@@ -1249,7 +1301,7 @@ async fn package_with_dependency_in_submodule() {
 	let main_path = shared_temp.path().join("main");
 
 	// Publish the main package - this should also publish the dependency.
-	let publish_output = ctx
+	let publish_output = context
 		.local_server
 		.tg()
 		.current_dir(&main_path)
@@ -1292,23 +1344,25 @@ async fn package_with_dependency_in_submodule() {
 	let package_id = extract_published_id("test-main/1.0.0");
 
 	// Verify both packages are tagged and synced on the remote.
-	ctx.assert_tag_on_remote("test-main/1.0.0", &package_id)
+	context
+		.assert_tag_on_remote("test-main/1.0.0", &package_id)
 		.await;
-	ctx.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
+	context
+		.assert_tag_on_remote("test-dep/1.0.0", &dep_package_id)
 		.await;
-	ctx.assert_object_synced(&package_id).await;
-	ctx.assert_object_synced(&dep_package_id).await;
-	ctx.index_servers().await;
-	ctx.assert_metadata_synced(&package_id).await;
-	ctx.assert_metadata_synced(&dep_package_id).await;
+	context.assert_object_synced(&package_id).await;
+	context.assert_object_synced(&dep_package_id).await;
+	context.index_servers().await;
+	context.assert_metadata_synced(&package_id).await;
+	context.assert_metadata_synced(&dep_package_id).await;
 }
 
-struct TestContext {
+struct Context {
 	local_server: Server,
 	remote_server: Server,
 }
 
-impl TestContext {
+impl Context {
 	async fn new() -> Self {
 		let remote_server = Server::new(TG).await.unwrap();
 		let local_server = Server::new(TG).await.unwrap();

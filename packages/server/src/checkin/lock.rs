@@ -124,8 +124,7 @@ impl Server {
 		// Create the nodes.
 		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
 		let mut ids = Vec::with_capacity(state.graph.nodes.len());
-		let mut keys: Vec<_> = state.graph.nodes.keys().copied().collect();
-		keys.sort();
+		let keys: Vec<_> = state.graph.nodes.keys().copied().collect();
 		for key in keys {
 			let node = &state.graph.nodes.get(&key).unwrap();
 			ids.push(node.id.clone().unwrap());

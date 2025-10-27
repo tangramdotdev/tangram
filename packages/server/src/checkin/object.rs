@@ -377,12 +377,12 @@ impl Server {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let children = children.into_iter().map(|id| {
-			if let Some(&child_index) = state.graph.ids.get(&id) {
-				let node = state.graph.nodes.get(&child_index).unwrap();
+			if let Some(&index) = state.graph.ids.get(&id) {
+				let node = state.graph.nodes.get(&index).unwrap();
 				(node.complete, node.metadata.clone())
 			} else if let Ok(blob_id) = id.try_unwrap_blob_ref() {
-				let metadata = scc.iter().find_map(|&node_index| {
-					let node = state.graph.nodes.get(&node_index)?;
+				let metadata = scc.iter().find_map(|&index| {
+					let node = state.graph.nodes.get(&index)?;
 					let file = node.variant.try_unwrap_file_ref().ok()?;
 					if file
 						.contents

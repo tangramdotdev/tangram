@@ -1,7 +1,7 @@
 use {
 	bytes::Bytes,
 	smallvec::SmallVec,
-	std::{collections::BTreeMap, path::PathBuf},
+	std::{collections::BTreeMap, path::PathBuf, sync::Arc},
 	tangram_client as tg, tangram_ignore as ignore,
 };
 
@@ -12,7 +12,7 @@ pub struct State {
 	pub fixup_sender: Option<std::sync::mpsc::Sender<FixupMessage>>,
 	pub graph: Graph,
 	pub ignorer: Option<ignore::Ignorer>,
-	pub lock: Option<tg::graph::Data>,
+	pub lock: Option<Arc<tg::graph::Data>>,
 	pub objects: Objects,
 	pub progress: crate::progress::Handle<tg::checkin::Output>,
 	pub root_path: PathBuf,
@@ -28,7 +28,7 @@ pub struct FixupMessage {
 pub struct Graph {
 	pub ids: im::HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
 	pub next: usize,
-	pub nodes: im::HashMap<usize, Node, fnv::FnvBuildHasher>,
+	pub nodes: im::OrdMap<usize, Node>,
 	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
 }
 

@@ -2,30 +2,39 @@ use {
 	notify::Watcher as _,
 	std::{
 		collections::HashSet,
-		path::Path,
-		sync::{
-			Arc, Mutex,
-			atomic::{AtomicU64, Ordering},
-		},
+		path::{Path, PathBuf},
+		sync::{Arc, Mutex},
 	},
 	tangram_client as tg,
 };
 
 pub struct Watch {
-	pub state: Arc<Mutex<crate::checkin::State>>,
-	pub version: Arc<AtomicU64>,
+	pub state: Arc<Mutex<State>>,
 	#[allow(dead_code)]
-	pub watcher: notify::RecommendedWatcher,
+	watcher: notify::RecommendedWatcher,
+}
+
+pub struct State {
+	pub graph: crate::checkin::Graph,
+	pub lock: Option<Arc<tg::graph::Data>>,
+	pub version: u64,
 }
 
 impl Watch {
-	pub fn new(path: &Path, state: crate::checkin::State) -> tg::Result<Self> {
-		let version = Arc::new(AtomicU64::new(0));
+	pub fn new(
+		path: &Path,
+		graph: crate::checkin::Graph,
+		lock: Option<Arc<tg::graph::Data>>,
+	) -> tg::Result<Self> {
+		let state = State {
+			graph,
+			lock,
+			version: 0,
+		};
 		let state = Arc::new(Mutex::new(state));
 		let notify_config = notify::Config::default();
 		let handler = {
 			let state = state.clone();
-			let version = version.clone();
 			move |result: notify::Result<notify::Event>| {
 				// Handle an error.
 				let event = match result {
@@ -36,16 +45,19 @@ impl Watch {
 					},
 				};
 
+				// Get the paths.
+				let paths = Self::changes(&event);
+
 				// Lock the state.
 				let mut state = state.lock().unwrap();
 
 				// Update the nodes for the affected paths along with their ancestors.
-				let mut update = false;
-				for path in event.paths {
-					let Some(index) = state.graph.paths.get(&path).copied() else {
+				let mut removed = false;
+				for path in paths {
+					let Some(index) = state.graph.paths.get(path).copied() else {
 						continue;
 					};
-					update = true;
+					removed = true;
 					let mut queue = vec![index];
 					let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
 					while let Some(index) = queue.pop() {
@@ -56,9 +68,6 @@ impl Watch {
 						if let Some(path) = &node.path {
 							state.graph.paths.remove(path).unwrap();
 						}
-						if let Some(id) = &node.id {
-							state.objects.remove(id);
-						}
 						for referrer in node.referrers {
 							queue.push(referrer);
 						}
@@ -66,8 +75,8 @@ impl Watch {
 				}
 
 				// Increment the version if any nodes were removed.
-				if update {
-					version.fetch_add(1, Ordering::SeqCst);
+				if removed {
+					state.version += 1;
 				}
 			}
 		};
@@ -76,11 +85,38 @@ impl Watch {
 		watcher
 			.watch(path.as_ref(), notify::RecursiveMode::Recursive)
 			.map_err(|source| tg::error!(!source, "failed to add the watch path"))?;
-		let watch = Self {
-			state,
-			version,
-			watcher,
-		};
+		let watch = Self { state, watcher };
 		Ok(watch)
+	}
+
+	pub fn changes(event: &notify::Event) -> HashSet<&Path, fnv::FnvBuildHasher> {
+		let mut changes = HashSet::default();
+		match &event.kind {
+			notify::EventKind::Create(_) => {
+				for path in &event.paths {
+					changes.insert(path.as_path());
+					if let Some(parent) = path.parent() {
+						changes.insert(parent);
+					}
+				}
+			},
+			notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+			| notify::EventKind::Remove(_) => {
+				for path in &event.paths {
+					if let Some(parent) = path.parent() {
+						changes.insert(parent);
+					}
+				}
+			},
+			notify::EventKind::Access(_) => {},
+			notify::EventKind::Modify(
+				notify::event::ModifyKind::Data(_) | notify::event::ModifyKind::Metadata(_) | _,
+			)
+			| notify::EventKind::Any
+			| notify::EventKind::Other => {
+				changes.extend(event.paths.iter().map(PathBuf::as_path));
+			},
+		}
+		changes
 	}
 }

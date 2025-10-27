@@ -69,7 +69,7 @@ impl Server {
 			graphs: im::HashMap::default(),
 			graph_nodes: im::HashMap::default(),
 			ids: im::HashMap::default(),
-			lock: lock.as_ref(),
+			lock: lock.as_deref(),
 			queue: im::Vector::new(),
 			tags: im::HashMap::default(),
 			visited: im::HashSet::default(),
@@ -555,6 +555,17 @@ impl Server {
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = file.contents;
+				let contents_metadata = if let Some(id) = &contents {
+					self.try_get_object_metadata(
+						&id.clone().into(),
+						tg::object::metadata::Arg::default(),
+					)
+					.await
+					.ok()
+					.flatten()
+				} else {
+					None
+				};
 				let dependencies = file
 					.dependencies
 					.into_iter()
@@ -569,7 +580,7 @@ impl Server {
 				let executable = file.executable;
 				Variant::File(File {
 					contents,
-					contents_metadata: None,
+					contents_metadata,
 					dependencies,
 					executable,
 				})
@@ -656,6 +667,17 @@ impl Server {
 			},
 			tg::graph::data::Node::File(file) => {
 				let contents = file.contents.clone();
+				let contents_metadata = if let Some(id) = &contents {
+					self.try_get_object_metadata(
+						&id.clone().into(),
+						tg::object::metadata::Arg::default(),
+					)
+					.await
+					.ok()
+					.flatten()
+				} else {
+					None
+				};
 				let mut dependencies = std::collections::BTreeMap::new();
 				for (reference, referent) in &file.dependencies {
 					let Some(referent) = referent else {
@@ -691,7 +713,7 @@ impl Server {
 				}
 				Variant::File(File {
 					contents,
-					contents_metadata: None,
+					contents_metadata,
 					dependencies,
 					executable: file.executable,
 				})

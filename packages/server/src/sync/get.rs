@@ -142,7 +142,7 @@ impl Server {
 		drop(process_store_sender);
 		drop(object_store_sender);
 
-		// Await the incomplete and store.
+		// Await the incomplete and store tasks.
 		let (incomplete_result, store_result) =
 			future::try_join(incomplete_task, store_task).await.unwrap();
 		incomplete_result.and(store_result)?;

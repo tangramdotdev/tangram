@@ -47,7 +47,6 @@ impl Server {
 				let Some(blob_id) = &file.contents else {
 					continue;
 				};
-				// Only index files with blobs that were created during this checkin.
 				let blob_object_id: tg::object::Id = blob_id.clone().into();
 				let blob_object = state.objects.get(&blob_object_id);
 				if blob_object.is_none() || blob_object.unwrap().cache_reference_range.is_none() {
