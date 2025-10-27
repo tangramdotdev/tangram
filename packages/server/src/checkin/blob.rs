@@ -1,6 +1,9 @@
 use {
-	super::state::{CacheReferenceRange, Object, State},
-	crate::Server,
+	super::state::{CacheReferenceRange, Object},
+	crate::{
+		Server,
+		checkin::{Graph, state::Objects},
+	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	tangram_client as tg,
 };
@@ -8,10 +11,13 @@ use {
 const CONCURRENCY: usize = 8;
 
 impl Server {
-	pub(super) async fn checkin_create_blobs(&self, state: &mut State) -> tg::Result<()> {
+	pub(super) async fn checkin_create_blobs(
+		&self,
+		graph: &mut Graph,
+		objects_: &mut Objects,
+	) -> tg::Result<()> {
 		let server = self.clone();
-		let nodes = state
-			.graph
+		let nodes = graph
 			.nodes
 			.iter()
 			.filter_map(|(index, node)| {
@@ -70,7 +76,7 @@ impl Server {
 		}
 
 		// Add the objects in reverse topological order.
-		state.objects.extend(objects.into_iter().rev());
+		objects_.extend(objects.into_iter().rev());
 
 		// Update file node contents to reference the blob IDs.
 		for (index, blob) in blobs {
@@ -79,8 +85,7 @@ impl Server {
 				depth: Some(blob.depth),
 				weight: Some(blob.weight),
 			};
-			let file = state
-				.graph
+			let file = graph
 				.nodes
 				.get_mut(&index)
 				.unwrap()

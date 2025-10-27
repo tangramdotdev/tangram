@@ -1,14 +1,25 @@
 use {
-	super::state::{Directory, File, FixupMessage, Node, State, Symlink, Variant},
-	crate::Server,
+	super::state::{Directory, File, Node, Symlink, Variant},
+	crate::{Server, checkin::Graph},
+	indoc::indoc,
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
 	},
-	tangram_client as tg,
+	tangram_client as tg, tangram_ignore as ignore,
 };
+
+struct State<'a> {
+	arg: &'a tg::checkin::Arg,
+	artifacts_path: Option<&'a Path>,
+	fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
+	graph: &'a mut Graph,
+	ignorer: Option<ignore::Ignorer>,
+	lock: Option<&'a tg::graph::Data>,
+	progress: crate::progress::Handle<tg::checkin::Output>,
+}
 
 struct Parent {
 	node: usize,
@@ -22,8 +33,38 @@ enum ParentVariant {
 }
 
 impl Server {
-	pub(super) fn checkin_input(&self, state: &mut State, root: PathBuf) -> tg::Result<()> {
-		self.checkin_visit(state, None, root)?;
+	#[allow(clippy::too_many_arguments)]
+	pub(super) fn checkin_input(
+		&self,
+		arg: &tg::checkin::Arg,
+		artifacts_path: Option<&Path>,
+		fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
+		graph: &mut Graph,
+		lock: Option<&tg::graph::Data>,
+		progress: crate::progress::Handle<tg::checkin::Output>,
+		root: PathBuf,
+	) -> tg::Result<()> {
+		// Create the ignorer if necessary.
+		let ignorer = if arg.options.ignore {
+			Some(Self::checkin_create_ignorer()?)
+		} else {
+			None
+		};
+
+		// Create the state.
+		let mut state = State {
+			arg,
+			artifacts_path,
+			fixup_sender,
+			graph,
+			ignorer,
+			lock,
+			progress,
+		};
+
+		// Visit.
+		self.checkin_visit(&mut state, None, root)?;
+
 		Ok(())
 	}
 
@@ -77,7 +118,7 @@ impl Server {
 
 		// Send the message to the fixup task.
 		if let Some(sender) = &state.fixup_sender {
-			let message = FixupMessage {
+			let message = super::fixup::Message {
 				path: path.clone(),
 				metadata: metadata.clone(),
 			};
@@ -92,7 +133,7 @@ impl Server {
 		state.graph.paths.insert(path.clone(), index);
 
 		// Get the lock node.
-		let lock_node = Self::checkin_get_lock_node(state, parent);
+		let lock_node = Self::checkin_input_get_lock_node(state, parent);
 
 		// Create the node.
 		let node = Node {
@@ -473,7 +514,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_get_lock_node(state: &State, parent: Option<Parent>) -> Option<usize> {
+	fn checkin_input_get_lock_node(state: &State, parent: Option<Parent>) -> Option<usize> {
 		let Some(lock) = &state.lock else {
 			return None;
 		};
@@ -516,5 +557,19 @@ impl Server {
 					.node,
 			),
 		}
+	}
+
+	pub(crate) fn checkin_create_ignorer() -> tg::Result<ignore::Ignorer> {
+		let file_names = vec![".tangramignore".into(), ".gitignore".into()];
+		let global = indoc!(
+			"
+				.DS_Store
+				.git
+				.tangram
+				tangram.lock
+			"
+		);
+		ignore::Ignorer::new(file_names, Some(global))
+			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 }

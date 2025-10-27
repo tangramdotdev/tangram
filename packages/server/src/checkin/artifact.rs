@@ -1,15 +1,23 @@
 use {
-	super::state::{Object, State, Variant},
-	crate::Server,
+	super::state::{Object, Variant},
+	crate::{
+		Server,
+		checkin::{Graph, state::Objects},
+	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
 	tangram_client as tg,
 };
 
 impl Server {
-	pub(super) fn checkin_create_objects(state: &mut State) -> tg::Result<()> {
+	pub(super) fn checkin_create_artifacts(
+		arg: &tg::checkin::Arg,
+		graph: &mut Graph,
+		objects: &mut Objects,
+		root: &Path,
+	) -> tg::Result<()> {
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
-		let mut sccs = petgraph::algo::tarjan_scc(&state.graph);
+		let mut sccs = petgraph::algo::tarjan_scc(&*graph);
 		for scc in &mut sccs {
 			if scc.len() > 1 {
 				scc.reverse();
@@ -20,21 +28,25 @@ impl Server {
 		for scc in &sccs {
 			if scc.len() == 1 {
 				let index = scc[0];
-				Self::checkin_create_node_artifact(state, index)?;
+				Self::checkin_create_node_artifact(graph, objects, index)?;
 			} else {
-				Self::checkin_create_graph(state, scc)?;
+				Self::checkin_create_graph(graph, objects, scc)?;
 			}
 		}
 
 		// Update blob cache references now that artifact IDs are known.
-		Self::checkin_update_blob_cache_references(state, &sccs);
+		Self::checkin_update_blob_cache_references(arg, graph, objects, root, &sccs);
 
 		Ok(())
 	}
 
-	fn checkin_create_node_artifact(state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_create_node_artifact(
+		graph: &mut Graph,
+		objects: &mut Objects,
+		index: usize,
+	) -> tg::Result<()> {
 		// Get the node.
-		let node = state.graph.nodes.get(&index).unwrap();
+		let node = graph.nodes.get(&index).unwrap();
 
 		// Create the object.
 		let data = match &node.variant {
@@ -47,7 +59,7 @@ impl Server {
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
-									let node = state.graph.nodes.get(&reference.node).unwrap();
+									let node = graph.nodes.get(&reference.node).unwrap();
 									let id = node.id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
@@ -86,7 +98,7 @@ impl Server {
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
-									let node = state.graph.nodes.get(&reference.node).unwrap();
+									let node = graph.nodes.get(&reference.node).unwrap();
 									let id = node.id.as_ref().unwrap().clone();
 									tg::graph::data::Edge::Object(id)
 								} else {
@@ -117,7 +129,7 @@ impl Server {
 						let edge = match edge {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
-									let node = state.graph.nodes.get(&reference.node).unwrap();
+									let node = graph.nodes.get(&reference.node).unwrap();
 									let id = node.id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
@@ -142,49 +154,53 @@ impl Server {
 				tg::symlink::Data::Node(data).into()
 			},
 		};
-		let (id, object) = Self::checkin_create_object(state, data, &[index])?;
+		let (id, object) = Self::checkin_create_artifact(graph, data, &[index])?;
 
 		// Update the node.
-		let node = state.graph.nodes.get_mut(&index).unwrap();
+		let node = graph.nodes.get_mut(&index).unwrap();
 		node.complete = object.complete;
 		node.metadata = object.metadata.clone();
 		node.id.replace(id.clone());
-		state.graph.ids.insert(id.clone(), index);
+		graph.ids.insert(id.clone(), index);
 
 		// Add the object.
-		state.objects.insert(id.clone(), object);
+		objects.insert(id.clone(), object);
 
 		Ok(())
 	}
 
-	fn checkin_create_graph(state: &mut State, scc: &[usize]) -> tg::Result<()> {
+	fn checkin_create_graph(
+		graph: &mut Graph,
+		objects: &mut Objects,
+		scc: &[usize],
+	) -> tg::Result<()> {
 		// Create the nodes.
 		let mut nodes = Vec::with_capacity(scc.len());
 		for index in scc {
-			Self::checkin_create_graph_node(state, scc, &mut nodes, *index)?;
+			Self::checkin_create_graph_node(graph, scc, &mut nodes, *index)?;
 		}
 
 		// Create the graph object.
 		let data = tg::graph::Data { nodes }.into();
-		let (id, object) = Self::checkin_create_object(state, data, scc)?;
-		state.objects.insert(id.clone(), object);
+		let (id, object) = Self::checkin_create_artifact(graph, data, scc)?;
+		objects.insert(id.clone(), object);
 
 		// Create reference artifacts.
 		let id = tg::graph::Id::try_from(id).unwrap();
 		for (local, global) in scc.iter().copied().enumerate() {
-			Self::checkin_create_reference_artifact(state, &id, local, global)?;
+			Self::checkin_create_reference_artifact(graph, objects, &id, local, global)?;
 		}
 
 		Ok(())
 	}
 
 	fn checkin_create_graph_node(
-		state: &mut State,
+		graph: &Graph,
 		scc: &[usize],
 		nodes: &mut Vec<tg::graph::data::Node>,
 		index: usize,
 	) -> tg::Result<()> {
-		let node = state.graph.nodes.get(&index).unwrap();
+		let node = graph.nodes.get(&index).unwrap();
 		let node = match &node.variant {
 			Variant::Directory(directory) => {
 				let entries = directory
@@ -202,7 +218,7 @@ impl Server {
 											tg::graph::data::Reference { graph: None, node },
 										)
 									} else {
-										let node = state.graph.nodes.get(&reference.node).unwrap();
+										let node = graph.nodes.get(&reference.node).unwrap();
 										let id = node.id.as_ref().unwrap().clone();
 										let id = id
 											.try_into()
@@ -248,7 +264,7 @@ impl Server {
 											tg::graph::data::Reference { graph: None, node },
 										)
 									} else {
-										let node = state.graph.nodes.get(&reference.node).unwrap();
+										let node = graph.nodes.get(&reference.node).unwrap();
 										let id = node.id.as_ref().unwrap().clone();
 										tg::graph::data::Edge::Object(id)
 									}
@@ -290,7 +306,7 @@ impl Server {
 										node,
 									})
 								} else {
-									let node = state.graph.nodes.get(&reference.node).unwrap();
+									let node = graph.nodes.get(&reference.node).unwrap();
 									let id = node.id.as_ref().unwrap().clone();
 									let id = id
 										.try_into()
@@ -321,51 +337,53 @@ impl Server {
 	}
 
 	fn checkin_create_reference_artifact(
-		state: &mut State,
-		graph: &tg::graph::Id,
+		graph: &mut Graph,
+		objects: &mut Objects,
+		graph_id: &tg::graph::Id,
 		local: usize,
 		global: usize,
 	) -> tg::Result<()> {
-		let node = state.graph.nodes.get(&global).unwrap();
+		let node = graph.nodes.get(&global).unwrap();
 		let data = match &node.variant {
 			Variant::Directory(_) => {
 				let reference = tg::graph::data::Reference {
-					graph: Some(graph.clone()),
+					graph: Some(graph_id.clone()),
 					node: local,
 				};
 				tg::directory::Data::Reference(reference).into()
 			},
 			Variant::File(_) => {
 				let reference = tg::graph::data::Reference {
-					graph: Some(graph.clone()),
+					graph: Some(graph_id.clone()),
 					node: local,
 				};
 				tg::file::Data::Reference(reference).into()
 			},
 			Variant::Symlink(_) => {
 				let reference = tg::graph::data::Reference {
-					graph: Some(graph.clone()),
+					graph: Some(graph_id.clone()),
 					node: local,
 				};
 				tg::symlink::Data::Reference(reference).into()
 			},
 		};
-		let (id, object) = Self::checkin_create_object(state, data, &[global])?;
+		let (id, object) = Self::checkin_create_artifact(graph, data, &[global])?;
 
 		// Update the node.
-		let node = state.graph.nodes.get_mut(&global).unwrap();
+		let node = graph.nodes.get_mut(&global).unwrap();
 		node.complete = object.complete;
 		node.metadata = object.metadata.clone();
 		node.id.replace(id.clone());
-		state.graph.ids.insert(id.clone(), global);
+		graph.ids.insert(id.clone(), global);
 
 		// Add the object.
-		state.objects.insert(id, object);
+		objects.insert(id, object);
+
 		Ok(())
 	}
 
-	fn checkin_create_object(
-		state: &State,
+	fn checkin_create_artifact(
+		graph: &Graph,
 		data: tg::object::Data,
 		scc: &[usize],
 	) -> tg::Result<(tg::object::Id, Object)> {
@@ -377,12 +395,12 @@ impl Server {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let children = children.into_iter().map(|id| {
-			if let Some(&index) = state.graph.ids.get(&id) {
-				let node = state.graph.nodes.get(&index).unwrap();
+			if let Some(&index) = graph.ids.get(&id) {
+				let node = graph.nodes.get(&index).unwrap();
 				(node.complete, node.metadata.clone())
 			} else if let Ok(blob_id) = id.try_unwrap_blob_ref() {
 				let metadata = scc.iter().find_map(|&index| {
-					let node = state.graph.nodes.get(&index)?;
+					let node = graph.nodes.get(&index)?;
 					let file = node.variant.try_unwrap_file_ref().ok()?;
 					if file
 						.contents
@@ -433,31 +451,29 @@ impl Server {
 		Ok((id, object))
 	}
 
-	fn checkin_update_blob_cache_references(state: &mut State, sccs: &[Vec<usize>]) {
-		let root = state
-			.graph
-			.nodes
-			.get(&0)
-			.unwrap()
-			.id
-			.as_ref()
-			.unwrap()
-			.clone();
+	fn checkin_update_blob_cache_references(
+		arg: &tg::checkin::Arg,
+		graph: &Graph,
+		objects: &mut Objects,
+		root: &Path,
+		sccs: &[Vec<usize>],
+	) {
 		for scc in sccs {
 			for index in scc {
-				let node = state.graph.nodes.get(index).unwrap();
+				let node = graph.nodes.get(index).unwrap();
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
 				let Some(blob) = &file.contents else {
 					continue;
 				};
-				let (artifact, path) = if state.arg.options.destructive {
+				let (artifact, path) = if arg.options.destructive {
+					let id = graph.nodes.get(&0).unwrap().id.as_ref().unwrap().clone();
 					let path = node
 						.path
 						.as_ref()
 						.unwrap()
-						.strip_prefix(&state.root_path)
+						.strip_prefix(root)
 						.unwrap()
 						.to_owned();
 					let path = if path == Path::new("") {
@@ -465,7 +481,7 @@ impl Server {
 					} else {
 						Some(path)
 					};
-					(root.clone().try_into().unwrap(), path)
+					(id.clone().try_into().unwrap(), path)
 				} else {
 					let id: tg::artifact::Id =
 						node.id.as_ref().unwrap().clone().try_into().unwrap();
@@ -477,7 +493,7 @@ impl Server {
 				while let Some(blob) = stack.pop() {
 					let id: tg::object::Id = blob.clone().into();
 
-					let Some(object) = state.objects.get(&id) else {
+					let Some(object) = objects.get(&id) else {
 						continue;
 					};
 					let Some(cache_reference_range) = &object.cache_reference_range else {
@@ -502,7 +518,7 @@ impl Server {
 						position,
 						length,
 					};
-					state.objects.get_mut(&id).unwrap().cache_reference = Some(cache_reference);
+					objects.get_mut(&id).unwrap().cache_reference = Some(cache_reference);
 
 					// Add children to the stack.
 					stack.extend(children);

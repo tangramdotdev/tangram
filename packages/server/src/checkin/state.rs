@@ -1,28 +1,9 @@
 use {
 	bytes::Bytes,
 	smallvec::SmallVec,
-	std::{collections::BTreeMap, path::PathBuf, sync::Arc},
-	tangram_client as tg, tangram_ignore as ignore,
+	std::{collections::BTreeMap, path::PathBuf},
+	tangram_client as tg,
 };
-
-#[derive(Debug)]
-pub struct State {
-	pub arg: tg::checkin::Arg,
-	pub artifacts_path: Option<PathBuf>,
-	pub fixup_sender: Option<std::sync::mpsc::Sender<FixupMessage>>,
-	pub graph: Graph,
-	pub ignorer: Option<ignore::Ignorer>,
-	pub lock: Option<Arc<tg::graph::Data>>,
-	pub objects: Objects,
-	pub progress: crate::progress::Handle<tg::checkin::Output>,
-	pub root_path: PathBuf,
-}
-
-#[derive(Debug)]
-pub struct FixupMessage {
-	pub path: PathBuf,
-	pub metadata: std::fs::Metadata,
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct Graph {

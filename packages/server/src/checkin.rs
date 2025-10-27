@@ -1,28 +1,20 @@
 use {
-	self::state::{FixupMessage, State},
-	crate::{Server, watch::Watch},
+	crate::{Server, checkin::state::Objects, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
-	indoc::indoc,
-	std::{
-		os::unix::fs::PermissionsExt as _,
-		panic::AssertUnwindSafe,
-		path::{Path, PathBuf},
-		sync::Arc,
-		time::Instant,
-	},
+	std::{panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant},
 	tangram_client as tg,
 	tangram_futures::stream::Ext as _,
 	tangram_http::{Body, request::Ext as _},
-	tangram_ignore as ignore,
 	tokio_util::task::AbortOnDropHandle,
 };
 
+mod artifact;
 mod blob;
 mod cache;
+mod fixup;
 mod index;
 mod input;
 mod lock;
-mod object;
 mod solve;
 mod state;
 mod store;
@@ -130,7 +122,7 @@ impl Server {
 		};
 
 		// Attempt to get the graph and lock from a watcher.
-		let (graph, lock, version) = if arg.options.watch
+		let (mut graph, lock, version) = if arg.options.watch
 			&& let Some(watch) = self.watches.get(&root)
 		{
 			let state = watch.value().state.lock().unwrap();
@@ -142,86 +134,69 @@ impl Server {
 			(Graph::default(), lock, None)
 		};
 
-		// Create the ignorer if necessary.
-		let ignorer = if arg.options.ignore {
-			Some(Self::checkin_create_ignorer()?)
-		} else {
-			None
-		};
-
-		// Create the state.
-		let mut state = State {
-			arg: arg.clone(),
-			artifacts_path,
-			fixup_sender: None,
-			graph,
-			ignorer,
-			lock,
-			objects: state::Objects::default(),
-			progress: progress.clone(),
-			root_path: root.clone(),
-		};
-
 		// Spawn the fixup task.
-		let fixup_task = if arg.options.destructive {
+		let (fixup_task, fixup_sender) = if arg.options.destructive {
 			let (sender, receiver) = std::sync::mpsc::channel();
-			state.fixup_sender = Some(sender);
 			let task = tokio::task::spawn_blocking(move || Self::checkin_fixup_task(&receiver))
 				.map(|result| result.unwrap());
-			Some(task)
+			(Some(task), Some(sender))
 		} else {
-			None
+			(None, None)
 		};
 
 		// Collect input.
 		let start = Instant::now();
-		let mut state = tokio::task::spawn_blocking({
+		let mut graph = tokio::task::spawn_blocking({
 			let server = self.clone();
+			let arg = arg.clone();
+			let artifacts_path = artifacts_path.clone();
+			let lock = lock.clone();
+			let progress = progress.clone();
 			let root = root.clone();
 			move || {
-				server.checkin_input(&mut state, root)?;
-				Ok::<_, tg::Error>(state)
+				server.checkin_input(
+					&arg,
+					artifacts_path.as_deref(),
+					fixup_sender,
+					&mut graph,
+					lock.as_deref(),
+					progress,
+					root,
+				)?;
+				Ok::<_, tg::Error>(graph)
 			}
 		})
 		.await
 		.unwrap()?;
 		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
-		// Remove the fixup sender.
-		state.fixup_sender.take();
-
-		// Remove the ignorer.
-		state.ignorer.take();
-
 		// Solve.
-		if state.arg.options.solve {
+		if arg.options.solve {
 			let start = Instant::now();
-			state.graph = self
-				.checkin_solve(&state.arg, state.graph.clone(), state.lock.as_deref())
+			graph = self
+				.checkin_solve(&arg, graph.clone(), lock.as_deref())
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
+		// Create the objects.
+		let mut objects = Objects::default();
+
 		// Create blobs.
 		let start = Instant::now();
-		self.checkin_create_blobs(&mut state).await?;
+		self.checkin_create_blobs(&mut graph, &mut objects).await?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create blobs");
 
 		// Create objects.
 		let start = Instant::now();
-		Self::checkin_create_objects(&mut state)?;
+		Self::checkin_create_artifacts(&arg, &mut graph, &mut objects, &root)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
 		// Write the lock.
 		let start = Instant::now();
-		self.checkin_write_lock(
-			&state.arg,
-			&state.graph,
-			state.lock.as_deref(),
-			&state.root_path,
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+		self.checkin_write_lock(&arg, &graph, lock.as_deref(), &root)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
 
 		// Set the touch time.
@@ -232,29 +207,27 @@ impl Server {
 			task.await?;
 		}
 		let start = Instant::now();
-		self.checkin_cache(&state.arg, &state.graph)
+		self.checkin_cache(&arg, &graph)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "cache");
 
 		// Store.
 		let start = Instant::now();
-		self.checkin_store(&state.objects, touched_at)
+		self.checkin_store(&objects, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
 		// Find the item.
-		let node = state
-			.graph
+		let node = graph
 			.paths
 			.get(&arg.path)
 			.copied()
 			.ok_or_else(|| tg::error!("failed to get the item"))?;
 
 		// Create the referent.
-		let item = state
-			.graph
+		let item = graph
 			.nodes
 			.get(&node)
 			.unwrap()
@@ -274,14 +247,11 @@ impl Server {
 				async move {
 					// Index.
 					server
-						.checkin_index(&state.arg, &state.graph, &state.objects, touched_at)
+						.checkin_index(&arg, &graph, &objects, touched_at)
 						.await?;
 
-					// Retrieve the state.
-					let State { graph, lock, .. } = state;
-
 					// If the watch option is enabled, then update the state of an existing watch or add a new watch.
-					if state.arg.options.watch {
+					if arg.options.watch {
 						let entry = server.watches.entry(root.clone());
 						match entry {
 							dashmap::Entry::Occupied(entry) => {
@@ -322,54 +292,6 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn checkin_create_ignorer() -> tg::Result<ignore::Ignorer> {
-		let file_names = vec![".tangramignore".into(), ".gitignore".into()];
-		let global = indoc!(
-			"
-				.DS_Store
-				.git
-				.tangram
-				tangram.lock
-			"
-		);
-		ignore::Ignorer::new(file_names, Some(global))
-			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
-	}
-
-	fn checkin_fixup_task(receiver: &std::sync::mpsc::Receiver<FixupMessage>) -> tg::Result<()> {
-		while let Ok(message) = receiver.recv() {
-			Self::checkin_fixup_task_inner(&message.path, &message.metadata).map_err(
-				|source| tg::error!(!source, %path = message.path.display(), "failed to set permissions"),
-			)?;
-		}
-		Ok::<_, tg::Error>(())
-	}
-
-	fn checkin_fixup_task_inner(path: &Path, metadata: &std::fs::Metadata) -> tg::Result<()> {
-		if !metadata.is_symlink() {
-			let mode = metadata.permissions().mode();
-			let executable = mode & 0o111 != 0;
-			let new_mode = if metadata.is_dir() || executable {
-				0o555
-			} else {
-				0o444
-			};
-			if new_mode != mode {
-				let permissions = std::fs::Permissions::from_mode(new_mode);
-				std::fs::set_permissions(path, permissions).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to set the permissions"),
-				)?;
-			}
-		}
-		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
-		)?;
-		Ok(())
-	}
-}
-
-impl Server {
 	pub(crate) async fn handle_checkin_request<H>(
 		handle: &H,
 		request: http::Request<Body>,
