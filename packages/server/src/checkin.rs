@@ -1,5 +1,5 @@
 use {
-	crate::{Server, checkin::state::Objects, watch::Watch},
+	crate::{Server, checkin::graph::Objects, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	std::{panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant},
 	tangram_client as tg,
@@ -12,14 +12,14 @@ mod artifact;
 mod blob;
 mod cache;
 mod fixup;
+mod graph;
 mod index;
 mod input;
 mod lock;
 mod solve;
-mod state;
 mod store;
 
-pub(crate) use self::state::Graph;
+pub(crate) use self::graph::Graph;
 
 impl Server {
 	pub async fn checkin(

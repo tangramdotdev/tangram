@@ -1,5 +1,5 @@
 use {
-	super::state::Variant,
+	super::graph::Variant,
 	crate::{Server, checkin::Graph},
 	std::{collections::BTreeMap, path::Path},
 	tangram_client as tg,

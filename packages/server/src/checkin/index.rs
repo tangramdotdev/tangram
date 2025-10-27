@@ -1,8 +1,8 @@
 use {
-	super::state::Variant,
+	super::graph::Variant,
 	crate::{
 		Server,
-		checkin::{Graph, state::Objects},
+		checkin::{Graph, graph::Objects},
 	},
 	bytes::Bytes,
 	std::collections::BTreeSet,

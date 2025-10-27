@@ -1,8 +1,8 @@
 use {
-	super::state::{CacheReferenceRange, Object},
+	super::graph::{CacheReferenceRange, Object},
 	crate::{
 		Server,
-		checkin::{Graph, state::Objects},
+		checkin::{Graph, graph::Objects},
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	tangram_client as tg,

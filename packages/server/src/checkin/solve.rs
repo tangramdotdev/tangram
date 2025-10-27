@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Server,
-		checkin::state::{Directory, File, Graph, Node, Symlink, Variant},
+		checkin::graph::{Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
 	std::collections::HashMap,

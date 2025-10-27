@@ -1,5 +1,5 @@
 use {
-	super::state::{Directory, File, Node, Symlink, Variant},
+	super::graph::{Directory, File, Node, Symlink, Variant},
 	crate::{Server, checkin::Graph},
 	indoc::indoc,
 	smallvec::SmallVec,

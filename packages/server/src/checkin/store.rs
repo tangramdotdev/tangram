@@ -1,5 +1,5 @@
 use {
-	crate::{Server, checkin::state::Objects},
+	crate::{Server, checkin::graph::Objects},
 	tangram_client as tg,
 	tangram_store::prelude::*,
 };

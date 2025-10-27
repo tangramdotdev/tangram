@@ -1,8 +1,8 @@
 use {
-	super::state::{Object, Variant},
+	super::graph::{Object, Variant},
 	crate::{
 		Server,
-		checkin::{Graph, state::Objects},
+		checkin::{Graph, graph::Objects},
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
