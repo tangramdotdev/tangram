@@ -65,6 +65,7 @@ impl Watch {
 							continue;
 						}
 						let node = state.graph.nodes.remove(&index).unwrap();
+						tracing::trace!(path = ?node.path, id = ?node.id.as_ref().map(ToString::to_string), "deleting");
 						if let Some(path) = &node.path {
 							state.graph.paths.remove(path).unwrap();
 						}

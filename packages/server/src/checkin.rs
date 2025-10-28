@@ -236,7 +236,7 @@ impl Server {
 			task.await?;
 		}
 		let start = Instant::now();
-		self.checkin_cache(&arg, &graph)
+		self.checkin_cache(&arg, &graph, next)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "cache");

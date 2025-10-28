@@ -9,6 +9,7 @@ impl Server {
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
+		next: usize,
 	) -> tg::Result<()> {
 		if arg.options.destructive {
 			self.checkin_cache_task_destructive(graph).await?;
@@ -16,7 +17,7 @@ impl Server {
 			tokio::task::spawn_blocking({
 				let server = self.clone();
 				let graph = graph.clone();
-				move || server.checkin_cache_task_inner(&graph)
+				move || server.checkin_cache_task_inner(&graph, next)
 			})
 			.await
 			.unwrap()
@@ -67,8 +68,8 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_cache_task_inner(&self, graph: &Graph) -> tg::Result<()> {
-		for (_, node) in &graph.nodes {
+	fn checkin_cache_task_inner(&self, graph: &Graph, next: usize) -> tg::Result<()> {
+		for (_, node) in graph.nodes.range(next..) {
 			let Some(path) = node.path.as_ref() else {
 				continue;
 			};
