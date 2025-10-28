@@ -248,6 +248,55 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
+		// If the watch option is enabled, then create or update the watcher and verify the version.
+		if arg.options.watch {
+			let graph = graph.clone();
+			let entry = self.watches.entry(root.clone());
+			match entry {
+				dashmap::Entry::Occupied(entry) => {
+					let mut state = entry.get().state.lock().unwrap();
+					if let Some(version) = version {
+						let current = state.version;
+						if current != version {
+							return Err(tg::error!("files were modified during checkin"));
+						}
+					}
+					state.graph = graph;
+					state.lock = lock;
+				},
+				dashmap::Entry::Vacant(entry) => {
+					let watch = Watch::new(&root, graph, lock)
+						.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
+					entry.insert(watch);
+				},
+			}
+		}
+
+		// Spawn the index task.
+		self.tasks.spawn({
+			let server = self.clone();
+			let arg = arg.clone();
+			let graph = graph.clone();
+			move |_| {
+				async move {
+					server
+						.checkin_index(
+							&arg,
+							&graph,
+							object_messages,
+							cache_entry_messages,
+							touched_at,
+						)
+						.await
+				}
+				.map(|result| {
+					if let Err(error) = result {
+						tracing::error!(?error, "the index task failed");
+					}
+				})
+			}
+		});
+
 		// Find the item.
 		let node = graph
 			.paths
@@ -268,58 +317,6 @@ impl Server {
 			.unwrap();
 		let options = tg::referent::Options::with_path(arg.path.clone());
 		let referent = tg::Referent { item, options };
-
-		// Index and return the graph and lock to the watcher.
-		self.tasks.spawn({
-			let server = self.clone();
-			move |_| {
-				async move {
-					// Index.
-					server
-						.checkin_index(
-							&arg,
-							&graph,
-							object_messages,
-							cache_entry_messages,
-							touched_at,
-						)
-						.await?;
-
-					// If the watch option is enabled, then update the state of an existing watch or add a new watch.
-					if arg.options.watch {
-						let entry = server.watches.entry(root.clone());
-						match entry {
-							dashmap::Entry::Occupied(entry) => {
-								let mut state = entry.get().state.lock().unwrap();
-								if let Some(version) = version {
-									let current = state.version;
-									if current != version {
-										return Err(tg::error!(
-											"files were modified during checkin"
-										));
-									}
-								}
-								state.graph = graph;
-								state.lock = lock;
-							},
-							dashmap::Entry::Vacant(entry) => {
-								let watch = Watch::new(&root, graph, lock).map_err(|source| {
-									tg::error!(!source, "failed to create the watch")
-								})?;
-								entry.insert(watch);
-							},
-						}
-					}
-
-					Ok::<_, tg::Error>(())
-				}
-				.map(|result| {
-					if let Err(error) = result {
-						tracing::error!(?error, "the index task failed");
-					}
-				})
-			}
-		});
 
 		// Create the output.
 		let output = tg::checkin::Output { referent };
