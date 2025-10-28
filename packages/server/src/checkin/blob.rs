@@ -1,11 +1,12 @@
 use {
-	super::graph::{CacheReferenceRange, Object},
 	crate::{
 		Server,
-		checkin::{Graph, graph::Objects},
+		checkin::{Graph, IndexObjectMessages, StoreArgs},
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
+	std::collections::BTreeSet,
 	tangram_client as tg,
+	tangram_either::Either,
 };
 
 const CONCURRENCY: usize = 8;
@@ -14,7 +15,9 @@ impl Server {
 	pub(super) async fn checkin_create_blobs(
 		&self,
 		graph: &mut Graph,
-		objects_: &mut Objects,
+		store_args: &mut StoreArgs,
+		object_messages: &mut IndexObjectMessages,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		let server = self.clone();
 		let nodes = graph
@@ -46,53 +49,66 @@ impl Server {
 			.try_collect::<Vec<_>>()
 			.await?;
 
-		// Convert blobs to objects and collect them.
-		let mut objects = Vec::new();
-		for (_, blob) in &blobs {
-			let mut stack = vec![blob];
-			while let Some(blob) = stack.pop() {
+		// Convert blobs to store args and index messages.
+		let mut entries = Vec::new();
+		for (_, output) in &blobs {
+			let mut stack = vec![output];
+			while let Some(output) = stack.pop() {
+				let id: tg::object::Id = output.id.clone().into();
 				let metadata = tg::object::Metadata {
-					count: Some(blob.count),
-					depth: Some(blob.depth),
-					weight: Some(blob.weight),
+					count: Some(output.count),
+					depth: Some(output.depth),
+					weight: Some(output.weight),
 				};
-				let cache_reference_range = CacheReferenceRange {
-					position: blob.position,
-					length: blob.length,
-				};
-				let object = Object {
-					bytes: blob.bytes.clone(),
+				let size = output.size;
+				let bytes = output.bytes.clone();
+
+				// Extract children from the blob data.
+				let mut children = BTreeSet::new();
+				if let Some(data) = &output.data {
+					let data: tg::object::Data = data.clone().into();
+					data.children(&mut children);
+				}
+
+				// Create store arg.
+				let store_arg = crate::store::PutArg {
+					bytes,
 					cache_reference: None,
-					cache_reference_range: Some(cache_reference_range),
-					complete: true,
-					data: blob.data.clone().map(Into::into),
-					id: blob.id.clone().into(),
-					metadata: Some(metadata),
-					size: blob.size,
+					id: id.clone(),
+					touched_at,
 				};
-				objects.push((object.id.clone(), object));
-				stack.extend(&blob.children);
+
+				// Create index message.
+				let index_message = crate::index::message::PutObject {
+					cache_entry: None,
+					children,
+					complete: true,
+					id: id.clone(),
+					metadata,
+					size,
+					touched_at,
+				};
+
+				entries.push((id, store_arg, index_message));
+				stack.extend(&output.children);
 			}
 		}
 
-		// Add the objects in reverse topological order.
-		objects_.extend(objects.into_iter().rev());
+		// Add the entries in reverse topological order.
+		for (id, store_arg, index_message) in entries.into_iter().rev() {
+			store_args.insert(id.clone(), store_arg);
+			object_messages.insert(id, index_message);
+		}
 
-		// Update file node contents to reference the blob IDs.
-		for (index, blob) in blobs {
-			let metadata = tg::object::Metadata {
-				count: Some(blob.count),
-				depth: Some(blob.depth),
-				weight: Some(blob.weight),
-			};
+		// Update file node contents to store the full output.
+		for (index, output) in blobs {
 			let file = graph
 				.nodes
 				.get_mut(&index)
 				.unwrap()
 				.variant
 				.unwrap_file_mut();
-			file.contents_metadata = Some(metadata);
-			file.contents = Some(blob.id);
+			file.contents = Some(Either::Left(output));
 		}
 
 		Ok(())

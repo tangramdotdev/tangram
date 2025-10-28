@@ -1,6 +1,7 @@
 use {
-	crate::{Server, checkin::graph::Objects, watch::Watch},
+	crate::{Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
+	indexmap::IndexMap,
 	std::{panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant},
 	tangram_client as tg,
 	tangram_futures::stream::Ext as _,
@@ -20,6 +21,13 @@ mod solve;
 mod store;
 
 pub(crate) use self::graph::Graph;
+
+type StoreArgs = IndexMap<tg::object::Id, crate::store::PutArg, tg::id::BuildHasher>;
+
+type IndexObjectMessages =
+	IndexMap<tg::object::Id, crate::index::message::PutObject, tg::id::BuildHasher>;
+
+type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
 
 impl Server {
 	pub async fn checkin(
@@ -179,17 +187,36 @@ impl Server {
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
-		// Create the objects.
-		let mut objects = Objects::default();
+		// Set the touch time.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
+		// Create the output collections.
+		let mut store_args = IndexMap::default();
+		let mut object_messages = IndexMap::default();
+		let mut cache_entry_messages = Vec::new();
 
 		// Create blobs.
 		let start = Instant::now();
-		self.checkin_create_blobs(&mut graph, &mut objects).await?;
+		self.checkin_create_blobs(
+			&mut graph,
+			&mut store_args,
+			&mut object_messages,
+			touched_at,
+		)
+		.await?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create blobs");
 
-		// Create objects.
+		// Create artifacts.
 		let start = Instant::now();
-		Self::checkin_create_artifacts(&arg, &mut graph, &mut objects, &root)?;
+		Self::checkin_create_artifacts(
+			&arg,
+			&mut graph,
+			&mut store_args,
+			&mut object_messages,
+			&mut cache_entry_messages,
+			&root,
+			touched_at,
+		)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
 		// Write the lock.
@@ -198,9 +225,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
-
-		// Set the touch time.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Cache.
 		if let Some(task) = fixup_task {
@@ -214,7 +238,7 @@ impl Server {
 
 		// Store.
 		let start = Instant::now();
-		self.checkin_store(&objects, touched_at)
+		self.checkin_store(store_args.into_values().collect())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
@@ -240,14 +264,20 @@ impl Server {
 		let options = tg::referent::Options::with_path(arg.path.clone());
 		let referent = tg::Referent { item, options };
 
-		// Index and return the state.
+		// Index and return the graph and lock to the watcher.
 		self.tasks.spawn({
 			let server = self.clone();
 			move |_| {
 				async move {
 					// Index.
 					server
-						.checkin_index(&arg, &graph, &objects, touched_at)
+						.checkin_index(
+							&arg,
+							&graph,
+							object_messages,
+							cache_entry_messages,
+							touched_at,
+						)
 						.await?;
 
 					// If the watch option is enabled, then update the state of an existing watch or add a new watch.

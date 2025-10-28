@@ -1,11 +1,9 @@
 use {
-	super::graph::Variant,
 	crate::{
 		Server,
-		checkin::{Graph, graph::Objects},
+		checkin::{Graph, IndexCacheEntryMessages, IndexObjectMessages},
 	},
 	bytes::Bytes,
-	std::collections::BTreeSet,
 	tangram_client as tg,
 	tangram_messenger::Messenger as _,
 };
@@ -15,7 +13,8 @@ impl Server {
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
-		objects: &Objects,
+		object_messages: IndexObjectMessages,
+		cache_entry_messages: IndexCacheEntryMessages,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		let mut messages: Vec<Bytes> = Vec::new();
@@ -44,49 +43,17 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		} else {
-			for (_, node) in &graph.nodes {
-				let Variant::File(file) = &node.variant else {
-					continue;
-				};
-				let Some(blob_id) = &file.contents else {
-					continue;
-				};
-				let blob_object_id: tg::object::Id = blob_id.clone().into();
-				let blob_object = objects.get(&blob_object_id);
-				if blob_object.is_none() || blob_object.unwrap().cache_reference_range.is_none() {
-					continue;
-				}
-				let message =
-					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-						id: node.id.as_ref().unwrap().clone().try_into().unwrap(),
-						touched_at,
-					});
+			// Serialize and add cache entry messages.
+			for message in cache_entry_messages {
+				let message = crate::index::Message::PutCacheEntry(message);
 				let message = message.serialize()?;
 				messages.push(message);
 			}
 		}
 
-		// Create put object messages.
-		for object in objects.values() {
-			let cache_entry = object
-				.cache_reference
-				.as_ref()
-				.map(|cache_reference| cache_reference.artifact.clone());
-			let mut children = BTreeSet::new();
-			if let Some(data) = &object.data {
-				data.children(&mut children);
-			}
-			let complete = object.complete;
-			let metadata = object.metadata.clone().unwrap_or_default();
-			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
-				cache_entry,
-				children,
-				complete,
-				id: object.id.clone(),
-				metadata,
-				size: object.size,
-				touched_at,
-			});
+		// Serialize and add put object messages.
+		for (_, message) in object_messages {
+			let message = crate::index::Message::PutObject(message);
 			let message = message.serialize()?;
 			messages.push(message);
 		}

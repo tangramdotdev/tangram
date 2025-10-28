@@ -6,6 +6,7 @@ use {
 	smallvec::SmallVec,
 	std::collections::HashMap,
 	tangram_client::{self as tg, handle::Ext as _},
+	tangram_either::Either,
 };
 
 struct State<'a> {
@@ -552,15 +553,16 @@ impl Server {
 				})
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
-				let contents = file.contents;
-				let contents_metadata = if let Some(id) = &contents {
-					self.try_get_object_metadata(
-						&id.clone().into(),
-						tg::object::metadata::Arg::default(),
-					)
-					.await
-					.ok()
-					.flatten()
+				let contents = if let Some(id) = file.contents {
+					let metadata = self
+						.try_get_object_metadata(
+							&id.clone().into(),
+							tg::object::metadata::Arg::default(),
+						)
+						.await
+						.ok()
+						.flatten();
+					Some(Either::Right((id, metadata)))
 				} else {
 					None
 				};
@@ -578,7 +580,6 @@ impl Server {
 				let executable = file.executable;
 				Variant::File(File {
 					contents,
-					contents_metadata,
 					dependencies,
 					executable,
 				})
@@ -664,15 +665,16 @@ impl Server {
 				Variant::Directory(Directory { entries })
 			},
 			tg::graph::data::Node::File(file) => {
-				let contents = file.contents.clone();
-				let contents_metadata = if let Some(id) = &contents {
-					self.try_get_object_metadata(
-						&id.clone().into(),
-						tg::object::metadata::Arg::default(),
-					)
-					.await
-					.ok()
-					.flatten()
+				let contents = if let Some(id) = file.contents.clone() {
+					let metadata = self
+						.try_get_object_metadata(
+							&id.clone().into(),
+							tg::object::metadata::Arg::default(),
+						)
+						.await
+						.ok()
+						.flatten();
+					Some(Either::Right((id, metadata)))
 				} else {
 					None
 				};
@@ -711,7 +713,6 @@ impl Server {
 				}
 				Variant::File(File {
 					contents,
-					contents_metadata,
 					dependencies,
 					executable: file.executable,
 				})

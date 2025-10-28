@@ -101,7 +101,6 @@ impl Server {
 		} else if metadata.is_file() {
 			Variant::File(File {
 				contents: None,
-				contents_metadata: None,
 				dependencies: BTreeMap::new(),
 				executable: metadata.permissions().mode() & 0o111 != 0,
 			})
