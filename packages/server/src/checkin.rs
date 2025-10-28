@@ -142,6 +142,9 @@ impl Server {
 			(Graph::default(), lock, None)
 		};
 
+		// Get the next node index.
+		let next = graph.next;
+
 		// Spawn the fixup task.
 		let (fixup_task, fixup_sender) = if arg.options.destructive {
 			let (sender, receiver) = std::sync::mpsc::channel();
@@ -199,6 +202,7 @@ impl Server {
 		let start = Instant::now();
 		self.checkin_create_blobs(
 			&mut graph,
+			next,
 			&mut store_args,
 			&mut object_messages,
 			touched_at,
@@ -211,6 +215,7 @@ impl Server {
 		Self::checkin_create_artifacts(
 			&arg,
 			&mut graph,
+			next,
 			&mut store_args,
 			&mut object_messages,
 			&mut cache_entry_messages,

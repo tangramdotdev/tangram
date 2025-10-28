@@ -3,6 +3,7 @@ use {
 	std::{collections::BTreeMap, path::PathBuf},
 	tangram_client as tg,
 	tangram_either::Either,
+	tangram_util::iter::Ext as _,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -55,26 +56,36 @@ pub struct Symlink {
 	pub path: Option<PathBuf>,
 }
 
-impl petgraph::visit::GraphBase for Graph {
+pub struct Petgraph<'a> {
+	pub graph: &'a Graph,
+	pub next: usize,
+}
+
+impl petgraph::visit::GraphBase for Petgraph<'_> {
 	type EdgeId = (usize, usize);
 
 	type NodeId = usize;
 }
 
-impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a Graph {
-	type NodeIdentifiers = std::iter::Copied<im::ordmap::Keys<'a, usize, Node>>;
+impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a Petgraph<'a> {
+	type NodeIdentifiers = Box<dyn Iterator<Item = usize> + 'a>;
 
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
-		self.nodes.keys().copied()
+		self.graph
+			.nodes
+			.range(self.next..)
+			.map(|(index, _)| index)
+			.copied()
+			.boxed()
 	}
 }
 
-impl petgraph::visit::IntoNeighbors for &Graph {
-	type Neighbors = std::vec::IntoIter<usize>;
+impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
+	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
-		let Some(node) = self.nodes.get(&id) else {
-			return Vec::new().into_iter();
+		let Some(node) = self.graph.nodes.get(&id) else {
+			return std::iter::empty().boxed();
 		};
 		match &node.variant {
 			Variant::Directory(directory) => directory
@@ -85,8 +96,7 @@ impl petgraph::visit::IntoNeighbors for &Graph {
 						.ok()
 						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
 				})
-				.collect::<Vec<_>>()
-				.into_iter(),
+				.boxed(),
 			Variant::File(file) => file
 				.dependencies
 				.values()
@@ -100,8 +110,7 @@ impl petgraph::visit::IntoNeighbors for &Graph {
 							})
 						})
 				})
-				.collect::<Vec<_>>()
-				.into_iter(),
+				.boxed(),
 			Variant::Symlink(symlink) => symlink
 				.artifact
 				.iter()
@@ -110,15 +119,14 @@ impl petgraph::visit::IntoNeighbors for &Graph {
 						.ok()
 						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
 				})
-				.collect::<Vec<_>>()
-				.into_iter(),
+				.boxed(),
 		}
 	}
 }
 
-impl petgraph::visit::NodeIndexable for &Graph {
+impl petgraph::visit::NodeIndexable for &Petgraph<'_> {
 	fn node_bound(&self) -> usize {
-		self.next
+		self.graph.next
 	}
 
 	fn to_index(&self, id: Self::NodeId) -> usize {

@@ -2,7 +2,9 @@ use {
 	super::graph::Variant,
 	crate::{
 		Server,
-		checkin::{Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs},
+		checkin::{
+			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs, graph::Petgraph,
+		},
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
@@ -11,9 +13,11 @@ use {
 };
 
 impl Server {
+	#[allow(clippy::too_many_arguments)]
 	pub(super) fn checkin_create_artifacts(
 		arg: &tg::checkin::Arg,
 		graph: &mut Graph,
+		next: usize,
 		store_args: &mut StoreArgs,
 		object_messages: &mut IndexObjectMessages,
 		cache_entry_messages: &mut IndexCacheEntryMessages,
@@ -21,7 +25,7 @@ impl Server {
 		touched_at: i64,
 	) -> tg::Result<()> {
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
-		let mut sccs = petgraph::algo::tarjan_scc(&*graph);
+		let mut sccs = petgraph::algo::tarjan_scc(&Petgraph { graph, next });
 		for scc in &mut sccs {
 			if scc.len() > 1 {
 				scc.reverse();

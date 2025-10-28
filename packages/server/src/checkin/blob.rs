@@ -15,6 +15,7 @@ impl Server {
 	pub(super) async fn checkin_create_blobs(
 		&self,
 		graph: &mut Graph,
+		next: usize,
 		store_args: &mut StoreArgs,
 		object_messages: &mut IndexObjectMessages,
 		touched_at: i64,
@@ -22,7 +23,7 @@ impl Server {
 		let server = self.clone();
 		let nodes = graph
 			.nodes
-			.iter()
+			.range(next..)
 			.filter_map(|(index, node)| {
 				let is_file = node.variant.is_file();
 				if !is_file {
@@ -100,7 +101,7 @@ impl Server {
 			object_messages.insert(id, index_message);
 		}
 
-		// Update file node contents to store the full output.
+		// Set the file contents.
 		for (index, output) in blobs {
 			let file = graph
 				.nodes
