@@ -3,13 +3,12 @@ use {
 	crate::{
 		Server,
 		checkin::{
-			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs, graph::Petgraph,
+			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs, graph::{Contents, Petgraph},
 		},
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
 	tangram_client as tg,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -108,8 +107,8 @@ impl Server {
 			},
 			Variant::File(file) => {
 				let contents = match &file.contents {
-					Some(Either::Left(output)) => output.id.clone(),
-					Some(Either::Right((id, _, _))) => id.clone(),
+					Some(Contents::Write(output)) => output.id.clone(),
+					Some(Contents::Id { id, .. }) => id.clone(),
 					None => return Err(tg::error!("expected the contents to be set")),
 				};
 				let dependencies = file
@@ -289,8 +288,8 @@ impl Server {
 			},
 			Variant::File(file) => {
 				let contents = match &file.contents {
-					Some(Either::Left(output)) => output.id.clone(),
-					Some(Either::Right((id, _, _))) => id.clone(),
+					Some(Contents::Write(output)) => output.id.clone(),
+					Some(Contents::Id { id, .. }) => id.clone(),
 					None => return Err(tg::error!("expected the contents to be set")),
 				};
 				let dependencies = file
@@ -460,7 +459,7 @@ impl Server {
 						let node = graph.nodes.get(&index)?;
 						let file = node.variant.try_unwrap_file_ref().ok()?;
 						file.contents.as_ref().and_then(|contents| match contents {
-							Either::Left(output) if &output.id == id => {
+							Contents::Write(output) if &output.id == id => {
 								let metadata = tg::object::Metadata {
 									count: Some(output.count),
 									depth: Some(output.depth),
@@ -468,7 +467,7 @@ impl Server {
 								};
 								Some((true, Some(metadata)))
 							},
-							Either::Right((id_, complete, metadata)) if id_ == id => {
+							Contents::Id { id: id_, complete, metadata } if id_ == id => {
 								Some((*complete, metadata.clone()))
 							},
 							_ => None,
@@ -548,10 +547,7 @@ impl Server {
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
-				let Some(Either::Left(output)) = file
-					.contents
-					.as_ref()
-					.map(|either| either.as_ref().map_left(AsRef::as_ref))
+				let Some(Contents::Write(output)) = file.contents.as_ref()
 				else {
 					continue;
 				};
@@ -588,7 +584,7 @@ impl Server {
 				}
 
 				// Update cache references for the blob and its children.
-				let mut stack = vec![output];
+				let mut stack = vec![output.as_ref()];
 				while let Some(output) = stack.pop() {
 					let id: tg::object::Id = output.id.clone().into();
 
@@ -603,7 +599,7 @@ impl Server {
 					object_messages.get_mut(&id).unwrap().cache_entry = Some(artifact.clone());
 
 					// Add children to the stack.
-					stack.extend(&output.children);
+					stack.extend(output.children.iter());
 				}
 			}
 		}

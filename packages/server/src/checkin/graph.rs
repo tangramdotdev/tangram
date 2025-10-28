@@ -2,7 +2,6 @@ use {
 	smallvec::SmallVec,
 	std::{collections::BTreeMap, path::PathBuf},
 	tangram_client as tg,
-	tangram_either::Either,
 	tangram_util::iter::Ext as _,
 };
 
@@ -43,12 +42,20 @@ pub struct Directory {
 
 #[derive(Clone, Debug)]
 pub struct File {
-	pub contents: Option<
-		Either<Box<crate::write::Output>, (tg::blob::Id, bool, Option<tg::object::Metadata>)>,
-	>,
+	pub contents: Option<Contents>,
 	pub dependencies:
 		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 	pub executable: bool,
+}
+
+#[derive(Clone, Debug)]
+pub enum Contents {
+	Write(Box<crate::write::Output>),
+	Id {
+		id: tg::blob::Id,
+		complete: bool,
+		metadata: Option<tg::object::Metadata>,
+	},
 }
 
 #[derive(Clone, Debug)]

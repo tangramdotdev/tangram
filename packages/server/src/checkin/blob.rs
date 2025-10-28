@@ -1,12 +1,11 @@
 use {
 	crate::{
 		Server,
-		checkin::{Graph, IndexObjectMessages, StoreArgs},
+		checkin::{Graph, IndexObjectMessages, StoreArgs, graph::Contents},
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	std::collections::BTreeSet,
 	tangram_client as tg,
-	tangram_either::Either,
 };
 
 const CONCURRENCY: usize = 8;
@@ -109,7 +108,7 @@ impl Server {
 				.unwrap()
 				.variant
 				.unwrap_file_mut();
-			file.contents = Some(Either::Left(Box::new(output)));
+			file.contents = Some(Contents::Write(Box::new(output)));
 		}
 
 		Ok(())

@@ -1,12 +1,11 @@
 use {
 	crate::{
 		Server,
-		checkin::graph::{Directory, File, Graph, Node, Symlink, Variant},
+		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
 	std::{collections::HashMap, path::Path},
 	tangram_client::{self as tg, handle::Ext as _},
-	tangram_either::Either,
 };
 
 struct State<'a> {
@@ -562,7 +561,7 @@ impl Server {
 						.ok()
 						.flatten()
 						.unwrap_or((false, tg::object::Metadata::default()));
-					Some(Either::Right((id, complete, Some(metadata))))
+					Some(Contents::Id { id, complete, metadata: Some(metadata) })
 				} else {
 					None
 				};
@@ -672,7 +671,7 @@ impl Server {
 						.ok()
 						.flatten()
 						.unwrap_or((false, tg::object::Metadata::default()));
-					Some(Either::Right((id, complete, Some(metadata))))
+					Some(Contents::Id { id, complete, metadata: Some(metadata) })
 				} else {
 					None
 				};
