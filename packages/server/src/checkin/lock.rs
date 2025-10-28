@@ -1,7 +1,10 @@
 use {
 	super::graph::Variant,
 	crate::{Server, checkin::Graph},
-	std::{collections::BTreeMap, path::Path},
+	std::{
+		collections::{BTreeMap, HashSet, VecDeque},
+		path::Path,
+	},
 	tangram_client as tg,
 	tangram_util::iter::Ext as _,
 };
@@ -66,7 +69,7 @@ impl Server {
 		}
 
 		// Create the lock.
-		let lock = Self::checkin_create_lock(graph);
+		let lock = Self::checkin_create_lock(graph, root);
 
 		// If this is a locked checkin, then verify the lock is unchanged.
 		if arg.options.locked && lock_.is_some_and(|existing| existing.nodes != lock.nodes) {
@@ -122,46 +125,149 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_create_lock(graph: &Graph) -> tg::graph::Data {
-		// Create the nodes.
+	fn checkin_create_lock(graph: &Graph, root: &Path) -> tg::graph::Data {
+		// Get the root node index.
+		let root_index = *graph.paths.get(root).unwrap();
+
 		let mut nodes = Vec::with_capacity(graph.nodes.len());
 		let mut ids = Vec::with_capacity(graph.nodes.len());
-		let keys: Vec<_> = graph.nodes.keys().copied().collect();
-		for key in keys {
-			let node = &graph.nodes.get(&key).unwrap();
+		let mut visited = HashSet::new();
+		let mut queue = VecDeque::new();
+		let mut mapping = BTreeMap::new();
+
+		queue.push_back(root_index);
+
+		while let Some(index) = queue.pop_front() {
+			// Skip if already visited.
+			if !visited.insert(index) {
+				continue;
+			}
+
+			// Record the mapping from graph index to lock index.
+			mapping.insert(index, nodes.len());
+
+			// Get the node.
+			let node = &graph.nodes.get(&index).unwrap();
 			ids.push(node.id.clone().unwrap());
-			let node = match &node.variant {
+
+			// Convert to lock node and collect children in semantic order.
+			let (lock_node, children) = match &node.variant {
 				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();
+					let mut children = Vec::new();
+
+					// Iterate entries in sorted order (BTreeMap is already sorted by key).
 					for (name, edge) in &directory.entries {
 						entries.insert(name.clone(), edge.clone());
+
+						// Extract child node indices.
+						if let Ok(reference) = edge.try_unwrap_reference_ref()
+							&& reference.graph.is_none()
+							&& !visited.contains(&reference.node)
+						{
+							children.push(reference.node);
+						}
 					}
+
 					let data = tg::graph::data::Directory { entries };
-					tg::graph::data::Node::Directory(data)
+					(tg::graph::data::Node::Directory(data), children)
 				},
 
 				Variant::File(file) => {
 					let mut dependencies = BTreeMap::new();
+					let mut children = Vec::new();
+
+					// Collect dependencies with their serialized references for sorting.
 					for (reference, referent) in &file.dependencies {
 						dependencies.insert(reference.clone(), referent.clone());
+
+						// Extract child node indices with their serialized references.
+						if let Some(referent_value) = referent
+							&& let Ok(edge_reference) =
+								referent_value.item.try_unwrap_reference_ref()
+							&& edge_reference.graph.is_none()
+							&& !visited.contains(&edge_reference.node)
+						{
+							// Use the reference string for sorting.
+							let reference_string = reference.to_string();
+							children.push((reference_string, edge_reference.node));
+						}
 					}
+
+					// Sort children by their serialized reference strings.
+					children.sort_by(|a, b| a.0.cmp(&b.0));
+					let children: Vec<_> = children.into_iter().map(|(_, index)| index).collect();
+
 					let data = tg::graph::data::File {
 						contents: None,
 						dependencies,
 						executable: false,
 					};
-					tg::graph::data::Node::File(data)
+					(tg::graph::data::Node::File(data), children)
 				},
 
 				Variant::Symlink(symlink) => {
+					let mut children = Vec::new();
+
+					// Extract child node index if present.
+					if let Some(edge) = &symlink.artifact
+						&& let Ok(reference) = edge.try_unwrap_reference_ref()
+						&& reference.graph.is_none()
+						&& !visited.contains(&reference.node)
+					{
+						children.push(reference.node);
+					}
+
 					let data = tg::graph::data::Symlink {
 						artifact: symlink.artifact.clone(),
 						path: None,
 					};
-					tg::graph::data::Node::Symlink(data)
+					(tg::graph::data::Node::Symlink(data), children)
 				},
 			};
-			nodes.push(node);
+
+			// Add the node to the lock.
+			nodes.push(lock_node);
+
+			// Add the children to the queue.
+			for child in children {
+				queue.push_back(child);
+			}
+		}
+
+		// Remap all internal references from graph indices to lock indices.
+		for node in &mut nodes {
+			match node {
+				tg::graph::data::Node::Directory(directory) => {
+					for edge in directory.entries.values_mut() {
+						if let tg::graph::data::Edge::Reference(reference) = edge
+							&& reference.graph.is_none()
+							&& let Some(&lock_index) = mapping.get(&reference.node)
+						{
+							reference.node = lock_index;
+						}
+					}
+				},
+				tg::graph::data::Node::File(file) => {
+					for referent_value in file.dependencies.values_mut().flatten() {
+						if let tg::graph::data::Edge::Reference(reference) =
+							&mut referent_value.item
+							&& reference.graph.is_none()
+							&& let Some(&lock_index) = mapping.get(&reference.node)
+						{
+							reference.node = lock_index;
+						}
+					}
+				},
+				tg::graph::data::Node::Symlink(symlink) => {
+					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
+						&& reference.graph.is_none()
+						&& let Some(&lock_index) = mapping.get(&reference.node)
+					{
+						reference.node = lock_index;
+					}
+				},
+			}
 		}
 
 		// Create the lock.
