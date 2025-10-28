@@ -150,17 +150,13 @@ impl Server {
 			let node = &graph.nodes.get(&index).unwrap();
 			ids.push(node.id.clone().unwrap());
 
-			// Convert to lock node and collect children in semantic order.
+			// Create the lock node.
 			let (lock_node, children) = match &node.variant {
 				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();
 					let mut children = Vec::new();
-
-					// Iterate entries in sorted order (BTreeMap is already sorted by key).
 					for (name, edge) in &directory.entries {
 						entries.insert(name.clone(), edge.clone());
-
-						// Extract child node indices.
 						if let Ok(reference) = edge.try_unwrap_reference_ref()
 							&& reference.graph.is_none()
 							&& !visited.contains(&reference.node)
@@ -168,7 +164,6 @@ impl Server {
 							children.push(reference.node);
 						}
 					}
-
 					let data = tg::graph::data::Directory { entries };
 					(tg::graph::data::Node::Directory(data), children)
 				},
@@ -176,28 +171,17 @@ impl Server {
 				Variant::File(file) => {
 					let mut dependencies = BTreeMap::new();
 					let mut children = Vec::new();
-
-					// Collect dependencies with their serialized references for sorting.
 					for (reference, referent) in &file.dependencies {
 						dependencies.insert(reference.clone(), referent.clone());
-
-						// Extract child node indices with their serialized references.
 						if let Some(referent_value) = referent
 							&& let Ok(edge_reference) =
 								referent_value.item.try_unwrap_reference_ref()
 							&& edge_reference.graph.is_none()
 							&& !visited.contains(&edge_reference.node)
 						{
-							// Use the reference string for sorting.
-							let reference_string = reference.to_string();
-							children.push((reference_string, edge_reference.node));
+							children.push(edge_reference.node);
 						}
 					}
-
-					// Sort children by their serialized reference strings.
-					children.sort_by(|a, b| a.0.cmp(&b.0));
-					let children: Vec<_> = children.into_iter().map(|(_, index)| index).collect();
-
 					let data = tg::graph::data::File {
 						contents: None,
 						dependencies,
@@ -208,8 +192,6 @@ impl Server {
 
 				Variant::Symlink(symlink) => {
 					let mut children = Vec::new();
-
-					// Extract child node index if present.
 					if let Some(edge) = &symlink.artifact
 						&& let Ok(reference) = edge.try_unwrap_reference_ref()
 						&& reference.graph.is_none()
@@ -217,7 +199,6 @@ impl Server {
 					{
 						children.push(reference.node);
 					}
-
 					let data = tg::graph::data::Symlink {
 						artifact: symlink.artifact.clone(),
 						path: None,
@@ -235,7 +216,7 @@ impl Server {
 			}
 		}
 
-		// Remap all internal references from graph indices to lock indices.
+		// Remap from graph indices to lock indices.
 		for node in &mut nodes {
 			match node {
 				tg::graph::data::Node::Directory(directory) => {
