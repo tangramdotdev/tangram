@@ -88,20 +88,22 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 		let Some(node) = self.graph.nodes.get(&id) else {
 			return std::iter::empty().boxed();
 		};
+		let next = self.next;
 		match &node.variant {
 			Variant::Directory(directory) => directory
 				.entries
 				.values()
-				.filter_map(|edge| {
+				.filter_map(move |edge| {
 					edge.try_unwrap_reference_ref()
 						.ok()
 						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
+						.filter(|&node| node >= next)
 				})
 				.boxed(),
 			Variant::File(file) => file
 				.dependencies
 				.values()
-				.filter_map(|option| {
+				.filter_map(move |option| {
 					option
 						.as_ref()
 						.map(|referent| &referent.item)
@@ -110,15 +112,17 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 								reference.graph.is_none().then_some(reference.node)
 							})
 						})
+						.filter(|&node| node >= next)
 				})
 				.boxed(),
 			Variant::Symlink(symlink) => symlink
 				.artifact
 				.iter()
-				.filter_map(|edge| {
+				.filter_map(move |edge| {
 					edge.try_unwrap_reference_ref()
 						.ok()
 						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
+						.filter(|&node| node >= next)
 				})
 				.boxed(),
 		}
