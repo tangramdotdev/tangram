@@ -136,10 +136,16 @@ impl Server {
 			let state = watch.value().state.lock().unwrap();
 			(state.graph.clone(), state.lock.clone(), Some(state.version))
 		} else {
-			let lock = Self::checkin_try_read_lock(&root)
+			(Graph::default(), None, None)
+		};
+
+		// Read the lock if it was not retrieved from the watcher.
+		let lock = if let Some(lock) = lock {
+			Some(lock)
+		} else {
+			Self::checkin_try_read_lock(&root)
 				.map_err(|source| tg::error!(!source, "failed to read the lock"))?
-				.map(Arc::new);
-			(Graph::default(), lock, None)
+				.map(Arc::new)
 		};
 
 		// Get the next node index.
@@ -248,7 +254,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
-		// If the watch option is enabled, then create or update the watcher and verify the version.
+		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if arg.options.watch {
 			let graph = graph.clone();
 			let entry = self.watches.entry(root.clone());
@@ -270,6 +276,56 @@ impl Server {
 					entry.insert(watch);
 				},
 			}
+
+			// Spawn a task to clean nodes with no referrers.
+			tokio::task::spawn_blocking({
+				let server = self.clone();
+				let root = root.clone();
+				move || {
+					// Get the graph.
+					let Some(watch) = server.watches.get(&root) else {
+						return;
+					};
+					let mut state = watch.state.lock().unwrap();
+					let graph = &mut state.graph;
+
+					// Get nodes with no referrers.
+					let mut queue = graph
+						.nodes
+						.iter()
+						.filter(|(_, node)| node.referrers.is_empty())
+						.map(|(index, _)| *index)
+						.collect::<Vec<_>>();
+
+					let mut visited =
+						std::collections::HashSet::<usize, fnv::FnvBuildHasher>::default();
+					while let Some(index) = queue.pop() {
+						if !visited.insert(index) {
+							continue;
+						}
+
+						// Remove the node.
+						let node = graph.nodes.remove(&index).unwrap();
+						tracing::trace!(path = ?node.path, id = ?node.id.as_ref().map(ToString::to_string), "cleaned");
+						if let Some(id) = &node.id {
+							graph.ids.remove(id);
+						}
+						if let Some(path) = &node.path {
+							graph.paths.remove(path);
+						}
+
+						// Remove the node from its children's referrers and enqueue its children with no more referrers.
+						for child_index in node.children() {
+							if let Some(child) = graph.nodes.get_mut(&child_index) {
+								child.referrers.retain(|index_| *index_ != index);
+								if child.referrers.is_empty() {
+									queue.push(child_index);
+								}
+							}
+						}
+					}
+				}
+			});
 		}
 
 		// Spawn the index task.

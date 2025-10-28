@@ -26,6 +26,42 @@ pub struct Node {
 	pub variant: Variant,
 }
 
+impl Node {
+	/// Extract all child node indices from this node's variant.
+	pub fn children(&self) -> Vec<usize> {
+		let mut children = Vec::new();
+		match &self.variant {
+			Variant::Directory(directory) => {
+				for edge in directory.entries.values() {
+					if let Ok(reference) = edge.try_unwrap_reference_ref()
+						&& reference.graph.is_none()
+					{
+						children.push(reference.node);
+					}
+				}
+			},
+			Variant::File(file) => {
+				for referent in file.dependencies.values().flatten() {
+					if let Ok(reference) = referent.item.try_unwrap_reference_ref()
+						&& reference.graph.is_none()
+					{
+						children.push(reference.node);
+					}
+				}
+			},
+			Variant::Symlink(symlink) => {
+				if let Some(edge) = &symlink.artifact
+					&& let Ok(reference) = edge.try_unwrap_reference_ref()
+					&& reference.graph.is_none()
+				{
+					children.push(reference.node);
+				}
+			},
+		}
+		children
+	}
+}
+
 #[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
