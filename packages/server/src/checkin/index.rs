@@ -4,6 +4,7 @@ use {
 		checkin::{Graph, IndexCacheEntryMessages, IndexObjectMessages},
 	},
 	bytes::Bytes,
+	std::path::Path,
 	tangram_client as tg,
 	tangram_messenger::Messenger as _,
 };
@@ -15,15 +16,17 @@ impl Server {
 		graph: &Graph,
 		object_messages: IndexObjectMessages,
 		cache_entry_messages: IndexCacheEntryMessages,
+		root: &Path,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		let mut messages: Vec<Bytes> = Vec::new();
 
 		// Create put cache entry messages.
 		if arg.options.destructive {
+			let index = graph.paths.get(root).unwrap();
 			let id = graph
 				.nodes
-				.get(&0)
+				.get(index)
 				.unwrap()
 				.id
 				.as_ref()

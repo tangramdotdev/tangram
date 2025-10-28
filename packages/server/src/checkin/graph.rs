@@ -10,7 +10,7 @@ use {
 pub struct Graph {
 	pub ids: im::HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
 	pub next: usize,
-	pub nodes: im::OrdMap<usize, Node>,
+	pub nodes: im::OrdMap<usize, Box<Node>>,
 	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
 }
 
@@ -43,8 +43,9 @@ pub struct Directory {
 
 #[derive(Clone, Debug)]
 pub struct File {
-	pub contents:
-		Option<Either<Box<crate::write::Output>, (tg::blob::Id, Option<tg::object::Metadata>)>>,
+	pub contents: Option<
+		Either<Box<crate::write::Output>, (tg::blob::Id, bool, Option<tg::object::Metadata>)>,
+	>,
 	pub dependencies:
 		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 	pub executable: bool,

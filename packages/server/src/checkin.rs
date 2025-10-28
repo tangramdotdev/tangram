@@ -185,7 +185,7 @@ impl Server {
 		if arg.options.solve {
 			let start = Instant::now();
 			graph = self
-				.checkin_solve(&arg, graph.clone(), lock.as_deref())
+				.checkin_solve(&arg, graph.clone(), lock.as_deref(), &root)
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
@@ -236,7 +236,7 @@ impl Server {
 			task.await?;
 		}
 		let start = Instant::now();
-		self.checkin_cache(&arg, &graph, next)
+		self.checkin_cache(&arg, &graph, next, &root)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "cache");
@@ -277,6 +277,7 @@ impl Server {
 			let server = self.clone();
 			let arg = arg.clone();
 			let graph = graph.clone();
+			let root = root.clone();
 			move |_| {
 				async move {
 					server
@@ -285,6 +286,7 @@ impl Server {
 							&graph,
 							object_messages,
 							cache_entry_messages,
+							&root,
 							touched_at,
 						)
 						.await

@@ -1,6 +1,6 @@
 use {
 	crate::{Server, checkin::Graph, temp::Temp},
-	std::os::unix::fs::PermissionsExt as _,
+	std::{os::unix::fs::PermissionsExt as _, path::Path},
 	tangram_client as tg,
 };
 
@@ -10,9 +10,10 @@ impl Server {
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		next: usize,
+		root: &Path,
 	) -> tg::Result<()> {
 		if arg.options.destructive {
-			self.checkin_cache_task_destructive(graph).await?;
+			self.checkin_cache_task_destructive(graph, root).await?;
 		} else {
 			tokio::task::spawn_blocking({
 				let server = self.clone();
@@ -26,8 +27,9 @@ impl Server {
 		Ok(())
 	}
 
-	async fn checkin_cache_task_destructive(&self, graph: &Graph) -> tg::Result<()> {
-		let node = graph.nodes.get(&0).unwrap();
+	async fn checkin_cache_task_destructive(&self, graph: &Graph, root: &Path) -> tg::Result<()> {
+		let index = graph.paths.get(root).unwrap();
+		let node = graph.nodes.get(index).unwrap();
 		let id = node.id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
 		let dst = &self.cache_path().join(id.to_string());

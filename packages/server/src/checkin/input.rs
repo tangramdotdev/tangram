@@ -161,7 +161,7 @@ impl Server {
 			referrers: SmallVec::new(),
 			variant,
 		};
-		state.graph.nodes.insert(index, node);
+		state.graph.nodes.insert(index, Box::new(node));
 
 		// Update the parent's edge to point to this node.
 		if let Some(parent) = item.parent {

@@ -58,7 +58,7 @@ impl Server {
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		lock_: Option<&tg::graph::Data>,
-		root_path: &Path,
+		root: &Path,
 	) -> tg::Result<()> {
 		// Do not create a lock if this is a destructive checkin or the user did not request one.
 		if arg.options.destructive || !arg.options.lock {
@@ -74,10 +74,11 @@ impl Server {
 		}
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
-		match graph.nodes.get(&0).unwrap().variant {
+		let index = graph.paths.get(root).unwrap();
+		match graph.nodes.get(index).unwrap().variant {
 			Variant::Directory(_) => {
 				// Determine the lockfile path.
-				let lockfile_path = root_path.join(tg::package::LOCKFILE_FILE_NAME);
+				let lockfile_path = root.join(tg::package::LOCKFILE_FILE_NAME);
 
 				// Remove an existing lockfile.
 				tangram_util::fs::remove(&lockfile_path).await.ok();
@@ -99,7 +100,7 @@ impl Server {
 
 			Variant::File(_) => {
 				// Remove an existing lockattr.
-				xattr::remove(root_path, tg::file::LOCKATTR_XATTR_NAME).ok();
+				xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
 
 				// Do not write an empty lock.
 				if lock.nodes.is_empty() {
@@ -111,7 +112,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 
 				// Write the lockattr.
-				xattr::set(root_path, tg::file::LOCKATTR_XATTR_NAME, &contents)
+				xattr::set(root, tg::file::LOCKATTR_XATTR_NAME, &contents)
 					.map_err(|source| tg::error!(!source, "failed to write the lockatttr"))?;
 			},
 

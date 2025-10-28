@@ -4,7 +4,7 @@ use {
 		checkin::graph::{Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
-	std::collections::HashMap,
+	std::{collections::HashMap, path::Path},
 	tangram_client::{self as tg, handle::Ext as _},
 	tangram_either::Either,
 };
@@ -55,6 +55,7 @@ impl Server {
 		arg: &tg::checkin::Arg,
 		graph: Graph,
 		lock: Option<&tg::graph::Data>,
+		root: &Path,
 	) -> tg::Result<Graph> {
 		// Create the state
 		let mut state = State {
@@ -64,6 +65,7 @@ impl Server {
 		};
 
 		// Create the first checkpoint.
+		let index = graph.paths.get(root).unwrap();
 		let graph = graph.clone();
 		let mut checkpoint = Checkpoint {
 			candidates: None,
@@ -76,7 +78,7 @@ impl Server {
 			tags: im::HashMap::default(),
 			visited: im::HashSet::default(),
 		};
-		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, 0);
+		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, *index);
 
 		// Solve.
 		while let Some(item) = checkpoint.queue.pop_front() {
@@ -554,15 +556,13 @@ impl Server {
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = if let Some(id) = file.contents {
-					let metadata = self
-						.try_get_object_metadata(
-							&id.clone().into(),
-							tg::object::metadata::Arg::default(),
-						)
+					let (complete, metadata) = self
+						.try_get_object_complete_and_metadata(&id.clone().into())
 						.await
 						.ok()
-						.flatten();
-					Some(Either::Right((id, metadata)))
+						.flatten()
+						.unwrap_or((false, tg::object::Metadata::default()));
+					Some(Either::Right((id, complete, Some(metadata))))
 				} else {
 					None
 				};
@@ -606,7 +606,7 @@ impl Server {
 		// Insert the node into the graph.
 		let index = checkpoint.graph.next;
 		checkpoint.graph.next += 1;
-		checkpoint.graph.nodes.insert(index, node);
+		checkpoint.graph.nodes.insert(index, Box::new(node));
 
 		Ok(index)
 	}
@@ -666,15 +666,13 @@ impl Server {
 			},
 			tg::graph::data::Node::File(file) => {
 				let contents = if let Some(id) = file.contents.clone() {
-					let metadata = self
-						.try_get_object_metadata(
-							&id.clone().into(),
-							tg::object::metadata::Arg::default(),
-						)
+					let (complete, metadata) = self
+						.try_get_object_complete_and_metadata(&id.clone().into())
 						.await
 						.ok()
-						.flatten();
-					Some(Either::Right((id, metadata)))
+						.flatten()
+						.unwrap_or((false, tg::object::Metadata::default()));
+					Some(Either::Right((id, complete, Some(metadata))))
 				} else {
 					None
 				};
@@ -749,7 +747,7 @@ impl Server {
 		// Add the node to the checkin graph.
 		let index = checkpoint.graph.next;
 		checkpoint.graph.next += 1;
-		checkpoint.graph.nodes.insert(index, node);
+		checkpoint.graph.nodes.insert(index, Box::new(node));
 
 		// Cache the mapping.
 		checkpoint.graph_nodes.insert(key, index);

@@ -109,7 +109,7 @@ impl Server {
 			Variant::File(file) => {
 				let contents = match &file.contents {
 					Some(Either::Left(output)) => output.id.clone(),
-					Some(Either::Right((id, _))) => id.clone(),
+					Some(Either::Right((id, _, _))) => id.clone(),
 					None => return Err(tg::error!("expected the contents to be set")),
 				};
 				let dependencies = file
@@ -290,7 +290,7 @@ impl Server {
 			Variant::File(file) => {
 				let contents = match &file.contents {
 					Some(Either::Left(output)) => output.id.clone(),
-					Some(Either::Right((id, _))) => id.clone(),
+					Some(Either::Right((id, _, _))) => id.clone(),
 					None => return Err(tg::error!("expected the contents to be set")),
 				};
 				let dependencies = file
@@ -455,20 +455,26 @@ impl Server {
 				let node = graph.nodes.get(&index).unwrap();
 				(node.complete, node.metadata.clone())
 			} else if let Ok(id) = id.try_unwrap_blob_ref() {
-				let metadata = scc.iter().find_map(|&index| {
-					let node = graph.nodes.get(&index)?;
-					let file = node.variant.try_unwrap_file_ref().ok()?;
-					file.contents.as_ref().and_then(|contents| match contents {
-						Either::Left(output) if &output.id == id => Some(tg::object::Metadata {
-							count: Some(output.count),
-							depth: Some(output.depth),
-							weight: Some(output.weight),
-						}),
-						Either::Right((id_, metadata)) if id_ == id => metadata.clone(),
-						_ => None,
+				scc.iter()
+					.find_map(|&index| {
+						let node = graph.nodes.get(&index)?;
+						let file = node.variant.try_unwrap_file_ref().ok()?;
+						file.contents.as_ref().and_then(|contents| match contents {
+							Either::Left(output) if &output.id == id => {
+								let metadata = tg::object::Metadata {
+									count: Some(output.count),
+									depth: Some(output.depth),
+									weight: Some(output.weight),
+								};
+								Some((true, Some(metadata)))
+							},
+							Either::Right((id_, complete, metadata)) if id_ == id => {
+								Some((*complete, metadata.clone()))
+							},
+							_ => None,
+						})
 					})
-				});
-				(true, metadata)
+					.unwrap_or((false, None))
 			} else {
 				(false, None)
 			}
@@ -535,7 +541,10 @@ impl Server {
 	) {
 		for scc in sccs {
 			for index in scc {
+				// Get the node.
 				let node = graph.nodes.get(index).unwrap();
+
+				// Visit only files with write output.
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
@@ -546,8 +555,11 @@ impl Server {
 				else {
 					continue;
 				};
+
+				// Get the artifact and path.
 				let (artifact, path) = if arg.options.destructive {
-					let id = graph.nodes.get(&0).unwrap().id.as_ref().unwrap().clone();
+					let index = graph.paths.get(root).unwrap();
+					let id = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
 					let path = node
 						.path
 						.as_ref()

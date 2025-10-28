@@ -79,6 +79,54 @@ impl Server {
 		Ok(outputs)
 	}
 
+	pub(crate) async fn try_get_object_complete_and_metadata_postgres(
+		&self,
+		database: &db::postgres::Database,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+		// Get an index connection.
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+
+		// Get the object complete flag and metadata.
+		let statement = indoc!(
+			"
+				select complete, count, depth, weight
+				from objects
+				where id = $1;
+			",
+		);
+		#[derive(serde::Deserialize)]
+		struct Row {
+			complete: bool,
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
+		let params = db::params![id.to_bytes()];
+		let output = connection
+			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|row| row.0);
+
+		// Drop the connection.
+		drop(connection);
+
+		let output = output.map(|output| {
+			let metadata = tg::object::Metadata {
+				count: output.count,
+				depth: output.depth,
+				weight: output.weight,
+			};
+			(output.complete, metadata)
+		});
+
+		Ok(output)
+	}
+
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
