@@ -109,7 +109,7 @@ impl Server {
 				.unwrap()
 				.variant
 				.unwrap_file_mut();
-			file.contents = Some(Either::Left(output));
+			file.contents = Some(Either::Left(Box::new(output)));
 		}
 
 		Ok(())

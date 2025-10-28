@@ -44,7 +44,7 @@ pub struct Directory {
 #[derive(Clone, Debug)]
 pub struct File {
 	pub contents:
-		Option<Either<crate::write::Output, (tg::blob::Id, Option<tg::object::Metadata>)>>,
+		Option<Either<Box<crate::write::Output>, (tg::blob::Id, Option<tg::object::Metadata>)>>,
 	pub dependencies:
 		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
 	pub executable: bool,

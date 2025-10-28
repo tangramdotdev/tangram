@@ -539,7 +539,11 @@ impl Server {
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
-				let Some(Either::Left(output)) = &file.contents else {
+				let Some(Either::Left(output)) = file
+					.contents
+					.as_ref()
+					.map(|either| either.as_ref().map_left(AsRef::as_ref))
+				else {
 					continue;
 				};
 				let (artifact, path) = if arg.options.destructive {

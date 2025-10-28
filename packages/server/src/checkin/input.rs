@@ -21,6 +21,11 @@ struct State<'a> {
 	progress: crate::progress::Handle<tg::checkin::Output>,
 }
 
+struct Item {
+	path: PathBuf,
+	parent: Option<Parent>,
+}
+
 struct Parent {
 	node: usize,
 	variant: ParentVariant,
@@ -63,7 +68,14 @@ impl Server {
 		};
 
 		// Visit.
-		self.checkin_visit(&mut state, None, root)?;
+		let item = Item {
+			path: root,
+			parent: None,
+		};
+		let mut stack = vec![item];
+		while let Some(item) = stack.pop() {
+			self.checkin_visit(&mut state, &mut stack, item)?;
+		}
 
 		Ok(())
 	}
@@ -71,26 +83,30 @@ impl Server {
 	fn checkin_visit(
 		&self,
 		state: &mut State,
-		parent: Option<Parent>,
-		path: PathBuf,
-	) -> tg::Result<Option<usize>> {
+		stack: &mut Vec<Item>,
+		item: Item,
+	) -> tg::Result<()> {
 		// Check if the path has been visited.
-		if let Some(index) = state.graph.paths.get(&path).copied() {
-			return Ok(Some(index));
+		if let Some(&existing_index) = state.graph.paths.get(&item.path) {
+			// Update the parent's edge to point to the existing node.
+			if let Some(parent) = item.parent {
+				Self::checkin_input_update_parent_edge(state, parent, existing_index)?;
+			}
+			return Ok(());
 		}
 
 		// Get the metadata.
-		let metadata = std::fs::symlink_metadata(&path).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+		let metadata = std::fs::symlink_metadata(&item.path).map_err(
+			|source| tg::error!(!source, %path = item.path.display(), "failed to get the metadata"),
 		)?;
 
 		// Skip ignored files.
 		if state.ignorer.as_mut().is_some_and(|ignorer| {
 			ignorer
-				.matches(&path, Some(metadata.is_dir()))
+				.matches(&item.path, Some(metadata.is_dir()))
 				.unwrap_or_default()
 		}) {
-			return Ok(None);
+			return Ok(());
 		}
 
 		// Create the variant.
@@ -105,7 +121,7 @@ impl Server {
 				executable: metadata.permissions().mode() & 0o111 != 0,
 			})
 		} else if metadata.is_symlink() {
-			let path = std::fs::read_link(&path)
+			let path = std::fs::read_link(&item.path)
 				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
 			Variant::Symlink(Symlink {
 				artifact: None,
@@ -118,7 +134,7 @@ impl Server {
 		// Send the message to the fixup task.
 		if let Some(sender) = &state.fixup_sender {
 			let message = super::fixup::Message {
-				path: path.clone(),
+				path: item.path.clone(),
 				metadata: metadata.clone(),
 			};
 			sender.send(message).ok();
@@ -129,10 +145,10 @@ impl Server {
 		state.graph.next += 1;
 
 		// Update the path.
-		state.graph.paths.insert(path.clone(), index);
+		state.graph.paths.insert(item.path.clone(), index);
 
 		// Get the lock node.
-		let lock_node = Self::checkin_input_get_lock_node(state, parent);
+		let lock_node = Self::checkin_input_get_lock_node(state, item.parent.as_ref());
 
 		// Create the node.
 		let node = Node {
@@ -140,29 +156,38 @@ impl Server {
 			lock_node,
 			metadata: None,
 			id: None,
-			path: Some(path),
+			path: Some(item.path),
 			path_metadata: Some(metadata),
 			referrers: SmallVec::new(),
 			variant,
 		};
 		state.graph.nodes.insert(index, node);
 
+		// Update the parent's edge to point to this node.
+		if let Some(parent) = item.parent {
+			Self::checkin_input_update_parent_edge(state, parent, index)?;
+		}
+
 		match &state.graph.nodes.get(&index).unwrap().variant {
 			Variant::Directory(_) => {
-				self.checkin_visit_directory(state, index)?;
+				Self::checkin_visit_directory(state, stack, index)?;
 			},
 			Variant::File(_) => {
-				self.checkin_visit_file(state, index)?;
+				self.checkin_visit_file(state, stack, index)?;
 			},
 			Variant::Symlink(_) => {
-				self.checkin_visit_symlink(state, index)?;
+				Self::checkin_visit_symlink(state, stack, index)?;
 			},
 		}
 
-		Ok(Some(index))
+		Ok(())
 	}
 
-	fn checkin_visit_directory(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_directory(
+		state: &mut State,
+		stack: &mut Vec<Item>,
+		index: usize,
+	) -> tg::Result<()> {
 		// Read the entries.
 		let path = state
 			.graph
@@ -193,7 +218,7 @@ impl Server {
 		// Sort the entries.
 		names.sort_unstable();
 
-		// Visit the children.
+		// Push items for children onto the stack.
 		for name in names {
 			let parent = Parent {
 				node: index,
@@ -202,41 +227,27 @@ impl Server {
 			let path = state
 				.graph
 				.nodes
-				.get_mut(&index)
+				.get(&index)
 				.unwrap()
 				.path
 				.as_ref()
 				.unwrap()
 				.join(&name);
-			let Some(child_index) = self.checkin_visit(state, Some(parent), path)? else {
-				continue;
-			};
-			state
-				.graph
-				.nodes
-				.get_mut(&child_index)
-				.unwrap()
-				.referrers
-				.push(index);
-			let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-				graph: None,
-				node: child_index,
+			stack.push(Item {
+				path,
+				parent: Some(parent),
 			});
-			state
-				.graph
-				.nodes
-				.get_mut(&index)
-				.unwrap()
-				.variant
-				.unwrap_directory_mut()
-				.entries
-				.insert(name, edge);
 		}
 
 		Ok(())
 	}
 
-	fn checkin_visit_file(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_file(
+		&self,
+		state: &mut State,
+		stack: &mut Vec<Item>,
+		index: usize,
+	) -> tg::Result<()> {
 		let path = state
 			.graph
 			.nodes
@@ -247,17 +258,14 @@ impl Server {
 			.unwrap()
 			.to_owned();
 
-		// Read and visit the dependencies.
-		let dependencies = if let Ok(Some(contents)) =
-			xattr::get(&path, tg::file::DEPENDENCIES_XATTR_NAME)
-		{
+		// Get the dependencies.
+		let mut dependencies = BTreeMap::new();
+		if let Ok(Some(contents)) = xattr::get(&path, tg::file::DEPENDENCIES_XATTR_NAME) {
 			// Read the dependencies xattr.
 			let references = serde_json::from_slice::<Vec<tg::Reference>>(&contents)
 				.map_err(|source| tg::error!(!source, "failed to deserialize dependencies"))?;
 
-			// Create the dependencies and visit the path dependencies.
-			let mut dependencies = BTreeMap::new();
-			let referrer = index;
+			// Create the dependencies and push items for path dependencies.
 			for reference in references {
 				let reference_path = if state.arg.options.local_dependencies {
 					reference
@@ -268,7 +276,7 @@ impl Server {
 				} else {
 					reference.item().try_unwrap_path_ref().ok()
 				};
-				let referent = if let Some(reference_path) = reference_path {
+				if let Some(reference_path) = reference_path {
 					let parent = Parent {
 						node: index,
 						variant: ParentVariant::FileDependency(reference.clone()),
@@ -277,39 +285,15 @@ impl Server {
 					let referent = referent.canonicalize().map_err(
 						|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
 					)?;
-					let Some(index) = self.checkin_visit(state, Some(parent), referent.clone())?
-					else {
-						continue;
-					};
-					state
-						.graph
-						.nodes
-						.get_mut(&index)
-						.unwrap()
-						.referrers
-						.push(referrer);
-					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
-						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
-					let path = if path.as_os_str().is_empty() {
-						".".into()
-					} else {
-						path
-					};
-					let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-						graph: None,
-						node: index,
+					stack.push(Item {
+						path: referent,
+						parent: Some(parent),
 					});
-					let item = edge;
-					let options = tg::referent::Options::with_path(path);
-					let referent = tg::Referent { item, options };
-					Some(referent)
+					dependencies.insert(reference, None);
 				} else {
-					None
-				};
-				dependencies.insert(reference, referent);
+					dependencies.insert(reference, None);
+				}
 			}
-
-			dependencies
 		} else if tg::package::is_module_path(&path) {
 			// Read the module.
 			let contents = std::fs::read(&path).map_err(
@@ -330,9 +314,7 @@ impl Server {
 				state.progress.diagnostic(diagnostic);
 			}
 
-			// Create the dependencies and visit the path dependencies.
-			let mut dependencies = BTreeMap::new();
-			let referrer = index;
+			// Create the dependencies and push items for path dependencies.
 			for import in analysis.imports {
 				let reference = import.reference;
 				let reference_path = if state.arg.options.local_dependencies {
@@ -344,7 +326,7 @@ impl Server {
 				} else {
 					reference.item().try_unwrap_path_ref().ok()
 				};
-				let referent = if let Some(reference_path) = reference_path {
+				if let Some(reference_path) = reference_path {
 					let parent = Parent {
 						node: index,
 						variant: ParentVariant::FileDependency(reference.clone()),
@@ -359,42 +341,16 @@ impl Server {
 							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
 						)?
 					};
-					let Some(index) = self.checkin_visit(state, Some(parent), referent.clone())?
-					else {
-						continue;
-					};
-					state
-						.graph
-						.nodes
-						.get_mut(&index)
-						.unwrap()
-						.referrers
-						.push(referrer);
-					let path = tangram_util::path::diff(path.parent().unwrap(), &referent)
-						.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
-					let path = if path.as_os_str().is_empty() {
-						".".into()
-					} else {
-						path
-					};
-					let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-						graph: None,
-						node: index,
+					stack.push(Item {
+						path: referent,
+						parent: Some(parent),
 					});
-					let item = edge;
-					let options = tg::referent::Options::with_path(path);
-					let referent = tg::Referent { item, options };
-					Some(referent)
+					dependencies.insert(reference, None);
 				} else {
-					None
-				};
-				dependencies.insert(reference, referent);
+					dependencies.insert(reference, None);
+				}
 			}
-
-			dependencies
-		} else {
-			BTreeMap::new()
-		};
+		}
 
 		// Spawn tasks to pull the tag dependencies.
 		for reference in dependencies.keys() {
@@ -423,7 +379,11 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_visit_symlink(&self, state: &mut State, index: usize) -> tg::Result<()> {
+	fn checkin_visit_symlink(
+		state: &mut State,
+		stack: &mut Vec<Item>,
+		index: usize,
+	) -> tg::Result<()> {
 		// Read the symlink.
 		let path = state
 			.graph
@@ -457,45 +417,35 @@ impl Server {
 				return Ok(());
 			};
 
-			// Visit the entry.
+			// Create an item for the artifact.
 			let parent = Parent {
 				node: index,
 				variant: ParentVariant::SymlinkArtifact,
 			};
 			let path = artifacts_path.join(artifact.to_string());
-			let artifact = self
-				.checkin_visit(state, Some(parent), path)?
-				.ok_or_else(|| tg::error!("failed to visit dependency"))?;
-			state
-				.graph
-				.nodes
-				.get_mut(&artifact)
-				.unwrap()
-				.referrers
-				.push(index);
 
-			// Get the path.
-			let path = components.collect();
-			let path = if path == Path::new("") {
+			// Get the path within the artifact.
+			let artifact_path = components.collect();
+			let artifact_path = if artifact_path == Path::new("") {
 				None
 			} else {
-				Some(path)
+				Some(artifact_path)
 			};
 
-			// Update the symlink.
-			let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-				graph: None,
-				node: artifact,
-			});
-			let variant = state
+			// Update the symlink path.
+			state
 				.graph
 				.nodes
 				.get_mut(&index)
 				.unwrap()
 				.variant
-				.unwrap_symlink_mut();
-			variant.artifact.replace(edge);
-			variant.path = path;
+				.unwrap_symlink_mut()
+				.path = artifact_path;
+
+			stack.push(Item {
+				path,
+				parent: Some(parent),
+			});
 
 			return Ok(());
 		}
@@ -513,7 +463,102 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_input_get_lock_node(state: &State, parent: Option<Parent>) -> Option<usize> {
+	fn checkin_input_update_parent_edge(
+		state: &mut State,
+		parent: Parent,
+		child_index: usize,
+	) -> tg::Result<()> {
+		state
+			.graph
+			.nodes
+			.get_mut(&child_index)
+			.unwrap()
+			.referrers
+			.push(parent.node);
+		match parent.variant {
+			ParentVariant::DirectoryEntry(name) => {
+				let edge: tg::graph::data::Edge<tg::artifact::Id> =
+					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+						graph: None,
+						node: child_index,
+					});
+				state
+					.graph
+					.nodes
+					.get_mut(&parent.node)
+					.unwrap()
+					.variant
+					.unwrap_directory_mut()
+					.entries
+					.insert(name, edge);
+			},
+			ParentVariant::FileDependency(reference) => {
+				let edge: tg::graph::data::Edge<tg::object::Id> =
+					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+						graph: None,
+						node: child_index,
+					});
+				let path = state
+					.graph
+					.nodes
+					.get(&child_index)
+					.unwrap()
+					.path
+					.as_ref()
+					.unwrap();
+				let parent_path = state
+					.graph
+					.nodes
+					.get(&parent.node)
+					.unwrap()
+					.path
+					.as_ref()
+					.unwrap();
+				let path = tangram_util::path::diff(parent_path.parent().unwrap(), path)
+					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
+				let path = if path.as_os_str().is_empty() {
+					".".into()
+				} else {
+					path
+				};
+				let options = tg::referent::Options::with_path(path);
+				let referent = tg::Referent {
+					item: edge,
+					options,
+				};
+				state
+					.graph
+					.nodes
+					.get_mut(&parent.node)
+					.unwrap()
+					.variant
+					.unwrap_file_mut()
+					.dependencies
+					.get_mut(&reference)
+					.unwrap()
+					.replace(referent);
+			},
+			ParentVariant::SymlinkArtifact => {
+				let edge: tg::graph::data::Edge<tg::artifact::Id> =
+					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+						graph: None,
+						node: child_index,
+					});
+				state
+					.graph
+					.nodes
+					.get_mut(&parent.node)
+					.unwrap()
+					.variant
+					.unwrap_symlink_mut()
+					.artifact
+					.replace(edge);
+			},
+		}
+		Ok(())
+	}
+
+	fn checkin_input_get_lock_node(state: &State, parent: Option<&Parent>) -> Option<usize> {
 		let Some(lock) = &state.lock else {
 			return None;
 		};
@@ -522,13 +567,13 @@ impl Server {
 		};
 		let parent_index = state.graph.nodes.get(&parent.node).unwrap().lock_node?;
 		let parent_node = &lock.nodes[parent_index];
-		match parent.variant {
+		match &parent.variant {
 			ParentVariant::DirectoryEntry(name) => Some(
 				parent_node
 					.try_unwrap_directory_ref()
 					.ok()?
 					.entries
-					.get(&name)?
+					.get(name)?
 					.try_unwrap_reference_ref()
 					.ok()?
 					.node,
@@ -538,7 +583,7 @@ impl Server {
 					.try_unwrap_file_ref()
 					.ok()?
 					.dependencies
-					.get(&reference)?
+					.get(reference)?
 					.as_ref()?
 					.item()
 					.try_unwrap_reference_ref()
