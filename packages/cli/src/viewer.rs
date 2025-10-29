@@ -40,14 +40,20 @@ pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewe
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Item {
+	Package(Package),
 	Process(tg::Process),
+	Tag(tg::tag::Pattern),
 	Value(tg::Value),
 }
 
 #[derive(Clone, Debug)]
+pub struct Package(pub tg::Object);
+
+#[derive(Clone, Debug)]
 pub struct Options {
-	pub auto_expand_and_collapse_processes: bool,
+	pub expand: crate::view::ExpandOptions,
 	pub show_process_commands: bool,
+	pub clear_at_end: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -316,7 +322,8 @@ where
 
 		// Render the tree.
 		let mut lines = None;
-		loop {
+
+		'display: loop {
 			// Update.
 			self.update();
 
@@ -352,29 +359,42 @@ where
 				tty.flush()
 					.map_err(|source| tg::error!(!source, "failed to flush the terminal"))?;
 				lines.replace(count);
+			} else {
+				self.tree.clear_guards();
 			}
 
-			// Sleep. If the task is stopped, then break.
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
-			if let future::Either::Left(_) = future::select(pin!(stop.wait()), pin!(sleep)).await {
-				break;
+			// Wait for a change or sleep to time out.
+			let changed = self.tree.changed();
+			let sleep = tokio::time::sleep(Duration::from_millis(1000));
+			let stop = stop.wait();
+			tokio::select! {
+				() = changed => (),
+				() = sleep => (),
+				() = stop => break 'display,
+			};
+
+			if self.tree.is_finished() {
+				break 'display;
 			}
 		}
 
 		// Handle any pending updates.
 		self.update();
 
+		// Get the tty or print the tree.
+		let Some(tty) = tty.as_mut() else {
+			eprintln!("{}", self.tree.display());
+			return Ok(());
+		};
+
 		// Clear.
-		match (tty.as_mut(), lines) {
-			(Some(tty), Some(lines)) if lines > 0 => {
-				ct::queue!(
-					tty,
-					ct::cursor::MoveToPreviousLine(lines),
-					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-				)
-				.unwrap();
-			},
-			_ => (),
+		if self.tree.options().clear_at_end && lines.is_some_and(|lines| lines > 0) {
+			ct::queue!(
+				tty,
+				ct::cursor::MoveToPreviousLine(lines.unwrap()),
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+			)
+			.unwrap();
 		}
 
 		Ok(())
