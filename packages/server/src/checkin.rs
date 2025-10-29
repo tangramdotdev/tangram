@@ -132,8 +132,9 @@ impl Server {
 		// Attempt to get the graph, lock, and solutions from a watcher.
 		let (mut graph, lock, mut solutions, version) = if arg.options.watch
 			&& let Some(watch) = self.watches.get(&root)
+			&& let state = watch.value().state.lock().unwrap()
+			&& state.options == arg.options
 		{
-			let state = watch.value().state.lock().unwrap();
 			let graph = state.graph.clone();
 			let lock = state.lock.clone();
 			let solutions = state.solutions.clone();
@@ -286,7 +287,7 @@ impl Server {
 					state.lock = lock;
 				},
 				dashmap::Entry::Vacant(entry) => {
-					let watch = Watch::new(&root, graph, lock, solutions)
+					let watch = Watch::new(&root, graph, lock, arg.options.clone(), solutions)
 						.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
 					entry.insert(watch);
 				},

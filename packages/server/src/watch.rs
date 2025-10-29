@@ -17,6 +17,7 @@ pub struct Watch {
 pub struct State {
 	pub graph: crate::checkin::Graph,
 	pub lock: Option<Arc<tg::graph::Data>>,
+	pub options: tg::checkin::Options,
 	pub solutions: crate::checkin::Solutions,
 	pub version: u64,
 }
@@ -26,11 +27,13 @@ impl Watch {
 		root: &Path,
 		graph: crate::checkin::Graph,
 		lock: Option<Arc<tg::graph::Data>>,
+		options: tg::checkin::Options,
 		solutions: crate::checkin::Solutions,
 	) -> tg::Result<Self> {
 		let state = State {
 			graph,
 			lock,
+			options,
 			solutions,
 			version: 0,
 		};
