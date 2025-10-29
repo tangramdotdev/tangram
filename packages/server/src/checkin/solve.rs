@@ -67,10 +67,18 @@ impl Server {
 		root: &Path,
 	) -> tg::Result<()> {
 		if solutions.is_empty() {
+			// If solutions is empty, then just solve.
+			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
+				.await
+		} else if !arg.updates.is_empty() {
+			// If there are updates, then unsolve and clean the graph, clear the solutions, and solve from the beginning.
+			graph.unsolve();
+			graph.clean();
+			solutions.clear();
 			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
 				.await
 		} else {
-			// Attempt to solve.
+			// Otherwise, attempt to solve.
 			let result = self
 				.checkin_solve_inner(arg, graph, next, lock.clone(), solutions, root)
 				.await;
@@ -538,8 +546,7 @@ impl Server {
 		item: &Item,
 	) -> Option<Candidate> {
 		let lock_index = checkpoint.graph.nodes.get(&item.node).unwrap().lock_node?;
-		let candidate = Self::checkin_solve_get_candidate_from_lock(checkpoint, item, lock_index)?;
-		// Filter out the lock candidate if it matches an update pattern.
+		let candidate = Self::checkin_solve_get_lock_candidate_inner(checkpoint, item, lock_index)?;
 		if state
 			.updates
 			.iter()
@@ -547,6 +554,29 @@ impl Server {
 		{
 			return None;
 		}
+		Some(candidate)
+	}
+
+	fn checkin_solve_get_lock_candidate_inner(
+		checkpoint: &Checkpoint,
+		item: &Item,
+		lock_index: usize,
+	) -> Option<Candidate> {
+		let lock_node = &checkpoint.lock.as_ref().unwrap().nodes[lock_index];
+		let options = if let ItemVariant::FileDependency(reference) = &item.variant {
+			lock_node
+				.try_unwrap_file_ref()
+				.ok()?
+				.dependencies
+				.get(reference)?
+				.as_ref()?
+				.options()
+		} else {
+			return None;
+		};
+		let object = options.id.clone()?;
+		let tag = options.tag.clone()?;
+		let candidate = Candidate { object, tag };
 		Some(candidate)
 	}
 
@@ -575,29 +605,6 @@ impl Server {
 			})
 			.collect::<im::Vector<_>>();
 		Ok(candidates)
-	}
-
-	fn checkin_solve_get_candidate_from_lock(
-		checkpoint: &Checkpoint,
-		item: &Item,
-		lock_index: usize,
-	) -> Option<Candidate> {
-		let lock_node = &checkpoint.lock.as_ref().unwrap().nodes[lock_index];
-		let options = if let ItemVariant::FileDependency(reference) = &item.variant {
-			lock_node
-				.try_unwrap_file_ref()
-				.ok()?
-				.dependencies
-				.get(reference)?
-				.as_ref()?
-				.options()
-		} else {
-			return None;
-		};
-		let object = options.id.clone()?;
-		let tag = options.tag.clone()?;
-		let candidate = Candidate { object, tag };
-		Some(candidate)
 	}
 
 	async fn checkin_solve_add_node(
@@ -1006,7 +1013,6 @@ fn explain(checkpoint: &Checkpoint, item: &Item, tag: &tg::Tag) -> tg::Error {
 }
 
 fn format_dependency(graph: &Graph, node: usize, pattern: Option<&tg::tag::Pattern>) -> String {
-	// TODO
 	let pattern = pattern.unwrap();
 	let referrer = graph.nodes.get(&node).unwrap();
 	if let Some(path) = &referrer.path {
