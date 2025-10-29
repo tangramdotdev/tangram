@@ -20,7 +20,7 @@ mod lock;
 mod solve;
 mod store;
 
-pub(crate) use self::graph::Graph;
+pub(crate) use self::{graph::Graph, solve::Solutions};
 
 type StoreArgs = IndexMap<tg::object::Id, crate::store::PutArg, tg::id::BuildHasher>;
 
@@ -129,14 +129,22 @@ impl Server {
 			None
 		};
 
-		// Attempt to get the graph and lock from a watcher.
-		let (mut graph, lock, version) = if arg.options.watch
+		// Attempt to get the graph, lock, and solutions from a watcher.
+		let (mut graph, lock, mut solutions, version) = if arg.options.watch
 			&& let Some(watch) = self.watches.get(&root)
 		{
 			let state = watch.value().state.lock().unwrap();
-			(state.graph.clone(), state.lock.clone(), Some(state.version))
+			let graph = state.graph.clone();
+			let lock = state.lock.clone();
+			let solutions = state.solutions.clone();
+			let version = Some(state.version);
+			(graph, lock, solutions, version)
 		} else {
-			(Graph::default(), None, None)
+			let graph = Graph::default();
+			let lock = None;
+			let solutions = Solutions::default();
+			let version = None;
+			(graph, lock, solutions, version)
 		};
 
 		// Read the lock if it was not retrieved from the watcher.
@@ -177,6 +185,7 @@ impl Server {
 					fixup_sender,
 					&mut graph,
 					lock.as_deref(),
+					next,
 					progress,
 					root,
 				)?;
@@ -190,8 +199,7 @@ impl Server {
 		// Solve.
 		if arg.options.solve {
 			let start = Instant::now();
-			graph = self
-				.checkin_solve(&arg, graph.clone(), lock.clone(), &root)
+			self.checkin_solve(&arg, &mut graph, next, lock.clone(), &mut solutions, &root)
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
@@ -274,7 +282,7 @@ impl Server {
 					state.lock = lock;
 				},
 				dashmap::Entry::Vacant(entry) => {
-					let watch = Watch::new(&root, graph, lock)
+					let watch = Watch::new(&root, graph, lock, solutions)
 						.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
@@ -297,41 +305,8 @@ impl Server {
 						return;
 					}
 
-					// Get nodes with no referrers.
-					let mut queue = graph
-						.nodes
-						.iter()
-						.filter(|(_, node)| node.referrers.is_empty())
-						.map(|(index, _)| *index)
-						.collect::<Vec<_>>();
-
-					let mut visited =
-						std::collections::HashSet::<usize, fnv::FnvBuildHasher>::default();
-					while let Some(index) = queue.pop() {
-						if !visited.insert(index) {
-							continue;
-						}
-
-						// Remove the node.
-						let node = graph.nodes.remove(&index).unwrap();
-						tracing::trace!(path = ?node.path, id = ?node.id.as_ref().map(ToString::to_string), "cleaned");
-						if let Some(id) = &node.id {
-							graph.ids.remove(id);
-						}
-						if let Some(path) = &node.path {
-							graph.paths.remove(path);
-						}
-
-						// Remove the node from its children's referrers and enqueue its children with no more referrers.
-						for child_index in node.children() {
-							if let Some(child) = graph.nodes.get_mut(&child_index) {
-								child.referrers.retain(|index_| *index_ != index);
-								if child.referrers.is_empty() {
-									queue.push(child_index);
-								}
-							}
-						}
-					}
+					// Clean the graph.
+					graph.clean();
 				}
 			});
 		}

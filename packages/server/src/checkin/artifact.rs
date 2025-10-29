@@ -3,7 +3,8 @@ use {
 	crate::{
 		Server,
 		checkin::{
-			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs, graph::{Contents, Petgraph},
+			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs,
+			graph::{Contents, Petgraph},
 		},
 	},
 	num::ToPrimitive as _,
@@ -467,9 +468,11 @@ impl Server {
 								};
 								Some((true, Some(metadata)))
 							},
-							Contents::Id { id: id_, complete, metadata } if id_ == id => {
-								Some((*complete, metadata.clone()))
-							},
+							Contents::Id {
+								id: id_,
+								complete,
+								metadata,
+							} if id_ == id => Some((*complete, metadata.clone())),
 							_ => None,
 						})
 					})
@@ -547,8 +550,7 @@ impl Server {
 				let Variant::File(file) = &node.variant else {
 					continue;
 				};
-				let Some(Contents::Write(output)) = file.contents.as_ref()
-				else {
+				let Some(Contents::Write(output)) = file.contents.as_ref() else {
 					continue;
 				};
 

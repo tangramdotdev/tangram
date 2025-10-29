@@ -134,7 +134,9 @@ impl Server {
 		let output = connection
 			.with({
 				let id = id.to_owned();
-				move |connection| Self::try_get_object_complete_and_metadata_sqlite_sync(connection, &id)
+				move |connection| {
+					Self::try_get_object_complete_and_metadata_sqlite_sync(connection, &id)
+				}
 			})
 			.await?;
 

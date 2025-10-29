@@ -23,7 +23,51 @@ pub struct Node {
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub referrers: SmallVec<[usize; 1]>,
+	pub solved: bool,
 	pub variant: Variant,
+}
+
+impl Graph {
+	pub fn clean(&mut self) {
+		// Get nodes with no referrers.
+		let mut queue = self
+			.nodes
+			.iter()
+			.filter(|(_, node)| node.referrers.is_empty())
+			.map(|(index, _)| *index)
+			.collect::<Vec<_>>();
+
+		let mut visited = std::collections::HashSet::<usize, fnv::FnvBuildHasher>::default();
+		while let Some(index) = queue.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+
+			// Remove the node.
+			let node = self.nodes.remove(&index).unwrap();
+			tracing::trace!(path = ?node.path, id = ?node.id.as_ref().map(ToString::to_string), "cleaned");
+			if let Some(id) = &node.id {
+				self.ids.remove(id);
+			}
+			if let Some(path) = &node.path {
+				self.paths.remove(path);
+			}
+
+			// Remove the node from its children's referrers and enqueue its children with no more referrers.
+			for child_index in node.children() {
+				if let Some(child) = self.nodes.get_mut(&child_index) {
+					child.referrers.retain(|index_| *index_ != index);
+					if child.referrers.is_empty() {
+						queue.push(child_index);
+					}
+				}
+			}
+		}
+	}
+
+	pub fn unsolve(&mut self) {
+		// TODO clear all file's dependencies whose reference's item is in the tag or object variant, then update the `solved` field.
+	}
 }
 
 impl Node {

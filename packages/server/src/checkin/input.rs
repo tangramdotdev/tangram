@@ -46,6 +46,7 @@ impl Server {
 		fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 		graph: &mut Graph,
 		lock: Option<&tg::graph::Data>,
+		next: usize,
 		progress: crate::progress::Handle<tg::checkin::Output>,
 		root: PathBuf,
 	) -> tg::Result<()> {
@@ -75,6 +76,40 @@ impl Server {
 		let mut stack = vec![item];
 		while let Some(item) = stack.pop() {
 			self.checkin_visit(&mut state, &mut stack, item)?;
+		}
+
+		// Set the solved field for all new nodes.
+		let petgraph = super::graph::Petgraph {
+			graph: state.graph,
+			next,
+		};
+		let sccs = petgraph::algo::tarjan_scc(&petgraph);
+		for scc in &sccs {
+			let solved =
+				!scc.iter().any(|index| {
+					// Get the node.
+					let node = state.graph.nodes.get(index).unwrap();
+
+					// Check if the node has solveable dependencies.
+					if let Variant::File(file) = &node.variant
+						&& file.dependencies.keys().any(|reference| {
+							reference.item().is_tag() || reference.item().is_object()
+						}) {
+						return true;
+					}
+
+					// Check if the node has unsolved children.
+					node.children()
+						.iter()
+						.any(|&child| !state.graph.nodes.get(&child).unwrap().solved)
+				});
+
+			// Set solved to false if necessary.
+			if !solved {
+				for &index in scc {
+					state.graph.nodes.get_mut(&index).unwrap().solved = false;
+				}
+			}
 		}
 
 		Ok(())
@@ -159,6 +194,7 @@ impl Server {
 			path: Some(item.path),
 			path_metadata: Some(metadata),
 			referrers: SmallVec::new(),
+			solved: true,
 			variant,
 		};
 		state.graph.nodes.insert(index, Box::new(node));
