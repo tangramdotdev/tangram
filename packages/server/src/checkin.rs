@@ -191,7 +191,7 @@ impl Server {
 		if arg.options.solve {
 			let start = Instant::now();
 			graph = self
-				.checkin_solve(&arg, graph.clone(), lock.as_deref(), &root)
+				.checkin_solve(&arg, graph.clone(), lock.clone(), &root)
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}

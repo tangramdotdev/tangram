@@ -4,25 +4,25 @@ use {
 		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
-	std::{collections::HashMap, path::Path},
+	std::{collections::HashMap, path::Path, sync::Arc},
 	tangram_client::{self as tg, handle::Ext as _},
 	tangram_either::Either,
 };
 
-struct State<'a> {
-	checkpoints: Vec<Checkpoint<'a>>,
+struct State {
+	checkpoints: Vec<Checkpoint>,
 	tags: HashMap<tg::Tag, Vec<(usize, tg::tag::Pattern)>, fnv::FnvBuildHasher>,
-	updates: &'a [tg::tag::Pattern],
+	updates: Vec<tg::tag::Pattern>,
 }
 
 #[derive(Clone)]
-struct Checkpoint<'a> {
+struct Checkpoint {
 	candidates: Option<im::Vector<Candidate>>,
 	graph: Graph,
 	graphs: im::HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	graph_nodes: im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>,
 	queue: im::Vector<Item>,
-	lock: Option<&'a tg::graph::Data>,
+	lock: Option<Arc<tg::graph::Data>>,
 	solutions: im::HashMap<Either<tg::Tag, tg::artifact::Id>, tg::Referent<usize>, fnv::FnvBuildHasher>,
 	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
 }
@@ -53,14 +53,14 @@ impl Server {
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: Graph,
-		lock: Option<&tg::graph::Data>,
+		lock: Option<Arc<tg::graph::Data>>,
 		root: &Path,
 	) -> tg::Result<Graph> {
 		// Create the state
 		let mut state = State {
 			checkpoints: Vec::new(),
 			tags: HashMap::default(),
-			updates: &arg.updates,
+			updates: arg.updates.clone(),
 		};
 
 		// Create the first checkpoint.
@@ -71,7 +71,7 @@ impl Server {
 			graph,
 			graphs: im::HashMap::default(),
 			graph_nodes: im::HashMap::default(),
-			lock,
+			lock: lock.clone(),
 			queue: im::Vector::new(),
 			solutions: im::HashMap::default(),
 			visited: im::HashSet::default(),
@@ -87,10 +87,10 @@ impl Server {
 		Ok(checkpoint.graph)
 	}
 
-	async fn checkin_solve_visit_item<'a>(
+	async fn checkin_solve_visit_item(
 		&self,
-		state: &mut State<'a>,
-		checkpoint: &mut Checkpoint<'a>,
+		state: &mut State,
+		checkpoint: &mut Checkpoint,
 		item: Item,
 	) -> tg::Result<()> {
 		// If the item has been visited, then return.
@@ -267,7 +267,7 @@ impl Server {
 
 	async fn checkin_solve_visit_item_with_object(
 		&self,
-		checkpoint: &mut Checkpoint<'_>,
+		checkpoint: &mut Checkpoint,
 		item: Item,
 		reference: tg::Reference,
 		id: tg::object::Id,
@@ -323,10 +323,10 @@ impl Server {
 		Ok(())
 	}
 
-	async fn checkin_solve_visit_item_with_tag<'a>(
+	async fn checkin_solve_visit_item_with_tag(
 		&self,
-		state: &mut State<'a>,
-		checkpoint: &mut Checkpoint<'a>,
+		state: &mut State,
+		checkpoint: &mut Checkpoint,
 		item: Item,
 		reference: tg::Reference,
 		pattern: tg::tag::Pattern,
@@ -403,8 +403,8 @@ impl Server {
 
 	async fn checkin_solve_visit_item_with_tag_inner(
 		&self,
-		state: &State<'_>,
-		checkpoint: &mut Checkpoint<'_>,
+		state: &State,
+		checkpoint: &mut Checkpoint,
 		item: &Item,
 		tag: &tg::Tag,
 		pattern: &tg::tag::Pattern,
@@ -467,8 +467,8 @@ impl Server {
 
 	async fn checkin_solve_get_candidates(
 		&self,
-		state: &State<'_>,
-		checkpoint: &Checkpoint<'_>,
+		state: &State,
+		checkpoint: &Checkpoint,
 		item: &Item,
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<im::Vector<Candidate>> {
@@ -506,7 +506,7 @@ impl Server {
 	}
 
 	fn checkin_solve_get_candidate_from_lock(
-		checkpoint: &Checkpoint<'_>,
+		checkpoint: &Checkpoint,
 		item: &Item,
 		lock_index: usize,
 	) -> Option<Candidate> {
@@ -530,7 +530,7 @@ impl Server {
 
 	async fn checkin_solve_add_node(
 		&self,
-		checkpoint: &mut Checkpoint<'_>,
+		checkpoint: &mut Checkpoint,
 		item: &Item,
 		id: &tg::artifact::Id,
 	) -> tg::Result<usize> {
@@ -618,7 +618,7 @@ impl Server {
 
 	async fn checkin_solve_add_graph_node(
 		&self,
-		checkpoint: &mut Checkpoint<'_>,
+		checkpoint: &mut Checkpoint,
 		item: &Item,
 		graph_id: &tg::graph::Id,
 		node_index: usize,
@@ -863,7 +863,7 @@ impl Server {
 		}
 	}
 
-	fn checkin_solve_backtrack<'a>(state: &mut State<'a>, tag: &tg::Tag) -> Option<Checkpoint<'a>> {
+	fn checkin_solve_backtrack(state: &mut State, tag: &tg::Tag) -> Option<Checkpoint> {
 		let position = state
 			.checkpoints
 			.iter()
