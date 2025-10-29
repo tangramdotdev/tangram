@@ -197,12 +197,16 @@ impl Server {
 		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
 		// Solve.
-		if arg.options.solve {
+		let lock_changed = if arg.options.solve {
 			let start = Instant::now();
-			self.checkin_solve(&arg, &mut graph, next, lock.clone(), &mut solutions, &root)
+			let self::solve::Output { lock_changed } = self
+				.checkin_solve(&arg, &mut graph, next, lock.clone(), &mut solutions, &root)
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
-		}
+			lock_changed
+		} else {
+			false
+		};
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -238,13 +242,6 @@ impl Server {
 		)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
-		// Write the lock.
-		let start = Instant::now();
-		self.checkin_write_lock(&arg, &graph, lock.as_deref(), &root)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
-		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
-
 		// Cache.
 		if let Some(task) = fixup_task {
 			task.await?;
@@ -261,6 +258,13 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
+
+		// Write the lock.
+		let start = Instant::now();
+		self.checkin_write_lock(&arg, &graph, lock.as_deref(), &root, lock_changed)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
 
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if arg.options.watch {
@@ -306,7 +310,7 @@ impl Server {
 					}
 
 					// Clean the graph.
-					graph.clean();
+					graph.clean(&root);
 				}
 			});
 		}

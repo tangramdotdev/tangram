@@ -1,6 +1,9 @@
 use {
 	smallvec::SmallVec,
-	std::{collections::BTreeMap, path::PathBuf},
+	std::{
+		collections::{BTreeMap, HashSet},
+		path::{Path, PathBuf},
+	},
 	tangram_client as tg,
 	tangram_util::iter::Ext as _,
 };
@@ -28,12 +31,13 @@ pub struct Node {
 }
 
 impl Graph {
-	pub fn clean(&mut self) {
+	pub fn clean(&mut self, root: &Path) {
 		// Get nodes with no referrers.
+		let root = self.paths.get(root).unwrap();
 		let mut queue = self
 			.nodes
 			.iter()
-			.filter(|(_, node)| node.referrers.is_empty())
+			.filter(|(index, node)| *index != root && node.referrers.is_empty())
 			.map(|(index, _)| *index)
 			.collect::<Vec<_>>();
 
@@ -66,7 +70,34 @@ impl Graph {
 	}
 
 	pub fn unsolve(&mut self) {
-		// TODO clear all file's dependencies whose reference's item is in the tag or object variant, then update the `solved` field.
+		let mut queue = Vec::new();
+		let indices = self.nodes.keys().copied().collect::<Vec<_>>();
+		for index in indices {
+			let node = self.nodes.get_mut(&index).unwrap();
+			if let Variant::File(file) = &mut node.variant {
+				let mut marked = false;
+				for (reference, referent) in &mut file.dependencies {
+					if reference.item().is_tag() || reference.item().is_object() {
+						marked = true;
+						referent.take();
+					}
+				}
+				if marked {
+					queue.push(index);
+				}
+			}
+		}
+		let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
+		while let Some(index) = queue.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+			let node = self.nodes.get_mut(&index).unwrap();
+			node.solved = false;
+			for index in &node.referrers {
+				queue.push(*index);
+			}
+		}
 	}
 }
 

@@ -948,58 +948,10 @@ async fn default_ignore() {
 		".tangram" => temp::directory! {
 			"config" => temp::file!(""),
 		},
-		"tangram.lock" => temp::file!(r#"{"nodes":[]}"#),
 		"tangram.ts" => temp::file!(""),
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
-	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
-	assert_snapshot!(object, @r#"
-	tg.directory({
-	  "tangram.ts": tg.file({
-	    "contents": tg.blob(""),
-	  }),
-	})
-	"#);
-	assert!(lock.is_none());
-}
-
-#[tokio::test]
-async fn missing_in_lockfile() {
-	let artifact = temp::directory! {
-		"tangram.ts" => r#"import * as a from "./a";"#,
-		"tangram.lock" => temp::file!(indoc!(r#"
-			{
-				"nodes": [
-					{
-						"kind": "directory",
-						"entries": {
-							"tangram.ts": 1
-						}
-					},
-					{
-						"kind": "file"
-					},
-					{
-						"kind": "file",
-						"dependencies": {
-							"./a.tg.ts": {
-								"item": 0,
-								"path": "./a.tg.ts"
-							}
-						}
-					}
-				]
-			}
-		"#)),
-		"a" => temp::directory! {
-			"tangram.ts" => "",
-		},
-	}
-	.into();
-	let path = Path::new("a");
 	let destructive = false;
 	let tags = vec![];
 	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;

@@ -23,7 +23,7 @@ pub struct State {
 
 impl Watch {
 	pub fn new(
-		path: &Path,
+		root: &Path,
 		graph: crate::checkin::Graph,
 		lock: Option<Arc<tg::graph::Data>>,
 		solutions: crate::checkin::Solutions,
@@ -38,7 +38,7 @@ impl Watch {
 		let config = notify::Config::default();
 		let handler = {
 			let state = state.clone();
-			let path = path.to_owned();
+			let root = root.to_owned();
 			move |result: notify::Result<notify::Event>| {
 				// Handle an error.
 				let event = match result {
@@ -56,12 +56,10 @@ impl Watch {
 				let mut state = state.lock().unwrap();
 
 				// Update the nodes for the affected paths along with their ancestors.
-				let lockfile_path = path.join("tangram.lock");
 				let mut removed = false;
 				for path in paths {
-					// If the affected file is the lockfile, then remove the lock.
-					// TODO What if the root is a file?
-					if path == lockfile_path {
+					// If the affected file is the lockfile, then clear it.
+					if path == root.join("tangram.lock") {
 						state.lock.take();
 					}
 
@@ -112,7 +110,7 @@ impl Watch {
 		let mut watcher = notify::RecommendedWatcher::new(handler, config)
 			.map_err(|source| tg::error!(!source, "failed to create the watcher"))?;
 		watcher
-			.watch(path.as_ref(), notify::RecursiveMode::Recursive)
+			.watch(root.as_ref(), notify::RecursiveMode::Recursive)
 			.map_err(|source| tg::error!(!source, "failed to add the watch path"))?;
 		let watch = Self { state, watcher };
 		Ok(watch)

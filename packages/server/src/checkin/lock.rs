@@ -62,9 +62,15 @@ impl Server {
 		graph: &Graph,
 		lock_: Option<&tg::graph::Data>,
 		root: &Path,
+		lock_changed: bool,
 	) -> tg::Result<()> {
-		// Do not create a lock if this is a destructive checkin or the user did not request one.
+		// Do not write a lock if this is a destructive checkin or the user did not request one.
 		if arg.options.destructive || !arg.options.lock {
+			return Ok(());
+		}
+
+		// Do not write a lock if the lock was not changed during solving.
+		if !lock_changed {
 			return Ok(());
 		}
 
