@@ -257,6 +257,9 @@ impl Server {
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if arg.options.watch {
 			let graph = graph.clone();
+			let next = graph.next;
+
+			// Create or update the watcher.
 			let entry = self.watches.entry(root.clone());
 			match entry {
 				dashmap::Entry::Occupied(entry) => {
@@ -288,6 +291,11 @@ impl Server {
 					};
 					let mut state = watch.state.lock().unwrap();
 					let graph = &mut state.graph;
+
+					// Only clean if the graph has not been modified.
+					if graph.next != next {
+						return;
+					}
 
 					// Get nodes with no referrers.
 					let mut queue = graph
