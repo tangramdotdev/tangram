@@ -145,8 +145,15 @@ impl Cli {
 					local_set
 						.block_on(&runtime, async move {
 							let viewer_options = crate::viewer::Options {
-								auto_expand_and_collapse_processes: true,
+								expand: crate::view::ExpandOptions {
+									collapse_process_children: true,
+									process: true,
+									package: false,
+									tag: false,
+									object: false,
+								},
 								show_process_commands: false,
+								clear_at_end: true,
 							};
 							let mut viewer =
 								crate::viewer::Viewer::new(&handle, root, viewer_options);

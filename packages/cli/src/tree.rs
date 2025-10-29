@@ -12,6 +12,9 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
+	#[arg(long, default_value = "value")]
+	pub mode: crate::view::Mode,
+
 	/// The reference to display a tree for.
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
@@ -19,10 +22,19 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_tree(&mut self, args: Args) -> tg::Result<()> {
+		let expand = crate::view::ExpandOptions {
+			collapse_process_children: false,
+			package: true,
+			process: true,
+			tag: true,
+			object: matches!(args.mode, crate::view::Mode::Value | crate::view::Mode::Tag),
+		};
 		let args = crate::view::Args {
 			depth: args.depth,
+			expand,
 			kind: crate::view::Kind::Inline,
 			locked: args.locked,
+			mode: args.mode,
 			reference: args.reference,
 		};
 		self.command_view(args).await?;
