@@ -60,8 +60,8 @@ impl Cli {
 					.map_err(|error| {
 						tg::error!(source = error, "failed to create the tokio runtime")
 					})?;
-				let output =
-				runtime.block_on(tangram_builtin::run(&client, &process, logger, &temp_path))?;
+				let output = runtime
+					.block_on(tangram_builtin::run(&client, &process, logger, &temp_path))?;
 				(output.checksum, output.error, output.exit, output.output)
 			},
 
