@@ -6,6 +6,7 @@ use {
 	smallvec::SmallVec,
 	std::{collections::HashMap, path::Path},
 	tangram_client::{self as tg, handle::Ext as _},
+	tangram_either::Either,
 };
 
 struct State<'a> {
@@ -20,10 +21,9 @@ struct Checkpoint<'a> {
 	graph: Graph,
 	graphs: im::HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	graph_nodes: im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>,
-	ids: im::HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
 	queue: im::Vector<Item>,
 	lock: Option<&'a tg::graph::Data>,
-	tags: im::HashMap<tg::Tag, tg::Referent<usize>, fnv::FnvBuildHasher>,
+	solutions: im::HashMap<Either<tg::Tag, tg::artifact::Id>, tg::Referent<usize>, fnv::FnvBuildHasher>,
 	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
 }
 
@@ -71,10 +71,9 @@ impl Server {
 			graph,
 			graphs: im::HashMap::default(),
 			graph_nodes: im::HashMap::default(),
-			ids: im::HashMap::default(),
 			lock,
 			queue: im::Vector::new(),
-			tags: im::HashMap::default(),
+			solutions: im::HashMap::default(),
 			visited: im::HashSet::default(),
 		};
 		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, *index);
@@ -278,11 +277,18 @@ impl Server {
 		};
 
 		// Check if there is already a node for the object.
-		let index = if let Some(index) = checkpoint.ids.get(&id).copied() {
-			index
+		let index = if let Some(referent) = checkpoint.solutions.get(&Either::Right(id.clone())) {
+			referent.item
 		} else {
 			let index = self.checkin_solve_add_node(checkpoint, &item, &id).await?;
-			checkpoint.ids.insert(id.clone(), index);
+			let referent = tg::Referent::new(
+				index,
+				tg::referent::Options {
+					id: Some(id.clone().into()),
+					..Default::default()
+				},
+			);
+			checkpoint.solutions.insert(Either::Right(id.clone()), referent);
 			index
 		};
 
@@ -404,7 +410,7 @@ impl Server {
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<Result<tg::Referent<usize>, ()>> {
 		// Check if the tag is already set.
-		if let Some(referent) = checkpoint.tags.get(tag) {
+		if let Some(referent) = checkpoint.solutions.get(&Either::Left(tag.clone())) {
 			if !pattern.matches(referent.tag().unwrap()) {
 				return Ok(Err(()));
 			}
@@ -454,7 +460,7 @@ impl Server {
 		let referent = tg::Referent::new(new_item, options);
 
 		// Update the tags.
-		checkpoint.tags.insert(tag.clone(), referent.clone());
+		checkpoint.solutions.insert(Either::Left(tag.clone()), referent.clone());
 
 		Ok(Ok(referent))
 	}
@@ -861,7 +867,7 @@ impl Server {
 		let position = state
 			.checkpoints
 			.iter()
-			.position(|checkpoint| checkpoint.tags.contains_key(tag))?;
+			.position(|checkpoint| checkpoint.solutions.contains_key(&Either::Left(tag.clone())))?;
 		if state.checkpoints[position]
 			.candidates
 			.as_ref()
@@ -872,7 +878,7 @@ impl Server {
 		}
 		state.checkpoints.truncate(position);
 		let mut checkpoint = state.checkpoints.pop()?;
-		checkpoint.tags.remove(tag);
+		checkpoint.solutions.remove(&Either::Left(tag.clone()));
 		state.tags.remove(tag);
 		Some(checkpoint)
 	}
