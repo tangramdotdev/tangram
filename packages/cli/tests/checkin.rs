@@ -1261,7 +1261,8 @@ async fn tag_dependency_not_exist() {
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> no matching tags were found
-	   dependency = <path>/tangram.ts requires 'a/^1.2'
+	   pattern = a/^1.2
+	   referrer = <path>/tangram.ts
 	");
 	assert_snapshot!(stdout, @r#""#);
 }
@@ -1315,8 +1316,9 @@ async fn tag_dependency_no_solution() {
 	let (stdout, stderr) = test_failure(artifact, path, destructive, true, tags).await;
 	assert_snapshot!(stderr, @r"
 	error an error occurred
-	-> failed to solve b/1.0.0:tangram.ts requires 'c/^2'
-	-> a/1.0.0:tangram.ts requires 'c/^1'
+	-> failed to solve c
+	   dependended on by a/1.0.0?path=tangram.ts with pattern c/^1
+	   dependended on by b/1.0.0?path=tangram.ts with pattern c/^2
 	");
 	assert_snapshot!(stdout, @r#""#);
 }
@@ -2235,7 +2237,8 @@ async fn missing_dependency_in_tag() {
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> no matching tags were found
-	   dependency = foo:tangram.ts requires 'bar'
+	   pattern = bar
+	   referrer = foo?path=tangram.ts
 	");
 }
 

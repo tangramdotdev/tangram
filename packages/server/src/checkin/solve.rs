@@ -4,7 +4,11 @@ use {
 		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
-	std::{path::Path, sync::Arc},
+	std::{
+		fmt::Write as _,
+		path::{Path, PathBuf},
+		sync::Arc,
+	},
 	tangram_client::{self as tg, handle::Ext as _},
 	tangram_either::Either,
 };
@@ -12,6 +16,7 @@ use {
 struct State {
 	checkpoints: Vec<Checkpoint>,
 	updates: Vec<tg::tag::Pattern>,
+	root: PathBuf,
 }
 
 #[derive(Clone)]
@@ -54,7 +59,13 @@ pub type Solutions = im::HashMap<Either<tg::Tag, tg::artifact::Id>, Solution, fn
 #[derive(Clone)]
 pub struct Solution {
 	pub referent: tg::Referent<usize>,
-	pub referrers: Vec<(usize, Option<tg::tag::Pattern>)>,
+	pub referrers: Vec<Referrer>,
+}
+
+#[derive(Clone)]
+pub struct Referrer {
+	pub node: usize,
+	pub pattern: Option<tg::tag::Pattern>,
 }
 
 pub struct Output {
@@ -113,6 +124,7 @@ impl Server {
 		let mut state = State {
 			checkpoints: Vec::new(),
 			updates: arg.updates.clone(),
+			root: root.to_owned(),
 		};
 
 		// Create the first checkpoint.
@@ -355,9 +367,13 @@ impl Server {
 					..Default::default()
 				},
 			);
+			let referrer = Referrer {
+				node: item.node,
+				pattern: None,
+			};
 			let solution = Solution {
 				referent,
-				referrers: vec![(item.node, None)],
+				referrers: vec![referrer],
 			};
 			checkpoint
 				.solutions
@@ -452,12 +468,16 @@ impl Server {
 				.push(item.node);
 
 			// Add the referrer to the solution.
+			let referrer = Referrer {
+				node: item.node,
+				pattern: Some(pattern),
+			};
 			checkpoint
 				.solutions
 				.get_mut(&Either::Left(tag))
 				.unwrap()
 				.referrers
-				.push((item.node, Some(pattern)));
+				.push(referrer);
 
 			// Set the lock changed flag if listed is true.
 			if checkpoint.listed {
@@ -468,8 +488,19 @@ impl Server {
 			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
 		} else {
 			// Backtrack.
-			*checkpoint = Self::checkin_solve_backtrack(state, &tag)
-				.ok_or_else(|| explain(checkpoint, &item, &tag))?;
+			*checkpoint = Self::checkin_solve_backtrack(state, &tag).ok_or_else(|| {
+				let referrer = Referrer {
+					node: item.node,
+					pattern: Some(pattern),
+				};
+				checkpoint
+					.solutions
+					.get_mut(&Either::Left(tag.clone()))
+					.unwrap()
+					.referrers
+					.push(referrer);
+				Self::checkin_solve_backtrack_error(state, checkpoint, &tag)
+			})?;
 
 			return Ok(());
 		}
@@ -522,7 +553,8 @@ impl Server {
 			.pop_back()
 			.ok_or_else(|| {
 				tg::error!(
-					%dependency = format_dependency(&checkpoint.graph, item.node, Some(pattern)),
+					%referrer = Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.node),
+					%pattern,
 					"no matching tags were found",
 				)
 			})?;
@@ -1026,117 +1058,113 @@ impl Server {
 		checkpoint.solutions.remove(&Either::Left(tag.clone()));
 		Some(checkpoint)
 	}
-}
 
-fn explain(checkpoint: &Checkpoint, item: &Item, tag: &tg::Tag) -> tg::Error {
-	let mut source = None;
-	if let Some(solution) = checkpoint.solutions.get(&Either::Left(tag.clone())) {
-		for (node, pattern) in &solution.referrers {
-			let mut error = tg::error!(
-				"{}",
-				format_dependency(&checkpoint.graph, *node, pattern.as_ref())
-			);
-			if let Some(source) = source.take() {
-				error.source.replace(tg::Referent::with_item(source));
+	fn checkin_solve_backtrack_error(
+		state: &State,
+		checkpoint: &Checkpoint,
+		tag: &tg::Tag,
+	) -> tg::Error {
+		let mut message = format!("failed to solve {tag}");
+		if let Some(solution) = checkpoint.solutions.get(&Either::Left(tag.clone())) {
+			for referrer in &solution.referrers {
+				let reference =
+					Self::checkin_solve_get_referrer(state, &checkpoint.graph, referrer.node);
+				write!(message, "\ndependended on by {reference}").unwrap();
+				if let Some(pattern) = &referrer.pattern {
+					write!(message, " with pattern {pattern}").unwrap();
+				}
 			}
-			source.replace(Box::new(error));
+		}
+		tg::Error {
+			message: Some(message),
+			..Default::default()
 		}
 	}
-	let pattern = item
-		.variant
-		.try_unwrap_file_dependency_ref()
-		.ok()
-		.and_then(|reference| reference.item().try_unwrap_tag_ref().ok());
-	let message = format!(
-		"failed to solve {}",
-		format_dependency(&checkpoint.graph, item.node, pattern)
-	);
-	tg::Error {
-		message: Some(message),
-		source: source.map(tg::Referent::with_item),
-		..Default::default()
-	}
-}
 
-fn format_dependency(graph: &Graph, node: usize, pattern: Option<&tg::tag::Pattern>) -> String {
-	let pattern = pattern.unwrap();
-	let referrer = graph.nodes.get(&node).unwrap();
-	if let Some(path) = &referrer.path {
-		return format!("{} requires '{pattern}'", path.display());
-	}
-	if let Some(id) = &graph.nodes.get(&node).unwrap().id {
-		return format!("{id} requires '{pattern}'");
-	}
-	let mut tag = None;
-	let mut id = None;
-	let mut components = vec![];
-	let mut current = node;
-	while tag.is_none() && id.is_none() {
-		let parent = *graph
-			.nodes
-			.get(&current)
-			.unwrap()
-			.referrers
-			.first()
-			.unwrap();
-		match &graph.nodes.get(&parent).unwrap().variant {
-			Variant::Directory(directory) => {
-				let name = directory
-					.entries
-					.iter()
-					.find_map(|(name, edge)| {
-						let reference = edge.try_unwrap_reference_ref().ok()?;
-						if reference.graph.is_some() {
-							return None;
-						}
-						(reference.node == current).then_some(name.clone())
-					})
-					.unwrap();
-				components.push(name);
-			},
-			Variant::File(file) => {
-				let referent = file
-					.dependencies
-					.values()
-					.flatten()
-					.find_map(|referent| {
-						let reference = referent.item.try_unwrap_reference_ref().ok()?;
-						if reference.graph.is_some() {
-							return None;
-						}
-						(reference.node == current).then_some(referent)
-					})
-					.unwrap();
+	fn checkin_solve_get_referrer(state: &State, graph: &Graph, node: usize) -> String {
+		let mut tag = None;
+		let mut id = None;
+		let mut components = vec![];
+		let mut current = node;
+		while tag.is_none() && id.is_none() {
+			let Some(parent) = graph
+				.nodes
+				.get(&current)
+				.and_then(|node| node.referrers.first().copied())
+			else {
+				break;
+			};
+			match &graph.nodes.get(&parent).unwrap().variant {
+				Variant::Directory(directory) => {
+					let name = directory
+						.entries
+						.iter()
+						.find_map(|(name, edge)| {
+							let reference = edge.try_unwrap_reference_ref().ok()?;
+							if reference.graph.is_some() {
+								return None;
+							}
+							(reference.node == current).then_some(name.clone())
+						})
+						.unwrap();
+					components.push(name);
+				},
+				Variant::File(file) => {
+					let referent = file
+						.dependencies
+						.values()
+						.flatten()
+						.find_map(|referent| {
+							let reference = referent.item.try_unwrap_reference_ref().ok()?;
+							if reference.graph.is_some() {
+								return None;
+							}
+							(reference.node == current).then_some(referent)
+						})
+						.unwrap();
 
-				if let Some(path) = referent.path() {
+					if let Some(path) = referent.path() {
+						components.push(path.display().to_string());
+					}
+					if let Some(tag_) = referent.tag() {
+						tag.replace(tag_.clone());
+					}
+
+					if let Some(id_) = referent.id() {
+						id.replace(id_.clone());
+					}
+				},
+				Variant::Symlink(symlink) => {
+					let Some(path) = &symlink.path else {
+						break;
+					};
 					components.push(path.display().to_string());
-				}
-
-				if let Some(tag_) = referent.tag() {
-					tag.replace(tag_.clone());
-				}
-
-				if let Some(id_) = referent.id() {
-					id.replace(id_.clone());
-				}
-			},
-			Variant::Symlink(symlink) => {
-				let Some(path) = &symlink.path else {
-					break;
-				};
-				components.push(path.display().to_string());
-			},
+				},
+			}
+			current = parent;
 		}
-		current = parent;
+		components.reverse();
+		let path = components.join("/");
+		let path = if path.is_empty() { None } else { Some(path) };
+
+		if let Some(tag) = tag {
+			let mut reference = tag.to_string();
+			if let Some(path) = path {
+				write!(reference, "?path={path}").unwrap();
+			}
+			reference
+		} else if let Some(id) = id {
+			let mut reference = id.to_string();
+			if let Some(path) = path {
+				write!(reference, "?path={path}").unwrap();
+			}
+			reference
+		} else {
+			let mut reference = state.root.clone();
+			if let Some(path) = path {
+				reference.push(path);
+			}
+			reference.to_string_lossy().into_owned()
+		}
 	}
-	components.reverse();
-	let path = components.join("/");
-	let name = if let Some(tag) = tag {
-		format!("{tag}:{path}")
-	} else if let Some(id) = id {
-		format!("{id}:{path}")
-	} else {
-		path
-	};
-	format!("{name} requires '{pattern}'")
 }
