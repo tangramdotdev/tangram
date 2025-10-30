@@ -38,7 +38,7 @@ pub struct Tree<H> {
 struct Node {
 	children: Vec<Rc<RefCell<Self>>>,
 	counter: UpdateCounter,
-	depth: usize,
+	depth: u32,
 	expand_task: Option<Task<()>>,
 	expanded: Option<bool>,
 	expanded_nodes: Rc<RefCell<HashSet<NodeID>>>,
@@ -295,47 +295,71 @@ where
 			.duration_since(std::time::UNIX_EPOCH)
 			.unwrap()
 			.as_millis();
-		Self::display_node(self.roots.last().unwrap(), now)
+		Self::display_node(self.roots.last().unwrap(), now).unwrap()
 	}
 
 	pub fn is_finished(&self) -> bool {
 		self.counter.is_finished()
 	}
 
-	fn display_node(node: &Rc<RefCell<Node>>, now: u128) -> Display {
-		let mut title = String::new();
-		let indicator = match node.borrow().indicator {
-			None => None,
-			Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
-			Some(Indicator::Enqueued) => Some(crossterm::style::Stylize::yellow('⟳')),
-			Some(Indicator::Dequeued) => Some(crossterm::style::Stylize::yellow('•')),
-			Some(Indicator::Started) => {
-				let position = (now / (1000 / 10)) % 10;
-				let position = position.to_usize().unwrap();
-				Some(crossterm::style::Stylize::blue(SPINNER[position]))
-			},
-			Some(Indicator::Canceled) => Some(crossterm::style::Stylize::yellow('⦻')),
-			Some(Indicator::Failed) => Some(crossterm::style::Stylize::red('✗')),
-			Some(Indicator::Succeeded) => Some(crossterm::style::Stylize::green('✓')),
-			Some(Indicator::Error) => Some(crossterm::style::Stylize::red('?')),
-		};
-		if let Some(indicator) = indicator {
-			title.push_str(&indicator.to_string());
-			title.push(' ');
-		}
-		if let Some(label) = node.borrow().label.clone() {
-			title.push_str(&label);
-			title.push_str(": ");
-		}
-		title.push_str(&node.borrow().title);
+	fn display_node(node: &Rc<RefCell<Node>>, now: u128) -> Option<Display> {
+		// Clear the guard.
+		node.borrow_mut().guard.take();
+
+		// Recurse over the children.
 		let children = node
 			.borrow()
 			.children
 			.iter()
-			.map(|node| Self::display_node(node, now))
+			.filter_map(|node| Self::display_node(node, now))
 			.collect();
+
+		// Display the node if we haven't reached the maximum depth.
+		if node
+			.borrow()
+			.options
+			.depth
+			.is_none_or(|max_depth| node.borrow().depth <= max_depth)
+		{
+			let mut title = String::new();
+			let indicator = match node.borrow().indicator {
+				None => None,
+				Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
+				Some(Indicator::Enqueued) => Some(crossterm::style::Stylize::yellow('⟳')),
+				Some(Indicator::Dequeued) => Some(crossterm::style::Stylize::yellow('•')),
+				Some(Indicator::Started) => {
+					let position = (now / (1000 / 10)) % 10;
+					let position = position.to_usize().unwrap();
+					Some(crossterm::style::Stylize::blue(SPINNER[position]))
+				},
+				Some(Indicator::Canceled) => Some(crossterm::style::Stylize::yellow('⦻')),
+				Some(Indicator::Failed) => Some(crossterm::style::Stylize::red('✗')),
+				Some(Indicator::Succeeded) => Some(crossterm::style::Stylize::green('✓')),
+				Some(Indicator::Error) => Some(crossterm::style::Stylize::red('?')),
+			};
+			if let Some(indicator) = indicator {
+				title.push_str(&indicator.to_string());
+				title.push(' ');
+			}
+			if let Some(label) = node.borrow().label.clone() {
+				title.push_str(&label);
+				title.push_str(": ");
+			}
+			title.push_str(&node.borrow().title);
+			return Some(Display { title, children });
+		}
+
+		return None;
+	}
+
+	fn clear_node(node: &Rc<RefCell<Node>>, recurse: bool) {
 		node.borrow_mut().guard.take();
-		Display { title, children }
+		if !recurse {
+			return;
+		}
+		for child in &node.borrow().children {
+			Self::clear_node(child, true);
+		}
 	}
 
 	fn down(&mut self) {

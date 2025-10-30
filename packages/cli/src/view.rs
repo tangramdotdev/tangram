@@ -111,6 +111,7 @@ impl Cli {
 			local_set
 				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
+						depth: args.depth,
 						expand: args.expand,
 						show_process_commands: true,
 						clear_at_end: !matches!(kind, Kind::Inline),
