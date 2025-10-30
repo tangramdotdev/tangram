@@ -18,6 +18,9 @@ glob = { workspace = true }
 scopeguard = { workspace = true }
 
 [dependencies]
+biome_js_formatter = { workspace = true }
+biome_js_parser = { workspace = true }
+biome_js_syntax = { workspace = true }
 dashmap = { workspace = true }
 fnv = { workspace = true }
 include_dir = { workspace = true }
