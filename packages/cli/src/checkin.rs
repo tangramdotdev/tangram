@@ -49,6 +49,9 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub solve: Solve,
+
+	#[arg(long)]
+	pub watch: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -205,6 +208,7 @@ impl Options {
 			lock: self.lock.get(),
 			locked: self.locked,
 			solve: self.solve.get(),
+			watch: self.watch,
 		}
 	}
 }

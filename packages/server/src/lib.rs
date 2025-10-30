@@ -2,7 +2,7 @@
 use async_nats as nats;
 use {
 	self::{database::Database, index::Index, messenger::Messenger, store::Store},
-	crate::temp::Temp,
+	crate::{temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
@@ -54,6 +54,7 @@ mod tag;
 mod temp;
 mod user;
 mod vfs;
+mod watch;
 mod watchdog;
 mod write;
 
@@ -95,6 +96,7 @@ pub struct State {
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
+	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
 }
 
 type CacheTasks = tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, tg::id::BuildHasher>;
@@ -372,6 +374,10 @@ impl Server {
 				})?;
 		}
 
+		// Create the pipes and ptys.
+		let pipes = DashMap::default();
+		let ptys = DashMap::default();
+
 		// Create the remotes.
 		let remotes = DashMap::default();
 
@@ -427,8 +433,8 @@ impl Server {
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
-		let pipes = DashMap::default();
-		let ptys = DashMap::default();
+		// Create the watches.
+		let watches = DashMap::default();
 
 		// Create the server.
 		let server = Self(Arc::new(State {
@@ -454,6 +460,7 @@ impl Server {
 			temps,
 			version,
 			vfs,
+			watches,
 		}));
 
 		// Migrate the database.
@@ -748,6 +755,9 @@ impl Server {
 					tracing::trace!("shutdown watchdog task");
 				}
 
+				// Remove the watches.
+				server.watches.clear();
+
 				// Abort the cache tasks.
 				server.cache_tasks.abort_all();
 				let results = server.cache_tasks.wait().await;
@@ -908,5 +918,6 @@ impl Drop for Handle {
 		self.process_tasks.abort_all();
 		self.tasks.abort_all();
 		self.vfs.lock().unwrap().take();
+		self.watches.clear();
 	}
 }

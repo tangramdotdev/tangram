@@ -119,6 +119,69 @@ impl Server {
 		Ok(outputs)
 	}
 
+	pub(crate) async fn try_get_object_complete_and_metadata_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+		// Get an index connection.
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+
+		// Get the object complete flag and metadata.
+		let output = connection
+			.with({
+				let id = id.to_owned();
+				move |connection| {
+					Self::try_get_object_complete_and_metadata_sqlite_sync(connection, &id)
+				}
+			})
+			.await?;
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_object_complete_and_metadata_sqlite_sync(
+		connection: &sqlite::Connection,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+		// Get the object complete flag and metadata.
+		let statement = indoc!(
+			"
+				select complete, count, depth, weight
+				from objects
+				where id = ?1;
+			",
+		);
+		let mut statement = connection
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let id_bytes = id.to_bytes();
+		let output = statement
+			.query_row([id_bytes.as_ref()], |row| {
+				let complete = row.get::<_, u64>(0)? != 0;
+				let count = row.get(1)?;
+				let depth = row.get(2)?;
+				let weight = row.get(3)?;
+				Ok((complete, count, depth, weight))
+			})
+			.optional()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		let output = output.map(|(complete, count, depth, weight)| {
+			let metadata = tg::object::Metadata {
+				count,
+				depth,
+				weight,
+			};
+			(complete, metadata)
+		});
+
+		Ok(output)
+	}
+
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_sqlite(
 		&self,
 		database: &db::sqlite::Database,

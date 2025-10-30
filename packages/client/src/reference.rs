@@ -178,6 +178,11 @@ impl Reference {
 			.ok_or_else(|| tg::error!("expected the output"))?;
 		Ok(output)
 	}
+
+	#[must_use]
+	pub fn is_solvable(&self) -> bool {
+		self.item().is_tag()
+	}
 }
 
 impl std::fmt::Display for Reference {

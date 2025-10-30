@@ -1,7 +1,10 @@
 use {
-	super::state::{State, Variant},
-	crate::Server,
-	std::{collections::BTreeMap, path::Path},
+	super::graph::Variant,
+	crate::{Server, checkin::Graph},
+	std::{
+		collections::{BTreeMap, HashSet, VecDeque},
+		path::Path,
+	},
 	tangram_client as tg,
 	tangram_util::iter::Ext as _,
 };
@@ -53,30 +56,122 @@ impl Server {
 		Ok(Some(lock))
 	}
 
-	pub(super) async fn checkin_write_lock(&self, state: &State) -> tg::Result<()> {
-		// Do not create a lock if this is a destructive checkin or the user did not request one.
-		if state.arg.options.destructive || !state.arg.options.lock {
+	pub(super) async fn checkin_write_lock(
+		&self,
+		arg: &tg::checkin::Arg,
+		graph: &Graph,
+		next: usize,
+		lock: Option<&tg::graph::Data>,
+		root: &Path,
+	) -> tg::Result<()> {
+		// Get the root node.
+		let root_index = graph.paths.get(root).unwrap();
+		let root_node = graph.nodes.get(root_index).unwrap();
+
+		// Do not write a lock if the lock flag is false.
+		if !arg.options.lock {
 			return Ok(());
 		}
 
+		// Do not write a lock if this is a destructive checkin.
+		if arg.options.destructive {
+			return Ok(());
+		}
+
+		// If the root is not solvable, then remove an existing lock and return.
+		if !root_node.solvable {
+			match root_node.variant {
+				Variant::Directory(_) => {
+					let lockfile_path = root.join(tg::package::LOCKFILE_FILE_NAME);
+					tangram_util::fs::remove(&lockfile_path).await.ok();
+				},
+				Variant::File(_) => {
+					xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
+				},
+				Variant::Symlink(_) => (),
+			}
+			return Ok(());
+		}
+
+		// Do not write a lock if the lock was not changed during solving.
+		if let Some(lock) = lock {
+			let changed = graph.nodes.range(next..).any(|(_, node)| {
+				if let Some(lock_node) = node.lock_node {
+					let lock_node = lock.nodes.get(lock_node).unwrap();
+					match (lock_node, &node.variant) {
+						// If a directory removed an entry that was present in the lock, then the lock changed.
+						(tg::graph::data::Node::Directory(lock), Variant::Directory(node)) => {
+							for name in lock.entries.keys() {
+								if !node.entries.contains_key(name) {
+									return true;
+								}
+							}
+						},
+						(tg::graph::data::Node::File(lock), Variant::File(node)) => {
+							if node.dependencies.iter().any(|(reference, referent)| {
+								if !reference.is_solvable() {
+									return false;
+								}
+								if let Some(lock) = lock.dependencies.get(reference) {
+									// If a file had a dependency change, then the lock changed.
+									if lock.as_ref().map(|lock| &lock.options)
+										!= referent.as_ref().map(|referent| &referent.options)
+									{
+										return true;
+									}
+								} else {
+									// If a file added a solvable dependency, then the lock changed.
+									return true;
+								}
+								false
+							}) {
+								return true;
+							}
+
+							// If a file removed a dependency that was present in the lock, then the lock changed.
+							for reference in lock.dependencies.keys() {
+								if !node.dependencies.contains_key(reference) {
+									return true;
+								}
+							}
+						},
+						(tg::graph::data::Node::Symlink(_), Variant::Symlink(_)) => (),
+						_ => {
+							return true;
+						},
+					}
+				} else if let Variant::File(file) = &node.variant {
+					// If a file with solvable dependencies was added, then the lock changed.
+					if file
+						.dependencies
+						.iter()
+						.any(|(reference, _)| reference.is_solvable())
+					{
+						return true;
+					}
+				}
+				false
+			});
+			if !changed {
+				return Ok(());
+			}
+		}
+
 		// Create the lock.
-		let lock = Self::checkin_create_lock(state);
+		let new_lock = Self::checkin_create_lock(graph, root);
 
 		// If this is a locked checkin, then verify the lock is unchanged.
-		if state.arg.options.locked
-			&& state
-				.lock
-				.as_ref()
-				.is_some_and(|existing| existing.nodes != lock.nodes)
-		{
+		if arg.options.locked && lock.is_some_and(|existing| new_lock.nodes != existing.nodes) {
 			return Err(tg::error!("the lock is out of date"));
 		}
 
+		let lock = new_lock;
+
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
-		match state.graph.nodes[0].variant {
+		match root_node.variant {
 			Variant::Directory(_) => {
 				// Determine the lockfile path.
-				let lockfile_path = state.root_path.join(tg::package::LOCKFILE_FILE_NAME);
+				let lockfile_path = root.join(tg::package::LOCKFILE_FILE_NAME);
 
 				// Remove an existing lockfile.
 				tangram_util::fs::remove(&lockfile_path).await.ok();
@@ -98,7 +193,7 @@ impl Server {
 
 			Variant::File(_) => {
 				// Remove an existing lockattr.
-				xattr::remove(&state.root_path, tg::file::LOCKATTR_XATTR_NAME).ok();
+				xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
 
 				// Do not write an empty lock.
 				if lock.nodes.is_empty() {
@@ -110,7 +205,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 
 				// Write the lockattr.
-				xattr::set(&state.root_path, tg::file::LOCKATTR_XATTR_NAME, &contents)
+				xattr::set(root, tg::file::LOCKATTR_XATTR_NAME, &contents)
 					.map_err(|source| tg::error!(!source, "failed to write the lockatttr"))?;
 			},
 
@@ -120,44 +215,130 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_create_lock(state: &State) -> tg::graph::Data {
-		// Create the nodes.
-		let mut nodes = Vec::with_capacity(state.graph.nodes.len());
-		let mut ids = Vec::with_capacity(state.graph.nodes.len());
-		for node in &state.graph.nodes {
-			ids.push(node.object_id.clone().unwrap());
-			let node = match &node.variant {
+	fn checkin_create_lock(graph: &Graph, root: &Path) -> tg::graph::Data {
+		// Get the root node index.
+		let root_index = *graph.paths.get(root).unwrap();
+
+		let mut nodes = Vec::with_capacity(graph.nodes.len());
+		let mut ids = Vec::with_capacity(graph.nodes.len());
+		let mut visited = HashSet::new();
+		let mut queue = VecDeque::new();
+		let mut mapping = BTreeMap::new();
+
+		queue.push_back(root_index);
+
+		while let Some(index) = queue.pop_front() {
+			// Skip if already visited.
+			if !visited.insert(index) {
+				continue;
+			}
+
+			// Record the mapping from graph index to lock index.
+			mapping.insert(index, nodes.len());
+
+			// Get the node.
+			let node = &graph.nodes.get(&index).unwrap();
+			ids.push(node.id.clone().unwrap());
+
+			// Create the lock node.
+			let (lock_node, children) = match &node.variant {
 				Variant::Directory(directory) => {
 					let mut entries = BTreeMap::new();
+					let mut children = Vec::new();
 					for (name, edge) in &directory.entries {
 						entries.insert(name.clone(), edge.clone());
+						if let Ok(reference) = edge.try_unwrap_reference_ref()
+							&& reference.graph.is_none()
+							&& !visited.contains(&reference.node)
+						{
+							children.push(reference.node);
+						}
 					}
 					let data = tg::graph::data::Directory { entries };
-					tg::graph::data::Node::Directory(data)
+					(tg::graph::data::Node::Directory(data), children)
 				},
 
 				Variant::File(file) => {
 					let mut dependencies = BTreeMap::new();
+					let mut children = Vec::new();
 					for (reference, referent) in &file.dependencies {
 						dependencies.insert(reference.clone(), referent.clone());
+						if let Some(referent_value) = referent
+							&& let Ok(edge_reference) =
+								referent_value.item.try_unwrap_reference_ref()
+							&& edge_reference.graph.is_none()
+							&& !visited.contains(&edge_reference.node)
+						{
+							children.push(edge_reference.node);
+						}
 					}
 					let data = tg::graph::data::File {
 						contents: None,
 						dependencies,
 						executable: false,
 					};
-					tg::graph::data::Node::File(data)
+					(tg::graph::data::Node::File(data), children)
 				},
 
 				Variant::Symlink(symlink) => {
+					let mut children = Vec::new();
+					if let Some(edge) = &symlink.artifact
+						&& let Ok(reference) = edge.try_unwrap_reference_ref()
+						&& reference.graph.is_none()
+						&& !visited.contains(&reference.node)
+					{
+						children.push(reference.node);
+					}
 					let data = tg::graph::data::Symlink {
 						artifact: symlink.artifact.clone(),
 						path: None,
 					};
-					tg::graph::data::Node::Symlink(data)
+					(tg::graph::data::Node::Symlink(data), children)
 				},
 			};
-			nodes.push(node);
+
+			// Add the node to the lock.
+			nodes.push(lock_node);
+
+			// Add the children to the queue.
+			for child in children {
+				queue.push_back(child);
+			}
+		}
+
+		// Remap from graph indices to lock indices.
+		for node in &mut nodes {
+			match node {
+				tg::graph::data::Node::Directory(directory) => {
+					for edge in directory.entries.values_mut() {
+						if let tg::graph::data::Edge::Reference(reference) = edge
+							&& reference.graph.is_none()
+							&& let Some(&lock_index) = mapping.get(&reference.node)
+						{
+							reference.node = lock_index;
+						}
+					}
+				},
+				tg::graph::data::Node::File(file) => {
+					for referent_value in file.dependencies.values_mut().flatten() {
+						if let tg::graph::data::Edge::Reference(reference) =
+							&mut referent_value.item
+							&& reference.graph.is_none()
+							&& let Some(&lock_index) = mapping.get(&reference.node)
+						{
+							reference.node = lock_index;
+						}
+					}
+				},
+				tg::graph::data::Node::Symlink(symlink) => {
+					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
+						&& reference.graph.is_none()
+						&& let Some(&lock_index) = mapping.get(&reference.node)
+					{
+						reference.node = lock_index;
+					}
+				},
+			}
 		}
 
 		// Create the lock.
@@ -193,7 +374,7 @@ impl Server {
 							.any(|(reference, item)| {
 								marks[item.node]
 									|| (reference.options().local.is_none()
-										&& reference.item().is_tag())
+										&& reference.is_solvable())
 							}),
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
@@ -235,14 +416,13 @@ impl Server {
 				},
 				tg::graph::data::Node::File(file) => {
 					file.dependencies.retain(|reference, referent| {
-						let Some(node) = referent
-							.as_ref()
-							.and_then(|r| Some(r.item().try_unwrap_reference_ref().ok()?.node))
-						else {
+						let Some(node) = referent.as_ref().and_then(|referent| {
+							Some(referent.item().try_unwrap_reference_ref().ok()?.node)
+						}) else {
 							return true;
 						};
 						marks[node]
-							|| (reference.options().local.is_none() && reference.item().is_tag())
+							|| (reference.options().local.is_none() && reference.is_solvable())
 					});
 					for referent in file.dependencies.values_mut() {
 						let Some(referent) = referent else {

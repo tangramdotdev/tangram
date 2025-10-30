@@ -16,7 +16,7 @@ impl Cli {
 
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
-			eprintln!("{} {message}", "->".red());
+			eprintln!("{} {}", "->".red(), message.replace('\n', "\n   "));
 
 			// Print the values.
 			for (key, value) in &error.values {
@@ -30,7 +30,7 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				Self::print_error_location_basic(&location, message);
+				Self::print_error_location_basic(&location);
 			}
 
 			// Print the stack.
@@ -38,7 +38,7 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&referent);
 				}
-				Self::print_error_location_basic(&location, message);
+				Self::print_error_location_basic(&location);
 			}
 
 			// Print the diagnostics.
@@ -67,7 +67,7 @@ impl Cli {
 		}
 	}
 
-	fn print_error_location_basic(location: &tg::error::Location, _message: &str) {
+	fn print_error_location_basic(location: &tg::error::Location) {
 		match &location.file {
 			tg::error::File::Internal(path) => {
 				eprintln!(
@@ -132,7 +132,7 @@ impl Cli {
 
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
-			eprintln!("{} {message}", "->".red());
+			eprintln!("{} {}", "->".red(), message.replace('\n', "\n   "));
 
 			// Print the values.
 			for (key, value) in &error.values {
