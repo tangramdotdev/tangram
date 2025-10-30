@@ -35,6 +35,7 @@ mod extract;
 mod format;
 mod get;
 mod health;
+mod completion;
 mod id;
 mod index;
 mod init;
@@ -169,6 +170,8 @@ enum Command {
 	Children(self::children::Args),
 
 	Clean(self::clean::Args),
+
+	Completion(self::completion::Args),
 
 	Compress(self::compress::Args),
 
@@ -1113,6 +1116,7 @@ impl Cli {
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
 			Command::Children(args) => self.command_children(args).boxed(),
 			Command::Clean(args) => self.command_clean(args).boxed(),
+			Command::Completion(args) => self.command_completion(args).boxed(),
 			Command::Compress(args) => self.command_compress(args).boxed(),
 			Command::Decompress(args) => self.command_decompress(args).boxed(),
 			Command::Document(args) => self.command_document(args).boxed(),

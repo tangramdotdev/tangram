@@ -841,9 +841,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.50"
+version = "4.5.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c2cfd7bf8a6017ddaa4e32ffe7403d547790db06bd171c1c53926faab501623"
+checksum = "4c26d721170e0295f191a69bd9a1f93efcdb0aff38684b61ab5750468972e5f5"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -851,14 +851,33 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.50"
+version = "4.5.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a4c05b9e80c5ccd3a7ef080ad7b6ba7d6fc00a985b8b157197075677c82c7a0"
+checksum = "75835f0c7bf681bfd05abe44e965760fea999a5286c6eb2d59883634fd02011a"
 dependencies = [
  "anstream",
  "anstyle",
  "clap_lex",
  "strsim",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.5.60"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e602857739c5a4291dfa33b5a298aeac9006185229a700e5810a3ef7272d971"
+dependencies = [
+ "clap",
+]
+
+[[package]]
+name = "clap_complete_nushell"
+version = "4.5.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "811159f339691baacdf7d534df2946b9d217014081099e23d31d887d99521e70"
+dependencies = [
+ "clap",
+ "clap_complete",
 ]
 
 [[package]]
@@ -1347,7 +1366,7 @@ dependencies = [
 [[package]]
 name = "derive_more"
 version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#6d508b647f909da5f9789d1fcba955d2bf34a8d0"
+source = "git+https://github.com/jeltef/derive_more#929dd417cef026b77417a4b68044131d6a910f33"
 dependencies = [
  "derive_more-impl",
 ]
@@ -1355,11 +1374,12 @@ dependencies = [
 [[package]]
 name = "derive_more-impl"
 version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#6d508b647f909da5f9789d1fcba955d2bf34a8d0"
+source = "git+https://github.com/jeltef/derive_more#929dd417cef026b77417a4b68044131d6a910f33"
 dependencies = [
  "convert_case",
  "proc-macro2",
  "quote",
+ "rustc_version",
  "syn 2.0.108",
  "unicode-xid",
 ]
@@ -5378,6 +5398,8 @@ dependencies = [
  "byte-unit",
  "bytes",
  "clap",
+ "clap_complete",
+ "clap_complete_nushell",
  "console-subscriber",
  "crossterm 0.29.0",
  "data-encoding",

@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct Progress {
 	pub objects: u64,

@@ -75,6 +75,8 @@ byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
+clap_complete = "4"
+clap_complete_nushell = "4"
 console-subscriber = "0.4"
 crossterm = { version = "0.29", features = ["event-stream"] }
 dashmap = "6"

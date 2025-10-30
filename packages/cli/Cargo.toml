@@ -36,6 +36,8 @@ anstream = { workspace = true }
 byte-unit = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_complete_nushell = { workspace = true }
 console-subscriber = { workspace = true }
 crossterm = { workspace = true }
 data-encoding = { workspace = true }
