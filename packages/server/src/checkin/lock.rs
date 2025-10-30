@@ -349,7 +349,8 @@ impl Server {
 							.any(|(reference, item)| {
 								marks[item.node]
 									|| (reference.options().local.is_none()
-										&& reference.item().is_tag())
+										&& (reference.item().is_object()
+											|| reference.item().is_tag()))
 							}),
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
@@ -391,14 +392,14 @@ impl Server {
 				},
 				tg::graph::data::Node::File(file) => {
 					file.dependencies.retain(|reference, referent| {
-						let Some(node) = referent
-							.as_ref()
-							.and_then(|r| Some(r.item().try_unwrap_reference_ref().ok()?.node))
-						else {
+						let Some(node) = referent.as_ref().and_then(|referent| {
+							Some(referent.item().try_unwrap_reference_ref().ok()?.node)
+						}) else {
 							return true;
 						};
 						marks[node]
-							|| (reference.options().local.is_none() && reference.item().is_tag())
+							|| (reference.options().local.is_none()
+								&& (reference.item().is_object() || reference.item().is_tag()))
 					});
 					for referent in file.dependencies.values_mut() {
 						let Some(referent) = referent else {

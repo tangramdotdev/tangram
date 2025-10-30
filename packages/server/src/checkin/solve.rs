@@ -691,7 +691,7 @@ impl Server {
 					.dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						if reference.item().is_tag() {
+						if reference.item().is_object() || reference.item().is_tag() {
 							(reference, None)
 						} else {
 							(reference, referent)
@@ -805,7 +805,7 @@ impl Server {
 				let mut dependencies = std::collections::BTreeMap::new();
 				for (reference, referent) in &file.dependencies {
 					let Some(referent) = referent else {
-						if !reference.item().is_tag() {
+						if !(reference.item().is_object() || reference.item().is_tag()) {
 							return Err(
 								tg::error!(%reference, "unresolved reference in file dependencies"),
 							);

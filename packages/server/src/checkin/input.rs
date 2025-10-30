@@ -93,7 +93,7 @@ impl Server {
 					// Check if the node has solveable dependencies.
 					if let Variant::File(file) = &node.variant
 						&& file.dependencies.keys().any(|reference| {
-							reference.item().is_tag() || reference.item().is_object()
+							reference.item().is_object() || reference.item().is_tag()
 						}) {
 						return true;
 					}

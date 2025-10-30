@@ -77,7 +77,7 @@ impl Graph {
 			if let Variant::File(file) = &mut node.variant {
 				let mut marked = false;
 				for (reference, referent) in &mut file.dependencies {
-					if reference.item().is_tag() || reference.item().is_object() {
+					if reference.item().is_object() || reference.item().is_tag() {
 						marked = true;
 						referent.take();
 					}
