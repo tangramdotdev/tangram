@@ -203,7 +203,7 @@ impl Server {
 			self.checkin_solve(&arg, &mut graph, next, lock.clone(), &mut solutions, &root)
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
-		};
+		}
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();

@@ -1,7 +1,6 @@
 use {
 	super::graph::Variant,
 	crate::{Server, checkin::Graph},
-	itertools::Itertools,
 	std::{
 		collections::{BTreeMap, HashSet, VecDeque},
 		path::Path,
