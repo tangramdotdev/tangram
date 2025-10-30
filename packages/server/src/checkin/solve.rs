@@ -10,7 +10,6 @@ use {
 		sync::Arc,
 	},
 	tangram_client::{self as tg, handle::Ext as _},
-	tangram_either::Either,
 };
 
 struct State {
@@ -53,7 +52,7 @@ enum ItemVariant {
 	SymlinkArtifact,
 }
 
-pub type Solutions = im::HashMap<Either<tg::Tag, tg::artifact::Id>, Solution, fnv::FnvBuildHasher>;
+pub type Solutions = im::HashMap<tg::Tag, Solution, fnv::FnvBuildHasher>;
 
 #[derive(Clone)]
 pub struct Solution {
@@ -308,99 +307,18 @@ impl Server {
 			.ok_or_else(|| tg::error!("expected a file dependency"))?
 			.clone();
 
-		// Handle different reference item types.
-		match reference.item() {
-			tg::reference::Item::Object(id) => {
-				self.checkin_solve_visit_item_with_object(
-					checkpoint,
-					item,
-					reference.clone(),
-					id.clone(),
-				)
-				.await
-			},
-
-			tg::reference::Item::Tag(pattern) => {
-				self.checkin_solve_visit_item_with_tag(
-					state,
-					checkpoint,
-					item,
-					reference.clone(),
-					pattern.clone(),
-				)
-				.await
-			},
-
-			_ => Err(tg::error!("unsupported reference item type")),
-		}
-	}
-
-	async fn checkin_solve_visit_item_with_object(
-		&self,
-		checkpoint: &mut Checkpoint,
-		item: Item,
-		reference: tg::Reference,
-		id: tg::object::Id,
-	) -> tg::Result<()> {
-		let Ok(id) = tg::artifact::Id::try_from(id) else {
-			return Ok(());
+		let tg::reference::Item::Tag(pattern) = reference.item() else {
+			return Err(tg::error!(%reference, "expected reference to be a tag"));
 		};
 
-		// Check if there is already a node for the object.
-		let index = if let Some(solution) = checkpoint.solutions.get(&Either::Right(id.clone())) {
-			solution.referent.item
-		} else {
-			let index = self.checkin_solve_add_node(checkpoint, &item, &id).await?;
-			let referent = tg::Referent::new(
-				index,
-				tg::referent::Options {
-					id: Some(id.clone().into()),
-					..Default::default()
-				},
-			);
-			let referrer = Referrer {
-				node: item.node,
-				pattern: None,
-			};
-			let solution = Solution {
-				referent,
-				referrers: vec![referrer],
-			};
-			checkpoint
-				.solutions
-				.insert(Either::Right(id.clone()), solution);
-			index
-		};
-
-		// Create the edge.
-		let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-			graph: None,
-			node: index,
-		});
-		checkpoint
-			.graph
-			.nodes
-			.get_mut(&item.node)
-			.unwrap()
-			.variant
-			.unwrap_file_mut()
-			.dependencies
-			.get_mut(&reference)
-			.unwrap()
-			.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
-			.item = edge.clone();
-		checkpoint
-			.graph
-			.nodes
-			.get_mut(&index)
-			.unwrap()
-			.referrers
-			.push(item.node);
-
-		// Enqueue the node's items.
-		Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
-
-		Ok(())
+		self.checkin_solve_visit_item_with_tag(
+			state,
+			checkpoint,
+			item,
+			reference.clone(),
+			pattern.clone(),
+		)
+		.await
 	}
 
 	async fn checkin_solve_visit_item_with_tag(
@@ -465,7 +383,7 @@ impl Server {
 			};
 			checkpoint
 				.solutions
-				.get_mut(&Either::Left(tag))
+				.get_mut(&tag)
 				.unwrap()
 				.referrers
 				.push(referrer);
@@ -481,7 +399,7 @@ impl Server {
 				};
 				checkpoint
 					.solutions
-					.get_mut(&Either::Left(tag.clone()))
+					.get_mut(&tag)
 					.unwrap()
 					.referrers
 					.push(referrer);
@@ -506,7 +424,7 @@ impl Server {
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<Option<tg::Referent<usize>>> {
 		// Check if the tag is already set.
-		if let Some(solution) = checkpoint.solutions.get(&Either::Left(tag.clone())) {
+		if let Some(solution) = checkpoint.solutions.get(tag) {
 			if !pattern.matches(solution.referent.tag().unwrap()) {
 				return Ok(None);
 			}
@@ -566,9 +484,7 @@ impl Server {
 		};
 
 		// Add the solution.
-		checkpoint
-			.solutions
-			.insert(Either::Left(tag.clone()), solution);
+		checkpoint.solutions.insert(tag.clone(), solution);
 
 		Ok(Some(referent))
 	}
@@ -691,7 +607,7 @@ impl Server {
 					.dependencies
 					.into_iter()
 					.map(|(reference, referent)| {
-						if reference.item().is_object() || reference.item().is_tag() {
+						if reference.is_solvable() {
 							(reference, None)
 						} else {
 							(reference, referent)
@@ -805,10 +721,8 @@ impl Server {
 				let mut dependencies = std::collections::BTreeMap::new();
 				for (reference, referent) in &file.dependencies {
 					let Some(referent) = referent else {
-						if !(reference.item().is_object() || reference.item().is_tag()) {
-							return Err(
-								tg::error!(%reference, "unresolved reference in file dependencies"),
-							);
+						if !reference.is_solvable() {
+							return Err(tg::error!(%reference, "unsolvable unsolved dependency"));
 						}
 						dependencies.insert(reference.clone(), None);
 						continue;
@@ -995,11 +909,10 @@ impl Server {
 	}
 
 	fn checkin_solve_backtrack(state: &mut State, tag: &tg::Tag) -> Option<Checkpoint> {
-		let position = state.checkpoints.iter().position(|checkpoint| {
-			checkpoint
-				.solutions
-				.contains_key(&Either::Left(tag.clone()))
-		})?;
+		let position = state
+			.checkpoints
+			.iter()
+			.position(|checkpoint| checkpoint.solutions.contains_key(tag))?;
 		if state.checkpoints[position]
 			.candidates
 			.as_ref()
@@ -1010,7 +923,7 @@ impl Server {
 		}
 		state.checkpoints.truncate(position);
 		let mut checkpoint = state.checkpoints.pop()?;
-		checkpoint.solutions.remove(&Either::Left(tag.clone()));
+		checkpoint.solutions.remove(tag);
 		Some(checkpoint)
 	}
 
@@ -1020,7 +933,7 @@ impl Server {
 		tag: &tg::Tag,
 	) -> tg::Error {
 		let mut message = format!("failed to solve {tag}");
-		if let Some(solution) = checkpoint.solutions.get(&Either::Left(tag.clone())) {
+		if let Some(solution) = checkpoint.solutions.get(tag) {
 			for referrer in &solution.referrers {
 				let reference =
 					Self::checkin_solve_get_referrer(state, &checkpoint.graph, referrer.node);

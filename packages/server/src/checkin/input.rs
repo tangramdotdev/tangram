@@ -85,24 +85,22 @@ impl Server {
 		};
 		let sccs = petgraph::algo::tarjan_scc(&petgraph);
 		for scc in &sccs {
-			let solved =
-				!scc.iter().any(|index| {
-					// Get the node.
-					let node = state.graph.nodes.get(index).unwrap();
+			let solved = !scc.iter().any(|index| {
+				// Get the node.
+				let node = state.graph.nodes.get(index).unwrap();
 
-					// Check if the node has solveable dependencies.
-					if let Variant::File(file) = &node.variant
-						&& file.dependencies.keys().any(|reference| {
-							reference.item().is_object() || reference.item().is_tag()
-						}) {
-						return true;
-					}
+				// Check if the node has solveable dependencies.
+				if let Variant::File(file) = &node.variant
+					&& file.dependencies.keys().any(tg::Reference::is_solvable)
+				{
+					return true;
+				}
 
-					// Check if the node has unsolved children.
-					node.children()
-						.iter()
-						.any(|&child| !state.graph.nodes.get(&child).unwrap().solved)
-				});
+				// Check if the node has unsolved children.
+				node.children()
+					.iter()
+					.any(|&child| !state.graph.nodes.get(&child).unwrap().solved)
+			});
 
 			// Set solved to false if necessary.
 			if !solved {
@@ -326,6 +324,10 @@ impl Server {
 						parent: Some(parent),
 					});
 					dependencies.insert(reference, None);
+				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+					let referent =
+						tg::Referent::with_item(tg::graph::data::Edge::Object(id.clone()));
+					dependencies.insert(reference, Some(referent));
 				} else {
 					dependencies.insert(reference, None);
 				}
@@ -382,6 +384,10 @@ impl Server {
 						parent: Some(parent),
 					});
 					dependencies.insert(reference, None);
+				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+					let referent =
+						tg::Referent::with_item(tg::graph::data::Edge::Object(id.clone()));
+					dependencies.insert(reference, Some(referent));
 				} else {
 					dependencies.insert(reference, None);
 				}

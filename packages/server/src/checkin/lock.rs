@@ -85,7 +85,7 @@ impl Server {
 						},
 						(tg::graph::data::Node::File(lock), Variant::File(node)) => {
 							if node.dependencies.iter().any(|(reference, referent)| {
-								if !(reference.item().is_object() || reference.item().is_tag()) {
+								if !reference.is_solvable() {
 									return false;
 								}
 								if let Some(lock) = lock.dependencies.get(reference) {
@@ -118,9 +118,11 @@ impl Server {
 					}
 				} else if let Variant::File(file) = &node.variant {
 					// If a file with solvable dependencies was added, then the lock changed.
-					if file.dependencies.iter().any(|(reference, _)| {
-						reference.item().is_object() || reference.item().is_tag()
-					}) {
+					if file
+						.dependencies
+						.iter()
+						.any(|(reference, _)| reference.is_solvable())
+					{
 						return true;
 					}
 				}
@@ -349,8 +351,7 @@ impl Server {
 							.any(|(reference, item)| {
 								marks[item.node]
 									|| (reference.options().local.is_none()
-										&& (reference.item().is_object()
-											|| reference.item().is_tag()))
+										&& reference.is_solvable())
 							}),
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
@@ -398,8 +399,7 @@ impl Server {
 							return true;
 						};
 						marks[node]
-							|| (reference.options().local.is_none()
-								&& (reference.item().is_object() || reference.item().is_tag()))
+							|| (reference.options().local.is_none() && reference.is_solvable())
 					});
 					for referent in file.dependencies.values_mut() {
 						let Some(referent) = referent else {
