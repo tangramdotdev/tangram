@@ -637,6 +637,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
+			solvable: true,
 			solved: false,
 			variant,
 		};
@@ -781,6 +782,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
+			solvable: true,
 			solved: false,
 			variant,
 		};

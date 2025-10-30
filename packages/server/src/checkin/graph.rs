@@ -26,6 +26,7 @@ pub struct Node {
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub referrers: SmallVec<[usize; 1]>,
+	pub solvable: bool,
 	pub solved: bool,
 	pub variant: Variant,
 }

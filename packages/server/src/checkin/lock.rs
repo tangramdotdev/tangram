@@ -64,8 +64,20 @@ impl Server {
 		lock: Option<&tg::graph::Data>,
 		root: &Path,
 	) -> tg::Result<()> {
-		// Do not write a lock if this is a destructive checkin or the user did not request one.
-		if arg.options.destructive || !arg.options.lock {
+		// Do not write a lock if the lock flag is false.
+		if !arg.options.lock {
+			return Ok(());
+		}
+
+		// Do not write a lock if this is a destructive checkin.
+		if arg.options.destructive {
+			return Ok(());
+		}
+
+		// Do not write a lock if the root is not solvable.
+		let root_index = graph.paths.get(root).unwrap();
+		let root_node = graph.nodes.get(root_index).unwrap();
+		if !root_node.solvable {
 			return Ok(());
 		}
 

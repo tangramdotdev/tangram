@@ -78,14 +78,14 @@ impl Server {
 			self.checkin_visit(&mut state, &mut stack, item)?;
 		}
 
-		// Set the solved field for all new nodes.
+		// Set the solvable and solved fields for all new nodes.
 		let petgraph = super::graph::Petgraph {
 			graph: state.graph,
 			next,
 		};
 		let sccs = petgraph::algo::tarjan_scc(&petgraph);
 		for scc in &sccs {
-			let solved = !scc.iter().any(|index| {
+			let solvable = scc.iter().any(|index| {
 				// Get the node.
 				let node = state.graph.nodes.get(index).unwrap();
 
@@ -96,16 +96,18 @@ impl Server {
 					return true;
 				}
 
-				// Check if the node has unsolved children.
+				// Check if the node has solvable children.
 				node.children()
 					.iter()
 					.any(|&child| !state.graph.nodes.get(&child).unwrap().solved)
 			});
 
-			// Set solved to false if necessary.
-			if !solved {
-				for &index in scc {
-					state.graph.nodes.get_mut(&index).unwrap().solved = false;
+			// Set solvable and solved if necessary.
+			if solvable {
+				for index in scc {
+					let node = state.graph.nodes.get_mut(index).unwrap();
+					node.solvable = true;
+					node.solved = false;
 				}
 			}
 		}
@@ -192,6 +194,7 @@ impl Server {
 			path: Some(item.path),
 			path_metadata: Some(metadata),
 			referrers: SmallVec::new(),
+			solvable: false,
 			solved: true,
 			variant,
 		};
