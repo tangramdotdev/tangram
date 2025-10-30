@@ -2265,6 +2265,1854 @@ async fn test_failure(
 	(stdout, stderr)
 }
 
+#[tokio::test]
+async fn incremental_checkin() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with a file.
+	let artifact = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile mtime if it exists.
+	let first_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// Modify the file.
+	tokio::fs::write(temp.path().join("file.txt"), "Hello, incremental checkin!")
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we modified the file.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile mtime if it exists.
+	let second_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// The lockfile mtime should not have changed since no dependencies changed.
+	assert_eq!(first_lock_mtime, second_lock_mtime);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.txt" => "Hello, incremental checkin!",
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert_eq!(second_lock, third_lock);
+
+	// Index.
+	let mut index_command = server.tg();
+	index_command.arg("index");
+	let index_output = index_command.output().await.unwrap();
+	assert_success!(index_output);
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_add_files() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with initial files.
+	let artifact = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile mtime if it exists.
+	let first_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// Add a new file at the root.
+	tokio::fs::write(temp.path().join("new_file.txt"), "New file content")
+		.await
+		.unwrap();
+
+	// Create a new directory and add a file in it.
+	tokio::fs::create_dir(temp.path().join("subdir"))
+		.await
+		.unwrap();
+	tokio::fs::write(temp.path().join("subdir/nested.txt"), "Nested file content")
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we added files.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile mtime if it exists.
+	let second_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// The lockfile mtime should not have changed since no dependencies changed.
+	assert_eq!(first_lock_mtime, second_lock_mtime);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"new_file.txt" => "New file content",
+		"subdir" => temp::directory! {
+			"nested.txt" => "Nested file content",
+		},
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert_eq!(second_lock, third_lock);
+
+	// Index.
+	let mut index_command = server.tg();
+	index_command.arg("index");
+	let index_output = index_command.output().await.unwrap();
+	assert_success!(index_output);
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_remove_files() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with initial files.
+	let artifact = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"to_remove.txt" => "This will be removed",
+		"tangram.ts" => "export default () => {};",
+		"subdir" => temp::directory! {
+			"nested.txt" => "Nested file",
+			"to_remove_nested.txt" => "This will also be removed",
+		},
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile mtime if it exists.
+	let first_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// Remove a file at the root.
+	tokio::fs::remove_file(temp.path().join("to_remove.txt"))
+		.await
+		.unwrap();
+
+	// Remove a file in the subdirectory.
+	tokio::fs::remove_file(temp.path().join("subdir/to_remove_nested.txt"))
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we removed files.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile mtime if it exists.
+	let second_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// The lockfile mtime should not have changed since no dependencies changed.
+	assert_eq!(first_lock_mtime, second_lock_mtime);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"subdir" => temp::directory! {
+			"nested.txt" => "Nested file",
+		},
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert_eq!(second_lock, third_lock);
+
+	// Index.
+	let mut index_command = server.tg();
+	index_command.arg("index");
+	let index_output = index_command.output().await.unwrap();
+	assert_success!(index_output);
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_change_symlink_target() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with initial files and a symlink.
+	let artifact = temp::directory! {
+		"file1.txt" => "File 1 content",
+		"file2.txt" => "File 2 content",
+		"link.txt" => temp::symlink!("file1.txt"),
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile mtime if it exists.
+	let first_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// Change the symlink to point to a different file.
+	tokio::fs::remove_file(temp.path().join("link.txt"))
+		.await
+		.unwrap();
+	#[cfg(unix)]
+	tokio::fs::symlink("file2.txt", temp.path().join("link.txt"))
+		.await
+		.unwrap();
+	#[cfg(windows)]
+	tokio::fs::symlink_file("file2.txt", temp.path().join("link.txt"))
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we changed the symlink target.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile mtime if it exists.
+	let second_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// The lockfile mtime should not have changed since no dependencies changed.
+	assert_eq!(first_lock_mtime, second_lock_mtime);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file1.txt" => "File 1 content",
+		"file2.txt" => "File 2 content",
+		"link.txt" => temp::symlink!("file2.txt"),
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert_eq!(second_lock, third_lock);
+
+	// Index.
+	let mut index_command = server.tg();
+	index_command.arg("index");
+	let index_output = index_command.output().await.unwrap();
+	assert_success!(index_output);
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_shared_dependency_delete_importer() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with two files that both import a shared dependency.
+	let artifact = temp::directory! {
+		"file1.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"file2.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"shared.tg.ts" => r#"export default "shared";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile if it exists.
+	let _first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Delete file1.tg.ts but keep file2.tg.ts which still references shared.tg.ts.
+	tokio::fs::remove_file(temp.path().join("file1.tg.ts"))
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we removed a file.
+	assert_ne!(first_id, second_id);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file2.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"shared.tg.ts" => r#"export default "shared";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_shared_dependency_remove_import() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with two files that both import a shared dependency.
+	let artifact = temp::directory! {
+		"file1.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"file2.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"shared.tg.ts" => r#"export default "shared";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile if it exists.
+	let _first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Edit file1.tg.ts to remove the import, but keep file2.tg.ts which still references shared.tg.ts.
+	tokio::fs::write(temp.path().join("file1.tg.ts"), r#"export default "no import";"#)
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we modified a file.
+	assert_ne!(first_id, second_id);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file1.tg.ts" => r#"export default "no import";"#,
+		"file2.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"shared.tg.ts" => r#"export default "shared";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_lockfile_consistency() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with tangram modules that import each other.
+	let artifact = temp::directory! {
+		"tangram.ts" => r#"import mod from "./mod.tg.ts";"#,
+		"mod.tg.ts" => r#"import helper from "./helper.tg.ts";"#,
+		"helper.tg.ts" => r#"export default "helper";"#,
+		"subdir" => temp::directory! {
+			"nested.tg.ts" => r#"import mod from "../mod.tg.ts";"#,
+		},
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile if it exists.
+	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Delete all files except tangram.ts and update tangram.ts to not import.
+	tokio::fs::write(temp.path().join("tangram.ts"), r"export default () => {};")
+		.await
+		.unwrap();
+	tokio::fs::remove_file(temp.path().join("mod.tg.ts"))
+		.await
+		.unwrap();
+	tokio::fs::remove_file(temp.path().join("helper.tg.ts"))
+		.await
+		.unwrap();
+	tokio::fs::remove_dir_all(temp.path().join("subdir"))
+		.await
+		.unwrap();
+
+	// Second checkin after deletions.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we removed files.
+	assert_ne!(first_id, second_id);
+
+	// Re-add the files with the same content.
+	tokio::fs::write(temp.path().join("tangram.ts"), r#"import mod from "./mod.tg.ts";"#)
+		.await
+		.unwrap();
+	tokio::fs::write(temp.path().join("mod.tg.ts"), r#"import helper from "./helper.tg.ts";"#)
+		.await
+		.unwrap();
+	tokio::fs::write(temp.path().join("helper.tg.ts"), r#"export default "helper";"#)
+		.await
+		.unwrap();
+	tokio::fs::create_dir(temp.path().join("subdir"))
+		.await
+		.unwrap();
+	tokio::fs::write(temp.path().join("subdir/nested.tg.ts"), r#"import mod from "../mod.tg.ts";"#)
+		.await
+		.unwrap();
+
+	// Third checkin after re-adding files.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The third ID should match the first ID since the content is identical.
+	assert_eq!(first_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	assert_eq!(first_lock, third_lock);
+
+	// Get the third object to verify the contents.
+	let object_output = server
+		.tg()
+		.arg("object")
+		.arg("get")
+		.arg(third_id)
+		.arg("--format=tgon")
+		.arg("--print-blobs")
+		.arg("--print-depth=inf")
+		.arg("--print-pretty=true")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(object_output);
+	let object = std::str::from_utf8(&object_output.stdout).unwrap();
+	assert_snapshot!(object, @r#"
+	tg.directory({
+	  "helper.tg.ts": tg.file({
+	    "contents": tg.blob("export default \"helper\";"),
+	  }),
+	  "mod.tg.ts": tg.file({
+	    "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
+	    "dependencies": {
+	      "./helper.tg.ts": {
+	        "item": tg.file({
+	          "contents": tg.blob("export default \"helper\";"),
+	        }),
+	        "path": "helper.tg.ts",
+	      },
+	    },
+	  }),
+	  "subdir": tg.directory({
+	    "nested.tg.ts": tg.file({
+	      "contents": tg.blob("import mod from \"../mod.tg.ts\";"),
+	      "dependencies": {
+	        "../mod.tg.ts": {
+	          "item": tg.file({
+	            "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
+	            "dependencies": {
+	              "./helper.tg.ts": {
+	                "item": tg.file({
+	                  "contents": tg.blob("export default \"helper\";"),
+	                }),
+	                "path": "helper.tg.ts",
+	              },
+	            },
+	          }),
+	          "path": "../mod.tg.ts",
+	        },
+	      },
+	    }),
+	  }),
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("import mod from \"./mod.tg.ts\";"),
+	    "dependencies": {
+	      "./mod.tg.ts": {
+	        "item": tg.file({
+	          "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
+	          "dependencies": {
+	            "./helper.tg.ts": {
+	              "item": tg.file({
+	                "contents": tg.blob("export default \"helper\";"),
+	              }),
+	              "path": "helper.tg.ts",
+	            },
+	          },
+	        }),
+	        "path": "mod.tg.ts",
+	      },
+	    },
+	  }),
+	})
+	"#);
+}
+
+#[tokio::test]
+async fn incremental_checkin_add_imports() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with a file that has no imports.
+	let artifact = temp::directory! {
+		"file.tg.ts" => r#"export default "no imports";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Create a new dependency file.
+	tokio::fs::write(temp.path().join("new.tg.ts"), r#"export default "new dependency";"#)
+		.await
+		.unwrap();
+
+	// Modify the file to add an import.
+	tokio::fs::write(temp.path().join("file.tg.ts"), r#"import dep from "./new.tg.ts"; export default dep;"#)
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we added an import.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile if it exists.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.tg.ts" => r#"import dep from "./new.tg.ts"; export default dep;"#,
+		"new.tg.ts" => r#"export default "new dependency";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_modify_shared_dependency() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with two files that both import a shared dependency.
+	let artifact = temp::directory! {
+		"file1.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"file2.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"shared.tg.ts" => r#"export default "original";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile mtime if it exists.
+	let first_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// Modify the shared dependency.
+	tokio::fs::write(temp.path().join("shared.tg.ts"), r#"export default "modified";"#)
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we modified the shared dependency.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile mtime if it exists.
+	let second_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// The lockfile mtime should not have changed since the dependency structure is the same.
+	assert_eq!(first_lock_mtime, second_lock_mtime);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file1.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"file2.tg.ts" => r#"import shared from "./shared.tg.ts";"#,
+		"shared.tg.ts" => r#"export default "modified";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert_eq!(second_lock, third_lock);
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_remove_directory() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with initial files including a subdirectory tree.
+	let artifact = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"tangram.ts" => "export default () => {};",
+		"subdir" => temp::directory! {
+			"nested.txt" => "Nested file",
+			"deeper" => temp::directory! {
+				"deep.txt" => "Deep file",
+			},
+		},
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile mtime if it exists.
+	let first_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// Remove the entire subdirectory tree.
+	tokio::fs::remove_dir_all(temp.path().join("subdir"))
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we removed a directory.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile mtime if it exists.
+	let second_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// The lockfile mtime should not have changed since no dependencies changed.
+	assert_eq!(first_lock_mtime, second_lock_mtime);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert_eq!(second_lock, third_lock);
+
+	// Index.
+	let mut index_command = server.tg();
+	index_command.arg("index");
+	let index_output = index_command.output().await.unwrap();
+	assert_success!(index_output);
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_no_changes() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with initial files.
+	let artifact = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile mtime if it exists.
+	let first_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// Second checkin without any changes should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be identical since nothing changed.
+	assert_eq!(first_id, second_id);
+
+	// Get the second lockfile mtime if it exists.
+	let second_lock_mtime = tokio::fs::metadata(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|metadata| metadata.modified().ok());
+
+	// The lockfile mtime should not have changed since nothing changed.
+	assert_eq!(first_lock_mtime, second_lock_mtime);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.txt" => "Hello, world!",
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfiles should be identical.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert_eq!(second_lock, third_lock);
+
+	// Get the second object to verify the contents are still correct.
+	let object_output = server
+		.tg()
+		.arg("object")
+		.arg("get")
+		.arg(second_id)
+		.arg("--format=tgon")
+		.arg("--print-blobs")
+		.arg("--print-depth=inf")
+		.arg("--print-pretty=true")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(object_output);
+	let object = std::str::from_utf8(&object_output.stdout).unwrap();
+	assert_snapshot!(object, @r#"
+	tg.directory({
+	  "file.txt": tg.file({
+	    "contents": tg.blob("Hello, world!"),
+	  }),
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("export default () => {};"),
+	  }),
+	})
+	"#);
+}
+
+#[tokio::test]
+async fn incremental_checkin_remove_dependency_completely() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with a file that imports a dependency.
+	let artifact = temp::directory! {
+		"file.tg.ts" => r#"import dep from "./dep.tg.ts";"#,
+		"dep.tg.ts" => r#"export default "dependency";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Remove the file that imports the dependency and the dependency itself.
+	tokio::fs::remove_file(temp.path().join("file.tg.ts"))
+		.await
+		.unwrap();
+	tokio::fs::remove_file(temp.path().join("dep.tg.ts"))
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we removed files.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile if it exists.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// The incremental and non-incremental checkins should produce the same lockfile (even if both are None).
+	assert_eq!(second_lock, third_lock);
+
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_delete_import_keep_file() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create a directory with a file that imports another file.
+	let artifact = temp::directory! {
+		"file.tg.ts" => r#"import dep from "./dep.tg.ts";"#,
+		"dep.tg.ts" => r#"export default "dependency";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Modify the file to remove the import, but keep both files.
+	tokio::fs::write(temp.path().join("file.tg.ts"), r#"export default "no import";"#)
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we modified a file.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile if it exists.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"dep.tg.ts" => r#"export default "dependency";"#,
+		"file.tg.ts" => r#"export default "no import";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// The incremental and non-incremental checkins should produce the same lockfile (even if both are None).
+	assert_eq!(second_lock, third_lock);
+
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_add_tagged_import() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag a dependency package.
+	let dep_temp = Temp::new();
+	let dep_artifact = temp::directory! {
+		"tangram.ts" => r#"export default "tagged dependency";"#,
+	};
+	dep_artifact.to_path(&dep_temp).await.unwrap();
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("mydep")
+		.arg(dep_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Create a directory with a file that has no imports.
+	let artifact = temp::directory! {
+		"file.tg.ts" => r#"export default "no imports";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile if it exists.
+	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Modify the file to add a tagged import.
+	tokio::fs::write(temp.path().join("file.tg.ts"), r#"import dep from "mydep"; export default dep;"#)
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we added a tagged import.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile if it exists.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfile should have changed since we added a tagged dependency.
+	assert_ne!(first_lock, second_lock);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.tg.ts" => r#"import dep from "mydep"; export default dep;"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_remove_tagged_import() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag a dependency package.
+	let dep_temp = Temp::new();
+	let dep_artifact = temp::directory! {
+		"tangram.ts" => r#"export default "tagged dependency";"#,
+	};
+	dep_artifact.to_path(&dep_temp).await.unwrap();
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("mydep")
+		.arg(dep_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Create a directory with a file that imports the tagged dependency.
+	let artifact = temp::directory! {
+		"file.tg.ts" => r#"import dep from "mydep"; export default dep;"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile if it exists.
+	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Modify the file to remove the tagged import.
+	tokio::fs::write(temp.path().join("file.tg.ts"), r#"export default "no import";"#)
+		.await
+		.unwrap();
+
+	// Wait for the file to be watched.
+	tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we removed a tagged import.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile if it exists.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfile should have changed since we removed the tagged dependency.
+	assert_ne!(first_lock, second_lock);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.tg.ts" => r#"export default "no import";"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the third lockfile if it exists.
+	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+	// The lockfile should be the same.
+	assert_eq!(second_lock, third_lock);
+}
+
+#[tokio::test]
+async fn incremental_checkin_modify_tagged_import() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag two dependency packages.
+	let dep1_temp = Temp::new();
+	let dep1_artifact = temp::directory! {
+		"tangram.ts" => r#"export default "dependency 1";"#,
+	};
+	dep1_artifact.to_path(&dep1_temp).await.unwrap();
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("dep1")
+		.arg(dep1_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	let dep2_temp = Temp::new();
+	let dep2_artifact = temp::directory! {
+		"tangram.ts" => r#"export default "dependency 2";"#,
+	};
+	dep2_artifact.to_path(&dep2_temp).await.unwrap();
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("dep2")
+		.arg(dep2_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Create a directory with a file that imports dep1.
+	let artifact = temp::directory! {
+		"file.tg.ts" => r#"import dep from "dep1"; export default dep;"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile if it exists.
+	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// Modify the file to import dep2 instead of dep1.
+	tokio::fs::write(temp.path().join("file.tg.ts"), r#"import dep from "dep2"; export default dep;"#)
+		.await
+		.unwrap();
+
+	// Second checkin should be incremental.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be different since we changed the tagged import.
+	assert_ne!(first_id, second_id);
+
+	// Get the second lockfile if it exists.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+
+	// The lockfile should have changed.
+	assert_ne!(first_lock, second_lock);
+
+	// Third checkin should be non-incremental to verify same results.
+	let temp2 = Temp::new();
+	let current_state = temp::directory! {
+		"file.tg.ts" => r#"import dep from "dep2"; export default dep;"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	current_state.to_path(&temp2).await.unwrap();
+
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg(temp2.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let third_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The incremental and non-incremental checkins should produce the same ID.
+	assert_eq!(second_id, third_id);
+
+
+}
+
+#[tokio::test]
+async fn incremental_checkin_delete_lockfile() {
+	let server = Server::new(TG).await.unwrap();
+
+	// Create and tag a dependency package.
+	let dep_temp = Temp::new();
+	let dep_artifact = temp::directory! {
+		"tangram.ts" => r#"export default "tagged dependency";"#,
+	};
+	dep_artifact.to_path(&dep_temp).await.unwrap();
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("mydep")
+		.arg(dep_temp.path())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Create a directory with a file that imports the tagged dependency.
+	let artifact = temp::directory! {
+		"file.tg.ts" => r#"import dep from "mydep"; export default dep;"#,
+		"tangram.ts" => "export default () => {};",
+	};
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	// First checkin with --watch to enable watching.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let first_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// Get the first lockfile.
+	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert!(first_lock.is_some(), "The lockfile should exist after the first checkin.");
+
+	// Delete the lockfile.
+	tokio::fs::remove_file(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.unwrap();
+
+	// Wait for the file system to process the deletion.
+	tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+	// Second checkin should recreate the same lockfile.
+	let mut command = server.tg();
+	command
+		.arg("checkin")
+		.arg("--watch")
+		.arg(temp.path());
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	let second_id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+
+	// The IDs should be the same since nothing changed.
+	assert_eq!(first_id, second_id);
+
+	// Get the second lockfile.
+	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert!(second_lock.is_some(), "The lockfile should be recreated after the second checkin.");
+
+	// The lockfiles should be identical.
+	assert_eq!(first_lock, second_lock, "The lockfiles should be identical after deletion and recreation.");
+}
+
 async fn test_inner(
 	server: &Server,
 	artifact: temp::Artifact,
