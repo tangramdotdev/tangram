@@ -145,6 +145,7 @@ impl Cli {
 					local_set
 						.block_on(&runtime, async move {
 							let viewer_options = crate::viewer::Options {
+								depth: None,
 								expand: crate::view::ExpandOptions {
 									collapse_process_children: true,
 									process: true,

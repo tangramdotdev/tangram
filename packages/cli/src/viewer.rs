@@ -52,6 +52,7 @@ pub struct Package(pub tg::Object);
 
 #[derive(Clone, Debug)]
 pub struct Options {
+	pub depth: Option<u32>,
 	pub expand: crate::view::ExpandOptions,
 	pub show_process_commands: bool,
 	pub clear_at_end: bool,
