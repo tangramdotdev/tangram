@@ -99,7 +99,7 @@ impl Server {
 				// Check if the node has solvable children.
 				node.children()
 					.iter()
-					.any(|&child| !state.graph.nodes.get(&child).unwrap().solved)
+					.any(|&child| state.graph.nodes.get(&child).unwrap().solvable)
 			});
 
 			// Set solvable and solved if necessary.

@@ -2279,10 +2279,7 @@ async fn incremental_checkin() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2304,10 +2301,7 @@ async fn incremental_checkin() {
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2337,9 +2331,7 @@ async fn incremental_checkin() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2352,16 +2344,18 @@ async fn incremental_checkin() {
 	assert_eq!(second_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 	assert_eq!(second_lock, third_lock);
 
 	// Index.
@@ -2369,7 +2363,6 @@ async fn incremental_checkin() {
 	index_command.arg("index");
 	let index_output = index_command.output().await.unwrap();
 	assert_success!(index_output);
-
 }
 
 #[tokio::test]
@@ -2386,10 +2379,7 @@ async fn incremental_checkin_add_files() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2419,10 +2409,7 @@ async fn incremental_checkin_add_files() {
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2456,9 +2443,7 @@ async fn incremental_checkin_add_files() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2471,16 +2456,18 @@ async fn incremental_checkin_add_files() {
 	assert_eq!(second_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 	assert_eq!(second_lock, third_lock);
 
 	// Index.
@@ -2488,7 +2475,6 @@ async fn incremental_checkin_add_files() {
 	index_command.arg("index");
 	let index_output = index_command.output().await.unwrap();
 	assert_success!(index_output);
-
 }
 
 #[tokio::test]
@@ -2510,10 +2496,7 @@ async fn incremental_checkin_remove_files() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2540,10 +2523,7 @@ async fn incremental_checkin_remove_files() {
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2576,9 +2556,7 @@ async fn incremental_checkin_remove_files() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2591,16 +2569,18 @@ async fn incremental_checkin_remove_files() {
 	assert_eq!(second_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 	assert_eq!(second_lock, third_lock);
 
 	// Index.
@@ -2608,7 +2588,6 @@ async fn incremental_checkin_remove_files() {
 	index_command.arg("index");
 	let index_output = index_command.output().await.unwrap();
 	assert_success!(index_output);
-
 }
 
 #[tokio::test]
@@ -2627,10 +2606,7 @@ async fn incremental_checkin_change_symlink_target() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2660,10 +2636,7 @@ async fn incremental_checkin_change_symlink_target() {
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2695,9 +2668,7 @@ async fn incremental_checkin_change_symlink_target() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2710,16 +2681,18 @@ async fn incremental_checkin_change_symlink_target() {
 	assert_eq!(second_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 	assert_eq!(second_lock, third_lock);
 
 	// Index.
@@ -2727,7 +2700,6 @@ async fn incremental_checkin_change_symlink_target() {
 	index_command.arg("index");
 	let index_output = index_command.output().await.unwrap();
 	assert_success!(index_output);
-
 }
 
 #[tokio::test]
@@ -2746,10 +2718,7 @@ async fn incremental_checkin_shared_dependency_delete_importer() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2759,10 +2728,11 @@ async fn incremental_checkin_shared_dependency_delete_importer() {
 		.to_owned();
 
 	// Get the first lockfile if it exists.
-	let _first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let _first_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Delete file1.tg.ts but keep file2.tg.ts which still references shared.tg.ts.
 	tokio::fs::remove_file(temp.path().join("file1.tg.ts"))
@@ -2771,10 +2741,7 @@ async fn incremental_checkin_shared_dependency_delete_importer() {
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2796,9 +2763,7 @@ async fn incremental_checkin_shared_dependency_delete_importer() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2809,8 +2774,6 @@ async fn incremental_checkin_shared_dependency_delete_importer() {
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
-
-
 }
 
 #[tokio::test]
@@ -2829,10 +2792,7 @@ async fn incremental_checkin_shared_dependency_remove_import() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2842,22 +2802,23 @@ async fn incremental_checkin_shared_dependency_remove_import() {
 		.to_owned();
 
 	// Get the first lockfile if it exists.
-	let _first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let _first_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Edit file1.tg.ts to remove the import, but keep file2.tg.ts which still references shared.tg.ts.
-	tokio::fs::write(temp.path().join("file1.tg.ts"), r#"export default "no import";"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("file1.tg.ts"),
+		r#"export default "no import";"#,
+	)
+	.await
+	.unwrap();
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2880,9 +2841,7 @@ async fn incremental_checkin_shared_dependency_remove_import() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2893,8 +2852,6 @@ async fn incremental_checkin_shared_dependency_remove_import() {
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
-
-
 }
 
 #[tokio::test]
@@ -2915,10 +2872,7 @@ async fn incremental_checkin_lockfile_consistency() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2928,10 +2882,11 @@ async fn incremental_checkin_lockfile_consistency() {
 		.to_owned();
 
 	// Get the first lockfile if it exists.
-	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let first_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Delete all files except tangram.ts and update tangram.ts to not import.
 	tokio::fs::write(temp.path().join("tangram.ts"), r"export default () => {};")
@@ -2949,9 +2904,7 @@ async fn incremental_checkin_lockfile_consistency() {
 
 	// Second checkin after deletions.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp.path());
+	command.arg("checkin").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2964,27 +2917,37 @@ async fn incremental_checkin_lockfile_consistency() {
 	assert_ne!(first_id, second_id);
 
 	// Re-add the files with the same content.
-	tokio::fs::write(temp.path().join("tangram.ts"), r#"import mod from "./mod.tg.ts";"#)
-		.await
-		.unwrap();
-	tokio::fs::write(temp.path().join("mod.tg.ts"), r#"import helper from "./helper.tg.ts";"#)
-		.await
-		.unwrap();
-	tokio::fs::write(temp.path().join("helper.tg.ts"), r#"export default "helper";"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("tangram.ts"),
+		r#"import mod from "./mod.tg.ts";"#,
+	)
+	.await
+	.unwrap();
+	tokio::fs::write(
+		temp.path().join("mod.tg.ts"),
+		r#"import helper from "./helper.tg.ts";"#,
+	)
+	.await
+	.unwrap();
+	tokio::fs::write(
+		temp.path().join("helper.tg.ts"),
+		r#"export default "helper";"#,
+	)
+	.await
+	.unwrap();
 	tokio::fs::create_dir(temp.path().join("subdir"))
 		.await
 		.unwrap();
-	tokio::fs::write(temp.path().join("subdir/nested.tg.ts"), r#"import mod from "../mod.tg.ts";"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("subdir/nested.tg.ts"),
+		r#"import mod from "../mod.tg.ts";"#,
+	)
+	.await
+	.unwrap();
 
 	// Third checkin after re-adding files.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp.path());
+	command.arg("checkin").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -2997,10 +2960,11 @@ async fn incremental_checkin_lockfile_consistency() {
 	assert_eq!(first_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
 	assert_eq!(first_lock, third_lock);
@@ -3094,10 +3058,7 @@ async fn incremental_checkin_add_imports() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3107,21 +3068,24 @@ async fn incremental_checkin_add_imports() {
 		.to_owned();
 
 	// Create a new dependency file.
-	tokio::fs::write(temp.path().join("new.tg.ts"), r#"export default "new dependency";"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("new.tg.ts"),
+		r#"export default "new dependency";"#,
+	)
+	.await
+	.unwrap();
 
 	// Modify the file to add an import.
-	tokio::fs::write(temp.path().join("file.tg.ts"), r#"import dep from "./new.tg.ts"; export default dep;"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("file.tg.ts"),
+		r#"import dep from "./new.tg.ts"; export default dep;"#,
+	)
+	.await
+	.unwrap();
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3133,12 +3097,6 @@ async fn incremental_checkin_add_imports() {
 	// The IDs should be different since we added an import.
 	assert_ne!(first_id, second_id);
 
-	// Get the second lockfile if it exists.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
-
 	// Third checkin should be non-incremental to verify same results.
 	let temp2 = Temp::new();
 	let current_state = temp::directory! {
@@ -3149,9 +3107,7 @@ async fn incremental_checkin_add_imports() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3162,8 +3118,6 @@ async fn incremental_checkin_add_imports() {
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
-
-
 }
 
 #[tokio::test]
@@ -3182,10 +3136,7 @@ async fn incremental_checkin_modify_shared_dependency() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3201,16 +3152,16 @@ async fn incremental_checkin_modify_shared_dependency() {
 		.and_then(|metadata| metadata.modified().ok());
 
 	// Modify the shared dependency.
-	tokio::fs::write(temp.path().join("shared.tg.ts"), r#"export default "modified";"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("shared.tg.ts"),
+		r#"export default "modified";"#,
+	)
+	.await
+	.unwrap();
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3242,9 +3193,7 @@ async fn incremental_checkin_modify_shared_dependency() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3257,18 +3206,19 @@ async fn incremental_checkin_modify_shared_dependency() {
 	assert_eq!(second_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 	assert_eq!(second_lock, third_lock);
-
 }
 
 #[tokio::test]
@@ -3291,10 +3241,7 @@ async fn incremental_checkin_remove_directory() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3316,10 +3263,7 @@ async fn incremental_checkin_remove_directory() {
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3349,9 +3293,7 @@ async fn incremental_checkin_remove_directory() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3364,16 +3306,18 @@ async fn incremental_checkin_remove_directory() {
 	assert_eq!(second_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 	assert_eq!(second_lock, third_lock);
 
 	// Index.
@@ -3381,7 +3325,6 @@ async fn incremental_checkin_remove_directory() {
 	index_command.arg("index");
 	let index_output = index_command.output().await.unwrap();
 	assert_success!(index_output);
-
 }
 
 #[tokio::test]
@@ -3398,10 +3341,7 @@ async fn incremental_checkin_no_changes() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3418,10 +3358,7 @@ async fn incremental_checkin_no_changes() {
 
 	// Second checkin without any changes should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3451,9 +3388,7 @@ async fn incremental_checkin_no_changes() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3466,16 +3401,18 @@ async fn incremental_checkin_no_changes() {
 	assert_eq!(second_id, third_id);
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfiles should be identical.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 	assert_eq!(second_lock, third_lock);
 
 	// Get the second object to verify the contents are still correct.
@@ -3520,10 +3457,7 @@ async fn incremental_checkin_remove_dependency_completely() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3542,10 +3476,7 @@ async fn incremental_checkin_remove_dependency_completely() {
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3558,10 +3489,11 @@ async fn incremental_checkin_remove_dependency_completely() {
 	assert_ne!(first_id, second_id);
 
 	// Get the second lockfile if it exists.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Third checkin should be non-incremental to verify same results.
 	let temp2 = Temp::new();
@@ -3571,9 +3503,7 @@ async fn incremental_checkin_remove_dependency_completely() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3583,18 +3513,17 @@ async fn incremental_checkin_remove_dependency_completely() {
 		.to_owned();
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
 
 	// The incremental and non-incremental checkins should produce the same lockfile (even if both are None).
 	assert_eq!(second_lock, third_lock);
-
-
 }
 
 #[tokio::test]
@@ -3612,10 +3541,7 @@ async fn incremental_checkin_delete_import_keep_file() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3625,16 +3551,16 @@ async fn incremental_checkin_delete_import_keep_file() {
 		.to_owned();
 
 	// Modify the file to remove the import, but keep both files.
-	tokio::fs::write(temp.path().join("file.tg.ts"), r#"export default "no import";"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("file.tg.ts"),
+		r#"export default "no import";"#,
+	)
+	.await
+	.unwrap();
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3647,10 +3573,11 @@ async fn incremental_checkin_delete_import_keep_file() {
 	assert_ne!(first_id, second_id);
 
 	// Get the second lockfile if it exists.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Third checkin should be non-incremental to verify same results.
 	let temp2 = Temp::new();
@@ -3662,9 +3589,7 @@ async fn incremental_checkin_delete_import_keep_file() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3674,18 +3599,17 @@ async fn incremental_checkin_delete_import_keep_file() {
 		.to_owned();
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp2.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
 
 	// The incremental and non-incremental checkins should produce the same lockfile (even if both are None).
 	assert_eq!(second_lock, third_lock);
-
-
 }
 
 #[tokio::test]
@@ -3718,10 +3642,7 @@ async fn incremental_checkin_add_tagged_import() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3731,22 +3652,23 @@ async fn incremental_checkin_add_tagged_import() {
 		.to_owned();
 
 	// Get the first lockfile if it exists.
-	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let first_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Modify the file to add a tagged import.
-	tokio::fs::write(temp.path().join("file.tg.ts"), r#"import dep from "mydep"; export default dep;"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("file.tg.ts"),
+		r#"import dep from "mydep"; export default dep;"#,
+	)
+	.await
+	.unwrap();
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3759,10 +3681,11 @@ async fn incremental_checkin_add_tagged_import() {
 	assert_ne!(first_id, second_id);
 
 	// Get the second lockfile if it exists.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfile should have changed since we added a tagged dependency.
 	assert_ne!(first_lock, second_lock);
@@ -3776,9 +3699,7 @@ async fn incremental_checkin_add_tagged_import() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3789,8 +3710,6 @@ async fn incremental_checkin_add_tagged_import() {
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
-
-
 }
 
 #[tokio::test]
@@ -3823,10 +3742,7 @@ async fn incremental_checkin_remove_tagged_import() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3836,25 +3752,26 @@ async fn incremental_checkin_remove_tagged_import() {
 		.to_owned();
 
 	// Get the first lockfile if it exists.
-	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let first_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Modify the file to remove the tagged import.
-	tokio::fs::write(temp.path().join("file.tg.ts"), r#"export default "no import";"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("file.tg.ts"),
+		r#"export default "no import";"#,
+	)
+	.await
+	.unwrap();
 
 	// Wait for the file to be watched.
 	tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3867,10 +3784,11 @@ async fn incremental_checkin_remove_tagged_import() {
 	assert_ne!(first_id, second_id);
 
 	// Get the second lockfile if it exists.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfile should have changed since we removed the tagged dependency.
 	assert_ne!(first_lock, second_lock);
@@ -3884,9 +3802,7 @@ async fn incremental_checkin_remove_tagged_import() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3896,10 +3812,11 @@ async fn incremental_checkin_remove_tagged_import() {
 		.to_owned();
 
 	// Get the third lockfile if it exists.
-	let third_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let third_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
@@ -3953,10 +3870,7 @@ async fn incremental_checkin_modify_tagged_import() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3966,22 +3880,23 @@ async fn incremental_checkin_modify_tagged_import() {
 		.to_owned();
 
 	// Get the first lockfile if it exists.
-	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let first_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// Modify the file to import dep2 instead of dep1.
-	tokio::fs::write(temp.path().join("file.tg.ts"), r#"import dep from "dep2"; export default dep;"#)
-		.await
-		.unwrap();
+	tokio::fs::write(
+		temp.path().join("file.tg.ts"),
+		r#"import dep from "dep2"; export default dep;"#,
+	)
+	.await
+	.unwrap();
 
 	// Second checkin should be incremental.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -3994,10 +3909,11 @@ async fn incremental_checkin_modify_tagged_import() {
 	assert_ne!(first_id, second_id);
 
 	// Get the second lockfile if it exists.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
 	// The lockfile should have changed.
 	assert_ne!(first_lock, second_lock);
@@ -4011,9 +3927,7 @@ async fn incremental_checkin_modify_tagged_import() {
 	current_state.to_path(&temp2).await.unwrap();
 
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg(temp2.path());
+	command.arg("checkin").arg(temp2.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -4024,8 +3938,6 @@ async fn incremental_checkin_modify_tagged_import() {
 
 	// The incremental and non-incremental checkins should produce the same ID.
 	assert_eq!(second_id, third_id);
-
-
 }
 
 #[tokio::test]
@@ -4058,10 +3970,7 @@ async fn incremental_checkin_delete_lockfile() {
 
 	// First checkin with --watch to enable watching.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -4071,11 +3980,15 @@ async fn incremental_checkin_delete_lockfile() {
 		.to_owned();
 
 	// Get the first lockfile.
-	let first_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
-	assert!(first_lock.is_some(), "The lockfile should exist after the first checkin.");
+	let first_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert!(
+		first_lock.is_some(),
+		"The lockfile should exist after the first checkin."
+	);
 
 	// Delete the lockfile.
 	tokio::fs::remove_file(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
@@ -4087,10 +4000,7 @@ async fn incremental_checkin_delete_lockfile() {
 
 	// Second checkin should recreate the same lockfile.
 	let mut command = server.tg();
-	command
-		.arg("checkin")
-		.arg("--watch")
-		.arg(temp.path());
+	command.arg("checkin").arg("--watch").arg(temp.path());
 	let output = command.output().await.unwrap();
 	assert_success!(output);
 
@@ -4103,14 +4013,21 @@ async fn incremental_checkin_delete_lockfile() {
 	assert_eq!(first_id, second_id);
 
 	// Get the second lockfile.
-	let second_lock: Option<serde_json::Value> = tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|bytes| serde_json::from_slice(&bytes).ok());
-	assert!(second_lock.is_some(), "The lockfile should be recreated after the second checkin.");
+	let second_lock: Option<serde_json::Value> =
+		tokio::fs::read(temp.path().join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|bytes| serde_json::from_slice(&bytes).ok());
+	assert!(
+		second_lock.is_some(),
+		"The lockfile should be recreated after the second checkin."
+	);
 
 	// The lockfiles should be identical.
-	assert_eq!(first_lock, second_lock, "The lockfiles should be identical after deletion and recreation.");
+	assert_eq!(
+		first_lock, second_lock,
+		"The lockfiles should be identical after deletion and recreation."
+	);
 }
 
 async fn test_inner(

@@ -64,6 +64,10 @@ impl Server {
 		lock: Option<&tg::graph::Data>,
 		root: &Path,
 	) -> tg::Result<()> {
+		// Get the root node.
+		let root_index = graph.paths.get(root).unwrap();
+		let root_node = graph.nodes.get(root_index).unwrap();
+
 		// Do not write a lock if the lock flag is false.
 		if !arg.options.lock {
 			return Ok(());
@@ -74,10 +78,18 @@ impl Server {
 			return Ok(());
 		}
 
-		// Do not write a lock if the root is not solvable.
-		let root_index = graph.paths.get(root).unwrap();
-		let root_node = graph.nodes.get(root_index).unwrap();
+		// If the root is not solvable, then remove an existing lock and return.
 		if !root_node.solvable {
+			match root_node.variant {
+				Variant::Directory(_) => {
+					let lockfile_path = root.join(tg::package::LOCKFILE_FILE_NAME);
+					tangram_util::fs::remove(&lockfile_path).await.ok();
+				},
+				Variant::File(_) => {
+					xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
+				},
+				Variant::Symlink(_) => (),
+			}
 			return Ok(());
 		}
 
@@ -156,8 +168,7 @@ impl Server {
 		let lock = new_lock;
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
-		let index = graph.paths.get(root).unwrap();
-		match graph.nodes.get(index).unwrap().variant {
+		match root_node.variant {
 			Variant::Directory(_) => {
 				// Determine the lockfile path.
 				let lockfile_path = root.join(tg::package::LOCKFILE_FILE_NAME);
