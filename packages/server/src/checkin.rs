@@ -198,15 +198,11 @@ impl Server {
 		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
 		// Solve.
-		let lock_changed = if arg.options.solve {
+		if arg.options.solve {
 			let start = Instant::now();
-			let self::solve::Output { lock_changed } = self
-				.checkin_solve(&arg, &mut graph, next, lock.clone(), &mut solutions, &root)
+			self.checkin_solve(&arg, &mut graph, next, lock.clone(), &mut solutions, &root)
 				.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
-			lock_changed
-		} else {
-			false
 		};
 
 		// Set the touch time.
@@ -262,7 +258,7 @@ impl Server {
 
 		// Write the lock.
 		let start = Instant::now();
-		self.checkin_write_lock(&arg, &graph, lock.as_deref(), &root, lock_changed)
+		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), &root)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create lock");

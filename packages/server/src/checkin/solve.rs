@@ -28,7 +28,6 @@ struct Checkpoint {
 	listed: bool,
 	queue: im::Vector<Item>,
 	lock: Option<Arc<tg::graph::Data>>,
-	lock_changed: bool,
 	solutions: Solutions,
 	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
 }
@@ -68,10 +67,6 @@ pub struct Referrer {
 	pub pattern: Option<tg::tag::Pattern>,
 }
 
-pub struct Output {
-	pub lock_changed: bool,
-}
-
 impl Server {
 	pub(super) async fn checkin_solve(
 		&self,
@@ -81,25 +76,25 @@ impl Server {
 		lock: Option<Arc<tg::graph::Data>>,
 		solutions: &mut Solutions,
 		root: &Path,
-	) -> tg::Result<Output> {
+	) -> tg::Result<()> {
 		if solutions.is_empty() {
 			// If solutions is empty, then just solve.
 			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
-				.await
+				.await?;
 		} else if !arg.updates.is_empty() {
 			// If there are updates, then unsolve and clean the graph, clear the solutions, and solve from the beginning.
 			graph.unsolve();
 			graph.clean(root);
 			solutions.clear();
 			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
-				.await
+				.await?;
 		} else {
 			// Otherwise, attempt to solve.
 			let result = self
 				.checkin_solve_inner(arg, graph, next, lock.clone(), solutions, root)
 				.await;
-			if let Ok(output) = result {
-				return Ok(output);
+			if result.is_ok() {
+				return Ok(());
 			}
 
 			// Unsolve and clean the graph, clear the solutions, and solve from the beginning.
@@ -107,8 +102,9 @@ impl Server {
 			graph.clean(root);
 			solutions.clear();
 			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
-				.await
+				.await?;
 		}
+		Ok(())
 	}
 
 	async fn checkin_solve_inner(
@@ -119,7 +115,7 @@ impl Server {
 		lock: Option<Arc<tg::graph::Data>>,
 		solutions: &mut Solutions,
 		root: &Path,
-	) -> tg::Result<Output> {
+	) -> tg::Result<()> {
 		// Create the state
 		let mut state = State {
 			checkpoints: Vec::new(),
@@ -136,7 +132,6 @@ impl Server {
 			graph_nodes: im::HashMap::default(),
 			listed: false,
 			lock: lock.clone(),
-			lock_changed: false,
 			queue: im::Vector::new(),
 			solutions: solutions.clone(),
 			visited: im::HashSet::default(),
@@ -159,11 +154,7 @@ impl Server {
 		*graph = checkpoint.graph;
 		*solutions = checkpoint.solutions;
 
-		let output = Output {
-			lock_changed: checkpoint.lock_changed,
-		};
-
-		Ok(output)
+		Ok(())
 	}
 
 	async fn checkin_solve_visit_item(
@@ -478,11 +469,6 @@ impl Server {
 				.unwrap()
 				.referrers
 				.push(referrer);
-
-			// Set the lock changed flag if listed is true.
-			if checkpoint.listed {
-				checkpoint.lock_changed = true;
-			}
 
 			// Enqueue the node's items.
 			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
@@ -941,37 +927,6 @@ impl Server {
 	fn checkin_solve_enqueue_items_for_node(checkpoint: &mut Checkpoint, index: usize) {
 		// Get the node.
 		let node = checkpoint.graph.nodes.get(&index).unwrap();
-
-		// Set the lock changed flag if there are edges in the lock that are absent in the node.
-		if let Some(lock_node) = node.lock_node {
-			let lock_node = &checkpoint.lock.as_ref().unwrap().nodes[lock_node];
-			match (lock_node, &node.variant) {
-				(tg::graph::data::Node::Directory(lock), Variant::Directory(node)) => {
-					for name in lock.entries.keys() {
-						if !node.entries.contains_key(name) {
-							checkpoint.lock_changed = true;
-							break;
-						}
-					}
-				},
-				(tg::graph::data::Node::File(lock), Variant::File(node)) => {
-					for reference in lock.dependencies.keys() {
-						if !node.dependencies.contains_key(reference) {
-							checkpoint.lock_changed = true;
-							break;
-						}
-					}
-				},
-				(tg::graph::data::Node::Symlink(lock), Variant::Symlink(node)) => {
-					if lock.artifact.is_some() != node.artifact.is_some() {
-						checkpoint.lock_changed = true;
-					}
-				},
-				_ => {
-					checkpoint.lock_changed = true;
-				},
-			}
-		}
 
 		// If the node is solved, then do not enqueue any of its items.
 		if node.solved {

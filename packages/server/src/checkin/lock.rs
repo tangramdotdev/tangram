@@ -1,6 +1,7 @@
 use {
 	super::graph::Variant,
 	crate::{Server, checkin::Graph},
+	itertools::Itertools,
 	std::{
 		collections::{BTreeMap, HashSet, VecDeque},
 		path::Path,
@@ -60,9 +61,9 @@ impl Server {
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
-		lock_: Option<&tg::graph::Data>,
+		next: usize,
+		lock: Option<&tg::graph::Data>,
 		root: &Path,
-		lock_changed: bool,
 	) -> tg::Result<()> {
 		// Do not write a lock if this is a destructive checkin or the user did not request one.
 		if arg.options.destructive || !arg.options.lock {
@@ -70,17 +71,76 @@ impl Server {
 		}
 
 		// Do not write a lock if the lock was not changed during solving.
-		if !lock_changed {
-			return Ok(());
+		if let Some(lock) = lock {
+			let changed = graph.nodes.range(next..).any(|(_, node)| {
+				if let Some(lock_node) = node.lock_node {
+					let lock_node = lock.nodes.get(lock_node).unwrap();
+					match (lock_node, &node.variant) {
+						// If a directory removed an entry that was present in the lock, then the lock changed.
+						(tg::graph::data::Node::Directory(lock), Variant::Directory(node)) => {
+							for name in lock.entries.keys() {
+								if !node.entries.contains_key(name) {
+									return true;
+								}
+							}
+						},
+						(tg::graph::data::Node::File(lock), Variant::File(node)) => {
+							if node.dependencies.iter().any(|(reference, referent)| {
+								if !(reference.item().is_object() || reference.item().is_tag()) {
+									return false;
+								}
+								if let Some(lock) = lock.dependencies.get(reference) {
+									// If a file had a dependency change, then the lock changed.
+									if lock.as_ref().map(|lock| &lock.options)
+										!= referent.as_ref().map(|referent| &referent.options)
+									{
+										return true;
+									}
+								} else {
+									// If a file added a solvable dependency, then the lock changed.
+									return true;
+								}
+								false
+							}) {
+								return true;
+							}
+
+							// If a file removed a dependency that was present in the lock, then the lock changed.
+							for reference in lock.dependencies.keys() {
+								if !node.dependencies.contains_key(reference) {
+									return true;
+								}
+							}
+						},
+						(tg::graph::data::Node::Symlink(_), Variant::Symlink(_)) => (),
+						_ => {
+							return true;
+						},
+					}
+				} else if let Variant::File(file) = &node.variant {
+					// If a file with solvable dependencies was added, then the lock changed.
+					if file.dependencies.iter().any(|(reference, _)| {
+						reference.item().is_object() || reference.item().is_tag()
+					}) {
+						return true;
+					}
+				}
+				false
+			});
+			if !changed {
+				return Ok(());
+			}
 		}
 
 		// Create the lock.
-		let lock = Self::checkin_create_lock(graph, root);
+		let new_lock = Self::checkin_create_lock(graph, root);
 
 		// If this is a locked checkin, then verify the lock is unchanged.
-		if arg.options.locked && lock_.is_some_and(|existing| existing.nodes != lock.nodes) {
+		if arg.options.locked && lock.is_some_and(|existing| new_lock.nodes != existing.nodes) {
 			return Err(tg::error!("the lock is out of date"));
 		}
+
+		let lock = new_lock;
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a lockattr.
 		let index = graph.paths.get(root).unwrap();
