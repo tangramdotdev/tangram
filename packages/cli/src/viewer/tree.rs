@@ -352,16 +352,6 @@ where
 		return None;
 	}
 
-	fn clear_node(node: &Rc<RefCell<Node>>, recurse: bool) {
-		node.borrow_mut().guard.take();
-		if !recurse {
-			return;
-		}
-		for child in &node.borrow().children {
-			Self::clear_node(child, true);
-		}
-	}
-
 	fn down(&mut self) {
 		let nodes = self.nodes();
 		let index = nodes
