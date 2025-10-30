@@ -40,7 +40,7 @@ struct File {
 #[derive(Debug)]
 struct Pattern {
 	negated: bool,
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	string: String,
 	trailing_slash: bool,
 }

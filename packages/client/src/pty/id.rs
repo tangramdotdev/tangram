@@ -20,7 +20,7 @@ use crate as tg;
 pub struct Id(crate::Id);
 
 impl Id {
-	#[allow(clippy::new_without_default)]
+	#[expect(clippy::new_without_default)]
 	#[must_use]
 	pub fn new() -> Self {
 		Self(crate::Id::new_uuidv7(tg::id::Kind::Pty))

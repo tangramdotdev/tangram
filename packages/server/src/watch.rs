@@ -10,7 +10,7 @@ use {
 
 pub struct Watch {
 	pub state: Arc<Mutex<State>>,
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	watcher: notify::RecommendedWatcher,
 }
 

@@ -93,7 +93,6 @@ where
 		value.encode(self)
 	}
 
-	#[allow(dead_code)]
 	pub fn encode_array<T>(&mut self, value: &[T]) -> Result<(), Error>
 	where
 		T: Encode,
@@ -155,7 +154,6 @@ impl<'d> Decoder<'d> {
 		Ok(head)
 	}
 
-	#[allow(dead_code)]
 	pub fn peek_bytes(&mut self, count: usize) -> Result<&'d [u8], Error> {
 		if self.input.len() < count {
 			return Err(Error::UnexpectedEof);
@@ -365,7 +363,6 @@ where
 	bytes
 }
 
-#[allow(dead_code)]
 pub fn from_bytes<T>(bytes: &[u8]) -> Result<T, Error>
 where
 	T: Decode,

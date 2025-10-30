@@ -149,7 +149,7 @@ fn collect_symbol_tree(symbol: Symbol) -> lsp::DocumentSymbol {
 		},
 	};
 
-	#[allow(deprecated)]
+	#[expect(deprecated)]
 	lsp::DocumentSymbol {
 		name,
 		detail,

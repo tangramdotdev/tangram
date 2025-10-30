@@ -121,7 +121,7 @@ impl Client {
 
 		// Send the file descriptors using sendmsg with SCM_RIGHTS.
 		let fd = self.stream.as_raw_fd();
-		#[allow(clippy::cast_possible_truncation)]
+		#[expect(clippy::cast_possible_truncation)]
 		self.stream
 			.async_io(tokio::io::Interest::WRITABLE, move || unsafe {
 				let buffer = [0u8; 1];

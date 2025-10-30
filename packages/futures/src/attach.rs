@@ -6,7 +6,7 @@ use {
 
 pub struct Attach<I, T> {
 	inner: I,
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	value: T,
 }
 

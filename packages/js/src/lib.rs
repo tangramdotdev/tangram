@@ -48,7 +48,7 @@ struct PromiseOutput {
 	result: tg::Result<Box<dyn tangram_v8::Serialize>>,
 }
 
-#[allow(clippy::struct_field_names)]
+#[expect(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 struct Module {
 	module: tg::module::Data,
@@ -61,7 +61,6 @@ pub struct Output {
 	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,
 	pub exit: u8,
-	#[allow(clippy::struct_field_names)]
 	pub output: Option<tg::Value>,
 }
 

@@ -40,7 +40,6 @@ impl<T> Handle<T> {
 		}
 	}
 
-	#[allow(dead_code)]
 	pub fn log(&self, level: tg::progress::Level, message: String) {
 		let event = tg::progress::Event::Log(tg::progress::Log {
 			level: Some(level),
@@ -49,7 +48,6 @@ impl<T> Handle<T> {
 		self.sender.try_send(Ok(event)).ok();
 	}
 
-	#[allow(dead_code)]
 	pub fn diagnostic(&self, diagnostic: tg::diagnostic::Data) {
 		let event = tg::progress::Event::Diagnostic(diagnostic);
 		self.sender.try_send(Ok(event)).ok();

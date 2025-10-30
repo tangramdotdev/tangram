@@ -12,7 +12,7 @@ use {
 };
 
 impl Server {
-	#[allow(clippy::too_many_arguments)]
+	#[expect(clippy::too_many_arguments)]
 	pub(super) async fn indexer_task_handle_messages_postgres(
 		&self,
 		database: &db::postgres::Database,

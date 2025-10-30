@@ -97,7 +97,7 @@ where
 		Ok(value)
 	}
 
-	#[allow(clippy::cast_lossless)]
+	#[expect(clippy::cast_lossless)]
 	pub fn read_uvarint(&mut self) -> Result<u64> {
 		let mut value: u64 = 0;
 		let mut shift: u8 = 0;
@@ -123,7 +123,7 @@ where
 		Ok(value)
 	}
 
-	#[allow(clippy::cast_possible_wrap)]
+	#[expect(clippy::cast_possible_wrap)]
 	pub fn read_ivarint(&mut self) -> Result<i64> {
 		// Read a uvarint.
 		let value = self.read_uvarint()?;

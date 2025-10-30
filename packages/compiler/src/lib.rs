@@ -631,7 +631,7 @@ impl Compiler {
 			.ok();
 	}
 
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	fn send_notification<T>(&self, params: T::Params)
 	where
 		T: lsp::notification::Notification,
@@ -824,7 +824,6 @@ impl Compiler {
 	}
 
 	async fn module_kind_for_path(&self, path: &Path) -> tg::Result<tg::module::Kind> {
-		#[allow(clippy::case_sensitive_file_extension_comparisons)]
 		let kind = if path.extension().is_some_and(|extension| extension == "js") {
 			tg::module::Kind::Js
 		} else if path.extension().is_some_and(|extension| extension == "ts") {

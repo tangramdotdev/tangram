@@ -38,7 +38,7 @@ where
 		Ok(())
 	}
 
-	#[allow(clippy::cast_possible_truncation)]
+	#[expect(clippy::cast_possible_truncation)]
 	pub fn write_uvarint(&mut self, value: u64) -> Result<()> {
 		let mut value = value;
 		while value > 0x7f {
@@ -50,7 +50,7 @@ where
 		Ok(())
 	}
 
-	#[allow(clippy::cast_sign_loss)]
+	#[expect(clippy::cast_sign_loss)]
 	pub fn write_ivarint(&mut self, value: i64) -> Result<()> {
 		// ZigZag encode the value.
 		let value = ((value << 1) ^ (value >> 63)) as u64;

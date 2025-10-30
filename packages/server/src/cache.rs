@@ -505,7 +505,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::needless_pass_by_value)]
 	fn cache_inner_directory(
 		&self,
 		state: &mut State,

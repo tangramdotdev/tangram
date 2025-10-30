@@ -12,7 +12,6 @@ struct TagArgs {
 	artifact: temp::Artifact,
 	options: Vec<String>,
 	path: Option<PathBuf>,
-	#[allow(clippy::struct_field_names)]
 	tag: String,
 }
 

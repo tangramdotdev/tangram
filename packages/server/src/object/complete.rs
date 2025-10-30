@@ -20,7 +20,7 @@ impl Server {
 		}
 	}
 
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	pub(crate) async fn try_get_object_complete_batch(
 		&self,
 		ids: &[tg::object::Id],
@@ -38,7 +38,6 @@ impl Server {
 		}
 	}
 
-	#[allow(dead_code)]
 	pub(crate) async fn try_get_object_complete_and_metadata(
 		&self,
 		id: &tg::object::Id,
@@ -56,7 +55,6 @@ impl Server {
 		}
 	}
 
-	#[allow(dead_code)]
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata(
 		&self,
 		id: &tg::object::Id,

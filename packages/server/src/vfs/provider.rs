@@ -29,7 +29,7 @@ pub struct Provider {
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
 	server: Server,
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	temp: Temp,
 }
 

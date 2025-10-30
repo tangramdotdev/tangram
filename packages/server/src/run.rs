@@ -24,7 +24,7 @@ pub struct Output {
 	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,
 	pub exit: u8,
-	#[allow(clippy::struct_field_names)]
+	#[expect(clippy::struct_field_names)]
 	pub output: Option<tg::Value>,
 }
 

@@ -83,7 +83,7 @@ enum VariantKind<'a> {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 struct StructVariantField<'a> {
 	ident: &'a syn::Ident,
 	ty: &'a syn::Type,

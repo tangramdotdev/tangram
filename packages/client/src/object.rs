@@ -14,7 +14,7 @@ pub mod handle;
 pub mod id;
 pub mod kind;
 pub mod metadata;
-#[allow(clippy::module_inception)]
+#[expect(clippy::module_inception)]
 pub mod object;
 pub mod put;
 pub mod state;
@@ -143,7 +143,7 @@ where
 	Ok(())
 }
 
-#[allow(unused_variables)]
+#[expect(unused_variables)]
 pub trait Visitor<H>
 where
 	H: tg::Handle,

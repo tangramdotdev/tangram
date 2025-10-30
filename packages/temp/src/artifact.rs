@@ -382,7 +382,6 @@ impl From<String> for Artifact {
 	}
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
 #[must_use]
 pub fn is_false(value: &bool) -> bool {
 	!*value

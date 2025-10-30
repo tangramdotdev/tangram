@@ -33,7 +33,7 @@ impl Cli {
 			// Disconnect from the old controlling terminal.
 			let tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
 			if tty > 0 {
-				#[allow(clippy::useless_conversion)]
+				#[cfg_attr(target_os = "linux", expect(clippy::useless_conversion))]
 				libc::ioctl(tty, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
 				libc::close(tty);
 			}
@@ -62,7 +62,7 @@ impl Cli {
 			}
 
 			// Set the pty as the controlling tty.
-			#[allow(clippy::useless_conversion)]
+			#[cfg_attr(target_os = "linux", expect(clippy::useless_conversion))]
 			let ret = libc::ioctl(fd, libc::TIOCSCTTY.into(), 0);
 			if ret < 0 {
 				return Err(tg::error!(

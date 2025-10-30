@@ -1,5 +1,4 @@
 use {
-	super::Database,
 	num::ToPrimitive as _,
 	rusqlite as sqlite, tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
@@ -37,12 +36,7 @@ pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 	Ok(())
 }
 
-pub async fn migrate(database: &Database) -> tg::Result<()> {
-	#[allow(irrefutable_let_patterns)]
-	let Database::Sqlite(database) = database else {
-		return Ok(());
-	};
-
+pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	let migrations = vec![migration_0000(database)];
 
 	let connection = database

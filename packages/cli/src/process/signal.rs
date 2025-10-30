@@ -13,7 +13,7 @@ pub struct Args {
 	#[arg(default_value = "INT", long, short)]
 	pub signal: tg::process::Signal,
 
-	#[allow(clippy::option_option)]
+	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
 }

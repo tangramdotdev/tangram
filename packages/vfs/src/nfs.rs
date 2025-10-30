@@ -83,7 +83,7 @@ struct ClientData {
 #[derive(Clone, Debug)]
 struct Context {
 	current_file_handle: Option<nfs_fh4>,
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	minor_version: u32,
 	saved_file_handle: Option<nfs_fh4>,
 }
@@ -344,7 +344,6 @@ where
 	}
 
 	// Check if credential and verification are valid.
-	#[allow(clippy::unnecessary_wraps)]
 	async fn handle_auth(
 		&self,
 		_cred: rpc::Auth,

@@ -16,7 +16,7 @@ pub struct Graph {
 	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
 }
 
-#[allow(clippy::struct_field_names)]
+#[expect(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
 	pub complete: bool,

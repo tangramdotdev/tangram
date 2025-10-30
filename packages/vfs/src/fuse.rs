@@ -773,7 +773,7 @@ where
 				.as_mut_ptr(),
 				msg_iovlen: 1,
 				msg_control: control.as_mut_ptr().cast(),
-				#[allow(clippy::cast_possible_truncation)]
+				#[cfg_attr(target_os = "macos", expect(clippy::cast_possible_truncation))]
 				msg_controllen: std::mem::size_of_val(&control) as _,
 				msg_flags: 0,
 			});

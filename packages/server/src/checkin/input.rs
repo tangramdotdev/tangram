@@ -38,7 +38,7 @@ enum ParentVariant {
 }
 
 impl Server {
-	#[allow(clippy::too_many_arguments)]
+	#[expect(clippy::too_many_arguments)]
 	pub(super) fn checkin_input(
 		&self,
 		arg: &tg::checkin::Arg,

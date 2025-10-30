@@ -17,7 +17,7 @@ mod write;
 pub(crate) struct Pty {
 	master: Option<OwnedFd>,
 	slave: Option<OwnedFd>,
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	name: CString,
 	session: Option<tokio::process::Child>,
 	pub(crate) temp: Temp,

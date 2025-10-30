@@ -6,10 +6,10 @@ use {
 pub struct Help;
 
 impl Help {
-	#[allow(clippy::unused_self, clippy::needless_pass_by_value)]
+	#[expect(clippy::unused_self)]
 	pub fn handle(&mut self, _event: &ct::event::Event) {}
 
-	#[allow(clippy::unused_self)]
+	#[expect(clippy::unused_self)]
 	pub fn render(&mut self, rect: tui::layout::Rect, buffer: &mut tui::buffer::Buffer) {
 		let commands = [
 			("?", "help", "Show this help view."),

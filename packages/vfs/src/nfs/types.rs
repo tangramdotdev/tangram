@@ -565,7 +565,6 @@ pub struct exist_lock_owner4 {
 	pub lock_seqid: seqid4,
 }
 
-#[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Debug)]
 pub enum locker4 {
 	TRUE(open_to_lock_owner4),
@@ -2941,7 +2940,7 @@ impl bitmap4 {
 }
 
 impl nfstime4 {
-	#[allow(clippy::new_without_default)]
+	#[expect(clippy::new_without_default)]
 	#[must_use]
 	pub fn new() -> nfstime4 {
 		nfstime4 {

@@ -4,7 +4,7 @@ use {crate::Server, tangram_client as tg, tangram_util::serde::is_false};
 mod postgres;
 mod sqlite;
 
-#[allow(clippy::struct_field_names)]
+#[expect(clippy::struct_field_names)]
 #[derive(
 	Clone,
 	Debug,
@@ -39,7 +39,7 @@ pub struct Output {
 }
 
 impl Server {
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	pub(crate) async fn try_get_process_complete(
 		&self,
 		id: &tg::process::Id,
@@ -55,7 +55,7 @@ impl Server {
 		}
 	}
 
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	pub(crate) async fn try_get_process_complete_batch(
 		&self,
 		ids: &[tg::process::Id],

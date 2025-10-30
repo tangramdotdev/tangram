@@ -28,7 +28,7 @@ pub struct Args {
 #[group(skip)]
 pub struct Options {
 	/// Whether to check out the output.
-	#[allow(clippy::option_option)]
+	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub checkout: Option<Option<PathBuf>>,
 

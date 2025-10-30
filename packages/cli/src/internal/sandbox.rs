@@ -5,7 +5,6 @@ use {
 };
 
 #[derive(Debug, Clone, clap::Args)]
-#[allow(dead_code)]
 pub struct Args {
 	/// Provide a path for the chroot.
 	#[arg(long)]

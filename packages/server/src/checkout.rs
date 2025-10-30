@@ -445,7 +445,6 @@ impl Server {
 		}
 	}
 
-	#[allow(clippy::needless_pass_by_value)]
 	fn checkout_inner_directory(
 		&self,
 		state: &mut State,

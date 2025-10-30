@@ -104,7 +104,7 @@ pub struct Options {
 	pub network: Option<bool>,
 
 	/// The remote to use.
-	#[allow(clippy::option_option)]
+	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
 
@@ -448,7 +448,7 @@ impl Cli {
 			} else {
 				tg::host().to_owned()
 			};
-			env.insert("TANGRAM_HOST".to_owned(), host.to_string().into());
+			env.insert("TANGRAM_HOST".to_owned(), host.into());
 		}
 		command = command.env(env);
 

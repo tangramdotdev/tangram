@@ -13,7 +13,7 @@ use {
 };
 
 impl Server {
-	#[allow(clippy::too_many_arguments)]
+	#[expect(clippy::too_many_arguments)]
 	pub(super) fn checkin_create_artifacts(
 		arg: &tg::checkin::Arg,
 		graph: &mut Graph,
@@ -530,7 +530,7 @@ impl Server {
 		Ok((id, complete, metadata))
 	}
 
-	#[allow(clippy::too_many_arguments)]
+	#[expect(clippy::too_many_arguments)]
 	fn checkin_update_blob_cache_references(
 		arg: &tg::checkin::Arg,
 		graph: &Graph,

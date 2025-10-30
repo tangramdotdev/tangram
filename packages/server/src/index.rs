@@ -437,7 +437,7 @@ impl Server {
 }
 
 impl Index {
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	pub async fn sync(&self) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "postgres")]

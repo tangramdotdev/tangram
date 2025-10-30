@@ -188,13 +188,11 @@ pub fn return_true() -> bool {
 	true
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
 #[must_use]
 pub fn is_false(value: &bool) -> bool {
 	!*value
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
 #[must_use]
 pub fn is_true(value: &bool) -> bool {
 	*value

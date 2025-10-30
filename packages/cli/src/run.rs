@@ -39,7 +39,7 @@ pub struct Options {
 	pub build_view: crate::build::View,
 
 	/// Whether to check out the output.
-	#[allow(clippy::option_option)]
+	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub checkout: Option<Option<PathBuf>>,
 

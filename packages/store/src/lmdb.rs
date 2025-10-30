@@ -104,7 +104,6 @@ impl Store {
 		Ok::<_, tg::Error>(Some(bytes))
 	}
 
-	#[allow(dead_code)]
 	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
 		let transaction = self
 			.env
@@ -258,7 +257,7 @@ impl Store {
 		Ok(())
 	}
 
-	#[allow(clippy::needless_pass_by_value)]
+	#[expect(clippy::needless_pass_by_value)]
 	fn task_delete(
 		_env: &lmdb::Env,
 		db: &Db,

@@ -36,7 +36,7 @@ impl Compiler {
 		};
 
 		// Convert the edits.
-		#[allow(clippy::mutable_key_type)]
+		#[expect(clippy::mutable_key_type)]
 		let mut edit = HashMap::<lsp::Uri, lsp::TextDocumentEdit>::new();
 		for location in locations {
 			// Create the URI.

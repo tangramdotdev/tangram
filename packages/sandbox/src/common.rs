@@ -54,7 +54,7 @@ macro_rules! abort {
 	}};
 }
 
-#[allow(unused_imports)]
+#[expect(unused_imports)]
 pub use abort;
 
 #[macro_export]

@@ -26,6 +26,7 @@ mod checkout;
 mod checksum;
 mod children;
 mod clean;
+mod completion;
 mod compress;
 mod decompress;
 mod document;
@@ -35,7 +36,6 @@ mod extract;
 mod format;
 mod get;
 mod health;
-mod completion;
 mod id;
 mod index;
 mod init;
@@ -1199,7 +1199,7 @@ impl Cli {
 		Ok(Some(config))
 	}
 
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	fn write_config(&self, config: &Config) -> tg::Result<()> {
 		let config = serde_json::to_string_pretty(&config)
 			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;

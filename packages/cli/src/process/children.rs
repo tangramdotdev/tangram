@@ -18,7 +18,7 @@ pub struct Args {
 	#[arg(long)]
 	pub position: Option<u64>,
 
-	#[allow(clippy::option_option)]
+	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
 

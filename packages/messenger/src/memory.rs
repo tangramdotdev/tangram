@@ -50,7 +50,7 @@ struct StreamState {
 }
 
 struct ConsumerState {
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	config: ConsumerConfig,
 	sequence: u64,
 }

@@ -32,7 +32,7 @@ pub enum Database {
 	Sqlite(db::sqlite::Database),
 }
 
-#[allow(clippy::module_name_repetitions, dead_code)]
+#[expect(dead_code)]
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
@@ -51,7 +51,7 @@ pub enum Connection {
 	Sqlite(db::pool::Guard<db::sqlite::Connection>),
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]

@@ -33,7 +33,7 @@ pub struct Database {
 }
 
 pub struct Connection {
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	options: ConnectionOptions,
 	sender: tokio::sync::mpsc::UnboundedSender<ConnectionMessage>,
 }

@@ -74,7 +74,7 @@ impl Data {
 		self.scroll.1 = (self.scroll.1 + 1).min(self.num_columns);
 	}
 
-	#[allow(clippy::needless_pass_by_value)]
+	#[expect(clippy::needless_pass_by_value)]
 	pub fn set_contents(&mut self, contents: String) {
 		self.contents = contents.replace('\t', "    ");
 		let width = self.rect.map(|rect| rect.width.to_usize().unwrap());

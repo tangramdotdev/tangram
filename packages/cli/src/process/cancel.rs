@@ -7,7 +7,7 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 
-	#[allow(clippy::option_option)]
+	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
 	pub remote: Option<Option<String>>,
 

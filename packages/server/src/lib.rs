@@ -81,6 +81,7 @@ pub struct State {
 	http: Option<Http>,
 	index: Index,
 	library: Mutex<Option<Arc<Temp>>>,
+	#[cfg_attr(not(feature = "js"), expect(dead_code))]
 	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
@@ -109,7 +110,7 @@ type ProcessPermits =
 	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<ProcessPermit>>>, tg::id::BuildHasher>;
 
 struct ProcessPermit(
-	#[allow(dead_code)]
+	#[expect(dead_code)]
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
@@ -464,9 +465,12 @@ impl Server {
 		}));
 
 		// Migrate the database.
-		self::database::sqlite::migrate(&server.database)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
+		#[cfg_attr(not(feature = "postgres"), expect(irrefutable_let_patterns))]
+		if let Database::Sqlite(database) = &server.database {
+			self::database::sqlite::migrate(database)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
+		}
 
 		// Migrate the index.
 		if let Ok(database) = server.index.try_unwrap_sqlite_ref() {

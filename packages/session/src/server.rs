@@ -65,7 +65,7 @@ impl Server {
 
 		// Receive the file descriptors using recvmsg with SCM_RIGHTS.
 		let fd = stream.as_raw_fd();
-		#[allow(clippy::cast_possible_truncation)]
+		#[expect(clippy::cast_possible_truncation)]
 		let fds = stream
 			.async_io(tokio::io::Interest::READABLE, move || unsafe {
 				// Receive the message.
