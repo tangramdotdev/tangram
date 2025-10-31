@@ -391,6 +391,7 @@ where
 		// Handle any pending updates.
 		self.update();
 
+		// Clear.
 		// Clear previous output if it exists.
 		if let Some(tty) = tty.as_mut() {
 			ct::queue!(
@@ -400,21 +401,11 @@ where
 				ct::cursor::Show,
 			)
 			.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
-		
-		// Get the tty or print the tree.
-		let Some(tty) = tty.as_mut() else {
-			eprintln!("{}", self.tree.display());
-			return Ok(());
-		};
+		}
 
-		// Clear.
-		if self.tree.options().clear_at_end && lines.is_some_and(|lines| lines > 0) {
-			ct::queue!(
-				tty,
-				ct::cursor::MoveToPreviousLine(lines.unwrap()),
-				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-			)
-			.unwrap();
+		// Render one more time.
+		if !self.tree.options().clear_at_end {
+			eprintln!("{}", self.tree.display());
 		}
 
 		Ok(())
