@@ -3,7 +3,7 @@ use {
 		proxy::Proxy,
 		util::{cache_children, render_env, render_value, which, whoami},
 	},
-	crate::{handle::ServerOrProxy, temp::Temp, Server},
+	crate::{Server, handle::ServerOrProxy, temp::Temp},
 	indoc::formatdoc,
 	std::{
 		collections::{BTreeMap, HashMap},

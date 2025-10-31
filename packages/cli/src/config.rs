@@ -54,6 +54,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub runner: Option<Either<bool, Runner>>,
 
+	/// Configure the server.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub serve: Option<Serve>,
+
 	/// Configure the store.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub store: Option<Store>,
@@ -249,6 +253,8 @@ pub struct NatsMessenger {
 pub struct Remote {
 	pub name: String,
 	pub url: Uri,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[serde_as]
@@ -267,6 +273,13 @@ pub struct Runner {
 	/// The remotes to run processes for.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub struct Serve {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub put_tag_requires_auth: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

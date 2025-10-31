@@ -23,9 +23,7 @@ impl Server {
 			return Ok(());
 		}
 
-		for item in &arg.tags {
-			self.ensure_put_tag_authorized(&context, &item.tag).await?;
-		}
+		self.ensure_put_tag_authorized(&context).await?;
 
 		// Insert the tag into the database.
 		match &self.database {

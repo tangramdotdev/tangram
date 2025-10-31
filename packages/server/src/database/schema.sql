@@ -96,8 +96,3 @@ create table tokens (
 	id text primary key,
 	"user" text not null
 );
-
-create table tag_users (
-	tag text not null,
-	"user" text not null
-);

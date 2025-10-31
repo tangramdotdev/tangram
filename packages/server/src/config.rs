@@ -122,6 +122,7 @@ pub struct NatsMessenger {
 pub struct Remote {
 	pub name: String,
 	pub url: Uri,
+	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug)]

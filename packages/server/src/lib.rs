@@ -1,6 +1,6 @@
+use crate::handle::ServerOrProxy;
 #[cfg(feature = "nats")]
 use async_nats as nats;
-use crate::handle::ServerOrProxy;
 
 use {
 	self::{database::Database, index::Index, messenger::Messenger, store::Store},
