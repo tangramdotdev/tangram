@@ -212,11 +212,8 @@ async fn try_get_package_tag(
 		// For directories, look for a root module.
 		tg::Object::Directory(directory) => {
 			// Get the root file name.
-			let Some(name) = tg::package::try_get_root_module_file_name(
-				handle,
-				Either::Left(&directory.clone()),
-			)
-			.await?
+			let Some(name) =
+				tg::package::try_get_root_module_file_name(handle, Either::Left(directory)).await?
 			else {
 				return Ok(None);
 			};
@@ -282,7 +279,7 @@ impl State {
 		// Edge case: make sure the root is added if it is on the local file system.
 		if root.path().is_some() {
 			self.local_packages.push(root.clone());
-			self.add_package(&root.clone());
+			self.add_package(root);
 		}
 
 		// Visit all the objects.
