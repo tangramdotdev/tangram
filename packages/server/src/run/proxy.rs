@@ -565,6 +565,19 @@ impl tg::handle::User for Proxy {
 	}
 }
 
+impl tg::handle::Watch for Proxy {
+	async fn list_watches(
+		&self,
+		_arg: tg::watch::list::Arg,
+	) -> tg::Result<tg::watch::list::Output> {
+		Err(tg::error!("forbidden"))
+	}
+
+	async fn delete_watch(&self, _arg: tg::watch::delete::Arg) -> tg::Result<()> {
+		Err(tg::error!("forbidden"))
+	}
+}
+
 impl Deref for Proxy {
 	type Target = Inner;
 

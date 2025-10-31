@@ -332,6 +332,14 @@ impl Server {
 				Self::handle_delete_remote_request(handle, request, name).boxed()
 			},
 
+			// Watches.
+			(http::Method::GET, ["watches"]) => {
+				Self::handle_list_watches_request(handle, request).boxed()
+			},
+			(http::Method::DELETE, ["watches"]) => {
+				Self::handle_delete_watch_request(handle, request).boxed()
+			},
+
 			// Tags.
 			(http::Method::GET, ["tags"]) => {
 				Self::handle_list_tags_request(handle, request).boxed()

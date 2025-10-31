@@ -57,6 +57,7 @@ mod server;
 mod tag;
 mod tangram;
 mod tree;
+mod watch;
 mod update;
 mod util;
 mod view;
@@ -259,6 +260,8 @@ enum Command {
 	View(self::view::Args),
 
 	Wait(self::process::wait::Args),
+
+	Watch(self::watch::Args),
 
 	Write(self::write::Args),
 }
@@ -1156,6 +1159,7 @@ impl Cli {
 			Command::Update(args) => self.command_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),
 			Command::Wait(args) => self.command_process_wait(args).boxed(),
+			Command::Watch(args) => self.command_watch(args).boxed(),
 			Command::Write(args) => self.command_write(args).boxed(),
 		}
 		.await

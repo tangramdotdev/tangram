@@ -5,7 +5,7 @@ use {
 };
 
 pub trait Handle:
-	Object + Process + Pipe + Pty + Remote + Tag + User + Send + Sync + 'static
+	Object + Process + Pipe + Pty + Remote + Tag + User + Watch + Send + Sync + 'static
 {
 	fn cache(
 		&self,
@@ -355,6 +355,18 @@ pub trait Tag: Send + Sync + 'static {
 
 pub trait User: Send + Sync + 'static {
 	fn get_user<'a>(&'a self, token: &'a str) -> BoxFuture<'a, tg::Result<Option<tg::User>>>;
+}
+
+pub trait Watch: Send + Sync + 'static {
+	fn list_watches(
+		&self,
+		arg: tg::watch::list::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::watch::list::Output>>;
+
+	fn delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> BoxFuture<'_, tg::Result<()>>;
 }
 
 impl<T> Handle for T
@@ -868,5 +880,24 @@ where
 {
 	fn get_user<'a>(&'a self, token: &'a str) -> BoxFuture<'a, tg::Result<Option<tg::User>>> {
 		self.get_user(token).boxed()
+	}
+}
+
+impl<T> Watch for T
+where
+	T: tg::handle::Watch,
+{
+	fn list_watches(
+		&self,
+		arg: tg::watch::list::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::watch::list::Output>> {
+		self.list_watches(arg).boxed()
+	}
+
+	fn delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> BoxFuture<'_, tg::Result<()>> {
+		self.delete_watch(arg).boxed()
 	}
 }

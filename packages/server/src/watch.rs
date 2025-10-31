@@ -8,6 +8,9 @@ use {
 	tangram_client as tg,
 };
 
+pub mod delete;
+pub mod list;
+
 pub struct Watch {
 	pub state: Arc<Mutex<State>>,
 	#[expect(dead_code)]

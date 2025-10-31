@@ -518,6 +518,22 @@ impl tg::handle::User for Handle {
 	}
 }
 
+impl tg::handle::Watch for Handle {
+	fn list_watches(
+		&self,
+		arg: tg::watch::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::watch::list::Output>> {
+		self.0.list_watches(arg)
+	}
+
+	fn delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.0.delete_watch(arg)
+	}
+}
+
 impl tg::Handle for Server {
 	fn cache(
 		&self,
@@ -1025,5 +1041,21 @@ impl tg::handle::Tag for Server {
 impl tg::handle::User for Server {
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		self.get_user(token)
+	}
+}
+
+impl tg::handle::Watch for Server {
+	fn list_watches(
+		&self,
+		arg: tg::watch::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::watch::list::Output>> {
+		self.list_watches(arg)
+	}
+
+	fn delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_watch(arg)
 	}
 }

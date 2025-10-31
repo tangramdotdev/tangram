@@ -82,6 +82,7 @@ pub mod referent;
 pub mod remote;
 pub mod run;
 pub mod symlink;
+pub mod watch;
 pub mod sync;
 pub mod tag;
 pub mod template;
@@ -92,7 +93,7 @@ pub mod write;
 pub mod prelude {
 	pub use super::handle::{
 		Ext as _, Handle as _, Object as _, Pipe as _, Process as _, Pty as _, Remote as _,
-		Tag as _, User as _,
+		Tag as _, User as _, Watch as _,
 	};
 }
 

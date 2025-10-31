@@ -12,7 +12,7 @@ mod ext;
 pub use self::ext::Ext;
 
 pub trait Handle:
-	Object + Process + Pipe + Pty + Remote + Tag + User + Clone + Unpin + Send + Sync + 'static
+	Object + Process + Pipe + Pty + Remote + Tag + User + Watch + Clone + Unpin + Send + Sync + 'static
 {
 	fn cache(
 		&self,
@@ -411,6 +411,18 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 
 pub trait User: Clone + Unpin + Send + Sync + 'static {
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
+}
+
+pub trait Watch: Clone + Unpin + Send + Sync + 'static {
+	fn list_watches(
+		&self,
+		arg: tg::watch::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::watch::list::Output>> + Send;
+
+	fn delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
 impl tg::Handle for tg::Client {
@@ -923,5 +935,21 @@ impl tg::handle::Tag for tg::Client {
 impl tg::handle::User for tg::Client {
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		self.get_user(token)
+	}
+}
+
+impl tg::handle::Watch for tg::Client {
+	fn list_watches(
+		&self,
+		arg: tg::watch::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::watch::list::Output>> {
+		self.list_watches(arg)
+	}
+
+	fn delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.delete_watch(arg)
 	}
 }
