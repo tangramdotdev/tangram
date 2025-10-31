@@ -2,7 +2,7 @@ use {
 	crate::{Server, handle::ServerOrProxy},
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::pin::pin,
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg, prelude::*},
 	tangram_futures::task::Stop,
 	tangram_http::{Body, response::builder::Ext as _},
 	tokio::io::{AsyncBufRead, AsyncWrite},

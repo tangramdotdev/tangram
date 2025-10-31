@@ -5,7 +5,7 @@ use {
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _},

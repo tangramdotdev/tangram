@@ -8,7 +8,7 @@ use {
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
 	},
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg, prelude::*},
 	tangram_either::Either,
 	tangram_futures::stream::{Ext as _, TryExt as _},
 	tangram_http::{Body, request::Ext as _},

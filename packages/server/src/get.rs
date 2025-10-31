@@ -1,7 +1,7 @@
 use {
 	crate::{Server, handle::ServerOrProxy},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg, prelude::*},
 	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _},
 };

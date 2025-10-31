@@ -2,7 +2,7 @@ use {
 	crate::{Server, database::Database, handle::ServerOrProxy},
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, response::builder::Ext as _},
 };

@@ -1,6 +1,6 @@
 use {
 	crate::{Server, handle::ServerOrProxy},
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 

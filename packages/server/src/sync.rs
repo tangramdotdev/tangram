@@ -3,7 +3,7 @@ use {
 	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin},
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg, prelude::*},
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Stop, write::Ext},
 	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncReadExt as _,
