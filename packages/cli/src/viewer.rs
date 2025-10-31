@@ -380,11 +380,11 @@ where
 			tokio::select! {
 				() = changed => (),
 				() = sleep => (),
-				() = stop => break 'display,
+				() = stop => break,
 			};
 
 			if self.tree.is_finished() {
-				break 'display;
+				break;
 			}
 		}
 
