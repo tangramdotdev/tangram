@@ -1,7 +1,7 @@
 use {
 	crate::{Context, Server, database::Database, handle::ServerOrProxy, http::ContextExt},
 	indoc::formatdoc,
-	tangram_client::{self as tg, prelude::*},
+	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
@@ -24,22 +24,7 @@ impl Server {
 			remote.put_tag(tag, arg).await?;
 			return Ok(());
 		}
-
-		// Check the token.
-		match (&context.token, self.config().serve.put_tag_requires_auth) {
-			(Some(token), _) => {
-				let user = self
-					.get_user(token)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get user"))?
-					.ok_or_else(|| tg::error!("not found"))?;
-				if !self.is_user_authorized_to_put_tag(&user.id, tag).await {
-					return Err(tg::error!("unauthorized"));
-				}
-			},
-			(None, true) => return Err(tg::error!("unauthorized")),
-			(_, false) => (),
-		}
+		self.ensure_put_tag_authorized(&context, tag);
 
 		// Insert the tag into the database.
 		match &self.database {
@@ -68,11 +53,30 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn is_user_authorized_to_put_tag(
+	pub(crate) async fn ensure_put_tag_authorized(
 		&self,
-		token: &str,
+		context: &Context,
 		tag: &tg::Tag,
-	) -> tg::Result<bool> {
+	) -> tg::Result<()> {
+		// Check the token.
+		let user = match (&context.token, self.config().serve.put_tag_requires_auth) {
+			(Some(token), _) => self
+				.get_user(token)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get user"))?
+				.ok_or_else(|| tg::error!("not found"))?,
+			(None, true) => return Err(tg::error!("unauthorized")),
+			(_, false) => return Ok(()),
+		};
+
+		// If the tag has more than one component, get its parent.
+		let mut components = tag.components().collect::<Vec<_>>();
+		if components.len() > 1 {
+			components.pop();
+		}
+		let tag = components.join("/");
+
+		// Get a transaction.
 		let mut connection = self
 			.database
 			.connection()
@@ -83,24 +87,21 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a transaction"))?;
 
-		// First, get the corresponding tag id(s) for a token.
+		// Check if the user is allowed to access the parent.
 		let p = transaction.p();
-		let statement = formatdoc!("select id from tag_tokens where token = {p}1;");
-		#[derive(serde::Deserialize)]
-		struct Row {
-			id: u64,
-		}
-		let rows = transaction
-			.query_all_into::<db::row::Serde<Row>>(statement.into(), db::params![token])
+		let statement =
+			formatdoc!("select count(*) from tag_users where tag = {p}1 and user = {p}2;");
+		let count = transaction
+			.query_one_into::<db::row::Serde<u64>>(statement.into(), db::params![tag, user.id])
 			.await
-			.map_err(|source| tg::error!(!source, %token, "failed to perform the query"))?;
+			.map_err(|source| tg::error!(!source, "failed to perform the query"))?
+			.0;
 
-		// Next, check if any of those tags are an ancestor of the desired tag.
-		for row in rows {
-			let statement = formatdoc!("select id from tags where parent = {p}1;");
+		if count == 0 {
+			return Err(tg::error!(%tag, %user = user.id, "unauthorized"));
 		}
 
-		todo!()
+		Ok(())
 	}
 
 	pub(crate) async fn handle_put_tag_request(

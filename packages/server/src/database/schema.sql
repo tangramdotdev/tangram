@@ -89,7 +89,7 @@ create unique index tags_parent_id_index on tags (parent, id);
 
 create table users (
 	id text primary key,
-	email text not null
+	email text not null,
 );
 
 create table tokens (
@@ -97,10 +97,7 @@ create table tokens (
 	"user" text not null
 );
 
-create table tag_tokens (
-	id integer not null
-	token text not null
+create table tag_users (
+	tag text not null,
+	"user" text not null
 );
-
-create unique index tag_tokens_token_index on tag_tokens (token, id)
-
