@@ -1,5 +1,5 @@
 use {
-	crate::{Server, temp::Temp},
+	crate::{Server, handle::ServerOrProxy, temp::Temp},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	itertools::Itertools,
@@ -10,7 +10,7 @@ use {
 		pin::pin,
 		sync::Arc,
 	},
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
@@ -395,13 +395,10 @@ impl Server {
 		messages
 	}
 
-	pub(crate) async fn handle_write_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_write_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let output = handle.write(request.reader()).await?;
 		let response = http::Response::builder()
 			.json(output)

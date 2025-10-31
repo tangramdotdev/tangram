@@ -1,6 +1,6 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Server, handle::ServerOrProxy},
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -42,13 +42,10 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_check_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_check_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
 		let output = handle.check(arg).await?;
 		let response = http::Response::builder()

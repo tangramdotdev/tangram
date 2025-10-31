@@ -1,6 +1,6 @@
 use {
 	super::reader::Reader,
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -258,14 +258,11 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn handle_get_process_log_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_process_log_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 

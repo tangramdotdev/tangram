@@ -1,6 +1,6 @@
 use {
-	crate::{Server, database::Database},
-	tangram_client as tg,
+	crate::{Server, database::Database, handle::ServerOrProxy},
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -49,14 +49,11 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_delete_tag_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_delete_tag_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		_tag: &[&str],
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
 		let output = handle.delete_tag(arg).await?;
 		let response = http::Response::builder()

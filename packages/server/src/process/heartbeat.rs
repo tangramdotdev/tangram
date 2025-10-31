@@ -1,7 +1,7 @@
 use {
-	crate::{Server, database},
+	crate::{Server, database, handle::ServerOrProxy},
 	indoc::indoc,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
@@ -78,14 +78,11 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_heartbeat_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_heartbeat_process_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		let output = handle.heartbeat_process(&id, arg).await?;

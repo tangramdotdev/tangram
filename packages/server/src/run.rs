@@ -8,7 +8,7 @@ use {
 
 mod common;
 mod progress;
-mod proxy;
+pub(crate) mod proxy;
 pub mod util;
 
 pub mod builtin;

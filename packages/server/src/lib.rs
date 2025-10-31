@@ -1,5 +1,7 @@
+use crate::handle::ServerOrProxy;
 #[cfg(feature = "nats")]
 use async_nats as nats;
+
 use {
 	self::{database::Database, index::Index, messenger::Messenger, store::Store},
 	crate::{temp::Temp, watch::Watch},
@@ -115,6 +117,10 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
+
+pub(crate) struct Context {
+	pub token: Option<String>,
+}
 
 impl Handle {
 	pub fn stop(&self) {
@@ -670,7 +676,7 @@ impl Server {
 			Some(Task::spawn(|stop| {
 				let server = server.clone();
 				async move {
-					Self::serve(server.clone(), listener, stop).await;
+					Self::serve(ServerOrProxy(Either::Left(server.clone())), listener, stop).await;
 				}
 			}))
 		} else {

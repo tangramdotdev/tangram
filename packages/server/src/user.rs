@@ -1,7 +1,7 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	indoc::formatdoc,
-	tangram_client as tg,
+	tangram_client::{self as tg, handle::User as _},
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
@@ -38,13 +38,10 @@ impl Server {
 		Ok(user)
 	}
 
-	pub(crate) async fn handle_get_user_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_user_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Get the token.
 		let Some(token) = request.token(None) else {
 			let response = http::Response::builder()

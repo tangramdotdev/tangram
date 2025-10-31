@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{FutureExt as _, future},
 	indoc::{formatdoc, indoc},
 	rusqlite as sqlite,
@@ -171,14 +171,11 @@ impl Server {
 		Ok(Some(metadata))
 	}
 
-	pub(crate) async fn handle_get_object_metadata_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_object_metadata_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let Some(output) = handle.try_get_object_metadata(&id, arg).await? else {

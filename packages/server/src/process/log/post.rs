@@ -1,7 +1,7 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	bytes::Bytes,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio::io::AsyncWriteExt as _,
@@ -72,14 +72,11 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_process_log_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_process_log_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		handle.post_process_log(&id, arg).await?;

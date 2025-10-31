@@ -1,7 +1,7 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{Stream, StreamExt as _},
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _},
 };
 
@@ -21,13 +21,10 @@ impl Server {
 		Self::push_or_pull(&remote, self, &arg).await
 	}
 
-	pub(crate) async fn handle_pull_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_pull_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)

@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{StreamExt as _, stream},
 	tangram_client::{self as tg, prelude::*},
 	tangram_futures::{stream::TryExt as _, task::Stop},
@@ -47,14 +47,11 @@ impl Server {
 		Ok(Some(future))
 	}
 
-	pub(crate) async fn handle_post_process_wait_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_process_wait_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse::<tg::process::Id>()?;
 

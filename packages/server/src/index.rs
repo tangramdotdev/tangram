@@ -1,9 +1,10 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
 	std::{pin::pin, task::Poll, time::Duration},
-	tangram_client as tg, tangram_database as db,
+	tangram_client::{self as tg, prelude::*},
+	tangram_database as db,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::{self as messenger, Acker, prelude::*},
@@ -385,13 +386,10 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_index_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_index_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)

@@ -1,9 +1,9 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _},
 	http_body_util::{BodyExt as _, BodyStream},
 	std::pin::pin,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tokio::io::AsyncWriteExt as _,
@@ -46,14 +46,11 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_write_pipe_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_write_pipe_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 

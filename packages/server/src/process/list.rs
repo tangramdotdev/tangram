@@ -1,6 +1,6 @@
 use {
-	crate::{Server, database::Database},
-	tangram_client as tg,
+	crate::{Server, database::Database, handle::ServerOrProxy},
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -25,13 +25,10 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_list_processes_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_list_processes_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let output = handle.list_processes(arg).await?;
 		let output = output.data;

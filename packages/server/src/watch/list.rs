@@ -1,6 +1,6 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Server, handle::ServerOrProxy},
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -20,12 +20,10 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_watches_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_list_watches_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
 	{
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let output = handle.list_watches(arg).await?;

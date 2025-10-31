@@ -1,8 +1,8 @@
 use {
-	crate::{Server, database::Database},
+	crate::{Server, database::Database, handle::ServerOrProxy},
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, response::builder::Ext as _},
 };
@@ -137,13 +137,10 @@ impl Server {
 		Some(output.name)
 	}
 
-	pub(crate) async fn handle_server_health_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_server_health_request(
+		handle: &ServerOrProxy,
 		_request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let health = handle.health().await?;
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder().bytes(body).unwrap();

@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Context, Server, handle::ServerOrProxy},
 	futures::{FutureExt as _, future},
 	http_body_util::BodyExt as _,
 	std::{convert::Infallible, path::Path, pin::pin, time::Duration},
@@ -45,13 +45,11 @@ impl Server {
 		Ok(listener)
 	}
 
-	pub(crate) async fn serve<H>(
-		handle: H,
+	pub(crate) async fn serve(
+		handle: ServerOrProxy,
 		listener: tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>,
 		stop: Stop,
-	) where
-		H: tg::Handle,
-	{
+	) {
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
 
@@ -169,10 +167,10 @@ impl Server {
 		task_tracker.wait().await;
 	}
 
-	async fn handle_request<H>(handle: &H, mut request: http::Request<Body>) -> http::Response<Body>
-	where
-		H: tg::Handle,
-	{
+	async fn handle_request(
+		handle: &ServerOrProxy,
+		mut request: http::Request<Body>,
+	) -> http::Response<Body> {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
@@ -393,5 +391,19 @@ impl Server {
 				error
 			}))
 		})
+	}
+}
+
+pub(crate) trait ContextExt {
+	fn context(&self) -> Context;
+}
+
+impl<T> ContextExt for http::Request<T> {
+	fn context(&self) -> Context {
+		let token = self
+			.headers()
+			.get(http::header::AUTHORIZATION)
+			.and_then(|value| Some(value.to_str().ok()?.to_owned()));
+		Context { token }
 	}
 }

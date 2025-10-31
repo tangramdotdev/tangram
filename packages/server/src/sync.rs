@@ -1,9 +1,9 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin},
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Stop, write::Ext},
 	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncReadExt as _,
@@ -134,13 +134,10 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_sync_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_sync_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the arg.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
