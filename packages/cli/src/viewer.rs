@@ -14,6 +14,7 @@ use {
 	tangram_client as tg,
 	tangram_futures::task::Stop,
 	unicode_segmentation::UnicodeSegmentation as _,
+	unicode_width::UnicodeWidthStr as _,
 };
 
 mod data;
@@ -314,44 +315,53 @@ where
 			None
 		};
 
+		if let Some(tty) = tty.as_mut() {
+			ct::queue!(tty, ct::cursor::Hide, ct::cursor::SavePosition)
+				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+		}
+
 		// Render the tree.
-		let mut lines = None;
 		loop {
 			// Update.
 			self.update();
 
 			// If stdout is a terminal, then render the tree.
 			if let Some(tty) = tty.as_mut() {
-				// Get the size of the tty.
-				let (columns, rows) = ct::terminal::size().map_or((64, 64), |(columns, rows)| {
-					(columns.to_usize().unwrap(), rows.to_usize().unwrap())
-				});
+				// Clear previous output if it exists.
+				ct::queue!(
+					tty,
+					ct::cursor::RestorePosition,
+					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+					ct::cursor::SavePosition,
+				)
+				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 
-				// Clear.
-				match lines {
-					Some(lines) if lines > 0 => {
-						ct::queue!(
-							tty,
-							ct::cursor::MoveToPreviousLine(lines),
-							ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-						)
-						.unwrap();
-					},
-					_ => (),
-				}
+				// Get the terminal size.
+				let (columns, rows) = ct::terminal::size()
+					.map(|(columns, rows)| (columns.to_usize().unwrap(), rows.to_usize().unwrap()))
+					.map_err(|error| tg::error!(!error, "failed to get the terminal size"))?;
+
+				// Get the cursor position after clearing.
+				let (_column, row) = ct::cursor::position()
+					.map(|(column, row)| (column.to_usize().unwrap(), row.to_usize().unwrap()))
+					.map_err(|error| tg::error!(!error, "failed to get the cursor position"))?;
 
 				// Print the tree.
 				let tree = self.tree.display().to_string();
-				let mut count = 0;
-				for line in tree.lines().take(rows) {
+				let mut first = true;
+				for line in tree.lines().take(rows.saturating_sub(row)) {
+					if !first {
+						writeln!(tty).map_err(|source| {
+							tg::error!(!source, "failed to write to the terminal")
+						})?;
+					}
+					first = false;
 					let line = clip(line, columns);
-					writeln!(tty, "{line}")
-						.map_err(|source| tg::error!(!source, "failed to print the tree"))?;
-					count += 1;
+					write!(tty, "{line}")
+						.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 				}
 				tty.flush()
 					.map_err(|source| tg::error!(!source, "failed to flush the terminal"))?;
-				lines.replace(count);
 			}
 
 			// Sleep. If the task is stopped, then break.
@@ -364,17 +374,15 @@ where
 		// Handle any pending updates.
 		self.update();
 
-		// Clear.
-		match (tty.as_mut(), lines) {
-			(Some(tty), Some(lines)) if lines > 0 => {
-				ct::queue!(
-					tty,
-					ct::cursor::MoveToPreviousLine(lines),
-					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-				)
-				.unwrap();
-			},
-			_ => (),
+		// Clear previous output if it exists.
+		if let Some(tty) = tty.as_mut() {
+			ct::queue!(
+				tty,
+				ct::cursor::RestorePosition,
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+				ct::cursor::Show,
+			)
+			.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 		}
 
 		Ok(())
@@ -403,10 +411,14 @@ fn render_block_and_get_area(title: &str, focused: bool, area: Rect, buf: &mut B
 		.unwrap_or(area)
 }
 
-pub(crate) fn clip(string: &str, max_width: usize) -> &str {
-	let mut len = 0;
-	for cluster in string.graphemes(true).take(max_width) {
-		len += cluster.len();
+pub fn clip(string: &str, max_width: usize) -> &str {
+	let mut current_width = 0;
+	for (index, grapheme) in string.grapheme_indices(true) {
+		let grapheme_width = grapheme.width();
+		if current_width + grapheme_width > max_width {
+			return &string[..index];
+		}
+		current_width += grapheme_width;
 	}
-	&string[0..len]
+	string
 }
