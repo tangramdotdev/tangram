@@ -39,7 +39,8 @@ impl Server {
 		let Some(output) = self.try_get_remote(&remote).await? else {
 			return Ok(None);
 		};
-		let client = tg::Client::new(output.url, Some(self.version.clone()));
+		// TODO: token
+		let client = tg::Client::new(output.url, Some(self.version.clone()), None);
 		self.remotes.insert(remote, client.clone());
 		Ok(Some(client))
 	}

@@ -1,7 +1,7 @@
 use {
-	crate::{Server, database::Database},
+	crate::{Server, database::Database, handle::ServerOrProxy},
 	std::collections::BTreeSet,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -68,14 +68,11 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_put_process_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
 		handle.put_process(&id, arg).await?;

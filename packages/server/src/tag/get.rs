@@ -1,6 +1,6 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Server, handle::ServerOrProxy},
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, response::builder::Ext as _},
 };
 
@@ -23,14 +23,11 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn handle_get_tag_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_tag_request(
+		handle: &ServerOrProxy,
 		_request: http::Request<Body>,
 		pattern: &[&str],
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let pattern = pattern.join("/").parse()?;
 		let Some(output) = handle.try_get_tag(&pattern).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());

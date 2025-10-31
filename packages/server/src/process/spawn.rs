@@ -1,5 +1,5 @@
 use {
-	crate::{ProcessPermit, Server, database},
+	crate::{ProcessPermit, Server, database, handle::ServerOrProxy},
 	bytes::Bytes,
 	futures::{FutureExt as _, future},
 	indoc::{formatdoc, indoc},
@@ -1023,13 +1023,10 @@ impl Server {
 		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 
-	pub(crate) async fn handle_spawn_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_spawn_process_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
 		let output = handle.try_spawn_process(arg).await?;
 		let response = http::Response::builder()

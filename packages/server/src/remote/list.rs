@@ -1,7 +1,7 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	indoc::indoc,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_uri::Uri,
@@ -48,13 +48,10 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_remotes_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_list_remotes_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let output = handle.list_remotes(arg).await?;
 		let response = http::Response::builder()

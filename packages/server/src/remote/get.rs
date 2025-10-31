@@ -1,7 +1,7 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	indoc::formatdoc,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, response::builder::Ext as _},
 	tangram_uri::Uri,
@@ -40,14 +40,11 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_get_remote_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_remote_request(
+		handle: &ServerOrProxy,
 		_request: http::Request<Body>,
 		name: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let Some(output) = handle.try_get_remote(name).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};

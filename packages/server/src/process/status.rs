@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	indoc::formatdoc,
 	std::time::Duration,
@@ -173,14 +173,11 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn handle_get_process_status_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_process_status_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 

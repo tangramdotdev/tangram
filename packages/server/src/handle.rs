@@ -1,9 +1,21 @@
 use {
-	crate::{Handle, Server},
-	futures::{Stream, stream::BoxStream},
-	tangram_client as tg,
+	crate::{Context, Handle, Server, run::proxy::Proxy},
+	futures::{FutureExt, Stream, stream::BoxStream},
+	std::ops::Deref,
+	tangram_client::{self as tg, handle::Tag as _},
+	tangram_either::Either,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
+
+#[derive(Clone)]
+pub struct ServerOrProxy(pub Either<Server, Proxy>);
+
+impl Deref for ServerOrProxy {
+	type Target = Either<Server, Proxy>;
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
 
 impl tg::Handle for Handle {
 	fn cache(
@@ -494,14 +506,16 @@ impl tg::handle::Tag for Handle {
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.0.put_tag(tag, arg)
+		let context = Context { token: None };
+		self.0.put_tag(context, tag, arg)
 	}
 
 	fn post_tags_batch(
 		&self,
 		arg: tg::tag::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
-		self.0.post_tags_batch(arg)
+		let context = Context { token: None };
+		self.0.post_tags_batch(context, arg)
 	}
 
 	fn delete_tag(
@@ -1023,11 +1037,13 @@ impl tg::handle::Tag for Server {
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.put_tag(tag, arg)
+		let context = Context { token: None };
+		self.put_tag(context, tag, arg)
 	}
 
 	fn post_tags_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
-		self.post_tags_batch(arg)
+		let context = Context { token: None };
+		self.post_tags_batch(context, arg)
 	}
 
 	fn delete_tag(
@@ -1057,5 +1073,30 @@ impl tg::handle::Watch for Server {
 		arg: tg::watch::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.delete_watch(arg)
+	}
+}
+
+impl ServerOrProxy {
+	pub fn put_tag(
+		&self,
+		cx: Context,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match &self.0 {
+			Either::Left(server) => server.put_tag(cx, tag, arg).left_future(),
+			Either::Right(proxy) => proxy.put_tag(tag, arg).right_future(),
+		}
+	}
+
+	pub fn post_tags_batch(
+		&self,
+		context: Context,
+		arg: tg::tag::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match &self.0 {
+			Either::Left(server) => server.post_tags_batch(context, arg).left_future(),
+			Either::Right(proxy) => proxy.post_tags_batch(arg).right_future(),
+		}
 	}
 }

@@ -1,6 +1,6 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Server, handle::ServerOrProxy},
+	tangram_client::{self as tg, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -39,14 +39,11 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_process_signal_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_process_signal_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse process id"))?;

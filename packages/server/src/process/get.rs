@@ -1,5 +1,5 @@
 use {
-	crate::{Server, database::Database},
+	crate::{Server, database::Database, handle::ServerOrProxy},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, FuturesUnordered},
@@ -118,14 +118,11 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn handle_get_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_process_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let Some(output) = handle.try_get_process(&id, arg).await? else {

@@ -1,8 +1,8 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::pin::pin,
-	tangram_client as tg,
+	tangram_client::{self as tg, Handle as _},
 	tangram_futures::task::Stop,
 	tangram_http::{Body, response::builder::Ext as _},
 	tokio::io::{AsyncBufRead, AsyncWrite},
@@ -35,13 +35,10 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_lsp_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_lsp_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Ensure the connection header is set correctly.
 		if request
 			.headers()

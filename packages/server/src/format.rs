@@ -1,6 +1,6 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Server, handle::ServerOrProxy},
+	tangram_client::{self as tg, Handle as _},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 #[cfg(feature = "compiler")]
@@ -106,13 +106,10 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_format_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_format_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
 		handle.format(arg).await?;
 		let response = http::Response::builder().empty().unwrap();

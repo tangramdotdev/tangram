@@ -1,10 +1,10 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{StreamExt as _, future, stream},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
@@ -76,13 +76,10 @@ impl Server {
 		Ok(None)
 	}
 
-	pub(crate) async fn handle_dequeue_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_dequeue_process_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 
 		// Get the accept header.

@@ -1,10 +1,11 @@
 use {
 	super::Server,
+	crate::handle::ServerOrProxy,
 	futures::{Stream, StreamExt as _},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client as tg,
+	tangram_client::{self as tg, Handle as _},
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _},
@@ -300,13 +301,10 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_server_clean_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_server_clean_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)

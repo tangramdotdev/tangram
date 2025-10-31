@@ -16,6 +16,7 @@ pub struct Config {
 	pub messenger: Messenger,
 	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
+	pub serve: Serve,
 	pub store: Store,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
@@ -166,6 +167,11 @@ pub struct ScyllaStore {
 	pub username: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct Serve {
+	pub put_tag_requires_auth: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Vfs {
 	pub cache_size: usize,
@@ -199,6 +205,9 @@ impl Config {
 		let messenger = Messenger::default();
 		let remotes = None;
 		let runner = Some(Runner::default());
+		let serve = Serve {
+			put_tag_requires_auth: false,
+		};
 		let store = Store::Lmdb(LmdbStore {
 			path: directory.join("store"),
 		});
@@ -218,6 +227,7 @@ impl Config {
 			messenger,
 			remotes,
 			runner,
+			serve,
 			store,
 			version,
 			vfs,

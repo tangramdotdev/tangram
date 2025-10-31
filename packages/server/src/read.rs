@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	bytes::{Buf as _, Bytes},
 	futures::{FutureExt as _, Stream, StreamExt as _, future::BoxFuture},
 	num::ToPrimitive as _,
@@ -152,13 +152,10 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_read_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_read_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Get the query.
 		let arg = request
 			.query_params()

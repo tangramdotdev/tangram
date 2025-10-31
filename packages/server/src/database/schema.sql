@@ -85,6 +85,7 @@ create table tags (
 );
 
 create unique index tags_parent_component_index on tags (parent, component);
+create unique index tags_parent_id_index on tags (parent, id);
 
 create table users (
 	id text primary key,
@@ -95,3 +96,11 @@ create table tokens (
 	id text primary key,
 	"user" text not null
 );
+
+create table tag_tokens (
+	id integer not null
+	token text not null
+);
+
+create unique index tag_tokens_token_index on tag_tokens (token, id)
+

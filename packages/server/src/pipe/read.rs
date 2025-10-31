@@ -1,8 +1,8 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{Stream, StreamExt as _},
 	std::os::fd::AsFd as _,
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
 	tokio_util::io::ReaderStream,
@@ -43,14 +43,11 @@ impl Server {
 		Ok(stream)
 	}
 
-	pub(crate) async fn handle_read_pipe_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_read_pipe_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 

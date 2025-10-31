@@ -1,5 +1,5 @@
 use {
-	crate::{Database, Server},
+	crate::{Context, Database, Server, handle::ServerOrProxy, http::ContextExt as _},
 	itertools::Itertools as _,
 	tangram_client as tg,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
@@ -11,7 +11,11 @@ mod sqlite;
 mod postgres;
 
 impl Server {
-	pub(crate) async fn post_tags_batch(&self, mut arg: tg::tag::post::Arg) -> tg::Result<()> {
+	pub(crate) async fn post_tags_batch(
+		&self,
+		context: Context,
+		mut arg: tg::tag::post::Arg,
+	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
@@ -51,15 +55,13 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_tags_batch_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_tags_batch_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
+		let context = request.context();
 		let arg = request.json().await?;
-		handle.post_tags_batch(arg).await?;
+		handle.post_tags_batch(context, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

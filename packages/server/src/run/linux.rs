@@ -3,7 +3,7 @@ use {
 		proxy::Proxy,
 		util::{cache_children, render_env, render_value, which, whoami},
 	},
-	crate::{Server, temp::Temp},
+	crate::{handle::ServerOrProxy, temp::Temp, Server},
 	indoc::formatdoc,
 	std::{
 		collections::{BTreeMap, HashMap},
@@ -223,6 +223,7 @@ impl Server {
 				Some(path_map),
 			);
 			let listener = Server::listen(&host_uri).await?;
+			let proxy = ServerOrProxy(Either::Right(proxy));
 			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
 			Some((task, guest_uri))
 		};

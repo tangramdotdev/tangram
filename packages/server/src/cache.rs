@@ -1,5 +1,5 @@
 use {
-	crate::{Server, temp::Temp},
+	crate::{Server, handle::ServerOrProxy, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	itertools::Itertools as _,
 	std::{
@@ -8,7 +8,7 @@ use {
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
 	},
-	tangram_client as tg,
+	tangram_client::{self as tg, Handle as _},
 	tangram_either::Either,
 	tangram_futures::stream::{Ext as _, TryExt as _},
 	tangram_http::{Body, request::Ext as _},
@@ -700,13 +700,10 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_cache_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_cache_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)

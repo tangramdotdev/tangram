@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	bytes::Bytes,
 	futures::{
 		FutureExt as _, future,
@@ -285,14 +285,11 @@ impl Server {
 		Ok(Some(buffer.into()))
 	}
 
-	pub(crate) async fn handle_get_object_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_object_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 		let Some(output) = handle.try_get_object(&id, arg).await? else {

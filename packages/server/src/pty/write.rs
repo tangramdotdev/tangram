@@ -1,12 +1,12 @@
 use {
-	crate::Server,
+	crate::{Server, handle::ServerOrProxy},
 	futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _},
 	num::ToPrimitive as _,
 	std::{
 		os::fd::{AsRawFd as _, RawFd},
 		pin::pin,
 	},
-	tangram_client as tg,
+	tangram_client::{self as tg, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
@@ -97,14 +97,11 @@ impl Server {
 		.unwrap()
 	}
 
-	pub(crate) async fn handle_write_pty_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_write_pty_request(
+		handle: &ServerOrProxy,
 		request: http::Request<Body>,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
