@@ -62,7 +62,6 @@ async fn package() {
 #[tokio::test]
 async fn tag() {
 	let server = Server::new(TG).await.unwrap();
-	let temp = Temp::new();
 	let foo = temp::directory! {
 		"tangram.ts" => temp::file!("// tree/of/tags/foo"),
 	}
@@ -105,7 +104,7 @@ async fn test(
 	// Tag the objects.
 	for (tag, artifact) in objects {
 		let temp = Temp::new();
-		artifact.to_path(&temp.path()).await.unwrap();
+		artifact.to_path(temp.path()).await.unwrap();
 		let mut command = server.tg();
 		if let Some(tag) = tag {
 			// Tag the dependency

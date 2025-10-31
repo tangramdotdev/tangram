@@ -349,7 +349,7 @@ where
 			return Some(Display { title, children });
 		}
 
-		return None;
+		None
 	}
 
 	fn down(&mut self) {
