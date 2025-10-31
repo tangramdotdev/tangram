@@ -4,7 +4,7 @@
 	"private": true,
 	"scripts": {
 		"check": "tsc && biome check src",
-		"format": "biome check --write tangram.d.ts src"
+		"format": "biome check --write src"
 	},
 	"type": "module",
 	"dependencies": {
