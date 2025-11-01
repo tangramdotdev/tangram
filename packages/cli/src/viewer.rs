@@ -334,12 +334,11 @@ where
 
 			// If stdout is a terminal, then render the tree.
 			if let Some(tty) = tty.as_mut() {
-				// Clear previous output if it exists.
+				// Save the cursor position and clear the screen.
 				ct::queue!(
 					tty,
-					ct::cursor::RestorePosition,
-					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 					ct::cursor::SavePosition,
+					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 				)
 				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 
@@ -367,6 +366,12 @@ where
 					write!(tty, "{line}")
 						.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 				}
+
+				// Restore the cursor position.
+				ct::queue!(tty, ct::cursor::RestorePosition)
+					.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+
+				// Flush the terminal.
 				tty.flush()
 					.map_err(|source| tg::error!(!source, "failed to flush the terminal"))?;
 			} else {
@@ -375,7 +380,7 @@ where
 
 			// Wait for a change or sleep to time out.
 			let changed = self.tree.changed();
-			let sleep = tokio::time::sleep(Duration::from_millis(1000));
+			let sleep = tokio::time::sleep(Duration::from_millis(100));
 			let stop = stop.wait();
 			tokio::select! {
 				() = changed => (),
@@ -391,21 +396,19 @@ where
 		// Handle any pending updates.
 		self.update();
 
-		// Clear.
-		// Clear previous output if it exists.
+		// Clear the screen and show the cursor.
 		if let Some(tty) = tty.as_mut() {
 			ct::queue!(
 				tty,
-				ct::cursor::RestorePosition,
 				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 				ct::cursor::Show,
 			)
 			.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 		}
 
-		// Render one more time.
+		// Render the tree one more time if necessary.
 		if !self.tree.options().clear_at_end {
-			eprintln!("{}", self.tree.display());
+			println!("{}", self.tree.display());
 		}
 
 		Ok(())
