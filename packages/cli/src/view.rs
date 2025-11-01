@@ -104,7 +104,6 @@ impl Cli {
 		Task::spawn_blocking(move |stop| {
 			let local_set = tokio::task::LocalSet::new();
 			let runtime = tokio::runtime::Builder::new_current_thread()
-				.worker_threads(1)
 				.enable_all()
 				.build()
 				.unwrap();

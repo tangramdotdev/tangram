@@ -1,7 +1,7 @@
 use {
 	self::{data::Data, help::Help, log::Log, tree::Tree},
 	crossterm as ct,
-	futures::{TryFutureExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
 	std::{
@@ -322,8 +322,9 @@ where
 			None
 		};
 
+		// Hide the cursor
 		if let Some(tty) = tty.as_mut() {
-			ct::queue!(tty, ct::cursor::Hide, ct::cursor::SavePosition)
+			ct::queue!(tty, ct::cursor::Hide)
 				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 		}
 
@@ -332,13 +333,27 @@ where
 			// Update.
 			self.update();
 
+			if stop.stopped() || self.tree.is_finished() {
+				// Clear the screen and show the cursor.
+				if let Some(tty) = tty.as_mut() {
+					ct::queue!(
+						tty,
+						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+						ct::cursor::Show,
+					)
+					.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+				}
+
+				break;
+			}
+
 			// If stdout is a terminal, then render the tree.
 			if let Some(tty) = tty.as_mut() {
-				// Save the cursor position and clear the screen.
+				// Clear the screen and save the cursor position.
 				ct::queue!(
 					tty,
-					ct::cursor::SavePosition,
 					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+					ct::cursor::SavePosition,
 				)
 				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 
@@ -378,32 +393,15 @@ where
 				self.tree.clear_guards();
 			}
 
-			// Wait for a change or sleep to time out.
-			let changed = self.tree.changed();
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
-			let stop = stop.wait();
-			tokio::select! {
+			// Wait for the task to be stopped, a change, or a timeout.
+			let mut stop = pin!(stop.wait().fuse());
+			let mut changed = pin!(self.tree.changed().fuse());
+			let mut sleep = pin!(tokio::time::sleep(Duration::from_millis(100)).fuse());
+			futures::select! {
+				() = stop => (),
 				() = changed => (),
 				() = sleep => (),
-				() = stop => break,
 			};
-
-			if self.tree.is_finished() {
-				break;
-			}
-		}
-
-		// Handle any pending updates.
-		self.update();
-
-		// Clear the screen and show the cursor.
-		if let Some(tty) = tty.as_mut() {
-			ct::queue!(
-				tty,
-				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-				ct::cursor::Show,
-			)
-			.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 		}
 
 		// Render the tree one more time if necessary.

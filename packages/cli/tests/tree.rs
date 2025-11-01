@@ -15,8 +15,8 @@ async fn object() {
 		"tangram.ts" => temp::file!("export default () => 42;"),
 	};
 	directory.to_path(temp.path()).await.unwrap();
-	let stderr = test(&server, vec![temp.path().display().to_string()], Vec::new()).await;
-	assert_snapshot!(stderr, @r"
+	let stdout = test(&server, vec![temp.path().display().to_string()], Vec::new()).await;
+	assert_snapshot!(stdout, @r"
 	dir_01kv4fvampbgahwqgd7z0ctaq1eff5bv4mavrr982f9b1vmft06bpg
 	└╴entries: map
 	  └╴tangram.ts: fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0
@@ -45,13 +45,13 @@ async fn package() {
         "#)),
 	};
 	directory.to_path(temp.path()).await.unwrap();
-	let stderr = test(
+	let stdout = test(
 		&server,
 		vec![temp.path().display().to_string(), "--mode=package".into()],
 		objects,
 	)
 	.await;
-	assert_snapshot!(stderr, @r"
+	assert_snapshot!(stdout, @r"
 	package: dir_01f97dr5h20x9by01c4gwk46e0x9hnc40fedsbffykfe3h21bhy5q0
 	├╴bar: dir_0130zet0544m0nx01je1zqyy399fyeyn6m27mf3krfnvs2pj7qsac0
 	│ └╴foo: dir_01vddbk4t4h179fppw4pe9bz6prhh3vt7s1qeaa0fqgakbpbf4stp0
@@ -76,8 +76,8 @@ async fn tag() {
 		(Some("tree/of/tags/bar".into()), bar),
 	];
 
-	let stderr = test(&server, vec!["tree".into(), "--mode=tag".into()], objects).await;
-	assert_snapshot!(stderr, @r#"
+	let stdout = test(&server, vec!["tree".into(), "--mode=tag".into()], objects).await;
+	assert_snapshot!(stdout, @r#"
 	tree
 	└╴tree/of
 	  └╴tree/of/tags
@@ -121,5 +121,5 @@ async fn test(
 	// Print the tree.
 	let output = server.tg().arg("tree").args(args).output().await.unwrap();
 	assert_success!(output);
-	String::from_utf8(output.stderr).unwrap()
+	String::from_utf8(output.stdout).unwrap()
 }
