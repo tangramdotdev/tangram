@@ -19,7 +19,15 @@ impl Server {
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
-		let task = self.local_pool_handle.as_ref().unwrap().spawn_pinned({
+		let local_pool_handle = self.local_pool_handle.get_or_init(|| {
+			let concurrency = self
+				.config
+				.runner
+				.as_ref()
+				.map_or(1, |config| config.concurrency);
+			tokio_util::task::LocalPoolHandle::new(concurrency)
+		});
+		let task = local_pool_handle.spawn_pinned({
 			let server = self.clone();
 			let process = process.clone();
 			move || async move {

@@ -10,7 +10,7 @@ use {
 		ops::Deref,
 		os::fd::AsRawFd as _,
 		path::PathBuf,
-		sync::{Arc, Mutex},
+		sync::{Arc, Mutex, OnceLock},
 	},
 	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
@@ -82,7 +82,7 @@ pub struct State {
 	index: Index,
 	library: Mutex<Option<Arc<Temp>>>,
 	#[cfg_attr(not(feature = "js"), expect(dead_code))]
-	local_pool_handle: Option<tokio_util::task::LocalPoolHandle>,
+	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
@@ -319,11 +319,8 @@ impl Server {
 		// Create the library.
 		let library = Mutex::new(None);
 
-		// Create the local pool.
-		let local_pool_handle = config
-			.runner
-			.as_ref()
-			.map(|config| tokio_util::task::LocalPoolHandle::new(config.concurrency));
+		// Create the local pool handle lazily.
+		let local_pool_handle = OnceLock::new();
 
 		// Create the messenger.
 		let messenger = match &config.messenger {
