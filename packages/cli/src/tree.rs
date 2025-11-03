@@ -8,8 +8,9 @@ pub struct Args {
 	#[arg(long)]
 	pub depth: Option<u32>,
 
+	/// Whether to view the item as a tag, package, or value.
 	#[arg(long, default_value = "value")]
-	pub mode: crate::view::Mode,
+	pub kind: crate::view::Kind,
 
 	/// The reference to display a tree for.
 	#[arg(index = 1)]
@@ -21,12 +22,12 @@ impl Cli {
 		let args = crate::view::Args {
 			collapse_process_children: false,
 			depth: args.depth,
-			expand_objects: matches!(args.mode, crate::view::Mode::Value | crate::view::Mode::Tag),
+			expand_objects: matches!(args.kind, crate::view::Kind::Value | crate::view::Kind::Tag),
 			expand_packages: true,
 			expand_processes: true,
 			expand_tags: true,
-			kind: crate::view::Kind::Inline,
-			mode: args.mode,
+			mode: crate::view::Mode::Inline,
+			kind: args.kind,
 			reference: args.reference,
 		};
 		self.command_view(args).await?;

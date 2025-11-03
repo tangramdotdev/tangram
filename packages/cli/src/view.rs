@@ -28,12 +28,12 @@ pub struct Args {
 	#[arg(long)]
 	pub expand_tags: bool,
 
-	/// Choose the kind of view, either inline or fullscreen.
-	#[arg(default_value = "fullscreen", long)]
+	/// Whether to view the item as a tag, package, or value.
+	#[arg(long = "mode", default_value = "value")]
 	pub kind: Kind,
 
-	/// If set, view the reference as a tag, package, or value.
-	#[arg(long = "mode", default_value = "value")]
+	/// Choose the mode, either inline or fullscreen.
+	#[arg(default_value = "fullscreen", long)]
 	pub mode: Mode,
 
 	/// The reference to view.
@@ -43,14 +43,14 @@ pub struct Args {
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Kind {
+pub enum Mode {
 	Inline,
 	#[default]
 	Fullscreen,
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
-pub enum Mode {
+pub enum Kind {
 	Tag,
 	Package,
 	Value,
@@ -61,36 +61,36 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let root = match args.mode {
-			Mode::Tag => {
+		let root = match args.kind {
+			Kind::Tag => {
 				let item = args.reference.item();
 				let pattern = item.clone().try_unwrap_tag().map_err(
 					|source| tg::error!(!source, %reference = args.reference, "expected a tag"),
 				)?;
 				tg::Referent::with_item(crate::viewer::Item::Tag(pattern.clone()))
 			},
-			Mode::Value | Mode::Package => {
+			Kind::Value | Kind::Package => {
 				let referent = self.get_reference(&args.reference).await?;
-				let item = match (referent.item(), args.mode) {
-					(Either::Left(_), Mode::Package) => {
+				let item = match (referent.item(), args.kind) {
+					(Either::Left(_), Kind::Package) => {
 						return Err(tg::error!(%reference = args.reference, "expected an object"));
 					},
-					(Either::Left(process), Mode::Value) => {
+					(Either::Left(process), Kind::Value) => {
 						crate::viewer::Item::Process(process.clone())
 					},
-					(Either::Right(object), Mode::Package) => {
+					(Either::Right(object), Kind::Package) => {
 						crate::viewer::Item::Package(crate::viewer::Package(object.clone()))
 					},
-					(Either::Right(object), Mode::Value) => {
+					(Either::Right(object), Kind::Value) => {
 						crate::viewer::Item::Value(object.clone().into())
 					},
-					(_, Mode::Tag) => unreachable!(),
+					(_, Kind::Tag) => unreachable!(),
 				};
 				referent.map(|_| item)
 			},
 		};
 
-		let kind = args.kind;
+		let kind = args.mode;
 		Task::spawn_blocking(move |stop| {
 			let local_set = tokio::task::LocalSet::new();
 			let runtime = tokio::runtime::Builder::new_current_thread()
@@ -110,10 +110,10 @@ impl Cli {
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);
 					match kind {
-						Kind::Inline => {
+						Mode::Inline => {
 							viewer.run_inline(stop, true).await?;
 						},
-						Kind::Fullscreen => {
+						Mode::Fullscreen => {
 							viewer.run_fullscreen(stop).await?;
 						},
 					}
