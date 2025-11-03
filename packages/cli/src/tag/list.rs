@@ -10,8 +10,8 @@ pub struct Args {
 	#[arg(index = 1, default_value = "*")]
 	pub pattern: tg::tag::Pattern,
 
-	#[arg(long)]
-	pub pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[arg(long)]
 	pub recursive: bool,
@@ -38,7 +38,7 @@ impl Cli {
 			reverse: args.reverse,
 		};
 		let output = handle.list_tags(arg).await?;
-		Self::print_json(&output, args.pretty).await?;
+		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}
 }

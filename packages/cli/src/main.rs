@@ -1,25 +1,23 @@
-use anstream::eprintln;
-use clap::{CommandFactory as _, FromArgMatches as _};
-use crossterm::{style::Stylize as _, tty::IsTty as _};
-use futures::FutureExt as _;
-use num::ToPrimitive as _;
-use std::{
-	os::unix::process::CommandExt as _,
-	path::{Path, PathBuf},
-	time::Duration,
+use {
+	clap::{CommandFactory as _, FromArgMatches as _},
+	futures::FutureExt as _,
+	num::ToPrimitive as _,
+	std::{
+		os::unix::process::CommandExt as _,
+		path::{Path, PathBuf},
+		time::Duration,
+	},
+	tangram_client::{self as tg, Client, prelude::*},
+	tangram_either::Either,
+	tangram_server::Handle as Server,
+	tangram_uri::Uri,
+	tracing_subscriber::prelude::*,
 };
-use tangram_client::{self as tg, Client, prelude::*};
-use tangram_either::Either;
-use tangram_server::Handle as Server;
-use tangram_uri::Uri;
-use tokio::io::AsyncWriteExt as _;
-use tracing_subscriber::prelude::*;
 
 mod archive;
 mod build;
 mod bundle;
 mod cache;
-mod cat;
 mod check;
 mod checkin;
 mod checkout;
@@ -45,12 +43,14 @@ mod metadata;
 mod new;
 mod object;
 mod outdated;
+mod print;
 mod process;
 mod progress;
 mod publish;
 mod pull;
 mod push;
 mod put;
+mod read;
 mod remote;
 mod run;
 mod server;
@@ -156,8 +156,6 @@ enum Command {
 
 	Cancel(self::process::cancel::Args),
 
-	Cat(self::cat::Args),
-
 	Check(self::check::Args),
 
 	#[command(alias = "ci")]
@@ -231,10 +229,16 @@ enum Command {
 
 	Put(self::put::Args),
 
+	#[command(alias = "cat")]
+	Read(self::read::Args),
+
 	Remote(self::remote::Args),
 
 	#[command(alias = "r")]
 	Run(self::run::Args),
+
+	#[command(name = "self")]
+	Self_(self::tangram::Args),
 
 	Serve(self::server::run::Args),
 
@@ -248,9 +252,6 @@ enum Command {
 	Status(self::process::status::Args),
 
 	Tag(self::tag::Args),
-
-	#[command(name = "self")]
-	Tangram(self::tangram::Args),
 
 	#[command(hide = true)]
 	Tree(self::tree::Args),
@@ -284,7 +285,7 @@ fn main() -> std::process::ExitCode {
 	let config = match Cli::read_config(args.config.clone()) {
 		Ok(config) => config,
 		Err(error) => {
-			eprintln!("{} an error occurred", "error".red().bold());
+			Cli::print_error_message("an error occurred");
 			let error = tg::Referent::with_item(error);
 			Cli::print_error_basic(error);
 			return std::process::ExitCode::FAILURE;
@@ -318,10 +319,7 @@ fn main() -> std::process::ExitCode {
 		Cli::set_file_descriptor_limit()
 			.inspect_err(|_| {
 				if !args.quiet {
-					eprintln!(
-						"{} failed to set the file descriptor limit",
-						"warning".yellow().bold(),
-					);
+					Cli::print_warning_message("failed to set the file descriptor limit");
 				}
 			})
 			.ok();
@@ -369,7 +367,7 @@ fn main() -> std::process::ExitCode {
 	let exit = match result {
 		Ok(()) => cli.exit.unwrap_or_default().into(),
 		Err(error) => {
-			eprintln!("{} an error occurred", "error".red().bold());
+			Cli::print_error_message("an error occurred");
 			runtime.block_on(async {
 				let error = tg::Referent::with_item(error);
 				cli.print_error(error).await;
@@ -383,11 +381,7 @@ fn main() -> std::process::ExitCode {
 		let handle = cli.handle.take();
 		match handle {
 			Some(Either::Left(client)) => {
-				client
-					.disconnect()
-					.await
-					.inspect_err(|error| eprintln!("failed to disconnect: {error}"))
-					.ok();
+				client.disconnect().await;
 			},
 			Some(Either::Right(server)) => {
 				server.stop();
@@ -493,7 +487,7 @@ impl Cli {
 			}
 
 			// Disconnect.
-			client.disconnect().await?;
+			client.disconnect().await;
 
 			// Stop the server.
 			self.stop_server().await?;
@@ -1112,7 +1106,6 @@ impl Cli {
 			Command::Bundle(args) => self.command_bundle(args).boxed(),
 			Command::Cache(args) => self.command_cache(args).boxed(),
 			Command::Cancel(args) => self.command_process_cancel(args).boxed(),
-			Command::Cat(args) => self.command_cat(args).boxed(),
 			Command::Check(args) => self.command_check(args).boxed(),
 			Command::Checkin(args) => self.command_checkin(args).boxed(),
 			Command::Checkout(args) => self.command_checkout(args).boxed(),
@@ -1146,15 +1139,16 @@ impl Cli {
 			Command::Pull(args) => self.command_pull(args).boxed(),
 			Command::Push(args) => self.command_push(args).boxed(),
 			Command::Put(args) => self.command_put(args).boxed(),
+			Command::Read(args) => self.command_read(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
+			Command::Self_(args) => self.command_tangram(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Signal(args) => self.command_process_signal(args).boxed(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
 			Command::Status(args) => self.command_process_status(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
-			Command::Tangram(args) => self.command_tangram(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),
@@ -1209,78 +1203,6 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
 		std::fs::write(self.config_path(), config)
 			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
-		Ok(())
-	}
-
-	async fn print_json<T>(output: &T, pretty: Option<bool>) -> tg::Result<()>
-	where
-		T: serde::Serialize,
-	{
-		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let pretty = pretty.unwrap_or(stdout.get_ref().is_tty());
-		let json = if pretty {
-			serde_json::to_string_pretty(output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
-		} else {
-			serde_json::to_string(output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
-		};
-		stdout
-			.write_all(json.as_bytes())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-		if pretty {
-			stdout
-				.write_all(b"\n")
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
-		}
-		stdout
-			.flush()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
-		Ok(())
-	}
-
-	async fn print_value<H>(
-		handle: &H,
-		value: &tg::Value,
-		depth: crate::object::get::Depth,
-		pretty: Option<bool>,
-		blobs: bool,
-	) -> tg::Result<()>
-	where
-		H: tg::Handle,
-	{
-		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let depth_option = match depth {
-			crate::object::get::Depth::Finite(depth) => Some(depth),
-			crate::object::get::Depth::Infinite => None,
-		};
-		value.load(handle, depth_option, blobs).await?;
-		let pretty = pretty.unwrap_or(stdout.get_ref().is_tty());
-		let style = if pretty {
-			tg::value::print::Style::Pretty { indentation: "  " }
-		} else {
-			tg::value::print::Style::Compact
-		};
-		let options = tg::value::print::Options {
-			depth: depth_option,
-			style,
-			blobs,
-		};
-		let mut output = value.print(options);
-		if style.is_pretty() {
-			output.push('\n');
-		}
-		stdout
-			.write_all(output.as_bytes())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-		stdout
-			.flush()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 		Ok(())
 	}
 

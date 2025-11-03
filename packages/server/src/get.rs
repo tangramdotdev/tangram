@@ -56,8 +56,8 @@ impl Server {
 					},
 					tg::progress::Event::Output(output) => {
 						let referent = tg::Referent {
-							item: Either::Right(output.referent.item.into()),
-							options: output.referent.options,
+							item: Either::Right(output.artifact.item.into()),
+							options: output.artifact.options,
 						};
 						let output = Some(tg::get::Output { referent });
 						tg::progress::Event::Output(output)

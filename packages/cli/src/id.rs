@@ -1,5 +1,7 @@
-use tangram_client as tg;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use {
+	tangram_client as tg,
+	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+};
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct Args {

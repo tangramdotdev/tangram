@@ -10,15 +10,15 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub pattern: tg::tag::Pattern,
 
-	#[arg(long)]
-	pub pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_tag_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let output = handle.get_tag(&args.pattern).await?;
-		Self::print_json(&output, args.pretty).await?;
+		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 }

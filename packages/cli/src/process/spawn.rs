@@ -13,7 +13,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub options: Options,
 
-	/// The reference to the command.
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 
@@ -204,7 +206,7 @@ impl Cli {
 			)
 			.boxed()
 			.await?;
-		Self::print_json(&output, None).await?;
+		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 

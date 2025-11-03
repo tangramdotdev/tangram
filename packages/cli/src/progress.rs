@@ -118,14 +118,10 @@ impl Cli {
 				writeln!(state.tty, "{}", log.message).unwrap();
 			},
 
-			tg::progress::Event::Diagnostic(diagnostic) => match diagnostic.try_into() {
-				Ok(diagnostic) => {
-					self.print_diagnostic(tg::Referent::with_item(diagnostic))
-						.await;
-				},
-				Err(error) => {
-					eprintln!("Failed to convert diagnostic: {error}");
-				},
+			tg::progress::Event::Diagnostic(diagnostic) => {
+				let item = diagnostic.try_into().unwrap();
+				let referent = tg::Referent::with_item(item);
+				self.print_diagnostic(referent).await;
 			},
 
 			tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {

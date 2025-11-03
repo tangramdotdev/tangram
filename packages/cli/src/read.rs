@@ -3,7 +3,7 @@ use {
 	tokio::io::AsyncWriteExt as _,
 };
 
-/// Concatenate blobs and artifacts.
+/// Read files and blobs.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -12,7 +12,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_cat(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_read(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
@@ -31,7 +31,7 @@ impl Cli {
 				// Get the blob.
 				let blob = match artifact {
 					tg::Artifact::Directory(_) => {
-						return Err(tg::error!("cannot cat a directory"));
+						return Err(tg::error!("cannot read a directory"));
 					},
 					tg::Artifact::File(file) => file
 						.contents(&handle)
@@ -45,7 +45,7 @@ impl Cli {
 								return Err(tg::error!("failed to resolve the symlink"));
 							},
 							Some(tg::Artifact::Directory(_)) => {
-								return Err(tg::error!("cannot cat a directory"));
+								return Err(tg::error!("cannot read a directory"));
 							},
 							Some(tg::Artifact::File(file)) => file
 								.contents(&handle)

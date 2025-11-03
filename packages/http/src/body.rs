@@ -4,13 +4,13 @@ use {
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _, future},
 	http_body_util::{BodyExt as _, BodyStream, StreamBody},
+	num::ToPrimitive,
 	std::pin::{Pin, pin},
 	tokio::io::{AsyncBufRead, AsyncRead},
 	tokio_util::io::{ReaderStream, StreamReader},
 };
 
 pub use http_body_util::{Empty, Full};
-use num::ToPrimitive;
 
 pub mod and_then_frame;
 pub mod compression;

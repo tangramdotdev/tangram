@@ -78,7 +78,7 @@ async fn single() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test","item":"fil_012qhh3dzv6bpymrpys6pgtvga6k2wm3jknx5y5ymp0ak4prm50eh0"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"item":"fil_012qhh3dzv6bpymrpys6pgtvga6k2wm3jknx5y5ymp0ak4prm50eh0","tag":"test"}]"#);
 
 	// Get tag.
 	let output = server
@@ -90,7 +90,7 @@ async fn single() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test","item":"fil_012qhh3dzv6bpymrpys6pgtvga6k2wm3jknx5y5ymp0ak4prm50eh0"}"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"item":"fil_012qhh3dzv6bpymrpys6pgtvga6k2wm3jknx5y5ymp0ak4prm50eh0","tag":"test"}"#);
 }
 
 #[tokio::test]
@@ -149,7 +149,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"bar","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"foo","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"bar"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"foo"},{"tag":"test"}]"#);
 
 	// List.
 	let pattern = "test";
@@ -162,7 +162,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.0.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.1.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.2.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/10.0.0"}]"#);
 
 	// List.
 	let pattern = "test/*/*";
@@ -175,7 +175,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo/bar"},{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/0.0.1/foo"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo/bar"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/hello/1.0.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/world/1.0.0"},{"tag":"test/0.0.1/foo"}]"#);
 
 	// List.
 	let pattern = "test/*";
@@ -188,7 +188,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.0.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.1.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.2.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/10.0.0"}]"#);
 
 	// List.
 	let pattern = "test/=0.0.1/*";
@@ -227,7 +227,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/hello"},{"tag":"test/world"},{"tag":"test/0.0.1"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.0.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.1.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.2.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/10.0.0"}]"#);
 
 	// List.
 	let pattern = "test/*";
@@ -241,7 +241,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/foo/bar"},{"tag":"test/foo/bar/baz","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/hello"},{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/0.0.1"},{"tag":"test/0.0.1/foo"},{"tag":"test/0.0.1/foo/bar","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test/foo"},{"tag":"test/foo/bar"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/foo/bar/baz"},{"tag":"test/hello"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/hello/1.0.0"},{"tag":"test/world"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/world/1.0.0"},{"tag":"test/0.0.1"},{"tag":"test/0.0.1/foo"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/0.0.1/foo/bar"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.0.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.1.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.2.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/10.0.0"}]"#);
 
 	// List.
 	let pattern = "test";
@@ -255,7 +255,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test"},{"tag":"test/foo"},{"tag":"test/foo/bar"},{"tag":"test/foo/bar/baz","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/hello"},{"tag":"test/hello/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/world"},{"tag":"test/world/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/0.0.1"},{"tag":"test/0.0.1/foo"},{"tag":"test/0.0.1/foo/bar","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.1.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}]"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"[{"tag":"test"},{"tag":"test/foo"},{"tag":"test/foo/bar"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/foo/bar/baz"},{"tag":"test/hello"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/hello/1.0.0"},{"tag":"test/world"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/world/1.0.0"},{"tag":"test/0.0.1"},{"tag":"test/0.0.1/foo"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/0.0.1/foo/bar"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.0.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.1.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.2.0"},{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/10.0.0"}]"#);
 
 	// Get.
 	let pattern = "test";
@@ -268,7 +268,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/10.0.0"}"#);
 
 	// Get.
 	let pattern = "test/^1";
@@ -281,7 +281,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/1.2.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/1.2.0"}"#);
 
 	// Get.
 	let pattern = "test/^10";
@@ -294,7 +294,7 @@ async fn multiple() {
 		.await
 		.unwrap();
 	assert_success!(output);
-	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"tag":"test/10.0.0","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}"#);
+	assert_snapshot!(std::str::from_utf8(&output.stdout).unwrap(), @r#"{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","tag":"test/10.0.0"}"#);
 }
 
 #[tokio::test]
@@ -660,5 +660,5 @@ async fn outdated() {
 		.unwrap();
 	assert_success!(output);
 	let stdout = std::str::from_utf8(&output.stdout).unwrap();
-	assert_snapshot!(stdout, @r#"[{"current":"hello/1.1.0","compatible":"hello/1.1.0","latest":"hello/2.0.0"}]"#);
+	assert_snapshot!(stdout, @r#"[{"compatible":"hello/1.1.0","current":"hello/1.1.0","latest":"hello/2.0.0"}]"#);
 }

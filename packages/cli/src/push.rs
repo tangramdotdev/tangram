@@ -1,6 +1,5 @@
 use {
 	crate::Cli,
-	crossterm::style::Stylize as _,
 	futures::future,
 	tangram_client::{self as tg, prelude::*},
 };
@@ -58,13 +57,11 @@ impl Cli {
 		};
 		let stream = handle.push(arg).await?;
 		let output = self.render_progress_stream(stream).await?;
-		eprintln!(
-			"{} pushed {} processes, {} objects, {} bytes",
-			"info".blue().bold(),
-			output.processes,
-			output.objects,
-			output.bytes,
+		let message = format!(
+			"pushed {} processes, {} objects, {} bytes",
+			output.processes, output.objects, output.bytes,
 		);
+		Self::print_info_message(&message);
 
 		// Put tags.
 		future::try_join_all(std::iter::zip(&args.references, &items).map(
@@ -85,7 +82,8 @@ impl Cli {
 		.await?;
 		for (reference, item) in std::iter::zip(&args.references, &items) {
 			if reference.item().is_tag() {
-				eprintln!("{} tagged {} {}", "info".blue().bold(), reference, item);
+				let message = format!("tagged {reference} {item}");
+				Self::print_info_message(&message);
 			}
 		}
 

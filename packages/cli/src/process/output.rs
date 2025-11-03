@@ -4,17 +4,8 @@ use {crate::Cli, tangram_client as tg};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// Whether to print blobs.
-	#[arg(long)]
-	pub print_blobs: bool,
-
-	/// The depth to print.
-	#[arg(default_value = "0", long, short = 'd')]
-	pub print_depth: crate::object::get::Depth,
-
-	/// Whether to pretty print the output.
-	#[arg(long)]
-	pub print_pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
@@ -31,14 +22,7 @@ impl Cli {
 		let output = process.output(&handle).await?;
 
 		// Print the output.
-		Self::print_value(
-			&handle,
-			&output,
-			args.print_depth,
-			args.print_pretty,
-			args.print_blobs,
-		)
-		.await?;
+		self.print(&output, args.print).await?;
 
 		Ok(())
 	}

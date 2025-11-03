@@ -4,6 +4,9 @@ use {crate::Cli, std::collections::HashSet, tangram_client as tg};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 }
@@ -20,7 +23,7 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to walk objects"))?;
 		let output = visitor.entries.into_iter().collect::<Vec<_>>();
-		Self::print_json(&output, None).await?;
+		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 }

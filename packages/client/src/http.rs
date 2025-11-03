@@ -99,9 +99,8 @@ impl tg::Client {
 		Ok(())
 	}
 
-	pub async fn disconnect(&self) -> tg::Result<()> {
+	pub async fn disconnect(&self) {
 		self.sender.lock().await.take();
-		Ok(())
 	}
 
 	pub(crate) async fn connect_h1(

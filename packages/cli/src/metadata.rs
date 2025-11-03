@@ -4,11 +4,11 @@ use {crate::Cli, tangram_client as tg, tangram_either::Either};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
-
-	#[arg(long)]
-	pub pretty: Option<bool>,
 }
 
 impl Cli {
@@ -24,7 +24,7 @@ impl Cli {
 			Either::Left(process) => {
 				let args = crate::process::metadata::Args {
 					process,
-					pretty: args.pretty,
+					print: args.print,
 					remote: None,
 				};
 				self.command_process_metadata(args).await?;
@@ -32,7 +32,7 @@ impl Cli {
 			Either::Right(object) => {
 				let args = crate::object::metadata::Args {
 					object,
-					pretty: args.pretty,
+					print: args.print,
 					remote: None,
 				};
 				self.command_object_metadata(args).await?;

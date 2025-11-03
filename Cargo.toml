@@ -8,6 +8,7 @@ members = [
   "packages/compiler",
   "packages/database",
   "packages/either",
+  "packages/fdb",
   "packages/futures",
   "packages/http",
   "packages/ignore",
@@ -80,6 +81,7 @@ bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
 clap_complete = "4"
 clap_complete_nushell = "4"
+comfy-table = "7"
 console-subscriber = "0.4"
 crossterm = { version = "0.29", features = ["event-stream"] }
 dashmap = "6"
@@ -155,6 +157,7 @@ tangram_client = { path = "packages/client" }
 tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }
 tangram_either = { path = "packages/either" }
+tangram_fdb = { path = "packages/fdb" }
 tangram_futures = { path = "packages/futures" }
 tangram_http = { path = "packages/http" }
 tangram_ignore = { path = "packages/ignore" }

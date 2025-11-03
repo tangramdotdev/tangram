@@ -1223,6 +1223,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "comfy-table"
+version = "7.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b03b7db8e0b4b2fdad6c551e634134e99ec000e5c8c3b6856c65e8bbaded7a3b"
+dependencies = [
+ "crossterm 0.29.0",
+ "unicode-segmentation",
+ "unicode-width 0.2.0",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5797,6 +5808,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_complete_nushell",
+ "comfy-table",
  "console-subscriber",
  "crossterm 0.29.0",
  "data-encoding",
@@ -5996,6 +6008,10 @@ dependencies = [
  "serde",
  "tangram_serialize",
 ]
+
+[[package]]
+name = "tangram_fdb"
+version = "0.0.0"
 
 [[package]]
 name = "tangram_futures"
@@ -6257,6 +6273,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tangram_client",
+ "tangram_fdb",
  "tangram_serialize",
  "tangram_uri",
  "time",

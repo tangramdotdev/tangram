@@ -96,7 +96,7 @@ impl Server {
 				.parse()?;
 			if path.components().count() == 1 {
 				let output = tg::checkin::Output {
-					referent: tg::Referent::with_item(id),
+					artifact: tg::Referent::with_item(id),
 				};
 				return Ok(output);
 			}
@@ -109,7 +109,7 @@ impl Server {
 			let artifact = directory.get(self, path).await?;
 			let id = artifact.id();
 			let referent = tg::Referent::with_item(id);
-			let output = tg::checkin::Output { referent };
+			let output = tg::checkin::Output { artifact: referent };
 			return Ok(output);
 		}
 
@@ -361,7 +361,7 @@ impl Server {
 		let referent = tg::Referent { item, options };
 
 		// Create the output.
-		let output = tg::checkin::Output { referent };
+		let output = tg::checkin::Output { artifact: referent };
 
 		Ok(output)
 	}

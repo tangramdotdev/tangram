@@ -6,16 +6,17 @@ use {
 /// List remotes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
-pub struct Args {}
+pub struct Args {
+	#[command(flatten)]
+	pub print: crate::print::Options,
+}
 
 impl Cli {
-	pub async fn command_remote_list(&mut self, _args: Args) -> tg::Result<()> {
+	pub async fn command_remote_list(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::remote::list::Arg::default();
-		let remotes = handle.list_remotes(arg).await?;
-		for remote in remotes.data {
-			println!("{} {}", remote.name, remote.url);
-		}
+		let output = handle.list_remotes(arg).await?;
+		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}
 }

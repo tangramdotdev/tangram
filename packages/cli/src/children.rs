@@ -4,6 +4,9 @@ use {crate::Cli, tangram_client as tg, tangram_either::Either};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	/// The object or process.
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
@@ -17,6 +20,7 @@ impl Cli {
 				let args = crate::process::children::Args {
 					length: None,
 					position: None,
+					print: args.print,
 					process: process.id().clone(),
 					remote: None,
 					size: None,
@@ -26,6 +30,7 @@ impl Cli {
 			Either::Right(object) => {
 				let args = crate::object::children::Args {
 					object: object.id(),
+					print: args.print,
 				};
 				self.command_object_children(args).await?;
 			},

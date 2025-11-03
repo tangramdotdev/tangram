@@ -10,8 +10,8 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub object: tg::object::Id,
 
-	#[arg(long)]
-	pub pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	/// The remote to get the metadata from.
 	#[arg(long)]
@@ -24,14 +24,14 @@ impl Cli {
 		let arg = tg::object::metadata::Arg {
 			remote: args.remote,
 		};
-		let metadata = handle
+		let output = handle
 			.try_get_object_metadata(&args.object, arg)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id = args.object, "failed to get the object metadata"),
 			)?
 			.ok_or_else(|| tg::error!("failed to get the object metadata"))?;
-		Self::print_json(&metadata, args.pretty).await?;
+		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 }
