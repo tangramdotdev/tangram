@@ -57,11 +57,11 @@ mod server;
 mod tag;
 mod tangram;
 mod tree;
-mod watch;
 mod update;
 mod util;
 mod view;
 mod viewer;
+mod watch;
 mod write;
 
 pub use self::config::Config;

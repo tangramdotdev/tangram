@@ -1,20 +1,40 @@
 use {crate::Cli, tangram_client as tg, tangram_either::Either, tangram_futures::task::Task};
 
-/// View a process or an object.
+/// View a process, an object, or a tag.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The maximum depth to render.
+	/// Collapse process children when processes finish.
+	#[arg(long)]
+	pub collapse_process_children: bool,
+
+	/// The maximum depth.
 	#[arg(long)]
 	pub depth: Option<u32>,
 
-	/// Choose the kind of view, either inline or fullscreen.
-	#[arg(default_value = "fullscreen", long)]
+	/// Expand objects.
+	#[arg(long)]
+	pub expand_objects: bool,
+
+	/// Expand packages.
+	#[arg(long)]
+	pub expand_packages: bool,
+
+	/// Expand processs.
+	#[arg(long)]
+	pub expand_processes: bool,
+
+	/// Expand tags.
+	#[arg(long)]
+	pub expand_tags: bool,
+
+	/// Whether to view the item as a tag, package, or value.
+	#[arg(long = "mode", default_value = "value")]
 	pub kind: Kind,
 
-	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
-	pub locked: bool,
+	/// Choose the mode, either inline or fullscreen.
+	#[arg(default_value = "fullscreen", long)]
+	pub mode: Mode,
 
 	/// The reference to view.
 	#[arg(index = 1, default_value = ".")]
@@ -23,10 +43,17 @@ pub struct Args {
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Kind {
+pub enum Mode {
 	Inline,
 	#[default]
 	Fullscreen,
+}
+
+#[derive(Clone, Debug, clap::ValueEnum)]
+pub enum Kind {
+	Tag,
+	Package,
+	Value,
 }
 
 impl Cli {
@@ -34,33 +61,59 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item() {
-			Either::Left(process) => crate::viewer::Item::Process(process.clone()),
-			Either::Right(object) => crate::viewer::Item::Value(object.clone().into()),
+		let root = match args.kind {
+			Kind::Tag => {
+				let item = args.reference.item();
+				let pattern = item.clone().try_unwrap_tag().map_err(
+					|source| tg::error!(!source, %reference = args.reference, "expected a tag"),
+				)?;
+				tg::Referent::with_item(crate::viewer::Item::Tag(pattern.clone()))
+			},
+			Kind::Value | Kind::Package => {
+				let referent = self.get_reference(&args.reference).await?;
+				let item = match (referent.item(), args.kind) {
+					(Either::Left(_), Kind::Package) => {
+						return Err(tg::error!(%reference = args.reference, "expected an object"));
+					},
+					(Either::Left(process), Kind::Value) => {
+						crate::viewer::Item::Process(process.clone())
+					},
+					(Either::Right(object), Kind::Package) => {
+						crate::viewer::Item::Package(crate::viewer::Package(object.clone()))
+					},
+					(Either::Right(object), Kind::Value) => {
+						crate::viewer::Item::Value(object.clone().into())
+					},
+					(_, Kind::Tag) => unreachable!(),
+				};
+				referent.map(|_| item)
+			},
 		};
-		let root = referent.map(|_| item);
 
-		let kind = args.kind;
+		let mode = args.mode;
 		Task::spawn_blocking(move |stop| {
 			let local_set = tokio::task::LocalSet::new();
 			let runtime = tokio::runtime::Builder::new_current_thread()
-				.worker_threads(1)
 				.enable_all()
 				.build()
 				.unwrap();
 			local_set
 				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
-						auto_expand_and_collapse_processes: false,
+						collapse_process_children: args.collapse_process_children,
+						depth: args.depth,
+						expand_objects: args.expand_objects,
+						expand_packages: args.expand_packages,
+						expand_processes: args.expand_processes,
+						expand_tags: args.expand_tags,
 						show_process_commands: true,
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);
-					match kind {
-						Kind::Inline => {
-							viewer.run_inline(stop).await?;
+					match mode {
+						Mode::Inline => {
+							viewer.run_inline(stop, true).await?;
 						},
-						Kind::Fullscreen => {
+						Mode::Fullscreen => {
 							viewer.run_fullscreen(stop).await?;
 						},
 					}

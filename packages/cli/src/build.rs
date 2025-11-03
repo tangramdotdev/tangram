@@ -138,14 +138,18 @@ impl Cli {
 				let task = Task::spawn_blocking(move |stop| {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
-						.worker_threads(1)
 						.enable_all()
 						.build()
 						.unwrap();
 					local_set
 						.block_on(&runtime, async move {
 							let viewer_options = crate::viewer::Options {
-								auto_expand_and_collapse_processes: true,
+								collapse_process_children: true,
+								depth: None,
+								expand_objects: false,
+								expand_packages: false,
+								expand_processes: true,
+								expand_tags: false,
 								show_process_commands: false,
 							};
 							let mut viewer =
@@ -153,7 +157,7 @@ impl Cli {
 							match options.view {
 								View::None => (),
 								View::Inline => {
-									viewer.run_inline(stop).await?;
+									viewer.run_inline(stop, false).await?;
 								},
 								View::Fullscreen => {
 									viewer.run_fullscreen(stop).await?;

@@ -8,9 +8,9 @@ pub struct Args {
 	#[arg(long)]
 	pub depth: Option<u32>,
 
-	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
-	pub locked: bool,
+	/// Whether to view the item as a tag, package, or value.
+	#[arg(long, default_value = "value")]
+	pub kind: crate::view::Kind,
 
 	/// The reference to display a tree for.
 	#[arg(index = 1)]
@@ -20,9 +20,14 @@ pub struct Args {
 impl Cli {
 	pub async fn command_tree(&mut self, args: Args) -> tg::Result<()> {
 		let args = crate::view::Args {
+			collapse_process_children: false,
 			depth: args.depth,
-			kind: crate::view::Kind::Inline,
-			locked: args.locked,
+			expand_objects: matches!(args.kind, crate::view::Kind::Value | crate::view::Kind::Tag),
+			expand_packages: true,
+			expand_processes: true,
+			expand_tags: true,
+			kind: args.kind,
+			mode: crate::view::Mode::Inline,
 			reference: args.reference,
 		};
 		self.command_view(args).await?;

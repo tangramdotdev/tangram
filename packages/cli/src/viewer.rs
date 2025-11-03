@@ -1,7 +1,7 @@
 use {
 	self::{data::Data, help::Help, log::Log, tree::Tree},
 	crossterm as ct,
-	futures::{TryFutureExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
 	std::{
@@ -41,13 +41,23 @@ pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewe
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Item {
+	Package(Package),
 	Process(tg::Process),
+	Tag(tg::tag::Pattern),
 	Value(tg::Value),
 }
 
 #[derive(Clone, Debug)]
+pub struct Package(pub tg::Object);
+
+#[derive(Clone, Debug)]
 pub struct Options {
-	pub auto_expand_and_collapse_processes: bool,
+	pub collapse_process_children: bool,
+	pub depth: Option<u32>,
+	pub expand_objects: bool,
+	pub expand_packages: bool,
+	pub expand_processes: bool,
+	pub expand_tags: bool,
 	pub show_process_commands: bool,
 }
 
@@ -308,15 +318,16 @@ where
 		result
 	}
 
-	pub async fn run_inline(&mut self, stop: Stop) -> tg::Result<()> {
+	pub async fn run_inline(&mut self, stop: Stop, print: bool) -> tg::Result<()> {
 		let mut tty: Option<std::io::Stderr> = if std::io::stderr().is_terminal() {
 			Some(std::io::stderr())
 		} else {
 			None
 		};
 
+		// Hide the cursor
 		if let Some(tty) = tty.as_mut() {
-			ct::queue!(tty, ct::cursor::Hide, ct::cursor::SavePosition)
+			ct::queue!(tty, ct::cursor::Hide)
 				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 		}
 
@@ -325,12 +336,25 @@ where
 			// Update.
 			self.update();
 
+			if stop.stopped() || self.tree.is_finished() {
+				// Clear the screen and show the cursor.
+				if let Some(tty) = tty.as_mut() {
+					ct::queue!(
+						tty,
+						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+						ct::cursor::Show,
+					)
+					.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+				}
+
+				break;
+			}
+
 			// If stdout is a terminal, then render the tree.
 			if let Some(tty) = tty.as_mut() {
-				// Clear previous output if it exists.
+				// Clear the screen and save the cursor position.
 				ct::queue!(
 					tty,
-					ct::cursor::RestorePosition,
 					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 					ct::cursor::SavePosition,
 				)
@@ -360,29 +384,32 @@ where
 					write!(tty, "{line}")
 						.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 				}
+
+				// Restore the cursor position.
+				ct::queue!(tty, ct::cursor::RestorePosition)
+					.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+
+				// Flush the terminal.
 				tty.flush()
 					.map_err(|source| tg::error!(!source, "failed to flush the terminal"))?;
+			} else {
+				self.tree.clear_guards();
 			}
 
-			// Sleep. If the task is stopped, then break.
-			let sleep = tokio::time::sleep(Duration::from_millis(100));
-			if let future::Either::Left(_) = future::select(pin!(stop.wait()), pin!(sleep)).await {
-				break;
-			}
+			// Wait for the task to be stopped, a change, or a timeout.
+			let mut stop = pin!(stop.wait().fuse());
+			let mut changed = pin!(self.tree.changed().fuse());
+			let mut sleep = pin!(tokio::time::sleep(Duration::from_millis(100)).fuse());
+			futures::select! {
+				() = stop => (),
+				() = changed => (),
+				() = sleep => (),
+			};
 		}
 
-		// Handle any pending updates.
-		self.update();
-
-		// Clear previous output if it exists.
-		if let Some(tty) = tty.as_mut() {
-			ct::queue!(
-				tty,
-				ct::cursor::RestorePosition,
-				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-				ct::cursor::Show,
-			)
-			.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+		// Render the tree one more time if necessary.
+		if print {
+			println!("{}", self.tree.display());
 		}
 
 		Ok(())
