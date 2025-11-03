@@ -23,7 +23,7 @@ pub async fn format_blob<H: tg::Handle>(handle: &H, blob: &tg::Blob) -> tg::Resu
 		.try_read(arg)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to read the blob"))?
-		.ok_or_else(|| tg::error!("failed to read the blob"))?;
+		.ok_or_else(|| tg::error!("blob not found"))?;
 	let mut stream = pin!(stream);
 	let mut is_utf8 = true;
 	while let Some(chunk) = stream.try_next().await? {

@@ -21,6 +21,7 @@ pub struct Arg {
 #[serde_as]
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Options {
+	#[serde_as(as = "serde_with::PickFirst<(_, Option<serde_with::DisplayFromStr>)>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
@@ -28,6 +29,7 @@ pub struct Options {
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
 
+	#[serde_as(as = "serde_with::PickFirst<(_, Option<serde_with::DisplayFromStr>)>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
 }
