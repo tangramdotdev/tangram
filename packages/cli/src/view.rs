@@ -29,7 +29,7 @@ pub struct Args {
 	pub expand_tags: bool,
 
 	/// Whether to view the item as a tag, package, or value.
-	#[arg(long = "mode", default_value = "value")]
+	#[arg(long, default_value = "value")]
 	pub kind: Kind,
 
 	/// Choose the mode, either inline or fullscreen.
