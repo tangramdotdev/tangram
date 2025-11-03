@@ -528,6 +528,16 @@ impl Server {
 	) -> tg::Result<()> {
 		let statement = indoc!(
 			"
+				select item
+				from tags
+				where tag = ?1;
+			"
+		);
+		let mut get_old_item_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
 				insert or replace into tags (tag, item)
 				values (?1, ?2);
 			"
@@ -542,7 +552,7 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut objects_reference_count_statement = transaction
+		let mut objects_increment_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let statement = indoc!(
@@ -552,7 +562,7 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut processes_reference_count_statement = transaction
+		let mut processes_increment_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let statement = indoc!(
@@ -562,10 +572,51 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut cache_entries_reference_count_statement = transaction
+		let mut cache_entries_increment_reference_count_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update objects
+				set reference_count = reference_count - 1
+				where id = ?1;
+			"
+		);
+		let mut objects_decrement_reference_count_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update processes
+				set reference_count = reference_count - 1
+				where id = ?1;
+			"
+		);
+		let mut processes_decrement_reference_count_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let statement = indoc!(
+			"
+				update cache_entries
+				set reference_count = reference_count - 1
+				where id = ?1;
+			"
+		);
+		let mut cache_entries_decrement_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
+			// Query for the old item that is currently tagged with this tag.
+			let params = sqlite::params![message.tag];
+			let mut rows = get_old_item_statement
+				.query(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let old_item = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.map(|row| row.get_unwrap::<_, Vec<u8>>(0));
+
+			// Insert or replace the tag.
 			let item = match &message.item {
 				Either::Left(item) => item.to_bytes().to_vec(),
 				Either::Right(item) => item.to_bytes().to_vec(),
@@ -574,18 +625,32 @@ impl Server {
 			insert_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let item = match &message.item {
-				Either::Left(item) => item.to_bytes().to_vec(),
-				Either::Right(item) => item.to_bytes().to_vec(),
-			};
+
+			// If there was an old item and it is different from the new item, decrement its reference count.
+			if let Some(old_item) = old_item
+				&& old_item != item
+			{
+				let params = sqlite::params![old_item];
+				objects_decrement_reference_count_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				processes_decrement_reference_count_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				cache_entries_decrement_reference_count_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			// Increment the reference count for the new item.
 			let params = sqlite::params![item];
-			objects_reference_count_statement
+			objects_increment_reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			processes_reference_count_statement
+			processes_increment_reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			cache_entries_reference_count_statement
+			cache_entries_increment_reference_count_statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
