@@ -606,7 +606,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
-			// Query for the old item that is currently tagged with this tag.
+			// Query for an old item that is currently tagged with this tag.
 			let params = sqlite::params![message.tag];
 			let mut rows = get_old_item_statement
 				.query(params)
@@ -626,33 +626,47 @@ impl Server {
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-			// If there was an old item and it is different from the new item, decrement its reference count.
-			if let Some(old_item) = old_item
-				&& old_item != item
-			{
-				let params = sqlite::params![old_item];
-				objects_decrement_reference_count_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				processes_decrement_reference_count_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				cache_entries_decrement_reference_count_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			}
+			// Update reference counts based on whether the tag is new, changed, or unchanged.
+			match old_item {
+				Some(old_item) if old_item != item => {
+					// Decrement the old item's reference count.
+					let params = sqlite::params![old_item];
+					objects_decrement_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					processes_decrement_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					cache_entries_decrement_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-			// Increment the reference count for the new item.
-			let params = sqlite::params![item];
-			objects_increment_reference_count_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			processes_increment_reference_count_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			cache_entries_increment_reference_count_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					// Increment the new item's reference count.
+					let params = sqlite::params![item];
+					objects_increment_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					processes_increment_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					cache_entries_increment_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				},
+				None => {
+					let params = sqlite::params![item];
+					objects_increment_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					processes_increment_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					cache_entries_increment_reference_count_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				},
+				Some(_) => (),
+			}
 		}
 
 		Ok(())
