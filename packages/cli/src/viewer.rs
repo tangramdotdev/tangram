@@ -52,10 +52,13 @@ pub struct Package(pub tg::Object);
 
 #[derive(Clone, Debug)]
 pub struct Options {
+	pub collapse_process_children: bool,
 	pub depth: Option<u32>,
-	pub expand: crate::view::ExpandOptions,
+	pub expand_objects: bool,
+	pub expand_packages: bool,
+	pub expand_processes: bool,
+	pub expand_tags: bool,
 	pub show_process_commands: bool,
-	pub clear_at_end: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,7 +318,7 @@ where
 		result
 	}
 
-	pub async fn run_inline(&mut self, stop: Stop) -> tg::Result<()> {
+	pub async fn run_inline(&mut self, stop: Stop, print: bool) -> tg::Result<()> {
 		let mut tty: Option<std::io::Stderr> = if std::io::stderr().is_terminal() {
 			Some(std::io::stderr())
 		} else {
@@ -405,7 +408,7 @@ where
 		}
 
 		// Render the tree one more time if necessary.
-		if !self.tree.options().clear_at_end {
+		if print {
 			println!("{}", self.tree.display());
 		}
 

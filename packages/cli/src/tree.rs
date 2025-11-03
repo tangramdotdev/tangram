@@ -8,10 +8,6 @@ pub struct Args {
 	#[arg(long)]
 	pub depth: Option<u32>,
 
-	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
-	pub locked: bool,
-
 	#[arg(long, default_value = "value")]
 	pub mode: crate::view::Mode,
 
@@ -22,18 +18,14 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_tree(&mut self, args: Args) -> tg::Result<()> {
-		let expand = crate::view::ExpandOptions {
-			collapse_process_children: false,
-			package: true,
-			process: true,
-			tag: true,
-			object: matches!(args.mode, crate::view::Mode::Value | crate::view::Mode::Tag),
-		};
 		let args = crate::view::Args {
+			collapse_process_children: false,
 			depth: args.depth,
-			expand,
+			expand_objects: matches!(args.mode, crate::view::Mode::Value | crate::view::Mode::Tag),
+			expand_packages: true,
+			expand_processes: true,
+			expand_tags: true,
 			kind: crate::view::Kind::Inline,
-			locked: args.locked,
 			mode: args.mode,
 			reference: args.reference,
 		};

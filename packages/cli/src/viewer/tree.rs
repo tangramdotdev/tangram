@@ -26,7 +26,6 @@ pub struct Tree<H> {
 	handle: H,
 	counter: UpdateCounter,
 	data: data::UpdateSender,
-	options: Rc<Options>,
 	rect: Option<Rect>,
 	roots: Vec<Rc<RefCell<Node>>>,
 	selected: Rc<RefCell<Node>>,
@@ -137,10 +136,6 @@ impl<H> Tree<H>
 where
 	H: tg::Handle,
 {
-	pub fn options(&self) -> Rc<Options> {
-		self.options.clone()
-	}
-
 	pub fn changed(&self) -> impl Future<Output = ()> + Send + Sync {
 		self.counter.changed()
 	}
@@ -216,17 +211,17 @@ where
 			.as_ref()
 			.map_or(String::new(), |referent| Self::item_title(referent.item()));
 		let expand = match referent.as_ref().map(tg::Referent::item) {
-			Some(Item::Package(package)) if options.expand.package => expanded_nodes
+			Some(Item::Package(package)) if options.expand_packages => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Package(package.0.id())),
-			Some(Item::Process(process)) if options.expand.process => expanded_nodes
+			Some(Item::Process(process)) if options.expand_processes => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Process(process.id().clone())),
-			Some(Item::Tag(pattern)) if options.expand.tag => expanded_nodes
+			Some(Item::Tag(pattern)) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
 			Some(Item::Value(tg::Value::Object(object))) => {
-				if options.expand.object {
+				if options.expand_objects {
 					expanded_nodes
 						.borrow_mut()
 						.insert(NodeID::Object(object.id()))
@@ -1100,10 +1095,10 @@ where
 			let handle = handle.clone();
 			let guard = counter.guard();
 			let update = move |node: Rc<RefCell<Node>>| {
-				if node.borrow().options.expand.collapse_process_children && finished {
+				if node.borrow().options.collapse_process_children && finished {
 					return;
 				}
-				if node.borrow().options.expand.process
+				if node.borrow().options.expand_processes
 					&& node
 						.borrow()
 						.children
@@ -1115,7 +1110,7 @@ where
 					node.borrow_mut().children.insert(0, child);
 				}
 
-				let parent = if node.borrow().options.expand.process {
+				let parent = if node.borrow().options.expand_processes {
 					node
 				} else {
 					node.borrow().children[0].clone()
@@ -1441,16 +1436,16 @@ where
 		let label = Self::item_label(referent.item());
 		let title = Self::item_title(referent.item());
 		let expand = match referent.item() {
-			Item::Package(package) if options.expand.package => expanded_nodes
+			Item::Package(package) if options.expand_packages => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Package(package.0.id())),
-			Item::Process(process) if options.expand.process => expanded_nodes
+			Item::Process(process) if options.expand_processes => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Process(process.id().clone())),
-			Item::Tag(pattern) if options.expand.tag => expanded_nodes
+			Item::Tag(pattern) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
-			Item::Value(tg::Value::Object(object)) if options.expand.object => expanded_nodes
+			Item::Value(tg::Value::Object(object)) if options.expand_objects => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Object(object.id())),
 			Item::Value(_) => true,
@@ -1525,7 +1520,6 @@ where
 			handle: handle.clone(),
 			counter,
 			data,
-			options,
 			rect: None,
 			roots,
 			scroll: 0,
@@ -1719,7 +1713,7 @@ where
 				tg::process::Status::Started => Indicator::Started,
 				tg::process::Status::Finished => {
 					// Remove the child if necessary.
-					if options.expand.collapse_process_children {
+					if options.collapse_process_children {
 						let update = move |node: Rc<RefCell<Node>>| {
 							// Get the parent if it exists.
 							let Some(parent) =

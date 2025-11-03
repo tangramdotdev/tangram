@@ -141,26 +141,20 @@ impl Cli {
 						local_set
 							.block_on(&runtime, async move {
 								let viewer_options = crate::viewer::Options {
+									collapse_process_children: true,
 									depth: None,
-									expand: crate::view::ExpandOptions {
-										collapse_process_children: true,
-										process: true,
-										package: false,
-										tag: false,
-										object: false,
-									},
-									show_process_commands: matches!(
-										options.build_view,
-										crate::build::View::Inline
-									),
-									clear_at_end: true,
+									expand_objects: false,
+									expand_packages: false,
+									expand_processes: true,
+									expand_tags: false,
+									show_process_commands: false,
 								};
 								let mut viewer =
 									crate::viewer::Viewer::new(&handle, root, viewer_options);
 								match options.build_view {
 									crate::build::View::None => (),
 									crate::build::View::Inline => {
-										viewer.run_inline(stop).await?;
+										viewer.run_inline(stop, false).await?;
 									},
 									crate::build::View::Fullscreen => {
 										viewer.run_fullscreen(stop).await?;

@@ -1,23 +1,36 @@
 use {crate::Cli, tangram_client as tg, tangram_either::Either, tangram_futures::task::Task};
 
-/// View a process or an object.
+/// View a process, an object, or a tag.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The maximum depth to render.
+	/// Collapse process children when processes finish.
+	#[arg(long)]
+	pub collapse_process_children: bool,
+
+	/// The maximum depth.
 	#[arg(long)]
 	pub depth: Option<u32>,
 
-	#[command(flatten)]
-	pub expand: ExpandOptions,
+	/// Expand objects.
+	#[arg(long)]
+	pub expand_objects: bool,
+
+	/// Expand packages.
+	#[arg(long)]
+	pub expand_packages: bool,
+
+	/// Expand processs.
+	#[arg(long)]
+	pub expand_processes: bool,
+
+	/// Expand tags.
+	#[arg(long)]
+	pub expand_tags: bool,
 
 	/// Choose the kind of view, either inline or fullscreen.
 	#[arg(default_value = "fullscreen", long)]
 	pub kind: Kind,
-
-	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
-	pub locked: bool,
 
 	/// If set, view the reference as a tag, package, or value.
 	#[arg(long = "mode", default_value = "value")]
@@ -26,29 +39,6 @@ pub struct Args {
 	/// The reference to view.
 	#[arg(index = 1, default_value = ".")]
 	pub reference: tg::Reference,
-}
-
-#[derive(Clone, Debug, clap::Args)]
-pub struct ExpandOptions {
-	/// Auto collapse process children when processes finish.
-	#[arg(long)]
-	pub collapse_process_children: bool,
-
-	/// Auto expand objects.
-	#[arg(long = "expand-value")]
-	pub object: bool,
-
-	/// Auto expand package nodes.
-	#[arg(long = "expand-package")]
-	pub package: bool,
-
-	/// Auto expand process nodes.
-	#[arg(long = "expand-process")]
-	pub process: bool,
-
-	/// Auto expand tag nodes.
-	#[arg(long = "expand-tag")]
-	pub tag: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
@@ -110,15 +100,18 @@ impl Cli {
 			local_set
 				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
+						collapse_process_children: args.collapse_process_children,
 						depth: args.depth,
-						expand: args.expand,
+						expand_objects: args.expand_objects,
+						expand_packages: args.expand_packages,
+						expand_processes: args.expand_processes,
+						expand_tags: args.expand_tags,
 						show_process_commands: true,
-						clear_at_end: !matches!(kind, Kind::Inline),
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);
 					match kind {
 						Kind::Inline => {
-							viewer.run_inline(stop).await?;
+							viewer.run_inline(stop, true).await?;
 						},
 						Kind::Fullscreen => {
 							viewer.run_fullscreen(stop).await?;
