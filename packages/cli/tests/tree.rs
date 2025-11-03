@@ -47,7 +47,7 @@ async fn package() {
 	directory.to_path(temp.path()).await.unwrap();
 	let stdout = test(
 		&server,
-		vec![temp.path().display().to_string(), "--mode=package".into()],
+		vec![temp.path().display().to_string(), "--kind=package".into()],
 		objects,
 	)
 	.await;
@@ -76,7 +76,7 @@ async fn tag() {
 		(Some("tree/of/tags/bar".into()), bar),
 	];
 
-	let stdout = test(&server, vec!["tree".into(), "--mode=tag".into()], objects).await;
+	let stdout = test(&server, vec!["tree".into(), "--kind=tag".into()], objects).await;
 	assert_snapshot!(stdout, @r#"
 	tree
 	└╴tree/of
