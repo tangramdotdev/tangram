@@ -257,6 +257,69 @@ async fn objects() {
 	assert_success!(h_output);
 }
 
+#[tokio::test]
+async fn double_tagged_item() {
+	let server = Server::new(TG).await.unwrap();
+	let directory = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			export let a = () => tg.file("a");
+		"#),
+	};
+
+	let artifact: temp::Artifact = directory.into();
+	let artifact_temp = Temp::new();
+	artifact.to_path(artifact_temp.as_ref()).await.unwrap();
+
+	let (_, a) = build(&server, artifact_temp.path(), "a").await;
+
+	// Tag a with the same tag twice.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("mytag")
+		.arg(a.to_string())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("mytag")
+		.arg(a.to_string())
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Delete the tag.
+	let output = server
+		.tg()
+		.arg("tag")
+		.arg("delete")
+		.arg("mytag")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(output);
+
+	// Clean.
+	let output = server.tg().arg("clean").output().await.unwrap();
+	assert_success!(output);
+
+	// Confirm that a was cleaned (no longer tagged).
+	let a_output = server
+		.tg()
+		.arg("object")
+		.arg("get")
+		.arg(a.to_string())
+		.output()
+		.await
+		.unwrap();
+	assert_failure!(a_output);
+}
+
 async fn build(
 	server: &tangram_cli_test::Server,
 	path: &Path,
