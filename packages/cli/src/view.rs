@@ -90,7 +90,7 @@ impl Cli {
 			},
 		};
 
-		let kind = args.mode;
+		let mode = args.mode;
 		Task::spawn_blocking(move |stop| {
 			let local_set = tokio::task::LocalSet::new();
 			let runtime = tokio::runtime::Builder::new_current_thread()
@@ -109,7 +109,7 @@ impl Cli {
 						show_process_commands: true,
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);
-					match kind {
+					match mode {
 						Mode::Inline => {
 							viewer.run_inline(stop, true).await?;
 						},

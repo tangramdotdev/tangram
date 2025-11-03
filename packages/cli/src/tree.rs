@@ -26,8 +26,8 @@ impl Cli {
 			expand_packages: true,
 			expand_processes: true,
 			expand_tags: true,
-			mode: crate::view::Mode::Inline,
 			kind: args.kind,
+			mode: crate::view::Mode::Inline,
 			reference: args.reference,
 		};
 		self.command_view(args).await?;
