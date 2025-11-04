@@ -317,7 +317,6 @@ async fn artifact_symlink() {
 
 #[tokio::test]
 async fn self_import() {
-	// import * as self from "./tangram.ts"
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
 			import * as self from "./tangram.ts";
