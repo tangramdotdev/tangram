@@ -316,6 +316,51 @@ async fn artifact_symlink() {
 }
 
 #[tokio::test]
+async fn self_import() {
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as self from "./tangram.ts";
+		"#),
+	}
+	.into();
+	let path = Path::new("");
+	let destructive = false;
+	let tags = vec![];
+	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	assert_snapshot!(object, @r#"
+	tg.directory({
+	  "tangram.ts": tg.file({
+	    "graph": tg.graph({
+	      "nodes": [
+	        {
+	          "kind": "file",
+	          "contents": tg.blob("import * as self from \"./tangram.ts\";\n"),
+	          "dependencies": {
+	            "./tangram.ts": {
+	              "item": {
+	                "node": 0,
+	              },
+	              "path": "tangram.ts",
+	            },
+	          },
+	        },
+	      ],
+	    }),
+	    "node": 0,
+	  }),
+	})
+	"#);
+	assert_snapshot!(metadata, @r#"
+	{
+	  "count": 4,
+	  "depth": 4,
+	  "weight": 234,
+	}
+	"#);
+	assert!(lock.is_none());
+}
+
+#[tokio::test]
 async fn lock_out_of_date() {
 	let artifact = temp::directory! {
 		"tangram.ts" => r#"import "./b.tg.ts";"#,

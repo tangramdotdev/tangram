@@ -32,15 +32,21 @@ impl Server {
 			}
 		}
 
-		// Create objects for each strongly connected component. If the strongly connected component has only one node, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
+		// Create objects for each strongly connected component. If the strongly connected component has only one node with no cycle, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
 		for scc in &sccs {
-			if scc.len() == 1 {
-				let index = scc[0];
+			if scc.len() == 1
+				&& !graph
+					.nodes
+					.get(&scc[0])
+					.unwrap()
+					.children()
+					.contains(&scc[0])
+			{
 				Self::checkin_create_node_artifact(
 					graph,
 					store_args,
 					object_messages,
-					index,
+					scc[0],
 					touched_at,
 				)?;
 			} else {
@@ -504,7 +510,7 @@ impl Server {
 		}
 		let size = bytes.len().to_u64().unwrap();
 
-		// Create store arg.
+		// Create the store arg.
 		let store_arg = crate::store::PutArg {
 			bytes: Some(bytes),
 			cache_reference: None,
@@ -512,7 +518,7 @@ impl Server {
 			touched_at,
 		};
 
-		// Create index message.
+		// Create the index message.
 		let index_message = crate::index::message::PutObject {
 			cache_entry: None,
 			children: children_ids,
