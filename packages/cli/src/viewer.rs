@@ -353,14 +353,6 @@ where
 
 			// If stdout is a terminal, then render the tree.
 			if let Some(tty) = tty.as_mut() {
-				// Clear the screen and save the cursor position.
-				ct::queue!(
-					tty,
-					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-					ct::cursor::SavePosition,
-				)
-				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
-
 				// Get the terminal size.
 				let (columns, rows) = ct::terminal::size()
 					.map(|(columns, rows)| (columns.to_usize().unwrap(), rows.to_usize().unwrap()))
@@ -373,6 +365,15 @@ where
 
 				// Print the tree.
 				let tree = self.tree.display().to_string();
+
+				// Clear the screen and save the cursor position.
+				ct::queue!(
+					tty,
+					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+					ct::cursor::SavePosition,
+				)
+				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+
 				let mut first = true;
 				for line in tree.lines().take(rows.saturating_sub(row)) {
 					if !first {
