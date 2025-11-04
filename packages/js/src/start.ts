@@ -1,4 +1,4 @@
-import * as tg from "./index.ts";
+import * as tg from "@tangramdotdev/client";
 
 export let start = async (process: tg.Process): Promise<tg.Value.Data> => {
 	// Set the current process.

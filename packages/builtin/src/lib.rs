@@ -19,7 +19,7 @@ use self::{
 };
 
 pub type Logger = Arc<
-	dyn Fn(&tg::Process, tg::process::log::Stream, String) -> BoxFuture<'static, tg::Result<()>>
+	dyn Fn(tg::process::log::Stream, String) -> BoxFuture<'static, tg::Result<()>>
 		+ Send
 		+ Sync
 		+ 'static,
@@ -72,7 +72,6 @@ where
 
 pub(crate) async fn log_progress_stream<T: Send + std::fmt::Debug>(
 	logger: &Logger,
-	process: &tg::Process,
 	stream: impl futures::Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 ) -> tg::Result<()> {
 	use futures::TryStreamExt as _;
@@ -87,7 +86,7 @@ pub(crate) async fn log_progress_stream<T: Send + std::fmt::Debug>(
 			continue;
 		};
 		let message = format!("{indicator}\n");
-		logger(process, tg::process::log::Stream::Stderr, message).await?;
+		logger(tg::process::log::Stream::Stderr, message).await?;
 	}
 	Ok(())
 }

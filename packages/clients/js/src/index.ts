@@ -37,7 +37,6 @@ import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
 import { RunBuilder, run } from "./run.ts";
 import { sleep } from "./sleep.ts";
-import { start } from "./start.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import type { Tag } from "./tag.ts";
 import { Template, template } from "./template.ts";
@@ -122,7 +121,6 @@ export {
 	run,
 	setHandle,
 	sleep,
-	start,
 	symlink,
 	template,
 	todo,

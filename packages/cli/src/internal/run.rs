@@ -34,22 +34,20 @@ impl Cli {
 			.ok_or_else(|| tg::error!("the TANGRAM_PROCESS environment variable is not set"))?;
 
 		// Create a logger that writes to stdio.
-		let logger = std::sync::Arc::new(
-			|_process: &tg::Process, stream: tg::process::log::Stream, string: String| {
-				async move {
-					match stream {
-						tg::process::log::Stream::Stdout => {
-							print!("{string}");
-						},
-						tg::process::log::Stream::Stderr => {
-							eprint!("{string}");
-						},
-					}
-					Ok(())
+		let logger = std::sync::Arc::new(|stream: tg::process::log::Stream, string: String| {
+			async move {
+				match stream {
+					tg::process::log::Stream::Stdout => {
+						print!("{string}");
+					},
+					tg::process::log::Stream::Stderr => {
+						eprint!("{string}");
+					},
 				}
-				.boxed()
-			},
-		);
+				Ok(())
+			}
+			.boxed()
+		});
 
 		// Run based on the host and convert to a common output structure.
 		let (_checksum, error, exit, output_value) = match host.as_str() {

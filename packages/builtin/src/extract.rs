@@ -79,12 +79,7 @@ where
 	let stream = receiver.attach(progress_task);
 	let log_task = tokio::spawn({
 		let logger = logger.clone();
-		let process = process.clone();
-		async move {
-			crate::log_progress_stream(&logger, &process, stream)
-				.await
-				.ok()
-		}
+		async move { crate::log_progress_stream(&logger, stream).await.ok() }
 	});
 	let log_task_abort_handle = log_task.abort_handle();
 	scopeguard::defer! {
@@ -130,12 +125,7 @@ where
 
 	// Log that the extraction finished.
 	let message = "finished extracting\n";
-	logger(
-		process,
-		tg::process::log::Stream::Stderr,
-		message.to_owned(),
-	)
-	.await?;
+	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
 
 	let output = artifact.into();
 

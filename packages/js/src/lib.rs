@@ -25,7 +25,7 @@ const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.heapsnaps
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
 pub type Logger = Arc<
-	dyn Fn(&tg::Process, tg::process::log::Stream, String) -> BoxFuture<'static, tg::Result<()>>
+	dyn Fn(tg::process::log::Stream, String) -> BoxFuture<'static, tg::Result<()>>
 		+ Send
 		+ Sync
 		+ 'static,
@@ -195,7 +195,7 @@ where
 
 		// Get the start function.
 		let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
-		let start = tangram.get(scope, start.into()).unwrap();
+		let start = context.global(scope).get(scope, start.into()).unwrap();
 		let start = v8::Local::<v8::Function>::try_from(start).unwrap();
 
 		// Call the start function.

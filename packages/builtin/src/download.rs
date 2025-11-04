@@ -58,7 +58,7 @@ where
 
 	// Log that the download started.
 	let message = format!("downloading from \"{url}\"\n");
-	logger(process, tg::process::log::Stream::Stderr, message).await?;
+	logger(tg::process::log::Stream::Stderr, message).await?;
 
 	// Spawn the progress task.
 	let downloaded = Arc::new(AtomicU64::new(0));
@@ -184,7 +184,7 @@ where
 
 	// Log that the download finished.
 	let message = format!("finished download from \"{url}\"\n");
-	logger(process, tg::process::log::Stream::Stderr, message).await?;
+	logger(tg::process::log::Stream::Stderr, message).await?;
 
 	let output = match mode {
 		Mode::Raw => artifact

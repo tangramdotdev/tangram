@@ -76,12 +76,7 @@ where
 	let stream = receiver.attach(progress_task);
 	let log_task = tokio::spawn({
 		let logger = logger.clone();
-		let process = process.clone();
-		async move {
-			crate::log_progress_stream(&logger, &process, stream)
-				.await
-				.ok()
-		}
+		async move { crate::log_progress_stream(&logger, stream).await.ok() }
 	});
 	let log_task_abort_handle = log_task.abort_handle();
 	scopeguard::defer! {
@@ -111,12 +106,7 @@ where
 
 	// Log that the compression finished.
 	let message = "finished compressing\n";
-	logger(
-		process,
-		tg::process::log::Stream::Stderr,
-		message.to_owned(),
-	)
-	.await?;
+	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
 
 	let output = if input.is_blob() {
 		blob.into()

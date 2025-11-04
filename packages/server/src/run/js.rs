@@ -7,7 +7,8 @@ impl Server {
 		// Create the logger.
 		let logger = Arc::new({
 			let server = self.clone();
-			move |process: &tg::Process, stream, string| {
+			let process = process.clone();
+			move |stream, string| {
 				let server = server.clone();
 				let process = process.clone();
 				async move { crate::run::util::log(&server, &process, stream, string).await }

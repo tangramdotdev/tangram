@@ -9,9 +9,8 @@ pub fn log(
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
 		let logger = state.logger.clone();
-		let process = state.process.clone();
 		async move {
-			let result = (logger)(&process, stream, string).await;
+			let result = (logger)(stream, string).await;
 			sender.send(result).unwrap();
 		}
 	});

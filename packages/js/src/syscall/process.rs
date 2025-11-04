@@ -54,8 +54,7 @@ pub async fn spawn(
 						| tg::progress::Event::Update(indicator) => {
 							if indicator.name == "bytes" {
 								let message = format!("{indicator}\n");
-								(logger)(&parent, tg::process::log::Stream::Stderr, message)
-									.await?;
+								(logger)(tg::process::log::Stream::Stderr, message).await?;
 							}
 						},
 						tg::progress::Event::Output(_) => {
