@@ -1,11 +1,12 @@
 use {
 	crate::{Server, temp::Temp},
 	bytes::Bytes,
-	futures::{StreamExt as _, TryStreamExt as _, stream},
+	futures::TryStreamExt as _,
 	itertools::Itertools,
 	num::ToPrimitive as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},
+		io::{Read, Write as _},
 		path::PathBuf,
 		pin::pin,
 		sync::Arc,
@@ -127,7 +128,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to read from the reader"))?
 		{
 			// Create the leaf.
-			let blob = self.write_inner_leaf(&chunk).await?;
+			let blob = Self::write_inner_leaf(&chunk);
 
 			// Store the leaf if necessary.
 			match destination {
@@ -166,33 +167,105 @@ impl Server {
 
 		// Create the tree.
 		while blobs.len() > MAX_BRANCH_CHILDREN {
-			blobs = stream::iter(blobs)
+			blobs = blobs
 				.chunks(MAX_BRANCH_CHILDREN)
 				.flat_map(|chunk| {
 					if chunk.len() == MAX_BRANCH_CHILDREN {
-						stream::once(self.write_inner_branch(chunk)).left_stream()
+						vec![Self::write_inner_branch(chunk.to_vec())]
 					} else {
-						stream::iter(chunk.into_iter().map(Ok)).right_stream()
+						chunk.iter().cloned().map(Ok).collect()
 					}
 				})
-				.try_collect()
-				.await?;
+				.collect::<tg::Result<Vec<_>>>()?;
 		}
 
 		// Get the blob.
 		let blob = match blobs.len() {
-			0 => self.write_inner_empty_leaf().await?,
+			0 => Self::write_inner_empty_leaf(),
 			1 => blobs[0].clone(),
-			_ => self.write_inner_branch(blobs).await?,
+			_ => Self::write_inner_branch(blobs)?,
 		};
 
 		Ok(blob)
 	}
 
-	async fn write_inner_empty_leaf(&self) -> tg::Result<Output> {
+	pub(crate) fn write_inner_sync(
+		mut reader: impl Read,
+		destination: Option<&Destination>,
+	) -> tg::Result<Output> {
+		// Create the chunker.
+		let mut chunker = fastcdc::v2020::StreamCDC::new(
+			&mut reader,
+			MIN_LEAF_SIZE,
+			AVG_LEAF_SIZE,
+			MAX_LEAF_SIZE,
+		);
+
+		// Open the destination file if necessary.
+		let mut file = if let Some(Destination::Temp(temp)) = destination {
+			Some(
+				std::fs::File::create_new(temp.path())
+					.map_err(|source| tg::error!(!source, "failed to create the file"))?,
+			)
+		} else {
+			None
+		};
+
+		// Create the leaves and write them if necessary.
+		let mut blobs = Vec::new();
+		for chunk in &mut chunker {
+			let chunk =
+				chunk.map_err(|source| tg::error!(!source, "failed to read from the reader"))?;
+
+			// Create the leaf.
+			let blob = Self::write_inner_leaf(&chunk);
+
+			// Write to the file if necessary.
+			if let Some(Destination::Temp(_)) = destination {
+				file.as_mut()
+					.unwrap()
+					.write_all(&chunk.data)
+					.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
+			}
+
+			blobs.push(blob);
+		}
+
+		// Flush and close the file if necessary.
+		if let Some(mut file) = file {
+			file.flush()
+				.map_err(|source| tg::error!(!source, "failed to flush the file"))?;
+			drop(file);
+		}
+
+		// Create the tree.
+		while blobs.len() > MAX_BRANCH_CHILDREN {
+			blobs = blobs
+				.chunks(MAX_BRANCH_CHILDREN)
+				.flat_map(|chunk| {
+					if chunk.len() == MAX_BRANCH_CHILDREN {
+						vec![Self::write_inner_branch(chunk.to_vec())]
+					} else {
+						chunk.iter().cloned().map(Ok).collect()
+					}
+				})
+				.collect::<tg::Result<Vec<_>>>()?;
+		}
+
+		// Get the blob.
+		let blob = match blobs.len() {
+			0 => Self::write_inner_empty_leaf(),
+			1 => blobs[0].clone(),
+			_ => Self::write_inner_branch(blobs)?,
+		};
+
+		Ok(blob)
+	}
+
+	fn write_inner_empty_leaf() -> Output {
 		let bytes = vec![0];
 		let id = tg::blob::Id::new(&bytes);
-		Ok(Output {
+		Output {
 			bytes: None,
 			count: 1,
 			depth: 1,
@@ -203,10 +276,10 @@ impl Server {
 			id,
 			length: 0,
 			position: 0,
-		})
+		}
 	}
 
-	async fn write_inner_leaf(&self, chunk: &fastcdc::v2020::ChunkData) -> tg::Result<Output> {
+	fn write_inner_leaf(chunk: &fastcdc::v2020::ChunkData) -> Output {
 		let fastcdc::v2020::ChunkData {
 			offset: position,
 			length,
@@ -221,7 +294,7 @@ impl Server {
 		let count = 1;
 		let depth = 1;
 		let weight = size;
-		let output = Output {
+		Output {
 			bytes: None,
 			children: Vec::new(),
 			count,
@@ -232,11 +305,10 @@ impl Server {
 			position: *position,
 			length,
 			weight,
-		};
-		Ok(output)
+		}
 	}
 
-	async fn write_inner_branch(&self, children: Vec<Output>) -> tg::Result<Output> {
+	fn write_inner_branch(children: Vec<Output>) -> tg::Result<Output> {
 		let children_ = children
 			.iter()
 			.map(|child| tg::blob::data::Child {

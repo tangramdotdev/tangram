@@ -19,7 +19,6 @@ impl Server {
 		object_messages: &mut IndexObjectMessages,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let server = self.clone();
 		let nodes = graph
 			.nodes
 			.range(next..)
@@ -33,17 +32,21 @@ impl Server {
 			})
 			.collect::<Vec<_>>();
 		let blobs = stream::iter(nodes)
-			.map(|(index, path)| {
-				let server = server.clone();
-				async move {
-					let mut file = tokio::fs::File::open(&path).await.map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
-					)?;
-					let blob = server.write_inner(&mut file, None).await.map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
-					)?;
-					Ok::<_, tg::Error>((index, blob))
-				}
+			.map(|(index, path)| async move {
+				let blob = tokio::task::spawn_blocking({
+					let path = path.clone();
+					move || {
+						let file = std::fs::File::open(&path).map_err(
+							|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+						)?;
+						Self::write_inner_sync(file, None).map_err(
+							|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
+						)
+					}
+				})
+				.await
+				.unwrap()?;
+				Ok::<_, tg::Error>((index, blob))
 			})
 			.buffer_unordered(CONCURRENCY)
 			.try_collect::<Vec<_>>()
