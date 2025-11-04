@@ -363,10 +363,7 @@ pub trait Watch: Send + Sync + 'static {
 		arg: tg::watch::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::watch::list::Output>>;
 
-	fn delete_watch(
-		&self,
-		arg: tg::watch::delete::Arg,
-	) -> BoxFuture<'_, tg::Result<()>>;
+	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> BoxFuture<'_, tg::Result<()>>;
 }
 
 impl<T> Handle for T
@@ -894,10 +891,7 @@ where
 		self.list_watches(arg).boxed()
 	}
 
-	fn delete_watch(
-		&self,
-		arg: tg::watch::delete::Arg,
-	) -> BoxFuture<'_, tg::Result<()>> {
+	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> BoxFuture<'_, tg::Result<()>> {
 		self.delete_watch(arg).boxed()
 	}
 }

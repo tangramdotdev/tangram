@@ -82,12 +82,12 @@ pub mod referent;
 pub mod remote;
 pub mod run;
 pub mod symlink;
-pub mod watch;
 pub mod sync;
 pub mod tag;
 pub mod template;
 pub mod user;
 pub mod value;
+pub mod watch;
 pub mod write;
 
 pub mod prelude {

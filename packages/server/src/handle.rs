@@ -526,10 +526,7 @@ impl tg::handle::Watch for Handle {
 		self.0.list_watches(arg)
 	}
 
-	fn delete_watch(
-		&self,
-		arg: tg::watch::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> impl Future<Output = tg::Result<()>> {
 		self.0.delete_watch(arg)
 	}
 }
@@ -1052,10 +1049,7 @@ impl tg::handle::Watch for Server {
 		self.list_watches(arg)
 	}
 
-	fn delete_watch(
-		&self,
-		arg: tg::watch::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> impl Future<Output = tg::Result<()>> {
 		self.delete_watch(arg)
 	}
 }

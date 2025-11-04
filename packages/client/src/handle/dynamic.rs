@@ -572,10 +572,7 @@ impl tg::handle::Watch for Handle {
 		self.0.list_watches(arg)
 	}
 
-	fn delete_watch(
-		&self,
-		arg: tg::watch::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> impl Future<Output = tg::Result<()>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_watch(arg)) }
 	}
 }
