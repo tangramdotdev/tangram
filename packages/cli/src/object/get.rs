@@ -24,7 +24,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let value = if args.bytes {
 			let arg = tg::object::get::Arg {
@@ -38,6 +38,9 @@ impl Cli {
 		} else {
 			tg::Value::Object(tg::Object::with_id(args.object))
 		};
+		args.print
+			.depth
+			.get_or_insert(crate::print::Depth::Finite(1));
 		self.print(&value, args.print).await?;
 		Ok(())
 	}
