@@ -32,17 +32,23 @@ impl Server {
 			}
 		}
 
-		// Create objects for each strongly connected component. If the strongly connected component has only one node, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
+		// Create objects for each strongly connected component. If the strongly connected component has only one node and no self-edge, then create a node artifact. Otherwise, create a graph and one reference artifact for each node.
 		for scc in &sccs {
 			if scc.len() == 1 {
 				let index = scc[0];
-				Self::checkin_create_node_artifact(
-					graph,
-					store_args,
-					object_messages,
-					index,
-					touched_at,
-				)?;
+				let node = graph.nodes.get(&index).unwrap();
+				let has_self_edge = node.children().contains(&index);
+				if has_self_edge {
+					Self::checkin_create_graph(graph, store_args, object_messages, scc, touched_at)?;
+				} else {
+					Self::checkin_create_node_artifact(
+						graph,
+						store_args,
+						object_messages,
+						index,
+						touched_at,
+					)?;
+				}
 			} else {
 				Self::checkin_create_graph(graph, store_args, object_messages, scc, touched_at)?;
 			}
