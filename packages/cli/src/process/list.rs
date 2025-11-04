@@ -7,8 +7,8 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
@@ -23,7 +23,7 @@ impl Cli {
 			.list_processes(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the processes"))?;
-		Self::print_json(&output, args.pretty).await?;
+		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 }

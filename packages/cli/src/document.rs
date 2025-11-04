@@ -11,8 +11,8 @@ pub struct Args {
 	#[arg(long)]
 	pub locked: bool,
 
-	#[arg(long)]
-	pub pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
@@ -52,7 +52,7 @@ impl Cli {
 		let output = handle.document(arg).await?;
 
 		// Print the document.
-		Self::print_json(&output, args.pretty).await?;
+		self.print_serde(output, args.print).await?;
 
 		Ok(())
 	}

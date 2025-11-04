@@ -1,29 +1,22 @@
-use {
-	crate::Cli, anstream::eprintln, crossterm::style::Stylize as _, tangram_client as tg,
-	tangram_either::Either,
-};
+use {crate::Cli, tangram_client as tg, tangram_either::Either};
 
 /// Get a reference.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Get the object's raw bytes.
 	#[arg(long)]
-	pub format: Option<crate::object::get::Format>,
+	pub bytes: bool,
 
-	/// Whether to print blobs.
-	#[arg(long)]
-	pub print_blobs: bool,
-
-	/// The depth to print.
-	#[arg(default_value = "1", long, short = 'd')]
-	pub print_depth: crate::object::get::Depth,
-
-	/// Whether to pretty print the output.
-	#[arg(long)]
-	pub print_pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
+
+	/// The remote to get from.
+	#[arg(long)]
+	pub remote: Option<String>,
 }
 
 impl Cli {
@@ -33,24 +26,22 @@ impl Cli {
 			item.map_left(|process| process.id().clone())
 				.map_right(|object| object.id().clone())
 		});
-		eprintln!("{} {referent}", "info".blue().bold());
+		Self::print_info_message(&referent.to_string());
 		match referent.item {
 			Either::Left(process) => {
 				let args = crate::process::get::Args {
-					pretty: args.print_pretty,
+					print: args.print,
 					process,
-					remote: None,
+					remote: args.remote,
 				};
 				self.command_process_get(args).await?;
 			},
 			Either::Right(object) => {
 				let args = crate::object::get::Args {
-					format: args.format,
+					bytes: args.bytes,
 					object,
-					print_blobs: args.print_blobs,
-					print_depth: args.print_depth,
-					print_pretty: args.print_pretty,
-					remote: None,
+					print: args.print,
+					remote: args.remote,
 				};
 				self.command_object_get(args).await?;
 			},

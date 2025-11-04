@@ -56,8 +56,6 @@ impl Cli {
 
 		handle.put_object(&id, arg).await?;
 
-		println!("{id}");
-
 		Ok(())
 	}
 }

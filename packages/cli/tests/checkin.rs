@@ -42,7 +42,7 @@ async fn directory() {
 	{
 	  "count": 6,
 	  "depth": 3,
-	  "weight": 298
+	  "weight": 298,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -69,7 +69,7 @@ async fn file() {
 	{
 	  "count": 3,
 	  "depth": 3,
-	  "weight": 115
+	  "weight": 115,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -96,7 +96,7 @@ async fn symlink() {
 	{
 	  "count": 2,
 	  "depth": 2,
-	  "weight": 61
+	  "weight": 61,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -127,7 +127,7 @@ async fn directory_with_duplicate_entries() {
 	{
 	  "count": 3,
 	  "depth": 3,
-	  "weight": 156
+	  "weight": 156,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -170,7 +170,7 @@ async fn file_through_symlink() {
 	{
 	  "count": 5,
 	  "depth": 4,
-	  "weight": 247
+	  "weight": 247,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -217,7 +217,7 @@ async fn file_with_symlink_no_kind() {
 	{
 	  "count": 8,
 	  "depth": 4,
-	  "weight": 467
+	  "weight": 467,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -264,7 +264,7 @@ async fn file_with_symlink() {
 	{
 	  "count": 7,
 	  "depth": 3,
-	  "weight": 436
+	  "weight": 436,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -309,7 +309,7 @@ async fn artifact_symlink() {
 	{
 	  "count": 6,
 	  "depth": 5,
-	  "weight": 290
+	  "weight": 290,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -371,7 +371,7 @@ async fn lock_out_of_date() {
 	{
 	  "count": 7,
 	  "depth": 4,
-	  "weight": 327
+	  "weight": 327,
 	}
 	"#);
 	assert!(lock.is_none());
@@ -1256,8 +1256,6 @@ async fn tag_dependency_not_exist() {
 	let path = Path::new("");
 	let destructive = false;
 	let (stdout, stderr) = test_failure(artifact, path, destructive, true, tags).await;
-	eprintln!("stdout: {stdout:?}");
-	eprintln!("stderr: {stderr:?}");
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> no matching tags were found
@@ -2975,10 +2973,9 @@ async fn incremental_checkin_lockfile_consistency() {
 		.arg("object")
 		.arg("get")
 		.arg(third_id)
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
-		.arg("--print-pretty=true")
+		.arg("--blobs")
+		.arg("--depth=inf")
+		.arg("--pretty")
 		.output()
 		.await
 		.unwrap();
@@ -3421,10 +3418,9 @@ async fn incremental_checkin_no_changes() {
 		.arg("object")
 		.arg("get")
 		.arg(second_id)
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
-		.arg("--print-pretty=true")
+		.arg("--blobs")
+		.arg("--depth=inf")
+		.arg("--pretty")
 		.output()
 		.await
 		.unwrap();
@@ -4070,10 +4066,6 @@ async fn test_inner(
 	}
 	let output = command.output().await.unwrap();
 	if !expect_success {
-		eprintln!(
-			"process succeeded: {}",
-			std::str::from_utf8(&output.stdout).unwrap()
-		);
 		assert_failure!(output);
 		let stdout = String::from_utf8(output.stdout).unwrap();
 		let stderr = String::from_utf8(output.stderr).unwrap();
@@ -4099,10 +4091,9 @@ async fn test_inner(
 		.arg("object")
 		.arg("get")
 		.arg(id.clone())
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
-		.arg("--print-pretty=true")
+		.arg("--blobs")
+		.arg("--depth=inf")
+		.arg("--pretty")
 		.output()
 		.await
 		.unwrap();
@@ -4116,7 +4107,6 @@ async fn test_inner(
 		.arg("metadata")
 		.arg(id)
 		.arg("--pretty")
-		.arg("true")
 		.output()
 		.await
 		.unwrap();

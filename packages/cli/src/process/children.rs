@@ -1,7 +1,6 @@
 use {
 	crate::Cli,
-	futures::TryStreamExt as _,
-	std::pin::pin,
+	futures::StreamExt as _,
 	tangram_client::{self as tg, prelude::*},
 };
 
@@ -9,6 +8,9 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 
@@ -29,8 +31,6 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-
-		// Get the children.
 		let remote = args
 			.remote
 			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
@@ -41,15 +41,7 @@ impl Cli {
 			size: args.size,
 		};
 		let stream = handle.get_process_children(&args.process, arg).await?;
-
-		// Print the children.
-		let mut stream = pin!(stream);
-		while let Some(chunk) = stream.try_next().await? {
-			for child in chunk.data {
-				println!("{}", child.item);
-			}
-		}
-
+		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}
 }

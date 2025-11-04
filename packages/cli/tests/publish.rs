@@ -307,9 +307,8 @@ async fn package_with_local_transitive_dependency() {
 		.tg()
 		.arg("get")
 		.arg(&package_id)
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
+		.arg("--blobs")
+		.arg("--depth=inf")
 		.output()
 		.await
 		.unwrap();
@@ -326,9 +325,8 @@ async fn package_with_local_transitive_dependency() {
 		.tg()
 		.arg("get")
 		.arg(&dep_package_id)
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
+		.arg("--blobs")
+		.arg("--depth=inf")
 		.output()
 		.await
 		.unwrap();
@@ -345,9 +343,8 @@ async fn package_with_local_transitive_dependency() {
 		.tg()
 		.arg("get")
 		.arg(&transitive_package_id)
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
+		.arg("--blobs")
+		.arg("--depth=inf")
 		.output()
 		.await
 		.unwrap();
@@ -709,9 +706,8 @@ async fn package_with_local_path_import() {
 		.tg()
 		.arg("get")
 		.arg(&published_main_id)
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
+		.arg("--blobs")
+		.arg("--depth=inf")
 		.output()
 		.await
 		.unwrap();
@@ -1478,10 +1474,9 @@ impl Context {
 			.tg()
 			.arg("get")
 			.arg(package_id)
-			.arg("--format=tgon")
-			.arg("--print-blobs")
-			.arg("--print-depth=inf")
-			.arg("--print-pretty=true")
+			.arg("--blobs")
+			.arg("--depth=inf")
+			.arg("--pretty")
 			.output()
 			.await
 			.unwrap();
@@ -1491,10 +1486,9 @@ impl Context {
 			.tg()
 			.arg("get")
 			.arg(package_id)
-			.arg("--format=tgon")
-			.arg("--print-blobs")
-			.arg("--print-depth=inf")
-			.arg("--print-pretty=true")
+			.arg("--blobs")
+			.arg("--depth=inf")
+			.arg("--pretty")
 			.output()
 			.await
 			.unwrap();
@@ -1519,7 +1513,6 @@ impl Context {
 			.arg("metadata")
 			.arg(package_id)
 			.arg("--pretty")
-			.arg("true")
 			.output()
 			.await
 			.unwrap();
@@ -1530,7 +1523,6 @@ impl Context {
 			.arg("metadata")
 			.arg(package_id)
 			.arg("--pretty")
-			.arg("true")
 			.output()
 			.await
 			.unwrap();

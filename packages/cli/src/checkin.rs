@@ -15,6 +15,9 @@ pub struct Args {
 	#[arg(default_value = ".", index = 1)]
 	pub path: Option<PathBuf>,
 
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(
 		action = clap::ArgAction::Append,
 		long = "update",
@@ -191,8 +194,10 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
 		let output = self.render_progress_stream(stream).await?;
 
-		// Print the artifact.
-		println!("{}", output.referent.item);
+		let output = tg::Artifact::with_id(output.artifact.item).into();
+
+		// Print.
+		self.print(&output, args.print).await?;
 
 		Ok(())
 	}

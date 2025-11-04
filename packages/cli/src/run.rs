@@ -1,9 +1,7 @@
 use {
 	crate::Cli,
-	anstream::eprintln,
-	crossterm::style::Stylize as _,
 	futures::prelude::*,
-	std::path::PathBuf,
+	std::{fmt::Write as _, path::PathBuf},
 	tangram_client::{self as tg, prelude::*},
 	tangram_futures::task::Task,
 };
@@ -55,17 +53,8 @@ pub struct Options {
 	#[arg(long, short = 'x')]
 	pub executable_path: Option<PathBuf>,
 
-	/// Whether to print blobs.
-	#[arg(long)]
-	pub print_blobs: bool,
-
-	/// The depth with which to print the output.
-	#[arg(default_value = "0", long)]
-	pub print_depth: crate::object::get::Depth,
-
-	/// Whether to pretty print the output.
-	#[arg(long)]
-	pub print_pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
@@ -96,11 +85,11 @@ impl Cli {
 
 			// Print the process.
 			if !self.args.quiet {
-				eprint!("{} {}", "info".blue().bold(), process.item().id());
+				let mut message = process.item().id().to_string();
 				if let Some(token) = process.item().token() {
-					eprint!(" {token}");
+					write!(message, " {token}").unwrap();
 				}
-				eprintln!();
+				Self::print_info_message(&message);
 			}
 
 			// Get the process's status.
@@ -286,17 +275,17 @@ impl Cli {
 
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
-			Self::print_json(&output, None).await?;
+			self.print_serde(output, options.print).await?;
 			return Ok(());
 		}
 
 		// Print the process.
 		if !self.args.quiet {
-			eprint!("{} {}", "info".blue().bold(), process.item().id());
+			let mut message = process.item().id().to_string();
 			if let Some(token) = process.item().token() {
-				eprint!(" {token}");
+				write!(message, " {token}").unwrap();
 			}
-			eprintln!();
+			Self::print_info_message(&message);
 		}
 
 		// Enable raw mode if necessary.
@@ -407,21 +396,14 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
 			// Print the path.
-			println!("{}", path.display());
+			self.print_serde(path, options.print).await?;
 
 			return Ok(());
 		}
 
 		// Print the output.
 		if !output.is_null() {
-			Self::print_value(
-				&handle,
-				&output,
-				options.print_depth,
-				options.print_pretty,
-				options.print_blobs,
-			)
-			.await?;
+			self.print(&output, options.print).await?;
 		}
 
 		Ok(())

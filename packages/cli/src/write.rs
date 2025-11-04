@@ -9,19 +9,23 @@ use {
 pub struct Args {
 	#[arg(index = 1)]
 	pub bytes: Option<String>,
+
+	#[command(flatten)]
+	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_write(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let tg::write::Output { blob, .. } = if let Some(bytes) = args.bytes {
+		let output = if let Some(bytes) = args.bytes {
 			let reader = std::io::Cursor::new(bytes);
 			handle.write(reader).await?
 		} else {
 			let reader = crate::util::stdio::stdin();
 			handle.write(reader).await?
 		};
-		println!("{blob}");
+		let output = tg::Blob::with_id(output.blob).into();
+		self.print(&output, args.print).await?;
 		Ok(())
 	}
 }

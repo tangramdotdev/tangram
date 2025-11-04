@@ -1,7 +1,6 @@
 use {
 	crate::Cli,
 	futures::StreamExt as _,
-	std::pin::pin,
 	tangram_client::{self as tg, prelude::*},
 };
 
@@ -9,6 +8,9 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 }
@@ -16,17 +18,8 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-
-		// Get the stream.
 		let stream = handle.get_process_status(&args.process).await?;
-
-		// Print the status.
-		let mut stream = pin!(stream);
-		while let Some(status) = stream.next().await {
-			let status = status.map_err(|source| tg::error!(!source, "expected a status"))?;
-			println!("{status}");
-		}
-
+		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}
 }

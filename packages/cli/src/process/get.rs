@@ -7,8 +7,8 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub pretty: Option<bool>,
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
@@ -24,11 +24,11 @@ impl Cli {
 		let arg = tg::process::get::Arg {
 			remote: args.remote,
 		};
-		let tg::process::get::Output { data, .. } = handle
+		let output = handle
 			.try_get_process(&args.process, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))?;
-		Self::print_json(&data, args.pretty).await?;
+		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}
 }

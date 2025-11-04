@@ -10,6 +10,9 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub pattern: tg::tag::Pattern,
 
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(long)]
 	pub recursive: bool,
 
@@ -30,7 +33,7 @@ impl Cli {
 			remote,
 		};
 		let output = handle.delete_tag(arg).await?;
-		Self::print_json(&output, None).await?;
+		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 }

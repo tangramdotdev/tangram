@@ -1,11 +1,12 @@
-pub use self::{
-	data::Object as Data, handle::Object as Handle, id::Id, kind::Kind, metadata::Metadata,
-	object::Object, state::State,
-};
 use {
 	crate as tg,
 	futures::future,
 	std::{collections::HashSet, future::Future},
+};
+
+pub use self::{
+	data::Object as Data, handle::Object as Handle, id::Id, kind::Kind, metadata::Metadata,
+	object::Object, state::State,
 };
 
 pub mod data;

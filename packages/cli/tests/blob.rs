@@ -33,14 +33,14 @@ async fn create_from_file() {
 		.unwrap()
 		.trim()
 		.to_owned();
+	dbg!(&id);
 	let output = server
 		.tg()
 		.arg("get")
 		.arg(id)
-		.arg("--format=tgon")
-		.arg("--print-blobs")
-		.arg("--print-depth=inf")
-		.arg("--print-pretty=true")
+		.arg("--blobs")
+		.arg("--depth=inf")
+		.arg("--pretty")
 		.output()
 		.await
 		.unwrap();

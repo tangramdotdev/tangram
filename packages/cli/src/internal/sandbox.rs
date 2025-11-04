@@ -2,6 +2,7 @@ use {
 	crate::Cli,
 	bytes::Bytes,
 	std::{ffi::OsString, path::PathBuf},
+	tangram_client as tg,
 };
 
 #[derive(Debug, Clone, clap::Args)]
@@ -96,14 +97,9 @@ impl Cli {
 		match result {
 			Ok(status) => status,
 			Err(error) => {
-				eprintln!("failed to run sandbox command: {error}");
-				eprintln!("original invocation:");
-				let mut args = std::env::args();
-				eprint!("{}", args.next().unwrap());
-				for arg in args {
-					eprint!(" {arg}");
-				}
-				eprintln!();
+				let error = tg::error!(!error, "failed to run the sandbox");
+				let error = tg::Referent::with_item(error);
+				Self::print_error_basic(error);
 				std::process::ExitCode::FAILURE
 			},
 		}

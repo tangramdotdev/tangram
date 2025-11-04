@@ -23,6 +23,9 @@ pub struct Args {
 	#[arg(index = 2)]
 	pub path: Option<PathBuf>,
 
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	/// The artifact to check out.
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
@@ -124,8 +127,8 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to create the checkout stream"))?;
 		let output = self.render_progress_stream(stream).await?;
 
-		// Print the path.
-		println!("{}", output.path.display());
+		// Print the output.
+		self.print_serde(output, args.print).await?;
 
 		Ok(())
 	}
