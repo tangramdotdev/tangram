@@ -363,19 +363,19 @@ impl Server {
 							.values()
 							.filter_map(|edge| edge.try_unwrap_reference_ref().ok())
 							.any(|reference| marks[reference.node]),
-						tg::graph::data::Node::File(file) => file
-							.dependencies
-							.iter()
-							.filter_map(|(reference, referent)| {
-								let item =
-									referent.as_ref()?.item().try_unwrap_reference_ref().ok()?;
-								Some((reference, item))
-							})
-							.any(|(reference, item)| {
+						tg::graph::data::Node::File(file) => {
+							file.dependencies.iter().any(|(reference, referent)| {
+								let Some(referent) = referent else {
+									return false;
+								};
+								let Ok(item) = referent.item().try_unwrap_reference_ref() else {
+									return false;
+								};
 								marks[item.node]
-									|| (reference.options().local.is_none()
-										&& reference.is_solvable())
-							}),
+									|| (reference.is_solvable()
+										&& (referent.id().is_some() || referent.tag().is_some()))
+							})
+						},
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
 							.as_ref()
@@ -416,13 +416,15 @@ impl Server {
 				},
 				tg::graph::data::Node::File(file) => {
 					file.dependencies.retain(|reference, referent| {
-						let Some(node) = referent.as_ref().and_then(|referent| {
-							Some(referent.item().try_unwrap_reference_ref().ok()?.node)
-						}) else {
-							return true;
+						let Some(referent) = referent else {
+							return false;
 						};
-						marks[node]
-							|| (reference.options().local.is_none() && reference.is_solvable())
+						let Ok(item) = referent.item().try_unwrap_reference_ref() else {
+							return false;
+						};
+						marks[item.node]
+							|| (reference.is_solvable()
+								&& (referent.id().is_some() || referent.tag().is_some()))
 					});
 					for referent in file.dependencies.values_mut() {
 						let Some(referent) = referent else {

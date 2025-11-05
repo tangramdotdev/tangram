@@ -1,7 +1,7 @@
 use {
 	crate::{Context, Owned, Server},
 	futures::{Stream, stream::BoxStream},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
