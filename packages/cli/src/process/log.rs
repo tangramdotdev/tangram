@@ -1,4 +1,7 @@
-use {crate::Cli, futures::TryStreamExt as _, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
+use {
+	crate::Cli, futures::TryStreamExt as _, tangram_client::prelude::*,
+	tokio::io::AsyncWriteExt as _,
+};
 
 /// Get a process's log.
 #[derive(Clone, Debug, clap::Args)]

@@ -501,7 +501,8 @@ impl tg::Handle for Server {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		self.lsp_with_context(&Context::default(), input, output).await
+		self.lsp_with_context(&Context::default(), input, output)
+			.await
 	}
 
 	async fn pull(
@@ -527,7 +528,8 @@ impl tg::Handle for Server {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
-		self.sync_with_context(&Context::default(), arg, stream).await
+		self.sync_with_context(&Context::default(), arg, stream)
+			.await
 	}
 
 	async fn try_get(
@@ -537,14 +539,16 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
-		self.try_get_with_context(&Context::default(), reference, arg).await
+		self.try_get_with_context(&Context::default(), reference, arg)
+			.await
 	}
 
 	async fn try_read_stream(
 		&self,
 		arg: tg::read::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>> {
-		self.try_read_stream_with_context(&Context::default(), arg).await
+		self.try_read_stream_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn write(
@@ -570,11 +574,13 @@ impl tg::handle::Object for Server {
 		id: &tg::object::Id,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		self.try_get_object_with_context(&Context::default(), id, arg).await
+		self.try_get_object_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn put_object(&self, id: &tg::object::Id, arg: tg::object::put::Arg) -> tg::Result<()> {
-		self.put_object_with_context(&Context::default(), id, arg).await
+		self.put_object_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn touch_object(
@@ -582,7 +588,8 @@ impl tg::handle::Object for Server {
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
 	) -> tg::Result<()> {
-		self.touch_object_with_context(&Context::default(), id, arg).await
+		self.touch_object_with_context(&Context::default(), id, arg)
+			.await
 	}
 }
 
@@ -591,14 +598,16 @@ impl tg::handle::Process for Server {
 		&self,
 		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
-		self.list_processes_with_context(&Context::default(), arg).await
+		self.list_processes_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		self.try_spawn_process_with_context(&Context::default(), arg).await
+		self.try_spawn_process_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn try_wait_process_future(
@@ -636,7 +645,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		self.put_process_with_context(&Context::default(), id, arg).await
+		self.put_process_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn cancel_process(
@@ -644,7 +654,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
-		self.cancel_process_with_context(&Context::default(), id, arg).await
+		self.cancel_process_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn try_dequeue_process(
@@ -660,7 +671,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::start::Arg,
 	) -> tg::Result<()> {
-		self.start_process_with_context(&Context::default(), id, arg).await
+		self.start_process_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn heartbeat_process(
@@ -738,7 +750,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<()> {
-		self.finish_process_with_context(&Context::default(), id, arg).await
+		self.finish_process_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn touch_process(
@@ -746,7 +759,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<()> {
-		self.touch_process_with_context(&Context::default(), id, arg).await
+		self.touch_process_with_context(&Context::default(), id, arg)
+			.await
 	}
 }
 
@@ -755,15 +769,18 @@ impl tg::handle::Pipe for Server {
 		&self,
 		arg: tg::pipe::create::Arg,
 	) -> tg::Result<tg::pipe::create::Output> {
-		self.create_pipe_with_context(&Context::default(), arg).await
+		self.create_pipe_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn close_pipe(&self, id: &tg::pipe::Id, arg: tg::pipe::close::Arg) -> tg::Result<()> {
-		self.close_pipe_with_context(&Context::default(), id, arg).await
+		self.close_pipe_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn delete_pipe(&self, id: &tg::pipe::Id, arg: tg::pipe::delete::Arg) -> tg::Result<()> {
-		self.delete_pipe_with_context(&Context::default(), id, arg).await
+		self.delete_pipe_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn read_pipe(
@@ -771,7 +788,8 @@ impl tg::handle::Pipe for Server {
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
-		self.read_pipe_with_context(&Context::default(), id, arg).await
+		self.read_pipe_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn write_pipe(
@@ -791,11 +809,13 @@ impl tg::handle::Pty for Server {
 	}
 
 	async fn close_pty(&self, id: &tg::pty::Id, arg: tg::pty::close::Arg) -> tg::Result<()> {
-		self.close_pty_with_context(&Context::default(), id, arg).await
+		self.close_pty_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::delete::Arg) -> tg::Result<()> {
-		self.delete_pty_with_context(&Context::default(), id, arg).await
+		self.delete_pty_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn get_pty_size(
@@ -803,7 +823,8 @@ impl tg::handle::Pty for Server {
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
-		self.get_pty_size_with_context(&Context::default(), id, arg).await
+		self.get_pty_size_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn read_pty(
@@ -811,7 +832,8 @@ impl tg::handle::Pty for Server {
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
-		self.read_pty_with_context(&Context::default(), id, arg).await
+		self.read_pty_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn write_pty(
@@ -830,19 +852,23 @@ impl tg::handle::Remote for Server {
 		&self,
 		arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		self.list_remotes_with_context(&Context::default(), arg).await
+		self.list_remotes_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
-		self.try_get_remote_with_context(&Context::default(), name).await
+		self.try_get_remote_with_context(&Context::default(), name)
+			.await
 	}
 
 	async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
-		self.put_remote_with_context(&Context::default(), name, arg).await
+		self.put_remote_with_context(&Context::default(), name, arg)
+			.await
 	}
 
 	async fn delete_remote(&self, name: &str) -> tg::Result<()> {
-		self.delete_remote_with_context(&Context::default(), name).await
+		self.delete_remote_with_context(&Context::default(), name)
+			.await
 	}
 }
 
@@ -855,15 +881,18 @@ impl tg::handle::Tag for Server {
 		&self,
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.try_get_tag_with_context(&Context::default(), pattern).await
+		self.try_get_tag_with_context(&Context::default(), pattern)
+			.await
 	}
 
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
-		self.put_tag_with_context(&Context::default(), tag, arg).await
+		self.put_tag_with_context(&Context::default(), tag, arg)
+			.await
 	}
 
 	async fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> tg::Result<()> {
-		self.post_tag_batch_with_context(&Context::default(), arg).await
+		self.post_tag_batch_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn delete_tag(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
@@ -879,10 +908,12 @@ impl tg::handle::User for Server {
 
 impl tg::handle::Watch for Server {
 	async fn list_watches(&self, arg: tg::watch::list::Arg) -> tg::Result<tg::watch::list::Output> {
-		self.list_watches_with_context(&Context::default(), arg).await
+		self.list_watches_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn delete_watch(&self, arg: tg::watch::delete::Arg) -> tg::Result<()> {
-		self.delete_watch_with_context(&Context::default(), arg).await
+		self.delete_watch_with_context(&Context::default(), arg)
+			.await
 	}
 }
