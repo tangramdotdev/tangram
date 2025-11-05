@@ -415,10 +415,6 @@ async fn directory_with_file_with_id_dependency_with_tag_dependency() {
 	      "xattrs": {
 	        "user.tangram.dependencies": "[\"fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0\"]"
 	      }
-	    },
-	    "tangram.lock": {
-	      "kind": "file",
-	      "contents": "{\n  \"nodes\": [\n    {\n      \"kind\": \"directory\",\n      \"entries\": {\n        \"foo\": {\n          \"node\": 1\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0\": {\n          \"item\": {\n            \"node\": 2\n          },\n          \"options\": {\n            \"id\": \"fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0\"\n          }\n        }\n      }\n    },\n    {\n      \"kind\": \"file\",\n      \"dependencies\": {\n        \"baz\": {\n          \"item\": \"fil_01fhnqtzhfp63rhz2kp274b7z43x6wxmwm2k2254zc0pkv9jyhkt80\"\n        }\n      }\n    }\n  ]\n}"
 	    }
 	  }
 	}

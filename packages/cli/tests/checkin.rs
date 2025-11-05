@@ -1163,6 +1163,157 @@ async fn simple_tagged_package() {
 }
 
 #[tokio::test]
+async fn tagged_package_with_local_path() {
+	let server = Server::new(TG).await.unwrap();
+
+	let artifact: temp::Artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import a from "a" with { local: "../a" };
+			export default tg.command(async () => {
+				return await a();
+			});
+		"#),
+		"a" => temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				export default () => "a";
+			"#),
+		},
+	}
+	.into();
+	let path = Path::new("");
+	let tags: Vec<(String, temp::Artifact)> = vec![(
+		"a".into(),
+		temp::directory! {
+			"tangram.ts" => indoc!(r#"
+				export default () => "a";
+			"#),
+		}
+		.into(),
+	)];
+
+	// Tag the objects.
+	for (tag, artifact) in tags {
+		let temp = Temp::new();
+		artifact.to_path(&temp).await.unwrap();
+
+		// Tag the dependency.
+		let mut command = server.tg();
+		command.arg("tag").arg(tag).arg(temp.path());
+		let output = command.output().await.unwrap();
+		assert_success!(output);
+	}
+
+	// Write the artifact to a temp.
+	let temp = Temp::new();
+	artifact.to_path(&temp).await.unwrap();
+
+	let path = temp.path().join(path);
+
+	// Check in.
+	let mut command = server.tg();
+	command.arg("checkin");
+	command.arg(path.clone());
+	command.arg("--no-local-dependencies");
+	let output = command.output().await.unwrap();
+	assert_success!(output);
+
+	// Index.
+	let mut index_command = server.tg();
+	index_command.arg("index");
+	let index_output = index_command.output().await.unwrap();
+	assert_success!(index_output);
+
+	// Get the object.
+	let id = std::str::from_utf8(&output.stdout)
+		.unwrap()
+		.trim()
+		.to_owned();
+	let object_output = server
+		.tg()
+		.arg("object")
+		.arg("get")
+		.arg(id.clone())
+		.arg("--blobs")
+		.arg("--depth=inf")
+		.arg("--pretty")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(object_output);
+	let object: String = std::str::from_utf8(&object_output.stdout).unwrap().into();
+
+	// Get the metadata.
+	let metadata_output = server
+		.tg()
+		.arg("object")
+		.arg("metadata")
+		.arg(id.clone())
+		.arg("--pretty")
+		.output()
+		.await
+		.unwrap();
+	assert_success!(metadata_output);
+	let _metadata: String = std::str::from_utf8(&metadata_output.stdout)
+		.unwrap()
+		.into();
+
+	// Get the lock.
+	let lock: Option<tg::graph::Data> = tokio::fs::read_to_string(path.join(tg::package::LOCKFILE_FILE_NAME))
+		.await
+		.ok()
+		.and_then(|lock| serde_json::from_str(&lock).ok());
+
+	assert_snapshot!(object, @r#"
+	tg.directory({
+	  "a": tg.directory({
+	    "tangram.ts": tg.file({
+	      "contents": tg.blob("export default () => \"a\";\n"),
+	    }),
+	  }),
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("import a from \"a\" with { local: \"../a\" };\nexport default tg.command(async () => {\n\treturn await a();\n});\n"),
+	    "dependencies": {
+	      "a?local=..%2Fa": {
+	        "item": tg.directory({
+	          "tangram.ts": tg.file({
+	            "contents": tg.blob("export default () => \"a\";\n"),
+	          }),
+	        }),
+	        "tag": "a",
+	      },
+	    },
+	  }),
+	})
+	"#);
+	assert_json_snapshot!(lock.unwrap(), @r#"
+	{
+	  "nodes": [
+	    {
+	      "kind": "directory",
+	      "entries": {
+	        "tangram.ts": {
+	          "node": 1
+	        }
+	      }
+	    },
+	    {
+	      "kind": "file",
+	      "dependencies": {
+	        "a?local=..%2Fa": {
+	          "item": "dir_01va3y2d84s8st8xbsnka859w7rf90yc9kvsbb5zskhq5nn8q0vnsg",
+	          "options": {
+	            "id": "dir_01va3y2d84s8st8xbsnka859w7rf90yc9kvsbb5zskhq5nn8q0vnsg",
+	            "tag": "a"
+	          }
+	        }
+	      }
+	    }
+	  ]
+	}
+	"#);
+}
+
+#[tokio::test]
 async fn tagged_package_with_cyclic_dependency() {
 	let artifact = temp::directory! {
 		"tangram.ts" => indoc!(r#"
