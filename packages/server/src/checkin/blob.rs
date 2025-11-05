@@ -5,7 +5,7 @@ use {
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	std::collections::BTreeSet,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 const CONCURRENCY: usize = 8;

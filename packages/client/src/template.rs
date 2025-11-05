@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{TryStreamExt as _, stream::FuturesOrdered},
 	std::{borrow::Cow, collections::BTreeSet},
 };

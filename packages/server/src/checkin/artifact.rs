@@ -9,7 +9,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 impl Server {

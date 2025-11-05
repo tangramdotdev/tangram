@@ -1,19 +1,20 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
 impl Server {
-	pub(crate) async fn try_get_process_signal_stream(
+	pub(crate) async fn try_get_process_signal_stream_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::signal::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + use<>>,
 	> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
@@ -44,14 +45,12 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn handle_get_process_signal_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_process_signal_request(
+		&self,
 		request: http::Request<Body>,
+		_context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -62,7 +61,7 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_process_signal_stream(&id, arg).await? else {
+		let Some(stream) = self.try_get_process_signal_stream(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 

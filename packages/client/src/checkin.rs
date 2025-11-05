@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
 	std::{path::PathBuf, pin::pin},
 	tangram_futures::stream::TryExt as _,

@@ -1,6 +1,6 @@
 use {
 	super::{Builder, Data, Id, Object},
-	crate as tg,
+	crate::prelude::*,
 	futures::{TryStreamExt, stream::FuturesUnordered},
 	std::{collections::BTreeMap, sync::Arc},
 	tokio::io::AsyncBufRead,

@@ -3,7 +3,7 @@ use {
 	anstream::eprintln,
 	crossterm::style::Stylize as _,
 	std::{fmt::Write as _, path::Path},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tokio::io::AsyncReadExt,
 };
 

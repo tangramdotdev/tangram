@@ -1,5 +1,5 @@
 use {
-	num::ToPrimitive as _, tangram_client as tg, tangram_futures::write::Ext as _,
+	num::ToPrimitive as _, tangram_client::prelude::*, tangram_futures::write::Ext as _,
 	tokio::io::AsyncWriteExt as _,
 };
 

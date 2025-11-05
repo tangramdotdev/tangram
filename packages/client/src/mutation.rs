@@ -1,4 +1,4 @@
-use {crate as tg, itertools::Itertools as _};
+use {crate::prelude::*, itertools::Itertools as _};
 
 pub use self::data::Data;
 

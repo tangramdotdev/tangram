@@ -4,7 +4,7 @@ use {
 	num::ToPrimitive as _,
 	sourcemap::SourceMap,
 	std::collections::BTreeMap,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 

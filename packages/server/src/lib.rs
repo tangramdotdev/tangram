@@ -1,7 +1,9 @@
 #[cfg(feature = "nats")]
 use async_nats as nats;
 use {
-	self::{database::Database, index::Index, messenger::Messenger, store::Store},
+	self::{
+		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
+	},
 	crate::{temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
@@ -12,7 +14,7 @@ use {
 		path::PathBuf,
 		sync::{Arc, Mutex, OnceLock},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
 	tangram_futures::task::Task,
@@ -28,6 +30,7 @@ mod checkin;
 mod checkout;
 mod checksum;
 mod clean;
+mod context;
 mod database;
 mod document;
 mod format;
@@ -63,7 +66,7 @@ pub use self::config::Config;
 pub mod config;
 
 #[derive(Clone)]
-pub struct Handle(Arc<Inner>);
+pub struct Owned(Arc<Inner>);
 
 pub struct Inner {
 	server: Server,
@@ -116,7 +119,7 @@ struct ProcessPermit(
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
 
-impl Handle {
+impl Owned {
 	pub fn stop(&self) {
 		self.task.stop();
 	}
@@ -127,7 +130,7 @@ impl Handle {
 }
 
 impl Server {
-	pub async fn start(config: Config) -> tg::Result<Handle> {
+	pub async fn start(config: Config) -> tg::Result<Owned> {
 		// Ensure the directory exists.
 		let directory = config.directory.clone();
 		tokio::fs::create_dir_all(&directory)
@@ -666,8 +669,9 @@ impl Server {
 			tracing::trace!("listening on {}", http.url);
 			Some(Task::spawn(|stop| {
 				let server = server.clone();
+				let context = Context::default();
 				async move {
-					Self::serve(server.clone(), listener, stop).await;
+					server.serve(listener, context, stop).await;
 				}
 			}))
 		} else {
@@ -810,7 +814,7 @@ impl Server {
 			shutdown.await;
 		});
 
-		let handle = Handle(Arc::new(Inner { server, task }));
+		let handle = Owned(Arc::new(Inner { server, task }));
 
 		Ok(handle)
 	}
@@ -888,7 +892,7 @@ impl Server {
 	}
 }
 
-impl Deref for Handle {
+impl Deref for Owned {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {
@@ -912,7 +916,7 @@ impl Deref for Server {
 	}
 }
 
-impl Drop for Handle {
+impl Drop for Owned {
 	fn drop(&mut self) {
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();

@@ -10,7 +10,7 @@ use {
 		pin::pin,
 		time::Duration,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 };
 

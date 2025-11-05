@@ -2,7 +2,7 @@ use {
 	super::State,
 	futures::{StreamExt as _, stream},
 	std::{pin::pin, rc::Rc},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_v8::Serde,
 };

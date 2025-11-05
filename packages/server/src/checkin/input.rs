@@ -8,7 +8,7 @@ use {
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
 	},
-	tangram_client as tg, tangram_ignore as ignore,
+	tangram_client::prelude::*, tangram_ignore as ignore,
 };
 
 struct State<'a> {

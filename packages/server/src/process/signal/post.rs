@@ -1,13 +1,14 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Context, Server},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
 impl Server {
-	pub(crate) async fn post_process_signal(
+	pub(crate) async fn post_process_signal_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::signal::post::Arg,
 	) -> tg::Result<()> {
@@ -39,14 +40,12 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_process_signal_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_process_signal_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse process id"))?;
@@ -54,8 +53,7 @@ impl Server {
 			.json()
 			.await
 			.map_err(|_| tg::error!("failed to deserialize the arg"))?;
-		handle
-			.signal_process(&id, arg)
+		self.post_process_signal_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to post process signal"))?;
 		let response = http::Response::builder().empty().unwrap();

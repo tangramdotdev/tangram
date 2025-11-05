@@ -1,4 +1,4 @@
-use {bytes::Bytes, tangram_client as tg, tangram_store as store};
+use {bytes::Bytes, tangram_client::prelude::*, tangram_store as store};
 
 pub use store::{CacheReference, DeleteArg, PutArg};
 

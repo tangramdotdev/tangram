@@ -1,4 +1,4 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client as tg};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]

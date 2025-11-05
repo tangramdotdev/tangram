@@ -1,19 +1,20 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _},
 	num::ToPrimitive as _,
 	std::{
 		os::fd::{AsRawFd as _, RawFd},
 		pin::pin,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn write_pty(
+	pub async fn write_pty_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::pty::Id,
 		mut arg: tg::pty::write::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static,
@@ -97,14 +98,12 @@ impl Server {
 		.unwrap()
 	}
 
-	pub(crate) async fn handle_write_pty_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_write_pty_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -128,7 +127,8 @@ impl Server {
 			.take_until(stop)
 			.boxed();
 
-		handle.write_pty(&id, arg, stream).await?;
+		self.write_pty_with_context(context, &id, arg, stream)
+			.await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

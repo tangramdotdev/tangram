@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	futures::StreamExt as _,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, futures::StreamExt as _, tangram_client::prelude::*};
 
 /// Get a process's children.
 #[derive(Clone, Debug, clap::Args)]

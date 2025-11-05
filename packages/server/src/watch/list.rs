@@ -1,14 +1,19 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Context, Server},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn list_watches(
+	pub(crate) async fn list_watches_with_context(
 		&self,
+		context: &Context,
 		_arg: tg::watch::list::Arg,
 	) -> tg::Result<tg::watch::list::Output> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
 		let data = self
 			.watches
 			.iter()
@@ -20,15 +25,13 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_watches_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_list_watches_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let output = handle.list_watches(arg).await?;
+		let output = self.list_watches_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

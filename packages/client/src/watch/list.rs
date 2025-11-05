@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	std::path::PathBuf,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };

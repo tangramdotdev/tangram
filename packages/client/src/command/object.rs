@@ -1,4 +1,4 @@
-use {super::Data, crate as tg, std::path::PathBuf};
+use {super::Data, crate::prelude::*, std::path::PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct Command {

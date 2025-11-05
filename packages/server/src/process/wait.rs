@@ -1,18 +1,19 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{StreamExt as _, stream},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_futures::{stream::TryExt as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn try_wait_process_future(
+	pub async fn try_wait_process_future_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::process::Id,
 	) -> tg::Result<
 		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
 		>,
 	> {
 		let server = self.clone();
@@ -47,14 +48,12 @@ impl Server {
 		Ok(Some(future))
 	}
 
-	pub(crate) async fn handle_post_process_wait_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_process_wait_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse::<tg::process::Id>()?;
 
@@ -62,7 +61,10 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the future.
-		let Some(future) = handle.try_wait_process_future(&id).await? else {
+		let Some(future) = self
+			.try_wait_process_future_with_context(context, &id)
+			.await?
+		else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 

@@ -1,5 +1,5 @@
 use {
-	serde_json::json, std::time::Duration, tangram_client as tg, tangram_temp::Temp,
+	serde_json::json, std::time::Duration, tangram_client::prelude::*, tangram_temp::Temp,
 	tangram_uri::Uri,
 };
 

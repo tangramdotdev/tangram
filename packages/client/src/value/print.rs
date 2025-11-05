@@ -1,4 +1,4 @@
-use {crate as tg, bytes::Bytes, num::ToPrimitive as _, std::fmt::Result};
+use {crate::prelude::*, bytes::Bytes, num::ToPrimitive as _, std::fmt::Result};
 
 pub struct Printer<W> {
 	depth: u64,

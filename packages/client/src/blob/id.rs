@@ -1,4 +1,4 @@
-use {crate as tg, std::ops::Deref};
+use {crate::prelude::*, std::ops::Deref};
 
 #[derive(
 	Clone,

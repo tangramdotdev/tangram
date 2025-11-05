@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg},
+	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_default,
 };

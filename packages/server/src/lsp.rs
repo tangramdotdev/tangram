@@ -1,8 +1,8 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::pin::pin,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_http::{Body, response::builder::Ext as _},
 	tokio::io::{AsyncBufRead, AsyncWrite},
@@ -10,22 +10,30 @@ use {
 
 impl Server {
 	#[cfg(not(feature = "compiler"))]
-	pub async fn lsp(
+	pub(crate) async fn lsp_with_context(
 		&self,
+		context: &Context,
 		_input: impl AsyncBufRead + Send + Unpin + 'static,
 		_output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
+		if context.proxy.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		Err(tg::error!(
 			"this version of tangram was not compiled with compiler support"
 		))
 	}
 
 	#[cfg(feature = "compiler")]
-	pub async fn lsp(
+	pub(crate) async fn lsp_with_context(
 		&self,
+		context: &Context,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		let compiler = self.create_compiler();
 		compiler.serve(input, output).await?;
 		compiler.stop();
@@ -35,13 +43,11 @@ impl Server {
 }
 
 impl Server {
-	pub(crate) async fn handle_lsp_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_lsp_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Ensure the connection header is set correctly.
 		if request
 			.headers()
@@ -63,7 +69,8 @@ impl Server {
 		}
 
 		// Spawn the LSP.
-		let handle = handle.clone();
+		let handle = self.clone();
+		let context = context.clone();
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 		tokio::spawn(
 			async move {
@@ -73,7 +80,7 @@ impl Server {
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
-				let task = handle.lsp(input, output);
+				let task = handle.lsp_with_context(&context, input, output);
 				future::select(pin!(task), pin!(stop.wait()))
 					.map(|output| match output {
 						future::Either::Left((Err(error), _)) => Err(error),

@@ -5,7 +5,7 @@ use {
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
 	std::{fmt::Write as _, pin::pin},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::stream::Ext as _,
 	tokio_util::task::AbortOnDropHandle,
 	unicode_width::UnicodeWidthChar as _,
@@ -113,7 +113,7 @@ impl Server {
 			master: false,
 			remote,
 		};
-		self.write_pty(pty, arg, stream).await?;
+		self.write_pty(pty, arg, Box::pin(stream)).await?;
 		Ok(())
 	}
 }

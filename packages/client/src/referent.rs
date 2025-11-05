@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg},
+	crate::prelude::*,
 	std::path::{Path, PathBuf},
 	tangram_uri::Uri,
 	tangram_util::serde::is_default,

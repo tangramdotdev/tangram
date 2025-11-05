@@ -1,4 +1,4 @@
-use {crate::Cli, std::path::PathBuf, tangram_client as tg};
+use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct Args {

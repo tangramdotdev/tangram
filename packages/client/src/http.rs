@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::TryFutureExt as _,
 	std::{
 		path::{Path, PathBuf},
@@ -449,8 +449,14 @@ impl tg::Client {
 
 	pub(crate) async fn send(
 		&self,
-		request: http::Request<Body>,
+		mut request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>> {
+		if let Some(token) = &self.token {
+			request.headers_mut().insert(
+				http::header::AUTHORIZATION,
+				http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+			);
+		}
 		let future = self.service.clone().call(request);
 		let response = future
 			.await

@@ -1,6 +1,6 @@
 use {
-	crate::{Server, database::Database},
-	tangram_client as tg,
+	crate::{Context, Server, database::Database},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -9,10 +9,14 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub async fn list_processes(
+	pub(crate) async fn list_processes_with_context(
 		&self,
+		context: &Context,
 		_arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		let data = self.list_processes_local().await?;
 		Ok(tg::process::list::Output { data })
 	}
@@ -25,15 +29,13 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_list_processes_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_list_processes_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let output = handle.list_processes(arg).await?;
+		let output = self.list_processes_with_context(context, arg).await?;
 		let output = output.data;
 		let response = http::Response::builder()
 			.json(output)

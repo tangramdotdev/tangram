@@ -1,16 +1,17 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
 };
 
 impl Server {
-	pub async fn pull(
+	pub(crate) async fn pull_with_context(
 		&self,
+		_context: &Context,
 		arg: tg::pull::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
 	> {
 		let remote = arg
 			.remote
@@ -21,13 +22,11 @@ impl Server {
 		Self::push_or_pull(&remote, self, &arg).await
 	}
 
-	pub(crate) async fn handle_pull_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_pull_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -37,7 +36,7 @@ impl Server {
 		let arg = request.json().await?;
 
 		// Get the stream.
-		let stream = handle.pull(arg).await?;
+		let stream = self.pull_with_context(context, arg).await?;
 
 		let (content_type, body) = match accept
 			.as_ref()

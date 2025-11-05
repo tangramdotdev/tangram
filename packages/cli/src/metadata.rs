@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg, tangram_either::Either};
+use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
 
 /// Get process or object metadata.
 #[derive(Clone, Debug, clap::Args)]

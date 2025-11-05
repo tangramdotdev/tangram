@@ -1,6 +1,6 @@
 use {
 	super::{Data, Id, Object},
-	crate as tg,
+	crate::prelude::*,
 	bytes::Bytes,
 	futures::FutureExt as _,
 	num::ToPrimitive as _,

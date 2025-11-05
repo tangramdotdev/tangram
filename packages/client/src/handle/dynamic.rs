@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
 	std::sync::Arc,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
@@ -546,8 +546,8 @@ impl tg::handle::Tag for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_tag(tag, arg)) }
 	}
 
-	fn post_tags_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.post_tags_batch(arg)) }
+	fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.post_tag_batch(arg)) }
 	}
 
 	fn delete_tag(

@@ -1,5 +1,5 @@
 use {
-	crate::Server, indoc::indoc, num::ToPrimitive as _, tangram_client as tg,
+	crate::Server, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
 	tangram_database::prelude::*,
 };
 

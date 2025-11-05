@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{FutureExt as _, Stream, TryFutureExt as _, stream::BoxStream},
 	tangram_either::Either,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
@@ -795,10 +795,10 @@ where
 		}
 	}
 
-	fn post_tags_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
+	fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.post_tags_batch(arg).left_future(),
-			Either::Right(s) => s.post_tags_batch(arg).right_future(),
+			Either::Left(s) => s.post_tag_batch(arg).left_future(),
+			Either::Right(s) => s.post_tag_batch(arg).right_future(),
 		}
 	}
 

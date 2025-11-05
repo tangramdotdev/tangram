@@ -1,4 +1,4 @@
-use {crate as tg, std::collections::BTreeSet};
+use {crate::prelude::*, std::collections::BTreeSet};
 
 #[derive(
 	Clone,

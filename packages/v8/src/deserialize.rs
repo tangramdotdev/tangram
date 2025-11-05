@@ -2,7 +2,7 @@ use {
 	bytes::Bytes,
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, path::PathBuf, sync::Arc},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 };
 

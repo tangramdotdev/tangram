@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg, prelude::*},
+	crate::prelude::*,
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},

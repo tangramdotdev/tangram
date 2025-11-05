@@ -1,7 +1,7 @@
 use {
-	crate::{Database, Server},
+	crate::{Context, Database, Server},
 	futures::{TryStreamExt, stream::FuturesUnordered},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -10,8 +10,9 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub async fn list_tags(
+	pub(crate) async fn list_tags_with_context(
 		&self,
+		context: &Context,
 		mut arg: tg::tag::list::Arg,
 	) -> tg::Result<tg::tag::list::Output> {
 		// If the remote arg is set, then forward the request.
@@ -26,6 +27,10 @@ impl Server {
 				output.remote = Some(remote.clone());
 			}
 			return Ok(output);
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		// List the local tags.
@@ -65,15 +70,13 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_list_tags_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_list_tags_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let output = handle.list_tags(arg).await?;
+		let output = self.list_tags_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

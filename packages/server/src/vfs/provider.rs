@@ -15,7 +15,7 @@ use {
 			atomic::{AtomicU64, Ordering},
 		},
 	},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_vfs as vfs,
 };

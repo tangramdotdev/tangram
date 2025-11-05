@@ -1,6 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use {super::State, std::rc::Rc, tangram_client as tg};
+use {super::State, std::rc::Rc, tangram_client::prelude::*};
 
 mod blob;
 mod checksum;

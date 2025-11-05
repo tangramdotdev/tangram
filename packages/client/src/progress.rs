@@ -1,4 +1,4 @@
-use {crate as tg, num::ToPrimitive as _};
+use {crate::prelude::*, num::ToPrimitive as _};
 
 #[derive(
 	Debug,

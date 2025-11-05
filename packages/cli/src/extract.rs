@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Extract an artifact from a blob.
 #[derive(Clone, Debug, clap::Args)]

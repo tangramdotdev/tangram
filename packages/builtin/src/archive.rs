@@ -1,7 +1,7 @@
 use {
 	futures::future,
 	std::path::Path,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::read::Ext as _,
 	tokio_util::compat::{FuturesAsyncWriteCompatExt as _, TokioAsyncWriteCompatExt as _},
 };

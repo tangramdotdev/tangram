@@ -6,7 +6,7 @@ use {
 	futures::{TryStreamExt as _, future, stream::FuturesOrdered},
 	num::ToPrimitive as _,
 	std::pin::pin,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 /// The maximum size of a value.

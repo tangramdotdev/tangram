@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	std::path::PathBuf,
 	tangram_util::serde::{is_false, is_true, return_true},
 };

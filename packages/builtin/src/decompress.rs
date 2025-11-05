@@ -1,5 +1,5 @@
 use {
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
 		stream::Ext as _,

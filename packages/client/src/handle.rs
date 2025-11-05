@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{Stream, stream::BoxStream},
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -398,7 +398,7 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::tag::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn post_tags_batch(
+	fn post_tag_batch(
 		&self,
 		arg: tg::tag::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
@@ -917,11 +917,11 @@ impl tg::handle::Tag for tg::Client {
 		self.put_tag(tag, arg)
 	}
 
-	fn post_tags_batch(
+	fn post_tag_batch(
 		&self,
 		arg: crate::tag::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
-		self.post_tags_batch(arg)
+		self.post_tag_batch(arg)
 	}
 
 	fn delete_tag(

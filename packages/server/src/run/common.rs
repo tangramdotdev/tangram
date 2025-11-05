@@ -11,7 +11,7 @@ use {
 		path::PathBuf,
 		pin::pin,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{read::Ext as _, task::Task, write::Ext as _},
 	tangram_uri::Uri,
 	tokio::io::{AsyncRead, AsyncWrite},

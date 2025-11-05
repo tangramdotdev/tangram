@@ -1,7 +1,7 @@
 use {
 	super::State,
 	std::rc::Rc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_v8::{Serde, Serialize as _},
 };
 

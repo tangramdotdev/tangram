@@ -1,7 +1,7 @@
 use {
 	super::Compiler,
 	futures::{TryStreamExt as _, stream::FuturesOrdered},
-	lsp_types as lsp, tangram_client as tg,
+	lsp_types as lsp, tangram_client::prelude::*,
 };
 
 #[derive(Debug, serde::Serialize)]

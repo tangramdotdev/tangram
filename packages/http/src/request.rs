@@ -25,7 +25,6 @@ pub trait Ext {
 	where
 		T: serde::de::DeserializeOwned;
 
-	/// Get a bearer token or cookie with the specified name from an HTTP request.
 	fn token(&self, name: Option<&str>) -> Option<&str>;
 
 	fn bytes(self) -> impl Future<Output = Result<Bytes, Error>> + Send;

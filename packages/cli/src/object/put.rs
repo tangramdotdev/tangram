@@ -1,6 +1,6 @@
 use {
 	crate::{Cli, put::Format},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tokio::io::AsyncReadExt as _,
 };
 

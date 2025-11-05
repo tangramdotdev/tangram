@@ -4,7 +4,7 @@ use {
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::pin::pin,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::Messenger as _,
 };

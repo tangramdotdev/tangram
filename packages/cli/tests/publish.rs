@@ -1,7 +1,7 @@
 use {
 	indoc::indoc,
 	tangram_cli_test::{Server, assert_success},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_temp::{self as temp, Temp},
 };
 

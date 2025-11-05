@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	tangram_either::Either,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
@@ -22,7 +22,7 @@ pub struct Item {
 }
 
 impl tg::Client {
-	pub async fn post_tags_batch(&self, arg: Arg) -> tg::Result<()> {
+	pub async fn post_tag_batch(&self, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/tags/batch";
 		let request = http::request::Builder::default()

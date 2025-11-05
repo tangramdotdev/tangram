@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::future,
 	std::{collections::HashSet, future::Future},
 };

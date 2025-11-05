@@ -2,7 +2,7 @@ use {
 	crate::Server,
 	indoc::indoc,
 	num::ToPrimitive as _,
-	rusqlite as sqlite, tangram_client as tg,
+	rusqlite as sqlite, tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
 };

@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	std::path::PathBuf,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
 /// Delete a watch.
 #[derive(Clone, Debug, clap::Args)]

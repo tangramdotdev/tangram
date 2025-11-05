@@ -1,4 +1,4 @@
-use tangram_client as tg;
+use tangram_client::prelude::*;
 
 #[must_use]
 pub fn convert(

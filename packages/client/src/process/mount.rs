@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	std::{path::PathBuf, str::FromStr},
 };
 

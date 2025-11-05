@@ -1,12 +1,13 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Context, Server},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn delete_pty(
+	pub(crate) async fn delete_pty_with_context(
 		&self,
+		context: &Context,
 		id: &tg::pty::Id,
 		mut arg: tg::pty::delete::Arg,
 	) -> tg::Result<()> {
@@ -17,22 +18,24 @@ impl Server {
 			return Ok(());
 		}
 
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
 		self.ptys.remove(id);
 
 		Ok(())
 	}
 
-	pub(crate) async fn handle_delete_pty_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_delete_pty_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.delete_pty(&id, arg).await?;
+		self.delete_pty_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

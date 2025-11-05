@@ -1,4 +1,4 @@
-use {crate as tg, sha2::Digest, std::pin::Pin};
+use {crate::prelude::*, sha2::Digest, std::pin::Pin};
 
 #[derive(
 	Clone,

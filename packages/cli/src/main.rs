@@ -7,9 +7,9 @@ use {
 		path::{Path, PathBuf},
 		time::Duration,
 	},
-	tangram_client::{self as tg, Client, prelude::*},
+	tangram_client::{Client, prelude::*},
 	tangram_either::Either,
-	tangram_server::Handle as Server,
+	tangram_server::Owned as Server,
 	tangram_uri::Uri,
 	tracing_subscriber::prelude::*,
 };
@@ -117,6 +117,9 @@ struct Args {
 	/// Override the `url` key in the config.
 	#[arg(env = "TANGRAM_URL", long, short)]
 	url: Option<Uri>,
+
+	#[arg(env = "TANGRAM_TOKEN")]
+	token: Option<String>,
 }
 
 fn before_help() -> String {
@@ -445,8 +448,11 @@ impl Cli {
 				format!("http+unix://{path}").parse().unwrap()
 			});
 
+		// Get the token.
+		let token = self.args.token.clone();
+
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()));
+		let client = tg::Client::new(url, Some(version()), token);
 
 		// Attempt to connect to the server.
 		let mut connected = client.connect().await.is_ok();
@@ -529,8 +535,11 @@ impl Cli {
 				format!("http+unix://{path}").parse().unwrap()
 			});
 
+		// Get the token.
+		let token = self.args.token.clone();
+
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()));
+		let client = tg::Client::new(url, Some(version()), token);
 
 		// Try to connect. If the client is not connected, then return an error.
 		let connected = client.connect().await.is_ok();
@@ -541,12 +550,13 @@ impl Cli {
 		Ok(client)
 	}
 
-	async fn server(&self) -> tg::Result<tangram_server::Handle> {
+	async fn server(&self) -> tg::Result<Server> {
 		// Create the default config.
 		let directory = self.directory_path();
 		let parallelism = std::thread::available_parallelism().unwrap().into();
 		let advanced = tangram_server::config::Advanced::default();
 		let authentication = None;
+		let authorization = false;
 		let cleaner = None;
 		let database =
 			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
@@ -568,7 +578,6 @@ impl Cli {
 			heartbeat_interval: Duration::from_secs(1),
 			remotes: Vec::new(),
 		});
-
 		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
 			path: directory.join("store"),
 		});
@@ -578,6 +587,7 @@ impl Cli {
 		let mut config = tangram_server::Config {
 			advanced,
 			authentication,
+			authorization,
 			cleaner,
 			database,
 			http,
@@ -640,6 +650,11 @@ impl Cli {
 				}
 				config.authentication = Some(authentication_);
 			},
+		}
+
+		// Set the authorization config.
+		if let Some(authorization) = self.config.as_ref().and_then(|config| config.authorization) {
+			config.authorization = authorization;
 		}
 
 		// Set the cleaner config.
@@ -815,6 +830,7 @@ impl Cli {
 						Some(tangram_server::config::Remote {
 							name: name.to_owned(),
 							url,
+							token: None,
 						})
 					})
 					.collect(),
@@ -830,6 +846,7 @@ impl Cli {
 					.map(|remote| tangram_server::config::Remote {
 						name: remote.name.clone(),
 						url: remote.url.clone(),
+						token: remote.token.clone(),
 					})
 					.collect(),
 			);

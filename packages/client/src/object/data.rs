@@ -1,4 +1,4 @@
-use {super::Kind, crate as tg, bytes::Bytes, std::collections::BTreeSet};
+use {super::Kind, crate::prelude::*, bytes::Bytes, std::collections::BTreeSet};
 
 #[derive(
 	Clone,

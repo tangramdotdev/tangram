@@ -1,7 +1,7 @@
 use {
 	crate::Server,
 	indoc::indoc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 

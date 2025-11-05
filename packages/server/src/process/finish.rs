@@ -1,18 +1,19 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	std::collections::BTreeSet,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
 impl Server {
-	pub async fn finish_process(
+	pub(crate) async fn finish_process_with_context(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::finish::Arg,
 	) -> tg::Result<()> {
@@ -21,6 +22,10 @@ impl Server {
 			let client = self.get_remote_client(remote.clone()).await?;
 			client.finish_process(id, arg).await?;
 			return Ok(());
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		// If the task for the process is not the current task, then abort it.
@@ -265,17 +270,15 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_finish_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_finish_process_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.finish_process(&id, arg).await?;
+		self.finish_process_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

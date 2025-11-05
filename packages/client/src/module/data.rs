@@ -1,6 +1,6 @@
 use {
 	super::Kind,
-	crate as tg,
+	crate::prelude::*,
 	std::{collections::BTreeSet, path::PathBuf},
 	tangram_uri::Uri,
 };

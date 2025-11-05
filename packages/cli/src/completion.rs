@@ -1,6 +1,4 @@
-use crate::Cli;
-use clap::CommandFactory;
-use tangram_client as tg;
+use {crate::Cli, clap::CommandFactory as _, tangram_client::prelude::*};
 
 /// Generate shell completions.
 #[derive(Clone, Debug, clap::Args)]

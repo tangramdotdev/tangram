@@ -2,7 +2,7 @@ use {
 	async_zip::base::read::stream::ZipFileReader,
 	futures::AsyncReadExt as _,
 	std::{os::unix::fs::PermissionsExt as _, pin::pin},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
 		stream::{Ext as _, TryExt as _},

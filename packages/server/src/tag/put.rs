@@ -1,6 +1,6 @@
 use {
-	crate::{Server, database::Database},
-	tangram_client as tg,
+	crate::{Context, Server, database::Database},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -10,13 +10,25 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub async fn put_tag(&self, tag: &tg::Tag, mut arg: tg::tag::put::Arg) -> tg::Result<()> {
+	pub(crate) async fn put_tag_with_context(
+		&self,
+		context: &Context,
+		tag: &tg::Tag,
+		mut arg: tg::tag::put::Arg,
+	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			remote.put_tag(tag, arg).await?;
 			return Ok(());
 		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
+		// Authorize.
+		self.authorize(context).await?;
 
 		// Insert the tag into the database.
 		match &self.database {
@@ -45,20 +57,18 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_tag_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_put_tag_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		tag: &[&str],
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let tag = tag
 			.join("/")
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
 		let arg = request.json().await?;
-		handle.put_tag(&tag, arg).await?;
+		self.put_tag_with_context(context, &tag, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

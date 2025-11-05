@@ -1,4 +1,4 @@
-use {crate as tg, std::cmp::Ordering};
+use {crate::prelude::*, std::cmp::Ordering};
 
 #[derive(
 	Clone,

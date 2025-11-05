@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg, prelude::*},
+	crate::prelude::*,
 	std::{
 		ops::Deref,
 		sync::{Arc, Mutex, RwLock},

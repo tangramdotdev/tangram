@@ -1,9 +1,4 @@
-use {
-	crate::Cli,
-	std::path::PathBuf,
-	tangram_client::{self as tg, prelude::*},
-	tangram_either::Either,
-};
+use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*, tangram_either::Either};
 
 /// Check out an artifact.
 #[derive(Clone, Debug, clap::Args)]

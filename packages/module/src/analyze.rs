@@ -8,7 +8,7 @@ use {
 		span::Span,
 	},
 	std::collections::{BTreeMap, HashSet},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 #[derive(Clone, Debug)]

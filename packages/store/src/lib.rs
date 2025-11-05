@@ -1,4 +1,4 @@
-use {byteorder::ReadBytesExt as _, bytes::Bytes, std::path::PathBuf, tangram_client as tg};
+use {byteorder::ReadBytesExt as _, bytes::Bytes, std::path::PathBuf, tangram_client::prelude::*};
 
 #[cfg(feature = "foundationdb")]
 pub mod fdb;

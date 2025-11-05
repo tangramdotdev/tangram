@@ -6,7 +6,7 @@ use {
 		os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
 		path::Path,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tokio::io::AsyncWriteExt as _,
 };
 

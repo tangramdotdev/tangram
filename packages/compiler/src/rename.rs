@@ -1,4 +1,4 @@
-use {super::Compiler, lsp_types as lsp, std::collections::HashMap, tangram_client as tg};
+use {super::Compiler, lsp_types as lsp, std::collections::HashMap, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

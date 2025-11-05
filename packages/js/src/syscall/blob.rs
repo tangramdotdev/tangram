@@ -3,7 +3,7 @@ use {
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	std::{io::Cursor, pin::pin, rc::Rc},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_v8::Serde,
 	tokio::io::AsyncReadExt as _,

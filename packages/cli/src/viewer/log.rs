@@ -11,7 +11,7 @@ use {
 		},
 		time::Duration,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 mod scroll;
 

@@ -2,7 +2,7 @@ use {
 	crate::Cli,
 	futures::prelude::*,
 	std::path::{Path, PathBuf},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_either::Either,
 };
 

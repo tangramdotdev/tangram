@@ -1,7 +1,4 @@
-use {
-	crate::Cli,
-	tangram_client::{self as tg, Handle as _},
-};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Cache an artifact.
 #[derive(Clone, Debug, clap::Args)]

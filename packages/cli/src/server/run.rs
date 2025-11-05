@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Run the server in the foreground.
 #[derive(Clone, Debug, clap::Args)]

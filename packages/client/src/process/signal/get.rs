@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _},
 	std::future,
 	tangram_http::{request::builder::Ext as _, response::Ext as _, sse},

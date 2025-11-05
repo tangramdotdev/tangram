@@ -1,6 +1,6 @@
 use {
 	std::path::{Path, PathBuf},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 #[derive(Debug)]

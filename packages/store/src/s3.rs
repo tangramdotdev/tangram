@@ -3,7 +3,7 @@ use {
 	bytes::Bytes,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	time::format_description::well_known::Rfc2822,
 };
 

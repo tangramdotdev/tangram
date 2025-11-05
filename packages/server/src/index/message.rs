@@ -2,7 +2,7 @@ use {
 	byteorder::ReadBytesExt as _,
 	bytes::Bytes,
 	std::collections::BTreeSet,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_util::serde::{is_default, is_false},
 };

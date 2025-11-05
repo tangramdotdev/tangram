@@ -1,4 +1,4 @@
-use {crate::Server, tangram_client as tg, tangram_store::prelude::*};
+use {crate::Server, tangram_client::prelude::*, tangram_store::prelude::*};
 
 impl Server {
 	pub(super) async fn checkin_store(&self, args: Vec<crate::store::PutArg>) -> tg::Result<()> {

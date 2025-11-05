@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	bytes::{Buf as _, Bytes},
 	futures::{FutureExt as _, Stream, StreamExt as _, future::BoxFuture},
 	num::ToPrimitive as _,
@@ -11,7 +11,7 @@ use {
 		task::Poll,
 	},
 	sync_wrapper::SyncWrapper,
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_store::prelude::*,
@@ -47,10 +47,11 @@ pub struct Object {
 type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
 
 impl Server {
-	pub(crate) async fn try_read_stream(
+	pub(crate) async fn try_read_stream_with_context(
 		&self,
+		_context: &Context,
 		arg: tg::read::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + use<>>> {
 		// Create the reader.
 		let blob = tg::Blob::with_id(arg.blob.clone());
 		let reader = Reader::new(self, blob).await?;
@@ -152,13 +153,11 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_read_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_read_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Get the query.
 		let arg = request
 			.query_params()
@@ -166,7 +165,7 @@ impl Server {
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_read_stream(arg).await? else {
+		let Some(stream) = self.try_read_stream_with_context(context, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 

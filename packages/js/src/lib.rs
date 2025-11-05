@@ -12,7 +12,7 @@ use {
 	},
 	sourcemap::SourceMap,
 	std::{cell::RefCell, future::poll_fn, pin::pin, rc::Rc, sync::Arc, task::Poll},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 

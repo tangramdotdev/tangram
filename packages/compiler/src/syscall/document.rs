@@ -1,4 +1,4 @@
-use {crate::Compiler, tangram_client as tg, tangram_v8::Serde};
+use {crate::Compiler, tangram_client::prelude::*, tangram_v8::Serde};
 
 pub fn list(
 	compiler: &Compiler,

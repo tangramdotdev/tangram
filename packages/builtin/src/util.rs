@@ -1,4 +1,4 @@
-use tangram_client as tg;
+use tangram_client::prelude::*;
 
 pub(crate) fn detect_archive_format(
 	bytes: &[u8],

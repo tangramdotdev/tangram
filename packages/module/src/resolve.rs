@@ -4,7 +4,7 @@ use {
 		path::{Path, PathBuf},
 		sync::Arc,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 };
 

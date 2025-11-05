@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Display a tree for a process or an object.
 #[derive(Clone, Debug, clap::Args)]

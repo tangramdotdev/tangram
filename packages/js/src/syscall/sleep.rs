@@ -1,7 +1,7 @@
 use {
 	super::State,
 	std::{rc::Rc, time::Duration},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 pub async fn sleep(_state: Rc<State>, args: (f64,)) -> tg::Result<()> {

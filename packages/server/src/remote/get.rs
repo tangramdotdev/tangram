@@ -1,14 +1,22 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	indoc::formatdoc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, response::builder::Ext as _},
 	tangram_uri::Uri,
 };
 
 impl Server {
-	pub async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
+	pub(crate) async fn try_get_remote_with_context(
+		&self,
+		context: &Context,
+		name: &str,
+	) -> tg::Result<Option<tg::remote::get::Output>> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
 		let connection = self
 			.database
 			.connection()
@@ -40,15 +48,13 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_get_remote_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_remote_request(
+		&self,
 		_request: http::Request<Body>,
+		context: &Context,
 		name: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
-		let Some(output) = handle.try_get_remote(name).await? else {
+	) -> tg::Result<http::Response<Body>> {
+		let Some(output) = self.try_get_remote_with_context(context, name).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()

@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	byteorder::ReadBytesExt as _,
 	bytes::Bytes,
 	num::ToPrimitive as _,

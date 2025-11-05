@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct State {

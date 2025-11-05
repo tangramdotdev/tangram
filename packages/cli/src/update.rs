@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	std::path::PathBuf,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
 /// Update a lock.
 #[derive(Clone, Debug, clap::Args)]

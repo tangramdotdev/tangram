@@ -1,7 +1,4 @@
-use {
-	crate::Cli,
-	tangram_client::{self as tg, handle::Process},
-};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// List processes.
 #[derive(Clone, Debug, clap::Args)]

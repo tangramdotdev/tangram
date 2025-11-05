@@ -1,4 +1,4 @@
-use crate as tg;
+use crate::prelude::*;
 
 pub use self::data::Location as Data;
 

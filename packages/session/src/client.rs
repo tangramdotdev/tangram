@@ -5,7 +5,7 @@ use {
 		os::{fd::RawFd, unix::io::AsRawFd},
 		path::PathBuf,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tokio::io::{AsyncReadExt, AsyncWriteExt as _},
 };

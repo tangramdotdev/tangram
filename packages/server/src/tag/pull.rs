@@ -1,7 +1,7 @@
 use {
 	crate::Server,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 };
 

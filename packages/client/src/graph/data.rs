@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg},
+	crate::prelude::*,
 	byteorder::ReadBytesExt as _,
 	bytes::Bytes,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},

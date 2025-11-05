@@ -1,4 +1,4 @@
-use {crate::Server, futures::FutureExt as _, std::sync::Arc, tangram_client as tg};
+use {crate::Server, futures::FutureExt as _, std::sync::Arc, tangram_client::prelude::*};
 
 impl Server {
 	pub(crate) async fn run_js(&self, process: &tg::Process) -> tg::Result<super::Output> {

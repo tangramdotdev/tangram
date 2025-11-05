@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{
 		FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},

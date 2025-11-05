@@ -1,7 +1,4 @@
-use {
-	crate::Cli,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Run the language server.
 #[derive(Clone, Debug, clap::Args)]

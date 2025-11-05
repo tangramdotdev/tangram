@@ -4,7 +4,7 @@ use {
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 #[derive(Debug)]

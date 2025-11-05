@@ -1,9 +1,9 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	indoc::formatdoc,
 	std::time::Duration,
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
@@ -12,11 +12,12 @@ use {
 };
 
 impl Server {
-	pub async fn try_get_process_status_stream(
+	pub async fn try_get_process_status_stream_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::process::Id,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
 		if let Some(status) = self.try_get_process_status_stream_local(id).await? {
 			Ok(Some(status.left_stream()))
@@ -32,7 +33,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
 		// Verify the process is local.
 		if !self.get_process_exists_local(id).await? {
@@ -141,7 +142,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
 		let futures = self
 			.get_remote_clients()
@@ -173,14 +174,12 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn handle_get_process_status_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_process_status_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -188,7 +187,10 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_process_status_stream(&id).await? else {
+		let Some(stream) = self
+			.try_get_process_status_stream_with_context(context, &id)
+			.await?
+		else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 

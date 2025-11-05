@@ -1,6 +1,6 @@
 use {
 	super::{Data, Id, Object},
-	crate as tg,
+	crate::prelude::*,
 	std::sync::Arc,
 };
 

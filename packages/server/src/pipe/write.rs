@@ -1,17 +1,18 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _},
 	http_body_util::{BodyExt as _, BodyStream},
 	std::pin::pin,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tokio::io::AsyncWriteExt as _,
 };
 
 impl Server {
-	pub async fn write_pipe(
+	pub async fn write_pipe_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::pipe::Id,
 		mut arg: tg::pipe::write::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
@@ -46,14 +47,12 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_write_pipe_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_write_pipe_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -101,7 +100,8 @@ impl Server {
 			.take_until(stop)
 			.boxed();
 
-		handle.write_pipe(&id, arg, stream).await?;
+		self.write_pipe_with_context(context, &id, arg, stream)
+			.await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

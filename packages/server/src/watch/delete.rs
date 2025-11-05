@@ -1,11 +1,19 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Context, Server},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn delete_watch(&self, mut arg: tg::watch::delete::Arg) -> tg::Result<()> {
+	pub(crate) async fn delete_watch_with_context(
+		&self,
+		context: &Context,
+		mut arg: tg::watch::delete::Arg,
+	) -> tg::Result<()> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
 		// Canonicalize the path's parent.
 		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
@@ -16,18 +24,16 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_delete_watch_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_delete_watch_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request
 			.query_params()
 			.transpose()?
 			.ok_or_else(|| tg::error!("missing query params"))?;
-		handle.delete_watch(arg).await?;
+		self.delete_watch_with_context(context, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

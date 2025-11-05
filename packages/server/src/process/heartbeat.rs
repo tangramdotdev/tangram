@@ -1,14 +1,15 @@
 use {
-	crate::{Server, database},
+	crate::{Context, Server, database},
 	indoc::indoc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn heartbeat_process(
+	pub(crate) async fn heartbeat_process_with_context(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::heartbeat::Arg,
 	) -> tg::Result<tg::process::heartbeat::Output> {
@@ -18,6 +19,10 @@ impl Server {
 			let arg = tg::process::heartbeat::Arg { remote: None };
 			let output = remote.heartbeat_process(id, arg).await?;
 			return Ok(output);
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		// Get a database connection.
@@ -78,17 +83,17 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_heartbeat_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_heartbeat_process_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		let output = handle.heartbeat_process(&id, arg).await?;
+		let output = self
+			.heartbeat_process_with_context(context, &id, arg)
+			.await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

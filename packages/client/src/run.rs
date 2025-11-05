@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	std::{collections::BTreeMap, path::PathBuf},
 	tangram_either::Either,
 };

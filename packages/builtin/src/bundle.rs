@@ -1,7 +1,7 @@
 use {
 	futures::{TryStreamExt as _, stream::FuturesOrdered},
 	std::path::{Path, PathBuf},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";

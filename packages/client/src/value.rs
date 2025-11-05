@@ -1,6 +1,6 @@
 use {
 	self::{parse::parse, print::Printer},
-	crate as tg,
+	crate::prelude::*,
 	bytes::Bytes,
 	futures::{StreamExt as _, stream},
 	std::{

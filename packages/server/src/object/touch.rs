@@ -1,14 +1,15 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	indoc::formatdoc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn touch_object(
+	pub async fn touch_object_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::object::Id,
 		mut arg: tg::object::touch::Arg,
 	) -> tg::Result<()> {
@@ -106,17 +107,15 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_touch_object_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_touch_object_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.touch_object(&id, arg).await?;
+		self.touch_object_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

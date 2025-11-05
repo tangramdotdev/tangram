@@ -1,7 +1,7 @@
 use {
 	crate::{Server, checkin::Graph, temp::Temp},
 	std::{os::unix::fs::PermissionsExt as _, path::Path},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 impl Server {

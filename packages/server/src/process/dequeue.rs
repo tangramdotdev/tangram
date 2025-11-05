@@ -1,10 +1,10 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{StreamExt as _, future, stream},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
@@ -13,10 +13,14 @@ use {
 };
 
 impl Server {
-	pub async fn try_dequeue_process(
+	pub(crate) async fn try_dequeue_process_with_context(
 		&self,
+		context: &Context,
 		_arg: tg::process::dequeue::Arg,
 	) -> tg::Result<Option<tg::process::dequeue::Output>> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		// Create the event stream.
 		let created = self
 			.messenger
@@ -76,13 +80,11 @@ impl Server {
 		Ok(None)
 	}
 
-	pub(crate) async fn handle_dequeue_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_dequeue_process_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 
 		// Get the accept header.
@@ -92,8 +94,9 @@ impl Server {
 		let arg = request.json().await?;
 
 		// Get the stream.
-		let handle = handle.clone();
-		let future = async move { handle.try_dequeue_process(arg).await };
+		let handle = self.clone();
+		let context = context.clone();
+		let future = async move { handle.try_dequeue_process_with_context(&context, arg).await };
 		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
 
 		// Stop the stream when the server stops.

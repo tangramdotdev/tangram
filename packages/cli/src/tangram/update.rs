@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Update Tangram to the latest version.
 #[derive(Clone, Debug, clap::Args)]

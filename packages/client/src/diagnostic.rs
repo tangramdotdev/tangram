@@ -1,4 +1,4 @@
-use {crate as tg, lsp_types as lsp};
+use {crate::prelude::*, lsp_types as lsp};
 
 pub use self::{data::Diagnostic as Data, data::Severity};
 

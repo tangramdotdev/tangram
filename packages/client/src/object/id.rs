@@ -1,4 +1,4 @@
-use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
+use {super::Kind, crate::prelude::*, bytes::Bytes, std::ops::Deref};
 
 #[derive(
 	Clone,

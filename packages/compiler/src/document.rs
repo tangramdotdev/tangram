@@ -3,9 +3,8 @@ use {
 	lsp::notification::Notification as _,
 	lsp_types as lsp,
 	std::{path::Path, pin::pin},
-	tangram_client as tg,
-	tangram_futures::stream::TryExt,
-	tg::Handle as _,
+	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 };
 
 #[derive(Debug, serde::Serialize)]

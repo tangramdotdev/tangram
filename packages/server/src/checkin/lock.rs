@@ -5,7 +5,7 @@ use {
 		collections::{BTreeMap, HashSet, VecDeque},
 		path::Path,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_util::iter::Ext as _,
 };
 

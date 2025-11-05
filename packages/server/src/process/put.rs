@@ -1,7 +1,7 @@
 use {
-	crate::{Server, database::Database},
+	crate::{Context, Server, database::Database},
 	std::collections::BTreeSet,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -11,11 +11,15 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub async fn put_process(
+	pub(crate) async fn put_process_with_context(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the database.
@@ -68,17 +72,15 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_put_process_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.put_process(&id, arg).await?;
+		self.put_process_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

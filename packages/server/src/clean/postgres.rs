@@ -2,7 +2,7 @@ use {
 	super::{Count, InnerOutput, Server},
 	indoc::indoc,
 	num::ToPrimitive as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 

@@ -10,7 +10,7 @@ use {
 		pin::pin,
 		sync::{Arc, Mutex, RwLock, atomic::AtomicI32},
 	},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 	tokio::io::{

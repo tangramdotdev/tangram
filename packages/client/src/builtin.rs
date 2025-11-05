@@ -1,4 +1,4 @@
-use {crate as tg, std::collections::BTreeMap, tangram_either::Either, tangram_uri::Uri};
+use {crate::prelude::*, std::collections::BTreeMap, tangram_either::Either, tangram_uri::Uri};
 
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum ArchiveFormat {

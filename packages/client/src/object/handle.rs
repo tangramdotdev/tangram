@@ -1,6 +1,6 @@
 use {
 	super::{Data, Id, Object as Object_},
-	crate as tg,
+	crate::prelude::*,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	std::sync::{Arc, RwLock},
 };

@@ -1,4 +1,4 @@
-use {crate::Cli, std::collections::HashSet, tangram_client as tg};
+use {crate::Cli, std::collections::HashSet, tangram_client::prelude::*};
 
 /// Get a package's outdated dependencies.
 #[derive(Clone, Debug, clap::Args)]

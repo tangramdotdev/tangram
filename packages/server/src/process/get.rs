@@ -1,10 +1,10 @@
 use {
-	crate::{Server, database::Database},
+	crate::{Context, Server, database::Database},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, FuturesUnordered},
 	},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -13,8 +13,9 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub async fn try_get_process(
+	pub async fn try_get_process_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
@@ -118,17 +119,15 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn handle_get_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_process_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let Some(output) = handle.try_get_process(&id, arg).await? else {
+		let Some(output) = self.try_get_process_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()

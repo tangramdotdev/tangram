@@ -2,7 +2,7 @@ use {
 	crate::Server,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	std::collections::BTreeMap,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 pub mod delete;
@@ -39,7 +39,11 @@ impl Server {
 		let Some(output) = self.try_get_remote(&remote).await? else {
 			return Ok(None);
 		};
-		let client = tg::Client::new(output.url, Some(self.version.clone()));
+		let token = self.config().remotes.as_ref().and_then(|remotes| {
+			let remote = remotes.iter().find(|r| r.name == remote)?;
+			remote.token.clone()
+		});
+		let client = tg::Client::new(output.url, Some(self.version.clone()), token);
 		self.remotes.insert(remote, client.clone());
 		Ok(Some(client))
 	}

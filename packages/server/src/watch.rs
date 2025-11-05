@@ -5,7 +5,7 @@ use {
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 pub mod delete;

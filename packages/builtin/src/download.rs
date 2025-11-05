@@ -2,7 +2,7 @@ use {
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
 	std::sync::{Arc, Mutex, atomic::AtomicU64},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::read::Ext as _,
 	tangram_uri::Uri,
 	tokio::io::AsyncBufReadExt as _,

@@ -6,10 +6,10 @@ use {
 		collections::BTreeMap,
 		path::{Path, PathBuf},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
-pub(super) async fn cache_children(server: &Server, process: &tg::Process) -> tg::Result<()> {
+pub async fn cache_children(server: &Server, process: &tg::Process) -> tg::Result<()> {
 	// Do nothing if the VFS is enabled.
 	if server.vfs.lock().unwrap().is_some() {
 		return Ok(());
@@ -35,7 +35,7 @@ pub(super) async fn cache_children(server: &Server, process: &tg::Process) -> tg
 	Ok(())
 }
 
-pub(crate) async fn log(
+pub async fn log(
 	server: &Server,
 	process: &tg::Process,
 	stream: tg::process::log::Stream,
@@ -76,7 +76,7 @@ async fn log_inner(
 			let arg = tg::pipe::write::Arg {
 				remote: remote.cloned(),
 			};
-			server.write_pipe(id, arg, Box::new(stream)).await?;
+			server.write_pipe(id, arg, Box::pin(stream)).await?;
 		},
 		tg::process::Stdio::Pty(id) => {
 			let bytes = Bytes::from(message.replace('\n', "\r\n"));
@@ -85,7 +85,7 @@ async fn log_inner(
 				master: false,
 				remote: remote.cloned(),
 			};
-			server.write_pty(id, arg, Box::new(stream)).await?;
+			server.write_pty(id, arg, Box::pin(stream)).await?;
 		},
 	}
 	Ok(())

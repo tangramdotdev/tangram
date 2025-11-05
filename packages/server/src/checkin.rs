@@ -1,9 +1,9 @@
 use {
-	crate::{Server, watch::Watch},
+	crate::{Context, Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	indexmap::IndexMap,
 	std::{panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::stream::Ext as _,
 	tangram_http::{Body, request::Ext as _},
 	tokio_util::task::AbortOnDropHandle,
@@ -30,12 +30,16 @@ type IndexObjectMessages =
 type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
 
 impl Server {
-	pub async fn checkin(
+	pub(crate) async fn checkin_with_context(
 		&self,
-		arg: tg::checkin::Arg,
+		context: &Context,
+		mut arg: tg::checkin::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
+		if let Some(proxy) = &context.process {
+			arg.path = proxy.host_path_for_guest_path(arg.path.clone());
+		}
 		let progress = crate::progress::Handle::new();
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
@@ -366,13 +370,11 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_checkin_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_checkin_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -382,7 +384,7 @@ impl Server {
 		let arg = request.json().await?;
 
 		// Get the stream.
-		let stream = handle.checkin(arg).await?;
+		let stream = self.checkin_with_context(context, arg).await?;
 
 		let (content_type, body) = match accept
 			.as_ref()

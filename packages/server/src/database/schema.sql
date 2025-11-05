@@ -85,6 +85,7 @@ create table tags (
 );
 
 create unique index tags_parent_component_index on tags (parent, component);
+create unique index tags_parent_id_index on tags (parent, id);
 
 create table users (
 	id text primary key,

@@ -8,7 +8,7 @@ use {
 		},
 		time::Duration,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::stream::Ext as _,
 	tokio_stream::wrappers::IntervalStream,
 };

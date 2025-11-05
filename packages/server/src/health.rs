@@ -1,14 +1,17 @@
 use {
-	crate::{Server, database::Database},
+	crate::{Context, Server, database::Database},
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn health(&self) -> tg::Result<tg::Health> {
+	pub(crate) async fn health_with_context(&self, context: &Context) -> tg::Result<tg::Health> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		// Get a database connection.
 		let connection = self
 			.database
@@ -137,14 +140,12 @@ impl Server {
 		Some(output.name)
 	}
 
-	pub(crate) async fn handle_server_health_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_server_health_request(
+		&self,
 		_request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
-		let health = handle.health().await?;
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
+		let health = self.health_with_context(context).await?;
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder().bytes(body).unwrap();
 		Ok(response)

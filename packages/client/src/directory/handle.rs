@@ -1,6 +1,6 @@
 use {
 	super::{Builder, Data, Id, Object},
-	crate as tg,
+	crate::prelude::*,
 	futures::{TryStreamExt, stream::FuturesUnordered},
 	std::{collections::BTreeMap, path::Path, sync::Arc},
 };

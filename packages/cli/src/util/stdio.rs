@@ -2,7 +2,7 @@ use {
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _},
 	std::io::Read as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tokio::io::AsyncBufRead,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::StreamReader,

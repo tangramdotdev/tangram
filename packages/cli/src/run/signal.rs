@@ -1,4 +1,4 @@
-use {futures::future, std::pin::pin, tangram_client as tg, tokio::signal::unix::SignalKind};
+use {futures::future, std::pin::pin, tangram_client::prelude::*, tokio::signal::unix::SignalKind};
 
 /// Handle all signals.
 pub async fn task<H>(

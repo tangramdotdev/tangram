@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	tangram_client::{self as tg, prelude::*},
-	tangram_uri::Uri,
-};
+use {crate::Cli, tangram_client::prelude::*, tangram_uri::Uri};
 
 /// Put a remote.
 #[derive(Clone, Debug, clap::Args)]

@@ -3,14 +3,15 @@ use {
 		proxy::Proxy,
 		util::{cache_children, render_env, render_value, which, whoami},
 	},
-	crate::{Server, temp::Temp},
+	crate::{Context, Server, temp::Temp},
 	indoc::formatdoc,
 	std::{
 		collections::{BTreeMap, HashMap},
 		os::unix::ffi::OsStrExt as _,
 		path::{Path, PathBuf},
+		sync::Arc,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_futures::task::Task,
 	tangram_uri::Uri,
@@ -185,12 +186,13 @@ impl Server {
 			(args, cwd, env, executable, root)
 		};
 
-		// Create the proxy server.
+		// Create the proxy.
 		let proxy = if root_mounted {
 			None
 		} else {
-			// Create the path map.
-			let path_map = crate::run::proxy::PathMap {
+			// Create the paths.
+			let paths = crate::run::proxy::Paths {
+				server_host: self.path.clone(),
 				output_host: temp.path().join("output"),
 				output_guest: "/output".into(),
 				root_host: root,
@@ -215,15 +217,25 @@ impl Server {
 			);
 			let host_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
 
-			// Start the proxy server.
-			let proxy = Proxy::new(
-				self.clone(),
-				process,
-				process.remote().cloned(),
-				Some(path_map),
-			);
+			// Create the proxy.
+			let proxy = Proxy {
+				paths: Some(paths),
+				process: process.clone(),
+				remote: remote.cloned(),
+			};
+
+			// Listen.
 			let listener = Server::listen(&host_uri).await?;
-			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
+
+			// Serve.
+			let server = self.clone();
+			let context = Context {
+				proxy: Some(Arc::new(proxy)),
+				..Default::default()
+			};
+			let task =
+				Task::spawn(|stop| async move { server.serve(listener, context, stop).await });
+
 			Some((task, guest_uri))
 		};
 

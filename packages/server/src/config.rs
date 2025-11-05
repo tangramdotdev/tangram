@@ -7,6 +7,7 @@ use {
 pub struct Config {
 	pub advanced: Advanced,
 	pub authentication: Option<Authentication>,
+	pub authorization: bool,
 	pub cleaner: Option<Cleaner>,
 	pub database: Database,
 	pub directory: PathBuf,
@@ -121,6 +122,7 @@ pub struct NatsMessenger {
 pub struct Remote {
 	pub name: String,
 	pub url: Uri,
+	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +188,7 @@ impl Config {
 	pub fn with_directory(directory: PathBuf) -> Self {
 		let advanced = Advanced::default();
 		let authentication = None;
+		let authorization = false;
 		let cleaner = None;
 		let database = Database::Sqlite(SqliteDatabase {
 			connections: 1,
@@ -209,6 +212,7 @@ impl Config {
 		Self {
 			advanced,
 			authentication,
+			authorization,
 			cleaner,
 			database,
 			directory,

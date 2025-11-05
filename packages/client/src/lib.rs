@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	std::{ops::Deref, sync::Arc},
 	tangram_uri::Uri,
 };
@@ -91,9 +91,12 @@ pub mod watch;
 pub mod write;
 
 pub mod prelude {
-	pub use super::handle::{
-		Ext as _, Handle as _, Object as _, Pipe as _, Process as _, Pty as _, Remote as _,
-		Tag as _, User as _, Watch as _,
+	pub use {
+		super::handle::{
+			Ext as _, Handle as _, Object as _, Pipe as _, Process as _, Pty as _, Remote as _,
+			Tag as _, User as _, Watch as _,
+		},
+		crate as tg,
 	};
 }
 
@@ -105,18 +108,20 @@ pub struct State {
 	url: Uri,
 	sender: self::http::Sender,
 	service: self::http::Service,
+	token: Option<String>,
 	version: String,
 }
 
 impl Client {
 	#[must_use]
-	pub fn new(url: Uri, version: Option<String>) -> Self {
+	pub fn new(url: Uri, version: Option<String>, token: Option<String>) -> Self {
 		let version = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 		let (sender, service) = Self::service(&url, &version);
 		Self(Arc::new(State {
 			url,
 			sender,
 			service,
+			token,
 			version,
 		}))
 	}
@@ -136,7 +141,8 @@ impl Client {
 					"failed to parse a URL from the TANGRAM_URL environment variable"
 				)
 			})?;
-		Ok(Self::new(url, None))
+		let token = std::env::var("TANGRAM_TOKEN").ok();
+		Ok(Self::new(url, None, token))
 	}
 
 	#[must_use]

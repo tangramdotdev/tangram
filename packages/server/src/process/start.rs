@@ -1,15 +1,16 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	bytes::Bytes,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
 impl Server {
-	pub async fn start_process(
+	pub(crate) async fn start_process_with_context(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::start::Arg,
 	) -> tg::Result<()> {
@@ -19,6 +20,10 @@ impl Server {
 			let arg = tg::process::start::Arg { remote: None };
 			remote.start_process(id, arg).await?;
 			return Ok(());
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		// Get a database connection.
@@ -72,17 +77,15 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_start_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_start_process_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.start_process(&id, arg).await?;
+		self.start_process_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

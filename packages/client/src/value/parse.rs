@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	winnow::{
 		ascii::float,
 		combinator::{alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair},

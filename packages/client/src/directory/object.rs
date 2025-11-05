@@ -1,4 +1,4 @@
-use {super::Data, crate as tg};
+use {super::Data, crate::prelude::*};
 
 #[derive(Clone, Debug)]
 pub enum Directory {

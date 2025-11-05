@@ -1,19 +1,23 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _},
 };
 
 impl Server {
-	pub async fn try_get(
+	pub(crate) async fn try_get_with_context(
 		&self,
+		context: &Context,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + use<>,
 	> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		let reference = reference.clone();
 		match &reference.item() {
 			tg::reference::Item::Process(process) => {
@@ -92,14 +96,12 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_get_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		path: &[&str],
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -112,7 +114,7 @@ impl Server {
 		let options = request.query_params().transpose()?.unwrap_or_default();
 		let reference = tg::Reference::with_item_and_options(item, options);
 
-		let stream = handle.try_get(&reference, arg).await?;
+		let stream = self.try_get_with_context(context, &reference, arg).await?;
 
 		let (content_type, body) = match accept
 			.as_ref()

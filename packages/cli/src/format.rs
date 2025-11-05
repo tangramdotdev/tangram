@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	std::path::PathBuf,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
 /// Format a package.
 #[derive(Clone, Debug, clap::Args)]

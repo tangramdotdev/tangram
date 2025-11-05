@@ -8,7 +8,7 @@ use {
 		pin::pin,
 		sync::Arc,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tokio::io::{AsyncWrite, AsyncWriteExt as _},
 };

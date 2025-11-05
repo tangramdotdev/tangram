@@ -1,7 +1,7 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::{path::PathBuf, time::Duration},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_uri::Uri,
 	tangram_util::serde::is_false,
@@ -17,6 +17,10 @@ pub struct Config {
 	/// Configure authentication.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub authentication: Option<Either<bool, Authentication>>,
+
+	/// Configure authorization.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authorization: Option<bool>,
 
 	/// Configure the cleaner task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -248,7 +252,11 @@ pub struct NatsMessenger {
 #[serde(deny_unknown_fields)]
 pub struct Remote {
 	pub name: String,
+
 	pub url: Uri,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[serde_as]

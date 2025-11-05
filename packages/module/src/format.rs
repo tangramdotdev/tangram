@@ -1,4 +1,4 @@
-use tangram_client as tg;
+use tangram_client::prelude::*;
 
 pub struct Output {
 	pub diagnostics: Vec<tg::diagnostic::Data>,

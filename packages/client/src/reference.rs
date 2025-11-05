@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg, prelude::*},
+	crate::prelude::*,
 	std::{os::unix::ffi::OsStrExt as _, path::PathBuf, pin::pin},
 	tangram_either::Either,
 	tangram_futures::stream::TryExt as _,
@@ -279,7 +279,7 @@ impl std::str::FromStr for Item {
 
 #[cfg(test)]
 mod tests {
-	use {crate as tg, insta::assert_snapshot, std::path::PathBuf};
+	use {crate::prelude::*, insta::assert_snapshot, std::path::PathBuf};
 
 	#[test]
 	fn test() {

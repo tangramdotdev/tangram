@@ -1,16 +1,17 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
 };
 
 impl Server {
-	pub async fn put_object(
+	pub async fn put_object_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
@@ -50,14 +51,12 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_object_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_put_object_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse::<tg::object::Id>()?;
 		let bytes = request.bytes().await?;
 
@@ -72,7 +71,7 @@ impl Server {
 		}
 
 		let arg = tg::object::put::Arg { bytes };
-		handle.put_object(&id, arg).await?;
+		self.put_object_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

@@ -1,4 +1,4 @@
-use {crate::Compiler, bytes::Bytes, tangram_client as tg, tangram_v8::Serde};
+use {crate::Compiler, bytes::Bytes, tangram_client::prelude::*, tangram_v8::Serde};
 
 pub fn base64_decode(
 	_compiler: &Compiler,

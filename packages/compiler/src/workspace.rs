@@ -1,4 +1,4 @@
-use {super::Compiler, lsp_types as lsp, std::path::PathBuf, tangram_client as tg};
+use {super::Compiler, lsp_types as lsp, std::path::PathBuf, tangram_client::prelude::*};
 
 impl Compiler {
 	pub(crate) async fn update_workspaces(

@@ -3,7 +3,7 @@ use {
 	bytes::Bytes,
 	dashmap::DashMap,
 	num::ToPrimitive as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 pub struct Store(DashMap<tg::object::Id, Entry, tg::id::BuildHasher>);

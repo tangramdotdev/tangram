@@ -1,9 +1,9 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Stop, write::Ext},
 	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncReadExt as _,
@@ -15,8 +15,9 @@ mod get;
 mod put;
 
 impl Server {
-	pub async fn sync(
+	pub(crate) async fn sync_with_context(
 		&self,
+		_context: &Context,
 		mut arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
@@ -134,13 +135,11 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_sync_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_sync_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the arg.
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
@@ -184,7 +183,7 @@ impl Server {
 		})
 		.boxed();
 
-		let stream = handle.sync(arg, stream).await?;
+		let stream = self.sync_with_context(context, arg, stream).await?;
 
 		// Create the response body.
 		let stop = async move {

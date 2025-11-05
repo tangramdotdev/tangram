@@ -1,16 +1,17 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{FutureExt as _, future},
 	indoc::{formatdoc, indoc},
 	rusqlite as sqlite,
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn try_get_object_metadata(
+	pub async fn try_get_object_metadata_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::object::Id,
 		mut arg: tg::object::metadata::Arg,
 	) -> tg::Result<Option<tg::object::Metadata>> {
@@ -171,17 +172,18 @@ impl Server {
 		Ok(Some(metadata))
 	}
 
-	pub(crate) async fn handle_get_object_metadata_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_object_metadata_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let Some(output) = handle.try_get_object_metadata(&id, arg).await? else {
+		let Some(output) = self
+			.try_get_object_metadata_with_context(context, &id, arg)
+			.await?
+		else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()

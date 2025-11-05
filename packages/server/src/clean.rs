@@ -1,10 +1,10 @@
 use {
-	super::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _},
@@ -31,11 +31,15 @@ struct Count {
 }
 
 impl Server {
-	pub async fn clean(
+	pub(crate) async fn clean_with_context(
 		&self,
+		context: &Context,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + use<>,
 	> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		let progress = crate::progress::Handle::new();
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let progress = progress.clone();
@@ -300,20 +304,18 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_server_clean_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_server_clean_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
 		// Get the stream.
-		let stream = handle.clean().await?;
+		let stream = self.clean_with_context(context).await?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

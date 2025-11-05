@@ -2,7 +2,7 @@ use {
 	super::State,
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, rc::Rc},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 

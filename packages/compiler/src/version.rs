@@ -1,6 +1,6 @@
 use {
 	super::{Compiler, document::Document},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 impl Compiler {

@@ -8,7 +8,7 @@ use {
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
 	std::str::FromStr as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
 };

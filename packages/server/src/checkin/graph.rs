@@ -4,7 +4,7 @@ use {
 		collections::{BTreeMap, HashSet},
 		path::{Path, PathBuf},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_util::iter::Ext as _,
 };
 

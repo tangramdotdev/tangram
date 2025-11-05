@@ -1,12 +1,13 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Context, Server},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn close_pty(
+	pub(crate) async fn close_pty_with_context(
 		&self,
+		context: &Context,
 		id: &tg::pty::Id,
 		mut arg: tg::pty::close::Arg,
 	) -> tg::Result<()> {
@@ -15,6 +16,10 @@ impl Server {
 			let remote = self.get_remote_client(remote).await?;
 			remote.close_pty(id, arg).await?;
 			return Ok(());
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		let mut pty = self
@@ -32,17 +37,15 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_close_pty_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_close_pty_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		handle.close_pty(&id, arg).await?;
+		self.close_pty_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

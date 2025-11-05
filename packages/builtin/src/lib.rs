@@ -1,7 +1,11 @@
 use {
+	self::{
+		archive::archive, bundle::bundle, checksum::checksum, compress::compress,
+		decompress::decompress, download::download, extract::extract,
+	},
 	futures::{FutureExt as _, future::BoxFuture},
 	std::sync::Arc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 mod archive;
@@ -12,11 +16,6 @@ mod decompress;
 mod download;
 mod extract;
 mod util;
-
-use self::{
-	archive::archive, bundle::bundle, checksum::checksum, compress::compress,
-	decompress::decompress, download::download, extract::extract,
-};
 
 pub type Logger = Arc<
 	dyn Fn(tg::process::log::Stream, String) -> BoxFuture<'static, tg::Result<()>>

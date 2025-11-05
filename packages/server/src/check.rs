@@ -1,19 +1,30 @@
 use {
-	crate::Server,
-	tangram_client as tg,
+	crate::{Context, Server},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
 	#[cfg(not(feature = "compiler"))]
-	pub async fn check(&self, _arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
+	pub(crate) async fn check_with_context(
+		&self,
+		context: &Context,
+		_arg: tg::check::Arg,
+	) -> tg::Result<tg::check::Output> {
+		if context.proxy.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		Err(tg::error!(
 			"this version of tangram was not compiled with compiler support"
 		))
 	}
 
 	#[cfg(feature = "compiler")]
-	pub async fn check(&self, mut arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
+	pub(crate) async fn check_with_context(
+		&self,
+		context: &Context,
+		mut arg: tg::check::Arg,
+	) -> tg::Result<tg::check::Output> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
@@ -23,6 +34,10 @@ impl Server {
 			};
 			let output = remote.check(arg).await?;
 			return Ok(output);
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		// Create the compiler.
@@ -42,15 +57,13 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_check_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_check_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
-		let output = handle.check(arg).await?;
+		let output = self.check_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

@@ -2,7 +2,7 @@ use {
 	self::{deserializer::Deserializer, serializer::Serializer},
 	crate::{Deserialize, Serialize},
 	std::ops::Deref,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 mod deserializer;

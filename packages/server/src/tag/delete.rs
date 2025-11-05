@@ -1,6 +1,6 @@
 use {
-	crate::{Server, database::Database},
-	tangram_client as tg,
+	crate::{Context, Server, database::Database},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -10,8 +10,9 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub async fn delete_tag(
+	pub(crate) async fn delete_tag_with_context(
 		&self,
+		context: &Context,
 		mut arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		// If the remote arg is set, then forward the request.
@@ -19,6 +20,10 @@ impl Server {
 			let remote = self.get_remote_client(remote).await?;
 			let output = remote.delete_tag(arg).await?;
 			return Ok(output);
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		// Delete the tag from the database.
@@ -49,16 +54,14 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_delete_tag_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_delete_tag_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		_tag: &[&str],
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
-		let output = handle.delete_tag(arg).await?;
+		let output = self.delete_tag_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

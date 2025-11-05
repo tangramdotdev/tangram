@@ -1,10 +1,10 @@
 use {
 	super::reader::Reader,
-	crate::Server,
+	crate::{Context, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::time::Duration,
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
@@ -14,12 +14,15 @@ use {
 };
 
 impl Server {
-	pub async fn try_get_process_log_stream(
+	pub async fn try_get_process_log_stream_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::log::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static + use<>,
+		>,
 	> {
 		if let Some(stream) = self.try_get_process_log_local(id, arg.clone()).await? {
 			Ok(Some(stream.left_stream()))
@@ -35,7 +38,9 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::log::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static + use<>,
+		>,
 	> {
 		// Verify the process is local.
 		if !self.get_process_exists_local(id).await? {
@@ -225,7 +230,9 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::log::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static + use<>,
+		>,
 	> {
 		let futures = self
 			.get_remote_clients()
@@ -258,14 +265,12 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn handle_get_process_log_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_process_log_request(
+		&self,
 		request: http::Request<Body>,
+		_context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -276,7 +281,7 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
-		let Some(stream) = handle.try_get_process_log_stream(&id, arg).await? else {
+		let Some(stream) = self.try_get_process_log_stream(&id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 

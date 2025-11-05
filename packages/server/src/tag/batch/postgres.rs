@@ -1,11 +1,11 @@
 use {
 	crate::Server,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
 impl Server {
-	pub(crate) async fn post_tags_batch_postgres(
+	pub(crate) async fn post_tag_batch_postgres(
 		database: &db::postgres::Database,
 		arg: &tg::tag::post::Arg,
 	) -> tg::Result<()> {

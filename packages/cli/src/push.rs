@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	futures::future,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, futures::future, tangram_client::prelude::*};
 
 /// Push processes and objects.
 #[derive(Clone, Debug, clap::Args)]

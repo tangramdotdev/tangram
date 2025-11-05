@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg, prelude::*},
+	crate::prelude::*,
 	futures::{StreamExt as _, TryStreamExt as _},
 	tokio::io::AsyncBufRead,
 	tokio_util::io::StreamReader,

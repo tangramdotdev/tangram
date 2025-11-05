@@ -1,9 +1,10 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
 	std::{pin::pin, task::Poll, time::Duration},
-	tangram_client as tg, tangram_database as db,
+	tangram_client::prelude::*,
+	tangram_database as db,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::{self as messenger, Acker, prelude::*},
@@ -28,9 +29,13 @@ pub enum Index {
 }
 
 impl Server {
-	pub async fn index(
+	pub(crate) async fn index_with_context(
 		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		context: &Context,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
 		let progress = crate::progress::Handle::new();
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let progress = progress.clone();
@@ -385,20 +390,18 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_index_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_index_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()?;
 
 		// Get the stream.
-		let stream = handle.index().await?;
+		let stream = self.index_with_context(context).await?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

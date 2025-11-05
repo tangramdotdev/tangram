@@ -5,7 +5,7 @@ use {
 	},
 	bytes::Bytes,
 	std::path::Path,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_messenger::Messenger as _,
 };
 

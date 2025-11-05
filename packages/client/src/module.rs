@@ -1,4 +1,4 @@
-use {crate as tg, std::path::PathBuf};
+use {crate::prelude::*, std::path::PathBuf};
 
 pub use self::{data::Module as Data, import::Import};
 

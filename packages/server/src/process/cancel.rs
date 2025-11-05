@@ -1,16 +1,17 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	bytes::Bytes,
 	indoc::formatdoc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::Messenger as _,
 };
 
 impl Server {
-	pub async fn cancel_process(
+	pub async fn cancel_process_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
@@ -74,14 +75,12 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_cancel_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_cancel_process_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -92,7 +91,7 @@ impl Server {
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		// Cancel the process.
-		handle.cancel_process(&id, arg).await?;
+		self.cancel_process_with_context(context, &id, arg).await?;
 
 		// Create the response.
 		let response = http::Response::builder().empty().unwrap();

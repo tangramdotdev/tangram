@@ -1,14 +1,12 @@
 use {
-	super::{
-		proxy::Proxy,
-		util::{cache_children, render_env, render_value, which},
-	},
-	crate::{Server, run::util::whoami, temp::Temp},
+	super::util::{cache_children, render_env, render_value, which},
+	crate::{Context, Server, run::util::whoami, temp::Temp},
 	std::{
 		collections::BTreeMap,
 		path::{Path, PathBuf},
+		sync::Arc,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_uri::Uri,
 };
@@ -102,7 +100,8 @@ impl Server {
 			tokio::fs::create_dir_all(&path)
 				.await
 				.map_err(|source| tg::error!(!source, %path = path.display(), "failed to create the proxy server directory"))?;
-			let proxy = Proxy::new(self.clone(), process, remote.cloned(), None);
+
+			// Listen.
 			let socket_path = path.join("socket").display().to_string();
 			let mut url = if socket_path.len() >= MAX_URL_LEN {
 				let path = urlencoding::encode(&socket_path);
@@ -118,7 +117,21 @@ impl Server {
 				let port = listener.port();
 				url = format!("http://localhost:{port}").parse::<Uri>().unwrap();
 			}
-			let task = Task::spawn(|stop| Server::serve(proxy, listener, stop));
+
+			// Serve.
+			let server = self.clone();
+			let context = Context {
+				process: Some(Arc::new(crate::context::Process {
+					id: process.id().clone(),
+					paths: None,
+					remote: remote.cloned(),
+					retry: *process.retry(self).await?,
+				})),
+				..Default::default()
+			};
+			let task =
+				Task::spawn(|stop| async move { server.serve(listener, context, stop).await });
+
 			Some((task, url))
 		};
 

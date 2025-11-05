@@ -1,4 +1,4 @@
-use {crate as tg, lsp_types as lsp, std::collections::BTreeSet};
+use {crate::prelude::*, lsp_types as lsp, std::collections::BTreeSet};
 
 #[derive(
 	Clone,

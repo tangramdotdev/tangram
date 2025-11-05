@@ -1,5 +1,5 @@
 use {
-	crate::Cli, std::pin::pin, tangram_client as tg, tangram_either::Either,
+	crate::Cli, std::pin::pin, tangram_client::prelude::*, tangram_either::Either,
 	tokio::io::AsyncWriteExt as _,
 };
 

@@ -5,7 +5,7 @@ use {
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::collections::HashMap,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 #[derive(Clone, Debug)]
@@ -127,6 +127,7 @@ impl Store {
 		let result = self
 			.session
 			.execute_unpaged(statement, params)
+			.boxed()
 			.await?
 			.into_rows_result()?;
 		let Some(row) = result.maybe_first_row::<Row>()? else {
@@ -182,6 +183,7 @@ impl Store {
 		let result = self
 			.session
 			.execute_unpaged(statement, params)
+			.boxed()
 			.await?
 			.into_rows_result()?;
 		let Some(row) = result.maybe_first_row::<Row>()? else {

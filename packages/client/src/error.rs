@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	itertools::Itertools as _,
 	std::{collections::BTreeMap, fmt::Debug, path::PathBuf},
 };

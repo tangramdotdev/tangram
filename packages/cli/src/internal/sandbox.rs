@@ -2,7 +2,7 @@ use {
 	crate::Cli,
 	bytes::Bytes,
 	std::{ffi::OsString, path::PathBuf},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 #[derive(Debug, Clone, clap::Args)]

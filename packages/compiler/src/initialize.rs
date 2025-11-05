@@ -1,4 +1,4 @@
-use {super::Compiler, lsp_types as lsp, tangram_client as tg};
+use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 impl Compiler {
 	pub(super) async fn handle_initialize_request(

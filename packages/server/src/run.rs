@@ -2,13 +2,12 @@ use {
 	crate::{ProcessPermit, Server},
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_either::Either,
 };
 
 mod common;
 mod progress;
-mod proxy;
 pub mod util;
 
 pub mod builtin;

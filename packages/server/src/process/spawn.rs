@@ -1,10 +1,10 @@
 use {
-	crate::{ProcessPermit, Server, database},
+	crate::{Context, ProcessPermit, Server, database},
 	bytes::Bytes,
 	futures::{FutureExt as _, future},
 	indoc::{formatdoc, indoc},
 	std::pin::pin,
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
@@ -19,9 +19,10 @@ struct LocalOutput {
 }
 
 impl Server {
-	pub async fn try_spawn_process(
+	pub async fn try_spawn_process_with_context(
 		&self,
-		arg: tg::process::spawn::Arg,
+		context: &Context,
+		mut arg: tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// If the remote arg is set, then forward the request.
 		if let Some(name) = arg.remote.as_ref() {
@@ -36,6 +37,13 @@ impl Server {
 				output
 			});
 			return Ok(output);
+		}
+
+		// If the process context is set, update the parent, remote, and retry.
+		if let Some(process) = &context.process {
+			arg.parent = Some(process.id.clone());
+			arg.remote = process.remote.clone();
+			arg.retry = process.retry;
 		}
 
 		// Get the host.
@@ -1023,15 +1031,13 @@ impl Server {
 		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 
-	pub(crate) async fn handle_spawn_process_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_spawn_process_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
-		let output = handle.try_spawn_process(arg).await?;
+		let output = self.try_spawn_process_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

@@ -1,36 +1,47 @@
 use {
-	crate::{Database, Server},
+	crate::{Context, Database, Server},
 	itertools::Itertools as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::Messenger,
 };
-mod sqlite;
 
 #[cfg(feature = "postgres")]
 mod postgres;
+mod sqlite;
 
 impl Server {
-	pub(crate) async fn post_tags_batch(&self, mut arg: tg::tag::post::Arg) -> tg::Result<()> {
+	pub(crate) async fn post_tag_batch_with_context(
+		&self,
+		context: &Context,
+		mut arg: tg::tag::post::Arg,
+	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
-			remote.post_tags_batch(arg).await?;
+			remote.post_tag_batch(arg).await?;
 			return Ok(());
 		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
+		// Authorize.
+		self.authorize(context).await?;
 
 		// Insert the tag into the database.
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
-				Self::post_tags_batch_postgres(database, &arg).await?;
+				Self::post_tag_batch_postgres(database, &arg).await?;
 			},
 			Database::Sqlite(database) => {
-				Self::post_tags_batch_sqlite(database, &arg).await?;
+				Self::post_tag_batch_sqlite(database, &arg).await?;
 			},
 		}
 
-		// Publish the put tag index messags.
+		// Publish the put tag index messages.
 		let messages = arg
 			.tags
 			.into_iter()
@@ -51,15 +62,13 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_tags_batch_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_tag_batch_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.json().await?;
-		handle.post_tags_batch(arg).await?;
+		self.post_tag_batch_with_context(context, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

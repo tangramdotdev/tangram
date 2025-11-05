@@ -1,5 +1,5 @@
 use {
-	crate::{Server, temp::Temp},
+	crate::{Context, Server, temp::Temp},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	itertools::Itertools,
@@ -11,7 +11,7 @@ use {
 		pin::pin,
 		sync::Arc,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
@@ -43,7 +43,11 @@ pub enum Destination {
 }
 
 impl Server {
-	pub async fn write(&self, reader: impl AsyncRead) -> tg::Result<tg::write::Output> {
+	pub(crate) async fn write_with_context(
+		&self,
+		_context: &Context,
+		reader: impl AsyncRead,
+	) -> tg::Result<tg::write::Output> {
 		// Get the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
@@ -467,14 +471,12 @@ impl Server {
 		messages
 	}
 
-	pub(crate) async fn handle_write_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_write_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
-		let output = handle.write(request.reader()).await?;
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
+		let output = self.write_with_context(context, request.reader()).await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

@@ -6,7 +6,7 @@ use {
 	},
 	radix_trie::TrieCommon,
 	std::{collections::HashMap, path::PathBuf},
-	tangram_client::{self as tg, Handle, handle::Tag},
+	tangram_client::prelude::*,
 	tangram_either::Either,
 };
 
@@ -182,7 +182,7 @@ impl Cli {
 			})
 			.collect::<Vec<_>>();
 		handle
-			.post_tags_batch(tg::tag::post::Arg {
+			.post_tag_batch(tg::tag::post::Arg {
 				remote: Some(remote.clone()),
 				tags: tags.clone(),
 			})

@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Cancel a process.
 #[derive(Clone, Debug, clap::Args)]

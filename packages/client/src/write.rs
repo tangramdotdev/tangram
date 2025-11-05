@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	tangram_http::{Body, response::Ext as _},
 	tokio::io::AsyncRead,
 };

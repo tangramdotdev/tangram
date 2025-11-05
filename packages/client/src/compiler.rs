@@ -1,5 +1,5 @@
 use {
-	crate as tg,
+	crate::prelude::*,
 	futures::{TryFutureExt as _, future},
 	http_body_util::BodyExt as _,
 	tangram_http::request::builder::Ext as _,

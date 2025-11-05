@@ -1,4 +1,4 @@
-use {include_dir::include_dir, tangram_client as tg};
+use {include_dir::include_dir, tangram_client::prelude::*};
 
 pub const LIBRARY: include_dir::Dir = include_dir!("$OUT_DIR/lib");
 

@@ -1,4 +1,4 @@
-use {std::sync::atomic::AtomicU64, tangram_client as tg};
+use {std::sync::atomic::AtomicU64, tangram_client::prelude::*};
 
 #[derive(Debug)]
 pub struct Progress {

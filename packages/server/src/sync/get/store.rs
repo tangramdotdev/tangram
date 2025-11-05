@@ -7,7 +7,7 @@ use {
 		pin::pin,
 		sync::{Arc, Mutex},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::task::AbortOnDropHandle,

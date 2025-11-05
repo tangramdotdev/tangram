@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client as tg};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Compress a blob or a file.
 #[derive(Clone, Debug, clap::Args)]

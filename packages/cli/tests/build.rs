@@ -3,7 +3,7 @@ use {
 	insta::assert_snapshot,
 	num::ToPrimitive as _,
 	tangram_cli_test::{Server, assert_failure, assert_success},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_temp::{self as temp, Temp},
 };
 

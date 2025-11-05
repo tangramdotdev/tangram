@@ -2,7 +2,7 @@ use {
 	crate::Cli,
 	futures::prelude::*,
 	std::{fmt::Write as _, path::PathBuf},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 };
 

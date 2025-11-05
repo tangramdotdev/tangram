@@ -4,7 +4,7 @@ use {
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::collections::HashMap,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 

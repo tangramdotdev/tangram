@@ -1,6 +1,6 @@
 use {
 	super::{Id, Object},
-	crate as tg,
+	crate::prelude::*,
 	futures::{
 		TryStreamExt as _,
 		stream::{FuturesOrdered, FuturesUnordered},

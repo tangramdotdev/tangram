@@ -8,7 +8,7 @@ use {
 		},
 		path::PathBuf,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt},
 };

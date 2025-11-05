@@ -12,7 +12,7 @@ use {
 		sync::Arc,
 		time::Duration,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	unicode_segmentation::UnicodeSegmentation as _,
 	unicode_width::UnicodeWidthStr as _,
@@ -337,8 +337,8 @@ where
 			// Update.
 			self.update();
 
+			// If we are finished rendering, then clear the screen and show the cursor.
 			if stop.stopped() || self.tree.is_finished() {
-				// Clear the screen and show the cursor.
 				if let Some(tty) = tty.as_mut() {
 					ct::queue!(
 						tty,
@@ -353,18 +353,18 @@ where
 
 			// If stdout is a terminal, then render the tree.
 			if let Some(tty) = tty.as_mut() {
+				// Render the tree.
+				let tree = self.tree.display().to_string();
+
 				// Get the terminal size.
 				let (columns, rows) = ct::terminal::size()
 					.map(|(columns, rows)| (columns.to_usize().unwrap(), rows.to_usize().unwrap()))
 					.map_err(|error| tg::error!(!error, "failed to get the terminal size"))?;
 
-				// Get the cursor position after clearing.
+				// Get the cursor position.
 				let (_column, row) = ct::cursor::position()
 					.map(|(column, row)| (column.to_usize().unwrap(), row.to_usize().unwrap()))
 					.map_err(|error| tg::error!(!error, "failed to get the cursor position"))?;
-
-				// Print the tree.
-				let tree = self.tree.display().to_string();
 
 				// Clear the screen and save the cursor position.
 				ct::queue!(
@@ -374,6 +374,7 @@ where
 				)
 				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 
+				// Print the tree.
 				let mut first = true;
 				for line in tree.lines().take(rows.saturating_sub(row)) {
 					if !first {

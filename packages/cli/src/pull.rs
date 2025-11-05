@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	futures::future,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, futures::future, tangram_client::prelude::*};
 
 pub type Args = crate::push::Args;
 

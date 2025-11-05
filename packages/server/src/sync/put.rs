@@ -12,7 +12,7 @@ use {
 			atomic::{AtomicBool, AtomicUsize},
 		},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 };
 

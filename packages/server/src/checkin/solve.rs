@@ -9,7 +9,7 @@ use {
 		path::{Path, PathBuf},
 		sync::Arc,
 	},
-	tangram_client::{self as tg, handle::Ext as _},
+	tangram_client::prelude::*,
 };
 
 struct State {

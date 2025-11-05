@@ -1,20 +1,21 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{Stream, StreamExt as _, future, stream},
 	num::ToPrimitive,
 	std::os::fd::AsRawFd as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
 };
 
 impl Server {
-	pub async fn read_pty(
+	pub async fn read_pty_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::pty::Id,
 		mut arg: tg::pty::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
@@ -74,14 +75,12 @@ impl Server {
 		Ok(stream)
 	}
 
-	pub(crate) async fn handle_read_pty_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_read_pty_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -89,7 +88,7 @@ impl Server {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the stream.
-		let stream = handle.read_pty(&id, arg).await?;
+		let stream = self.read_pty_with_context(context, &id, arg).await?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

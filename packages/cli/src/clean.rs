@@ -1,8 +1,4 @@
-use {
-	crate::Cli,
-	std::os::unix::fs::PermissionsExt as _,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, std::os::unix::fs::PermissionsExt as _, tangram_client::prelude::*};
 
 /// Remove unused processes and objects.
 #[derive(Clone, Debug, clap::Args)]

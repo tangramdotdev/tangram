@@ -1,5 +1,5 @@
 use {
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 };
 

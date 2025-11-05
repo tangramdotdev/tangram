@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	reflink_copy::reflink,
@@ -9,7 +9,7 @@ use {
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_futures::stream::{Ext as _, TryExt as _},
 	tangram_http::{Body, request::Ext as _},
@@ -31,12 +31,21 @@ struct State {
 }
 
 impl Server {
-	pub async fn checkout(
+	pub(crate) async fn checkout_with_context(
 		&self,
-		arg: tg::checkout::Arg,
+		context: &Context,
+		mut arg: tg::checkout::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
 	> {
+		// If there is a process in the context, then replace the path with the host path.
+		if let Some(process) = &context.process
+			&& let Some(path) = &mut arg.path
+		{
+			*path = process.host_path_for_guest_path(path.clone());
+		}
+
+		// If the path is not provided, then cache.
 		if arg.path.is_none() {
 			let path = self.artifacts_path().join(arg.artifact.to_string());
 			if self.vfs.lock().unwrap().is_none() {
@@ -44,7 +53,8 @@ impl Server {
 					artifacts: vec![arg.artifact.clone()],
 				};
 				let stream = self.cache(cache_arg).await?;
-				return Ok(stream
+				let stream = stream
+					.boxed()
 					.map_ok({
 						let server = self.clone();
 						move |event| {
@@ -55,14 +65,21 @@ impl Server {
 						}
 					})
 					.left_stream()
-					.left_stream());
+					.left_stream();
+				return Ok(stream);
 			}
-			return Ok(stream::once(future::ok(tg::progress::Event::Output(
-				tg::checkout::Output { path },
-			)))
-			.right_stream()
-			.left_stream());
+			let path = if let Some(process) = &context.process {
+				process.guest_path_for_host_path(path.clone())?
+			} else {
+				path
+			};
+			let output = tg::checkout::Output { path };
+			let event = tg::progress::Event::Output(output);
+			let stream = stream::once(future::ok(event));
+			let stream = stream.right_stream().left_stream();
+			return Ok(stream);
 		}
+
 		let progress = crate::progress::Handle::new();
 		let task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
@@ -134,7 +151,23 @@ impl Server {
 				}
 			}
 		}));
-		let stream = progress.stream().attach(task).right_stream();
+
+		let context = context.clone();
+		let stream = progress
+			.stream()
+			.map_ok(move |event| {
+				if let tg::progress::Event::Output(mut output) = event {
+					if let Some(process) = &context.process {
+						output.path = process.host_path_for_guest_path(output.path.clone());
+					}
+					tg::progress::Event::Output(output)
+				} else {
+					event
+				}
+			})
+			.attach(task)
+			.right_stream();
+
 		Ok(stream)
 	}
 
@@ -631,13 +664,11 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_checkout_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_checkout_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -647,7 +678,7 @@ impl Server {
 		let arg = request.json().await?;
 
 		// Get the stream.
-		let stream = handle.checkout(arg).await?;
+		let stream = self.checkout_with_context(context, arg).await?;
 
 		let (content_type, body) = match accept
 			.as_ref()

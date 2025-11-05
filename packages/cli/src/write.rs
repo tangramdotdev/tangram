@@ -1,7 +1,4 @@
-use {
-	crate::Cli,
-	tangram_client::{self as tg, prelude::*},
-};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Write a blob.
 #[derive(Clone, Debug, clap::Args)]

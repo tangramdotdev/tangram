@@ -1,4 +1,4 @@
-use {indexmap::IndexMap, smallvec::SmallVec, tangram_client as tg, tangram_either::Either};
+use {indexmap::IndexMap, smallvec::SmallVec, tangram_client::prelude::*, tangram_either::Either};
 
 #[derive(Default)]
 pub struct Graph {

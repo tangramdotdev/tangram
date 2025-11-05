@@ -15,7 +15,7 @@ use {
 			atomic::{AtomicU32, Ordering},
 		},
 	},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_futures::task::Task,
 };

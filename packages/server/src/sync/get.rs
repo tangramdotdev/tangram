@@ -11,7 +11,7 @@ use {
 		sync::{Arc, Mutex},
 		time::Duration,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_futures::task::Stop,
 	tokio_util::task::AbortOnDropHandle,

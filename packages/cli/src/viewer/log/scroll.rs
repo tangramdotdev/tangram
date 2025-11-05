@@ -1,7 +1,7 @@
 use {
 	num::ToPrimitive as _,
 	ratatui as tui,
-	tangram_client::{self as tg, process::log::get::Chunk},
+	tangram_client::prelude::*,
 	unicode_segmentation::{GraphemeCursor, GraphemeIncomplete},
 	unicode_width::UnicodeWidthStr,
 };
@@ -33,13 +33,16 @@ struct GraphemeParserState<'a, 'b> {
 	buffer: &'b mut Vec<u8>,
 	byte: usize,
 	chunk: usize,
-	chunks: &'a [Chunk],
+	chunks: &'a [tg::process::log::get::Chunk],
 	forward: bool,
 	start: usize,
 }
 
 impl Scroll {
-	pub fn new(rect: tui::layout::Rect, chunks: &[Chunk]) -> tg::Result<Self, Error> {
+	pub fn new(
+		rect: tui::layout::Rect,
+		chunks: &[tg::process::log::get::Chunk],
+	) -> tg::Result<Self, Error> {
 		let mut buffer = Vec::with_capacity(64);
 		let chunk = chunks.last().unwrap();
 		let end = chunk.position + chunk.bytes.len().to_u64().unwrap();
@@ -58,7 +61,11 @@ impl Scroll {
 		})
 	}
 
-	pub fn scroll_up(&mut self, height: usize, chunks: &[Chunk]) -> tg::Result<usize, Error> {
+	pub fn scroll_up(
+		&mut self,
+		height: usize,
+		chunks: &[tg::process::log::get::Chunk],
+	) -> tg::Result<usize, Error> {
 		let (count, new_start) = scroll_up_inner(
 			&mut self.buffer,
 			self.start,
@@ -80,7 +87,11 @@ impl Scroll {
 		Ok(count)
 	}
 
-	pub fn scroll_down(&mut self, height: usize, chunks: &[Chunk]) -> tg::Result<usize, Error> {
+	pub fn scroll_down(
+		&mut self,
+		height: usize,
+		chunks: &[tg::process::log::get::Chunk],
+	) -> tg::Result<usize, Error> {
 		let (count, new_end) = scroll_down_inner(
 			&mut self.buffer,
 			self.end,
@@ -102,7 +113,10 @@ impl Scroll {
 		Ok(count)
 	}
 
-	pub fn read_lines(&mut self, chunks: &[Chunk]) -> tg::Result<Vec<String>, Error> {
+	pub fn read_lines(
+		&mut self,
+		chunks: &[tg::process::log::get::Chunk],
+	) -> tg::Result<Vec<String>, Error> {
 		read_lines_inner(
 			&mut self.buffer,
 			self.start,
@@ -118,7 +132,7 @@ fn scroll_up_inner(
 	mut position: u64,
 	max_width: usize,
 	num_lines: usize,
-	chunks: &[Chunk],
+	chunks: &[tg::process::log::get::Chunk],
 ) -> tg::Result<(usize, u64), Error> {
 	for count in 0..num_lines {
 		let mut width = 0;
@@ -152,7 +166,7 @@ fn scroll_down_inner(
 	mut position: u64,
 	max_width: usize,
 	num_lines: usize,
-	chunks: &[Chunk],
+	chunks: &[tg::process::log::get::Chunk],
 ) -> tg::Result<(usize, u64), Error> {
 	let last = chunks.last().unwrap();
 	let last = last.position + last.bytes.len().to_u64().unwrap();
@@ -187,7 +201,7 @@ fn read_lines_inner(
 	mut position: u64,
 	max_width: usize,
 	num_lines: usize,
-	chunks: &[Chunk],
+	chunks: &[tg::process::log::get::Chunk],
 ) -> tg::Result<Vec<String>, Error> {
 	let last = chunks.last().unwrap();
 	let last = last.position + last.bytes.len().to_u64().unwrap();
@@ -227,7 +241,7 @@ fn next_grapheme<'a>(
 	buffer: &'a mut Vec<u8>,
 	position: u64,
 	forward: bool,
-	chunks: &[Chunk],
+	chunks: &[tg::process::log::get::Chunk],
 ) -> tg::Result<(&'a str, u64), Error> {
 	let end_position = {
 		let last = chunks.last().unwrap();
@@ -485,7 +499,7 @@ mod tests {
 		super::{Error, Scroll, next_grapheme, scroll_down_inner, scroll_up_inner},
 		num::ToPrimitive as _,
 		ratatui::layout::Rect,
-		tangram_client as tg,
+		tangram_client::prelude::*,
 	};
 
 	#[test]

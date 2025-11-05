@@ -1,7 +1,7 @@
 use {
 	futures::TryStreamExt as _,
 	std::{io::Write as _, pin::pin},
-	tangram_client::{self as tg, handle::Ext as _},
+	tangram_client::prelude::*,
 };
 
 const BLOB_LENGTH_LIMIT: u64 = 1 << 20;

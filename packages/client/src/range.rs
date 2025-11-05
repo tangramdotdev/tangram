@@ -1,4 +1,4 @@
-use {crate as tg, lsp_types as lsp};
+use {crate::prelude::*, lsp_types as lsp};
 
 /// A range in a string.
 #[derive(

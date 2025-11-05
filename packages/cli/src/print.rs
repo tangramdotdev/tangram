@@ -4,7 +4,7 @@ use {
 	crossterm::{style::Stylize, tty::IsTty as _},
 	futures::{Stream, TryStreamExt as _},
 	std::pin::pin,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tokio::io::AsyncWriteExt as _,
 };
 

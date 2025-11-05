@@ -1,6 +1,6 @@
 use {
 	super::{Builder, Data, Id, Object},
-	crate::{self as tg},
+	crate::prelude::*,
 	std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc},
 	tangram_util::arc::Ext as _,
 };

@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg, prelude::*},
+	crate::prelude::*,
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _, future},
 	serde_with::serde_as,

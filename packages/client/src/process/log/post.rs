@@ -1,5 +1,5 @@
 use {
-	crate::{self as tg},
+	crate::prelude::*,
 	bytes::Bytes,
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},

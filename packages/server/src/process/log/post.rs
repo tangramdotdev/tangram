@@ -1,15 +1,16 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	bytes::Bytes,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio::io::AsyncWriteExt as _,
 };
 
 impl Server {
-	pub async fn post_process_log(
+	pub(crate) async fn post_process_log_with_context(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		mut arg: tg::process::log::post::Arg,
 	) -> tg::Result<()> {
@@ -22,6 +23,10 @@ impl Server {
 			};
 			remote.post_process_log(id, arg).await?;
 			return Ok(());
+		}
+
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
 		}
 
 		// Get the process data.
@@ -72,17 +77,16 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_process_log_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_post_process_log_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.json().await?;
-		handle.post_process_log(&id, arg).await?;
+		self.post_process_log_with_context(context, &id, arg)
+			.await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

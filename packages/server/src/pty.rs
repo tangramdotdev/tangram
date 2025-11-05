@@ -4,7 +4,7 @@ use {
 		ffi::{CStr, CString},
 		os::fd::{FromRawFd as _, OwnedFd},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 mod close;

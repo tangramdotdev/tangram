@@ -1,4 +1,4 @@
-use {crate::Server, std::collections::HashMap, tangram_client as tg};
+use {crate::Server, std::collections::HashMap, tangram_client::prelude::*};
 
 struct State {
 	dependencies: bool,

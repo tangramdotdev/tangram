@@ -1,19 +1,20 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	futures::{Stream, StreamExt as _},
 	std::os::fd::AsFd as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
 	tokio_util::io::ReaderStream,
 };
 
 impl Server {
-	pub async fn read_pipe(
+	pub async fn read_pipe_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::pipe::Id,
 		mut arg: tg::pipe::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>> {
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote).await?;
 			let stream = remote.read_pipe(id, arg).await?;
@@ -43,14 +44,12 @@ impl Server {
 		Ok(stream)
 	}
 
-	pub(crate) async fn handle_read_pipe_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_read_pipe_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
 		let id = id.parse()?;
 
@@ -58,7 +57,7 @@ impl Server {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the stream.
-		let stream = handle.read_pipe(&id, arg).await?;
+		let stream = self.read_pipe_with_context(context, &id, arg).await?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

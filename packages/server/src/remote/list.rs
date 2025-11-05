@@ -1,17 +1,22 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	indoc::indoc,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_uri::Uri,
 };
 
 impl Server {
-	pub async fn list_remotes(
+	pub(crate) async fn list_remotes_with_context(
 		&self,
+		context: &Context,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
+		if context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
 		let connection = self
 			.database
 			.connection()
@@ -48,15 +53,13 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_remotes_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_list_remotes_request(
+		&self,
 		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+		context: &Context,
+	) -> tg::Result<http::Response<Body>> {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let output = handle.list_remotes(arg).await?;
+		let output = self.list_remotes_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

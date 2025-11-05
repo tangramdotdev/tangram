@@ -1,4 +1,4 @@
-use {super::Data, crate as tg, bytes::Bytes};
+use {super::Data, crate::prelude::*, bytes::Bytes};
 
 #[derive(Clone, Debug, derive_more::IsVariant)]
 pub enum Blob {

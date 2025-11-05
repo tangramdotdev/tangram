@@ -4,7 +4,7 @@ use {
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
 	num::ToPrimitive as _,
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 #[derive(Clone, Debug)]

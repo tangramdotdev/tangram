@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{
 		FutureExt as _, future,
@@ -10,15 +10,16 @@ use {
 		io::{Read as _, Seek as _},
 		path::PathBuf,
 	},
-	tangram_client::{self as tg, prelude::*},
+	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_store::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
 impl Server {
-	pub async fn try_get_object(
+	pub async fn try_get_object_with_context(
 		&self,
+		_context: &Context,
 		id: &tg::object::Id,
 		mut arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
@@ -285,17 +286,15 @@ impl Server {
 		Ok(Some(buffer.into()))
 	}
 
-	pub(crate) async fn handle_get_object_request<H>(
-		handle: &H,
+	pub(crate) async fn handle_get_object_request(
+		&self,
 		request: http::Request<Body>,
+		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>>
-	where
-		H: tg::Handle,
-	{
+	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
 		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let Some(output) = handle.try_get_object(&id, arg).await? else {
+		let Some(output) = self.try_get_object_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder().bytes(output.bytes).unwrap();
