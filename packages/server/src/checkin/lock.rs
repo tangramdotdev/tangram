@@ -95,63 +95,7 @@ impl Server {
 
 		// Do not write a lock if the lock was not changed during solving.
 		if let Some(lock) = lock {
-			let changed = graph.nodes.range(next..).any(|(_, node)| {
-				if let Some(lock_node) = node.lock_node {
-					let lock_node = lock.nodes.get(lock_node).unwrap();
-					match (lock_node, &node.variant) {
-						// If a directory removed an entry that was present in the lock, then the lock changed.
-						(tg::graph::data::Node::Directory(lock), Variant::Directory(node)) => {
-							for name in lock.entries.keys() {
-								if !node.entries.contains_key(name) {
-									return true;
-								}
-							}
-						},
-						(tg::graph::data::Node::File(lock), Variant::File(node)) => {
-							if node.dependencies.iter().any(|(reference, referent)| {
-								if !reference.is_solvable() {
-									return false;
-								}
-								if let Some(lock) = lock.dependencies.get(reference) {
-									// If a file had a dependency change, then the lock changed.
-									if lock.as_ref().map(|lock| &lock.options)
-										!= referent.as_ref().map(|referent| &referent.options)
-									{
-										return true;
-									}
-								} else {
-									// If a file added a solvable dependency, then the lock changed.
-									return true;
-								}
-								false
-							}) {
-								return true;
-							}
-
-							// If a file removed a dependency that was present in the lock, then the lock changed.
-							for reference in lock.dependencies.keys() {
-								if !node.dependencies.contains_key(reference) {
-									return true;
-								}
-							}
-						},
-						(tg::graph::data::Node::Symlink(_), Variant::Symlink(_)) => (),
-						_ => {
-							return true;
-						},
-					}
-				} else if let Variant::File(file) = &node.variant {
-					// If a file with solvable dependencies was added, then the lock changed.
-					if file
-						.dependencies
-						.iter()
-						.any(|(reference, _)| reference.is_solvable())
-					{
-						return true;
-					}
-				}
-				false
-			});
+			let changed = Self::checkin_lock_changed(graph, next, lock);
 			if !changed {
 				return Ok(());
 			}
@@ -213,6 +157,70 @@ impl Server {
 		}
 
 		Ok(())
+	}
+
+	fn checkin_lock_changed(
+		graph: &Graph,
+		next: usize,
+		lock: &tangram_client::graph::Data,
+	) -> bool {
+		graph.nodes.range(next..).any(|(_, node)| {
+			if let Some(lock_node) = node.lock_node {
+				let lock_node = lock.nodes.get(lock_node).unwrap();
+				match (lock_node, &node.variant) {
+					// If a directory removed an entry that was present in the lock, then the lock changed.
+					(tg::graph::data::Node::Directory(lock), Variant::Directory(node)) => {
+						for name in lock.entries.keys() {
+							if !node.entries.contains_key(name) {
+								return true;
+							}
+						}
+					},
+					(tg::graph::data::Node::File(lock), Variant::File(node)) => {
+						if node.dependencies.iter().any(|(reference, referent)| {
+							if !reference.is_solvable() {
+								return false;
+							}
+							if let Some(lock) = lock.dependencies.get(reference) {
+								// If a file had a dependency change, then the lock changed.
+								if lock.as_ref().map(|lock| &lock.options)
+									!= referent.as_ref().map(|referent| &referent.options)
+								{
+									return true;
+								}
+							} else {
+								// If a file added a solvable dependency, then the lock changed.
+								return true;
+							}
+							false
+						}) {
+							return true;
+						}
+
+						// If a file removed a dependency that was present in the lock, then the lock changed.
+						for reference in lock.dependencies.keys() {
+							if !node.dependencies.contains_key(reference) {
+								return true;
+							}
+						}
+					},
+					(tg::graph::data::Node::Symlink(_), Variant::Symlink(_)) => (),
+					_ => {
+						return true;
+					},
+				}
+			} else if let Variant::File(file) = &node.variant {
+				// If a file with solvable dependencies was added, then the lock changed.
+				if file
+					.dependencies
+					.iter()
+					.any(|(reference, _)| reference.is_solvable())
+				{
+					return true;
+				}
+			}
+			false
+		})
 	}
 
 	fn checkin_create_lock(graph: &Graph, root: &Path) -> tg::graph::Data {
@@ -352,7 +360,7 @@ impl Server {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
-		// Mark nodes that refer to tagged items.
+		// Mark.
 		let mut marks = vec![false; lock.nodes.len()];
 		for scc in &sccs {
 			let marked = scc.iter().copied().any(|index| {
@@ -404,6 +412,7 @@ impl Server {
 		for node in &mut nodes {
 			match node {
 				tg::graph::data::Node::Directory(directory) => {
+					// Remove unmarked entries.
 					directory.entries.retain(|_name, edge| match edge {
 						tg::graph::data::Edge::Reference(reference) => marks[reference.node],
 						tg::graph::data::Edge::Object(_) => true,
@@ -415,6 +424,7 @@ impl Server {
 					}
 				},
 				tg::graph::data::Node::File(file) => {
+					// Remove unmarked dependencies.
 					file.dependencies.retain(|reference, referent| {
 						let Some(referent) = referent else {
 							return false;
@@ -426,22 +436,20 @@ impl Server {
 							|| (reference.is_solvable()
 								&& (referent.id().is_some() || referent.tag().is_some()))
 					});
+
+					// Update indexes.
 					for referent in file.dependencies.values_mut() {
 						let Some(referent) = referent else {
 							continue;
 						};
-						let edge = &mut referent.item;
-						match edge {
-							tg::graph::data::Edge::Reference(reference)
-								if marks[reference.node] =>
-							{
-								reference.node = map.get(&reference.node).copied().unwrap();
-							},
-							tg::graph::data::Edge::Reference(reference) => {
-								let id = ids[reference.node].clone();
-								referent.item = tg::graph::data::Edge::Object(id);
-							},
-							tg::graph::data::Edge::Object(_) => (),
+						let tg::graph::data::Edge::Reference(reference) = &mut referent.item else {
+							continue;
+						};
+						if marks[reference.node] {
+							reference.node = map.get(&reference.node).copied().unwrap();
+						} else {
+							let id = ids[reference.node].clone();
+							referent.item = tg::graph::data::Edge::Object(id);
 						}
 					}
 				},

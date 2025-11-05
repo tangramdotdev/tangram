@@ -4,13 +4,15 @@ use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*, tangram_either:
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Whether to check out the artifact's dependencies.
 	#[command(flatten)]
 	pub dependencies: Dependencies,
 
-	/// Whether to overwrite an existing file system object at the path.
+	/// Whether to overwrite an existing filesystem object at the path.
 	#[arg(long, requires = "path", short)]
 	pub force: bool,
 
+	/// Whether to write a lock.
 	#[command(flatten)]
 	pub lock: Lock,
 

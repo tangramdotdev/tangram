@@ -73,6 +73,53 @@ impl Store {
 			.map_err(Error::Scylla)?;
 		Ok(Self::Scylla(scylla))
 	}
+
+	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => store.try_get_sync(id),
+			Store::Memory(store) => Ok(store.try_get(id)),
+			_ => Err(tg::error!("unimplemented")),
+		}
+	}
+
+	#[expect(dead_code)]
+	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => store.try_get_batch_sync(ids),
+			Store::Memory(store) => Ok(store.try_get_batch(ids)),
+			_ => Err(tg::error!("unimplemented")),
+		}
+	}
+
+	pub fn try_get_object_data_sync(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Data>> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => store.try_get_object_data_sync(id),
+			Store::Memory(store) => store.try_get_object_data(id),
+			_ => Err(tg::error!("unimplemented")),
+		}
+	}
+
+	pub fn try_get_cache_reference_sync(
+		&self,
+		id: &tg::blob::Id,
+	) -> tg::Result<Option<CacheReference>> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			crate::store::Store::Lmdb(lmdb) => {
+				lmdb.try_get_cache_reference_sync(&id.clone().into())
+			},
+			crate::store::Store::Memory(memory) => {
+				Ok(memory.try_get_cache_reference(&id.clone().into()))
+			},
+			_ => Err(tg::error!("invalid store")),
+		}
+	}
 }
 
 impl store::Store for Store {
@@ -100,7 +147,7 @@ impl store::Store for Store {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.try_get_batch(ids).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => memory.try_get_batch(ids).await.map_err(Error::Memory),
+			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
 			Self::S3(s3) => s3.try_get_batch(ids).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.try_get_batch(ids).await.map_err(Error::Scylla),

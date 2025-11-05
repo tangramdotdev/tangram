@@ -33,6 +33,11 @@ impl Store {
 	}
 
 	#[must_use]
+	pub fn try_get_batch(&self, ids: &[tg::object::Id]) -> Vec<Option<Bytes>> {
+		ids.iter().map(|id| self.try_get(id)).collect()
+	}
+
+	#[must_use]
 	pub fn try_get_cache_reference(&self, id: &tg::object::Id) -> Option<CacheReference> {
 		let entry = self.0.get(id)?;
 		let cache_reference = entry.cache_reference.clone()?;
@@ -61,22 +66,21 @@ impl crate::Store for Store {
 	type Error = Error;
 
 	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
-		Ok(Self::try_get(self, id))
+		Ok(self.try_get(id))
 	}
 
 	async fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
 	) -> Result<Vec<Option<Bytes>>, Self::Error> {
-		let results = ids.iter().map(|id| Self::try_get(self, id)).collect();
-		Ok(results)
+		Ok(self.try_get_batch(ids))
 	}
 
 	async fn try_get_cache_reference(
 		&self,
 		id: &tg::object::Id,
 	) -> Result<Option<CacheReference>, Self::Error> {
-		Ok(Self::try_get_cache_reference(self, id))
+		Ok(self.try_get_cache_reference(id))
 	}
 
 	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {

@@ -11,7 +11,6 @@ use {
 pub struct Arg {
 	pub artifact: tg::artifact::Id,
 
-	/// Whether to check out the artifact's dependencies.
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,
 

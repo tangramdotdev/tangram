@@ -9,14 +9,10 @@ struct State {
 }
 
 impl Server {
-	pub(super) fn checkout_write_lock(
-		&self,
-		id: tg::artifact::Id,
-		state: &mut super::State,
-	) -> tg::Result<()> {
+	pub(super) fn checkout_write_lock(&self, state: &mut super::State) -> tg::Result<()> {
 		// Create the lock.
 		let lock = self
-			.checkout_create_lock(&id, state.arg.dependencies)
+			.checkout_create_lock(&state.artifact, state.arg.dependencies)
 			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 
 		// Do not write the lock if it is empty.
@@ -25,15 +21,14 @@ impl Server {
 		}
 
 		// Write the lock.
-		let artifact = tg::Artifact::with_id(id);
-		if artifact.is_directory() {
+		if state.artifact.is_directory() {
 			let contents = serde_json::to_vec_pretty(&lock)
 				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 			let lockfile_path = state.path.join(tg::package::LOCKFILE_FILE_NAME);
 			std::fs::write(&lockfile_path, &contents).map_err(
 				|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
 			)?;
-		} else if artifact.is_file() {
+		} else if state.artifact.is_file() {
 			let contents = serde_json::to_vec(&lock)
 				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 			xattr::set(&state.path, tg::file::LOCKATTR_XATTR_NAME, &contents)
@@ -87,14 +82,14 @@ impl Server {
 	) -> tg::Result<usize> {
 		let (id, node, graph) = match edge {
 			tg::graph::data::Edge::Reference(reference) => {
-				// Compute the ID.
+				// Load the graph.
 				let graph = reference
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				self.checkout_create_lock_ensure_graph_exists(state, graph)?;
+				self.checkout_create_lock_load_graph(state, graph)?;
 
-				// Get the node data.
+				// Get the node.
 				let node = state
 					.graphs
 					.get(graph)
@@ -103,7 +98,7 @@ impl Server {
 					.get(reference.node)
 					.ok_or_else(|| tg::error!("invalid node index"))?;
 
-				// Compute the id.
+				// Create the data.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
 						tg::directory::Data::Reference(reference.clone()).into()
@@ -113,9 +108,11 @@ impl Server {
 						tg::symlink::Data::Reference(reference.clone()).into()
 					},
 				};
+
+				// Compute the ID.
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
-				// Check if visited.
+				// Check if the node has been visited.
 				if let Some(index) = state.visited.get(&id).copied() {
 					return Ok(index);
 				}
@@ -123,27 +120,18 @@ impl Server {
 				(id, node.clone(), Some(graph.clone()))
 			},
 			tg::graph::data::Edge::Object(id) => {
-				// Check if visited.
 				if let Some(index) = state.visited.get(id).copied() {
 					return Ok(index);
 				}
 
-				// Otherwise, lookup the artifact data by ID.
-				#[allow(clippy::match_wildcard_for_single_variants)]
-				let data = match &self.store {
-					crate::Store::Lmdb(store) => {
-						store.try_get_object_data_sync(&id.clone().into())?
-					},
-					crate::Store::Memory(store) => store.try_get_object_data(&id.clone().into())?,
-					_ => {
-						return Err(tg::error!("unimplemented"));
-					},
-				}
-				.ok_or_else(|| tg::error!(%id = id.clone(), "expected the object to be stored"))?;
-				let data = tg::artifact::Data::try_from(data)?;
+				let data = self
+					.store
+					.try_get_object_data_sync(&id.clone().into())?
+					.ok_or_else(|| tg::error!("failed to load the object"))?
+					.try_into()
+					.map_err(|_| tg::error!("expected artifact data"))?;
 
 				match data {
-					// Handle the case where this points into a graph.
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
 						reference,
 					))
@@ -169,24 +157,25 @@ impl Server {
 
 		let index = state.nodes.len();
 		state.visited.insert(id.clone(), index);
-		state.ids.push(id.clone().into());
+		state.ids.push(id.into());
 		state.nodes.push(None);
-		let lock_node = match node {
+		let node = match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.checkout_create_lock_directory(state, &node, graph.as_ref())?
+				self.checkout_create_lock_directory(state, node, graph.as_ref())?
 			},
 			tg::graph::data::Node::File(node) => {
-				self.checkout_create_lock_file(state, &node, graph.as_ref())?
+				self.checkout_create_lock_file(state, node, graph.as_ref())?
 			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.checkout_create_lock_symlink(state, &node, graph.as_ref())?
+				self.checkout_create_lock_symlink(state, node, graph.as_ref())?
 			},
 		};
-		state.nodes[index].replace(lock_node);
+		state.nodes[index].replace(node);
+
 		Ok(index)
 	}
 
-	fn checkout_create_lock_ensure_graph_exists(
+	fn checkout_create_lock_load_graph(
 		&self,
 		state: &mut State,
 		graph: &tg::graph::Id,
@@ -194,17 +183,12 @@ impl Server {
 		if state.graphs.contains_key(graph) {
 			return Ok(());
 		}
-		#[allow(clippy::match_wildcard_for_single_variants)]
-		let data = match &self.store {
-			crate::Store::Lmdb(store) => store.try_get_object_data_sync(&graph.clone().into())?,
-			crate::Store::Memory(store) => store.try_get_object_data(&graph.clone().into())?,
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
-		}
-		.ok_or_else(|| tg::error!("expected the object to be stored"))?
-		.try_into()
-		.map_err(|_| tg::error!("expected a graph"))?;
+		let data = self
+			.store
+			.try_get_object_data_sync(&graph.clone().into())?
+			.ok_or_else(|| tg::error!("failed to load the graph"))?
+			.try_into()
+			.map_err(|_| tg::error!("expected graph data"))?;
 		state.graphs.insert(graph.clone(), data);
 		Ok(())
 	}
@@ -212,14 +196,13 @@ impl Server {
 	fn checkout_create_lock_directory(
 		&self,
 		state: &mut State,
-		node: &tg::graph::data::Directory,
+		node: tg::graph::data::Directory,
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<tg::graph::data::Node> {
 		let entries = node
 			.entries
-			.iter()
-			.map(|(name, edge)| {
-				let mut edge = edge.clone();
+			.into_iter()
+			.map(|(name, mut edge)| {
 				if let tg::graph::data::Edge::Reference(reference) = &mut edge
 					&& reference.graph.is_none()
 				{
@@ -230,7 +213,7 @@ impl Server {
 					graph: None,
 					node,
 				});
-				Ok::<_, tg::Error>((name.clone(), edge))
+				Ok::<_, tg::Error>((name, edge))
 			})
 			.collect::<tg::Result<_>>()?;
 		let directory = tg::graph::data::Directory { entries };
@@ -241,18 +224,19 @@ impl Server {
 	fn checkout_create_lock_file(
 		&self,
 		state: &mut State,
-		node: &tg::graph::data::File,
+		node: tg::graph::data::File,
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<tg::graph::data::Node> {
 		let dependencies = node
 			.dependencies
-			.iter()
+			.into_iter()
 			.map(|(reference, referent)| {
 				let Some(referent) = referent else {
-					return Ok::<_, tg::Error>((reference.clone(), None));
+					return Ok::<_, tg::Error>((reference, None));
 				};
-				let edge = match referent.item.clone() {
-					tg::graph::data::Edge::Reference(mut reference) => {
+				let edge = match &referent.item {
+					tg::graph::data::Edge::Reference(reference) => {
+						let mut reference = reference.clone();
 						if reference.graph.is_none() {
 							reference.graph = graph.cloned();
 						}
@@ -261,30 +245,30 @@ impl Server {
 					tg::graph::data::Edge::Object(tg::object::Id::Directory(id))
 						if state.dependencies =>
 					{
-						tg::graph::data::Edge::Object(id.into())
+						tg::graph::data::Edge::Object(id.clone().into())
 					},
 					tg::graph::data::Edge::Object(tg::object::Id::File(id))
 						if state.dependencies =>
 					{
-						tg::graph::data::Edge::Object(id.into())
+						tg::graph::data::Edge::Object(id.clone().into())
 					},
 					tg::graph::data::Edge::Object(tg::object::Id::Symlink(id))
 						if state.dependencies =>
 					{
-						tg::graph::data::Edge::Object(id.into())
+						tg::graph::data::Edge::Object(id.clone().into())
 					},
 					tg::graph::data::Edge::Object(id) => {
-						tg::graph::data::Edge::Object(id.try_into()?)
+						tg::graph::data::Edge::Object(id.clone().try_into()?)
 					},
 				};
 				let node = self.checkout_create_lock_inner(state, &edge)?;
-				let referent = referent.clone().map(|_| {
+				let referent = referent.map(|_| {
 					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 						graph: None,
 						node,
 					})
 				});
-				Ok::<_, tg::Error>((reference.clone(), Some(referent)))
+				Ok::<_, tg::Error>((reference, Some(referent)))
 			})
 			.collect::<tg::Result<_>>()?;
 		let file = tg::graph::data::File {
@@ -299,7 +283,7 @@ impl Server {
 	fn checkout_create_lock_symlink(
 		&self,
 		state: &mut State,
-		node: &tg::graph::data::Symlink,
+		node: tg::graph::data::Symlink,
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<tg::graph::data::Node> {
 		let artifact = node
@@ -320,7 +304,7 @@ impl Server {
 			});
 		let symlink = tg::graph::data::Symlink {
 			artifact,
-			path: None,
+			path: node.path,
 		};
 		let node = tg::graph::data::Node::Symlink(symlink);
 		Ok(node)

@@ -86,7 +86,7 @@ impl Store {
 		Ok(Self { db, env, sender })
 	}
 
-	pub fn try_get_sync(&self, id: &tg::object::Id) -> Result<Option<Bytes>, tg::Error> {
+	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let transaction = self
 			.env
 			.read_txn()
@@ -145,7 +145,7 @@ impl Store {
 	pub fn try_get_cache_reference_sync(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<CacheReference>, tg::Error> {
+	) -> tg::Result<Option<CacheReference>> {
 		let transaction = self
 			.env
 			.read_txn()

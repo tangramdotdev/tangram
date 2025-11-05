@@ -73,14 +73,8 @@ impl Server {
 		id: &tg::object::Id,
 		file: &mut Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
-		let mut bytes = match &self.store {
-			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_sync(id)?,
-			crate::store::Store::Memory(memory) => memory.try_get(id),
-			_ => {
-				return Err(tg::error!("invalid store"));
-			},
-		};
+		// Attempt to get the bytes from the store.
+		let mut bytes = self.store.try_get_sync(id)?;
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		if bytes.is_none()
@@ -236,18 +230,7 @@ impl Server {
 		file: &mut Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
 	) -> tg::Result<Option<Bytes>> {
 		// Get the cache reference.
-		#[allow(clippy::match_wildcard_for_single_variants)]
-		let cache_reference = match &self.store {
-			crate::store::Store::Lmdb(lmdb) => {
-				lmdb.try_get_cache_reference_sync(&id.clone().into())?
-			},
-			crate::store::Store::Memory(memory) => {
-				memory.try_get_cache_reference(&id.clone().into())
-			},
-			_ => {
-				return Err(tg::error!("invalid store"));
-			},
-		};
+		let cache_reference = self.store.try_get_cache_reference_sync(id)?;
 		let Some(cache_reference) = cache_reference else {
 			return Ok(None);
 		};

@@ -98,6 +98,7 @@ impl Server {
 						},
 					)
 				});
+
 				let result = future::try_join_all(artifacts.into_iter().map({
 					|artifact| {
 						let server = server.clone();
@@ -421,22 +422,7 @@ impl Server {
 
 				// Ensure the graph is cached.
 				if !state.graphs.contains_key(graph) {
-					#[allow(clippy::match_wildcard_for_single_variants)]
-					let data: tg::graph::Data = match &self.store {
-						crate::Store::Lmdb(store) => {
-							store.try_get_object_data_sync(&graph.clone().into())?
-						},
-						crate::Store::Memory(store) => {
-							store.try_get_object_data(&graph.clone().into())?
-						},
-						_ => {
-							return Err(tg::error!("unimplemented"));
-						},
-					}
-					.ok_or_else(|| tg::error!("expected the object to be stored"))?
-					.try_into()
-					.map_err(|_| tg::error!("expected a graph"))?;
-					state.graphs.insert(graph.clone(), data);
+					self.cache_load_graph(state, graph)?;
 				}
 
 				// Get the node.
@@ -463,22 +449,15 @@ impl Server {
 
 				Ok((id, node, Some(graph.clone())))
 			},
+
+			// Otherwise, look up the artifact data by ID.
 			tg::graph::data::Edge::Object(id) => {
-				// Otherwise, look up the artifact data by ID.
-				#[allow(clippy::match_wildcard_for_single_variants)]
-				let data = match &self.store {
-					crate::Store::Lmdb(store) => {
-						store.try_get_object_data_sync(&id.clone().into())?
-					},
-					crate::Store::Memory(store) => store.try_get_object_data(&id.clone().into())?,
-					_ => {
-						return Err(tg::error!("unimplemented"));
-					},
-				}
-				.ok_or_else(
-					|| tg::error!(%root = state.artifact, %id = id.clone(), "expected the object to be stored"),
-				)?;
-				let data = tg::artifact::Data::try_from(data)?;
+				let data = self
+					.store
+					.try_get_object_data_sync(&id.clone().into())?
+					.ok_or_else(|| tg::error!("failed to load the object"))?
+					.try_into()
+					.map_err(|_| tg::error!("expected artifact data"))?;
 				match data {
 					// Handle the case where this points into a graph.
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
@@ -504,6 +483,20 @@ impl Server {
 				}
 			},
 		}
+	}
+
+	fn cache_load_graph(&self, state: &mut State, graph: &tg::graph::Id) -> tg::Result<()> {
+		if state.graphs.contains_key(graph) {
+			return Ok(());
+		}
+		let data = self
+			.store
+			.try_get_object_data_sync(&graph.clone().into())?
+			.ok_or_else(|| tg::error!("failed to load the graph"))?
+			.try_into()
+			.map_err(|_| tg::error!("expected graph data"))?;
+		state.graphs.insert(graph.clone(), data);
+		Ok(())
 	}
 
 	fn cache_inner_directory(

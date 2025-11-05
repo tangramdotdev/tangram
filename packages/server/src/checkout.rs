@@ -11,9 +11,12 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_either::Either,
-	tangram_futures::stream::{Ext as _, TryExt as _},
+	tangram_futures::{
+		stream::{Ext as _, TryExt as _},
+		task::Task,
+	},
 	tangram_http::{Body, request::Ext as _},
-	tokio_util::{io::InspectReader, task::AbortOnDropHandle},
+	tokio_util::io::InspectReader,
 };
 
 mod lock;
@@ -81,12 +84,12 @@ impl Server {
 		}
 
 		let progress = crate::progress::Handle::new();
-		let task = AbortOnDropHandle::new(tokio::spawn({
+		let task = Task::spawn({
 			let server = self.clone();
 			let artifact = arg.artifact.clone();
 			let arg = arg.clone();
 			let progress = progress.clone();
-			async move {
+			move |_| async move {
 				// Ensure the artifact is complete.
 				let result = server
 					.checkout_ensure_complete(&artifact, &progress)
@@ -150,7 +153,7 @@ impl Server {
 					},
 				}
 			}
-		}));
+		});
 
 		let context = context.clone();
 		let stream = progress
@@ -274,11 +277,12 @@ impl Server {
 			tangram_util::fs::remove(&path).await.ok();
 		}
 
-		let task = tokio::task::spawn_blocking({
+		// Checkout.
+		let result = Task::spawn_blocking({
 			let server = self.clone();
 			let path = path.clone();
 			let progress = progress.clone();
-			move || {
+			move |_| {
 				// Create the state.
 				let mut state = State {
 					arg,
@@ -298,18 +302,17 @@ impl Server {
 				server.checkout_inner(&mut state, &path, &edge)?;
 
 				// Write the lock if necessary.
-				server.checkout_write_lock(id, &mut state)?;
+				server.checkout_write_lock(&mut state)?;
 
 				Ok::<_, tg::Error>(())
 			}
-		});
-		let abort_handle = task.abort_handle();
-		scopeguard::defer! {
-			abort_handle.abort();
-		}
+		})
+		.wait()
+		.await
+		.unwrap();
 
 		// Delete the partially constructed output if checkout failed.
-		if let Err(error) = task.await.unwrap() {
+		if let Err(error) = result {
 			tangram_util::fs::remove(&path).await.ok();
 			return Err(error);
 		}
@@ -391,21 +394,12 @@ impl Server {
 
 				// Ensure the graph is cached.
 				if !state.graphs.contains_key(graph) {
-					#[allow(clippy::match_wildcard_for_single_variants)]
-					let data: tg::graph::Data = match &self.store {
-						crate::Store::Lmdb(store) => {
-							store.try_get_object_data_sync(&graph.clone().into())?
-						},
-						crate::Store::Memory(store) => {
-							store.try_get_object_data(&graph.clone().into())?
-						},
-						_ => {
-							return Err(tg::error!("unimplemented"));
-						},
-					}
-					.ok_or_else(|| tg::error!("expected the object to be stored"))?
-					.try_into()
-					.map_err(|_| tg::error!("expected a graph"))?;
+					let data = self
+						.store
+						.try_get_object_data_sync(&graph.clone().into())?
+						.ok_or_else(|| tg::error!("failed to load the graph"))?
+						.try_into()
+						.map_err(|_| tg::error!("expected graph data"))?;
 					state.graphs.insert(graph.clone(), data);
 				}
 
@@ -436,20 +430,12 @@ impl Server {
 				Ok((id, node, Some(graph.clone())))
 			},
 			tg::graph::data::Edge::Object(id) => {
-				#[allow(clippy::match_wildcard_for_single_variants)]
-				let data = match &self.store {
-					crate::Store::Lmdb(store) => {
-						store.try_get_object_data_sync(&id.clone().into())?
-					},
-					crate::Store::Memory(store) => store.try_get_object_data(&id.clone().into())?,
-					_ => {
-						return Err(tg::error!("unimplemented"));
-					},
-				}
-				.ok_or_else(
-					|| tg::error!(%root = state.artifact, %id = id.clone(), "expected the object to be stored"),
-				)?;
-				let data = tg::artifact::Data::try_from(data)?;
+				let data = self
+					.store
+					.try_get_object_data_sync(&id.clone().into())?
+					.ok_or_else(|| tg::error!("failed to load the object"))?
+					.try_into()
+					.map_err(|_| tg::error!("expected artifact data"))?;
 				match data {
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
 						reference,
