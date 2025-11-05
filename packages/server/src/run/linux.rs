@@ -1,8 +1,5 @@
 use {
-	super::{
-		proxy::Proxy,
-		util::{cache_children, render_env, render_value, which, whoami},
-	},
+	super::util::{cache_children, render_env, render_value, which, whoami},
 	crate::{Context, Server, temp::Temp},
 	indoc::formatdoc,
 	std::{
@@ -186,30 +183,29 @@ impl Server {
 			(args, cwd, env, executable, root)
 		};
 
-		// Create the proxy.
-		let proxy = if root_mounted {
+		// Create the serve task.
+		let serve_task = if root_mounted {
 			None
 		} else {
 			// Create the paths.
-			let paths = crate::run::proxy::Paths {
+			let paths = crate::context::Paths {
 				server_host: self.path.clone(),
 				output_host: temp.path().join("output"),
 				output_guest: "/output".into(),
 				root_host: root,
 			};
 
-			// Create the proxy server guest URL.
+			// Create the guest uri.
 			let socket = Path::new("/.tangram/socket");
 			let socket = socket.to_str().unwrap();
 			let socket = urlencoding::encode(socket);
 			let guest_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
 
-			// Create the proxy server host URL.
+			// Create the host uri.
 			let socket = temp.path().join(".tangram/socket");
 			tokio::fs::create_dir_all(socket.parent().unwrap())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
@@ -217,20 +213,18 @@ impl Server {
 			);
 			let host_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
 
-			// Create the proxy.
-			let proxy = Proxy {
-				paths: Some(paths),
-				process: process.clone(),
-				remote: remote.cloned(),
-			};
-
 			// Listen.
 			let listener = Server::listen(&host_uri).await?;
 
 			// Serve.
 			let server = self.clone();
 			let context = Context {
-				proxy: Some(Arc::new(proxy)),
+				process: Some(Arc::new(crate::context::Process {
+					id: process.id().clone(),
+					paths: Some(paths),
+					remote: remote.cloned(),
+					retry: *process.retry(self).await?,
+				})),
 				..Default::default()
 			};
 			let task =
@@ -247,8 +241,8 @@ impl Server {
 			env,
 			executable,
 			id,
-			proxy,
 			remote,
+			serve_task,
 			server: self,
 			state,
 			temp: &temp,
@@ -324,7 +318,6 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 
 	// Add additional mounts.
 	if !root_mounted {
-		// Create the proxy path.
 		let path = temp.path().join(".tangram");
 		tokio::fs::create_dir_all(&path).await.map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to create the data directory"),

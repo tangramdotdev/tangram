@@ -12,13 +12,10 @@ impl Server {
 	#[cfg(not(feature = "compiler"))]
 	pub(crate) async fn lsp_with_context(
 		&self,
-		context: &Context,
+		_context: &Context,
 		_input: impl AsyncBufRead + Send + Unpin + 'static,
 		_output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		if context.proxy.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
 		Err(tg::error!(
 			"this version of tangram was not compiled with compiler support"
 		))

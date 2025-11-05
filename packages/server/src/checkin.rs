@@ -37,8 +37,8 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
-		if let Some(proxy) = &context.process {
-			arg.path = proxy.host_path_for_guest_path(arg.path.clone());
+		if let Some(process) = &context.process {
+			arg.path = process.host_path_for_guest_path(arg.path.clone());
 		}
 		let progress = crate::progress::Handle::new();
 		let task = AbortOnDropHandle::new(tokio::spawn({

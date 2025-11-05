@@ -8,17 +8,22 @@ use {std::path::Path, tangram_ignore as ignore};
 
 impl Server {
 	#[cfg(not(feature = "compiler"))]
-	pub(crate) async fn format_with_context(&self, context: &Context, _arg: tg::format::Arg) -> tg::Result<()> {
-		if context.proxy.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
+	pub(crate) async fn format_with_context(
+		&self,
+		_context: &Context,
+		_arg: tg::format::Arg,
+	) -> tg::Result<()> {
 		Err(tg::error!(
 			"this version of tangram was not compiled with compiler support"
 		))
 	}
 
 	#[cfg(feature = "compiler")]
-	pub(crate) async fn format_with_context(&self, context: &Context, arg: tg::format::Arg) -> tg::Result<()> {
+	pub(crate) async fn format_with_context(
+		&self,
+		context: &Context,
+		arg: tg::format::Arg,
+	) -> tg::Result<()> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}

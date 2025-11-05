@@ -6,17 +6,22 @@ use {
 
 impl Server {
 	#[cfg(not(feature = "compiler"))]
-	pub(crate) async fn document_with_context(&self, context: &Context, _arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
-		if context.proxy.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
+	pub(crate) async fn document_with_context(
+		&self,
+		_context: &Context,
+		_arg: tg::document::Arg,
+	) -> tg::Result<serde_json::Value> {
 		Err(tg::error!(
 			"this version of tangram was not compiled with compiler support"
 		))
 	}
 
 	#[cfg(feature = "compiler")]
-	pub(crate) async fn document_with_context(&self, context: &Context, mut arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+	pub(crate) async fn document_with_context(
+		&self,
+		context: &Context,
+		mut arg: tg::document::Arg,
+	) -> tg::Result<serde_json::Value> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = arg.remote.take() {
 			let remote = self.get_remote_client(remote.clone()).await?;

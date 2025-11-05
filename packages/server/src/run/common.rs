@@ -25,8 +25,8 @@ pub struct Arg<'a> {
 	pub env: BTreeMap<String, String>,
 	pub executable: PathBuf,
 	pub id: &'a tg::process::Id,
-	pub proxy: Option<(Task<()>, Uri)>,
 	pub remote: Option<&'a String>,
+	pub serve_task: Option<(Task<()>, Uri)>,
 	pub server: &'a Server,
 	pub state: &'a tg::process::State,
 	pub temp: &'a Temp,
@@ -55,7 +55,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 
 	let server = arg.server;
 	let temp = arg.temp;
-	let proxy = arg.proxy.take();
+	let serve_task = arg.serve_task.take();
 
 	let exit = if let Some(pty) = pty {
 		run_session(arg, pty).await?
@@ -63,8 +63,8 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 		run_inner(arg).await?
 	};
 
-	// Stop and await the proxy task.
-	if let Some((task, _)) = proxy {
+	// Stop and await the serve task.
+	if let Some((task, _)) = serve_task {
 		task.stop();
 		task.wait().await.unwrap();
 	}

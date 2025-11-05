@@ -92,14 +92,14 @@ impl Server {
 			},
 		};
 
-		// Create the proxy.
-		let proxy = if root_mounted {
+		// Create the serve task.
+		let serve_task = if root_mounted {
 			None
 		} else {
 			let path = temp.path().join(".tangram");
-			tokio::fs::create_dir_all(&path)
-				.await
-				.map_err(|source| tg::error!(!source, %path = path.display(), "failed to create the proxy server directory"))?;
+			tokio::fs::create_dir_all(&path).await.map_err(
+				|source| tg::error!(!source, %path = path.display(), "failed to create the directory"),
+			)?;
 
 			// Listen.
 			let socket_path = path.join("socket").display().to_string();
@@ -143,7 +143,7 @@ impl Server {
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
 		// Set `$TANGRAM_URL`.
-		let url = proxy.as_ref().map_or_else(
+		let url = serve_task.as_ref().map_or_else(
 			|| {
 				let path = self.path.join("socket");
 				let path = path.to_str().unwrap();
@@ -215,8 +215,8 @@ impl Server {
 			env,
 			executable,
 			id,
-			proxy,
 			remote,
+			serve_task,
 			server: self,
 			state,
 			temp: &temp,

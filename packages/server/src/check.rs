@@ -8,12 +8,9 @@ impl Server {
 	#[cfg(not(feature = "compiler"))]
 	pub(crate) async fn check_with_context(
 		&self,
-		context: &Context,
+		_context: &Context,
 		_arg: tg::check::Arg,
 	) -> tg::Result<tg::check::Output> {
-		if context.proxy.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
 		Err(tg::error!(
 			"this version of tangram was not compiled with compiler support"
 		))
