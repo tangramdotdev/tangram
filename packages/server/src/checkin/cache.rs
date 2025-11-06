@@ -1,8 +1,16 @@
 use {
 	crate::{Server, checkin::Graph, temp::Temp},
-	std::{os::unix::fs::PermissionsExt as _, path::Path},
+	futures::stream::{self, StreamExt as _, TryStreamExt as _},
+	std::{
+		os::unix::fs::PermissionsExt as _,
+		path::{Path, PathBuf},
+	},
 	tangram_client::prelude::*,
+	tangram_util::iter::Ext as _,
 };
+
+const BATCH_SIZE: usize = 128;
+const CONCURRENCY: usize = 8;
 
 impl Server {
 	pub(super) async fn checkin_cache(
@@ -13,21 +21,40 @@ impl Server {
 		root: &Path,
 	) -> tg::Result<()> {
 		if arg.options.destructive {
-			self.checkin_cache_task_destructive(graph, root).await?;
+			self.checkin_cache_destructive(graph, root).await?;
 		} else {
-			tokio::task::spawn_blocking({
-				let server = self.clone();
-				let graph = graph.clone();
-				move || server.checkin_cache_task_inner(&graph, next)
-			})
-			.await
-			.unwrap()
-			.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
+			let batches = graph
+				.nodes
+				.range(next..)
+				.filter_map(|(_, node)| {
+					let path = node.path.as_ref()?.clone();
+					let metadata = node.path_metadata.as_ref()?.clone();
+					if !metadata.is_file() {
+						return None;
+					}
+					let id = node.id.as_ref()?.clone();
+					Some((path, metadata, id))
+				})
+				.batches(BATCH_SIZE)
+				.map(|batch| {
+					let server = self.clone();
+					async move {
+						tokio::task::spawn_blocking(move || server.checkin_cache_inner(batch))
+							.await
+							.unwrap()
+					}
+				})
+				.collect::<Vec<_>>();
+			stream::iter(batches)
+				.buffer_unordered(CONCURRENCY)
+				.try_collect::<()>()
+				.await
+				.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
 		}
 		Ok(())
 	}
 
-	async fn checkin_cache_task_destructive(&self, graph: &Graph, root: &Path) -> tg::Result<()> {
+	async fn checkin_cache_destructive(&self, graph: &Graph, root: &Path) -> tg::Result<()> {
 		let index = graph.paths.get(root).unwrap();
 		let node = graph.nodes.get(index).unwrap();
 		let id = node.id.as_ref().unwrap();
@@ -70,19 +97,19 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_cache_task_inner(&self, graph: &Graph, next: usize) -> tg::Result<()> {
-		for (_, node) in graph.nodes.range(next..) {
-			let Some(path) = node.path.as_ref() else {
-				continue;
-			};
-			let metadata = node.path_metadata.as_ref().unwrap();
-			if !metadata.is_file() {
+	fn checkin_cache_inner(
+		&self,
+		batch: Vec<(PathBuf, std::fs::Metadata, tg::object::Id)>,
+	) -> tg::Result<()> {
+		for (path, metadata, id) in batch {
+			// If the file is already cached, then continue.
+			let cache_path = self.cache_path().join(id.to_string());
+			if cache_path.exists() {
 				continue;
 			}
-			let id = node.id.as_ref().unwrap();
 
 			// Copy the file to a temp.
-			let src = path;
+			let src = &path;
 			let temp = Temp::new(self);
 			let dst = temp.path();
 			std::fs::copy(src, dst)
@@ -100,7 +127,7 @@ impl Server {
 
 			// Rename the temp to the cache directory.
 			let src = temp.path();
-			let dst = &self.cache_path().join(id.to_string());
+			let dst = &cache_path;
 			let done = match std::fs::rename(src, dst) {
 				Ok(()) => false,
 				Err(source) => {
