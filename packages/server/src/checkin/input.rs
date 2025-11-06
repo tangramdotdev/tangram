@@ -19,6 +19,7 @@ struct State<'a> {
 	ignorer: Option<ignore::Ignorer>,
 	lock: Option<&'a tg::graph::Data>,
 	progress: crate::progress::Handle<tg::checkin::Output>,
+	root: &'a Path,
 }
 
 struct Item {
@@ -49,7 +50,7 @@ impl Server {
 		lock: Option<&tg::graph::Data>,
 		next: usize,
 		progress: crate::progress::Handle<tg::checkin::Output>,
-		root: PathBuf,
+		root: &Path,
 	) -> tg::Result<()> {
 		// Create the state.
 		let mut state = State {
@@ -60,11 +61,12 @@ impl Server {
 			ignorer,
 			lock,
 			progress,
+			root,
 		};
 
 		// Add the root path to the stack.
 		let item = Item {
-			path: root,
+			path: root.to_owned(),
 			parent: None,
 		};
 		let mut stack = vec![item];
@@ -169,15 +171,24 @@ impl Server {
 		)?;
 
 		// Skip ignored files, unless the path is in the artifacts path.
-		let is_in_artifacts_path = state
+		if !state
 			.artifacts_path
-			.is_some_and(|artifacts_path| item.path.starts_with(artifacts_path));
-		if !is_in_artifacts_path
-			&& state.ignorer.as_mut().is_some_and(|ignorer| {
-				ignorer
-					.matches(&item.path, Some(metadata.is_dir()))
-					.unwrap_or_default()
-			}) {
+			.is_some_and(|artifacts_path| item.path.starts_with(artifacts_path))
+			&& state
+				.ignorer
+				.as_mut()
+				.map(|ignorer| {
+					let root = if item.path.starts_with(state.root) {
+						Some(state.root)
+					} else {
+						None
+					};
+					ignorer.matches(root, &item.path, Some(metadata.is_dir()))
+				})
+				.transpose()
+				.map_err(|source| tg::error!(!source, "failed to ignore"))?
+				.is_some_and(|ignore| ignore)
+		{
 			return Ok(());
 		}
 
