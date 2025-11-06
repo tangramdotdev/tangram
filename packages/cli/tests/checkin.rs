@@ -1011,6 +1011,47 @@ async fn default_ignore() {
 }
 
 #[tokio::test]
+async fn ignored_package() {
+	let artifact = temp::directory! {
+		".tangramignore" => temp::file!("/ignored"),
+		"ignored" => temp::directory! {
+			".tangramignore" => temp::file!("foo.txt"),
+			"tangram.ts" => temp::file!(r#"import * as dependency from "./dependency.tg.ts";"#),
+			"dependency.tg.ts" => temp::file!(""),
+			"foo.txt" => temp::file!("hello, foo"),
+		},
+		"tangram.ts" => temp::file!(""),
+	}
+	.into();
+	let path = Path::new("ignored");
+	let destructive = false;
+	let tags = vec![];
+	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	assert_snapshot!(object, @r#"
+	tg.directory({
+	  ".tangramignore": tg.file({
+	    "contents": tg.blob("foo.txt"),
+	  }),
+	  "dependency.tg.ts": tg.file({
+	    "contents": tg.blob(""),
+	  }),
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("import * as dependency from \"./dependency.tg.ts\";"),
+	    "dependencies": {
+	      "./dependency.tg.ts": {
+	        "item": tg.file({
+	          "contents": tg.blob(""),
+	        }),
+	        "path": "dependency.tg.ts",
+	      },
+	    },
+	  }),
+	})
+	"#);
+	assert!(lock.is_none());
+}
+
+#[tokio::test]
 async fn invalid_lockfile() {
 	let artifact = temp::directory! {
 		"tangram.lock" => temp::file!(indoc!(r#"
@@ -1255,15 +1296,14 @@ async fn tagged_package_with_local_path() {
 		.await
 		.unwrap();
 	assert_success!(metadata_output);
-	let _metadata: String = std::str::from_utf8(&metadata_output.stdout)
-		.unwrap()
-		.into();
+	let _metadata: String = std::str::from_utf8(&metadata_output.stdout).unwrap().into();
 
 	// Get the lock.
-	let lock: Option<tg::graph::Data> = tokio::fs::read_to_string(path.join(tg::package::LOCKFILE_FILE_NAME))
-		.await
-		.ok()
-		.and_then(|lock| serde_json::from_str(&lock).ok());
+	let lock: Option<tg::graph::Data> =
+		tokio::fs::read_to_string(path.join(tg::package::LOCKFILE_FILE_NAME))
+			.await
+			.ok()
+			.and_then(|lock| serde_json::from_str(&lock).ok());
 
 	assert_snapshot!(object, @r#"
 	tg.directory({

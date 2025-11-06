@@ -31,7 +31,7 @@ async fn test() {
 			.DS_Store
 		"
 	);
-	let mut matcher = Ignorer::new(file_names, Some(global)).unwrap();
+	let mut matcher = Ignorer::new(None, file_names, Some(global)).unwrap();
 	let right = vec![
 		(".DS_Store", true),
 		(".gitignore", false),

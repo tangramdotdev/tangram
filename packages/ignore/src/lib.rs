@@ -21,6 +21,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Ignorer {
 	file_names: Vec<OsString>,
+	root: Option<PathBuf>,
 	global: Option<File>,
 	nodes: Vec<Node>,
 }
@@ -46,8 +47,12 @@ struct Pattern {
 }
 
 impl Ignorer {
-	pub fn new(file_names: Vec<OsString>, global: Option<&str>) -> Result<Self, Error> {
-		let root = Self::node_with_path_and_file_names(Path::new("/"), &file_names)?;
+	pub fn new(
+		root_path: Option<&Path>,
+		file_names: Vec<OsString>,
+		global: Option<&str>,
+	) -> Result<Self, Error> {
+		let root = Self::node_with_path_and_file_names(None, Path::new("/"), &file_names)?;
 		let nodes = vec![root];
 		let global = if let Some(global) = global {
 			Some(Self::file_with_contents(global)?)
@@ -58,6 +63,7 @@ impl Ignorer {
 			file_names,
 			global,
 			nodes,
+			root: root_path.map(Path::to_owned),
 		})
 	}
 
@@ -91,7 +97,11 @@ impl Ignorer {
 			{
 				child
 			} else if components.peek().is_some() {
-				let child = Self::node_with_path_and_file_names(&path, &self.file_names)?;
+				let child = Self::node_with_path_and_file_names(
+					self.root.as_deref(),
+					&path,
+					&self.file_names,
+				)?;
 				let index = self.nodes.len();
 				self.nodes.push(child);
 				self.nodes[*indexes.last().unwrap()]
@@ -139,7 +149,19 @@ impl Ignorer {
 		Ok(false)
 	}
 
-	fn node_with_path_and_file_names(path: &Path, file_names: &[OsString]) -> Result<Node, Error> {
+	fn node_with_path_and_file_names(
+		root: Option<&Path>,
+		path: &Path,
+		file_names: &[OsString],
+	) -> Result<Node, Error> {
+		let try_read_files =
+			root.is_some_and(|root| path.strip_prefix(root).is_ok()) || root.is_none();
+		if !try_read_files {
+			return Ok(Node {
+				children: HashMap::default(),
+				files: Vec::new(),
+			});
+		}
 		let mut files = Vec::new();
 		for name in file_names {
 			let contents = match std::fs::read_to_string(path.join(name)) {

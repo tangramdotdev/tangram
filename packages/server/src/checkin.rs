@@ -2,10 +2,17 @@ use {
 	crate::{Context, Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	indexmap::IndexMap,
-	std::{panic::AssertUnwindSafe, path::PathBuf, sync::Arc, time::Instant},
+	indoc::indoc,
+	std::{
+		panic::AssertUnwindSafe,
+		path::{Path, PathBuf},
+		sync::Arc,
+		time::Instant,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::Ext as _,
 	tangram_http::{Body, request::Ext as _},
+	tangram_ignore as ignore,
 	tokio_util::task::AbortOnDropHandle,
 };
 
@@ -117,10 +124,15 @@ impl Server {
 			return Ok(output);
 		}
 
+		// Create the ignorer.
+		let ignorer = arg
+			.options
+			.ignore
+			.then(|| Self::checkin_create_ignorer(None))
+			.transpose()?;
+
 		// Find the root.
-		let root = tg::package::try_get_nearest_package_path_for_path(&arg.path)?
-			.unwrap_or(&arg.path)
-			.to_owned();
+		let (root, ignorer) = self.checkin_find_root_path(&arg.path, ignorer).await?;
 
 		// Try to find the artifacts path.
 		let artifacts_path = root.join(".tangram/artifacts");
@@ -189,6 +201,7 @@ impl Server {
 					artifacts_path.as_deref(),
 					fixup_sender,
 					&mut graph,
+					ignorer,
 					lock.as_deref(),
 					next,
 					progress,
@@ -368,6 +381,53 @@ impl Server {
 		let output = tg::checkin::Output { artifact: referent };
 
 		Ok(output)
+	}
+
+	pub(crate) async fn checkin_find_root_path(
+		&self,
+		path: &Path,
+		mut ignorer: Option<ignore::Ignorer>,
+	) -> tg::Result<(PathBuf, Option<ignore::Ignorer>)> {
+		let path = path.to_owned();
+		let output = tokio::task::spawn_blocking(move || {
+			if let Some(ignorer) = &mut ignorer {
+				let ignore = ignorer.matches(&path, None).map_err(|source| {
+					tg::error!(!source, "failed to check if the path is ignored")
+				})?;
+				if ignore {
+					let ignorer = Self::checkin_create_ignorer(Some(&path))?;
+					return Ok((path, Some(ignorer)));
+				}
+			}
+			for path in path.ancestors() {
+				let metadata = std::fs::symlink_metadata(path).map_err(
+					|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+				)?;
+				if metadata.is_dir()
+					&& tg::package::try_get_root_module_file_name_sync(path)?.is_some()
+				{
+					return Ok((path.to_owned(), ignorer));
+				}
+			}
+			Ok::<_, tg::Error>((path, ignorer))
+		})
+		.await
+		.unwrap()?;
+		Ok(output)
+	}
+
+	pub(crate) fn checkin_create_ignorer(root: Option<&Path>) -> tg::Result<ignore::Ignorer> {
+		let file_names = vec![".tangramignore".into(), ".gitignore".into()];
+		let global = indoc!(
+			"
+				.DS_Store
+				.git
+				.tangram
+				tangram.lock
+			"
+		);
+		ignore::Ignorer::new(root, file_names, Some(global))
+			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 
 	pub(crate) async fn handle_checkin_request(
