@@ -234,40 +234,47 @@ impl Server {
 				let Some(referent) = referent else {
 					return Ok::<_, tg::Error>((reference, None));
 				};
-				let edge = match &referent.item {
-					tg::graph::data::Edge::Reference(reference) => {
-						let mut reference = reference.clone();
+				let artifact = if state.dependencies {
+					match &referent.item {
+						tg::graph::data::Edge::Reference(reference) => {
+							let id = state.ids[reference.node].clone().try_into().unwrap();
+							Some(id)
+						},
+						tg::graph::data::Edge::Object(id) => {
+							let id = id
+								.clone()
+								.try_into()
+								.map_err(|_| tg::error!("expected an artifact"))?;
+							Some(id)
+						},
+					}
+				} else {
+					None
+				};
+				let edge = match referent.item {
+					tg::graph::data::Edge::Reference(mut reference) => {
 						if reference.graph.is_none() {
 							reference.graph = graph.cloned();
 						}
 						tg::graph::data::Edge::Reference(reference)
 					},
-					tg::graph::data::Edge::Object(tg::object::Id::Directory(id))
-						if state.dependencies =>
-					{
-						tg::graph::data::Edge::Object(id.clone().into())
-					},
-					tg::graph::data::Edge::Object(tg::object::Id::File(id))
-						if state.dependencies =>
-					{
-						tg::graph::data::Edge::Object(id.clone().into())
-					},
-					tg::graph::data::Edge::Object(tg::object::Id::Symlink(id))
-						if state.dependencies =>
-					{
-						tg::graph::data::Edge::Object(id.clone().into())
-					},
 					tg::graph::data::Edge::Object(id) => {
-						tg::graph::data::Edge::Object(id.clone().try_into()?)
+						let id = id
+							.try_into()
+							.map_err(|_| tg::error!("expected an artifact"))?;
+						tg::graph::data::Edge::Object(id)
 					},
 				};
 				let node = self.checkout_create_lock_inner(state, &edge)?;
-				let referent = referent.map(|_| {
-					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-						graph: None,
-						node,
-					})
+				let item = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: None,
+					node,
 				});
+				let options = tg::referent::Options {
+					artifact,
+					..referent.options
+				};
+				let referent = tg::Referent::new(item, options);
 				Ok::<_, tg::Error>((reference, Some(referent)))
 			})
 			.collect::<tg::Result<_>>()?;

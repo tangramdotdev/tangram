@@ -82,6 +82,7 @@ impl Server {
 					referent: tg::Referent {
 						item,
 						options: tg::referent::Options {
+							artifact: None,
 							id,
 							name: None,
 							path: None,

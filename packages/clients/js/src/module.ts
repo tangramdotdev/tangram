@@ -47,6 +47,11 @@ export namespace Module {
 		let item = value.referent.item;
 		let string = item.toString();
 		let params = [];
+		if (value.referent.options?.artifact !== undefined) {
+			params.push(
+				`artifact=${encodeURIComponent(value.referent.options.artifact)}`,
+			);
+		}
 		if (value.referent.options?.id !== undefined) {
 			params.push(`id=${encodeURIComponent(value.referent.options.id)}`);
 		}
@@ -77,6 +82,10 @@ export namespace Module {
 					throw new Error("missing value");
 				}
 				switch (key) {
+					case "artifact": {
+						options.artifact = decodeURIComponent(value);
+						break;
+					}
 					case "id": {
 						options.id = decodeURIComponent(value);
 						break;

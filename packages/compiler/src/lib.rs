@@ -880,6 +880,7 @@ impl Compiler {
 				tg::referent::Options::default()
 			} else {
 				tg::referent::Options {
+					artifact: None,
 					id: Some(id),
 					name: None,
 					path: Some(path),
@@ -999,6 +1000,7 @@ impl Compiler {
 				Some(relative_path)
 			};
 			let options = tg::referent::Options {
+				artifact: None,
 				id: Some(id),
 				name: None,
 				path,

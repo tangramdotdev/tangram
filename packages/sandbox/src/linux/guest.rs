@@ -118,7 +118,9 @@ fn mount_and_chroot(context: &mut Context) {
 
 fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 	unsafe {
+		#[cfg_attr(all(target_arch = "x86_64"), expect(clippy::cast_possible_wrap))]
 		const BACKSLASH: libc::c_char = b'\\' as _;
+		#[cfg_attr(all(target_arch = "x86_64"), expect(clippy::cast_possible_wrap))]
 		const SLASH: libc::c_char = b'/' as _;
 		const NULL: libc::c_char = 0;
 

@@ -7,6 +7,7 @@ export type Referent<T> = {
 
 export namespace Referent {
 	export type Options = {
+		artifact?: tg.Artifact.Id | undefined;
 		id?: tg.Object.Id | undefined;
 		name?: string | undefined;
 		path?: string | undefined;
@@ -19,6 +20,9 @@ export namespace Referent {
 	): tg.Referent.Data<U> => {
 		let item = f(value.item);
 		let options: tg.Referent.Data.Options = {};
+		if (value.options?.artifact !== undefined) {
+			options.artifact = value.options.artifact;
+		}
 		if (value.options?.id !== undefined) {
 			options.id = value.options.id;
 		}
@@ -57,6 +61,9 @@ export namespace Referent {
 		let item = f(value.item);
 		let string = item.toString();
 		let params = [];
+		if (value.options?.artifact !== undefined) {
+			params.push(`artifact=${encodeURIComponent(value.options.artifact)}`);
+		}
 		if (value.options?.id !== undefined) {
 			params.push(`id=${encodeURIComponent(value.options.id)}`);
 		}
@@ -90,6 +97,10 @@ export namespace Referent {
 					throw new Error("missing value");
 				}
 				switch (key) {
+					case "artifact": {
+						options.artifact = decodeURIComponent(value);
+						break;
+					}
 					case "id": {
 						options.id = decodeURIComponent(value);
 						break;
@@ -128,6 +139,7 @@ export namespace Referent {
 
 	export namespace Data {
 		export type Options = {
+			artifact?: tg.Artifact.Id;
 			id?: tg.Object.Id;
 			name?: string;
 			path?: string;

@@ -1366,6 +1366,7 @@ declare namespace tg {
 
 	export namespace Referent {
 		export type Options = {
+			artifact?: tg.Artifact.Id | undefined;
 			id?: tg.Object.Id | undefined;
 			path?: string | undefined;
 			tag?: tg.Tag | undefined;

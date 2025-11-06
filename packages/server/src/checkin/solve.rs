@@ -33,6 +33,7 @@ struct Checkpoint {
 
 #[derive(Clone, Debug)]
 pub struct Candidate {
+	node: Option<usize>,
 	object: tg::object::Id,
 	tag: tg::Tag,
 }
@@ -463,16 +464,21 @@ impl Server {
 				)
 			})?;
 
-		// Add the node.
-		let id = candidate
-			.object
-			.try_into()
-			.map_err(|_| tg::error!("expected an artifact"))?;
-		let node = self.checkin_solve_add_node(checkpoint, item, &id).await?;
+		// Try to reuse a node if it exists. Otherwise, create a new node.
+		let node = if let Some(node) = candidate.node {
+			node
+		} else {
+			let id = candidate
+				.object
+				.clone()
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
+			self.checkin_solve_add_node(checkpoint, item, &id).await?
+		};
 
 		// Create the referent.
 		let options = tg::referent::Options {
-			id: Some(id.into()),
+			id: Some(candidate.object),
 			tag: Some(candidate.tag),
 			..Default::default()
 		};
@@ -512,20 +518,24 @@ impl Server {
 		lock_index: usize,
 	) -> Option<Candidate> {
 		let lock_node = &checkpoint.lock.as_ref().unwrap().nodes[lock_index];
-		let options = if let ItemVariant::FileDependency(reference) = &item.variant {
+		let referent = if let ItemVariant::FileDependency(reference) = &item.variant {
 			lock_node
 				.try_unwrap_file_ref()
 				.ok()?
 				.dependencies
 				.get(reference)?
 				.as_ref()?
-				.options()
 		} else {
 			return None;
 		};
-		let object = options.id.clone()?;
-		let tag = options.tag.clone()?;
-		let candidate = Candidate { object, tag };
+		let node = if let Some(artifact) = referent.artifact() {
+			checkpoint.graph.ids.get(&artifact.clone().into()).copied()
+		} else {
+			None
+		};
+		let object = referent.id().cloned()?;
+		let tag = referent.tag().cloned()?;
+		let candidate = Candidate { node, object, tag };
 		Some(candidate)
 	}
 
@@ -548,8 +558,9 @@ impl Server {
 			.into_iter()
 			.filter_map(|output| {
 				let object = output.item?.right()?;
+				let node = None;
 				let tag = output.tag;
-				let candidate = Candidate { object, tag };
+				let candidate = Candidate { node, object, tag };
 				Some(candidate)
 			})
 			.collect::<im::Vector<_>>();
@@ -703,6 +714,7 @@ impl Server {
 				}
 				Variant::Directory(Directory { entries })
 			},
+
 			tg::graph::data::Node::File(file) => {
 				let contents = if let Some(id) = file.contents.clone() {
 					let (complete, metadata) = self
@@ -728,25 +740,22 @@ impl Server {
 						dependencies.insert(reference.clone(), None);
 						continue;
 					};
-					if referent.options.tag.is_some() {
+					if referent.tag().is_some() {
 						dependencies.insert(reference.clone(), None);
 					} else {
-						let referent = tg::Referent {
-							item: match &referent.item {
-								tg::graph::data::Edge::Reference(reference) => {
-									let graph =
-										reference.graph.clone().or_else(|| Some(graph_id.clone()));
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-										graph,
-										node: reference.node,
-									})
-								},
-								tg::graph::data::Edge::Object(id) => {
-									tg::graph::data::Edge::Object(id.clone())
-								},
+						let referent = referent.clone().map(|item| match item {
+							tg::graph::data::Edge::Reference(reference) => {
+								let graph =
+									reference.graph.clone().or_else(|| Some(graph_id.clone()));
+								tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+									graph,
+									node: reference.node,
+								})
 							},
-							options: referent.options.clone(),
-						};
+							tg::graph::data::Edge::Object(id) => {
+								tg::graph::data::Edge::Object(id.clone())
+							},
+						});
 						dependencies.insert(reference.clone(), Some(referent));
 					}
 				}
@@ -756,6 +765,7 @@ impl Server {
 					executable: file.executable,
 				})
 			},
+
 			tg::graph::data::Node::Symlink(symlink) => {
 				let artifact = symlink.artifact.as_ref().map(|edge| match edge {
 					tg::graph::data::Edge::Reference(reference) => {

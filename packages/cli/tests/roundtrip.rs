@@ -1,4 +1,5 @@
 use {
+	indoc::indoc,
 	std::path::Path,
 	tangram_cli_test::{Server, assert_success},
 	tangram_temp::{self as temp, Temp},
@@ -28,7 +29,6 @@ async fn file() {
 	test(artifact, path, deterministic, tags).await;
 }
 
-#[ignore = "unimplemented"]
 #[tokio::test]
 async fn tagged_dependency() {
 	let artifact = temp::directory! {
@@ -90,7 +90,34 @@ async fn cyclic_artifact_symlink() {
 	test(artifact, path, deterministic, tags).await;
 }
 
-#[ignore = "unimplemented"]
+#[tokio::test]
+async fn transitive_dependency() {
+	let foo_1_0_0 = temp::directory! {
+		"tangram.ts" => temp::file!("// foo 1.0.0"),
+	};
+	let foo_1_1_0 = temp::directory! {
+		"tangram.ts" => temp::file!("// foo 1.1.0"),
+	};
+	let bar = temp::directory! {
+		"tangram.ts" => temp::file!(r#"import * as foo from "foo/^1"#),
+	};
+	let artifact = temp::directory! {
+		"tangram.ts" => temp::file!(indoc!(r#"
+			import * as foo from "foo/=1.0.0;
+			import * as bar from "bar";
+		"#)),
+	}
+	.into();
+	let path = Path::new("");
+	let deterministic = false;
+	let tags = vec![
+		("foo/1.0.0".into(), foo_1_0_0.into()),
+		("foo/1.1.0".into(), foo_1_1_0.into()),
+		("bar".into(), bar.into()),
+	];
+	test(artifact, path, deterministic, tags).await;
+}
+
 #[tokio::test]
 async fn object_dependency() {
 	let artifact = temp::directory! {
@@ -98,7 +125,7 @@ async fn object_dependency() {
 			contents: "".into(),
 			executable: false,
 			xattrs: [
-				("user.tangram.dependencies".into(), r#"["dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg"]"#.into())
+				("user.tangram.dependencies".into(), r#"["dir_01ezfk780pwqd3cp3zxan1tycvgtnse2j1nh34y840xh8633rt3a00"]"#.into())
 			].into(),
 		}
 	}.into();
