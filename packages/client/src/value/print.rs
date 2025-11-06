@@ -324,6 +324,15 @@ where
 						};
 						s.start_map()?;
 						s.map_entry("item", |s| s.graph_edge_object(referent.item()))?;
+						if let Some(artifact) = referent.artifact() {
+							s.map_entry("artifact", |s| s.string(&artifact.to_string()))?;
+						}
+						if let Some(id) = referent.id() {
+							s.map_entry("id", |s| s.string(&id.to_string()))?;
+						}
+						if let Some(name) = referent.name() {
+							s.map_entry("name", |s| s.string(name))?;
+						}
 						if let Some(path) = referent.path() {
 							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 						}

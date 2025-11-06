@@ -126,8 +126,8 @@ impl Server {
 						let Some(referent) = referent else {
 							return Ok::<_, tg::Error>((reference, None));
 						};
-						let edge = referent.item();
-						let edge = match edge {
+
+						let edge = match referent.item() {
 							tg::graph::data::Edge::Reference(reference) => {
 								if reference.graph.is_none() {
 									let node = graph.nodes.get(&reference.node).unwrap();

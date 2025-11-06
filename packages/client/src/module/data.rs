@@ -63,6 +63,12 @@ impl Module {
 	pub fn to_uri(&self) -> Uri {
 		let mut builder = Uri::builder().path(self.referent.item.to_string());
 		let mut query = Vec::new();
+		if let Some(artifact) = &self.referent.options.artifact {
+			let artifact = artifact.to_string();
+			let artifact = urlencoding::encode(&artifact);
+			let artifact = format!("artifact={artifact}");
+			query.push(artifact);
+		}
 		if let Some(id) = &self.referent.options.id {
 			let id = id.to_string();
 			let id = urlencoding::encode(&id);
@@ -105,6 +111,15 @@ impl Module {
 			for param in query.split('&') {
 				if let Some((key, value)) = param.split_once('=') {
 					match key {
+						"artifact" => {
+							options.artifact.replace(
+								urlencoding::decode(value)
+									.map_err(|_| tg::error!("failed to decode the id"))?
+									.into_owned()
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the id"))?,
+							);
+						},
 						"id" => {
 							options.id.replace(
 								urlencoding::decode(value)

@@ -43,6 +43,10 @@ pub struct Referent<T> {
 )]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
+	pub artifact: Option<tg::artifact::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::object::Id>,
 
@@ -77,6 +81,10 @@ impl<T> Referent<T> {
 
 	pub fn options(&self) -> &Options {
 		&self.options
+	}
+
+	pub fn artifact(&self) -> Option<&tg::artifact::Id> {
+		self.options.artifact.as_ref()
 	}
 
 	pub fn id(&self) -> Option<&tg::object::Id> {
@@ -146,6 +154,12 @@ where
 	pub fn to_uri(&self) -> Uri {
 		let mut builder = Uri::builder().path(self.item.to_string());
 		let mut query = Vec::new();
+		if let Some(id) = &self.options.artifact {
+			let id = id.to_string();
+			let id = urlencoding::encode(&id);
+			let id = format!("artifact={id}");
+			query.push(id);
+		}
 		if let Some(id) = &self.options.id {
 			let id = id.to_string();
 			let id = urlencoding::encode(&id);
@@ -190,6 +204,15 @@ where
 			for param in query.split('&') {
 				if let Some((key, value)) = param.split_once('=') {
 					match key {
+						"artifact" => {
+							options.artifact.replace(
+								urlencoding::decode(value)
+									.map_err(|_| tg::error!("failed to decode the artifact"))?
+									.into_owned()
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the artifact"))?,
+							);
+						},
 						"id" => {
 							options.id.replace(
 								urlencoding::decode(value)
@@ -235,6 +258,7 @@ where
 impl Options {
 	pub fn with_path(path: impl Into<PathBuf>) -> Self {
 		Self {
+			artifact: None,
 			id: None,
 			name: None,
 			path: Some(path.into()),

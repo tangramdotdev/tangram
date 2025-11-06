@@ -69,14 +69,53 @@ impl Server {
 			progress,
 		};
 
-		// Visit.
+		// Add the root path to the stack.
 		let item = Item {
 			path: root,
 			parent: None,
 		};
 		let mut stack = vec![item];
+
+		// Collect the artifacts path entries.
+		let artifacts_entries = if let Some(artifacts_path) = artifacts_path {
+			let read_dir = std::fs::read_dir(artifacts_path).map_err(
+				|source| tg::error!(!source, %path = artifacts_path.display(), "failed to read the artifacts directory"),
+			)?;
+			let mut entries = Vec::new();
+			for entry in read_dir {
+				let entry = entry
+					.map_err(|source| tg::error!(!source, "failed to get the directory entry"))?;
+				entries.push((entry.path(), entry.file_name()));
+			}
+			entries
+		} else {
+			Vec::new()
+		};
+
+		// Add the artifacts path entries to the stack.
+		for (path, _) in &artifacts_entries {
+			stack.push(Item {
+				path: path.clone(),
+				parent: None,
+			});
+		}
+
+		// Visit.
 		while let Some(item) = stack.pop() {
 			self.checkin_visit(&mut state, &mut stack, item)?;
+		}
+
+		// Set the IDs for artifacts path entries.
+		for (path, name) in artifacts_entries {
+			if let Some(&node_index) = state.graph.paths.get(&path)
+				&& let Some(name) = name.to_str()
+				&& let Ok(id) = name.parse::<tg::artifact::Id>()
+			{
+				let id: tg::object::Id = id.into();
+				let node = state.graph.nodes.get_mut(&node_index).unwrap();
+				node.id = Some(id.clone());
+				state.graph.ids.insert(id, node_index);
+			}
 		}
 
 		// Set the solvable and solved fields for all new nodes.
@@ -136,12 +175,16 @@ impl Server {
 			|source| tg::error!(!source, %path = item.path.display(), "failed to get the metadata"),
 		)?;
 
-		// Skip ignored files.
-		if state.ignorer.as_mut().is_some_and(|ignorer| {
-			ignorer
-				.matches(&item.path, Some(metadata.is_dir()))
-				.unwrap_or_default()
-		}) {
+		// Skip ignored files, unless the path is in the artifacts path.
+		let is_in_artifacts_path = state
+			.artifacts_path
+			.is_some_and(|artifacts_path| item.path.starts_with(artifacts_path));
+		if !is_in_artifacts_path
+			&& state.ignorer.as_mut().is_some_and(|ignorer| {
+				ignorer
+					.matches(&item.path, Some(metadata.is_dir()))
+					.unwrap_or_default()
+			}) {
 			return Ok(());
 		}
 
@@ -538,6 +581,7 @@ impl Server {
 					.entries
 					.insert(name, edge);
 			},
+
 			ParentVariant::FileDependency(reference) => {
 				let edge: tg::graph::data::Edge<tg::object::Id> =
 					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
@@ -584,6 +628,7 @@ impl Server {
 					.unwrap()
 					.replace(referent);
 			},
+
 			ParentVariant::SymlinkArtifact => {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
 					tg::graph::data::Edge::Reference(tg::graph::data::Reference {

@@ -302,6 +302,7 @@ where
 				.path()
 				.map_or_else(|| path.into(), |p| p.join(path));
 			let options = tg::referent::Options {
+				artifact: referent.artifact().cloned(),
 				id: referent.id().cloned(),
 				name: referent.name().map(ToOwned::to_owned),
 				path: Some(path),
