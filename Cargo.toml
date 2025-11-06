@@ -24,7 +24,6 @@ members = [
   "packages/uri",
   "packages/util",
   "packages/v8",
-  "packages/version",
   "packages/vfs",
   "packages/zed",
 ]
@@ -173,7 +172,6 @@ tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }
-tangram_version = { path = "packages/version" }
 tangram_vfs = { path = "packages/vfs" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }

@@ -6349,14 +6349,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_version"
-version = "0.0.0"
-dependencies = [
- "derive_more",
- "winnow",
-]
-
-[[package]]
 name = "tangram_vfs"
 version = "0.0.0"
 dependencies = [
