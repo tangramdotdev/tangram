@@ -204,3 +204,13 @@ overflow-checks = false
 
 [patch.crates-io]
 derive_more = { git = "https://github.com/jeltef/derive_more" }
+
+[workspace.metadata.cargo-shear]
+ignored = [
+  "comfy-table",
+  "num-traits",
+  "oauth2",
+  "octocrab",
+  "tangram_fdb",
+  "webbrowser",
+]

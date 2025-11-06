@@ -23,11 +23,8 @@ postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 scylla = ["tangram_store/scylla"]
 
 [dependencies]
-astral-tokio-tar = { workspace = true }
 async-channel = { workspace = true }
-async-compression = { workspace = true }
 async-nats = { workspace = true, optional = true }
-async_zip = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
@@ -66,7 +63,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 smallvec = { workspace = true }
-sourcemap = { workspace = true }
 sync_wrapper = { workspace = true }
 tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
@@ -90,7 +86,6 @@ tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
-toml = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }

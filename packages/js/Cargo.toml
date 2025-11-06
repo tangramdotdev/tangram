@@ -37,5 +37,4 @@ tangram_v8 = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
-tracing = { workspace = true }
 v8 = { workspace = true }

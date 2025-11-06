@@ -5793,25 +5793,16 @@ dependencies = [
  "async-channel",
  "async-compression",
  "async_zip",
- "blake3",
- "bytes",
- "data-encoding",
- "filetime",
  "futures",
  "num",
  "reqwest",
  "scopeguard",
- "serde",
- "serde_json",
- "sha2",
  "tangram_client",
  "tangram_futures",
  "tangram_temp",
  "tangram_uri",
  "tokio",
  "tokio-util",
- "tracing",
- "xattr",
 ]
 
 [[package]]
@@ -5936,52 +5927,30 @@ dependencies = [
 name = "tangram_compiler"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "bytes",
  "dashmap",
  "data-encoding",
- "data-encoding-macro",
  "derive_more",
  "fnv",
  "futures",
- "glob",
- "include_dir",
- "indoc",
  "itertools 0.14.0",
- "libc",
  "lsp-types",
  "num",
- "num-derive",
  "num-traits",
- "reqwest",
  "scopeguard",
  "serde",
  "serde_json",
  "serde_repr",
- "serde_with",
  "serde_yaml",
- "smallvec",
  "sourcemap",
- "sync_wrapper",
  "tangram_client",
- "tangram_database",
- "tangram_either",
  "tangram_futures",
- "tangram_http",
- "tangram_ignore",
- "tangram_messenger",
  "tangram_module",
- "tangram_serialize",
- "tangram_session",
- "tangram_uri",
  "tangram_v8",
- "tangram_vfs",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "toml",
  "tracing",
- "urlencoding",
  "v8",
 ]
 
@@ -6098,7 +6067,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
- "tracing",
  "v8",
 ]
 
@@ -6164,7 +6132,6 @@ name = "tangram_serialize_macro"
 version = "0.0.0"
 dependencies = [
  "itertools 0.14.0",
- "num",
  "proc-macro2",
  "quote",
  "syn 2.0.108",
@@ -6174,11 +6141,8 @@ dependencies = [
 name = "tangram_server"
 version = "0.0.0"
 dependencies = [
- "astral-tokio-tar",
  "async-channel",
- "async-compression",
  "async-nats",
- "async_zip",
  "byte-unit",
  "byteorder",
  "bytes",
@@ -6217,7 +6181,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "smallvec",
- "sourcemap",
  "sync_wrapper",
  "tangram_builtin",
  "tangram_client",
@@ -6241,7 +6204,6 @@ dependencies = [
  "tokio-postgres",
  "tokio-stream",
  "tokio-util",
- "toml",
  "tower",
  "tower-http",
  "tracing",
@@ -6255,7 +6217,6 @@ dependencies = [
 name = "tangram_session"
 version = "0.0.0"
 dependencies = [
- "futures",
  "libc",
  "num",
  "serde",
@@ -6294,7 +6255,6 @@ dependencies = [
  "tangram_uri",
  "time",
  "tokio",
- "tracing",
 ]
 
 [[package]]
