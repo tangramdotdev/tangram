@@ -80,9 +80,7 @@ where
 	Ok(name)
 }
 
-pub fn try_get_root_module_file_name_for_package_path(
-	path: &Path,
-) -> tg::Result<Option<&'static str>> {
+pub fn try_get_root_module_file_name_sync(path: &Path) -> tg::Result<Option<&'static str>> {
 	let mut name = None;
 	for name_ in tg::package::ROOT_MODULE_FILE_NAMES {
 		let exists = path.join(name_).try_exists().map_err(
@@ -96,16 +94,4 @@ pub fn try_get_root_module_file_name_for_package_path(
 		}
 	}
 	Ok(name)
-}
-
-pub fn try_get_nearest_package_path_for_path(path: &Path) -> tg::Result<Option<&Path>> {
-	for path in path.ancestors() {
-		let metadata = std::fs::symlink_metadata(path).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
-		)?;
-		if metadata.is_dir() && try_get_root_module_file_name_for_package_path(path)?.is_some() {
-			return Ok(Some(path));
-		}
-	}
-	Ok(None)
 }

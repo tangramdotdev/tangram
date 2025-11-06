@@ -1,7 +1,6 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
 	crate::{Server, checkin::Graph},
-	indoc::indoc,
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
@@ -46,18 +45,12 @@ impl Server {
 		artifacts_path: Option<&Path>,
 		fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 		graph: &mut Graph,
+		ignorer: Option<ignore::Ignorer>,
 		lock: Option<&tg::graph::Data>,
 		next: usize,
 		progress: crate::progress::Handle<tg::checkin::Output>,
 		root: PathBuf,
 	) -> tg::Result<()> {
-		// Create the ignorer if necessary.
-		let ignorer = if arg.options.ignore {
-			Some(Self::checkin_create_ignorer()?)
-		} else {
-			None
-		};
-
 		// Create the state.
 		let mut state = State {
 			arg,
@@ -692,19 +685,5 @@ impl Server {
 					.node,
 			),
 		}
-	}
-
-	pub(crate) fn checkin_create_ignorer() -> tg::Result<ignore::Ignorer> {
-		let file_names = vec![".tangramignore".into(), ".gitignore".into()];
-		let global = indoc!(
-			"
-				.DS_Store
-				.git
-				.tangram
-				tangram.lock
-			"
-		);
-		ignore::Ignorer::new(file_names, Some(global))
-			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 }

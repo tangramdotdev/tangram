@@ -33,7 +33,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
 		// Create the ignore matcher.
-		let mut ignore = Self::checkin_create_ignorer()?;
+		let mut ignore = Self::checkin_create_ignorer(None)?;
 
 		// Format.
 		tokio::task::spawn_blocking({
