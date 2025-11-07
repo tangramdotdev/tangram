@@ -109,7 +109,7 @@ impl Server {
 			.kill_on_drop(true)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::piped())
-			.stderr(std::process::Stdio::inherit())
+			.stderr(std::process::Stdio::piped())
 			.arg("--config")
 			.arg(config_path)
 			.arg("--directory")
