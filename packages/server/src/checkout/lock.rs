@@ -52,7 +52,7 @@ impl Server {
 			visited: HashMap::default(),
 		};
 
-		// Create nodes in the lock for the graph.
+		// Create the nodes.
 		let edge = tg::graph::data::Edge::Object(artifact.clone());
 		self.checkout_create_lock_inner(&mut state, &edge)?;
 		let nodes: Vec<_> = state
@@ -87,7 +87,15 @@ impl Server {
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				self.checkout_create_lock_load_graph(state, graph)?;
+				if !state.graphs.contains_key(graph) {
+					let data = self
+						.store
+						.try_get_object_data_sync(&graph.clone().into())?
+						.ok_or_else(|| tg::error!("failed to load the graph"))?
+						.try_into()
+						.map_err(|_| tg::error!("expected graph data"))?;
+					state.graphs.insert(graph.clone(), data);
+				}
 
 				// Get the node.
 				let node = state
@@ -98,7 +106,7 @@ impl Server {
 					.get(reference.node)
 					.ok_or_else(|| tg::error!("invalid node index"))?;
 
-				// Create the data.
+				// Compute the id.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
 						tg::directory::Data::Reference(reference.clone()).into()
@@ -108,8 +116,6 @@ impl Server {
 						tg::symlink::Data::Reference(reference.clone()).into()
 					},
 				};
-
-				// Compute the ID.
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
 				// Check if the node has been visited.
@@ -120,10 +126,12 @@ impl Server {
 				(id, node.clone(), Some(graph.clone()))
 			},
 			tg::graph::data::Edge::Object(id) => {
+				// Check if the node has been visited.
 				if let Some(index) = state.visited.get(id).copied() {
 					return Ok(index);
 				}
 
+				// Load the object.
 				let data = self
 					.store
 					.try_get_object_data_sync(&id.clone().into())?
@@ -173,24 +181,6 @@ impl Server {
 		state.nodes[index].replace(node);
 
 		Ok(index)
-	}
-
-	fn checkout_create_lock_load_graph(
-		&self,
-		state: &mut State,
-		graph: &tg::graph::Id,
-	) -> tg::Result<()> {
-		if state.graphs.contains_key(graph) {
-			return Ok(());
-		}
-		let data = self
-			.store
-			.try_get_object_data_sync(&graph.clone().into())?
-			.ok_or_else(|| tg::error!("failed to load the graph"))?
-			.try_into()
-			.map_err(|_| tg::error!("expected graph data"))?;
-		state.graphs.insert(graph.clone(), data);
-		Ok(())
 	}
 
 	fn checkout_create_lock_directory(
