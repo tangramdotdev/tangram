@@ -1098,17 +1098,6 @@ where
 				if node.borrow().options.collapse_process_children && finished {
 					return;
 				}
-				if node.borrow().options.expand_processes
-					&& node
-						.borrow()
-						.children
-						.first()
-						.is_none_or(|node| node.borrow().label.as_deref() != Some("children"))
-				{
-					let child =
-						Self::create_node(&handle, &node, Some("children".to_owned()), None);
-					node.borrow_mut().children.insert(0, child);
-				}
 
 				let parent = if node.borrow().options.expand_processes {
 					node
