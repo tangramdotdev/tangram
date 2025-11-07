@@ -28,6 +28,9 @@ struct State {
 	artifacts_path: Option<PathBuf>,
 	artifacts_path_created: bool,
 	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
+	lock_ids: Vec<tg::object::Id>,
+	lock_nodes: Vec<Option<tg::graph::data::Node>>,
+	lock_visited: HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
@@ -290,6 +293,9 @@ impl Server {
 					artifacts_path,
 					artifacts_path_created: false,
 					graphs: HashMap::default(),
+					lock_ids: Vec::new(),
+					lock_nodes: Vec::new(),
+					lock_visited: HashMap::default(),
 					path,
 					progress,
 					visited: HashSet::default(),
@@ -305,7 +311,7 @@ impl Server {
 				server.checkout_inner(&mut state, &path, &id, node, graph.as_ref())?;
 
 				// Write the lock if necessary.
-				server.checkout_write_lock(&mut state)?;
+				Self::checkout_write_lock(&mut state)?;
 
 				Ok::<_, tg::Error>(())
 			}
@@ -331,13 +337,51 @@ impl Server {
 		id: &tg::artifact::Id,
 		node: tg::graph::data::Node,
 		graph: Option<&tg::graph::Id>,
-	) -> tg::Result<()> {
+	) -> tg::Result<usize> {
+		// Check if we have already created a lock node for this artifact.
+		if let Some(index) = state.lock_visited.get(id).copied() {
+			return Ok(index);
+		}
+
 		if !state.arg.dependencies {
-			return Ok(());
+			// If dependencies are disabled, we still need to allocate a lock node.
+			let index = state.lock_nodes.len();
+			state.lock_visited.insert(id.clone(), index);
+			state.lock_ids.push(id.clone().into());
+			// Create a minimal lock node based on the node type.
+			let lock_node = match node {
+				tg::graph::data::Node::Directory(_) => {
+					tg::graph::data::Node::Directory(tg::graph::data::Directory {
+						entries: std::collections::BTreeMap::default(),
+					})
+				},
+				tg::graph::data::Node::File(_) => {
+					tg::graph::data::Node::File(tg::graph::data::File {
+						contents: None,
+						dependencies: std::collections::BTreeMap::default(),
+						executable: false,
+					})
+				},
+				tg::graph::data::Node::Symlink(node) => {
+					tg::graph::data::Node::Symlink(tg::graph::data::Symlink {
+						artifact: None,
+						path: node.path,
+					})
+				},
+			};
+			state.lock_nodes.push(Some(lock_node));
+			return Ok(index);
 		}
+
 		if !state.visited.insert(id.clone()) {
-			return Ok(());
+			// Already visited for checkout, but should have lock node.
+			return state
+				.lock_visited
+				.get(id)
+				.copied()
+				.ok_or_else(|| tg::error!("expected lock node to exist for visited artifact"));
 		}
+
 		let artifacts_path = state
 			.artifacts_path
 			.as_ref()
@@ -349,8 +393,8 @@ impl Server {
 			state.artifacts_path_created = true;
 		}
 		let path = artifacts_path.join(id.to_string());
-		self.checkout_inner(state, &path, id, node, graph)?;
-		Ok(())
+		let index = self.checkout_inner(state, &path, id, node, graph)?;
+		Ok(index)
 	}
 
 	fn checkout_inner(
@@ -360,21 +404,106 @@ impl Server {
 		id: &tg::artifact::Id,
 		node: tg::graph::data::Node,
 		graph: Option<&tg::graph::Id>,
-	) -> tg::Result<()> {
-		// Checkout the artifact.
-		match node {
-			tg::graph::data::Node::Directory(node) => {
-				self.checkout_inner_directory(state, path, id, graph, &node)?;
-			},
-			tg::graph::data::Node::File(node) => {
-				self.checkout_inner_file(state, path, id, graph, &node)?;
-			},
-			tg::graph::data::Node::Symlink(node) => {
-				self.checkout_inner_symlink(state, path, id, graph, &node)?;
-			},
+	) -> tg::Result<usize> {
+		// Check if we have already created a lock node for this artifact.
+		if let Some(index) = state.lock_visited.get(id).copied() {
+			// We still need to perform the filesystem checkout at this path.
+			// For symlinks and files, create them at the new path.
+			// For directories, we need to recurse into entries.
+			match &node {
+				tg::graph::data::Node::Symlink(node) => {
+					// Create the symlink at this path.
+					let target = self.compute_symlink_target(state, path, id, graph, node)?;
+					std::os::unix::fs::symlink(target, path)
+						.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+				},
+				_ => {
+					// For files and directories, we don't duplicate them.
+					// This is handled by the recursive calls in directory entries.
+				},
+			}
+			return Ok(index);
 		}
 
-		Ok(())
+		// Allocate a lock node index.
+		let index = state.lock_nodes.len();
+		state.lock_visited.insert(id.clone(), index);
+		state.lock_ids.push(id.clone().into());
+		state.lock_nodes.push(None);
+
+		// Checkout the artifact and create the lock node.
+		let lock_node = match node {
+			tg::graph::data::Node::Directory(node) => {
+				self.checkout_inner_directory(state, path, id, graph, &node)?
+			},
+			tg::graph::data::Node::File(node) => {
+				self.checkout_inner_file(state, path, id, graph, &node)?
+			},
+			tg::graph::data::Node::Symlink(node) => {
+				self.checkout_inner_symlink(state, path, id, graph, &node)?
+			},
+		};
+
+		// Store the lock node.
+		state.lock_nodes[index].replace(lock_node);
+
+		Ok(index)
+	}
+
+	fn compute_symlink_target(
+		&self,
+		state: &mut State,
+		path: &Path,
+		_id: &tg::artifact::Id,
+		graph: Option<&tg::graph::Id>,
+		node: &tg::graph::data::Symlink,
+	) -> tg::Result<PathBuf> {
+		let target = if let Some(edge) = &node.artifact {
+			let mut target = PathBuf::new();
+
+			// Set the graph if necessary.
+			let mut edge = edge.clone();
+			if let tg::graph::data::Edge::Reference(reference) = &mut edge
+				&& reference.graph.is_none()
+			{
+				reference.graph = graph.cloned();
+			}
+
+			// Get the dependency node.
+			let (dependency_id, _dependency_node, _dependency_graph) =
+				self.checkout_get_node(Some(&mut state.graphs), &edge)?;
+
+			if dependency_id == state.artifact {
+				// If the symlink's artifact is the root artifact, then use the root path.
+				target.push(&state.path);
+			} else {
+				// If the symlink's artifact is another artifact, then use the artifact's path.
+				let artifacts_path = state
+					.artifacts_path
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected there to be an artifacts path"))?;
+				target.push(artifacts_path.join(dependency_id.to_string()));
+			}
+
+			// Add the path if it is set.
+			if let Some(path) = &node.path {
+				target.push(path);
+			}
+
+			// Diff the path.
+			let src = path
+				.parent()
+				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
+			let dst = &target;
+			tangram_util::path::diff(src, dst)
+				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+		} else if let Some(path) = node.path.clone() {
+			path
+		} else {
+			return Err(tg::error!("invalid symlink"));
+		};
+
+		Ok(target)
 	}
 
 	fn checkout_get_node(
@@ -493,26 +622,36 @@ impl Server {
 		_id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::Directory,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::graph::data::Node> {
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
 			|source| tg::error!(!source, %path = path.display(), "failed to create the directory"),
 		)?;
 
 		// Recurse into the entries.
-		for (name, edge) in &node.entries {
-			let mut edge = edge.clone();
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge
-				&& reference.graph.is_none()
-			{
-				reference.graph = graph.cloned();
-			}
-			let path = path.join(name);
-			let (id, node, graph) = self.checkout_get_node(Some(&mut state.graphs), &edge)?;
-			self.checkout_inner(state, &path, &id, node, graph.as_ref())?;
-		}
+		let entries = node
+			.entries
+			.iter()
+			.map(|(name, edge)| {
+				let mut edge = edge.clone();
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge
+					&& reference.graph.is_none()
+				{
+					reference.graph = graph.cloned();
+				}
+				let path = path.join(name);
+				let (id, node, graph) = self.checkout_get_node(Some(&mut state.graphs), &edge)?;
+				let node_index = self.checkout_inner(state, &path, &id, node, graph.as_ref())?;
+				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: None,
+					node: node_index,
+				});
+				Ok::<_, tg::Error>((name.clone(), edge))
+			})
+			.collect::<tg::Result<_>>()?;
 
-		Ok(())
+		let lock_node = tg::graph::data::Directory { entries };
+		Ok(tg::graph::data::Node::Directory(lock_node))
 	}
 
 	fn checkout_inner_file(
@@ -522,29 +661,67 @@ impl Server {
 		id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::File,
-	) -> tg::Result<()> {
-		// Check out the dependencies.
-		for referent in node.dependencies.values() {
-			let Some(referent) = referent else {
-				continue;
-			};
-			let mut edge = match referent.item.clone() {
-				tg::graph::data::Edge::Reference(graph) => tg::graph::data::Edge::Reference(graph),
-				tg::graph::data::Edge::Object(id) => match id.try_into() {
-					Ok(id) => tg::graph::data::Edge::Object(id),
-					Err(_) => continue,
-				},
-			};
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge
-				&& reference.graph.is_none()
-			{
-				reference.graph = graph.cloned();
-			}
-			let (id, node, graph) = self.checkout_get_node(Some(&mut state.graphs), &edge)?;
-			if id != state.artifact {
-				self.checkout_dependency(state, &id, node, graph.as_ref())?;
-			}
-		}
+	) -> tg::Result<tg::graph::data::Node> {
+		// Check out and create lock nodes for the dependencies.
+		let lock_dependencies = node
+			.dependencies
+			.iter()
+			.map(|(reference, referent)| {
+				let Some(referent) = referent else {
+					return Ok::<_, tg::Error>((reference.clone(), None));
+				};
+				let artifact = if state.arg.dependencies {
+					match &referent.item {
+						tg::graph::data::Edge::Reference(reference) => {
+							let id = state.lock_ids[reference.node].clone().try_into().unwrap();
+							Some(id)
+						},
+						tg::graph::data::Edge::Object(id) => {
+							let id = id
+								.clone()
+								.try_into()
+								.map_err(|_| tg::error!("expected an artifact"))?;
+							Some(id)
+						},
+					}
+				} else {
+					None
+				};
+				let mut edge = match referent.item.clone() {
+					tg::graph::data::Edge::Reference(reference) => {
+						tg::graph::data::Edge::Reference(reference)
+					},
+					tg::graph::data::Edge::Object(id) => match id.try_into() {
+						Ok(id) => tg::graph::data::Edge::Object(id),
+						Err(_) => return Ok((reference.clone(), None)),
+					},
+				};
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge
+					&& reference.graph.is_none()
+				{
+					reference.graph = graph.cloned();
+				}
+				let (id, node, graph) = self.checkout_get_node(Some(&mut state.graphs), &edge)?;
+				let node_index = if id == state.artifact {
+					// If this is the root artifact, we need to ensure a lock node exists for it.
+					state.lock_visited.get(&id).copied().ok_or_else(|| {
+						tg::error!("expected lock node to exist for root artifact")
+					})?
+				} else {
+					self.checkout_dependency(state, &id, node, graph.as_ref())?
+				};
+				let item = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: None,
+					node: node_index,
+				});
+				let options = tg::referent::Options {
+					artifact,
+					..referent.options.clone()
+				};
+				let referent = tg::Referent::new(item, options);
+				Ok::<_, tg::Error>((reference.clone(), Some(referent)))
+			})
+			.collect::<tg::Result<_>>()?;
 
 		let src = &self.cache_path().join(id.to_string());
 		let dst = &path;
@@ -552,7 +729,13 @@ impl Server {
 		// Attempt to reflink the file.
 		let result = reflink(src, dst);
 		if result.is_ok() {
-			return Ok(());
+			// Create the lock node for the file.
+			let lock_node = tg::graph::data::File {
+				contents: None,
+				dependencies: lock_dependencies,
+				executable: false,
+			};
+			return Ok(tg::graph::data::Node::File(lock_node));
 		}
 
 		// Attempt to write the file.
@@ -603,7 +786,13 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
 
-		Ok(())
+		// Create the lock node for the file.
+		let lock_node = tg::graph::data::File {
+			contents: None,
+			dependencies: lock_dependencies,
+			executable: false,
+		};
+		Ok(tg::graph::data::Node::File(lock_node))
 	}
 
 	fn checkout_inner_symlink(
@@ -613,12 +802,53 @@ impl Server {
 		_id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::Symlink,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::graph::data::Node> {
+		// Process the artifact edge and create lock node.
+		let lock_artifact = node
+			.artifact
+			.as_ref()
+			.map(|edge| {
+				let mut edge = edge.clone();
+				if let tg::graph::data::Edge::Reference(reference) = &mut edge
+					&& reference.graph.is_none()
+				{
+					reference.graph = graph.cloned();
+				}
+				let (dependency_id, dependency_node, dependency_graph) =
+					self.checkout_get_node(Some(&mut state.graphs), &edge)?;
+				let node_index = if dependency_id == state.artifact {
+					// If the symlink's artifact is the root artifact, we need to ensure a lock node exists for it.
+					state
+						.lock_visited
+						.get(&dependency_id)
+						.copied()
+						.ok_or_else(|| {
+							tg::error!("expected lock node to exist for root artifact")
+						})?
+				} else {
+					// If the symlink's artifact is another artifact, then check it out.
+					self.checkout_dependency(
+						state,
+						&dependency_id,
+						dependency_node,
+						dependency_graph.as_ref(),
+					)?
+				};
+				Ok::<_, tg::Error>(tg::graph::data::Edge::Reference(
+					tg::graph::data::Reference {
+						graph: None,
+						node: node_index,
+					},
+				))
+			})
+			.transpose()?;
+
 		// Render the target.
-		let target = if let Some(mut edge) = node.artifact.clone() {
+		let target = if let Some(edge) = &node.artifact {
 			let mut target = PathBuf::new();
 
 			// Set the graph if necessary.
+			let mut edge = edge.clone();
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
 				&& reference.graph.is_none()
 			{
@@ -626,22 +856,14 @@ impl Server {
 			}
 
 			// Get the dependency node.
-			let (dependency_id, dependency_node, dependency_graph) =
+			let (dependency_id, _dependency_node, _dependency_graph) =
 				self.checkout_get_node(Some(&mut state.graphs), &edge)?;
 
 			if dependency_id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
 				target.push(&state.path);
 			} else {
-				// If the symlink's artifact is another artifact, then check it out and use the artifact's path.
-				self.checkout_dependency(
-					state,
-					&dependency_id,
-					dependency_node,
-					dependency_graph.as_ref(),
-				)?;
-
-				// Update the target.
+				// If the symlink's artifact is another artifact, then use the artifact's path.
 				let artifacts_path = state
 					.artifacts_path
 					.as_ref()
@@ -671,7 +893,12 @@ impl Server {
 		std::os::unix::fs::symlink(target, path)
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
-		Ok(())
+		// Create the lock node for the symlink.
+		let lock_node = tg::graph::data::Symlink {
+			artifact: lock_artifact,
+			path: node.path.clone(),
+		};
+		Ok(tg::graph::data::Node::Symlink(lock_node))
 	}
 
 	pub(crate) async fn handle_checkout_request(
