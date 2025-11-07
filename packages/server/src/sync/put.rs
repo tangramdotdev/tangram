@@ -5,7 +5,6 @@ use {
 	rusqlite as sqlite,
 	std::{
 		collections::{BTreeSet, VecDeque},
-		path::PathBuf,
 		pin::pin,
 		sync::{
 			Arc, Mutex,
@@ -37,7 +36,7 @@ struct StateSync {
 	arg: tg::sync::Arg,
 	complete_receiver: tokio::sync::mpsc::Receiver<tg::sync::CompleteMessage>,
 	database: sqlite::Connection,
-	file: Option<(tg::artifact::Id, Option<PathBuf>, std::fs::File)>,
+	file: Option<crate::object::get::File>,
 	get_receiver: tokio::sync::mpsc::Receiver<Option<tg::sync::GetMessage>>,
 	graph: Graph,
 	index: sqlite::Connection,

@@ -16,7 +16,7 @@ use {
 		task::Task,
 	},
 	tangram_http::{Body, request::Ext as _},
-	tokio_util::io::InspectReader,
+	tangram_util::read::InspectReader,
 };
 
 mod lock;
@@ -556,36 +556,22 @@ impl Server {
 		}
 
 		// Attempt to write the file.
-		let result = tokio::runtime::Handle::current().block_on({
-			let server = self.clone();
-			async move {
-				let dst = &dst;
-				let contents = node
-					.contents
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing contents"))?;
-				let mut reader = tg::Blob::with_id(contents.clone())
-					.read(&server, tg::read::Options::default())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-				let mut reader = InspectReader::new(&mut reader, {
-					let progress = state.progress.clone();
-					move |buf| {
-						progress.increment("bytes", buf.len().to_u64().unwrap());
-					}
-				});
-				let mut file = tokio::fs::File::create(dst).await.map_err(
-					|source| tg::error!(!source, ?path = dst, "failed to create the file"),
-				)?;
-				tokio::io::copy(&mut reader, &mut file).await.map_err(
-					|source| tg::error!(!source, ?path = dst, "failed to write to the file"),
-				)?;
-				Ok::<_, tg::Error>(())
+		let contents = node
+			.contents
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing contents"))?;
+		let mut reader = crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
+			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+		let mut reader = InspectReader::new(&mut reader, {
+			let progress = state.progress.clone();
+			move |buffer| {
+				progress.increment("bytes", buffer.len().to_u64().unwrap());
 			}
 		});
-		if let Err(error) = result {
-			return Err(tg::error!(?error, "failed to copy the file"));
-		}
+		let mut file = std::fs::File::create(dst)
+			.map_err(|source| tg::error!(!source, ?path = dst, "failed to create the file"))?;
+		std::io::copy(&mut reader, &mut file)
+			.map_err(|source| tg::error!(!source, ?path = dst, "failed to write to the file"))?;
 
 		// Set the dependencies attr.
 		let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();

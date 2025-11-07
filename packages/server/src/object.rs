@@ -1,5 +1,5 @@
-mod complete;
-mod get;
-mod metadata;
-mod put;
-mod touch;
+pub mod complete;
+pub mod get;
+pub mod metadata;
+pub mod put;
+pub mod touch;

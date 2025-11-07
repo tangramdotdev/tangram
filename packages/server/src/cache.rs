@@ -612,29 +612,16 @@ impl Server {
 		}
 
 		// Attempt to write the file.
-		let result = tokio::runtime::Handle::current().block_on({
-			let server = self.clone();
-			async move {
-				let contents = node
-					.contents
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing contents"))?;
-				let mut reader = tg::Blob::with_id(contents.clone())
-					.read(&server, tg::read::Options::default())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-				let mut file = tokio::fs::File::create(dst).await.map_err(
-					|source| tg::error!(!source, ?path = dst, "failed to create the file"),
-				)?;
-				tokio::io::copy(&mut reader, &mut file).await.map_err(
-					|source| tg::error!(!source, ?path = dst, "failed to write to the file"),
-				)?;
-				Ok::<_, tg::Error>(())
-			}
-		});
-		if let Err(error) = result {
-			return Err(tg::error!(?error, "failed to copy the file"));
-		}
+		let contents = node
+			.contents
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing contents"))?;
+		let mut reader = crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
+			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+		let mut file = std::fs::File::create(dst)
+			.map_err(|source| tg::error!(!source, ?path = dst, "failed to create the file"))?;
+		std::io::copy(&mut reader, &mut file)
+			.map_err(|source| tg::error!(!source, ?path = dst, "failed to write to the file"))?;
 
 		// Set the dependencies attr.
 		let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();

@@ -4,7 +4,7 @@ use {
 	futures::{FutureExt as _, Stream, StreamExt as _, future::BoxFuture},
 	num::ToPrimitive as _,
 	std::{
-		io::Cursor,
+		io::{BufRead, Cursor, Read, Seek},
 		panic::AssertUnwindSafe,
 		pin::{Pin, pin},
 		sync::Arc,
@@ -12,6 +12,7 @@ use {
 	},
 	sync_wrapper::SyncWrapper,
 	tangram_client::prelude::*,
+	tangram_either::Either,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_store::prelude::*,
@@ -31,7 +32,7 @@ pub struct File {
 	current: u64,
 	length: u64,
 	position: u64,
-	reader: tokio::io::BufReader<tokio::fs::File>,
+	reader: Either<tokio::io::BufReader<tokio::fs::File>, std::io::BufReader<std::fs::File>>,
 	seeking: bool,
 }
 
@@ -42,6 +43,7 @@ pub struct Object {
 	read: Option<SyncWrapper<ReadFuture>>,
 	server: Server,
 	length: u64,
+	file: Option<crate::object::get::File>,
 }
 
 type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
@@ -236,6 +238,42 @@ impl Reader {
 		};
 		Ok(reader)
 	}
+
+	pub fn new_sync(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
+		let id = blob.id();
+		let cache_reference = server
+			.store
+			.try_get_cache_reference_sync(&id.clone())
+			.map_err(|error| tg::error!(!error, "failed to get the cache reference"))?;
+		let reader = if let Some(cache_reference) = cache_reference {
+			let mut path = server
+				.cache_path()
+				.join(cache_reference.artifact.to_string());
+			if let Some(path_) = &cache_reference.path {
+				path.push(path_);
+			}
+			let file = std::fs::File::open(path)
+				.map_err(|source| tg::error!(!source, "failed to open the file"))?;
+			let reader = File::new_sync(file, cache_reference.position, cache_reference.length)?;
+			Self::File(reader)
+		} else {
+			let mut file = None;
+			let Some(output) = server.try_get_object_sync(&id.into(), &mut file)? else {
+				return Err(tg::error!("failed to get the blob object"));
+			};
+			let data = tg::blob::Data::deserialize(output.bytes)?;
+			let object = tg::blob::Object::try_from_data(data)?;
+			let length = match &object {
+				tg::blob::Object::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
+				tg::blob::Object::Branch(branch) => {
+					branch.children.iter().map(|child| child.length).sum()
+				},
+			};
+			let reader = Object::new_sync(server, blob, length);
+			Self::Object(reader)
+		};
+		Ok(reader)
+	}
 }
 
 impl AsyncRead for Reader {
@@ -289,6 +327,40 @@ impl AsyncSeek for Reader {
 	}
 }
 
+impl Read for Reader {
+	fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+		match self {
+			Reader::File(reader) => Read::read(reader, buf),
+			Reader::Object(reader) => Read::read(reader, buf),
+		}
+	}
+}
+
+impl BufRead for Reader {
+	fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+		match self {
+			Reader::File(reader) => BufRead::fill_buf(reader),
+			Reader::Object(reader) => BufRead::fill_buf(reader),
+		}
+	}
+
+	fn consume(&mut self, amt: usize) {
+		match self {
+			Reader::File(reader) => BufRead::consume(reader, amt),
+			Reader::Object(reader) => BufRead::consume(reader, amt),
+		}
+	}
+}
+
+impl Seek for Reader {
+	fn seek(&mut self, position: std::io::SeekFrom) -> std::io::Result<u64> {
+		match self {
+			Reader::File(reader) => Seek::seek(reader, position),
+			Reader::Object(reader) => Seek::seek(reader, position),
+		}
+	}
+}
+
 impl File {
 	async fn new(file: tokio::fs::File, position: u64, length: u64) -> tg::Result<Self> {
 		let mut reader = tokio::io::BufReader::new(file);
@@ -300,7 +372,21 @@ impl File {
 			current: 0,
 			length,
 			position,
-			reader,
+			reader: Either::Left(reader),
+			seeking: false,
+		})
+	}
+
+	fn new_sync(file: std::fs::File, position: u64, length: u64) -> tg::Result<Self> {
+		let mut reader = std::io::BufReader::new(file);
+		reader
+			.seek(std::io::SeekFrom::Start(position))
+			.map_err(|source| tg::error!(!source, "failed to seek the file"))?;
+		Ok(Self {
+			current: 0,
+			length,
+			position,
+			reader: Either::Right(reader),
 			seeking: false,
 		})
 	}
@@ -316,7 +402,7 @@ impl AsyncRead for File {
 		if this.current >= this.length {
 			return Poll::Ready(Ok(()));
 		}
-		let poll = Pin::new(&mut this.reader).poll_read(cx, buf);
+		let poll = Pin::new(this.reader.as_mut().unwrap_left()).poll_read(cx, buf);
 		if let Poll::Ready(Ok(())) = poll {
 			let n = buf.filled().len();
 			let n = n.min((this.length - this.current).to_usize().unwrap());
@@ -337,7 +423,7 @@ impl AsyncBufRead for File {
 		if this.current >= this.length {
 			return Poll::Ready(Ok(&[]));
 		}
-		let poll = Pin::new(&mut this.reader).poll_fill_buf(cx);
+		let poll = Pin::new(this.reader.as_mut().unwrap_left()).poll_fill_buf(cx);
 		if let Poll::Ready(Ok(mut buf)) = poll {
 			let n = buf.len();
 			let n = n.min((this.length - this.current).to_usize().unwrap());
@@ -351,7 +437,7 @@ impl AsyncBufRead for File {
 		let this = self.get_mut();
 		let amt = amt.min((this.length - this.current).to_usize().unwrap());
 		this.current += amt.to_u64().unwrap();
-		this.reader.consume(amt);
+		this.reader.as_mut().unwrap_left().consume(amt);
 	}
 }
 
@@ -372,7 +458,7 @@ impl AsyncSeek for File {
 			},
 			std::io::SeekFrom::Current(n) => std::io::SeekFrom::Current(n),
 		};
-		Pin::new(&mut this.reader).start_seek(position)
+		Pin::new(this.reader.as_mut().unwrap_left()).start_seek(position)
 	}
 
 	fn poll_complete(
@@ -380,7 +466,8 @@ impl AsyncSeek for File {
 		cx: &mut std::task::Context<'_>,
 	) -> Poll<std::io::Result<u64>> {
 		let this = self.get_mut();
-		match Pin::new(&mut this.reader).poll_complete(cx) {
+		let poll = Pin::new(this.reader.as_mut().unwrap_left()).poll_complete(cx);
+		match poll {
 			Poll::Ready(Ok(n)) => {
 				if !this.seeking {
 					return Poll::Ready(Ok(0));
@@ -398,6 +485,58 @@ impl AsyncSeek for File {
 	}
 }
 
+impl Read for File {
+	fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+		if self.current >= self.length {
+			return Ok(0);
+		}
+		let n = self.reader.as_mut().unwrap_right().read(buf)?;
+		let n = n.min((self.length - self.current).to_usize().unwrap());
+		self.current += n.to_u64().unwrap();
+		Ok(n)
+	}
+}
+
+impl BufRead for File {
+	fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+		if self.current >= self.length {
+			return Ok(&[]);
+		}
+		let buf = self.reader.as_mut().unwrap_right().fill_buf()?;
+		let n = buf
+			.len()
+			.min((self.length - self.current).to_usize().unwrap());
+		Ok(&buf[..n])
+	}
+
+	fn consume(&mut self, amt: usize) {
+		let amt = amt.min((self.length - self.current).to_usize().unwrap());
+		self.current += amt.to_u64().unwrap();
+		self.reader.as_mut().unwrap_right().consume(amt);
+	}
+}
+
+impl Seek for File {
+	fn seek(&mut self, position: std::io::SeekFrom) -> std::io::Result<u64> {
+		let position = match position {
+			std::io::SeekFrom::Start(n) => {
+				let n = self.position + n;
+				std::io::SeekFrom::Start(n)
+			},
+			std::io::SeekFrom::End(n) => {
+				let n = (self.position.to_i64().unwrap() + self.length.to_i64().unwrap() + n)
+					.to_u64()
+					.ok_or_else(|| std::io::Error::other("invalid seek"))?;
+				std::io::SeekFrom::Start(n)
+			},
+			std::io::SeekFrom::Current(n) => std::io::SeekFrom::Current(n),
+		};
+		let n = self.reader.as_mut().unwrap_right().seek(position)?;
+		self.current = n - self.position;
+		Ok(self.current)
+	}
+}
+
 impl Object {
 	async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let cursor = None;
@@ -412,7 +551,24 @@ impl Object {
 			read,
 			server,
 			length: size,
+			file: None,
 		})
+	}
+
+	fn new_sync(server: &Server, blob: tg::Blob, length: u64) -> Self {
+		let cursor = None;
+		let position = 0;
+		let read = None;
+		let server = server.clone();
+		Self {
+			blob,
+			cursor,
+			position,
+			read,
+			server,
+			length,
+			file: None,
+		}
 	}
 }
 
@@ -569,6 +725,103 @@ impl AsyncSeek for Object {
 	}
 }
 
+impl Read for Object {
+	fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+		// Create the cursor if necessary.
+		if self.cursor.is_none() && self.read.is_none() {
+			let cursor = read_inner_sync(&self.server, &self.blob, self.position, &mut self.file)
+				.map_err(std::io::Error::other)?;
+			if let Some(cursor) = cursor {
+				self.cursor.replace(cursor);
+			} else {
+				return Ok(0);
+			}
+		}
+
+		// Read.
+		let cursor = self
+			.cursor
+			.as_mut()
+			.ok_or_else(|| std::io::Error::other("failed to get cursor"))?;
+		let bytes = cursor.get_ref();
+		let position = cursor.position().to_usize().unwrap();
+		let n = std::cmp::min(buf.len(), bytes.len() - position);
+		buf[..n].copy_from_slice(&bytes[position..position + n]);
+		self.position += n as u64;
+		let position = position + n;
+		cursor.set_position(position as u64);
+		if position == cursor.get_ref().len() {
+			self.cursor.take();
+		}
+
+		Ok(n)
+	}
+}
+
+impl BufRead for Object {
+	fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+		// Create the cursor if necessary.
+		if self.cursor.is_none() && self.read.is_none() {
+			let cursor = read_inner_sync(&self.server, &self.blob, self.position, &mut self.file)
+				.map_err(std::io::Error::other)?;
+			if let Some(cursor) = cursor {
+				self.cursor.replace(cursor);
+			} else {
+				return Ok(&[]);
+			}
+		}
+
+		// Read.
+		let cursor = self
+			.cursor
+			.as_ref()
+			.ok_or_else(|| std::io::Error::other("failed to get cursor"))?;
+		let bytes = &cursor.get_ref()[cursor.position().to_usize().unwrap()..];
+
+		Ok(bytes)
+	}
+
+	fn consume(&mut self, amt: usize) {
+		self.position += amt.to_u64().unwrap();
+		let cursor = self.cursor.as_mut().unwrap();
+		cursor.advance(amt);
+		let empty = cursor.position() == cursor.get_ref().len().to_u64().unwrap();
+		if empty {
+			self.cursor.take();
+		}
+	}
+}
+
+impl Seek for Object {
+	fn seek(&mut self, seek: std::io::SeekFrom) -> std::io::Result<u64> {
+		self.read.take();
+		let position = match seek {
+			std::io::SeekFrom::Start(seek) => seek.to_i64().unwrap(),
+			std::io::SeekFrom::End(seek) => self.length.to_i64().unwrap() + seek,
+			std::io::SeekFrom::Current(seek) => self.position.to_i64().unwrap() + seek,
+		};
+		let position = position.to_u64().ok_or(std::io::Error::other(
+			"attempted to seek to a negative or overflowing position",
+		))?;
+		if position > self.length {
+			return Err(std::io::Error::other(
+				"attempted to seek to a position beyond the end",
+			));
+		}
+		if let Some(cursor) = self.cursor.as_mut() {
+			let leaf_position = position.to_i64().unwrap()
+				- (self.position.to_i64().unwrap() - cursor.position().to_i64().unwrap());
+			if leaf_position >= 0 && leaf_position < cursor.get_ref().len().to_i64().unwrap() {
+				cursor.set_position(leaf_position.to_u64().unwrap());
+			} else {
+				self.cursor.take();
+			}
+		}
+		self.position = position;
+		Ok(self.position)
+	}
+}
+
 async fn poll_read_inner(
 	server: &Server,
 	blob: tg::Blob,
@@ -588,6 +841,58 @@ async fn poll_read_inner(
 		} else {
 			let bytes = server.get_object(&id.unwrap().into()).await?.bytes;
 			let data = tg::blob::Data::deserialize(bytes)?;
+			let object = tg::blob::Object::try_from_data(data)?;
+			let object = Arc::new(object);
+			if object.is_branch() {
+				current_blob.state().write().unwrap().object = Some(object.clone());
+			}
+			object
+		};
+		match object.as_ref() {
+			tg::blob::Object::Leaf(leaf) => {
+				if position < current_blob_position + leaf.bytes.len().to_u64().unwrap() {
+					let mut cursor = Cursor::new(leaf.bytes.clone());
+					cursor.set_position(position - current_blob_position);
+					break Ok(Some(cursor));
+				}
+				return Ok(None);
+			},
+			tg::blob::Object::Branch(branch) => {
+				for child in &branch.children {
+					if position < current_blob_position + child.length {
+						current_blob = child.blob.clone();
+						continue 'a;
+					}
+					current_blob_position += child.length;
+				}
+				return Ok(None);
+			},
+		}
+	}
+}
+
+fn read_inner_sync(
+	server: &Server,
+	blob: &tg::Blob,
+	position: u64,
+	file: &mut Option<crate::object::get::File>,
+) -> tg::Result<Option<Cursor<Bytes>>> {
+	let mut current_blob = blob.clone();
+	let mut current_blob_position = 0;
+	'a: loop {
+		let (id, object) = {
+			let state = current_blob.state().read().unwrap();
+			let id = state.id.clone();
+			let object = state.object.clone();
+			(id, object)
+		};
+		let object = if let Some(object) = object {
+			object
+		} else {
+			let Some(output) = server.try_get_object_sync(&id.unwrap().into(), file)? else {
+				return Err(tg::error!("failed to get the blob object"));
+			};
+			let data = tg::blob::Data::deserialize(output.bytes)?;
 			let object = tg::blob::Object::try_from_data(data)?;
 			let object = Arc::new(object);
 			if object.is_branch() {
