@@ -31,7 +31,7 @@ async fn test() {
 			.DS_Store
 		"
 	);
-	let mut matcher = Ignorer::new(None, file_names, Some(global)).unwrap();
+	let mut matcher = Ignorer::new(file_names, Some(global)).unwrap();
 	let right = vec![
 		(".DS_Store", true),
 		(".gitignore", false),
@@ -44,7 +44,9 @@ async fn test() {
 	];
 	let mut left = Vec::new();
 	for (path, _) in &right {
-		let matches = matcher.matches(&temp.path().join(path), None).unwrap();
+		let matches = matcher
+			.matches(None, &temp.path().join(path), None)
+			.unwrap();
 		left.push((*path, matches));
 	}
 	assert_eq!(left, right);

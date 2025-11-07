@@ -128,7 +128,7 @@ impl Server {
 		let ignorer = arg
 			.options
 			.ignore
-			.then(|| Self::checkin_create_ignorer(None))
+			.then(Self::checkin_create_ignorer)
 			.transpose()?;
 
 		// Find the root.
@@ -205,7 +205,7 @@ impl Server {
 					lock.as_deref(),
 					next,
 					progress,
-					root,
+					&root,
 				)?;
 				Ok::<_, tg::Error>(graph)
 			}
@@ -390,33 +390,34 @@ impl Server {
 	) -> tg::Result<(PathBuf, Option<ignore::Ignorer>)> {
 		let path = path.to_owned();
 		let output = tokio::task::spawn_blocking(move || {
-			if let Some(ignorer) = &mut ignorer {
-				let ignore = ignorer.matches(&path, None).map_err(|source| {
-					tg::error!(!source, "failed to check if the path is ignored")
-				})?;
-				if ignore {
-					let ignorer = Self::checkin_create_ignorer(Some(&path))?;
-					return Ok((path, Some(ignorer)));
-				}
-			}
-			for path in path.ancestors() {
-				let metadata = std::fs::symlink_metadata(path).map_err(
+			let mut output = None;
+			for ancestor in path.ancestors() {
+				let metadata = std::fs::symlink_metadata(ancestor).map_err(
 					|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
 				)?;
 				if metadata.is_dir()
-					&& tg::package::try_get_root_module_file_name_sync(path)?.is_some()
+					&& tg::package::try_get_root_module_file_name_sync(ancestor)?.is_some()
+					&& ignorer
+						.as_mut()
+						.map(|ignorer| ignorer.matches(Some(ancestor), &path, None))
+						.transpose()
+						.map_err(|source| {
+							tg::error!(!source, "failed to check if the path is ignored")
+						})?
+						.is_none_or(|ignore| !ignore)
 				{
-					return Ok((path.to_owned(), ignorer));
+					output.replace(ancestor.to_owned());
 				}
 			}
-			Ok::<_, tg::Error>((path, ignorer))
+			let output = output.unwrap_or(path);
+			Ok::<_, tg::Error>((output, ignorer))
 		})
 		.await
 		.unwrap()?;
 		Ok(output)
 	}
 
-	pub(crate) fn checkin_create_ignorer(root: Option<&Path>) -> tg::Result<ignore::Ignorer> {
+	pub(crate) fn checkin_create_ignorer() -> tg::Result<ignore::Ignorer> {
 		let file_names = vec![".tangramignore".into(), ".gitignore".into()];
 		let global = indoc!(
 			"
@@ -426,7 +427,7 @@ impl Server {
 				tangram.lock
 			"
 		);
-		ignore::Ignorer::new(root, file_names, Some(global))
+		ignore::Ignorer::new(file_names, Some(global))
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 

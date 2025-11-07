@@ -33,7 +33,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
 		// Create the ignore matcher.
-		let mut ignore = Self::checkin_create_ignorer(None)?;
+		let mut ignore = Self::checkin_create_ignorer()?;
 
 		// Format.
 		tokio::task::spawn_blocking({
@@ -84,7 +84,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to get the file type"))?;
 			let is_directory = file_type.is_dir();
 			if ignore
-				.matches(path.as_ref(), Some(is_directory))
+				.matches(None, path.as_ref(), Some(is_directory))
 				.map_err(|source| {
 					tg::error!(!source, "failed to check if the path should be ignored")
 				})? {
