@@ -33,6 +33,12 @@ struct State {
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 }
 
+type GetNodeOutput = (
+	tg::artifact::Id,
+	tg::graph::data::Node,
+	Option<tg::graph::Id>,
+);
+
 impl Server {
 	pub(crate) async fn checkout_with_context(
 		&self,
@@ -381,11 +387,7 @@ impl Server {
 		&self,
 		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-	) -> tg::Result<(
-		tg::artifact::Id,
-		tg::graph::data::Node,
-		Option<tg::graph::Id>,
-	)> {
+	) -> tg::Result<GetNodeOutput> {
 		let mut local_graphs = HashMap::default();
 		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
 		match edge {
