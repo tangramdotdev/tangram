@@ -295,11 +295,14 @@ impl Server {
 					visited: HashSet::default(),
 				};
 
-				// Check out the artifact.
+				// Get the node.
 				let id = state.artifact.clone();
 				let edge = tg::graph::data::Edge::Object(id.clone());
+				let (id, node, graph) = server.checkout_get_node(None, &edge)?;
+
+				// Check out the artifact.
 				let path = state.path.clone();
-				server.checkout_inner(&mut state, &path, &edge)?;
+				server.checkout_inner(&mut state, &path, &id, node, graph.as_ref())?;
 
 				// Write the lock if necessary.
 				server.checkout_write_lock(&mut state)?;
@@ -326,7 +329,8 @@ impl Server {
 		&self,
 		state: &mut State,
 		id: &tg::artifact::Id,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+		node: tg::graph::data::Node,
+		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<()> {
 		if !state.arg.dependencies {
 			return Ok(());
@@ -345,7 +349,7 @@ impl Server {
 			state.artifacts_path_created = true;
 		}
 		let path = artifacts_path.join(id.to_string());
-		self.checkout_inner(state, &path, edge)?;
+		self.checkout_inner(state, &path, id, node, graph)?;
 		Ok(())
 	}
 
@@ -353,21 +357,20 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+		id: &tg::artifact::Id,
+		node: tg::graph::data::Node,
+		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<()> {
-		// Get the artifact ID and graph node data.
-		let (id, node, graph) = self.checkout_get_node(state, edge)?;
-
 		// Checkout the artifact.
 		match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.checkout_inner_directory(state, path, &id, graph.as_ref(), &node)?;
+				self.checkout_inner_directory(state, path, id, graph, &node)?;
 			},
 			tg::graph::data::Node::File(node) => {
-				self.checkout_inner_file(state, path, &id, graph.as_ref(), &node)?;
+				self.checkout_inner_file(state, path, id, graph, &node)?;
 			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.checkout_inner_symlink(state, path, &id, graph.as_ref(), &node)?;
+				self.checkout_inner_symlink(state, path, id, graph, &node)?;
 			},
 		}
 
@@ -376,36 +379,34 @@ impl Server {
 
 	fn checkout_get_node(
 		&self,
-		state: &mut State,
+		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::Result<(
 		tg::artifact::Id,
 		tg::graph::data::Node,
 		Option<tg::graph::Id>,
 	)> {
+		let mut local_graphs = HashMap::default();
+		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
 		match edge {
-			// If this is a reference, then load the graph and return the node.
 			tg::graph::data::Edge::Reference(reference) => {
-				// Get the graph.
+				// Load the graph.
 				let graph = reference
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-
-				// Ensure the graph is cached.
-				if !state.graphs.contains_key(graph) {
+				if !graphs.contains_key(graph) {
 					let data = self
 						.store
 						.try_get_object_data_sync(&graph.clone().into())?
 						.ok_or_else(|| tg::error!("failed to load the graph"))?
 						.try_into()
 						.map_err(|_| tg::error!("expected graph data"))?;
-					state.graphs.insert(graph.clone(), data);
+					graphs.insert(graph.clone(), data);
 				}
 
 				// Get the node.
-				let node = state
-					.graphs
+				let node = graphs
 					.get(graph)
 					.unwrap()
 					.nodes
@@ -413,7 +414,7 @@ impl Server {
 					.ok_or_else(|| tg::error!("invalid graph node"))?
 					.clone();
 
-				// Create the data.
+				// Compute the id.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
 						tg::directory::Data::Reference(reference.clone()).into()
@@ -423,19 +424,20 @@ impl Server {
 						tg::symlink::Data::Reference(reference.clone()).into()
 					},
 				};
-
-				// Create the ID.
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
 				Ok((id, node, Some(graph.clone())))
 			},
+
 			tg::graph::data::Edge::Object(id) => {
+				// Load the object.
 				let data = self
 					.store
 					.try_get_object_data_sync(&id.clone().into())?
 					.ok_or_else(|| tg::error!("failed to load the object"))?
 					.try_into()
 					.map_err(|_| tg::error!("expected artifact data"))?;
+
 				match data {
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
 						reference,
@@ -444,11 +446,31 @@ impl Server {
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
 						reference,
 					)) => {
-						let (_, node, graph) = self.checkout_get_node(
-							state,
-							&tg::graph::data::Edge::Reference(reference),
-						)?;
-						Ok((id.clone(), node, graph))
+						// Load the graph.
+						let graph = reference
+							.graph
+							.as_ref()
+							.ok_or_else(|| tg::error!("missing graph"))?;
+						if !graphs.contains_key(graph) {
+							let data = self
+								.store
+								.try_get_object_data_sync(&graph.clone().into())?
+								.ok_or_else(|| tg::error!("failed to load the graph"))?
+								.try_into()
+								.map_err(|_| tg::error!("expected graph data"))?;
+							graphs.insert(graph.clone(), data);
+						}
+
+						// Get the node.
+						let node = graphs
+							.get(graph)
+							.unwrap()
+							.nodes
+							.get(reference.node)
+							.ok_or_else(|| tg::error!("invalid graph node"))?
+							.clone();
+
+						Ok((id.clone(), node, Some(graph.clone())))
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
 						Ok((id.clone(), tg::graph::data::Node::Directory(node), None))
@@ -486,7 +508,8 @@ impl Server {
 				reference.graph = graph.cloned();
 			}
 			let path = path.join(name);
-			self.checkout_inner(state, &path, &edge)?;
+			let (id, node, graph) = self.checkout_get_node(Some(&mut state.graphs), &edge)?;
+			self.checkout_inner(state, &path, &id, node, graph.as_ref())?;
 		}
 
 		Ok(())
@@ -517,9 +540,9 @@ impl Server {
 			{
 				reference.graph = graph.cloned();
 			}
-			let (id, _, _) = self.checkout_get_node(state, &edge)?;
+			let (id, node, graph) = self.checkout_get_node(Some(&mut state.graphs), &edge)?;
 			if id != state.artifact {
-				self.checkout_dependency(state, &id, &edge)?;
+				self.checkout_dependency(state, &id, node, graph.as_ref())?;
 			}
 		}
 
@@ -591,13 +614,8 @@ impl Server {
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::Symlink,
 	) -> tg::Result<()> {
-		let tg::graph::data::Symlink {
-			artifact,
-			path: path_,
-		} = node;
-
 		// Render the target.
-		let target = if let Some(mut edge) = artifact.clone() {
+		let target = if let Some(mut edge) = node.artifact.clone() {
 			let mut target = PathBuf::new();
 
 			// Set the graph if necessary.
@@ -607,27 +625,33 @@ impl Server {
 				reference.graph = graph.cloned();
 			}
 
-			// Get the id.
-			let (id, _, _) = self.checkout_get_node(state, &edge)?;
+			// Get the dependency node.
+			let (dependency_id, dependency_node, dependency_graph) =
+				self.checkout_get_node(Some(&mut state.graphs), &edge)?;
 
-			if id == state.artifact {
+			if dependency_id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
 				target.push(&state.path);
 			} else {
 				// If the symlink's artifact is another artifact, then check it out and use the artifact's path.
-				self.checkout_dependency(state, &id, &edge)?;
+				self.checkout_dependency(
+					state,
+					&dependency_id,
+					dependency_node,
+					dependency_graph.as_ref(),
+				)?;
 
 				// Update the target.
 				let artifacts_path = state
 					.artifacts_path
 					.as_ref()
 					.ok_or_else(|| tg::error!("expected there to be an artifacts path"))?;
-				target.push(artifacts_path.join(id.to_string()));
+				target.push(artifacts_path.join(dependency_id.to_string()));
 			}
 
 			// Add the path if it is set.
-			if let Some(path_) = path_ {
-				target.push(path_);
+			if let Some(path) = &node.path {
+				target.push(path);
 			}
 
 			// Diff the path.
@@ -637,8 +661,8 @@ impl Server {
 			let dst = &target;
 			tangram_util::path::diff(src, dst)
 				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
-		} else if let Some(path_) = path_.clone() {
-			path_
+		} else if let Some(path) = node.path.clone() {
+			path
 		} else {
 			return Err(tg::error!("invalid symlink"));
 		};

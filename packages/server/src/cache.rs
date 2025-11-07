@@ -231,7 +231,9 @@ impl Server {
 		let task = self
 			.cache_tasks
 			.get_or_spawn_blocking(id.clone(), move |_| {
-				server.cache_dependency_inner(&id, &edge, visited, &progress)
+				let (id, node, graph) = server.cache_get_node(None, &edge)?;
+				server.cache_dependency_inner(&id, node, graph.as_ref(), visited, &progress)?;
+				Ok(())
 			});
 		let future = task.wait().map(|result| match result {
 			Ok(result) => Ok(result),
@@ -245,7 +247,8 @@ impl Server {
 	fn cache_dependency(
 		&self,
 		id: &tg::artifact::Id,
-		edge: tg::graph::data::Edge<tg::artifact::Id>,
+		node: tg::graph::data::Node,
+		graph: Option<&tg::graph::Id>,
 		visited: &im::HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
@@ -256,10 +259,11 @@ impl Server {
 		if visited.insert(id.clone()).is_some() {
 			return Ok(());
 		}
+		let graph = graph.cloned();
 		let task = self
 			.cache_tasks
 			.get_or_spawn_blocking(id.clone(), move |_| {
-				server.cache_dependency_inner(&id, &edge, visited, &progress)
+				server.cache_dependency_inner(&id, node, graph.as_ref(), visited, &progress)
 			});
 		let future = task.wait().map(|result| match result {
 			Ok(result) => Ok(result),
@@ -275,7 +279,8 @@ impl Server {
 	fn cache_dependency_inner(
 		&self,
 		id: &tg::artifact::Id,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+		node: tg::graph::data::Node,
+		graph: Option<&tg::graph::Id>,
 		visited: im::HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
@@ -303,7 +308,7 @@ impl Server {
 		};
 
 		// Cache the artifact.
-		self.cache_inner(&mut state, temp.path(), edge)?;
+		self.cache_inner(&mut state, temp.path(), id, node, graph)?;
 
 		// Rename the temp to the path.
 		let src = temp.path();
@@ -375,21 +380,20 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+		id: &tg::artifact::Id,
+		node: tg::graph::data::Node,
+		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<()> {
-		// Get the artifact ID and graph node data.
-		let (id, node, graph) = self.cache_get_node(state, edge)?;
-
 		// Cache the artifact.
 		match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.cache_inner_directory(state, path, &id, graph.as_ref(), &node)?;
+				self.cache_inner_directory(state, path, id, graph, &node)?;
 			},
 			tg::graph::data::Node::File(node) => {
-				self.cache_inner_file(state, path, &id, graph.as_ref(), &node)?;
+				self.cache_inner_file(state, path, id, graph, &node)?;
 			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.cache_inner_symlink(state, path, &id, graph.as_ref(), &node)?;
+				self.cache_inner_symlink(state, path, id, graph, &node)?;
 			},
 		}
 
@@ -404,30 +408,34 @@ impl Server {
 
 	fn cache_get_node(
 		&self,
-		state: &mut State,
+		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::Result<(
 		tg::artifact::Id,
 		tg::graph::data::Node,
 		Option<tg::graph::Id>,
 	)> {
+		let mut local_graphs = HashMap::default();
+		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
 		match edge {
-			// If this is a reference, load the graph and find it.
 			tg::graph::data::Edge::Reference(reference) => {
-				// Get the graph.
+				// Load the graph.
 				let graph = reference
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-
-				// Ensure the graph is cached.
-				if !state.graphs.contains_key(graph) {
-					self.cache_load_graph(state, graph)?;
+				if !graphs.contains_key(graph) {
+					let data = self
+						.store
+						.try_get_object_data_sync(&graph.clone().into())?
+						.ok_or_else(|| tg::error!("failed to load the graph"))?
+						.try_into()
+						.map_err(|_| tg::error!("expected graph data"))?;
+					graphs.insert(graph.clone(), data);
 				}
 
 				// Get the node.
-				let node = state
-					.graphs
+				let node = graphs
 					.get(graph)
 					.unwrap()
 					.nodes
@@ -450,16 +458,16 @@ impl Server {
 				Ok((id, node, Some(graph.clone())))
 			},
 
-			// Otherwise, look up the artifact data by ID.
 			tg::graph::data::Edge::Object(id) => {
+				// Load the object.
 				let data = self
 					.store
 					.try_get_object_data_sync(&id.clone().into())?
 					.ok_or_else(|| tg::error!("failed to load the object"))?
 					.try_into()
 					.map_err(|_| tg::error!("expected artifact data"))?;
+
 				match data {
-					// Handle the case where this points into a graph.
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
 						reference,
 					))
@@ -467,10 +475,33 @@ impl Server {
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
 						reference,
 					)) => {
-						let (_, node, graph) = self
-							.cache_get_node(state, &tg::graph::data::Edge::Reference(reference))?;
-						Ok((id.clone(), node, graph))
+						// Load the graph.
+						let graph = reference
+							.graph
+							.as_ref()
+							.ok_or_else(|| tg::error!("missing graph"))?;
+						if !graphs.contains_key(graph) {
+							let data = self
+								.store
+								.try_get_object_data_sync(&graph.clone().into())?
+								.ok_or_else(|| tg::error!("failed to load the graph"))?
+								.try_into()
+								.map_err(|_| tg::error!("expected graph data"))?;
+							graphs.insert(graph.clone(), data);
+						}
+
+						// Get the node.
+						let node = graphs
+							.get(graph)
+							.unwrap()
+							.nodes
+							.get(reference.node)
+							.ok_or_else(|| tg::error!("invalid graph node"))?
+							.clone();
+
+						Ok((id.clone(), node, Some(graph.clone())))
 					},
+
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
 						Ok((id.clone(), tg::graph::data::Node::Directory(node), None))
 					},
@@ -483,20 +514,6 @@ impl Server {
 				}
 			},
 		}
-	}
-
-	fn cache_load_graph(&self, state: &mut State, graph: &tg::graph::Id) -> tg::Result<()> {
-		if state.graphs.contains_key(graph) {
-			return Ok(());
-		}
-		let data = self
-			.store
-			.try_get_object_data_sync(&graph.clone().into())?
-			.ok_or_else(|| tg::error!("failed to load the graph"))?
-			.try_into()
-			.map_err(|_| tg::error!("expected graph data"))?;
-		state.graphs.insert(graph.clone(), data);
-		Ok(())
 	}
 
 	fn cache_inner_directory(
@@ -522,7 +539,8 @@ impl Server {
 			}
 			let path = path.join(name);
 			state.depth += 1;
-			self.cache_inner(state, &path, &edge)?;
+			let (id, node, graph) = self.cache_get_node(Some(&mut state.graphs), &edge)?;
+			self.cache_inner(state, &path, &id, node, graph.as_ref())?;
 			state.depth -= 1;
 		}
 
@@ -564,12 +582,12 @@ impl Server {
 				reference.graph = graph.cloned();
 			}
 
-			// Get the underlying node ID.
-			let (id, _, _) = self.cache_get_node(state, &edge)?;
+			// Get the node.
+			let (id, node, graph) = self.cache_get_node(Some(&mut state.graphs), &edge)?;
 
 			// Recurse.
 			if id != state.artifact {
-				self.cache_dependency(&id, edge, &state.visited, &state.progress)?;
+				self.cache_dependency(&id, node, graph.as_ref(), &state.visited, &state.progress)?;
 			}
 		}
 
@@ -655,23 +673,30 @@ impl Server {
 				reference.graph = graph.cloned();
 			}
 
-			// Get the id.
-			let (id, _, _) = self.cache_get_node(state, &edge)?;
+			// Get the dependency node.
+			let (dependency_id, dependency_node, dependency_graph) =
+				self.cache_get_node(Some(&mut state.graphs), &edge)?;
 
-			if id == state.artifact {
+			if dependency_id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
 				target.push(&state.path);
 			} else {
 				// Cache the dependency.
-				self.cache_dependency(&id, edge, &state.visited, &state.progress)?;
+				self.cache_dependency(
+					&dependency_id,
+					dependency_node,
+					dependency_graph.as_ref(),
+					&state.visited,
+					&state.progress,
+				)?;
 
 				// Update the target.
-				target.push(state.path.parent().unwrap().join(id.to_string()));
+				target.push(state.path.parent().unwrap().join(dependency_id.to_string()));
 			}
 
 			// Add the path if it is set.
-			if let Some(path_) = &node.path {
-				target.push(path_);
+			if let Some(path) = &node.path {
+				target.push(path);
 			}
 
 			// Diff the path.
