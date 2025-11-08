@@ -5,7 +5,7 @@ use {
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
-	tangram_util::iter::Ext as _,
+	tangram_util::{collections::path_trie::PathTrie, iter::Ext as _},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -14,7 +14,7 @@ pub struct Graph {
 	pub ids: im::HashMap<tg::object::Id, SmallVec<[usize; 1]>, tg::id::BuildHasher>,
 	pub next: usize,
 	pub nodes: im::OrdMap<usize, Box<Node>>,
-	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
+	pub paths: PathTrie<usize>,
 }
 
 #[expect(clippy::struct_field_names)]

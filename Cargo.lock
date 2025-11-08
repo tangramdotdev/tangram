@@ -6286,7 +6286,9 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "data-encoding",
+ "fnv",
  "futures",
+ "im",
  "num",
  "serde",
  "serde_with",

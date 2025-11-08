@@ -227,7 +227,7 @@ impl Server {
 		state.graph.next += 1;
 
 		// Update the path.
-		state.graph.paths.insert(item.path.clone(), index);
+		state.graph.paths.insert(&item.path, index);
 
 		// Get the lock node.
 		let lock_node = Self::checkin_input_get_lock_node(state, item.parent.as_ref());
