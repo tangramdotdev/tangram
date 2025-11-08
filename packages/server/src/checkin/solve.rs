@@ -529,11 +529,7 @@ impl Server {
 			return None;
 		};
 		let node = if let Some(artifact) = referent.artifact() {
-			checkpoint
-				.graph
-				.ids
-				.get(&artifact.clone().into())
-				.and_then(|nodes| nodes.first().copied())
+			checkpoint.graph.artifacts.get(artifact).copied()
 		} else {
 			None
 		};
@@ -645,6 +641,7 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			artifact: None,
 			complete: false,
 			lock_node,
 			metadata: None,
@@ -789,6 +786,7 @@ impl Server {
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
+			artifact: None,
 			complete: false,
 			lock_node,
 			metadata: None,

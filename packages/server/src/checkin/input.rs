@@ -100,16 +100,15 @@ impl Server {
 			self.checkin_visit(&mut state, &mut stack, item)?;
 		}
 
-		// Set the IDs for artifacts path entries.
+		// Set the artifacts for artifacts path entries.
 		for (path, name) in artifacts_entries {
 			if let Some(index) = state.graph.paths.get(&path)
 				&& let Some(name) = name.to_str()
 				&& let Ok(id) = name.parse::<tg::artifact::Id>()
 			{
-				let id: tg::object::Id = id.into();
 				let node = state.graph.nodes.get_mut(index).unwrap();
-				node.id = Some(id.clone());
-				state.graph.ids.entry(id).or_default().push(*index);
+				node.artifact = Some(id.clone());
+				state.graph.artifacts.insert(id, *index);
 			}
 		}
 
@@ -235,6 +234,7 @@ impl Server {
 
 		// Create the node.
 		let node = Node {
+			artifact: None,
 			complete: false,
 			lock_node,
 			metadata: None,

@@ -10,6 +10,7 @@ use {
 
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
+	pub artifacts: im::HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
 	pub ids: im::HashMap<tg::object::Id, SmallVec<[usize; 1]>, tg::id::BuildHasher>,
 	pub next: usize,
 	pub nodes: im::OrdMap<usize, Box<Node>>,
@@ -19,6 +20,7 @@ pub struct Graph {
 #[expect(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
+	pub artifact: Option<tg::artifact::Id>,
 	pub complete: bool,
 	pub id: Option<tg::object::Id>,
 	pub lock_node: Option<usize>,
@@ -50,11 +52,14 @@ impl Graph {
 
 			// Remove the node.
 			let node = self.nodes.remove(&index).unwrap();
-			tracing::trace!(path = ?node.path, id = ?node.id.as_ref().map(ToString::to_string), "cleaned");
+			tracing::trace!(path = ?node.path, artifact = ?node.artifact, id = ?node.id.as_ref().map(ToString::to_string), "cleaned");
+			if let Some(artifact) = &node.artifact {
+				self.artifacts.remove(artifact).unwrap();
+			}
 			if let Some(id) = &node.id
 				&& let Some(nodes) = self.ids.get_mut(id)
 			{
-				nodes.retain(|node_index| *node_index != index);
+				nodes.retain(|i| *i != index);
 				if nodes.is_empty() {
 					self.ids.remove(id);
 				}

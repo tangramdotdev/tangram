@@ -83,6 +83,9 @@ impl Watch {
 						// Remove the node.
 						let node = *state.graph.nodes.remove(&index).unwrap();
 						tracing::trace!(path = ?node.path, id = ?node.id, "deleting");
+						if let Some(artifact) = &node.artifact {
+							state.graph.artifacts.remove(artifact).unwrap();
+						}
 						if let Some(id) = &node.id
 							&& let Some(nodes) = state.graph.ids.get_mut(id)
 						{
