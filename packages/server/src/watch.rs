@@ -83,8 +83,13 @@ impl Watch {
 						// Remove the node.
 						let node = *state.graph.nodes.remove(&index).unwrap();
 						tracing::trace!(path = ?node.path, id = ?node.id, "deleting");
-						if let Some(id) = &node.id {
-							state.graph.ids.remove(id);
+						if let Some(id) = &node.id
+							&& let Some(nodes) = state.graph.ids.get_mut(id)
+						{
+							nodes.retain(|i| *i != index);
+							if nodes.is_empty() {
+								state.graph.ids.remove(id);
+							}
 						}
 						if let Some(path) = &node.path {
 							state.graph.paths.remove(path).unwrap();

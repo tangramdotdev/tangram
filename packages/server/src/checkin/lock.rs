@@ -321,9 +321,9 @@ impl Server {
 					for edge in directory.entries.values_mut() {
 						if let tg::graph::data::Edge::Reference(reference) = edge
 							&& reference.graph.is_none()
-							&& let Some(&lock_index) = mapping.get(&reference.node)
+							&& let Some(lock_index) = mapping.get(&reference.node)
 						{
-							reference.node = lock_index;
+							reference.node = *lock_index;
 						}
 					}
 				},
@@ -332,18 +332,18 @@ impl Server {
 						if let tg::graph::data::Edge::Reference(reference) =
 							&mut referent_value.item
 							&& reference.graph.is_none()
-							&& let Some(&lock_index) = mapping.get(&reference.node)
+							&& let Some(lock_index) = mapping.get(&reference.node)
 						{
-							reference.node = lock_index;
+							reference.node = *lock_index;
 						}
 					}
 				},
 				tg::graph::data::Node::Symlink(symlink) => {
 					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
 						&& reference.graph.is_none()
-						&& let Some(&lock_index) = mapping.get(&reference.node)
+						&& let Some(lock_index) = mapping.get(&reference.node)
 					{
-						reference.node = lock_index;
+						reference.node = *lock_index;
 					}
 				},
 			}

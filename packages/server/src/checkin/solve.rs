@@ -529,7 +529,11 @@ impl Server {
 			return None;
 		};
 		let node = if let Some(artifact) = referent.artifact() {
-			checkpoint.graph.ids.get(&artifact.clone().into()).copied()
+			checkpoint
+				.graph
+				.ids
+				.get(&artifact.clone().into())
+				.and_then(|nodes| nodes.first().copied())
 		} else {
 			None
 		};

@@ -102,14 +102,14 @@ impl Server {
 
 		// Set the IDs for artifacts path entries.
 		for (path, name) in artifacts_entries {
-			if let Some(&node_index) = state.graph.paths.get(&path)
+			if let Some(index) = state.graph.paths.get(&path)
 				&& let Some(name) = name.to_str()
 				&& let Ok(id) = name.parse::<tg::artifact::Id>()
 			{
 				let id: tg::object::Id = id.into();
-				let node = state.graph.nodes.get_mut(&node_index).unwrap();
+				let node = state.graph.nodes.get_mut(index).unwrap();
 				node.id = Some(id.clone());
-				state.graph.ids.insert(id, node_index);
+				state.graph.ids.entry(id).or_default().push(*index);
 			}
 		}
 
@@ -157,10 +157,10 @@ impl Server {
 		item: Item,
 	) -> tg::Result<()> {
 		// Check if the path has been visited.
-		if let Some(&existing_index) = state.graph.paths.get(&item.path) {
+		if let Some(existing_index) = state.graph.paths.get(&item.path) {
 			// Update the parent's edge to point to the existing node.
 			if let Some(parent) = item.parent {
-				Self::checkin_input_update_parent_edge(state, parent, existing_index)?;
+				Self::checkin_input_update_parent_edge(state, parent, *existing_index)?;
 			}
 			return Ok(());
 		}

@@ -10,7 +10,7 @@ use {
 
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
-	pub ids: im::HashMap<tg::object::Id, usize, tg::id::BuildHasher>,
+	pub ids: im::HashMap<tg::object::Id, SmallVec<[usize; 1]>, tg::id::BuildHasher>,
 	pub next: usize,
 	pub nodes: im::OrdMap<usize, Box<Node>>,
 	pub paths: im::HashMap<PathBuf, usize, fnv::FnvBuildHasher>,
@@ -51,8 +51,13 @@ impl Graph {
 			// Remove the node.
 			let node = self.nodes.remove(&index).unwrap();
 			tracing::trace!(path = ?node.path, id = ?node.id.as_ref().map(ToString::to_string), "cleaned");
-			if let Some(id) = &node.id {
-				self.ids.remove(id);
+			if let Some(id) = &node.id
+				&& let Some(nodes) = self.ids.get_mut(id)
+			{
+				nodes.retain(|node_index| *node_index != index);
+				if nodes.is_empty() {
+					self.ids.remove(id);
+				}
 			}
 			if let Some(path) = &node.path {
 				self.paths.remove(path);

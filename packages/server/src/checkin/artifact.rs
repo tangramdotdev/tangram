@@ -200,7 +200,7 @@ impl Server {
 		node.complete = complete;
 		node.metadata = Some(metadata);
 		node.id.replace(id.clone());
-		graph.ids.insert(id, index);
+		graph.ids.entry(id).or_default().push(index);
 
 		Ok(())
 	}
@@ -436,7 +436,7 @@ impl Server {
 		node.complete = complete;
 		node.metadata = Some(metadata);
 		node.id.replace(id.clone());
-		graph.ids.insert(id, global);
+		graph.ids.entry(id).or_default().push(global);
 
 		Ok(())
 	}
@@ -457,9 +457,13 @@ impl Server {
 		let mut children_ids = BTreeSet::new();
 		data.children(&mut children_ids);
 		let children = children_ids.iter().map(|id| {
-			if let Some(&index) = graph.ids.get(id) {
-				let node = graph.nodes.get(&index).unwrap();
-				(node.complete, node.metadata.clone())
+			if let Some(nodes) = graph.ids.get(id) {
+				if let Some(index) = nodes.first() {
+					let node = graph.nodes.get(index).unwrap();
+					(node.complete, node.metadata.clone())
+				} else {
+					(false, None)
+				}
 			} else if let Ok(id) = id.try_unwrap_blob_ref() {
 				scc.iter()
 					.find_map(|&index| {
