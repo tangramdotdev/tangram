@@ -282,26 +282,27 @@ impl Server {
 
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if arg.options.watch {
-			let graph = graph.clone();
-			let next = graph.next;
-
 			// Create or update the watcher.
 			let entry = self.watches.entry(root.clone());
 			match entry {
 				dashmap::Entry::Occupied(entry) => {
-					let mut state = entry.get().state.lock().unwrap();
+					let watch = entry.get();
+					let mut state = watch.state.lock().unwrap();
 					if let Some(version) = version {
 						let current = state.version;
 						if current != version {
 							return Err(tg::error!("files were modified during checkin"));
 						}
 					}
-					state.graph = graph;
+					state.graph = graph.clone();
 					state.lock = lock;
+					state.update_paths();
 				},
 				dashmap::Entry::Vacant(entry) => {
-					let watch = Watch::new(&root, graph, lock, arg.options.clone(), solutions)
-						.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
+					let watch =
+						Watch::new(&root, graph.clone(), lock, arg.options.clone(), solutions)
+							.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
+					watch.state.lock().unwrap().update_paths();
 					entry.insert(watch);
 				},
 			}
@@ -310,6 +311,7 @@ impl Server {
 			tokio::task::spawn_blocking({
 				let server = self.clone();
 				let root = root.clone();
+				let next = graph.next;
 				move || {
 					// Get the graph.
 					let Some(watch) = server.watches.get(&root) else {
@@ -325,6 +327,9 @@ impl Server {
 
 					// Clean the graph.
 					graph.clean(&root);
+
+					// Update paths.
+					state.update_paths();
 				}
 			});
 		}

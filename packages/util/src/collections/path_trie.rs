@@ -1,4 +1,7 @@
-use std::{ffi::OsString, path::Path};
+use std::{
+	ffi::OsString,
+	path::{Path, PathBuf},
+};
 
 #[derive(Clone, Debug)]
 pub struct PathTrie<V> {
@@ -61,6 +64,23 @@ where
 
 	pub fn clear(&mut self) {
 		self.root = Node::default();
+	}
+
+	pub fn roots(&self) -> Vec<PathBuf> {
+		fn inner<V>(node: &Node<V>, path: PathBuf, output: &mut Vec<PathBuf>) {
+			if node.value.is_some() {
+				output.push(path);
+			} else {
+				for (component, child) in &node.children {
+					let mut path = path.clone();
+					path.push(component);
+					inner(child, path, output);
+				}
+			}
+		}
+		let mut output = Vec::new();
+		inner(&self.root, PathBuf::new(), &mut output);
+		output
 	}
 }
 
@@ -232,5 +252,43 @@ mod tests {
 
 		assert_eq!(trie.remove(&path), Some(42));
 		assert!(trie.is_empty());
+	}
+
+	#[test]
+	fn test_roots() {
+		let mut trie = PathTrie::default();
+
+		trie.insert(&PathBuf::from("a"), 1);
+		trie.insert(&PathBuf::from("a/b"), 2);
+		trie.insert(&PathBuf::from("c"), 3);
+		trie.insert(&PathBuf::from("c/d"), 4);
+
+		let mut roots = trie.roots();
+		roots.sort();
+
+		assert_eq!(roots.len(), 2);
+		assert_eq!(roots[0], PathBuf::from("a"));
+		assert_eq!(roots[1], PathBuf::from("c"));
+	}
+
+	#[test]
+	fn test_roots_with_root_value() {
+		let mut trie = PathTrie::default();
+
+		trie.insert(&PathBuf::from(""), 42);
+		trie.insert(&PathBuf::from("a"), 1);
+		trie.insert(&PathBuf::from("a/b"), 2);
+
+		let roots = trie.roots();
+
+		assert_eq!(roots.len(), 1);
+		assert_eq!(roots[0], PathBuf::from(""));
+	}
+
+	#[test]
+	fn test_roots_empty() {
+		let trie: PathTrie<i32> = PathTrie::default();
+		let roots = trie.roots();
+		assert_eq!(roots.len(), 0);
 	}
 }
