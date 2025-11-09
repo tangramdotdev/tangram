@@ -114,6 +114,16 @@ impl Server {
 				tg::sync::Message::Put(None) => {
 					break;
 				},
+				tg::sync::Message::Missing(missing) => {
+					return match missing {
+						tg::sync::MissingMessage::Process(message) => {
+							Err(tg::error!(%id = message.id, "the process is missing on the remote"))
+						},
+						tg::sync::MissingMessage::Object(message) => {
+							Err(tg::error!(%id = message.id, "the object is missing on the remote"))
+						},
+					};
+				},
 				_ => {
 					unreachable!()
 				},

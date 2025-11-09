@@ -566,7 +566,13 @@ impl Server {
 		for (item, output) in std::iter::zip(items, outputs) {
 			let ProcessQueueItem { process, .. } = item;
 			let Some(output) = output else {
-				return Err(tg::error!(%id = process, "failed to find the process"));
+				let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Process(
+					tg::sync::ProcessMissingMessage {
+						id: process.clone(),
+					},
+				));
+				state.sender.send(Ok(message)).await.ok();
+				continue;
 			};
 			let data = output.data;
 
@@ -708,10 +714,21 @@ impl Server {
 			return Ok(());
 		}
 
-		// Get the process
-		let tg::process::get::Output { data, .. } =
+		// Get the process.
+		let Some(tg::process::get::Output { data, .. }) =
 			Self::try_get_process_sqlite_sync(&state.database, &process)?
-				.ok_or_else(|| tg::error!("failed to find the process"))?;
+		else {
+			let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Process(
+				tg::sync::ProcessMissingMessage {
+					id: process.clone(),
+				},
+			));
+			state
+				.sender
+				.blocking_send(Ok(message))
+				.map_err(|source| tg::error!(!source, "failed to send the missing message"))?;
+			return Ok(());
+		};
 
 		// Enqueue the children.
 		if state.arg.recursive {
@@ -830,7 +847,13 @@ impl Server {
 		for (item, output) in std::iter::zip(items, outputs) {
 			let ObjectQueueItem { object, .. } = item;
 			let Some(output) = output else {
-				return Err(tg::error!(%id = object, "failed to find the object"));
+				let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Object(
+					tg::sync::ObjectMissingMessage {
+						id: object.clone(),
+					},
+				));
+				state.sender.send(Ok(message)).await.ok();
+				continue;
 			};
 			let bytes = output.bytes;
 			let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
@@ -915,10 +938,19 @@ impl Server {
 		}
 
 		// Get the object.
-		let bytes = self
-			.try_get_object_sync(&object, &mut state.file)?
-			.ok_or_else(|| tg::error!("failed to find the object"))?
-			.bytes;
+		let Some(output) = self.try_get_object_sync(&object, &mut state.file)? else {
+			let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Object(
+				tg::sync::ObjectMissingMessage {
+					id: object.clone(),
+				},
+			));
+			state
+				.sender
+				.blocking_send(Ok(message))
+				.map_err(|source| tg::error!(!source, "failed to send the missing message"))?;
+			return Ok(());
+		};
+		let bytes = output.bytes;
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
 
 		// Enqueue the children.

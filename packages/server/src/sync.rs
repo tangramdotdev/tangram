@@ -89,7 +89,7 @@ impl Server {
 					tg::sync::Message::Get(_) | tg::sync::Message::Complete(_) => {
 						put_sender.send(message).await.ok();
 					},
-					tg::sync::Message::Put(_) => {
+					tg::sync::Message::Put(_) | tg::sync::Message::Missing(_) => {
 						get_sender.send(message).await.ok();
 					},
 					_ => unreachable!(),

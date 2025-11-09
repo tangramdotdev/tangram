@@ -55,12 +55,15 @@ pub enum Message {
 	Put(Option<PutMessage>),
 
 	#[tangram_serialize(id = 2)]
-	Complete(CompleteMessage),
+	Missing(MissingMessage),
 
 	#[tangram_serialize(id = 3)]
-	Progress(ProgressMessage),
+	Complete(CompleteMessage),
 
 	#[tangram_serialize(id = 4)]
+	Progress(ProgressMessage),
+
+	#[tangram_serialize(id = 5)]
 	End,
 }
 
@@ -110,6 +113,27 @@ pub struct ObjectPutMessage {
 
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
+}
+
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub enum MissingMessage {
+	#[tangram_serialize(id = 0)]
+	Process(ProcessMissingMessage),
+
+	#[tangram_serialize(id = 1)]
+	Object(ObjectMissingMessage),
+}
+
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct ProcessMissingMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::process::Id,
+}
+
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct ObjectMissingMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::object::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
