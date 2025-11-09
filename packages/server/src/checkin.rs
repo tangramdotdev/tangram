@@ -296,13 +296,11 @@ impl Server {
 					}
 					state.graph = graph.clone();
 					state.lock = lock;
-					state.update_paths();
 				},
 				dashmap::Entry::Vacant(entry) => {
 					let watch =
 						Watch::new(&root, graph.clone(), lock, arg.options.clone(), solutions)
 							.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
-					watch.state.lock().unwrap().update_paths();
 					entry.insert(watch);
 				},
 			}
