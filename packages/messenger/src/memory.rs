@@ -119,13 +119,15 @@ impl Messenger {
 	}
 
 	async fn create_stream(&self, name: String, config: StreamConfig) -> Result<Stream, Error> {
-		self.delete_stream(name.clone()).await?;
+		let mut state = self.state.write().unwrap();
+		let stream = state.streams.remove(&name);
+		tokio::spawn(async move {
+			if let Some(stream) = stream {
+				stream.close().await;
+			}
+		});
 		let stream = Stream::new(name.clone(), config);
-		self.state
-			.write()
-			.unwrap()
-			.streams
-			.insert(name, stream.clone());
+		state.streams.insert(name, stream.clone());
 		Ok(stream)
 	}
 
