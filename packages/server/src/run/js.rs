@@ -16,6 +16,28 @@ impl Server {
 			}
 		});
 
+		// Extract parameters from the process.
+		let command = process.command(self).await?;
+
+		let args = command
+			.args(self)
+			.await?
+			.iter()
+			.map(tg::Value::to_data)
+			.collect::<Vec<_>>();
+
+		let cwd = std::env::current_dir()
+			.map_err(|source| tg::error!(!source, "failed to get current directory"))?;
+
+		let env = command
+			.env(self)
+			.await?
+			.iter()
+			.map(|(key, value)| (key.clone(), value.to_data()))
+			.collect();
+
+		let executable = command.executable(self).await?.to_data();
+
 		// Create a channel to receive the isolate handle.
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
 
@@ -29,12 +51,16 @@ impl Server {
 			tokio_util::task::LocalPoolHandle::new(concurrency)
 		});
 		let task = local_pool_handle.spawn_pinned({
-			let server = self.clone();
+			let handle = self.clone();
 			let process = process.clone();
 			move || async move {
 				tangram_js::run(
-					&server,
-					&process,
+					&handle,
+					Some(&process),
+					args,
+					cwd,
+					env,
+					executable,
 					logger,
 					main_runtime_handle,
 					Some(isolate_handle_sender),

@@ -32,34 +32,43 @@ pub struct Output {
 	pub output: Option<tg::Value>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
-	process: &tg::Process,
+	process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	cwd: std::path::PathBuf,
+	env: tg::value::data::Map,
+	executable: tg::command::data::Executable,
 	logger: Logger,
 	temp_path: &std::path::Path,
 ) -> tg::Result<Output>
 where
 	H: tg::Handle,
 {
-	// Get the executable.
-	let command = process.command(handle).await?;
-	let executable = command.executable(handle).await?;
-	let name = executable
-		.try_unwrap_path_ref()
-		.ok()
-		.ok_or_else(|| tg::error!("expected the executable to be a path"))?
-		.path
-		.to_str()
-		.ok_or_else(|| tg::error!("invalid executable"))?;
+	// Get the executable name.
+	let name = match &executable {
+		tg::command::data::Executable::Path(path_executable) => path_executable
+			.path
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid executable"))?,
+		_ => return Err(tg::error!("expected the executable to be a path")),
+	};
 
 	let output = match name {
-		"archive" => archive(handle, process, logger).boxed(),
-		"bundle" => bundle(handle, process, logger).boxed(),
-		"checksum" => checksum(handle, process, logger).boxed(),
-		"compress" => compress(handle, process, logger).boxed(),
-		"decompress" => decompress(handle, process, logger).boxed(),
-		"download" => download(handle, process, logger, temp_path).boxed(),
-		"extract" => extract(handle, process, logger, temp_path).boxed(),
+		"archive" => archive(handle, process, args, cwd, env, executable, logger).boxed(),
+		"bundle" => bundle(handle, process, args, cwd, env, executable, logger).boxed(),
+		"checksum" => checksum(handle, process, args, cwd, env, executable, logger).boxed(),
+		"compress" => compress(handle, process, args, cwd, env, executable, logger).boxed(),
+		"decompress" => decompress(handle, process, args, cwd, env, executable, logger).boxed(),
+		"download" => download(
+			handle, process, args, cwd, env, executable, logger, temp_path,
+		)
+		.boxed(),
+		"extract" => extract(
+			handle, process, args, cwd, env, executable, logger, temp_path,
+		)
+		.boxed(),
 		_ => {
 			return Err(tg::error!("invalid executable"));
 		},

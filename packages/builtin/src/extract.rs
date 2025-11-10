@@ -11,27 +11,33 @@ use {
 	tokio_util::{compat::FuturesAsyncReadCompatExt as _, task::AbortOnDropHandle},
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn extract<H>(
 	handle: &H,
-	process: &tg::Process,
+	_process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	_cwd: std::path::PathBuf,
+	_env: tg::value::data::Map,
+	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
 	temp_path: &std::path::Path,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
 {
-	let command = process.command(handle).await?;
-
-	// Get the args.
-	let args = command.args(handle).await?;
-
 	// Get the blob.
 	let input = args
 		.first()
 		.ok_or_else(|| tg::error!("invalid number of arguments"))?;
 	let blob = match input {
-		tg::Value::Object(tg::Object::Blob(blob)) => blob.clone(),
-		tg::Value::Object(tg::Object::File(file)) => file.contents(handle).await?,
+		tg::value::Data::Object(id) => {
+			let object = tg::Object::with_id(id.clone());
+			match object {
+				tg::Object::Blob(blob) => blob,
+				tg::Object::File(file) => file.contents(handle).await?,
+				_ => return Err(tg::error!("expected a blob or a file")),
+			}
+		},
 		_ => {
 			return Err(tg::error!("expected a blob or a file"));
 		},

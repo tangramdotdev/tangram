@@ -33,7 +33,6 @@ async fn create_from_file() {
 		.unwrap()
 		.trim()
 		.to_owned();
-	dbg!(&id);
 	let output = server
 		.tg()
 		.arg("get")

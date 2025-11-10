@@ -5,35 +5,29 @@ use {
 
 pub(crate) async fn checksum<H>(
 	handle: &H,
-	process: &tg::Process,
+	_process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	_cwd: std::path::PathBuf,
+	_env: tg::value::data::Map,
+	_executable: tg::command::data::Executable,
 	_logger: crate::Logger,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
 {
-	let command = process.command(handle).await?;
-
-	// Get the args.
-	let args = command.args(handle).await?;
-
 	// Get the object.
-	let object = args
-		.first()
-		.ok_or_else(|| tg::error!("invalid number of arguments"))?
-		.clone()
-		.try_unwrap_object()
-		.ok()
-		.ok_or_else(|| tg::error!("expected an object"))?;
+	let object = match args.first() {
+		Some(tg::value::Data::Object(id)) => tg::Object::with_id(id.clone()),
+		_ => return Err(tg::error!("expected an object")),
+	};
 
 	// Get the algorithm.
-	let algorithm = args
-		.get(1)
-		.ok_or_else(|| tg::error!("invalid number of arguments"))?
-		.try_unwrap_string_ref()
-		.ok()
-		.ok_or_else(|| tg::error!("expected a string"))?
-		.parse::<tg::checksum::Algorithm>()
-		.map_err(|source| tg::error!(!source, "invalid algorithm"))?;
+	let algorithm = match args.get(1) {
+		Some(tg::value::Data::String(s)) => s
+			.parse::<tg::checksum::Algorithm>()
+			.map_err(|source| tg::error!(!source, "invalid algorithm"))?,
+		_ => return Err(tg::error!("expected a string")),
+	};
 
 	// Compute the checksum.
 	let checksum = if let Ok(blob) = tg::Blob::try_from(object.clone()) {

@@ -11,7 +11,7 @@ pub struct Args {
 
 impl Cli {
 	#[must_use]
-	pub fn command_internal_session(args: Args) -> std::process::ExitCode {
+	pub fn command_session(args: Args) -> std::process::ExitCode {
 		let result = Self::command_internal_session_inner(args);
 		match result {
 			Ok(()) => 0.into(),

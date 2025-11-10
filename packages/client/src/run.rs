@@ -55,6 +55,8 @@ where
 	for (key, value) in std::env::vars() {
 		env.insert(key, value.into());
 	}
+	env.remove("TANGRAM_PROCESS");
+	env.remove("TANGRAM_URL");
 	for (key, value) in arg.env.clone() {
 		if let Ok(mutation) = value.try_unwrap_mutation_ref() {
 			mutation.apply(&mut env, &key)?;

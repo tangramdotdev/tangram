@@ -11,7 +11,7 @@ use {
 		stream::FuturesUnordered,
 	},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, future::poll_fn, pin::pin, rc::Rc, sync::Arc, task::Poll},
+	std::{cell::RefCell, future::poll_fn, path::PathBuf, pin::pin, rc::Rc, sync::Arc, task::Poll},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -32,7 +32,7 @@ pub type Logger = Arc<
 >;
 
 struct State {
-	process: tg::Process,
+	process: Option<tg::Process>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
 	global_source_map: Option<SourceMap>,
 	logger: Logger,
@@ -64,9 +64,14 @@ pub struct Output {
 	pub output: Option<tg::Value>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
-	process: &tg::Process,
+	process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	cwd: PathBuf,
+	env: tg::value::data::Map,
+	executable: tg::command::data::Executable,
 	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	isolate_handle_sender: Option<tokio::sync::watch::Sender<Option<v8::IsolateHandle>>>,
@@ -74,27 +79,24 @@ pub async fn run<H>(
 where
 	H: tg::Handle,
 {
-	// Get the root module.
-	let command = process.command(handle).await?;
-	let executable = command
-		.executable(handle)
-		.await?
-		.clone()
-		.try_unwrap_module()
-		.ok()
-		.ok_or_else(|| tg::error!("expected the executable to be a module"))?;
+	// Extract the module from the executable.
+	let module = if let tg::command::data::Executable::Module(executable) = &executable {
+		executable.module.clone()
+	} else {
+		return Err(tg::error!("expected a module executable"));
+	};
 
 	// Create the state.
 	let (rejection, _) = tokio::sync::watch::channel(None);
 	let state = Rc::new(State {
-		process: process.clone(),
+		process: process.cloned(),
 		promises: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 		logger,
 		main_runtime_handle,
 		modules: RefCell::new(Vec::new()),
 		rejection,
-		root: executable.module.to_data(),
+		root: module.clone(),
 		handle: tg::handle::dynamic::Handle::new(handle.clone()),
 	});
 
@@ -165,33 +167,26 @@ where
 		// Create the arg.
 		let arg = v8::Object::new(scope);
 
-		// Set the id.
-		let key = v8::String::new_external_onebyte_static(scope, b"id").unwrap();
-		let value = Serde(process.id()).serialize(scope)?;
+		// Set args.
+		let key = v8::String::new_external_onebyte_static(scope, b"args").unwrap();
+		let value = Serde(&args).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
-		// Set the remote.
-		if let Some(remote) = process.remote() {
-			let key = v8::String::new_external_onebyte_static(scope, b"remote").unwrap();
-			let value = remote.serialize(scope)?;
-			arg.set(scope, key.into(), value);
-		}
+		// Set cwd.
+		let key = v8::String::new_external_onebyte_static(scope, b"cwd").unwrap();
+		let value =
+			Serde(cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?).serialize(scope)?;
+		arg.set(scope, key.into(), value);
 
-		// Get the Tangram global.
-		let tangram = v8::String::new_external_onebyte_static(scope, b"Tangram").unwrap();
-		let tangram = context.global(scope).get(scope, tangram.into()).unwrap();
-		let tangram = v8::Local::<v8::Object>::try_from(tangram).unwrap();
+		// Set env.
+		let key = v8::String::new_external_onebyte_static(scope, b"env").unwrap();
+		let value = Serde(&env).serialize(scope)?;
+		arg.set(scope, key.into(), value);
 
-		// Get the Process constructor.
-		let process_constructor =
-			v8::String::new_external_onebyte_static(scope, b"Process").unwrap();
-		let process_constructor = tangram.get(scope, process_constructor.into()).unwrap();
-		let process_constructor = v8::Local::<v8::Function>::try_from(process_constructor).unwrap();
-
-		// Create the Tangram.Process.
-		let process = process_constructor
-			.new_instance(scope, &[arg.into()])
-			.unwrap();
+		// Set executable.
+		let key = v8::String::new_external_onebyte_static(scope, b"executable").unwrap();
+		let value = Serde(&executable).serialize(scope)?;
+		arg.set(scope, key.into(), value);
 
 		// Get the start function.
 		let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
@@ -201,7 +196,7 @@ where
 		// Call the start function.
 		let scope = &mut v8::TryCatch::new(scope);
 		let undefined = v8::undefined(scope);
-		let value = start.call(scope, undefined.into(), &[process.into()]);
+		let value = start.call(scope, undefined.into(), &[arg.into()]);
 		if scope.has_caught() {
 			if !scope.can_continue() {
 				if scope.has_terminated() {

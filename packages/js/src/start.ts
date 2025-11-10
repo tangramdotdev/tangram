@@ -1,47 +1,58 @@
 import * as tg from "@tangramdotdev/client";
 
-export let start = async (process: tg.Process): Promise<tg.Value.Data> => {
-	// Set the current process.
-	tg.Process.current = process;
+type Arg = {
+	args: Array<tg.Value.Data>;
+	cwd: string;
+	env: Record<string, tg.Value.Data>;
+	executable: tg.Command.Data.Executable;
+};
 
-	// Load the process.
-	await process.load();
+export let start = async (arg: Arg): Promise<tg.Value.Data> => {
+	// Set tg.process.
+	tg.setProcess({
+		args: arg.args.map(tg.Value.fromData),
+		cwd: arg.cwd,
+		env: Object.fromEntries(
+			Object.entries(arg.env).map(([key, value]) => [
+				key,
+				tg.Value.fromData(value),
+			]),
+		),
+		executable: tg.Command.Executable.fromData(arg.executable),
+	});
 
-	// Load the command.
-	let command = await process.command();
-	await command.load();
+	// Set tg.Process.current from the TANGRAM_PROCESS environment variable if it is defined.
+	let id = arg.env.TANGRAM_PROCESS;
+	if (id !== undefined) {
+		tg.assert(typeof id === "string");
+		tg.Process.current = new tg.Process({ id });
+	}
 
 	// Import the module.
 	// biome-ignore lint/security/noGlobalEval: <reason>
 	let namespace = await eval(`import("!")`);
 
-	// Get the export.
-	let executable = await command.executable();
-	tg.assert("module" in executable);
-	let export_ = executable.export;
-	if (export_ === undefined) {
-		throw new Error("the executable must have an export");
+	// If there is no export, then return undefined.
+	if (!("export" in arg.executable && arg.executable.export !== undefined)) {
+		return undefined;
 	}
 
-	// Get the output.
+	// Call the export.
 	let output: tg.Value;
-	if (!(export_ in namespace)) {
-		throw new Error(`failed to find the export: ${command.id}`);
+	if (!(arg.executable.export in namespace)) {
+		throw new Error("failed to find the export");
 	}
-	let value = await namespace[export_];
+	let value = await namespace[arg.executable.export];
 	if (tg.Value.is(value)) {
 		output = value;
 	} else if (typeof value === "function") {
-		let args = await command.args();
-		output = await tg.resolve(value(...args));
+		output = await tg.resolve(value(...arg.args));
 	} else {
 		throw new Error("the export must be a tg.Value or a function");
 	}
 
-	// Store the output.
+	// Store the output and get its data.
 	await tg.Value.store(output);
-
-	// Get the output data.
 	let outputData = tg.Value.toData(output);
 
 	return outputData;

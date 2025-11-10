@@ -32,7 +32,7 @@ export namespace Handle {
 		command: tg.Referent<tg.Command.Id>;
 		create: boolean;
 		mounts: Array<tg.Process.Mount>;
-		network: boolean | undefined;
+		network: boolean;
 		parent: tg.Process.Id | undefined;
 		remote: string | undefined;
 		retry: boolean;

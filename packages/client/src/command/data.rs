@@ -60,8 +60,10 @@ pub struct Command {
 pub enum Executable {
 	#[tangram_serialize(id = 0)]
 	Artifact(ArtifactExecutable),
+
 	#[tangram_serialize(id = 1)]
 	Module(ModuleExecutable),
+
 	#[tangram_serialize(id = 2)]
 	Path(PathExecutable),
 }

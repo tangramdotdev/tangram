@@ -8,25 +8,26 @@ static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
 pub(crate) async fn bundle<H>(
 	handle: &H,
-	process: &tg::Process,
+	_process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	_cwd: std::path::PathBuf,
+	_env: tg::value::data::Map,
+	_executable: tg::command::data::Executable,
 	_logger: crate::Logger,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
 {
-	let command = process.command(handle).await?;
-
-	// Get the args.
-	let args = command.args(handle).await?;
-
 	// Get the artifact.
-	let artifact: tg::Artifact = args
-		.first()
-		.ok_or_else(|| tg::error!("invalid number of arguments"))?
-		.clone()
-		.try_into()
-		.ok()
-		.ok_or_else(|| tg::error!("expected an artifact"))?;
+	let artifact = match args.first() {
+		Some(tg::value::Data::Object(id)) => {
+			let object = tg::Object::with_id(id.clone());
+			tg::Artifact::try_from(object)
+				.ok()
+				.ok_or_else(|| tg::error!("expected an artifact"))?
+		},
+		_ => return Err(tg::error!("expected an artifact")),
+	};
 
 	// Collect the artifact's recursive artifact dependencies.
 	let dependencies = Box::pin(artifact.recursive_dependencies(handle)).await?;

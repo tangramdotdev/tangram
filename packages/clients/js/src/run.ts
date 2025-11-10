@@ -38,16 +38,19 @@ export function run(...args: any): any {
 }
 
 async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
-	let state = tg.Process.current.state!;
-	let currentCommand = await tg.Process.current.command();
+	let cwd = tg.process.cwd;
+	let env = { ...tg.process.env };
+	delete env.TANGRAM_PROCESS;
+	delete env.TANGRAM_URL;
 	let arg = await arg_(
 		{
-			cwd: currentCommand.cwd(),
-			env: currentCommand.env(),
+			cwd,
+			env,
 		},
 		...args,
 	);
 
+	let currentCommand = await tg.Process.current?.command();
 	let sourceOptions: tg.Referent.Options = {};
 	if ("name" in arg) {
 		sourceOptions.name = arg.name;
@@ -79,10 +82,10 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 			}
 		}
 	} else {
-		commandMounts = await currentCommand.mounts();
-		processMounts = state.mounts;
+		commandMounts = await currentCommand?.mounts();
+		processMounts = tg.Process.current?.state?.mounts ?? [];
 	}
-	let processStdin = state.stdin;
+	let processStdin = tg.Process.current?.state?.stdin;
 	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg) {
 		processStdin = undefined;
@@ -90,13 +93,13 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 			commandStdin = arg.stdin;
 		}
 	} else {
-		commandStdin = await currentCommand.stdin();
+		commandStdin = await currentCommand?.stdin();
 	}
-	let stdout = state.stdout;
+	let stdout = tg.Process.current?.state?.stdout;
 	if ("stdout" in arg) {
 		stdout = arg.stdout;
 	}
-	let stderr = state.stderr;
+	let stderr = tg.Process.current?.state?.stderr;
 	if ("stderr" in arg) {
 		stderr = arg.stderr;
 	}
@@ -111,7 +114,10 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 	);
 
-	let network = "network" in arg ? arg.network : state.network;
+	let network =
+		"network" in arg
+			? (arg.network ?? false)
+			: (tg.Process.current?.state?.network ?? false);
 	let commandId = await command.store();
 	let commandReferent = {
 		item: commandId,
@@ -206,10 +212,7 @@ async function arg_(
 				tg.Artifact.is(arg) ||
 				arg instanceof tg.Template
 			) {
-				let host = await tg.Process.current
-					.command()
-					.then((command) => command.env())
-					.then((env) => env.TANGRAM_HOST);
+				let host = tg.process.env.TANGRAM_HOST;
 				return {
 					args: ["-c", arg],
 					executable: "/bin/sh",

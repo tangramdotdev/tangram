@@ -16,6 +16,7 @@ use {
 
 mod archive;
 mod build;
+mod builtin;
 mod bundle;
 mod cache;
 mod check;
@@ -37,7 +38,8 @@ mod health;
 mod id;
 mod index;
 mod init;
-mod internal;
+#[cfg(feature = "js")]
+mod js;
 mod lsp;
 mod metadata;
 mod new;
@@ -53,7 +55,9 @@ mod put;
 mod read;
 mod remote;
 mod run;
+mod sandbox;
 mod server;
+mod session;
 mod tag;
 mod tangram;
 mod tree;
@@ -153,6 +157,9 @@ enum Command {
 	#[command(alias = "b")]
 	Build(self::build::Args),
 
+	#[command(hide = true)]
+	Builtin(self::builtin::Args),
+
 	Bundle(self::bundle::Args),
 
 	Cache(self::cache::Args),
@@ -199,8 +206,9 @@ enum Command {
 
 	Init(self::init::Args),
 
+	#[cfg(feature = "js")]
 	#[command(hide = true)]
-	Internal(self::internal::Args),
+	Js(self::js::Args),
 
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
@@ -240,12 +248,18 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::run::Args),
 
+	#[command(hide = true)]
+	Sandbox(self::sandbox::Args),
+
 	#[command(name = "self")]
 	Self_(self::tangram::Args),
 
 	Serve(self::server::run::Args),
 
 	Server(self::server::Args),
+
+	#[command(hide = true)]
+	Session(self::session::Args),
 
 	#[command(alias = "kill")]
 	Signal(self::process::signal::Args),
@@ -275,13 +289,24 @@ fn main() -> std::process::ExitCode {
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
 
-	// Handle the internal command.
-	if let Command::Internal(args) = args.command {
-		#[cfg(feature = "v8")]
-		if matches!(args.command, self::internal::Command::Run(_),) {
+	// Handle internal commands.
+	match args.command {
+		Command::Builtin(args) => {
+			return Cli::command_builtin(args);
+		},
+		#[cfg(feature = "js")]
+		Command::Js(args) => {
+			#[cfg(feature = "v8")]
 			Cli::initialize_v8();
-		}
-		return Cli::command_internal(args);
+			return Cli::command_js(args);
+		},
+		Command::Sandbox(args) => {
+			return Cli::command_sandbox(args);
+		},
+		Command::Session(args) => {
+			return Cli::command_session(args);
+		},
+		_ => (),
 	}
 
 	// Read the config.
@@ -1118,6 +1143,13 @@ impl Cli {
 	// Run the command.
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
+			#[cfg(feature = "js")]
+			Command::Js(_) => {
+				unreachable!()
+			},
+			Command::Builtin(_) | Command::Sandbox(_) | Command::Session(_) => {
+				unreachable!()
+			},
 			Command::Archive(args) => self.command_archive(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
 			Command::Bundle(args) => self.command_bundle(args).boxed(),
@@ -1141,7 +1173,6 @@ impl Cli {
 			Command::Id(args) => self.command_id(args).boxed(),
 			Command::Index(args) => self.command_index(args).boxed(),
 			Command::Init(args) => self.command_init(args).boxed(),
-			Command::Internal(_) => unreachable!(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_process_log(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),

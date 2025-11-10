@@ -1,7 +1,18 @@
 import * as tg from "./index.ts";
 
+export let process: {
+	args: Array<tg.Value>;
+	cwd: string;
+	env: { [key: string]: tg.Value };
+	executable: tg.Command.Executable;
+} = undefined as any;
+
+export let setProcess = (newProcess: any) => {
+	process = newProcess;
+};
+
 export class Process {
-	static current: tg.Process;
+	static current: tg.Process | undefined;
 
 	#id: tg.Process.Id;
 	#remote: string | undefined;

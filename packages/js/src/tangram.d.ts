@@ -1025,8 +1025,12 @@ declare namespace tg {
 	): tg.RunBuilder;
 	export function run(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
 
-	/** The current process. */
-	export let process: tg.Process;
+	export let process: {
+		args: Array<tg.Value>;
+		cwd: string;
+		env: { [key: string]: tg.Value };
+		executable: tg.Command.Executable;
+	};
 
 	export class Process {
 		/** Expect that a value is a `tg.Process`. */

@@ -213,6 +213,12 @@ impl Server {
 				#[cfg(feature = "js")]
 				"js" if sandboxed => self.run_js(process).await,
 
+				#[cfg(target_os = "macos")]
+				"builtin" => self.run_darwin(process).await,
+
+				#[cfg(target_os = "linux")]
+				"builtin" => self.run_linux(process).await,
+
 				#[cfg(all(feature = "js", target_os = "macos"))]
 				"js" => self.run_darwin(process).await,
 

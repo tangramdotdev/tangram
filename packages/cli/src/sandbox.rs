@@ -64,7 +64,7 @@ pub struct Mount {
 
 impl Cli {
 	#[must_use]
-	pub fn command_internal_sandbox(args: Args) -> std::process::ExitCode {
+	pub fn command_sandbox(args: Args) -> std::process::ExitCode {
 		// Create the command.
 		let command = tangram_sandbox::Command {
 			chroot: args.chroot,

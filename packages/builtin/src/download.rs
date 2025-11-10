@@ -15,39 +15,46 @@ enum Mode {
 	Extract(tg::ArchiveFormat, Option<tg::CompressionFormat>),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn download<H>(
 	handle: &H,
-	process: &tg::Process,
+	process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	_cwd: std::path::PathBuf,
+	_env: tg::value::data::Map,
+	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
 	temp_path: &std::path::Path,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
 {
-	let command = process.command(handle).await?;
-
-	// Get the expected checksum.
-	let Some(expected_checksum) = process.load(handle).await?.expected_checksum.clone() else {
-		return Err(tg::error!("a download must have a checksum"));
+	// Get the expected checksum from the process if available.
+	let expected_checksum = match process {
+		Some(process) => process.load(handle).await?.expected_checksum.clone(),
+		None => None,
 	};
-
-	// Get the args.
-	let args = command.args(handle).await?;
-	let url: Uri = args
-		.first()
-		.ok_or_else(|| tg::error!("invalid number of arguments"))?
-		.try_unwrap_string_ref()
-		.ok()
-		.ok_or_else(|| tg::error!("expected a string"))?
-		.parse()
-		.map_err(|source| tg::error!(!source, "invalid url"))?;
-	let options: Option<tg::DownloadOptions> = args
-		.get(1)
-		.filter(|value| !value.is_null())
-		.cloned()
-		.map(TryInto::try_into)
-		.transpose()
-		.map_err(|source| tg::error!(!source, "invalid options"))?;
+	let url: Uri = match args.first() {
+		Some(tg::value::Data::String(s)) => s
+			.parse()
+			.map_err(|source| tg::error!(!source, "invalid url"))?,
+		_ => return Err(tg::error!("expected a string")),
+	};
+	let options: Option<tg::DownloadOptions> = match args.get(1) {
+		Some(tg::value::Data::Null) | None => None,
+		Some(tg::value::Data::Map(map)) => {
+			let mode = match map.get("mode") {
+				Some(tg::value::Data::String(s)) => Some(
+					s.parse::<tg::DownloadMode>()
+						.map_err(|source| tg::error!(!source, "invalid download mode"))?,
+				),
+				Some(tg::value::Data::Null) | None => None,
+				_ => return Err(tg::error!("invalid mode")),
+			};
+			Some(tg::DownloadOptions { mode })
+		},
+		_ => return Err(tg::error!("invalid options")),
+	};
 
 	// Send the request.
 	let response = reqwest::get(url.as_str())
@@ -64,9 +71,11 @@ where
 	let downloaded = Arc::new(AtomicU64::new(0));
 	let _content_length = response.content_length();
 
-	// Create the checksum writer.
-	let checksum = tg::checksum::Writer::new(expected_checksum.algorithm());
-	let checksum = Arc::new(Mutex::new(checksum));
+	// Create the checksum writer if we have an expected checksum.
+	let checksum = expected_checksum.as_ref().map(|expected| {
+		let writer = tg::checksum::Writer::new(expected.algorithm());
+		Arc::new(Mutex::new(writer))
+	});
 
 	// Create the reader.
 	let stream = response
@@ -76,8 +85,10 @@ where
 			let checksum = checksum.clone();
 			let n = downloaded.clone();
 			move |bytes| {
-				// Update the checksum.
-				checksum.lock().unwrap().update(bytes);
+				// Update the checksum if we are computing one.
+				if let Some(checksum) = &checksum {
+					checksum.lock().unwrap().update(bytes);
+				}
 
 				// Update the progress.
 				n.fetch_add(
@@ -159,12 +170,14 @@ where
 		.map_err(|source| tg::error!(!source, "failed to drain the reader"))?;
 	drop(reader);
 
-	// Get the checksum.
-	let checksum = Arc::try_unwrap(checksum)
-		.unwrap()
-		.into_inner()
-		.unwrap()
-		.finalize();
+	// Finalize the checksum if we computed one.
+	let checksum = checksum.map(|checksum| {
+		Arc::try_unwrap(checksum)
+			.unwrap()
+			.into_inner()
+			.unwrap()
+			.finalize()
+	});
 
 	// Check in the temp.
 	let arg = tg::checkin::Arg {
@@ -198,7 +211,7 @@ where
 	};
 
 	let output = crate::Output {
-		checksum: Some(checksum),
+		checksum,
 		error: None,
 		exit: 0,
 		output: Some(output),

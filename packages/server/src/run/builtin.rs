@@ -11,7 +11,39 @@ impl Server {
 				async move { crate::run::util::log(&server, &process, stream, message).await }
 					.boxed()
 			});
-		let output = tangram_builtin::run(self, process, logger, &self.temp_path()).await?;
+
+		// Extract the command data.
+		let command = process.command(self).await?;
+		let args = command
+			.args(self)
+			.await?
+			.iter()
+			.map(tg::Value::to_data)
+			.collect();
+		let cwd = command
+			.cwd(self)
+			.await?
+			.clone()
+			.unwrap_or_else(|| std::path::PathBuf::from("/"));
+		let env = command
+			.env(self)
+			.await?
+			.iter()
+			.map(|(key, value)| (key.clone(), value.to_data()))
+			.collect();
+		let executable = command.executable(self).await?.to_data();
+
+		let output = tangram_builtin::run(
+			self,
+			Some(process),
+			args,
+			cwd,
+			env,
+			executable,
+			logger,
+			&self.temp_path(),
+		)
+		.await?;
 		let output = super::Output {
 			checksum: output.checksum,
 			error: output.error,

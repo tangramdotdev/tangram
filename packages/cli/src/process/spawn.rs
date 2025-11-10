@@ -410,6 +410,8 @@ impl Cli {
 		let mut env = tg::value::Map::new();
 		if !sandbox {
 			env.extend(std::env::vars().map(|(key, value)| (key, value.into())));
+			env.remove("TANGRAM_URL");
+			env.remove("TANGRAM_PROCESS");
 		}
 		for (key, value) in command_env.into_iter().flatten() {
 			if let Ok(mutation) = value.try_unwrap_mutation_ref() {

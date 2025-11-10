@@ -102,14 +102,7 @@ impl Server {
 				let executable = std::env::current_exe().map_err(|source| {
 					tg::error!(!source, "failed to get the current executable")
 				})?;
-				args = vec![
-					"internal".to_owned(),
-					"run".to_owned(),
-					"--host".to_owned(),
-					command.host.clone(),
-					"--temp-path".to_owned(),
-					self.temp_path().to_string_lossy().to_string(),
-				];
+				args = vec!["js".to_owned(), format!("--process={}", process.id())];
 				executable
 			},
 			tg::command::data::Executable::Path(executable) => {
@@ -274,7 +267,7 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 	// Initialize the output with all fields.
 	let mut output = SandboxOutput {
 		root: temp.path().join("root"),
-		args: vec!["internal".to_owned(), "sandbox".to_owned()],
+		args: vec!["sandbox".to_owned()],
 		cwd: PathBuf::from("/"),
 		env: BTreeMap::new(),
 		executable: std::env::current_exe()

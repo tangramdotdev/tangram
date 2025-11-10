@@ -93,8 +93,7 @@ export class Command<
 				path: arg.executable.path,
 			};
 		}
-		let host =
-			arg.host ?? ((await tg.Process.current.env("TANGRAM_HOST")) as string);
+		let host = arg.host ?? (tg.process.env.TANGRAM_HOST as string);
 		let mounts: Array<tg.Command.Mount> = [];
 		if (arg.mounts && arg.mounts.length > 0) {
 			mounts = arg.mounts;
@@ -133,10 +132,7 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					let host = await tg.Process.current
-						.command()
-						.then((command) => command.env())
-						.then((env) => env.TANGRAM_HOST);
+					let host = tg.process.env.TANGRAM_HOST;
 					return {
 						args: ["-c", arg],
 						executable: "/bin/sh",

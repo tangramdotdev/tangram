@@ -8,44 +8,44 @@ use {
 
 pub(crate) async fn archive<H>(
 	handle: &H,
-	process: &tg::Process,
+	_process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	_cwd: std::path::PathBuf,
+	_env: tg::value::data::Map,
+	_executable: tg::command::data::Executable,
 	_logger: crate::Logger,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
 {
-	let command = process.command(handle).await?;
-
-	// Get the args.
-	let args = command.args(handle).await?;
-
 	// Get the artifact.
-	let artifact: tg::Artifact = args
-		.first()
-		.ok_or_else(|| tg::error!("invalid number of arguments"))?
-		.clone()
-		.try_into()
-		.ok()
-		.ok_or_else(|| tg::error!("expected an artifact"))?;
+	let artifact = match args.first() {
+		Some(tg::value::Data::Object(id)) => {
+			let object = tg::Object::with_id(id.clone());
+			tg::Artifact::try_from(object)
+				.ok()
+				.ok_or_else(|| tg::error!("expected an artifact"))?
+		},
+		_ => return Err(tg::error!("expected an artifact")),
+	};
 
 	// Get the format.
-	let format = args
-		.get(1)
-		.ok_or_else(|| tg::error!("invalid number of arguments"))?
-		.try_unwrap_string_ref()
-		.ok()
-		.ok_or_else(|| tg::error!("expected a string"))?
-		.parse::<tg::ArchiveFormat>()
-		.map_err(|source| tg::error!(!source, "invalid format"))?;
+	let format = match args.get(1) {
+		Some(tg::value::Data::String(s)) => s
+			.parse::<tg::ArchiveFormat>()
+			.map_err(|source| tg::error!(!source, "invalid format"))?,
+		_ => return Err(tg::error!("expected a string")),
+	};
 
 	// Get the compression.
-	let compression = if let Some(tg::Value::String(value)) = args.get(2) {
-		let compression = value
-			.parse::<tg::CompressionFormat>()
-			.map_err(|source| tg::error!(!source, "invalid compression format"))?;
-		Some(compression)
-	} else {
-		None
+	let compression = match args.get(2) {
+		Some(tg::value::Data::String(value)) => {
+			let compression = value
+				.parse::<tg::CompressionFormat>()
+				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
+			Some(compression)
+		},
+		_ => None,
 	};
 
 	if compression.is_some() && matches!(format, tg::ArchiveFormat::Zip) {

@@ -206,12 +206,14 @@ impl ModuleExecutable {
 impl PathExecutable {
 	#[must_use]
 	pub fn to_data(&self) -> tg::command::data::PathExecutable {
-		let path = self.path.clone();
-		tg::command::data::PathExecutable { path }
+		tg::command::data::PathExecutable {
+			path: self.path.clone(),
+		}
 	}
 
 	pub fn try_from_data(data: tg::command::data::PathExecutable) -> tg::Result<Self> {
-		Ok(Self { path: data.path })
+		let path = data.path;
+		Ok(Self { path })
 	}
 
 	#[must_use]

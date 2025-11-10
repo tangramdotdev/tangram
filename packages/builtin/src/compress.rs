@@ -9,38 +9,41 @@ use {
 
 pub(crate) async fn compress<H>(
 	handle: &H,
-	process: &tg::Process,
+	_process: Option<&tg::Process>,
+	args: tg::value::data::Array,
+	_cwd: std::path::PathBuf,
+	_env: tg::value::data::Map,
+	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
 {
-	let command = process.command(handle).await?;
-
-	// Get the args.
-	let args = command.args(handle).await?;
-
 	// Get the blob.
 	let input = args
 		.first()
 		.ok_or_else(|| tg::error!("invalid number of arguments"))?;
-	let blob = match input {
-		tg::Value::Object(tg::Object::Blob(blob)) => blob.clone(),
-		tg::Value::Object(tg::Object::File(file)) => file.contents(handle).await?,
+	let (blob, is_file) = match input {
+		tg::value::Data::Object(id) => {
+			let object = tg::Object::with_id(id.clone());
+			match object {
+				tg::Object::Blob(blob) => (blob, false),
+				tg::Object::File(file) => (file.contents(handle).await?, true),
+				_ => return Err(tg::error!("expected a blob or a file")),
+			}
+		},
 		_ => {
 			return Err(tg::error!("expected a blob or a file"));
 		},
 	};
 
 	// Get the format.
-	let format = args
-		.get(1)
-		.ok_or_else(|| tg::error!("invalid number of arguments"))?
-		.try_unwrap_string_ref()
-		.ok()
-		.ok_or_else(|| tg::error!("expected a string"))?
-		.parse::<tg::CompressionFormat>()
-		.map_err(|source| tg::error!(!source, "invalid format"))?;
+	let format = match args.get(1) {
+		Some(tg::value::Data::String(s)) => s
+			.parse::<tg::CompressionFormat>()
+			.map_err(|source| tg::error!(!source, "invalid format"))?,
+		_ => return Err(tg::error!("expected a string")),
+	};
 
 	// Create the reader.
 	let reader = blob.read(handle, tg::read::Options::default()).await?;
@@ -108,12 +111,10 @@ where
 	let message = "finished compressing\n";
 	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
 
-	let output = if input.is_blob() {
-		blob.into()
-	} else if input.is_file() {
+	let output = if is_file {
 		tg::File::with_contents(blob).into()
 	} else {
-		unreachable!()
+		blob.into()
 	};
 
 	let output = crate::Output {

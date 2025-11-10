@@ -77,14 +77,7 @@ impl Server {
 				let executable = std::env::current_exe().map_err(|source| {
 					tg::error!(!source, "failed to get the current executable")
 				})?;
-				args = vec![
-					"internal".to_owned(),
-					"run".to_owned(),
-					"--host".to_owned(),
-					command.host.clone(),
-					"--temp-path".to_owned(),
-					self.temp_path().to_string_lossy().to_string(),
-				];
+				args = vec!["js".to_owned(), format!("--process={}", process.id())];
 				executable
 			},
 			tg::command::data::Executable::Path(executable) => {
@@ -168,7 +161,7 @@ impl Server {
 			(args, cwd, env, executable)
 		} else {
 			let args = {
-				let mut args_ = vec!["internal".to_owned(), "sandbox".to_owned()];
+				let mut args_ = vec!["sandbox".to_owned()];
 				args_.push("-C".to_owned());
 				args_.push(cwd.display().to_string());
 				for (name, value) in &env {

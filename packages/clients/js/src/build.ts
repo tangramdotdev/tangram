@@ -41,8 +41,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	let arg = await arg_(
 		{
 			env: {
-				TANGRAM_HOST: (await (await tg.Process.current.command()).env())
-					.TANGRAM_HOST,
+				TANGRAM_HOST: tg.process.env.TANGRAM_HOST,
 			},
 		},
 		...args,
@@ -84,7 +83,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	);
 
 	let checksum = arg.checksum;
-	let network = "network" in arg ? arg.network : false;
+	let network = "network" in arg ? (arg.network ?? false) : false;
 	if (network === true && checksum === undefined) {
 		throw new Error("a checksum is required to build with network enabled");
 	}
@@ -182,10 +181,7 @@ async function arg_(
 				tg.Artifact.is(arg) ||
 				arg instanceof tg.Template
 			) {
-				let host = await tg.Process.current
-					.command()
-					.then((command) => command.env())
-					.then((env) => env.TANGRAM_HOST);
+				let host = tg.process.env.TANGRAM_HOST;
 				return {
 					args: ["-c", arg],
 					executable: "/bin/sh",

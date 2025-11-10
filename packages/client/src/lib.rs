@@ -127,20 +127,19 @@ impl Client {
 	}
 
 	pub fn with_env() -> tg::Result<Self> {
-		let url = std::env::var("TANGRAM_URL")
-			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to get the TANGRAM_URL environment variable"
-				)
-			})?
+		let url = if let Ok(url) = std::env::var("TANGRAM_URL") {
+			url
+		} else {
+			let path = std::env::home_dir()
+				.ok_or_else(|| tg::error!("failed to get the home directory"))?;
+			let path = path.join(".tangram/socket");
+			let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+			let path = urlencoding::encode(path);
+			format!("http+unix://{path}")
+		};
+		let url = url
 			.parse()
-			.map_err(|error| {
-				error!(
-					source = error,
-					"failed to parse a URL from the TANGRAM_URL environment variable"
-				)
-			})?;
+			.map_err(|error| tg::error!(source = error, "failed to parse then URL"))?;
 		let token = std::env::var("TANGRAM_TOKEN").ok();
 		Ok(Self::new(url, None, token))
 	}
