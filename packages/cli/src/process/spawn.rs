@@ -230,38 +230,6 @@ impl Cli {
 		// Determine if the process is sandboxed.
 		let sandbox = options.sandbox.get().unwrap_or_default() || remote.is_some();
 
-		// If the reference is a path to a directory and the path does not contain a root module, then init.
-		if let Ok(path) = reference.item().try_unwrap_path_ref() {
-			let path = std::path::absolute(path)
-				.map_err(|source| tg::error!(!source, "failed to make the path absolute"))?;
-			let path = tangram_util::fs::canonicalize_parent(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-			let metadata = tokio::fs::symlink_metadata(&path).await.map_err(
-				|source| tg::error!(!source, ?path = path.display(), "failed to get the metadata"),
-			)?;
-			if metadata.is_dir() {
-				let mut exists = false;
-				for name in tg::package::ROOT_MODULE_FILE_NAMES {
-					let module_path = path.join(name);
-					exists = tokio::fs::try_exists(&module_path)
-						.await
-						.map_err(|source| {
-							tg::error!(!source, ?path, "failed to check if the path exists")
-						})?;
-					if exists {
-						break;
-					}
-				}
-				if !exists {
-					self.command_init(crate::init::Args {
-						path: Some(path.clone()),
-					})
-					.await?;
-				}
-			}
-		}
-
 		// Get the reference.
 		let arg = tg::get::Arg {
 			checkin: options.checkin.to_options(),
