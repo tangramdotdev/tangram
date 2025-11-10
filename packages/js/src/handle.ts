@@ -1,6 +1,6 @@
-import * as tg from "@tangramdotdev/client";
+import type * as tg from "@tangramdotdev/client";
 
-tg.setHandle({
+export let handle: tg.Handle = {
 	read(arg: tg.Handle.ReadArg): Promise<Uint8Array> {
 		return syscall("read", arg);
 	},
@@ -96,4 +96,4 @@ tg.setHandle({
 	sleep(duration: number): Promise<void> {
 		return syscall("sleep", duration);
 	},
-});
+};

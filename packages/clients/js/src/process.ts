@@ -5,10 +5,10 @@ export let process: {
 	cwd: string;
 	env: { [key: string]: tg.Value };
 	executable: tg.Command.Executable;
-} = undefined as any;
+} = {} as any;
 
-export let setProcess = (newProcess: any) => {
-	process = newProcess;
+export let setProcess = (newProcess: typeof process) => {
+	Object.assign(process, newProcess);
 };
 
 export class Process {

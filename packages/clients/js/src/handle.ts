@@ -1,9 +1,9 @@
 import type * as tg from "./index.ts";
 
-export let handle: Handle;
+export let handle: Handle = {} as any;
 
 export let setHandle = (newHandle: Handle) => {
-	handle = newHandle;
+	Object.assign(handle, newHandle);
 };
 
 export type Handle = {

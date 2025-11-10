@@ -1,7 +1,7 @@
 import * as tg from "@tangramdotdev/client";
+import { handle } from "./handle.ts";
 import { error, log } from "./log.ts";
 import { start } from "./start.ts";
-import "./handle.ts";
 
 Object.defineProperties(globalThis, {
 	console: {
@@ -20,3 +20,5 @@ Object.defineProperties(globalThis, {
 });
 
 Object.defineProperty(globalThis, "start", { value: start });
+
+tg.setHandle(handle);
