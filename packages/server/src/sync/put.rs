@@ -848,9 +848,7 @@ impl Server {
 			let ObjectQueueItem { object, .. } = item;
 			let Some(output) = output else {
 				let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Object(
-					tg::sync::ObjectMissingMessage {
-						id: object.clone(),
-					},
+					tg::sync::ObjectMissingMessage { id: object.clone() },
 				));
 				state.sender.send(Ok(message)).await.ok();
 				continue;
@@ -940,9 +938,7 @@ impl Server {
 		// Get the object.
 		let Some(output) = self.try_get_object_sync(&object, &mut state.file)? else {
 			let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Object(
-				tg::sync::ObjectMissingMessage {
-					id: object.clone(),
-				},
+				tg::sync::ObjectMissingMessage { id: object.clone() },
 			));
 			state
 				.sender

@@ -88,6 +88,11 @@ impl<T> Handle<T> {
 				.as_ref()
 				.unwrap()
 				.fetch_add(amount, std::sync::atomic::Ordering::Relaxed);
+			if let Some(total) = &indicator.total {
+				let current = indicator.current.as_ref().unwrap().load(Ordering::SeqCst);
+				let total = total.load(Ordering::SeqCst);
+				assert!(current <= total);
+			}
 		}
 	}
 
@@ -98,12 +103,22 @@ impl<T> Handle<T> {
 				.as_ref()
 				.unwrap()
 				.store(value, std::sync::atomic::Ordering::Relaxed);
+			if let Some(total) = &indicator.total {
+				let current = indicator.current.as_ref().unwrap().load(Ordering::SeqCst);
+				let total = total.load(Ordering::SeqCst);
+				assert!(current <= total);
+			}
 		}
 	}
 
 	pub fn set_total(&self, name: &str, total: impl Into<Option<u64>>) {
 		if let Some(indicator) = self.indicators.write().unwrap().get_mut(name) {
 			indicator.total = total.into().map(Into::into);
+			if let Some(current) = &indicator.current {
+				let current = current.load(Ordering::SeqCst);
+				let total = indicator.total.as_ref().unwrap().load(Ordering::SeqCst);
+				assert!(current <= total);
+			}
 		}
 	}
 

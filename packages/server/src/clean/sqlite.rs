@@ -1,39 +1,12 @@
 use {
-	super::{Count, InnerOutput, Server},
+	super::{InnerOutput, Server},
 	bytes::Bytes,
-	indoc::{formatdoc, indoc},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
 impl Server {
-	pub(super) async fn clean_count_items_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		max_touched_at: i64,
-	) -> tg::Result<Count> {
-		let connection = database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get an index connection"))?;
-		let statement = indoc!(
-			"
-				select
-					(select count(*) from cache_entries where reference_count = 0 and touched_at < ?1) as cache_entries,
-					(select count(*) from objects where reference_count = 0 and touched_at < ?1) as objects,
-					(select count(*) from processes where reference_count = 0 and touched_at < ?1) as processes;
-				;
-			"
-		);
-		let params = db::params![max_touched_at];
-		let count = connection
-			.query_one_into::<db::row::Serde<Count>>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.0;
-		Ok(count)
-	}
-
 	pub(super) async fn cleaner_task_inner_sqlite(
 		&self,
 		database: &db::sqlite::Database,

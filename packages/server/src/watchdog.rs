@@ -1,6 +1,6 @@
 use {
 	crate::Server,
-	futures::{FutureExt, StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::pin::pin,

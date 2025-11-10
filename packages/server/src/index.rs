@@ -1,8 +1,8 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
-	std::{pin::pin, task::Poll, time::Duration},
+	std::{panic::AssertUnwindSafe, pin::pin, task::Poll, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database as db,
 	tangram_futures::{stream::Ext as _, task::Stop},
@@ -41,68 +41,87 @@ impl Server {
 			let progress = progress.clone();
 			let server = self.clone();
 			async move {
-				// Get the stream.
-				let stream = server
-					.messenger
-					.get_stream("index".to_owned())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
-
-				// Wait for outstanding tasks to complete.
-				server.tasks.wait().await;
-
-				// Wait for the index stream's first sequence to reach the current last sequence.
-				let info = stream
-					.info()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
-				let mut first_sequence = info.first_sequence;
-				let last_sequence = info.last_sequence;
-				let total = info.last_sequence.saturating_sub(info.first_sequence);
-				progress.start(
-					"messages".to_string(),
-					"messages".to_owned(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					Some(total),
-				);
-				while first_sequence < last_sequence {
-					let info = stream.info().await.map_err(|source| {
-						tg::error!(!source, "failed to get the index stream info")
-					})?;
-					progress.increment("messages", info.first_sequence - first_sequence);
-					first_sequence = info.first_sequence;
-					tokio::time::sleep(Duration::from_millis(10)).await;
+				let result = AssertUnwindSafe(server.index_inner(&progress))
+					.catch_unwind()
+					.await;
+				match result {
+					Ok(Ok(())) => {
+						progress.output(());
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
+					},
 				}
-				progress.finish("messages");
-
-				// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
-				let transaction_id = server.indexer_get_transaction_id().await?;
-				let count = server.indexer_get_queue_size(transaction_id).await?;
-				progress.start(
-					"queue".to_string(),
-					"queue".to_owned(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(count),
-					None,
-				);
-				loop {
-					let count = server.indexer_get_queue_size(transaction_id).await?;
-					progress.set("queue", count);
-					if count == 0 {
-						break;
-					}
-					tokio::time::sleep(Duration::from_millis(10)).await;
-				}
-				progress.finish("queue");
-
-				progress.output(());
-
-				Ok::<_, tg::Error>(())
 			}
 		}));
 		let stream = progress.stream().attach(task);
 		Ok(stream)
+	}
+
+	async fn index_inner(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
+		// Get the stream.
+		let stream = self
+			.messenger
+			.get_stream("index".to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
+
+		// Wait for outstanding tasks to complete.
+		self.tasks.wait().await;
+
+		// Wait for the index stream's first sequence to reach the current last sequence.
+		let info = stream
+			.info()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+		let mut first_sequence = info.first_sequence;
+		let last_sequence = info.last_sequence;
+		let total = info.last_sequence.saturating_sub(info.first_sequence);
+		progress.start(
+			"messages".to_string(),
+			"messages".to_owned(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			Some(total),
+		);
+		while first_sequence < last_sequence {
+			let info = stream
+				.info()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+			progress.increment("messages", info.first_sequence - first_sequence);
+			first_sequence = info.first_sequence;
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+		progress.finish("messages");
+
+		// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
+		let transaction_id = self.indexer_get_transaction_id().await?;
+		let count = self.indexer_get_queue_size(transaction_id).await?;
+		progress.start(
+			"queue".to_string(),
+			"queue".to_owned(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(count),
+			None,
+		);
+		loop {
+			let count = self.indexer_get_queue_size(transaction_id).await?;
+			progress.set("queue", count);
+			if count == 0 {
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+		progress.finish("queue");
+		Ok::<_, tg::Error>(())
 	}
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
