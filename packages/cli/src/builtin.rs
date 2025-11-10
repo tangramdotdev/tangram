@@ -38,7 +38,6 @@ impl Cli {
 
 		// Create the client.
 		let client = tg::Client::with_env()?;
-		runtime.block_on(client.connect())?;
 
 		// Get the current tangram process if there is one.
 		let process = args
@@ -107,12 +106,7 @@ impl Cli {
 		});
 
 		// Run.
-		let tangram_builtin::Output {
-			error,
-			exit,
-			output,
-			..
-		} = runtime.block_on(tangram_builtin::run(
+		let future = tangram_builtin::run(
 			&client,
 			process.as_ref(),
 			args_,
@@ -121,7 +115,13 @@ impl Cli {
 			executable,
 			logger,
 			&args.temp_path,
-		))?;
+		);
+		let tangram_builtin::Output {
+			error,
+			exit,
+			output,
+			..
+		} = runtime.block_on(future)?;
 
 		// Write the output.
 		if let Ok(output_path) = std::env::var("OUTPUT")

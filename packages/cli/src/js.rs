@@ -28,7 +28,7 @@ impl Cli {
 
 	fn command_js_inner(args: Args) -> tg::Result<std::process::ExitCode> {
 		// Create the runtime.
-		let main_runtime = tokio::runtime::Builder::new_multi_thread()
+		let runtime = tokio::runtime::Builder::new_multi_thread()
 			.enable_all()
 			.worker_threads(1)
 			.build()
@@ -36,7 +36,6 @@ impl Cli {
 
 		// Create the client.
 		let client = tg::Client::with_env()?;
-		main_runtime.block_on(client.connect())?;
 
 		// Get the current tangram process if there is one.
 		let process = args
@@ -45,7 +44,7 @@ impl Cli {
 
 		// Get the executable and args from the process if it exists.
 		let (args_, cwd, env, executable) = if let Some(process) = &process {
-			main_runtime.block_on(async {
+			runtime.block_on(async {
 				let command = process.command(&client).await?;
 				let data = command.data(&client).await?;
 				let args = data.args;
@@ -116,16 +115,7 @@ impl Cli {
 			.boxed()
 		});
 
-		let runtime = tokio::runtime::Builder::new_current_thread()
-			.enable_all()
-			.build()
-			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?;
-		let tangram_js::Output {
-			error,
-			exit,
-			output,
-			..
-		} = runtime.block_on(tangram_js::run(
+		let future = tangram_js::run(
 			&client,
 			process.as_ref(),
 			args_,
@@ -133,9 +123,19 @@ impl Cli {
 			env,
 			executable,
 			logger,
-			main_runtime.handle().clone(),
+			runtime.handle().clone(),
 			None,
-		))?;
+		);
+		let tangram_js::Output {
+			error,
+			exit,
+			output,
+			..
+		} = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?
+			.block_on(future)?;
 
 		// Write the output.
 		if let Ok(output_path) = std::env::var("OUTPUT")
