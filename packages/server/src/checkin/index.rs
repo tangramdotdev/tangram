@@ -40,11 +40,7 @@ impl Server {
 					touched_at,
 				});
 			let message = message.serialize()?;
-			let _published = self
-				.messenger
-				.stream_publish("index".to_owned(), message)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			messages.push(message);
 		} else {
 			// Serialize and add cache entry messages.
 			for message in cache_entry_messages {
