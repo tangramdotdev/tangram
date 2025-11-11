@@ -19,9 +19,13 @@ nats = ["dep:async-nats"]
 [dependencies]
 async-broadcast = { workspace = true }
 async-nats = { workspace = true, optional = true }
+arc-swap = { workspace = true }
 bytes = { workspace = true }
+dashmap = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 num = { workspace = true }
 tangram_either = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
+im = { workspace = true }

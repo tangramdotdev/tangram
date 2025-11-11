@@ -61,6 +61,7 @@ unsafe_derive_deserialize = "allow"
 unused_async = "allow"
 
 [workspace.dependencies]
+arc-swap = "1"
 anstream = "0.6"
 astral-tokio-tar = "0.5"
 async-broadcast = "0.7"

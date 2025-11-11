@@ -6075,14 +6075,18 @@ dependencies = [
 name = "tangram_messenger"
 version = "0.0.0"
 dependencies = [
+ "arc-swap",
  "async-broadcast",
  "async-nats",
  "bytes",
+ "dashmap",
  "derive_more",
  "futures",
+ "im",
  "num",
  "tangram_either",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
