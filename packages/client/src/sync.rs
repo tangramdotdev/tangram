@@ -4,7 +4,7 @@ use {
 	futures::{prelude::*, stream::BoxStream},
 	http_body_util::BodyStream,
 	num::ToPrimitive as _,
-	serde_with::serde_as,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_either::Either,
 	tangram_futures::{read::Ext, stream::Ext as _, write::Ext as _},
 	tangram_http::{Body, response::Ext as _},
@@ -19,13 +19,19 @@ pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub commands: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub eager: bool,
+
 	#[serde_as(as = "Option<CommaSeparatedString>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub get: Option<Vec<Either<tg::process::Id, tg::object::Id>>>,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 
@@ -33,6 +39,7 @@ pub struct Arg {
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub put: Option<Vec<Either<tg::process::Id, tg::object::Id>>>,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
 
@@ -80,12 +87,18 @@ pub enum GetMessage {
 pub struct ProcessGetMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
+
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	pub eager: bool,
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct ObjectGetMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
+
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	pub eager: bool,
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

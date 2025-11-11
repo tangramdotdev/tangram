@@ -5,7 +5,6 @@ use {
 	rusqlite as sqlite,
 	std::{
 		collections::{BTreeSet, VecDeque},
-		pin::pin,
 		sync::{
 			Arc, Mutex,
 			atomic::{AtomicBool, AtomicUsize},
@@ -48,18 +47,20 @@ struct StateSync {
 struct ProcessQueueItem {
 	parent: Option<tg::process::Id>,
 	process: tg::process::Id,
+	eager: bool,
 }
 
 struct ObjectQueueItem {
 	parent: Option<Either<tg::process::Id, tg::object::Id>>,
 	object: tg::object::Id,
+	eager: bool,
 }
 
 impl Server {
 	pub(super) async fn sync_put(
 		&self,
 		arg: tg::sync::Arg,
-		stream: BoxStream<'static, tg::sync::Message>,
+		mut stream: BoxStream<'static, tg::sync::Message>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
 		// If the database, index, and store are synchronous, and all items are complete, then put the objects synchronously.
@@ -145,6 +146,7 @@ impl Server {
 					let item = ProcessQueueItem {
 						parent: None,
 						process,
+						eager: state.arg.eager,
 					};
 					state.process_queue_sender.force_send(item).unwrap();
 				},
@@ -152,39 +154,46 @@ impl Server {
 					let item = ObjectQueueItem {
 						parent: None,
 						object,
+						eager: state.arg.eager,
 					};
 					state.object_queue_sender.force_send(item).unwrap();
 				},
 			}
 		}
 
-		// Spawn a task to receive complete messages and update the graph and receive get messages and enqueue the items.
+		// Spawn a task to receive receive get messages and enqueue the items and to receive complete messages and update the graph.
 		let stream_task = tokio::spawn({
 			let state = state.clone();
 			async move {
-				let mut stream = pin!(stream);
 				while let Some(message) = stream.next().await {
 					match message {
+						// Handle a get message for a process.
 						tg::sync::Message::Get(Some(tg::sync::GetMessage::Process(message))) => {
 							let item = ProcessQueueItem {
 								parent: None,
 								process: message.id,
+								eager: message.eager,
 							};
 							state
 								.queue_counter
 								.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 							state.process_queue_sender.force_send(item).unwrap();
 						},
+
+						// Handle a get message for an object.
 						tg::sync::Message::Get(Some(tg::sync::GetMessage::Object(message))) => {
 							let item = ObjectQueueItem {
 								parent: None,
 								object: message.id,
+								eager: message.eager,
 							};
 							state
 								.queue_counter
 								.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 							state.object_queue_sender.force_send(item).unwrap();
 						},
+
+						// Handle the last get message.
 						tg::sync::Message::Get(None) => {
 							state
 								.last_get_message_received
@@ -198,6 +207,8 @@ impl Server {
 								state.object_queue_sender.close();
 							}
 						},
+
+						// Handle the complete message for a process.
 						tg::sync::Message::Complete(tg::sync::CompleteMessage::Process(
 							complete,
 						)) => {
@@ -212,6 +223,8 @@ impl Server {
 							};
 							state.graph.lock().unwrap().update(None, id, complete);
 						},
+
+						// Handle the complete message for an object.
 						tg::sync::Message::Complete(tg::sync::CompleteMessage::Object(
 							complete,
 						)) => {
@@ -219,6 +232,7 @@ impl Server {
 							let complete = true;
 							state.graph.lock().unwrap().update(None, id, complete);
 						},
+
 						_ => unreachable!(),
 					}
 				}
@@ -238,7 +252,7 @@ impl Server {
 				let state = state.clone();
 				async move {
 					server
-						.sync_put_inner_process_batch(&state, items)
+						.sync_put_process_batch(&state, items)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 					Ok::<_, tg::Error>(())
@@ -252,12 +266,14 @@ impl Server {
 				let state = state.clone();
 				async move {
 					server
-						.sync_put_inner_object_batch(&state, items)
+						.sync_put_object_batch(&state, items)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 					Ok::<_, tg::Error>(())
 				}
 			});
+
+		// Join the processes and objects futures.
 		futures::try_join!(processes_future, objects_future)?;
 
 		// Send the last put message.
@@ -360,10 +376,12 @@ impl Server {
 				Either::Left(process) => state.process_queue.push_back(ProcessQueueItem {
 					parent: None,
 					process,
+					eager: state.arg.eager,
 				}),
 				Either::Right(object) => state.object_queue.push_back(ObjectQueueItem {
 					parent: None,
 					object,
+					eager: state.arg.eager,
 				}),
 			}
 		}
@@ -380,6 +398,7 @@ impl Server {
 								let item = ProcessQueueItem {
 									parent: None,
 									process: message.id,
+									eager: message.eager,
 								};
 								state.process_queue.push_back(item);
 							},
@@ -387,6 +406,7 @@ impl Server {
 								let item = ObjectQueueItem {
 									parent: None,
 									object: message.id,
+									eager: message.eager,
 								};
 								state.object_queue.push_back(item);
 							},
@@ -419,10 +439,11 @@ impl Server {
 						},
 					}
 				}
+
 				if let Some(item) = state.object_queue.pop_front() {
-					self.sync_put_sync_inner_object(&mut state, item)?;
+					self.sync_put_sync_object(&mut state, item)?;
 				} else if let Some(item) = state.process_queue.pop_front() {
-					Self::sync_put_sync_inner_process(&mut state, item)?;
+					Self::sync_put_sync_process(&mut state, item)?;
 				}
 			}
 
@@ -441,6 +462,7 @@ impl Server {
 					let item = ProcessQueueItem {
 						parent: None,
 						process: message.id,
+						eager: message.eager,
 					};
 					state.process_queue.push_back(item);
 				},
@@ -448,6 +470,7 @@ impl Server {
 					let item = ObjectQueueItem {
 						parent: None,
 						object: message.id,
+						eager: message.eager,
 					};
 					state.object_queue.push_back(item);
 				},
@@ -466,7 +489,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn sync_put_inner_process_batch(
+	async fn sync_put_process_batch(
 		&self,
 		state: &State,
 		mut items: Vec<ProcessQueueItem>,
@@ -564,7 +587,7 @@ impl Server {
 
 		// Handle the processes.
 		for (item, output) in std::iter::zip(items, outputs) {
-			let ProcessQueueItem { process, .. } = item;
+			let ProcessQueueItem { process, eager, .. } = item;
 			let Some(output) = output else {
 				let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Process(
 					tg::sync::ProcessMissingMessage {
@@ -596,7 +619,7 @@ impl Server {
 				.children
 				.as_ref()
 				.ok_or_else(|| tg::error!("expected the children to be set"))?;
-			if state.arg.recursive {
+			if state.arg.recursive && eager {
 				state
 					.queue_counter
 					.fetch_add(children.len(), std::sync::atomic::Ordering::SeqCst);
@@ -604,36 +627,40 @@ impl Server {
 					let item = ProcessQueueItem {
 						parent: Some(process.clone()),
 						process: child.item.clone(),
+						eager,
 					};
 					state.process_queue_sender.force_send(item).unwrap();
 				}
 			}
 
 			// Enqueue the objects.
-			let mut objects: Vec<tg::object::Id> = Vec::new();
-			if state.arg.commands {
-				objects.push(data.command.clone().into());
-			}
-			if state.arg.outputs
-				&& let Some(output) = &data.output
-			{
-				let mut children = BTreeSet::new();
-				output.children(&mut children);
-				objects.extend(children);
-			}
-			state
-				.queue_counter
-				.fetch_add(objects.len(), std::sync::atomic::Ordering::SeqCst);
-			for child in objects {
-				let item = ObjectQueueItem {
-					parent: Some(Either::Left(process.clone())),
-					object: child,
-				};
-				state.object_queue_sender.force_send(item).unwrap();
+			if eager {
+				let mut objects: Vec<tg::object::Id> = Vec::new();
+				if state.arg.commands {
+					objects.push(data.command.clone().into());
+				}
+				if state.arg.outputs
+					&& let Some(output) = &data.output
+				{
+					let mut children = BTreeSet::new();
+					output.children(&mut children);
+					objects.extend(children);
+				}
+				state
+					.queue_counter
+					.fetch_add(objects.len(), std::sync::atomic::Ordering::SeqCst);
+				for child in objects {
+					let item = ObjectQueueItem {
+						parent: Some(Either::Left(process.clone())),
+						object: child,
+						eager,
+					};
+					state.object_queue_sender.force_send(item).unwrap();
+				}
 			}
 		}
 
-		// Decrement the queue counter and close the queue if the counter hits zero.
+		// Decrement the queue counter and close the queues if the counter hits zero.
 		if state
 			.queue_counter
 			.fetch_sub(n, std::sync::atomic::Ordering::SeqCst)
@@ -648,11 +675,12 @@ impl Server {
 		Ok(())
 	}
 
-	fn sync_put_sync_inner_process(
-		state: &mut StateSync,
-		item: ProcessQueueItem,
-	) -> tg::Result<()> {
-		let ProcessQueueItem { parent, process } = item;
+	fn sync_put_sync_process(state: &mut StateSync, item: ProcessQueueItem) -> tg::Result<()> {
+		let ProcessQueueItem {
+			parent,
+			process,
+			eager,
+		} = item;
 
 		// If the process has already been sent or is complete, then update the progress and return.
 		let (inserted, complete) = state.graph.update(
@@ -731,34 +759,38 @@ impl Server {
 		};
 
 		// Enqueue the children.
-		if state.arg.recursive {
+		if state.arg.recursive && eager {
 			for child in data.children.iter().flatten() {
 				let item = ProcessQueueItem {
 					parent: Some(process.clone()),
 					process: child.item.clone(),
+					eager,
 				};
 				state.process_queue.push_back(item);
 			}
 		}
 
 		// Enqueue the objects.
-		let mut objects: Vec<tg::object::Id> = Vec::new();
-		if state.arg.commands {
-			objects.push(data.command.clone().into());
-		}
-		if state.arg.outputs
-			&& let Some(output) = &data.output
-		{
-			let mut children = BTreeSet::new();
-			output.children(&mut children);
-			objects.extend(children);
-		}
-		for child in objects {
-			let item = ObjectQueueItem {
-				parent: Some(Either::Left(process.clone())),
-				object: child,
-			};
-			state.object_queue.push_back(item);
+		if eager {
+			let mut objects: Vec<tg::object::Id> = Vec::new();
+			if state.arg.commands {
+				objects.push(data.command.clone().into());
+			}
+			if state.arg.outputs
+				&& let Some(output) = &data.output
+			{
+				let mut children = BTreeSet::new();
+				output.children(&mut children);
+				objects.extend(children);
+			}
+			for child in objects {
+				let item = ObjectQueueItem {
+					parent: Some(Either::Left(process.clone())),
+					object: child,
+					eager,
+				};
+				state.object_queue.push_back(item);
+			}
 		}
 
 		// Send the process.
@@ -778,7 +810,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn sync_put_inner_object_batch(
+	async fn sync_put_object_batch(
 		&self,
 		state: &State,
 		mut items: Vec<ObjectQueueItem>,
@@ -845,7 +877,7 @@ impl Server {
 
 		// Handle the objects.
 		for (item, output) in std::iter::zip(items, outputs) {
-			let ObjectQueueItem { object, .. } = item;
+			let ObjectQueueItem { object, eager, .. } = item;
 			let Some(output) = output else {
 				let message = tg::sync::Message::Missing(tg::sync::MissingMessage::Object(
 					tg::sync::ObjectMissingMessage { id: object.clone() },
@@ -872,19 +904,22 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
 
 			// Enqueue the children.
-			state
-				.queue_counter
-				.fetch_add(children.len(), std::sync::atomic::Ordering::SeqCst);
-			for child in children {
-				let item = ObjectQueueItem {
-					parent: Some(Either::Right(object.clone())),
-					object: child,
-				};
-				state.object_queue_sender.force_send(item).unwrap();
+			if eager {
+				state
+					.queue_counter
+					.fetch_add(children.len(), std::sync::atomic::Ordering::SeqCst);
+				for child in children {
+					let item = ObjectQueueItem {
+						parent: Some(Either::Right(object.clone())),
+						object: child,
+						eager,
+					};
+					state.object_queue_sender.force_send(item).unwrap();
+				}
 			}
 		}
 
-		// Decrement the queue counter and close the queue if the counter hits zero.
+		// Decrement the queue counter and close the queues if the counter hits zero.
 		if state
 			.queue_counter
 			.fetch_sub(n, std::sync::atomic::Ordering::SeqCst)
@@ -899,12 +934,12 @@ impl Server {
 		Ok(())
 	}
 
-	fn sync_put_sync_inner_object(
-		&self,
-		state: &mut StateSync,
-		item: ObjectQueueItem,
-	) -> tg::Result<()> {
-		let ObjectQueueItem { parent, object } = item;
+	fn sync_put_sync_object(&self, state: &mut StateSync, item: ObjectQueueItem) -> tg::Result<()> {
+		let ObjectQueueItem {
+			parent,
+			object,
+			eager,
+		} = item;
 
 		// If the object has already been sent or is complete, then update the progress and return.
 		let (inserted, complete) = state
@@ -950,17 +985,20 @@ impl Server {
 		let data = tg::object::Data::deserialize(object.kind(), bytes.clone())?;
 
 		// Enqueue the children.
-		let mut children = BTreeSet::new();
-		data.children(&mut children);
-		for child in children {
-			let item = ObjectQueueItem {
-				parent: Some(Either::Right(object.clone())),
-				object: child,
-			};
-			if object.is_blob() {
-				state.object_queue.push_front(item);
-			} else {
-				state.object_queue.push_back(item);
+		if eager {
+			let mut children = BTreeSet::new();
+			data.children(&mut children);
+			for child in children {
+				let item = ObjectQueueItem {
+					parent: Some(Either::Right(object.clone())),
+					object: child,
+					eager,
+				};
+				if object.is_blob() {
+					state.object_queue.push_front(item);
+				} else {
+					state.object_queue.push_back(item);
+				}
 			}
 		}
 

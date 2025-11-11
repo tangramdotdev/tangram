@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	std::{path::PathBuf, pin::pin},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
@@ -18,38 +19,38 @@ pub struct Arg {
 	pub updates: Vec<tg::tag::Pattern>,
 }
 
-#[serde_with::serde_as]
+#[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Options {
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub destructive: bool,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub deterministic: bool,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub ignore: bool,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub local_dependencies: bool,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub lock: bool,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub locked: bool,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub solve: bool,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, serde_with::DisplayFromStr)>")]
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub watch: bool,
 }

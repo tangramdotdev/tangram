@@ -271,6 +271,7 @@ impl Server {
 		// Start the push.
 		let push_arg = tg::sync::Arg {
 			commands: arg.commands,
+			eager: arg.eager,
 			get: None,
 			outputs: arg.outputs,
 			put: None,
@@ -285,6 +286,7 @@ impl Server {
 		// Start the pull.
 		let pull_arg = tg::sync::Arg {
 			commands: arg.commands,
+			eager: arg.eager,
 			get: Some(arg.items.clone()),
 			outputs: arg.outputs,
 			put: None,

@@ -45,12 +45,12 @@ impl Server {
 		// Create the graph.
 		let graph = Arc::new(Mutex::new(Graph::new()));
 
-		// Spawn the incomplete task.
-		let incomplete_task = AbortOnDropHandle::new(tokio::spawn({
+		// Spawn the task.
+		let task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let arg = arg.clone();
 			let sender = sender.clone();
-			async move { server.sync_get_incomplete_task(arg, sender).await }
+			async move { server.sync_get_task(arg, sender).await }
 		}));
 
 		// Spawn the index task.
@@ -152,10 +152,9 @@ impl Server {
 		drop(process_store_sender);
 		drop(object_store_sender);
 
-		// Await the incomplete and store tasks.
-		let (incomplete_result, store_result) =
-			future::try_join(incomplete_task, store_task).await.unwrap();
-		incomplete_result.and(store_result)?;
+		// Await the tasks.
+		let (result, store_result) = future::try_join(task, store_task).await.unwrap();
+		result.and(store_result)?;
 
 		// Drop the index senders.
 		drop(process_index_sender);
@@ -168,7 +167,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn sync_get_incomplete_task(
+	async fn sync_get_task(
 		&self,
 		arg: tg::sync::Arg,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
@@ -209,7 +208,10 @@ impl Server {
 						}
 					} else {
 						let message = tg::sync::Message::Get(Some(tg::sync::GetMessage::Process(
-							tg::sync::ProcessGetMessage { id: id.clone() },
+							tg::sync::ProcessGetMessage {
+								id: id.clone(),
+								eager: arg.eager,
+							},
 						)));
 						sender.send(Ok(message)).await.map_err(|source| {
 							tg::error!(!source, "failed to send the get message")
@@ -235,7 +237,10 @@ impl Server {
 						}
 					} else {
 						let message = tg::sync::Message::Get(Some(tg::sync::GetMessage::Object(
-							tg::sync::ObjectGetMessage { id: id.clone() },
+							tg::sync::ObjectGetMessage {
+								id: id.clone(),
+								eager: arg.eager,
+							},
 						)));
 						sender.send(Ok(message)).await.map_err(|source| {
 							tg::error!(!source, "failed to send the get message")

@@ -45,6 +45,7 @@ impl Cli {
 		// Push the items.
 		let arg = tg::push::Arg {
 			commands: args.commands,
+			eager: true,
 			items: items.clone(),
 			logs: args.logs,
 			outputs: true,
