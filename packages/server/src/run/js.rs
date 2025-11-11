@@ -9,6 +9,17 @@ impl Server {
 	pub(crate) async fn run_js(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
+		// Get the args, cwd, env, and executable.
+		let state = process.load(self).await?;
+		let data = state.command.data(self).await?;
+		let args = data.args;
+		let cwd = data
+			.cwd
+			.clone()
+			.unwrap_or_else(|| std::path::PathBuf::from("/"));
+		let env = data.env;
+		let executable = data.executable;
+
 		// Create the logger.
 		let logger = Arc::new({
 			let server = self.clone();
@@ -20,28 +31,6 @@ impl Server {
 					.boxed()
 			}
 		});
-
-		// Extract parameters from the process.
-		let command = process.command(self).await?;
-
-		let args = command
-			.args(self)
-			.await?
-			.iter()
-			.map(tg::Value::to_data)
-			.collect::<Vec<_>>();
-
-		let cwd = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get current directory"))?;
-
-		let env = command
-			.env(self)
-			.await?
-			.iter()
-			.map(|(key, value)| (key.clone(), value.to_data()))
-			.collect();
-
-		let executable = command.executable(self).await?.to_data();
 
 		// Create a channel to receive the isolate handle.
 		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);

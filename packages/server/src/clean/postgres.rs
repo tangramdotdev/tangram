@@ -1,6 +1,5 @@
 use {
 	super::{InnerOutput, Server},
-	indoc::indoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},

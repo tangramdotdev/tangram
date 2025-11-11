@@ -46,7 +46,7 @@ export let start = async (arg: Arg): Promise<tg.Value.Data> => {
 	if (tg.Value.is(value)) {
 		output = value;
 	} else if (typeof value === "function") {
-		output = await tg.resolve(value(...arg.args));
+		output = await tg.resolve(value(...tg.process.args));
 	} else {
 		throw new Error("the export must be a tg.Value or a function");
 	}
