@@ -88,6 +88,28 @@ impl Server {
 			.map_or(1024, |config| config.batch_size);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let ttl = Duration::from_secs(0);
+		progress.start(
+			"cache".into(),
+			"cache".into(),
+			tangram_client::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"objects".into(),
+			"objects".into(),
+			tangram_client::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"processes".into(),
+			"processes".into(),
+			tangram_client::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+
 		loop {
 			let inner_output = match self.cleaner_task_inner(now, ttl, batch_size).await {
 				Ok(inner_output) => inner_output,
