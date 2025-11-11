@@ -286,8 +286,7 @@ impl Server {
 			let entry = self.watches.entry(root.clone());
 			match entry {
 				dashmap::Entry::Occupied(entry) => {
-					let watch = entry.get();
-					let mut state = watch.state.lock().unwrap();
+					let mut state = entry.get().state.lock().unwrap();
 					if let Some(version) = version {
 						let current = state.version;
 						if current != version {
@@ -303,6 +302,23 @@ impl Server {
 							.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
+			}
+
+			// On linux, watch the new paths.
+			#[cfg(target_os = "linux")]
+			if let Some(entry) = self.watches.get(&root) {
+				use notify::Watcher as _;
+				let mut state = entry.state.lock().unwrap();
+				let mut paths = state.watcher.paths_mut();
+				for path in graph
+					.nodes
+					.range(next..)
+					.filter_map(|(_, node)| node.path.as_ref())
+				{
+					tracing::trace!(path = %path.display(), "watched");
+					paths.add(path, notify::RecursiveMode::NonRecursive).ok();
+				}
+				paths.commit().ok();
 			}
 
 			// Spawn a task to clean nodes with no referrers.
@@ -326,7 +342,8 @@ impl Server {
 					// Clean the graph.
 					graph.clean(&root);
 
-					// Update paths.
+					// Update paths on darwin.
+					#[cfg(target_os = "macos")]
 					state.update_paths();
 				}
 			});

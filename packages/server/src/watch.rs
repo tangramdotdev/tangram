@@ -22,6 +22,7 @@ pub struct State {
 	pub graph: crate::checkin::Graph,
 	pub lock: Option<Arc<tg::graph::Data>>,
 	pub options: tg::checkin::Options,
+	#[cfg(target_os = "macos")]
 	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	pub solutions: crate::checkin::Solutions,
 	pub version: u64,
@@ -57,6 +58,7 @@ impl Watch {
 			graph,
 			lock,
 			options,
+			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
 			solutions,
 			version: 0,
@@ -93,6 +95,13 @@ impl Watch {
 						while let Some(index) = queue.pop() {
 							if !visited.insert(index) {
 								continue;
+							}
+
+							// On linux, unwatch the path.
+							#[cfg(target_os = "linux")]
+							{
+								tracing::trace!(path = %path.display(), "unwatched");
+								state.watcher.unwatch(path).ok();
 							}
 
 							// Remove the node.
@@ -176,6 +185,7 @@ impl Watch {
 }
 
 impl State {
+	#[cfg(target_os = "macos")]
 	pub fn update_paths(&mut self) {
 		// Get the new paths.
 		let paths = self.graph.paths.roots();
