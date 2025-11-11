@@ -14,7 +14,6 @@ use {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn extract<H>(
 	handle: &H,
-	_process: Option<&tg::Process>,
 	args: tg::value::data::Array,
 	_cwd: std::path::PathBuf,
 	_env: tg::value::data::Map,

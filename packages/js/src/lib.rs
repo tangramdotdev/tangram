@@ -32,7 +32,6 @@ pub type Logger = Arc<
 >;
 
 struct State {
-	process: Option<tg::Process>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
 	global_source_map: Option<SourceMap>,
 	logger: Logger,
@@ -67,7 +66,6 @@ pub struct Output {
 #[allow(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
-	process: Option<&tg::Process>,
 	args: tg::value::data::Array,
 	cwd: PathBuf,
 	env: tg::value::data::Map,
@@ -89,7 +87,6 @@ where
 	// Create the state.
 	let (rejection, _) = tokio::sync::watch::channel(None);
 	let state = Rc::new(State {
-		process: process.cloned(),
 		promises: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 		logger,

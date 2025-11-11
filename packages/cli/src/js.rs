@@ -60,7 +60,6 @@ impl Cli {
 				Ok::<_, tg::Error>((args, cwd, env, executable))
 			})?
 		} else {
-			// Get the cwd and env and add to the args and update the executable.
 			let args_ = args
 				.trailing
 				.into_iter()
@@ -117,7 +116,6 @@ impl Cli {
 
 		let future = tangram_js::run(
 			&client,
-			process.as_ref(),
 			args_,
 			cwd,
 			env,

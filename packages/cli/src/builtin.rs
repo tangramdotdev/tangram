@@ -45,8 +45,9 @@ impl Cli {
 			.map(|process| tg::Process::new(process, None, None, None, None));
 
 		// Get the executable and args from the process if it exists.
-		let (args_, cwd, env, executable) = if let Some(process) = &process {
+		let (args_, cwd, env, executable, checksum) = if let Some(process) = &process {
 			runtime.block_on(async {
+				let state = process.load(&client).await?;
 				let command = process.command(&client).await?;
 				let data = command.data(&client).await?;
 				let args = data.args;
@@ -59,10 +60,13 @@ impl Cli {
 				};
 				let env = data.env;
 				let executable = data.executable;
-				Ok::<_, tg::Error>((args, cwd, env, executable))
+				let checksum = state
+					.expected_checksum
+					.as_ref()
+					.map(tg::Checksum::algorithm);
+				Ok::<_, tg::Error>((args, cwd, env, executable, checksum))
 			})?
 		} else {
-			// Get the cwd and env and add to the args and update the executable.
 			let args_ = args
 				.trailing
 				.into_iter()
@@ -86,7 +90,7 @@ impl Cli {
 				tg::command::data::Executable::Path(tg::command::data::PathExecutable {
 					path: executable,
 				});
-			(args_, cwd, env, executable)
+			(args_, cwd, env, executable, None)
 		};
 
 		// Create a logger that writes to stdio.
@@ -108,12 +112,12 @@ impl Cli {
 		// Run.
 		let future = tangram_builtin::run(
 			&client,
-			process.as_ref(),
 			args_,
 			cwd,
 			env,
 			executable,
 			logger,
+			checksum,
 			&args.temp_path,
 		);
 		let tangram_builtin::Output {

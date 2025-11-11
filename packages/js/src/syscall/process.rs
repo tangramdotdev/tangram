@@ -22,8 +22,7 @@ pub async fn spawn(
 	state: Rc<State>,
 	args: (Serde<tg::process::spawn::Arg>,),
 ) -> tg::Result<Serde<tg::process::spawn::Output>> {
-	let (Serde(mut arg),) = args;
-	arg.parent = state.process.as_ref().map(|process| process.id().clone());
+	let (Serde(arg),) = args;
 	let handle = state.handle.clone();
 	let output = state
 		.main_runtime_handle

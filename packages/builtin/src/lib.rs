@@ -35,12 +35,12 @@ pub struct Output {
 #[allow(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
-	process: Option<&tg::Process>,
 	args: tg::value::data::Array,
 	cwd: std::path::PathBuf,
 	env: tg::value::data::Map,
 	executable: tg::command::data::Executable,
 	logger: Logger,
+	checksum_: Option<tg::checksum::Algorithm>,
 	temp_path: &std::path::Path,
 ) -> tg::Result<Output>
 where
@@ -56,19 +56,16 @@ where
 	};
 
 	let output = match name {
-		"archive" => archive(handle, process, args, cwd, env, executable, logger).boxed(),
-		"bundle" => bundle(handle, process, args, cwd, env, executable, logger).boxed(),
-		"checksum" => checksum(handle, process, args, cwd, env, executable, logger).boxed(),
-		"compress" => compress(handle, process, args, cwd, env, executable, logger).boxed(),
-		"decompress" => decompress(handle, process, args, cwd, env, executable, logger).boxed(),
+		"archive" => archive(handle, args, cwd, env, executable, logger).boxed(),
+		"bundle" => bundle(handle, args, cwd, env, executable, logger).boxed(),
+		"checksum" => checksum(handle, args, cwd, env, executable, logger).boxed(),
+		"compress" => compress(handle, args, cwd, env, executable, logger).boxed(),
+		"decompress" => decompress(handle, args, cwd, env, executable, logger).boxed(),
 		"download" => download(
-			handle, process, args, cwd, env, executable, logger, temp_path,
+			handle, args, cwd, env, executable, logger, checksum_, temp_path,
 		)
 		.boxed(),
-		"extract" => extract(
-			handle, process, args, cwd, env, executable, logger, temp_path,
-		)
-		.boxed(),
+		"extract" => extract(handle, args, cwd, env, executable, logger, temp_path).boxed(),
 		_ => {
 			return Err(tg::error!("invalid executable"));
 		},

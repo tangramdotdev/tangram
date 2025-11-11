@@ -9,7 +9,6 @@ use {
 
 pub(crate) async fn compress<H>(
 	handle: &H,
-	_process: Option<&tg::Process>,
 	args: tg::value::data::Array,
 	_cwd: std::path::PathBuf,
 	_env: tg::value::data::Map,

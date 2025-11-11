@@ -18,22 +18,17 @@ enum Mode {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn download<H>(
 	handle: &H,
-	process: Option<&tg::Process>,
 	args: tg::value::data::Array,
 	_cwd: std::path::PathBuf,
 	_env: tg::value::data::Map,
 	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
+	checksum: Option<tg::checksum::Algorithm>,
 	temp_path: &std::path::Path,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
 {
-	// Get the expected checksum from the process if available.
-	let expected_checksum = match process {
-		Some(process) => process.load(handle).await?.expected_checksum.clone(),
-		None => None,
-	};
 	let url: Uri = match args.first() {
 		Some(tg::value::Data::String(s)) => s
 			.parse()
@@ -71,9 +66,9 @@ where
 	let downloaded = Arc::new(AtomicU64::new(0));
 	let _content_length = response.content_length();
 
-	// Create the checksum writer if we have an expected checksum.
-	let checksum = expected_checksum.as_ref().map(|expected| {
-		let writer = tg::checksum::Writer::new(expected.algorithm());
+	// Create the checksum writer.
+	let checksum = checksum.map(|algorithm| {
+		let writer = tg::checksum::Writer::new(algorithm);
 		Arc::new(Mutex::new(writer))
 	});
 
@@ -85,7 +80,7 @@ where
 			let checksum = checksum.clone();
 			let n = downloaded.clone();
 			move |bytes| {
-				// Update the checksum if we are computing one.
+				// Update the checksum if necessary.
 				if let Some(checksum) = &checksum {
 					checksum.lock().unwrap().update(bytes);
 				}
@@ -170,7 +165,7 @@ where
 		.map_err(|source| tg::error!(!source, "failed to drain the reader"))?;
 	drop(reader);
 
-	// Finalize the checksum if we computed one.
+	// Finalize the checksum if necessary.
 	let checksum = checksum.map(|checksum| {
 		Arc::try_unwrap(checksum)
 			.unwrap()

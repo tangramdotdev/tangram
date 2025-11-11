@@ -1,4 +1,9 @@
-use {crate::Server, futures::FutureExt as _, std::sync::Arc, tangram_client::prelude::*};
+use {
+	crate::{Server, context::Context, handle::ServerWithContext},
+	futures::FutureExt as _,
+	std::sync::Arc,
+	tangram_client::prelude::*,
+};
 
 impl Server {
 	pub(crate) async fn run_js(&self, process: &tg::Process) -> tg::Result<super::Output> {
@@ -51,12 +56,22 @@ impl Server {
 			tokio_util::task::LocalPoolHandle::new(concurrency)
 		});
 		let task = local_pool_handle.spawn_pinned({
-			let handle = self.clone();
+			let server = self.clone();
 			let process = process.clone();
 			move || async move {
+				let process = crate::context::Process {
+					id: process.id().clone(),
+					paths: None,
+					remote: process.remote().cloned(),
+					retry: *process.retry(&server).await?,
+				};
+				let context = Context {
+					process: Some(Arc::new(process)),
+					token: None,
+				};
+				let handle = ServerWithContext(server, context);
 				tangram_js::run(
 					&handle,
-					Some(&process),
 					args,
 					cwd,
 					env,

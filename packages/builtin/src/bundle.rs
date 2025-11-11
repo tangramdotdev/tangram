@@ -8,7 +8,6 @@ static TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
 pub(crate) async fn bundle<H>(
 	handle: &H,
-	_process: Option<&tg::Process>,
 	args: tg::value::data::Array,
 	_cwd: std::path::PathBuf,
 	_env: tg::value::data::Map,
