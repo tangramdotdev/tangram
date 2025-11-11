@@ -11,7 +11,7 @@
 		"check": "cargo clippy --all-features --all-targets --workspace && bun run --filter \"*\" check",
 		"clean": "rm -rf node_modules target",
 		"format": "cargo fmt --all && bun run --filter \"*\" format",
-		"test": "cargo nextest run --no-fail-fast --workspace && bun run --filter \"*\" test",
+		"test": "nu packages/cli/test.nu $@ && cargo nextest run --no-fail-fast --workspace && bun run --filter \"*\" test",
 		"tg": "cargo run -- -m client",
 		"tgo": "cargo build --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/debug/tangram $@' -- -m client",
 		"tgor": "cargo build --release --target aarch64-unknown-linux-gnu && orb sh -c './target/aarch64-unknown-linux-gnu/release/tangram $@' -- -m client",

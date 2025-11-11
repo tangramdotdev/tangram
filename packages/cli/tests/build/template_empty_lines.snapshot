@@ -1,0 +1,1 @@
+tg.template(["function foo() {\n\techo \"Hello, World!\"\n\n}\n"])

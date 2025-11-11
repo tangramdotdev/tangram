@@ -1,0 +1,10 @@
+{
+  "kind": "directory",
+  "entries": {
+    "tangram.ts": {
+      "kind": "file",
+      "contents": "export default () => \"Hello, World!!\";",
+      "executable": false
+    }
+  }
+}

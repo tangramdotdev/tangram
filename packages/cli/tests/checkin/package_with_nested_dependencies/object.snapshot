@@ -1,0 +1,53 @@
+tg.directory({
+  "bar": tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.blob("import * as baz from \"../baz\";"),
+      "dependencies": {
+        "../baz": {
+          "item": tg.directory({
+            "tangram.ts": tg.file({
+              "contents": tg.blob(""),
+            }),
+          }),
+          "path": "../baz",
+        },
+      },
+    }),
+  }),
+  "baz": tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.blob(""),
+    }),
+  }),
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import * as bar from \"./bar\";\nimport * as baz from \"./baz\";"),
+    "dependencies": {
+      "./bar": {
+        "item": tg.directory({
+          "tangram.ts": tg.file({
+            "contents": tg.blob("import * as baz from \"../baz\";"),
+            "dependencies": {
+              "../baz": {
+                "item": tg.directory({
+                  "tangram.ts": tg.file({
+                    "contents": tg.blob(""),
+                  }),
+                }),
+                "path": "../baz",
+              },
+            },
+          }),
+        }),
+        "path": "bar",
+      },
+      "./baz": {
+        "item": tg.directory({
+          "tangram.ts": tg.file({
+            "contents": tg.blob(""),
+          }),
+        }),
+        "path": "baz",
+      },
+    },
+  }),
+})

@@ -1,0 +1,12 @@
+tg.directory({
+  "bar": tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.blob(""),
+    }),
+  }),
+  "foo": tg.directory({
+    "tangram.ts": tg.file({
+      "contents": tg.blob(""),
+    }),
+  }),
+})

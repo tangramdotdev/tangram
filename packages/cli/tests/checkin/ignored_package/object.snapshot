@@ -1,0 +1,19 @@
+tg.directory({
+  ".tangramignore": tg.file({
+    "contents": tg.blob("foo.txt"),
+  }),
+  "dependency.tg.ts": tg.file({
+    "contents": tg.blob(""),
+  }),
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import * as dependency from \"./dependency.tg.ts\";"),
+    "dependencies": {
+      "./dependency.tg.ts": {
+        "item": tg.file({
+          "contents": tg.blob(""),
+        }),
+        "path": "dependency.tg.ts",
+      },
+    },
+  }),
+})

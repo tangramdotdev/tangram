@@ -1,0 +1,8 @@
+tg.directory({
+  "a.txt": tg.file({
+    "contents": tg.blob("Hello, World!"),
+  }),
+  "b.txt": tg.file({
+    "contents": tg.blob("Hello, World!"),
+  }),
+})

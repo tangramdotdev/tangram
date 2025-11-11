@@ -1,0 +1,5 @@
+tg.directory({
+  "link": tg.symlink({
+    "path": ".",
+  }),
+})

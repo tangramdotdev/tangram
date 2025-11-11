@@ -1,0 +1,24 @@
+use std assert
+use ../../test.nu *
+
+let server = spawn
+
+let path = artifact {
+	foo: {
+		'tangram.ts': '
+			import bar from "../bar";
+			export default () => tg.build(bar);
+			export let greeting = () => "foo";
+		'
+	}
+	bar: {
+		'tangram.ts': '
+			import * as foo from "../foo";
+			export default () => tg.build(foo.greeting);
+		'
+	}
+}
+
+let output = tg build ($path | path join './foo') | complete
+assert equal $output.exit_code 0
+assert (snapshot ($output.stdout | str trim))

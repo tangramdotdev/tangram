@@ -1,0 +1,13 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import \"../b/c/d\";"),
+    "dependencies": {
+      "../b/c/d": {
+        "item": tg.file({
+          "contents": tg.blob("hello, world!"),
+        }),
+        "path": "../b/e/d",
+      },
+    },
+  }),
+})

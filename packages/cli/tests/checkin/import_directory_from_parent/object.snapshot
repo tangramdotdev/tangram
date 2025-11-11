@@ -1,0 +1,12 @@
+tg.directory({
+  "a": tg.directory(),
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import a from \"./a\";"),
+    "dependencies": {
+      "./a": {
+        "item": tg.directory(),
+        "path": "a",
+      },
+    },
+  }),
+})

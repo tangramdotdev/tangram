@@ -1,0 +1,5 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "contents": tg.blob(""),
+  }),
+})

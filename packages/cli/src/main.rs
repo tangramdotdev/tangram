@@ -95,15 +95,15 @@ struct Args {
 	command: Command,
 
 	/// The path to the config file.
-	#[arg(long, short)]
+	#[arg(env = "TANGRAM_CONFIG", long, short)]
 	config: Option<PathBuf>,
 
 	/// Override the `directory` key in the config.
-	#[arg(long, short)]
+	#[arg(env = "TANGRAM_DIRECTORY", long, short)]
 	directory: Option<PathBuf>,
 
 	/// The mode.
-	#[arg(long, short)]
+	#[arg(env = "TANGRAM_MODE", long, short)]
 	mode: Option<Mode>,
 
 	/// Whether to show progress and other helpful information.

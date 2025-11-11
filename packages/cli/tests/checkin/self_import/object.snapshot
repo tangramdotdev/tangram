@@ -1,0 +1,21 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "graph": tg.graph({
+      "nodes": [
+        {
+          "kind": "file",
+          "contents": tg.blob("import * as self from \"./tangram.ts\";"),
+          "dependencies": {
+            "./tangram.ts": {
+              "item": {
+                "node": 0,
+              },
+              "path": "tangram.ts",
+            },
+          },
+        },
+      ],
+    }),
+    "node": 0,
+  }),
+})

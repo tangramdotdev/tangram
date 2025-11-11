@@ -1,0 +1,10 @@
+{
+  "kind": "directory",
+  "entries": {
+    "hello.txt": {
+      "kind": "file",
+      "contents": "Hello, World!",
+      "executable": false
+    }
+  }
+}
