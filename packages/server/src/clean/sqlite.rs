@@ -1,51 +1,29 @@
 use {
-	super::{Count, InnerOutput, Server},
+	super::{InnerOutput, Server},
 	bytes::Bytes,
-	indoc::{formatdoc, indoc},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
 impl Server {
-	pub(super) async fn clean_count_items_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		max_touched_at: i64,
-	) -> tg::Result<Count> {
-		let connection = database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get an index connection"))?;
-		let statement = indoc!(
-			"
-				select
-					(select count(*) from cache_entries where reference_count = 0 and touched_at < ?1) as cache_entries,
-					(select count(*) from objects where reference_count = 0 and touched_at < ?1) as objects,
-					(select count(*) from processes where reference_count = 0 and touched_at < ?1) as processes;
-				;
-			"
-		);
-		let params = db::params![max_touched_at];
-		let count = connection
-			.query_one_into::<db::row::Serde<Count>>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.0;
-		Ok(count)
-	}
-
 	pub(super) async fn cleaner_task_inner_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		max_touched_at: i64,
 		mut n: usize,
 	) -> tg::Result<InnerOutput> {
-		let connection = database
+		let mut connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		let p = connection.p();
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a transaction"))?;
+
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				select id from cache_entries
@@ -54,7 +32,7 @@ impl Server {
 			"
 		);
 		let params = db::params![max_touched_at, n];
-		let cache_entries_ = connection
+		let cache_entries_ = transaction
 			.query_all_value_into::<Bytes>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -78,7 +56,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_bytes()];
-			let reference_count = connection
+			let reference_count = transaction
 				.query_one_value_into::<u64>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -91,7 +69,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -100,7 +78,7 @@ impl Server {
 		}
 		n -= cache_entries.len();
 
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				select id from objects
@@ -109,7 +87,7 @@ impl Server {
 			"
 		);
 		let params = db::params![max_touched_at, n];
-		let objects_ = connection
+		let objects_ = transaction
 			.query_all_value_into::<Bytes>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -135,7 +113,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_bytes()];
-			let reference_count = connection
+			let reference_count = transaction
 				.query_one_value_into::<u64>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -151,7 +129,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -165,7 +143,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -176,7 +154,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -187,7 +165,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -196,7 +174,7 @@ impl Server {
 		}
 		n -= objects.len();
 
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				select id from processes
@@ -205,7 +183,7 @@ impl Server {
 			"
 		);
 		let params = db::params![max_touched_at, n];
-		let processes_ = connection
+		let processes_ = transaction
 			.query_all_value_into::<Bytes>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -230,7 +208,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_bytes()];
-			let reference_count = connection
+			let reference_count = transaction
 				.query_one_value_into::<u64>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -247,7 +225,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -262,7 +240,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -273,7 +251,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -284,7 +262,7 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -295,13 +273,19 @@ impl Server {
 					"
 				);
 				let params = db::params![id.to_bytes()];
-				connection
+				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				processes.push(id);
 			}
 		}
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Drop the connection.
 		drop(connection);

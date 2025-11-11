@@ -1,9 +1,9 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _},
+	futures::{FutureExt as _, Stream, StreamExt as _},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
-	std::time::Duration,
+	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
@@ -23,13 +23,6 @@ struct InnerOutput {
 	processes: Vec<tg::process::Id>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct Count {
-	cache_entries: u64,
-	objects: u64,
-	processes: u64,
-}
-
 impl Server {
 	pub(crate) async fn clean_with_context(
 		&self,
@@ -42,112 +35,107 @@ impl Server {
 		}
 		let progress = crate::progress::Handle::new();
 		let task = AbortOnDropHandle::new(tokio::spawn({
-			let progress = progress.clone();
 			let server = self.clone();
+			let progress = progress.clone();
 			async move {
-				// Clean the temporary directory.
-				tangram_util::fs::remove(server.temp_path())
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to remove the temporary directory")
-					})?;
-				tokio::fs::create_dir_all(server.temp_path())
-					.await
-					.map_err(|error| {
-						tg::error!(source = error, "failed to recreate the temporary directory")
-					})?;
-
-				let mut output = tg::clean::Output {
-					cache: 0,
-					objects: 0,
-					processes: 0,
-				};
-				let batch_size = server
-					.config
-					.cleaner
-					.as_ref()
-					.map_or(1024, |config| config.batch_size);
-				let now = time::OffsetDateTime::now_utc().unix_timestamp();
-				let ttl = Duration::from_secs(0);
-				let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
-
-				let count = server.clean_count_items(max_touched_at).await?;
-				if count.cache_entries > 0 {
-					progress.start(
-						"cache".into(),
-						"cache entries".into(),
-						tg::progress::IndicatorFormat::Normal,
-						Some(0),
-						Some(count.cache_entries),
-					);
+				let result = AssertUnwindSafe(server.clean_inner(&progress))
+					.catch_unwind()
+					.await;
+				match result {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
+					},
 				}
-				if count.objects > 0 {
-					progress.start(
-						"objects".into(),
-						"objects".into(),
-						tg::progress::IndicatorFormat::Normal,
-						Some(0),
-						Some(count.objects),
-					);
-				}
-				if count.processes > 0 {
-					progress.start(
-						"processes".into(),
-						"processes".into(),
-						tg::progress::IndicatorFormat::Normal,
-						Some(0),
-						Some(count.processes),
-					);
-				}
-
-				loop {
-					let count = server.clean_count_items(max_touched_at).await?;
-					progress.set_total("cache", count.cache_entries);
-					progress.set_total("objects", count.objects);
-					progress.set_total("processes", count.processes);
-					let inner_output = match server.cleaner_task_inner(now, ttl, batch_size).await {
-						Ok(inner_output) => inner_output,
-						Err(error) => {
-							progress.error(error);
-							break;
-						},
-					};
-					let cache = inner_output.cache_entries.len().to_u64().unwrap();
-					let objects = inner_output.objects.len().to_u64().unwrap();
-					let processes = inner_output.processes.len().to_u64().unwrap();
-					output.cache += cache;
-					output.objects += objects;
-					output.processes += processes;
-					progress.increment("cache", cache);
-					progress.increment("objects", objects);
-					progress.increment("processes", processes);
-					let n = cache + objects + processes;
-					if n == 0 {
-						break;
-					}
-				}
-
-				progress.output(output);
-
-				Ok::<_, tg::Error>(())
 			}
 		}));
 		let stream = progress.stream().attach(task);
 		Ok(stream)
 	}
 
-	async fn clean_count_items(&self, max_touched_at: i64) -> tg::Result<Count> {
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.clean_count_items_postgres(database, max_touched_at)
-					.await
-			},
-			crate::index::Index::Sqlite(database) => {
-				self.clean_count_items_sqlite(database, max_touched_at)
-					.await
-			},
+	async fn clean_inner(
+		&self,
+		progress: &crate::progress::Handle<tg::clean::Output>,
+	) -> tg::Result<tg::clean::Output> {
+		// Clean the temporary directory.
+		tangram_util::fs::remove(self.temp_path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to remove the temporary directory"))?;
+		tokio::fs::create_dir_all(self.temp_path())
+			.await
+			.map_err(|error| {
+				tg::error!(source = error, "failed to recreate the temporary directory")
+			})?;
+
+		let mut output = tg::clean::Output {
+			cache: 0,
+			objects: 0,
+			processes: 0,
+		};
+		let batch_size = self
+			.config
+			.cleaner
+			.as_ref()
+			.map_or(1024, |config| config.batch_size);
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let ttl = Duration::from_secs(0);
+		progress.start(
+			"cache".into(),
+			"cache".into(),
+			tangram_client::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"objects".into(),
+			"objects".into(),
+			tangram_client::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"processes".into(),
+			"processes".into(),
+			tangram_client::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+
+		loop {
+			let inner_output = match self.cleaner_task_inner(now, ttl, batch_size).await {
+				Ok(inner_output) => inner_output,
+				Err(error) => {
+					progress.error(error);
+					break;
+				},
+			};
+
+			// Get the number of items cleaned.
+			let cache = inner_output.cache_entries.len().to_u64().unwrap();
+			let objects = inner_output.objects.len().to_u64().unwrap();
+			let processes = inner_output.processes.len().to_u64().unwrap();
+			output.cache += cache;
+			output.objects += objects;
+			output.processes += processes;
+			progress.increment("cache", cache);
+			progress.increment("objects", objects);
+			progress.increment("processes", processes);
+			let n = cache + objects + processes;
+			if n == 0 {
+				break;
+			}
 		}
+
+		Ok::<_, tg::Error>(output)
 	}
 
 	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {

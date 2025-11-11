@@ -2,6 +2,7 @@ use {
 	crate::{Context, Server},
 	futures::{prelude::*, stream::FuturesUnordered},
 	std::{
+		panic::AssertUnwindSafe,
 		pin::pin,
 		sync::{Arc, Mutex},
 		time::Duration,
@@ -83,9 +84,22 @@ impl Server {
 			let src = src.clone();
 			let dst = dst.clone();
 			async move {
-				let result = Self::push_or_pull_task(arg, progress.clone(), src, dst).await;
-				if let Err(error) = result {
-					progress.error(error);
+				let result =
+					AssertUnwindSafe(Self::push_or_pull_task(arg, progress.clone(), src, dst))
+						.catch_unwind()
+						.await;
+				match result {
+					Ok(Ok(output)) => {
+						progress.output(output);
+					},
+					Ok(Err(error)) => progress.error(error),
+					Err(payload) => {
+						let message = payload
+							.downcast_ref::<String>()
+							.map(String::as_str)
+							.or(payload.downcast_ref::<&str>().copied());
+						progress.error(tg::error!(?message, "the task panicked"));
+					},
 				}
 			}
 		}));
@@ -234,7 +248,7 @@ impl Server {
 		progress: crate::progress::Handle<tg::push::Output>,
 		src: S,
 		dst: D,
-	) -> tg::Result<()>
+	) -> tg::Result<tg::push::Output>
 	where
 		S: tg::Handle,
 		D: tg::Handle,
@@ -337,9 +351,8 @@ impl Server {
 		progress.finish("processes");
 		progress.finish("objects");
 		progress.finish("bytes");
-		progress.output(output.lock().unwrap().clone());
 
-		Ok(())
+		Ok(output.lock().unwrap().clone())
 	}
 
 	pub(crate) async fn handle_push_request(
