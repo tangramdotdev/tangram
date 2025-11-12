@@ -74,7 +74,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
 		// Wait for outstanding tasks to complete.
+		progress.spinner("tasks", "waiting for tasks");
 		self.tasks.wait().await;
+		progress.finish("tasks");
 
 		// Wait for the index stream's first sequence to reach the current last sequence.
 		let info = stream
