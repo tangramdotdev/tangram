@@ -73,8 +73,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
-		progress.spinner("tasks", "waiting for tasks");
 		// Wait for outstanding tasks to complete.
+		progress.spinner("tasks", "waiting for tasks");
 		self.tasks.wait().await;
 		progress.finish("tasks");
 
