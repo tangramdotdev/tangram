@@ -189,9 +189,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.32"
+version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a89bce6054c720275ac2432fbba080a66a2106a44a1b804553930ca6909f4e0"
+checksum = "93c1f86859c1af3d514fa19e8323147ff10ea98684e6c7b307912509f50e67b2"
 dependencies = [
  "compression-codecs",
  "compression-core",
@@ -203,9 +203,9 @@ dependencies = [
 
 [[package]]
 name = "async-nats"
-version = "0.44.2"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f834a80c3ab6109b9c8f5ca6661a578cf31e088e831b6ce07c6b23cca04f6742"
+checksum = "86dde77d8a733a9dbaf865a9eb65c72e09c88f3d14d3dd0d2aecf511920ee4fe"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -246,7 +246,7 @@ checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -268,7 +268,7 @@ checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -279,7 +279,7 @@ checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -324,9 +324,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-credential-types"
-version = "1.2.8"
+version = "1.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faf26925f4a5b59eb76722b63c2892b1d70d06fa053c72e4a100ec308c1d47bc"
+checksum = "86590e57ea40121d47d3f2e131bfd873dea15d78dc2f4604f4734537ad9e56c4"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api",
@@ -566,7 +566,7 @@ dependencies = [
  "regex",
  "rustc-hash 1.1.0",
  "shlex",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -586,13 +586,13 @@ dependencies = [
  "regex",
  "rustc-hash 2.1.1",
  "shlex",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
 name = "biome_aria"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_aria_metadata",
 ]
@@ -600,7 +600,7 @@ dependencies = [
 [[package]]
 name = "biome_aria_metadata"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_deserialize",
  "biome_deserialize_macros",
@@ -610,13 +610,13 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
 name = "biome_console"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_markup",
  "biome_text_size",
@@ -629,7 +629,7 @@ dependencies = [
 [[package]]
 name = "biome_deserialize"
 version = "0.6.0"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -642,7 +642,7 @@ dependencies = [
 [[package]]
 name = "biome_deserialize_macros"
 version = "0.6.0"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_string_case",
  "proc-macro-error2",
@@ -654,7 +654,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "backtrace",
  "biome_console",
@@ -674,7 +674,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics_categories"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "quote",
  "serde",
@@ -683,7 +683,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics_macros"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -694,7 +694,7 @@ dependencies = [
 [[package]]
 name = "biome_formatter"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_console",
  "biome_deserialize",
@@ -713,7 +713,7 @@ dependencies = [
 [[package]]
 name = "biome_js_factory"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_js_syntax",
  "biome_rowan",
@@ -722,7 +722,7 @@ dependencies = [
 [[package]]
 name = "biome_js_formatter"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_deserialize",
  "biome_deserialize_macros",
@@ -743,7 +743,7 @@ dependencies = [
 [[package]]
 name = "biome_js_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -764,7 +764,7 @@ dependencies = [
 [[package]]
 name = "biome_js_syntax"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_aria",
  "biome_aria_metadata",
@@ -778,7 +778,7 @@ dependencies = [
 [[package]]
 name = "biome_json_factory"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_json_syntax",
  "biome_rowan",
@@ -787,7 +787,7 @@ dependencies = [
 [[package]]
 name = "biome_json_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -803,7 +803,7 @@ dependencies = [
 [[package]]
 name = "biome_json_syntax"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_rowan",
  "biome_string_case",
@@ -815,7 +815,7 @@ dependencies = [
 [[package]]
 name = "biome_markup"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -825,7 +825,7 @@ dependencies = [
 [[package]]
 name = "biome_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -839,7 +839,7 @@ dependencies = [
 [[package]]
 name = "biome_rowan"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_text_edit",
  "biome_text_size",
@@ -851,7 +851,7 @@ dependencies = [
 [[package]]
 name = "biome_string_case"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_rowan",
 ]
@@ -859,7 +859,7 @@ dependencies = [
 [[package]]
 name = "biome_suppression"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -869,7 +869,7 @@ dependencies = [
 [[package]]
 name = "biome_text_edit"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "biome_text_size",
  "serde",
@@ -879,7 +879,7 @@ dependencies = [
 [[package]]
 name = "biome_text_size"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 dependencies = [
  "serde",
 ]
@@ -887,7 +887,7 @@ dependencies = [
 [[package]]
 name = "biome_unicode_table"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#ec24456f85e2f1f2905a6720ff0cb7379313e07b"
+source = "git+https://github.com/biomejs/biome#f10266193d9fd0bdb51eda3001b4068defb78a66"
 
 [[package]]
 name = "bitflags"
@@ -967,7 +967,7 @@ dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1101,9 +1101,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.44"
+version = "1.2.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37521ac7aabe3d13122dc382493e20c9416f299d2ccd5b3a5340a2570cdeb0f3"
+checksum = "35900b6c8d709fb1d854671ae27aeaa9eec2f8b01b364e1619a40da3e6fe2afe"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1213,7 +1213,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1279,9 +1279,9 @@ dependencies = [
 
 [[package]]
 name = "compression-codecs"
-version = "0.4.31"
+version = "0.4.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef8a506ec4b81c460798f572caead636d57d3d7e940f998160f52bd254bf2d23"
+checksum = "680dc087785c5230f8e8843e2e57ac7c1c90488b6a91b88caa265410568f441b"
 dependencies = [
  "brotli",
  "bzip2",
@@ -1297,9 +1297,9 @@ dependencies = [
 
 [[package]]
 name = "compression-core"
-version = "0.4.29"
+version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e47641d3deaf41fb1538ac1f54735925e275eaf3bf4d55c81b137fba797e5cbb"
+checksum = "3a9b614a5787ef0c8802a55766480563cb3a93b435898c422ed2a359cf811582"
 
 [[package]]
 name = "concurrent-queue"
@@ -1376,9 +1376,9 @@ checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
 
 [[package]]
 name = "convert_case"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baaaa0ecca5b51987b9423ccdc971514dd8b0bb7b4060b983d3664dad3f1f89f"
+checksum = "db05ffb6856bf0ecdf6367558a76a0e8a77b1713044eb92845c692100ed50190"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -1543,7 +1543,7 @@ checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1577,7 +1577,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1591,7 +1591,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1602,7 +1602,7 @@ checksum = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead"
 dependencies = [
  "darling_core 0.20.11",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1613,7 +1613,7 @@ checksum = "d38308df82d1080de0afee5d069fa14b0326a88c14f15c5ccda35b4a6c414c81"
 dependencies = [
  "darling_core 0.21.3",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1653,7 +1653,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1702,7 +1702,7 @@ dependencies = [
 [[package]]
 name = "derive_more"
 version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#be3edc4c9fcb0005b7212710136c3c90796afcf1"
+source = "git+https://github.com/jeltef/derive_more#905f5a3020cf51a82dc2d5fde6f8e5c0cb8e48f4"
 dependencies = [
  "derive_more-impl",
 ]
@@ -1710,13 +1710,13 @@ dependencies = [
 [[package]]
 name = "derive_more-impl"
 version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#be3edc4c9fcb0005b7212710136c3c90796afcf1"
+source = "git+https://github.com/jeltef/derive_more#905f5a3020cf51a82dc2d5fde6f8e5c0cb8e48f4"
 dependencies = [
  "convert_case",
  "proc-macro2",
  "quote",
  "rustc_version",
- "syn 2.0.108",
+ "syn 2.0.110",
  "unicode-xid",
 ]
 
@@ -1766,7 +1766,7 @@ checksum = "97369cbbc041bc366949bc74d34658d6cda5621039731c6310521892a3a20ae0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1863,7 +1863,7 @@ checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -1874,9 +1874,9 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "erased-serde"
-version = "0.4.8"
+version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "259d404d09818dec19332e31d94558aeb442fea04c817006456c24b5460bbd4b"
+checksum = "89e8918065695684b2b0702da20382d5ae6065cf3327bc2d6436bd49a71ce9f3"
 dependencies = [
  "serde",
  "serde_core",
@@ -2057,7 +2057,7 @@ checksum = "c4ca5370149145ec3741cd7e82832f17f893b9421ee4e484d9511c6702bd9911"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
  "try_map",
 ]
 
@@ -2175,7 +2175,7 @@ checksum = "162ee34ebcb7c64a8abebc059ce0fee27c2262618d7b60ed8faf72fef13c3650"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -2505,9 +2505,9 @@ checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "hyper"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb3aa54a13a0dfe7fbe3a59e0c76093041720fdc77b110cc0fc260fafb4dc51e"
+checksum = "1744436df46f0bde35af3eda22aeaba453aada65d8f1c171cd8a5f59030bd69f"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -2836,7 +2836,7 @@ dependencies = [
  "indoc",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -2847,9 +2847,9 @@ checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
 
 [[package]]
 name = "iri-string"
-version = "0.7.8"
+version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbc5ebe9c3a1a7a5127f920a418f7585e9e758e911d0466ed004f393b0e380b2"
+checksum = "4f867b9d1d896b67beb18518eda36fdb77a32ea590de864f1325b294a6d14397"
 dependencies = [
  "memchr",
  "serde",
@@ -3224,7 +3224,7 @@ checksum = "db5b29714e950dbb20d5e6f74f9dcec4edbcc1067bb7f8ed198c097b8c1a818b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -3432,7 +3432,7 @@ checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -3617,8 +3617,8 @@ checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
 
 [[package]]
 name = "oxc"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -3639,9 +3639,9 @@ dependencies = [
 
 [[package]]
 name = "oxc-browserslist"
-version = "2.1.2"
+version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7612127f5fa1ef0f3e98905ddfc10a7fa1df98944b75d774bb3cb4b530663616"
+checksum = "f978be538ca5e2a64326d24b7991dc658cc8495132833ae387212ab3b8abd70a"
 dependencies = [
  "bincode 2.0.1",
  "flate2",
@@ -3676,7 +3676,7 @@ checksum = "003b4612827f6501183873fb0735da92157e3c7daa71c40921c7d2758fec2229"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -3693,8 +3693,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_allocator"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "allocator-api2",
  "bumpalo",
@@ -3705,8 +3705,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "bitflags 2.10.0",
  "oxc_allocator",
@@ -3721,19 +3721,19 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast_macros"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "phf 0.13.1",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
 name = "oxc_ast_visit"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -3743,8 +3743,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_codegen"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "bitflags 2.10.0",
  "cow-utils",
@@ -3763,8 +3763,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_compat"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "cow-utils",
  "oxc-browserslist",
@@ -3775,16 +3775,16 @@ dependencies = [
 
 [[package]]
 name = "oxc_data_structures"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "ropey",
 ]
 
 [[package]]
 name = "oxc_diagnostics"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "cow-utils",
  "oxc-miette",
@@ -3793,8 +3793,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_ecmascript"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "cow-utils",
  "num-bigint",
@@ -3807,13 +3807,13 @@ dependencies = [
 
 [[package]]
 name = "oxc_estree"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 
 [[package]]
 name = "oxc_formatter"
-version = "0.9.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.13.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "cow-utils",
  "json-strip-comments",
@@ -3824,6 +3824,7 @@ dependencies = [
  "oxc_parser",
  "oxc_span",
  "oxc_syntax",
+ "phf 0.13.1",
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
@@ -3842,8 +3843,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_isolated_declarations"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "bitflags 2.10.0",
  "oxc_allocator",
@@ -3858,8 +3859,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_mangler"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "itertools 0.14.0",
  "oxc_allocator",
@@ -3874,8 +3875,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_minifier"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "cow-utils",
  "oxc_allocator",
@@ -3898,8 +3899,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_parser"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "bitflags 2.10.0",
  "cow-utils",
@@ -3920,8 +3921,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_regular_expression"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "bitflags 2.10.0",
  "oxc_allocator",
@@ -3942,13 +3943,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde_derive_internals",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
 name = "oxc_semantic"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "itertools 0.14.0",
  "oxc_allocator",
@@ -3967,9 +3968,9 @@ dependencies = [
 
 [[package]]
 name = "oxc_sourcemap"
-version = "6.0.0"
+version = "6.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bd56ed0ec53da593c43d9ea65ced157fe319e454888eb65b239a275e3696499"
+checksum = "36801dbbd025f2fa133367494e38eef75a53d334ae6746ba0c889fc4e76fa3a3"
 dependencies = [
  "base64-simd",
  "json-escape-simd",
@@ -3980,8 +3981,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_span"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "compact_str 0.9.0",
  "oxc-miette",
@@ -3992,8 +3993,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_syntax"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "bitflags 2.10.0",
  "cow-utils",
@@ -4011,8 +4012,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_transformer"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "base64 0.22.1",
  "compact_str 0.9.0",
@@ -4040,8 +4041,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_transformer_plugins"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "cow-utils",
  "itoa",
@@ -4061,8 +4062,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_traverse"
-version = "0.96.0"
-source = "git+https://github.com/oxc-project/oxc#ec6721c458d64c5b27b78542aa205d70b06edf9a"
+version = "0.97.0"
+source = "git+https://github.com/oxc-project/oxc#5d920f405c0bc492a6a96dccc1a71724af54e4b6"
 dependencies = [
  "itoa",
  "oxc_allocator",
@@ -4176,7 +4177,7 @@ dependencies = [
  "pest_meta",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -4252,7 +4253,7 @@ dependencies = [
  "phf_shared 0.11.3",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -4265,7 +4266,7 @@ dependencies = [
  "phf_shared 0.13.1",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -4303,7 +4304,7 @@ checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -4412,7 +4413,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -4474,7 +4475,7 @@ dependencies = [
  "itertools 0.14.0",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -4563,9 +4564,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.41"
+version = "1.0.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce25767e7b499d1b604768e7cde645d14cc8584231ea6b295e9c9eb22c02e1d1"
+checksum = "a338cc41d27e6cc6dce6cefc13a0729dfbb81c262b1f519331575dd80ef3067f"
 dependencies = [
  "proc-macro2",
 ]
@@ -4727,7 +4728,7 @@ checksum = "b7186006dcb21920990093f30e3dea63b7d6e977bf1256be20c3563a5db070da"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -4960,9 +4961,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.34"
+version = "0.23.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a9586e9ee2b4f8fab52a0048ca7334d7024eef48e2cb9407e3497bb7cab7fa7"
+checksum = "533f54bc6a7d4f647e46ad909549eda97bf5afc1585190ef692b4286b198bd8f"
 dependencies = [
  "log",
  "once_cell",
@@ -5082,9 +5083,9 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "1.0.5"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1317c3bf3e7df961da95b0a56a172a02abead31276215a0497241a7624b487ce"
+checksum = "9558e172d4e8533736ba97870c4b2cd63f84b382a3d6eb063da41b91cce17289"
 dependencies = [
  "dyn-clone",
  "ref-cast",
@@ -5100,9 +5101,9 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scylla"
-version = "1.3.1"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b42cf9feea170a110c5644c013a4dc790c24c60dc802f43df2ca69acae5112a4"
+checksum = "3321054d79dc75f9f3ca449111983ddc3f59aff4561cddb860af884504b4fbc9"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -5125,9 +5126,9 @@ dependencies = [
 
 [[package]]
 name = "scylla-cql"
-version = "1.3.1"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5139a271deeb8b3b8118c28d19bb3519421ec4a131e3a39533503c526d415dc2"
+checksum = "aa54ff27320ff09e24c9edf2acef2fa4a2a9b60bfb5832454d1a1768f6c036b7"
 dependencies = [
  "byteorder",
  "bytes",
@@ -5145,14 +5146,14 @@ dependencies = [
 
 [[package]]
 name = "scylla-macros"
-version = "1.3.1"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "162aed3aa5b6985d121d9e7e4137efebd49645dee204962b2e9ab85176349119"
+checksum = "16c9e9660119726312cd6c7bd3e286ffc80fb06a9b6d0e214a16df00600829e9"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5277,7 +5278,7 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5288,7 +5289,7 @@ checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5332,7 +5333,7 @@ checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5368,7 +5369,7 @@ dependencies = [
  "indexmap 1.9.3",
  "indexmap 2.12.0",
  "schemars 0.9.0",
- "schemars 1.0.5",
+ "schemars 1.1.0",
  "serde_core",
  "serde_json",
  "serde_with_macros",
@@ -5384,7 +5385,7 @@ dependencies = [
  "darling 0.21.3",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5578,7 +5579,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5698,7 +5699,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5741,9 +5742,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.108"
+version = "2.0.110"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da58917d35242480a05c2897064da0a80589a2a0476c9a3f2fdc83b53502e917"
+checksum = "a99801b5bd34ede4cf3fc688c5919368fea4e4814a4664359503e6015b280aea"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5776,7 +5777,7 @@ checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -5983,7 +5984,7 @@ dependencies = [
  "itertools 0.14.0",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -6134,7 +6135,7 @@ dependencies = [
  "itertools 0.14.0",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -6399,7 +6400,7 @@ checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -6410,7 +6411,7 @@ checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -6504,7 +6505,7 @@ checksum = "af407857209536a95c8e56f8231ef2c2e2aff839b22e07a1ffcbc617e9db9fa5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -6765,7 +6766,7 @@ checksum = "81383ab64e72a7a8b8e13130c49e3dab29def6d0c7d76a03087b3cf71c5c6903"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -7154,7 +7155,7 @@ dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
  "wasm-bindgen-shared",
 ]
 
@@ -7383,7 +7384,7 @@ checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -7394,7 +7395,7 @@ checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -7734,7 +7735,7 @@ dependencies = [
  "heck",
  "indexmap 2.12.0",
  "prettyplease",
- "syn 2.0.108",
+ "syn 2.0.110",
  "wasm-metadata",
  "wit-bindgen-core",
  "wit-component",
@@ -7750,7 +7751,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
  "wit-bindgen-core",
  "wit-bindgen-rust",
 ]
@@ -7857,7 +7858,7 @@ checksum = "b659052874eb698efe5b9e8cf382204678a0086ebf46982b79d6ca3182927e5d"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
  "synstructure",
 ]
 
@@ -7889,7 +7890,7 @@ checksum = "88d2b8d9c68ad2b9e4340d7832716a4d21a22a1154777ad56ea55c51a9cf3831"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -7909,7 +7910,7 @@ checksum = "d71e5d6e06ab090c67b5e44993ec16b72dcbaabc526db883a360057678b48502"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
  "synstructure",
 ]
 
@@ -7949,7 +7950,7 @@ checksum = "eadce39539ca5cb3985590102671f2567e659fca9666581ad3411d59207951f3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.108",
+ "syn 2.0.110",
 ]
 
 [[package]]
