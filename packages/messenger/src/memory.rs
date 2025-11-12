@@ -10,7 +10,6 @@ use {
 		collections::{BTreeMap, HashMap},
 		ops::Deref,
 		sync::{Arc, RwLock, Weak},
-		u64,
 	},
 	tokio::sync::Notify,
 };
@@ -84,18 +83,16 @@ impl Messenger {
 		Self { inner }
 	}
 
-	fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
+	fn publish(&self, subject: String, payload: Bytes) {
 		self.sender.try_broadcast((subject, payload)).ok();
-		Ok(())
 	}
 
 	fn subscribe(
 		&self,
 		subject: String,
 		_group: Option<String>,
-	) -> Result<impl futures::Stream<Item = Message> + Send + 'static, Error> {
-		let stream = self
-			.receiver
+	) -> impl futures::Stream<Item = Message> + Send + 'static {
+		self.receiver
 			.activate_cloned()
 			.filter_map(move |(subject_, payload)| {
 				future::ready({
@@ -105,22 +102,20 @@ impl Messenger {
 						acker: Acker::default(),
 					})
 				})
-			});
-		Ok(stream)
+			})
 	}
 
-	fn get_stream(&self, name: String) -> Result<Stream, Error> {
-		Ok(self
-			.state
+	fn get_stream(&self, name: &str) -> Result<Stream, Error> {
+		self.state
 			.read()
 			.unwrap()
 			.streams
-			.get(&name)
-			.ok_or(Error::NotFound)?
-			.clone())
+			.get(name)
+			.ok_or(Error::NotFound)
+			.cloned()
 	}
 
-	fn create_stream(&self, name: String, config: StreamConfig) -> Result<Stream, Error> {
+	fn create_stream(&self, name: String, config: StreamConfig) -> Stream {
 		let mut state = self.state.write().unwrap();
 		let stream = state.streams.remove(&name);
 		if let Some(stream) = stream {
@@ -128,27 +123,24 @@ impl Messenger {
 		}
 		let stream = Stream::new(name.clone(), config);
 		state.streams.insert(name, stream.clone());
-		Ok(stream)
+		stream
 	}
 
-	fn get_or_create_stream(&self, name: String, config: StreamConfig) -> Result<Stream, Error> {
-		let stream = self
-			.state
+	fn get_or_create_stream(&self, name: String, config: StreamConfig) -> Stream {
+		self.state
 			.write()
 			.unwrap()
 			.streams
 			.entry(name.clone())
 			.or_insert_with(|| Stream::new(name, config))
-			.clone();
-		Ok(stream)
+			.clone()
 	}
 
-	fn delete_stream(&self, name: String) -> Result<(), Error> {
-		let stream = self.state.write().unwrap().streams.remove(&name);
+	fn delete_stream(&self, name: &str) {
+		let stream = self.state.write().unwrap().streams.remove(name);
 		if let Some(stream) = stream {
 			stream.close();
 		}
-		Ok(())
 	}
 
 	async fn stream_publish(
@@ -214,7 +206,7 @@ impl Stream {
 		self.notify.notify_waiters();
 	}
 
-	fn info(&self) -> Result<StreamInfo, Error> {
+	fn info(&self) -> StreamInfo {
 		let state = self.state.read().unwrap();
 		let first_sequence = state.messages.iter().next().map_or_else(
 			|| {
@@ -227,26 +219,25 @@ impl Stream {
 			|(sequence, _)| *sequence,
 		);
 		let last_sequence = state.sequence;
-		let info = StreamInfo {
+		StreamInfo {
 			first_sequence,
 			last_sequence,
-		};
-		Ok(info)
+		}
 	}
 
-	fn get_consumer(&self, name: String) -> Result<Consumer, Error> {
+	fn get_consumer(&self, name: &str) -> Result<Consumer, Error> {
 		Ok(self
 			.state
 			.read()
 			.unwrap()
 			.consumers
-			.get(&name)
+			.get(name)
 			.ok_or(Error::NotFound)?
 			.0
 			.clone())
 	}
 
-	fn create_consumer(&self, name: String, config: ConsumerConfig) -> Result<Consumer, Error> {
+	fn create_consumer(&self, name: String, config: ConsumerConfig) -> Consumer {
 		let mut state = self.state.write().unwrap();
 		state.consumers.remove(&name);
 		let sequence = state
@@ -259,17 +250,13 @@ impl Stream {
 		state
 			.consumers
 			.insert(name, (consumer.clone(), consumer_state));
-		Ok(consumer)
+		consumer
 	}
 
-	fn get_or_create_consumer(
-		&self,
-		name: String,
-		config: ConsumerConfig,
-	) -> Result<Consumer, Error> {
+	fn get_or_create_consumer(&self, name: String, config: ConsumerConfig) -> Consumer {
 		let mut state = self.state.write().unwrap();
 		if let Some((consumer, _)) = state.consumers.get(&name) {
-			return Ok(consumer.clone());
+			return consumer.clone();
 		}
 		let sequence = state
 			.messages
@@ -281,13 +268,12 @@ impl Stream {
 		state
 			.consumers
 			.insert(name, (consumer.clone(), consumer_state));
-		Ok(consumer)
+		consumer
 	}
 
-	fn delete_consumer(&self, name: String) -> Result<(), Error> {
+	fn delete_consumer(&self, name: &str) {
 		let mut state = self.state.write().unwrap();
-		state.consumers.remove(&name);
-		Ok(())
+		state.consumers.remove(name);
 	}
 
 	async fn publish(&self, payload: Bytes) -> Result<u64, Error> {
@@ -423,7 +409,7 @@ impl Consumer {
 			let mut stream_state = stream.state.write().unwrap();
 
 			// Check if the stream was closed and all messages have been consumed.
-			if stream_state.closed && stream_state.messages.len() == 0 {
+			if stream_state.closed && stream_state.messages.is_empty() {
 				return Ok(None);
 			}
 
@@ -531,7 +517,8 @@ impl crate::Messenger for Messenger {
 	type Stream = Stream;
 
 	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
-		self.publish(subject, payload)
+		self.publish(subject, payload);
+		Ok(())
 	}
 
 	async fn subscribe(
@@ -539,11 +526,11 @@ impl crate::Messenger for Messenger {
 		subject: String,
 		group: Option<String>,
 	) -> Result<impl futures::Stream<Item = Message> + 'static, Error> {
-		self.subscribe(subject, group)
+		Ok(self.subscribe(subject, group))
 	}
 
 	async fn get_stream(&self, name: String) -> Result<Self::Stream, Error> {
-		self.get_stream(name)
+		self.get_stream(&name)
 	}
 
 	async fn create_stream(
@@ -551,7 +538,7 @@ impl crate::Messenger for Messenger {
 		name: String,
 		config: StreamConfig,
 	) -> Result<Self::Stream, Error> {
-		self.create_stream(name, config)
+		Ok(self.create_stream(name, config))
 	}
 
 	async fn get_or_create_stream(
@@ -559,11 +546,12 @@ impl crate::Messenger for Messenger {
 		name: String,
 		config: StreamConfig,
 	) -> Result<Self::Stream, Error> {
-		self.get_or_create_stream(name, config)
+		Ok(self.get_or_create_stream(name, config))
 	}
 
-	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Error>> {
-		future::ready(self.delete_stream(name))
+	async fn delete_stream(&self, name: String) -> Result<(), Error> {
+		self.delete_stream(&name);
+		Ok(())
 	}
 
 	async fn stream_publish(
@@ -587,11 +575,11 @@ impl crate::Stream for Stream {
 	type Consumer = Consumer;
 
 	async fn info(&self) -> Result<StreamInfo, Error> {
-		self.info()
+		Ok(self.info())
 	}
 
 	async fn get_consumer(&self, name: String) -> Result<Self::Consumer, Error> {
-		self.get_consumer(name)
+		self.get_consumer(&name)
 	}
 
 	async fn create_consumer(
@@ -599,7 +587,7 @@ impl crate::Stream for Stream {
 		name: String,
 		config: ConsumerConfig,
 	) -> Result<Self::Consumer, Error> {
-		self.create_consumer(name, config)
+		Ok(self.create_consumer(name, config))
 	}
 
 	async fn get_or_create_consumer(
@@ -607,11 +595,12 @@ impl crate::Stream for Stream {
 		name: String,
 		config: ConsumerConfig,
 	) -> Result<Self::Consumer, Error> {
-		self.get_or_create_consumer(name, config)
+		Ok(self.get_or_create_consumer(name, config))
 	}
 
 	async fn delete_consumer(&self, name: String) -> Result<(), Error> {
-		self.delete_consumer(name)
+		self.delete_consumer(&name);
+		Ok(())
 	}
 }
 
