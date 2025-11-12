@@ -34,7 +34,7 @@ where
 		} => {
 			// Otherwise, load from the path.
 			let text = tokio::fs::read_to_string(&path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to read the file"),
+				|source| tg::error!(!source, path = %path.display(), "failed to read the file"),
 			)?;
 
 			Ok(text)

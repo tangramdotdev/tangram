@@ -131,7 +131,7 @@ impl std::str::FromStr for Kind {
 			"symlink" => Ok(Self::Symlink),
 			"graph" => Ok(Self::Graph),
 			"command" => Ok(Self::Command),
-			_ => Err(tg::error!(%kind = s, "invalid kind")),
+			_ => Err(tg::error!(kind = %s, "invalid kind")),
 		}
 	}
 }

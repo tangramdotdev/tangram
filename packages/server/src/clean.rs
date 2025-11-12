@@ -188,7 +188,7 @@ impl Server {
 				for artifact in &cache_entries {
 					let path = server.cache_path().join(artifact.to_string());
 					tangram_util::fs::remove_sync(&path).map_err(
-						|source| tg::error!(!source, %path = path.display(), "failed to remove the file"),
+						|source| tg::error!(!source, path = %path.display(), "failed to remove the file"),
 					)?;
 				}
 				Ok::<_, tg::Error>(())

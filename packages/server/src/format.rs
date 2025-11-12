@@ -106,12 +106,12 @@ impl Server {
 
 		// Format the text.
 		let text = tangram_compiler::Compiler::format(&text).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to format the module"),
+			|source| tg::error!(!source, path = %path.display(), "failed to format the module"),
 		)?;
 
 		// Write the text.
 		std::fs::write(path, text.as_bytes()).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to write the formatted module"),
+			|source| tg::error!(!source, path = %path.display(), "failed to write the formatted module"),
 		)?;
 
 		Ok(())

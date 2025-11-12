@@ -19,7 +19,8 @@ impl tg::Client {
 		arg: Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let query = serde_urlencoded::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let uri = format!("/ptys/{id}/read?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
@@ -27,7 +28,10 @@ impl tg::Client {
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();
-		let response = self.send(request).await?;
+		let response = self
+			.send(request)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
 			if matches!(response.status(), http::StatusCode::NOT_FOUND) {
 				return Err(tg::error!(%id, "not found"));

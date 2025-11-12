@@ -91,7 +91,7 @@ impl Server {
 		} else {
 			let path = temp.path().join(".tangram");
 			tokio::fs::create_dir_all(&path).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to create the directory"),
+				|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
 			)?;
 
 			// Listen.

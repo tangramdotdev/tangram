@@ -314,7 +314,7 @@ impl File {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				let Some(referent) = file.dependencies.get(reference).ok_or_else(
-					|| tg::error!(%file = self.id(), %reference, "expected a dependency"),
+					|| tg::error!(file = %self.id(), %reference, "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
@@ -351,7 +351,7 @@ impl File {
 			},
 			Object::Node(node) => {
 				let Some(referent) = node.dependencies.get(reference).ok_or_else(
-					|| tg::error!(%file = self.id(), %reference, "expected a dependency"),
+					|| tg::error!(file = %self.id(), %reference, "expected a dependency"),
 				)?
 				else {
 					return Ok(None);

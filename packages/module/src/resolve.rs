@@ -261,7 +261,7 @@ where
 		.clone()
 		.try_unwrap_file()
 		.ok()
-		.ok_or_else(|| tg::error!(%referrer = referrer.item, "the referrer must be a file"))?;
+		.ok_or_else(|| tg::error!(referrer = %referrer.item, "the referrer must be a file"))?;
 	let referent = file.get_dependency(handle, &import.reference).await?;
 	let referent = try_resolve_module_with_kind(handle, import.kind, referent).await?;
 	let mut referent = referent.map(|item| tg::module::data::Item::Object(item.id()));

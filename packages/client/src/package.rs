@@ -15,7 +15,7 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 	} else if path.extension().is_some_and(|ext| ext == "js") {
 		Ok(tg::module::Kind::Js)
 	} else {
-		Err(tg::error!(%path = path.display(), "unknown or missing file extension"))
+		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
 }
 
@@ -67,7 +67,7 @@ where
 		let exists = match package {
 			Either::Left(directory) => directory.try_get_entry(handle, name_).await?.is_some(),
 			Either::Right(path) => tokio::fs::try_exists(path.join(*name_)).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+				|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
 			)?,
 		};
 		if exists {
@@ -84,7 +84,7 @@ pub fn try_get_root_module_file_name_sync(path: &Path) -> tg::Result<Option<&'st
 	let mut name = None;
 	for name_ in tg::package::ROOT_MODULE_FILE_NAMES {
 		let exists = path.join(name_).try_exists().map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+			|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
 		)?;
 		if exists {
 			if name.is_some() {

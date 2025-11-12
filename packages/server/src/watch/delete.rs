@@ -17,7 +17,7 @@ impl Server {
 		// Canonicalize the path's parent.
 		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
-			.map_err(|source| tg::error!(!source, %path = arg.path.display(), "failed to canonicalize the path's parent"))?;
+			.map_err(|source| tg::error!(!source, path = %arg.path.display(), "failed to canonicalize the path's parent"))?;
 
 		self.watches.remove(&arg.path);
 

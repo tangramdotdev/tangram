@@ -27,7 +27,7 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to check if the path exists"))?;
 			if exists {
 				return Err(
-					tg::error!(%module_path = module_path.display(), "found existing root module"),
+					tg::error!(module_path = %module_path.display(), "found existing root module"),
 				);
 			}
 		}
@@ -62,7 +62,7 @@ impl Cli {
 		// Write the files.
 		for (path, contents) in files {
 			tokio::fs::write(&path, &contents).await.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to write the file"),
+				|source| tg::error!(!source, path = %path.display(), "failed to write the file"),
 			)?;
 		}
 

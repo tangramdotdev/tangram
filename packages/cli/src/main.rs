@@ -498,7 +498,7 @@ impl Cli {
 				tokio::time::sleep(Duration::from_millis(duration)).await;
 			}
 			if !connected {
-				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
+				return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
 			}
 		}
 
@@ -535,7 +535,7 @@ impl Cli {
 				tokio::time::sleep(Duration::from_millis(duration)).await;
 			}
 			if !connected {
-				return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
+				return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
 			}
 		}
 
@@ -569,7 +569,7 @@ impl Cli {
 		// Try to connect. If the client is not connected, then return an error.
 		let connected = client.connect().await.is_ok();
 		if !connected {
-			return Err(tg::error!(%url = client.url(), "failed to connect to the server"));
+			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
 		}
 
 		Ok(client)
@@ -1235,12 +1235,12 @@ impl Cli {
 			},
 			Err(source) => {
 				return Err(
-					tg::error!(!source, %directory = directory.display(), "failed to read the config file"),
+					tg::error!(!source, directory = %directory.display(), "failed to read the config file"),
 				);
 			},
 		};
 		let config = serde_json::from_str(&config).map_err(
-			|source| tg::error!(!source, %directory = directory.display(), "failed to deserialize the config"),
+			|source| tg::error!(!source, directory = %directory.display(), "failed to deserialize the config"),
 		)?;
 		Ok(Some(config))
 	}
@@ -1458,27 +1458,16 @@ impl Cli {
 					.format
 					.unwrap_or(self::config::TracingFormat::Pretty);
 				let output_layer = match format {
-					self::config::TracingFormat::Compact
-					| self::config::TracingFormat::Json
-					| self::config::TracingFormat::Pretty => {
-						let layer = tracing_subscriber::fmt::layer()
-							.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-							.with_writer(std::io::stderr);
-						let layer = match format {
-							self::config::TracingFormat::Compact => layer.compact().boxed(),
-							self::config::TracingFormat::Hierarchical => unreachable!(),
-							self::config::TracingFormat::Json => layer.json().boxed(),
-							self::config::TracingFormat::Pretty => layer.pretty().boxed(),
-						};
-						layer.boxed()
-					},
-					self::config::TracingFormat::Hierarchical => {
-						tracing_tree::HierarchicalLayer::new(2)
-							.with_bracketed_fields(true)
-							.with_span_retrace(true)
-							.with_targets(true)
-							.boxed()
-					},
+					self::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
+						.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+						.with_writer(std::io::stderr)
+						.json()
+						.boxed(),
+					self::config::TracingFormat::Pretty => tracing_tree::HierarchicalLayer::new(2)
+						.with_bracketed_fields(true)
+						.with_indent_lines(true)
+						.with_span_retrace(true)
+						.boxed(),
 				};
 				output_layer.with_filter(filter)
 			});

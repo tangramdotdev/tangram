@@ -20,8 +20,8 @@ pub struct Decompression<B> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, derive_more::Display, derive_more::FromStr)]
-#[display(rename_all = "lowercase")]
-#[from_str(rename_all = "lowercase")]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum Algorithm {
 	Gzip,
 	Zstd,

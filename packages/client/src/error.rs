@@ -361,11 +361,11 @@ macro_rules! error {
 		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $name));
 		$crate::error!({ $error }, $($arg)*)
 	};
-	({ $error:ident }, %$name:ident = $value:expr, $($arg:tt)*) => {
+	({ $error:ident }, $name:ident = %$value:expr, $($arg:tt)*) => {
 		$error.values.insert(stringify!($name).to_owned(), $value.to_string());
 		$crate::error!({ $error }, $($arg)*)
 	};
-	({ $error:ident }, ?$name:ident = $value:expr, $($arg:tt)*) => {
+	({ $error:ident }, $name:ident = ?$value:expr, $($arg:tt)*) => {
 		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $value));
 		$crate::error!({ $error }, $($arg)*)
 	};

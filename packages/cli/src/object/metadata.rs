@@ -25,7 +25,7 @@ impl Cli {
 			.try_get_object_metadata(&args.object, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id = args.object, "failed to get the object metadata"),
+				|source| tg::error!(!source, id = %args.object, "failed to get the object metadata"),
 			)?
 			.ok_or_else(|| tg::error!("failed to get the object metadata"))?;
 		self.print_serde(output, args.print).await?;

@@ -129,7 +129,7 @@ impl Cli {
 					options,
 					updates: Vec::new(),
 				};
-				let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, %path = path.display(), "failed to checkin local package during publishing"))?;
+				let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, path = %path.display(), "failed to checkin local package during publishing"))?;
 				item.referent.item = artifact.id().into();
 			}
 			if item.push {
@@ -147,7 +147,7 @@ impl Cli {
 				)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %tag = item.tag, "failed to put local tag"),
+					|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
 				)?;
 		}
 
@@ -364,7 +364,7 @@ impl State {
 				let original = try_get_package_tag(handle, node.package.item())
 					.await
 					.map_err(
-						|source| tg::error!(!source, %package = node.package, "failed to read the package metadata"),
+						|source| tg::error!(!source, package = %node.package, "failed to read the package metadata"),
 					)?;
 				let Some(tag) = override_.or(original) else {
 					continue;

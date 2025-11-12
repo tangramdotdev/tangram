@@ -63,7 +63,7 @@ impl Server {
 		if id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(src, permissions).map_err(
-				|source| tg::error!(!source, %path = src.display(), "failed to set permissions"),
+				|source| tg::error!(!source, path = %src.display(), "failed to set permissions"),
 			)?;
 		}
 		let done = match tokio::fs::rename(src, dst).await {
@@ -85,13 +85,13 @@ impl Server {
 		if !done && id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o555);
 			tokio::fs::set_permissions(dst, permissions).await.map_err(
-				|source| tg::error!(!source, %path = dst.display(), "failed to set permissions"),
+				|source| tg::error!(!source, path = %dst.display(), "failed to set permissions"),
 			)?;
 		}
 		if !done {
 			let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 			filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
-				|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
+				|source| tg::error!(!source, path = %dst.display(), "failed to set the modified time"),
 			)?;
 		}
 		Ok(())
@@ -121,7 +121,7 @@ impl Server {
 				let mode = if executable { 0o555 } else { 0o444 };
 				let permissions = std::fs::Permissions::from_mode(mode);
 				std::fs::set_permissions(dst, permissions).map_err(
-					|source| tg::error!(!source, %path = dst.display(), "failed to set permissions"),
+					|source| tg::error!(!source, path = %dst.display(), "failed to set permissions"),
 				)?;
 			}
 
@@ -139,7 +139,7 @@ impl Server {
 			if !done {
 				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 				filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
-					|source| tg::error!(!source, %path = dst.display(), "failed to set the modified time"),
+					|source| tg::error!(!source, path = %dst.display(), "failed to set the modified time"),
 				)?;
 			}
 		}

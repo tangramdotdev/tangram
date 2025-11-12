@@ -458,7 +458,7 @@ impl Server {
 			.pop_back()
 			.ok_or_else(|| {
 				tg::error!(
-					%referrer = Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.node),
+					referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.node),
 					%pattern,
 					"no matching tags were found",
 				)

@@ -18,14 +18,18 @@ impl tg::Client {
 		arg: Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg).unwrap();
+		let query = serde_urlencoded::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let uri = format!("/pipes/{id}/read?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.empty()
 			.unwrap();
-		let response = self.send(request).await?;
+		let response = self
+			.send(request)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
 			if matches!(response.status(), http::StatusCode::NOT_FOUND) {
 				return Err(tg::error!(%id, "not found"));

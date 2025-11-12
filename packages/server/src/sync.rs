@@ -175,7 +175,7 @@ impl Server {
 			if let tg::sync::Message::Put(Some(tg::sync::PutMessage::Object(message))) = &message {
 				let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
 				if message.id != actual {
-					return Err(tg::error!(%expected = message.id, %actual, "invalid object id"));
+					return Err(tg::error!(expected = %message.id, %actual, "invalid object id"));
 				}
 			}
 

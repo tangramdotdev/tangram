@@ -65,7 +65,7 @@ impl Cli {
 			Kind::Tag => {
 				let item = args.reference.item();
 				let pattern = item.clone().try_unwrap_tag().map_err(
-					|source| tg::error!(!source, %reference = args.reference, "expected a tag"),
+					|source| tg::error!(!source, reference = %args.reference, "expected a tag"),
 				)?;
 				tg::Referent::with_item(crate::viewer::Item::Tag(pattern.clone()))
 			},
@@ -73,7 +73,7 @@ impl Cli {
 				let referent = self.get_reference(&args.reference).await?;
 				let item = match (referent.item(), args.kind) {
 					(Either::Left(_), Kind::Package) => {
-						return Err(tg::error!(%reference = args.reference, "expected an object"));
+						return Err(tg::error!(reference = %args.reference, "expected an object"));
 					},
 					(Either::Left(process), Kind::Value) => {
 						crate::viewer::Item::Process(process.clone())

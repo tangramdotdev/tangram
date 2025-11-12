@@ -336,7 +336,7 @@ impl Server {
 				tokio::fs::set_permissions(&cache_path, permissions)
 					.await
 					.map_err(
-						|source| tg::error!(!source, %path = cache_path.display(), "failed to set permissions"),
+						|source| tg::error!(!source, path = %cache_path.display(), "failed to set permissions"),
 					)?;
 			}
 
@@ -347,7 +347,7 @@ impl Server {
 						move || {
 					let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 							filetime::set_symlink_file_times(&cache_path, epoch, epoch).map_err(
-								|source| tg::error!(!source, %path = cache_path.display(), "failed to set the modified time"),
+								|source| tg::error!(!source, path = %cache_path.display(), "failed to set the modified time"),
 							)
 						}
 					})
@@ -400,7 +400,7 @@ impl Server {
 		if id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(path, permissions).map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to set permissions"),
+				|source| tg::error!(!source, path = %path.display(), "failed to set permissions"),
 			)?;
 		}
 
@@ -429,7 +429,7 @@ impl Server {
 		// Set the file times to the epoch.
 		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+			|source| tg::error!(!source, path = %path.display(), "failed to set the modified time"),
 		)?;
 
 		Ok(dependencies)
@@ -551,7 +551,7 @@ impl Server {
 	) -> tg::Result<Vec<GetNodeOutput>> {
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to create the directory"),
+			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
 		)?;
 
 		// Recurse into the entries.
@@ -575,7 +575,7 @@ impl Server {
 		// Set the permissions.
 		let permissions = std::fs::Permissions::from_mode(0o555);
 		std::fs::set_permissions(path, permissions).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to set permissions"),
+			|source| tg::error!(!source, path = %path.display(), "failed to set permissions"),
 		)?;
 
 		Ok(dependencies)
@@ -648,9 +648,9 @@ impl Server {
 		let mut reader = crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
 			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
 		let mut file = std::fs::File::create(dst)
-			.map_err(|source| tg::error!(!source, ?path = dst, "failed to create the file"))?;
+			.map_err(|source| tg::error!(!source, path = ?dst, "failed to create the file"))?;
 		std::io::copy(&mut reader, &mut file)
-			.map_err(|source| tg::error!(!source, ?path = dst, "failed to write to the file"))?;
+			.map_err(|source| tg::error!(!source, path = ?dst, "failed to write to the file"))?;
 
 		// Set the dependencies attr.
 		let dependencies_ = node.dependencies.keys().cloned().collect::<Vec<_>>();

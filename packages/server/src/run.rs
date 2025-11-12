@@ -178,7 +178,7 @@ impl Server {
 	async fn run(&self, process: &tg::Process) -> tg::Result<Output> {
 		// Ensure the process is loaded.
 		let state = process.load(self).await.map_err(
-			|source| tg::error!(!source, %process = process.id(), "failed to load the process"),
+			|source| tg::error!(!source, process = %process.id(), "failed to load the process"),
 		)?;
 
 		// Get the host.

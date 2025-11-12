@@ -535,7 +535,7 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 
 	// Await the process.
 	let exit = child.wait().await.map_err(
-		|source| tg::error!(!source, %process = id, "failed to wait for the child process"),
+		|source| tg::error!(!source, process = %id, "failed to wait for the child process"),
 	)?;
 	let exit = None
 		.or(exit.code())
@@ -678,10 +678,10 @@ async fn signal_task(
 		.try_get_process_signal_stream(id, arg)
 		.await
 		.map_err(
-			|source| tg::error!(!source, %process = id, "failed to get the process's signal stream"),
+			|source| tg::error!(!source, process = %id, "failed to get the process's signal stream"),
 		)?
 		.ok_or_else(
-			|| tg::error!(%process = id, "expected the process's signal stream to exist"),
+			|| tg::error!(process = %id, "expected the process's signal stream to exist"),
 		)?;
 
 	// Handle the events.

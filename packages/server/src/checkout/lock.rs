@@ -26,7 +26,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 			let lockfile_path = state.path.join(tg::package::LOCKFILE_FILE_NAME);
 			std::fs::write(&lockfile_path, &contents).map_err(
-				|source| tg::error!(!source, %path = lockfile_path.display(), "failed to write the lockfile"),
+				|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
 			)?;
 		} else if state.artifact.is_file() {
 			let contents = serde_json::to_vec(&lock)
@@ -61,7 +61,7 @@ impl Server {
 			.enumerate()
 			.map(|(index, node)| {
 				node.clone().ok_or_else(
-					|| tg::error!(%node = index, "invalid graph, failed to create lock node"),
+					|| tg::error!(node = %index, "invalid graph, failed to create lock node"),
 				)
 			})
 			.collect::<tg::Result<_>>()?;

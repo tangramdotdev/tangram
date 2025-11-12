@@ -169,7 +169,7 @@ impl Server {
 
 		// Validate the server didn't give us back garbage.
 		if &tg::object::Id::new(id.kind(), &output.bytes) != id {
-			return Err(tg::error!(?bytes = output.bytes, "server returned an invalid object"));
+			return Err(tg::error!(bytes = ?output.bytes, "server returned an invalid object"));
 		}
 
 		// Spawn a task to put the object.
@@ -253,7 +253,7 @@ impl Server {
 					path = path.join(path_);
 				}
 				let file_ = std::fs::File::open(&path).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+					|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 				)?;
 				file.replace(File {
 					artifact: cache_reference.artifact.clone(),

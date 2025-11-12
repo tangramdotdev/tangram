@@ -74,7 +74,7 @@ impl Server {
 		// Collect the artifacts path entries.
 		let artifacts_entries = if let Some(artifacts_path) = artifacts_path {
 			let read_dir = std::fs::read_dir(artifacts_path).map_err(
-				|source| tg::error!(!source, %path = artifacts_path.display(), "failed to read the artifacts directory"),
+				|source| tg::error!(!source, path = %artifacts_path.display(), "failed to read the artifacts directory"),
 			)?;
 			let mut entries = Vec::new();
 			for entry in read_dir {
@@ -166,7 +166,7 @@ impl Server {
 
 		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(&item.path).map_err(
-			|source| tg::error!(!source, %path = item.path.display(), "failed to get the metadata"),
+			|source| tg::error!(!source, path = %item.path.display(), "failed to get the metadata"),
 		)?;
 
 		// Skip ignored files, unless the path is in the artifacts path.
@@ -283,7 +283,7 @@ impl Server {
 			.as_ref()
 			.unwrap();
 		let read_dir = std::fs::read_dir(path).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to read the directory"),
+			|source| tg::error!(!source, path = %path.display(), "failed to read the directory"),
 		)?;
 		let mut names = Vec::new();
 		for result in read_dir {
@@ -368,7 +368,7 @@ impl Server {
 					};
 					let referent = path.parent().unwrap().join(reference_path);
 					let referent = referent.canonicalize().map_err(
-						|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
+						|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
 					)?;
 					stack.push(Item {
 						path: referent,
@@ -386,10 +386,10 @@ impl Server {
 		} else if tg::package::is_module_path(&path) {
 			// Read the module.
 			let contents = std::fs::read(&path).map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to read the module"),
+				|source| tg::error!(!source, path = %path.display(), "failed to read the module"),
 			)?;
 			let text = String::from_utf8(contents).map_err(
-				|source| tg::error!(!source, %path = path.display(), "the module is not valid utf-8"),
+				|source| tg::error!(!source, path = %path.display(), "the module is not valid utf-8"),
 			)?;
 
 			// Analyze.
@@ -423,11 +423,11 @@ impl Server {
 					let referent = path.parent().unwrap().join(reference_path);
 					let referent = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
 						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
-							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize path"),
+							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize path"),
 						)?
 					} else {
 						referent.canonicalize().map_err(
-							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
+							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
 						)?
 					};
 					stack.push(Item {

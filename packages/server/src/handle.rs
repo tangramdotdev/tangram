@@ -1052,9 +1052,7 @@ impl tg::handle::Object for ServerWithContext {
 		id: &tg::object::Id,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		self.0
-			.try_get_object_with_context(&self.1, id, arg)
-			.await
+		self.0.try_get_object_with_context(&self.1, id, arg).await
 	}
 
 	async fn put_object(&self, id: &tg::object::Id, arg: tg::object::put::Arg) -> tg::Result<()> {
@@ -1066,9 +1064,7 @@ impl tg::handle::Object for ServerWithContext {
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
 	) -> tg::Result<()> {
-		self.0
-			.touch_object_with_context(&self.1, id, arg)
-			.await
+		self.0.touch_object_with_context(&self.1, id, arg).await
 	}
 }
 
@@ -1115,9 +1111,7 @@ impl tg::handle::Process for ServerWithContext {
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		self.0
-			.try_get_process_with_context(&self.1, id, arg)
-			.await
+		self.0.try_get_process_with_context(&self.1, id, arg).await
 	}
 
 	async fn put_process(
@@ -1133,18 +1127,14 @@ impl tg::handle::Process for ServerWithContext {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
-		self.0
-			.cancel_process_with_context(&self.1, id, arg)
-			.await
+		self.0.cancel_process_with_context(&self.1, id, arg).await
 	}
 
 	async fn try_dequeue_process(
 		&self,
 		arg: tg::process::dequeue::Arg,
 	) -> tg::Result<Option<tg::process::dequeue::Output>> {
-		self.0
-			.try_dequeue_process_with_context(&self.1, arg)
-			.await
+		self.0.try_dequeue_process_with_context(&self.1, arg).await
 	}
 
 	async fn start_process(
@@ -1227,9 +1217,7 @@ impl tg::handle::Process for ServerWithContext {
 		id: &tg::process::Id,
 		arg: tg::process::log::post::Arg,
 	) -> tg::Result<()> {
-		self.0
-			.post_process_log_with_context(&self.1, id, arg)
-			.await
+		self.0.post_process_log_with_context(&self.1, id, arg).await
 	}
 
 	async fn finish_process(
@@ -1237,9 +1225,7 @@ impl tg::handle::Process for ServerWithContext {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<()> {
-		self.0
-			.finish_process_with_context(&self.1, id, arg)
-			.await
+		self.0.finish_process_with_context(&self.1, id, arg).await
 	}
 
 	async fn touch_process(

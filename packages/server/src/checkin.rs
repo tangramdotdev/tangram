@@ -1,3 +1,5 @@
+use tracing::Instrument as _;
+
 use {
 	crate::{Context, Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
@@ -37,6 +39,7 @@ type IndexObjectMessages =
 type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
 
 impl Server {
+	#[tracing::instrument(fields(path = ?arg.path), name = "checkin", skip_all)]
 	pub(crate) async fn checkin_with_context(
 		&self,
 		context: &Context,
@@ -71,6 +74,7 @@ impl Server {
 					},
 				}
 			}
+			.instrument(tracing::Span::current())
 		}));
 		let stream = progress.stream().attach(task);
 		Ok(stream)
@@ -90,7 +94,7 @@ impl Server {
 		// Canonicalize the path's parent.
 		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
-			.map_err(|source| tg::error!(!source, %path = &arg.path.display(), "failed to canonicalize the path's parent"))?;
+			.map_err(|source| tg::error!(!source, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
 
 		// If this is a checkin of a path in the cache directory, then retrieve the corresponding artifact.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
@@ -305,21 +309,6 @@ impl Server {
 			}
 
 			// On linux, watch the new paths.
-			#[cfg(target_os = "linux")]
-			if let Some(entry) = self.watches.get(&root) {
-				use notify::Watcher as _;
-				let mut state = entry.state.lock().unwrap();
-				let mut paths = state.watcher.paths_mut();
-				for path in graph
-					.nodes
-					.range(next..)
-					.filter_map(|(_, node)| node.path.as_ref())
-				{
-					tracing::trace!(path = %path.display(), "watched");
-					paths.add(path, notify::RecursiveMode::NonRecursive).ok();
-				}
-				paths.commit().ok();
-			}
 
 			// Spawn a task to clean nodes with no referrers.
 			tokio::task::spawn_blocking({
@@ -413,7 +402,7 @@ impl Server {
 			let mut output = None;
 			for ancestor in path.ancestors() {
 				let metadata = std::fs::symlink_metadata(ancestor).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to get the metadata"),
+					|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
 				)?;
 				if metadata.is_dir()
 					&& tg::package::try_get_root_module_file_name_sync(ancestor)?.is_some()

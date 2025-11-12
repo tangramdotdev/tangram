@@ -24,7 +24,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "invalid url"))?;
 				let path = Path::new(path.as_ref());
 				let listener = UnixListener::bind(path).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to bind"),
+					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
 				)?;
 				tokio_util::either::Either::Left(listener)
 			},

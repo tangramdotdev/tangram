@@ -69,10 +69,10 @@ impl Server {
 			.open(&path)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %path = path.display(), "failed to open the log file"),
+				|source| tg::error!(!source, path = %path.display(), "failed to open the log file"),
 			)?;
 		file.write_all(&bytes).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to write to the log file"),
+			|source| tg::error!(!source, path = %path.display(), "failed to write to the log file"),
 		)?;
 		Ok(())
 	}

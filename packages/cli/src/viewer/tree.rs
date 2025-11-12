@@ -960,7 +960,7 @@ where
 				reverse: false,
 			})
 			.await
-			.map_err(|source| tg::error!(!source, %tag = pattern, "failed to list tags"))?;
+			.map_err(|source| tg::error!(!source, tag = %pattern, "failed to list tags"))?;
 
 		// Get the children of this tag.
 		let children = output

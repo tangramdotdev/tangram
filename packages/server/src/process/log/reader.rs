@@ -32,7 +32,7 @@ impl Reader {
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
 			Err(source) => {
 				return Err(
-					tg::error!(!source, %path = path.display(), "failed to open the log file"),
+					tg::error!(!source, path = %path.display(), "failed to open the log file"),
 				);
 			},
 		}

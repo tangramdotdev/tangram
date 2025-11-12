@@ -37,7 +37,7 @@ impl Server {
 				},
 				Err(source) => {
 					return Err(
-						tg::error!(!source, %path = lock_path.display(), "failed to read the lockfile"),
+						tg::error!(!source, path = %lock_path.display(), "failed to read the lockfile"),
 					);
 				},
 			};
@@ -50,7 +50,7 @@ impl Server {
 
 		// Deserialize the lock.
 		let lock = serde_json::from_slice::<tg::graph::Data>(&contents).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to deserialize the lock"),
+			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the lock"),
 		)?;
 
 		Ok(Some(lock))

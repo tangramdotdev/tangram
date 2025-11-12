@@ -155,7 +155,7 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Pat
 	};
 	let name = exe.components().next();
 	let Some(std::path::Component::Normal(name)) = name else {
-		return Err(tg::error!(%path = exe.display(), "invalid executable path"));
+		return Err(tg::error!(path = %exe.display(), "invalid executable path"));
 	};
 	let sep = ":";
 	for path in pathenv.split(sep) {
@@ -164,7 +164,7 @@ pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<Pat
 			return Ok(path);
 		}
 	}
-	Err(tg::error!(%path = exe.display(), "failed to find the executable"))
+	Err(tg::error!(path = %exe.display(), "failed to find the executable"))
 }
 
 pub fn whoami() -> tg::Result<String> {

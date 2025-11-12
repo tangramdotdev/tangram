@@ -25,7 +25,7 @@ impl Cli {
 			.try_get_process_metadata(&args.process, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id = args.process, "failed to get the process metadata"),
+				|source| tg::error!(!source, id = %args.process, "failed to get the process metadata"),
 			)?
 			.ok_or_else(|| tg::error!("failed to get the process metadata"))?;
 		self.print_serde(output, args.print).await?;

@@ -37,7 +37,7 @@ impl std::str::FromStr for Kind {
 			"directory" => Ok(Self::Directory),
 			"file" => Ok(Self::File),
 			"symlink" => Ok(Self::Symlink),
-			_ => Err(tg::error!(%kind = s, "invalid kind")),
+			_ => Err(tg::error!(kind = %s, "invalid kind")),
 		}
 	}
 }

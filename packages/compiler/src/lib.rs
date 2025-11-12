@@ -1015,11 +1015,11 @@ impl Compiler {
 		// Create the module.
 		let file_name = path
 			.file_name()
-			.ok_or_else(|| tg::error!(%path = path.display(), "invalid path"))?
+			.ok_or_else(|| tg::error!(path = %path.display(), "invalid path"))?
 			.to_str()
-			.ok_or_else(|| tg::error!(%path = path.display(), "invalid path"))?;
+			.ok_or_else(|| tg::error!(path = %path.display(), "invalid path"))?;
 		if !tg::package::is_module_path(file_name.as_ref()) {
-			return Err(tg::error!(%path = path.display(), "expected a module path"));
+			return Err(tg::error!(path = %path.display(), "expected a module path"));
 		}
 		let kind = tg::package::module_kind_for_path(file_name)?;
 		let module = tg::module::Data {

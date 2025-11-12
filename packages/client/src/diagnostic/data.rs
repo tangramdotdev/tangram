@@ -81,7 +81,7 @@ impl std::str::FromStr for Severity {
 			"warning" => Ok(Self::Warning),
 			"info" => Ok(Self::Info),
 			"hint" => Ok(Self::Hint),
-			_ => Err(tg::error!(%kind = s, "invalid severity")),
+			_ => Err(tg::error!(kind = %s, "invalid severity")),
 		}
 	}
 }

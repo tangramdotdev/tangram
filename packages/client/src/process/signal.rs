@@ -40,7 +40,7 @@ impl std::str::FromStr for Signal {
 			"TERM" => Ok(Self::SIGTERM),
 			"USR1" => Ok(Self::SIGUSR1),
 			"USR2" => Ok(Self::SIGUSR2),
-			_ => Err(tg::error!(%signal = s, "unknown signal")),
+			_ => Err(tg::error!(signal = %s, "unknown signal")),
 		}
 	}
 }

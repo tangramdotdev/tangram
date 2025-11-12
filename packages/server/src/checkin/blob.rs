@@ -37,10 +37,10 @@ impl Server {
 					let path = path.clone();
 					move || {
 						let file = std::fs::File::open(&path).map_err(
-							|source| tg::error!(!source, %path = path.display(), "failed to open the file"),
+							|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 						)?;
 						Self::write_inner_sync(file, None).map_err(
-							|source| tg::error!(!source, %path = path.display(), "failed to create the blob"),
+							|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
 						)
 					}
 				})

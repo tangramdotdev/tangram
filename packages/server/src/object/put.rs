@@ -62,7 +62,7 @@ impl Server {
 
 		let actual = tg::object::Id::new(id.kind(), &bytes);
 		if id != actual {
-			let error = tg::error!(%expected = id, %actual, "invalid object id");
+			let error = tg::error!(expected = %id, %actual, "invalid object id");
 			let response = http::Response::builder()
 				.status(http::StatusCode::BAD_REQUEST)
 				.bytes(serde_json::to_vec(&error.to_data()).unwrap())

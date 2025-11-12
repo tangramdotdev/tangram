@@ -498,7 +498,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to create the directory"),
+			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
 		)?;
 
 		// Recurse into the entries.
@@ -571,9 +571,9 @@ impl Server {
 			}
 		});
 		let mut file = std::fs::File::create(dst)
-			.map_err(|source| tg::error!(!source, ?path = dst, "failed to create the file"))?;
+			.map_err(|source| tg::error!(!source, path = ?dst, "failed to create the file"))?;
 		std::io::copy(&mut reader, &mut file)
-			.map_err(|source| tg::error!(!source, ?path = dst, "failed to write to the file"))?;
+			.map_err(|source| tg::error!(!source, path = ?dst, "failed to write to the file"))?;
 
 		// Set the dependencies attr.
 		let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();

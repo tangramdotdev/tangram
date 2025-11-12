@@ -137,7 +137,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 		let path = tokio::fs::canonicalize(&directory).await.map_err(
-			|source| tg::error!(!source, %path = directory.display(), "failed to canonicalize directory path"),
+			|source| tg::error!(!source, path = %directory.display(), "failed to canonicalize directory path"),
 		)?;
 
 		// Lock.
@@ -666,7 +666,7 @@ impl Server {
 		// Spawn the HTTP task.
 		let http_task = if let Some(http) = &server.http {
 			let listener = Self::listen(&http.url).await?;
-			tracing::trace!("listening on {}", http.url);
+			tracing::info!("listening on {}", http.url);
 			Some(Task::spawn(|stop| {
 				let server = server.clone();
 				let context = Context::default();

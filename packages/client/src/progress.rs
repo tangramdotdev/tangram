@@ -244,7 +244,7 @@ impl std::str::FromStr for Level {
 			"info" => Ok(Self::Info),
 			"warning" => Ok(Self::Warning),
 			"error" => Ok(Self::Error),
-			_ => Err(tg::error!(%kind = s, "invalid value")),
+			_ => Err(tg::error!(kind = %s, "invalid value")),
 		}
 	}
 }

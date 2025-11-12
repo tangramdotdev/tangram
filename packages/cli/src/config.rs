@@ -340,11 +340,9 @@ pub struct Tracing {
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
-#[display(rename_all = "lowercase")]
-#[from_str(rename_all = "lowercase")]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum TracingFormat {
-	Compact,
-	Hierarchical,
 	Json,
 	#[default]
 	Pretty,

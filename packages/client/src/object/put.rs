@@ -26,9 +26,15 @@ impl tg::Client {
 			.uri(uri)
 			.bytes(arg.bytes.clone())
 			.unwrap();
-		let response = self.send(request).await?;
+		let response = self
+			.send(request)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response.json().await?;
+			let error = response
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 		Ok(())

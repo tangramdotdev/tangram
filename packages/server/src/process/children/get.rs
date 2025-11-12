@@ -130,7 +130,7 @@ impl Server {
 			let status = self
 				.try_get_current_process_status_local(id)
 				.await?
-				.ok_or_else(|| tg::error!(%process = id, "process does not exist"))?;
+				.ok_or_else(|| tg::error!(process = %id, "process does not exist"))?;
 
 			// Send as many data events as possible.
 			loop {

@@ -198,7 +198,7 @@ impl Server {
 			self.add_process_child(parent, &id, &arg.command.options, token.as_ref())
 				.await
 				.map_err(
-					|source| tg::error!(!source, %parent, %child = id, "failed to add the process as a child"),
+					|source| tg::error!(!source, %parent, child = %id, "failed to add the process as a child"),
 				)?;
 		}
 

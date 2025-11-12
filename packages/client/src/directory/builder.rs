@@ -119,7 +119,7 @@ impl Builder {
 					.builder(handle)
 					.await?
 			} else {
-				return Err(tg::error!(%path = path.display(), "the path does not exist"));
+				return Err(tg::error!(path = %path.display(), "the path does not exist"));
 			};
 
 			// Recurse.

@@ -19,7 +19,7 @@ impl Server {
 	) -> tg::Result<()> {
 		while let Ok(message) = receiver.recv() {
 			Self::checkin_fixup_task_inner(&message.path, &message.metadata).map_err(
-				|source| tg::error!(!source, %path = message.path.display(), "failed to set permissions"),
+				|source| tg::error!(!source, path = %message.path.display(), "failed to set permissions"),
 			)?;
 		}
 		Ok::<_, tg::Error>(())
@@ -37,13 +37,13 @@ impl Server {
 			if new_mode != mode {
 				let permissions = std::fs::Permissions::from_mode(new_mode);
 				std::fs::set_permissions(path, permissions).map_err(
-					|source| tg::error!(!source, %path = path.display(), "failed to set the permissions"),
+					|source| tg::error!(!source, path = %path.display(), "failed to set the permissions"),
 				)?;
 			}
 		}
 		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to set the modified time"),
+			|source| tg::error!(!source, path = %path.display(), "failed to set the modified time"),
 		)?;
 		Ok(())
 	}

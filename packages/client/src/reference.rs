@@ -147,7 +147,9 @@ impl Reference {
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
 		let path = self.item.to_string();
-		let query = serde_urlencoded::to_string(&self.options).unwrap();
+		let query = serde_urlencoded::to_string(&self.options)
+			.map_err(|source| tg::error!(!source, "failed to serialize the options"))
+			.unwrap();
 		let mut builder = Uri::builder();
 		builder = builder.path(path);
 		if !query.is_empty() {

@@ -18,7 +18,8 @@ impl tg::Client {
 		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(arg).unwrap();
+		let query = serde_urlencoded::to_string(arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let uri = format!("/pipes/{id}/write?{query}");
 
 		// Create the body.
@@ -51,9 +52,15 @@ impl tg::Client {
 			.unwrap();
 
 		// Send the request.
-		let response = self.send(request).await?;
+		let response = self
+			.send(request)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response.json().await?;
+			let error = response
+				.json()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 
