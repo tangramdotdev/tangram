@@ -202,7 +202,7 @@ impl Server {
 			let socket = urlencoding::encode(
 				socket
 					.to_str()
-					.ok_or_else(|| tg::error!(%path = socket.display(), "invalid path"))?,
+					.ok_or_else(|| tg::error!(path = %socket.display(), "invalid path"))?,
 			);
 			let host_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
 
@@ -313,7 +313,7 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 	if !root_mounted {
 		let path = temp.path().join(".tangram");
 		tokio::fs::create_dir_all(&path).await.map_err(
-			|source| tg::error!(!source, %path = path.display(), "failed to create the data directory"),
+			|source| tg::error!(!source, path = %path.display(), "failed to create the data directory"),
 		)?;
 
 		// Create /etc.
