@@ -6078,7 +6078,6 @@ dependencies = [
  "async-broadcast",
  "async-nats",
  "bytes",
- "dashmap",
  "derive_more",
  "futures",
  "num",

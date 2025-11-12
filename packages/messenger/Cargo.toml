@@ -20,7 +20,6 @@ nats = ["dep:async-nats"]
 async-broadcast = { workspace = true }
 async-nats = { workspace = true, optional = true }
 bytes = { workspace = true }
-dashmap = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 num = { workspace = true }
