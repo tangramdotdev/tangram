@@ -1,5 +1,6 @@
 #[cfg(feature = "nats")]
 use async_nats as nats;
+use tracing::Instrument as _;
 use {
 	self::{
 		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
@@ -681,7 +682,7 @@ impl Server {
 		let shutdown = {
 			let server = server.clone();
 			async move {
-				tracing::trace!("started shutdown");
+				tracing::trace!("started");
 
 				// Abort the runner task.
 				if let Some(task) = runner_task {
@@ -692,7 +693,7 @@ impl Server {
 					{
 						tracing::error!(?error, "the runner task panicked");
 					}
-					tracing::trace!("shutdown runner task");
+					tracing::trace!("runner task");
 				}
 
 				// Abort the process tasks.
@@ -705,7 +706,7 @@ impl Server {
 						tracing::error!(?error, "a process task panicked");
 					}
 				}
-				tracing::trace!("shutdown process tasks");
+				tracing::trace!("process tasks");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
@@ -716,7 +717,7 @@ impl Server {
 					{
 						tracing::error!(?error, "the http task panicked");
 					}
-					tracing::trace!("shutdown http task");
+					tracing::trace!("http task");
 				}
 
 				// Abort the diagnostics task.
@@ -733,7 +734,7 @@ impl Server {
 					{
 						tracing::error!(?error, "the clean task panicked");
 					}
-					tracing::trace!("shutdown cleaner task");
+					tracing::trace!("cleaner task");
 				}
 
 				// Abort the indexer task.
@@ -745,7 +746,7 @@ impl Server {
 					{
 						tracing::error!(?error, "the index task panicked");
 					}
-					tracing::trace!("shutdown indexer task");
+					tracing::trace!("indexer task");
 				}
 
 				// Abort the watchdog task.
@@ -757,7 +758,7 @@ impl Server {
 					{
 						tracing::error!(?error, "the watchdog task panicked");
 					}
-					tracing::trace!("shutdown watchdog task");
+					tracing::trace!("watchdog task");
 				}
 
 				// Remove the watches.
@@ -773,7 +774,7 @@ impl Server {
 						tracing::error!(?error, "an cache task panicked");
 					}
 				}
-				tracing::trace!("shutdown cache tasks");
+				tracing::trace!("cache tasks");
 
 				// Abort the tasks.
 				server.tasks.abort_all();
@@ -784,7 +785,7 @@ impl Server {
 				if let Some(vfs) = vfs {
 					vfs.stop();
 					vfs.wait().await;
-					tracing::trace!("shutdown vfs task");
+					tracing::trace!("vfs task");
 				}
 
 				// Remove the temp paths.
@@ -795,7 +796,7 @@ impl Server {
 					.collect::<FuturesUnordered<_>>()
 					.collect::<()>()
 					.await;
-				tracing::trace!("removed temps");
+				tracing::trace!("temps");
 
 				// Unlock.
 				let lock = server.lock.lock().unwrap().take();
@@ -804,8 +805,9 @@ impl Server {
 					tracing::trace!("released lock file");
 				}
 
-				tracing::trace!("finished shutdown");
+				tracing::trace!("finished");
 			}
+			.instrument(tracing::debug_span!("shutdown"))
 		};
 
 		// Spawn the task.

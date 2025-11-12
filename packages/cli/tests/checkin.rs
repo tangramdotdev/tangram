@@ -1554,7 +1554,7 @@ async fn tag_dependency_no_solution() {
 	let (stdout, stderr) = test_failure(artifact, path, destructive, true, tags).await;
 	assert_snapshot!(stderr, @r"
 	error an error occurred
-	-> failed to solve c
+	-> failed to solve c/*
 	   dependended on by a/1.0.0?path=tangram.ts with pattern c/^1
 	   dependended on by b/1.0.0?path=tangram.ts with pattern c/^2
 	");

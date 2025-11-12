@@ -53,7 +53,7 @@ enum ItemVariant {
 	SymlinkArtifact,
 }
 
-pub type Solutions = im::HashMap<tg::Tag, Solution, fnv::FnvBuildHasher>;
+pub type Solutions = im::HashMap<tg::tag::Pattern, Solution, fnv::FnvBuildHasher>;
 
 #[derive(Clone)]
 pub struct Solution {
@@ -330,20 +330,22 @@ impl Server {
 		reference: tg::Reference,
 		pattern: tg::tag::Pattern,
 	) -> tg::Result<()> {
-		// Get the tag.
-		let tag: tg::Tag = if pattern
+		// Get the key.
+		let key: tg::tag::Pattern = if pattern
 			.components()
 			.last()
 			.is_some_and(|component| component.contains(['=', '>', '<', '^']))
 		{
-			pattern.parent().unwrap().try_into().unwrap()
+			let mut key = pattern.parent().unwrap();
+			key.push("*");
+			key
 		} else {
-			pattern.clone().try_into().unwrap()
+			pattern.clone()
 		};
 
 		// Solve the item.
 		let output = self
-			.checkin_solve_visit_item_with_tag_inner(state, checkpoint, &item, &tag, &pattern)
+			.checkin_solve_visit_item_with_tag_inner(state, checkpoint, &item, &key, &pattern)
 			.await?;
 
 		// Handle the result.
@@ -384,7 +386,7 @@ impl Server {
 			};
 			checkpoint
 				.solutions
-				.get_mut(&tag)
+				.get_mut(&key)
 				.unwrap()
 				.referrers
 				.push(referrer);
@@ -393,18 +395,18 @@ impl Server {
 			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
 		} else {
 			// Backtrack.
-			*checkpoint = Self::checkin_solve_backtrack(state, &tag).ok_or_else(|| {
+			*checkpoint = Self::checkin_solve_backtrack(state, &key).ok_or_else(|| {
 				let referrer = Referrer {
 					node: item.node,
 					pattern: Some(pattern),
 				};
 				checkpoint
 					.solutions
-					.get_mut(&tag)
+					.get_mut(&key)
 					.unwrap()
 					.referrers
 					.push(referrer);
-				Self::checkin_solve_backtrack_error(state, checkpoint, &tag)
+				Self::checkin_solve_backtrack_error(state, checkpoint, &key)
 			})?;
 
 			return Ok(());
@@ -421,11 +423,11 @@ impl Server {
 		state: &State,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
-		tag: &tg::Tag,
+		key: &tg::tag::Pattern,
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<Option<tg::Referent<usize>>> {
-		// Check if the tag is already set.
-		if let Some(solution) = checkpoint.solutions.get(tag) {
+		// Check if the key is already set.
+		if let Some(solution) = checkpoint.solutions.get(key) {
 			if !pattern.matches(solution.referent.tag().unwrap()) {
 				return Ok(None);
 			}
@@ -490,7 +492,7 @@ impl Server {
 		};
 
 		// Add the solution.
-		checkpoint.solutions.insert(tag.clone(), solution);
+		checkpoint.solutions.insert(key.clone(), solution);
 
 		Ok(Some(referent))
 	}
@@ -922,11 +924,11 @@ impl Server {
 		}
 	}
 
-	fn checkin_solve_backtrack(state: &mut State, tag: &tg::Tag) -> Option<Checkpoint> {
+	fn checkin_solve_backtrack(state: &mut State, key: &tg::tag::Pattern) -> Option<Checkpoint> {
 		let position = state
 			.checkpoints
 			.iter()
-			.position(|checkpoint| checkpoint.solutions.contains_key(tag))?;
+			.position(|checkpoint| checkpoint.solutions.contains_key(key))?;
 		if state.checkpoints[position]
 			.candidates
 			.as_ref()
@@ -937,17 +939,17 @@ impl Server {
 		}
 		state.checkpoints.truncate(position);
 		let mut checkpoint = state.checkpoints.pop()?;
-		checkpoint.solutions.remove(tag);
+		checkpoint.solutions.remove(key);
 		Some(checkpoint)
 	}
 
 	fn checkin_solve_backtrack_error(
 		state: &State,
 		checkpoint: &Checkpoint,
-		tag: &tg::Tag,
+		key: &tg::tag::Pattern,
 	) -> tg::Error {
-		let mut message = format!("failed to solve {tag}");
-		if let Some(solution) = checkpoint.solutions.get(tag) {
+		let mut message = format!("failed to solve {key}");
+		if let Some(solution) = checkpoint.solutions.get(key) {
 			for referrer in &solution.referrers {
 				let reference =
 					Self::checkin_solve_get_referrer(state, &checkpoint.graph, referrer.node);
