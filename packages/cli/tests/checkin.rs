@@ -9,6 +9,13 @@ use {
 
 const TG: &str = env!("CARGO_BIN_EXE_tangram");
 
+#[derive(Copy, Clone, Debug)]
+struct Options {
+	allow_unsolved_dependencies: bool,
+	destructive: bool,
+	solve: bool,
+}
+
 #[tokio::test]
 async fn directory() {
 	let artifact = temp::directory! {
@@ -20,9 +27,13 @@ async fn directory() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "hello.txt": tg.file({
@@ -55,9 +66,13 @@ async fn file() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "README.md": tg.file({
@@ -82,9 +97,13 @@ async fn symlink() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "link": tg.symlink({
@@ -103,6 +122,41 @@ async fn symlink() {
 }
 
 #[tokio::test]
+async fn unsolved() {
+	let artifact = temp::directory! {
+		"tangram.ts" => r#"import * as notThere from "./not-there""#,
+	}
+	.into();
+	let path = Path::new("");
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
+	let tags = vec![];
+
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
+	assert_snapshot!(object, @r#"
+	tg.directory({
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("import * as notThere from \"./not-there\""),
+	    "dependencies": {
+	      "./not-there": null,
+	    },
+	  }),
+	})
+	"#);
+	assert_snapshot!(metadata, @r#"
+	{
+	  "count": 3,
+	  "depth": 3,
+	  "weight": 159,
+	}
+	"#);
+	assert!(lock.is_none());
+}
+
+#[tokio::test]
 async fn directory_with_duplicate_entries() {
 	let artifact = temp::directory! {
 		"a.txt" => "Hello, World!",
@@ -110,9 +164,13 @@ async fn directory_with_duplicate_entries() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a.txt": tg.file({
@@ -148,9 +206,13 @@ async fn file_through_symlink() {
 	}
 	.into();
 	let path = Path::new("a");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -189,9 +251,13 @@ async fn file_with_symlink_no_kind() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar.tg.ts": tg.file({
@@ -236,9 +302,13 @@ async fn file_with_symlink() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar.tg.ts": tg.file({
@@ -285,9 +355,13 @@ async fn artifact_symlink() {
 	}
 	.into();
 	let path = Path::new("a");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -324,9 +398,13 @@ async fn self_import() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -391,9 +469,13 @@ async fn lock_out_of_date() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "b.tg.ts": tg.file({
@@ -434,9 +516,13 @@ async fn simple_path_dependency() {
 	}
 	.into();
 	let path = Path::new("foo");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -475,9 +561,13 @@ async fn package_with_nested_dependencies() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar": tg.directory({
@@ -543,9 +633,13 @@ async fn package() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -568,9 +662,13 @@ async fn directory_with_nested_packages() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "bar": tg.directory({
@@ -597,9 +695,13 @@ async fn import_directory_from_current() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -644,9 +746,13 @@ async fn import_package_from_current() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -692,9 +798,13 @@ async fn import_directory_from_parent() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory(),
@@ -722,9 +832,13 @@ async fn import_package_with_type_directory_from_parent() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -760,9 +874,13 @@ async fn import_package_from_parent() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -796,9 +914,13 @@ async fn package_with_cyclic_modules() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "foo.tg.ts": tg.file({
@@ -882,9 +1004,13 @@ async fn cyclic_dependencies() {
 	}
 	.into();
 	let path = Path::new("directory/foo");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "graph": tg.graph({
@@ -956,9 +1082,13 @@ async fn directory_destructive() {
 	}
 	.into();
 	let path = Path::new("directory");
-	let destructive = true;
+	let options = Options {
+		allow_unsolved_dependencies: false,
+		destructive: true,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "a": tg.directory({
@@ -997,9 +1127,13 @@ async fn default_ignore() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1024,9 +1158,13 @@ async fn ignored_package() {
 	}
 	.into();
 	let path = Path::new("ignored");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  ".tangramignore": tg.file({
@@ -1069,9 +1207,13 @@ async fn invalid_lockfile() {
 	}
 	.into();
 	let path = Path::new("a");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1090,8 +1232,12 @@ async fn tagged_object() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1147,7 +1293,11 @@ async fn simple_tagged_package() {
 		"#)
 	}
 	.into();
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let path = Path::new("");
 	let tags = vec![(
 		"a".into(),
@@ -1158,7 +1308,7 @@ async fn simple_tagged_package() {
 		}
 		.into(),
 	)];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1365,7 +1515,11 @@ async fn tagged_package_with_cyclic_dependency() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![(
 		"a".into(),
 		temp::directory! {
@@ -1378,7 +1532,7 @@ async fn tagged_package_with_cyclic_dependency() {
 		}
 		.into(),
 	)];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1494,8 +1648,12 @@ async fn tag_dependency_not_exist() {
 	.into();
 	let tags = vec![];
 	let path = Path::new("");
-	let destructive = false;
-	let (stdout, stderr) = test_failure(artifact, path, destructive, true, tags).await;
+	let options = Options {
+		allow_unsolved_dependencies: false,
+		destructive: false,
+		solve: true,
+	};
+	let (stdout, stderr) = test_failure(artifact, path, options, tags).await;
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> no matching tags were found
@@ -1550,8 +1708,12 @@ async fn tag_dependency_no_solution() {
 		),
 	];
 	let path = Path::new("");
-	let destructive = false;
-	let (stdout, stderr) = test_failure(artifact, path, destructive, true, tags).await;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
+	let (stdout, stderr) = test_failure(artifact, path, options, tags).await;
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> failed to solve c/*
@@ -1559,6 +1721,125 @@ async fn tag_dependency_no_solution() {
 	   dependended on by b/1.0.0?path=tangram.ts with pattern c/^2
 	");
 	assert_snapshot!(stdout, @r#""#);
+}
+
+#[tokio::test]
+async fn tag_dependency_no_solution_allow_unsolved() {
+	let artifact = temp::directory! {
+		"tangram.ts" => indoc!(r#"
+			import * as a from "a/*";
+			import * as b from "b/*";
+		"#),
+	}
+	.into();
+
+	let tags = vec![
+		(
+			"c/1.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r""),
+			}
+			.into(),
+		),
+		(
+			"c/2.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r""),
+			}
+			.into(),
+		),
+		(
+			"a/1.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import * as c from "c/^1"
+				"#),
+			}
+			.into(),
+		),
+		(
+			"b/1.0.0".into(),
+			temp::directory! {
+				"tangram.ts" => indoc!(r#"
+					import * as c from "c/^2"
+				"#),
+			}
+			.into(),
+		),
+	];
+	let path = Path::new("");
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: true,
+		solve: true,
+	};
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
+	assert_snapshot!(object, @r#"
+	tg.directory({
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("import * as a from \"a/*\";\nimport * as b from \"b/*\";\n"),
+	    "dependencies": {
+	      "a/%2A": {
+	        "item": tg.directory({
+	          "tangram.ts": tg.file({
+	            "contents": tg.blob("import * as c from \"c/^1\"\n"),
+	            "dependencies": {
+	              "c/%5E1": null,
+	            },
+	          }),
+	        }),
+	        "id": "dir_01x4tcvj6ethzjzsce6yhhknp31skz2pfr1ah8qqqc8k4y9dqket20",
+	        "tag": "a/1.0.0",
+	      },
+	      "b/%2A": {
+	        "item": tg.directory({
+	          "tangram.ts": tg.file({
+	            "contents": tg.blob("import * as c from \"c/^2\"\n"),
+	            "dependencies": {
+	              "c/%5E2": null,
+	            },
+	          }),
+	        }),
+	        "id": "dir_011r56he5n981612y768cr772v56kgt7dqqkme34bt45ajh8x3ssw0",
+	        "tag": "b/1.0.0",
+	      },
+	    },
+	  }),
+	})
+	"#);
+	assert_json_snapshot!(lock.unwrap(), @r#"
+	{
+	  "nodes": [
+	    {
+	      "kind": "directory",
+	      "entries": {
+	        "tangram.ts": {
+	          "node": 1
+	        }
+	      }
+	    },
+	    {
+	      "kind": "file",
+	      "dependencies": {
+	        "a/%2A": {
+	          "item": "dir_01d9vjj9trmn0e3t7d52fek51eegnjzj9fe6ay7501d9akn6mb7fxg",
+	          "options": {
+	            "id": "dir_01x4tcvj6ethzjzsce6yhhknp31skz2pfr1ah8qqqc8k4y9dqket20",
+	            "tag": "a/1.0.0"
+	          }
+	        },
+	        "b/%2A": {
+	          "item": "dir_01t55shn6ea5a8g7nbz5d2jcyzydzasdj592y5yv1b25x6qk7w5z8g",
+	          "options": {
+	            "id": "dir_011r56he5n981612y768cr772v56kgt7dqqkme34bt45ajh8x3ssw0",
+	            "tag": "b/1.0.0"
+	          }
+	        }
+	      }
+	    }
+	  ]
+	}
+	"#);
 }
 
 #[tokio::test]
@@ -1571,7 +1852,11 @@ async fn tag_dependency_cycles() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![
 		(
 			"a/1.0.0".into(),
@@ -1603,7 +1888,7 @@ async fn tag_dependency_cycles() {
 			.into(),
 		),
 	];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -1878,7 +2163,11 @@ async fn tag_diamond_dependency() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![
 		(
 			"d/1.0.0".into(),
@@ -1919,7 +2208,7 @@ async fn tag_diamond_dependency() {
 			.into(),
 		),
 	];
-	let (object, _metadata, lock) = test(artifact, path, destructive, tags).await;
+	let (object, _metadata, lock) = test(artifact, path, options, tags).await;
 	assert_snapshot!(object, @r#"
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -2102,7 +2391,11 @@ async fn tagged_package_reproducible_checkin() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
 
 	// Confirm the two outputs are the same.
@@ -2110,22 +2403,13 @@ async fn tagged_package_reproducible_checkin() {
 		&local_server1,
 		artifact.clone(),
 		path,
-		destructive,
-		true,
+		options,
 		tags.clone(),
 		true,
 	)
 	.await;
-	let (object_output2, _metadata_output2, _lockfile2) = test_inner(
-		&local_server2,
-		artifact.clone(),
-		path,
-		destructive,
-		true,
-		tags,
-		true,
-	)
-	.await;
+	let (object_output2, _metadata_output2, _lockfile2) =
+		test_inner(&local_server2, artifact.clone(), path, options, tags, true).await;
 	assert_eq!(object_output1, object_output2);
 }
 
@@ -2176,18 +2460,13 @@ async fn tag_dependencies_after_clean() {
 	}
 	.into();
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (output1, _, _) = test_inner(
-		&server2,
-		referrer.clone(),
-		path,
-		destructive,
-		true,
-		tags,
-		true,
-	)
-	.await;
+	let (output1, _, _) = test_inner(&server2, referrer.clone(), path, options, tags, true).await;
 
 	// Clean up server 2.
 	server2.stop().await;
@@ -2207,18 +2486,13 @@ async fn tag_dependencies_after_clean() {
 
 	// Checkin the artifact to server 2 again, this time the lock has been written to disk.
 	let path = Path::new("");
-	let destructive = false;
+	let options = Options {
+		destructive: false,
+		allow_unsolved_dependencies: false,
+		solve: true,
+	};
 	let tags = vec![];
-	let (output2, _, _) = test_inner(
-		&server2,
-		referrer.clone(),
-		path,
-		destructive,
-		true,
-		tags,
-		true,
-	)
-	.await;
+	let (output2, _, _) = test_inner(&server2, referrer.clone(), path, options, tags, true).await;
 
 	// Confirm the outputs are the same.
 	assert_eq!(output1, output2);
@@ -2481,7 +2755,12 @@ async fn missing_dependency_in_tag() {
 	.into();
 
 	let tags = vec![("foo".into(), foo)];
-	let (_, stderr) = test_failure(artifact, ".".as_ref(), false, false, tags).await;
+	let options = Options {
+		allow_unsolved_dependencies: false,
+		destructive: false,
+		solve: false,
+	};
+	let (_, stderr) = test_failure(artifact, ".".as_ref(), options, tags).await;
 	assert_snapshot!(stderr, @r"
 	error an error occurred
 	-> no matching tags were found
@@ -2493,23 +2772,21 @@ async fn missing_dependency_in_tag() {
 async fn test(
 	artifact: temp::Artifact,
 	path: &Path,
-	destructive: bool,
+	options: Options,
 	tags: Vec<(String, temp::Artifact)>,
 ) -> (String, String, Option<tg::graph::Data>) {
 	let server = Server::new(TG).await.unwrap();
-	test_inner(&server, artifact, path, destructive, true, tags, true).await
+	test_inner(&server, artifact, path, options, tags, true).await
 }
 
 async fn test_failure(
 	artifact: temp::Artifact,
 	path: &Path,
-	destructive: bool,
-	solve: bool,
+	options: Options,
 	tags: Vec<(String, temp::Artifact)>,
 ) -> (String, String) {
 	let server = Server::new(TG).await.unwrap();
-	let (stdout, stderr, _) =
-		test_inner(&server, artifact, path, destructive, solve, tags, false).await;
+	let (stdout, stderr, _) = test_inner(&server, artifact, path, options, tags, false).await;
 	(stdout, stderr)
 }
 
@@ -4280,8 +4557,7 @@ async fn test_inner(
 	server: &Server,
 	artifact: temp::Artifact,
 	path: &Path,
-	destructive: bool,
-	solve: bool,
+	options: Options,
 	tags: Vec<(String, temp::Artifact)>,
 	expect_success: bool,
 ) -> (String, String, Option<tg::graph::Data>) {
@@ -4293,7 +4569,7 @@ async fn test_inner(
 		// Tag the dependency
 		let mut command = server.tg();
 		command.arg("tag").arg(tag).arg(temp.path());
-		if !solve {
+		if !options.solve {
 			command.arg("--no-solve");
 		}
 		let output = command.output().await.unwrap();
@@ -4310,9 +4586,12 @@ async fn test_inner(
 	let mut command = server.tg();
 	command.arg("checkin");
 	command.arg(path.clone());
-	if destructive {
+	if options.destructive {
 		command.arg("--destructive");
 		command.arg("--ignore=false");
+	}
+	if options.allow_unsolved_dependencies {
+		command.arg("--allow-unsolved-dependencies=true");
 	}
 	let output = command.output().await.unwrap();
 	if !expect_success {

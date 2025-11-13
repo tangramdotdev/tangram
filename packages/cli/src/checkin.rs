@@ -25,6 +25,9 @@ pub struct Args {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Options {
+	#[command(flatten)]
+	pub allow_unsolved_dependencies: AllowUnsolvedDependencies,
+
 	/// Check in the artifact more quickly by allowing it to be destroyed.
 	#[arg(long)]
 	pub destructive: bool,
@@ -37,7 +40,7 @@ pub struct Options {
 	pub ignore: Ignore,
 
 	#[command(flatten)]
-	pub local_dependencies: LocalDependencies,
+	pub use_local_dependencies: UseLocalDependencies,
 
 	#[command(flatten)]
 	pub lock: Lock,
@@ -110,7 +113,37 @@ impl Ignore {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct LocalDependencies {
+pub struct AllowUnsolvedDependencies {
+	/// Whether to use local dependencies.
+	#[arg(
+		default_missing_value = "false",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_unsolved_dependencies",
+		require_equals = true,
+	)]
+	allow_unsolved_dependencies: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "allow_unsolved_dependencies",
+		require_equals = true,
+	)]
+	no_unsolved_dependencies: Option<bool>,
+}
+
+impl AllowUnsolvedDependencies {
+	pub fn get(&self) -> bool {
+		self.allow_unsolved_dependencies
+			.or(self.no_unsolved_dependencies.map(|v| !v))
+			.unwrap_or(false)
+	}
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct UseLocalDependencies {
 	/// Whether to use local dependencies.
 	#[arg(
 		default_missing_value = "true",
@@ -119,21 +152,21 @@ pub struct LocalDependencies {
 		overrides_with = "no_local_dependencies",
 		require_equals = true,
 	)]
-	local_dependencies: Option<bool>,
+	use_local_dependencies: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
-		overrides_with = "local_dependencies",
+		overrides_with = "use_local_dependencies",
 		require_equals = true,
 	)]
 	no_local_dependencies: Option<bool>,
 }
 
-impl LocalDependencies {
+impl UseLocalDependencies {
 	pub fn get(&self) -> bool {
-		self.local_dependencies
+		self.use_local_dependencies
 			.or(self.no_local_dependencies.map(|v| !v))
 			.unwrap_or(true)
 	}
@@ -202,10 +235,11 @@ impl Cli {
 impl Options {
 	pub fn to_options(&self) -> tg::checkin::Options {
 		tg::checkin::Options {
+			allow_unsolved_dependencies: self.allow_unsolved_dependencies.get(),
 			destructive: self.destructive,
 			deterministic: self.deterministic,
 			ignore: self.ignore.get(),
-			local_dependencies: self.local_dependencies.get(),
+			use_local_dependencies: self.use_local_dependencies.get(),
 			lock: self.lock.get(),
 			locked: self.locked,
 			solve: self.solve.get(),
