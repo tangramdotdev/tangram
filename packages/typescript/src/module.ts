@@ -80,7 +80,7 @@ export namespace Module {
 				}
 			}
 		}
-		assert(kind !== undefined);
+		assert(kind !== undefined, "could not infer the module kind");
 		let module = {
 			kind,
 			referent: {

@@ -1623,7 +1623,10 @@ let convertObjectType = (
 	// Get the construct signatures.
 	let constructSignatures = type.getConstructSignatures().map((signature) => {
 		let signatureDeclaration = signature.getDeclaration();
-		assert(ts.isConstructSignatureDeclaration(signatureDeclaration));
+		assert(
+			ts.isConstructSignatureDeclaration(signatureDeclaration),
+			"expected a construction signature declaration",
+		);
 		return convertConstructSignatureDeclaration(
 			typeChecker,
 			signatureDeclaration,
