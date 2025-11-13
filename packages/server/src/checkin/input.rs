@@ -352,7 +352,7 @@ impl Server {
 
 			// Create the dependencies and push items for path dependencies.
 			for reference in references {
-				let reference_path = if state.arg.options.local_dependencies {
+				let reference_path = if state.arg.options.use_local_dependencies {
 					reference
 						.options()
 						.local
@@ -406,7 +406,7 @@ impl Server {
 			// Create the dependencies and push items for path dependencies.
 			for import in analysis.imports {
 				let reference = import.reference;
-				let reference_path = if state.arg.options.local_dependencies {
+				let reference_path = if state.arg.options.use_local_dependencies {
 					reference
 						.options()
 						.local
@@ -423,18 +423,24 @@ impl Server {
 					let referent = path.parent().unwrap().join(reference_path);
 					let referent = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
 						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
-							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize path"),
-						)?
+							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
+						)
 					} else {
 						referent.canonicalize().map_err(
-							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
-						)?
+							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
+						)
 					};
-					stack.push(Item {
-						path: referent,
-						parent: Some(parent),
-					});
 					dependencies.insert(reference, None);
+					match (referent, state.arg.options.allow_unsolved_dependencies) {
+						(Ok(referent), _) => {
+							stack.push(Item {
+								path: referent,
+								parent: Some(parent),
+							});
+						},
+						(Err(_), true) => continue,
+						(Err(error), false) => return Err(error),
+					}
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
 					let referent =
 						tg::Referent::with_item(tg::graph::data::Edge::Object(id.clone()));
