@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { assert, unreachable } from "./assert.ts";
+import { unreachable } from "./assert.ts";
 import type { Diagnostic, Severity } from "./diagnostics.ts";
 import { log } from "./log.ts";
 import { Module } from "./module.ts";
@@ -164,7 +164,9 @@ let getImportAttributesFromImportDeclaration = (
 	let attributes: { [key: string]: string } = {};
 	for (let attribute of declaration.attributes.elements) {
 		let key = attribute.name.text;
-		assert(ts.isStringLiteral(attribute.value));
+		if (!ts.isStringLiteral(attribute.value)) {
+			continue;
+		}
 		let value = attribute.value.text;
 		attributes[key] = value;
 	}
@@ -178,13 +180,19 @@ let getImportAttributesFromImportExpression = (
 	if (argument === undefined) {
 		return undefined;
 	}
-	assert(ts.isObjectLiteralExpression(argument));
+	if (!ts.isObjectLiteralExpression(argument)) {
+		return undefined;
+	}
 	let with_: ts.Expression | undefined;
 	for (let property of argument.properties) {
-		assert(
-			ts.isPropertyAssignment(property) &&
-				(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)),
-		);
+		if (
+			!(
+				ts.isPropertyAssignment(property) &&
+				(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+			)
+		) {
+			continue;
+		}
 		if (property.name.text !== "with") {
 			continue;
 		}
@@ -194,14 +202,20 @@ let getImportAttributesFromImportExpression = (
 	if (with_ === undefined) {
 		return undefined;
 	}
-	assert(ts.isObjectLiteralExpression(with_));
+	if (!ts.isObjectLiteralExpression(with_)) {
+		return undefined;
+	}
 	let attributes: { [key: string]: string } = {};
 	for (let property of with_.properties) {
-		assert(
-			ts.isPropertyAssignment(property) &&
+		if (
+			!(
+				ts.isPropertyAssignment(property) &&
 				(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
-				ts.isStringLiteral(property.initializer),
-		);
+				ts.isStringLiteral(property.initializer)
+			)
+		) {
+			continue;
+		}
 		let key = property.name.text;
 		let value = property.initializer.text;
 		attributes[key] = value;
