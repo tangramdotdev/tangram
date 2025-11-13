@@ -166,6 +166,11 @@ macro_rules! assert_failure {
 	($output:expr) => {
 		let output = &$output;
 		if output.status.success() {
+			let stdout = std::str::from_utf8(&output.stdout).unwrap();
+			for line in stdout.lines() {
+				println!("{line}");
+			}
+
 			let stderr = std::str::from_utf8(&output.stderr).unwrap();
 			for line in stderr.lines() {
 				eprintln!("{line}");

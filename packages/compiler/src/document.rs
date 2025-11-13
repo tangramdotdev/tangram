@@ -248,7 +248,10 @@ impl Compiler {
 
 				// Run checkin.
 				let arg = tg::checkin::Arg {
-					options: tg::checkin::Options::default(),
+					options: tg::checkin::Options {
+						allow_unsolved_dependencies: true,
+						..tg::checkin::Options::default()
+					},
 					path: path.clone(),
 					updates: Vec::new(),
 				};
