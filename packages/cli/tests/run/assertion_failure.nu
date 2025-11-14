@@ -15,4 +15,4 @@ let path = artifact {
 
 let output = tg run $path | complete
 failure $output
-snapshot $output.stdout
+snapshot $output.stderr

@@ -408,7 +408,7 @@ export def --env spawn [
 	}
 
 	# Write the config.
-	let config = $default_config | merge deep ($config | default {})
+	let config = $default_config | merge deep --strategy append ($config | default {})
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path
@@ -446,7 +446,7 @@ export def --env spawn [
 			}
 		}
 	}
-	
+
 
 	loop {
 		let output = tg health | complete

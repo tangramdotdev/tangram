@@ -1,32 +1,25 @@
 use std assert
 use ../../test.nu *
 
-# Create remote server.
-let remote_server = spawn -n remote_server
+# Spawn a remote and local server.
+let remote = spawn -n remote
+let local = spawn -n local -c {
+	remotes: [{ name: default, url: $remote.url }]
+}
 
 # Tag an object on the remote server.
 let tag = "foo"
-let remote_path = artifact 'foo'
-tg tag put $tag $remote_path
-
-# Create a local server with the remote configured.
-let local_server = spawn -n local_server -c {
-	remotes: [
-		{ name: "default", url: $remote_server.url }
-	]
-}
+let path = artifact 'foo'
+tg --url $remote.url tag put $tag $path
 
 # Tag the object on the remote server from the local server.
-let local_path = artifact 'foo'
-tg tag put --remote=default $tag $local_path
+tg tag put -r=default $tag $path
 
 # Get tag from local server.
 let local_output = tg tag get $tag | from json
 
 # Get tag from remote server by switching to remote context.
-with-env { TG_URL: $remote_server.url } {
-	let remote_output = tg tag get $tag | from json
+let remote_output = tg --url $remote.url tag get $tag | from json
 
-	# The items should be the same.
-	assert ($local_output.item == $remote_output.item) "The items should match."
-}
+# The items should be the same.
+assert ($local_output.item == $remote_output.item) "The items should match."
