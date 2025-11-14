@@ -372,7 +372,7 @@ impl State {
 
 				// If this node has no local dependencies then we don't have to check it in again
 				let checkin = (!node.outgoing.is_empty()).then(|| tg::checkin::Options {
-					local_dependencies: false,
+					use_local_dependencies: false,
 					lock: false,
 					solve: true,
 					..tg::checkin::Options::default()
@@ -403,7 +403,7 @@ impl State {
 					// Otherwise, we need to check this local package in twice.
 					plan.push(Item {
 						checkin: Some(tg::checkin::Options {
-							local_dependencies: false,
+							use_local_dependencies: false,
 							lock: false,
 							solve: false,
 							..tg::checkin::Options::default()
