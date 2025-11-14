@@ -2,7 +2,7 @@ use std assert
 use ../../test.nu *
 
 # Configure watchdog with short TTL and fast interval.
-let server = spawn {
+let server = spawn -c {
 	watchdog: {
 		ttl: 0.1
 		interval: 0.1
@@ -21,5 +21,5 @@ let path = artifact {
 
 # Start the build.
 let output = tg build ($path + '#foo') | complete
-assert ($output.exit_code != 0)
+assert not equal $output.exit_code 0
 assert ($output.stderr | str contains 'heartbeat expired')

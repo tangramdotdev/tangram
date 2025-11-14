@@ -1,5 +1,5 @@
 use std assert
-use ../../test.nu *
+use ../test.nu *
 
 # Spawn a remote and local server.
 let remote = spawn
@@ -26,7 +26,7 @@ tg remote delete default
 # Clean and confirm the object no longer exists.
 tg clean
 let output = tg get --blobs --depth=inf --pretty $id | complete
-assert ($output.exit_code != 0) 'should failed to get the object after clean'
+assert not equal $output.exit_code 0 'should failed to get the object after clean'
 
 # Confirm the object exists on the remote.
 let output = tg -u $remote.url object get --blobs --depth=inf --pretty $id

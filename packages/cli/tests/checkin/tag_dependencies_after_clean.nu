@@ -12,7 +12,7 @@ let referent_path = artifact {
 tg -u $remote.url tag foo $referent_path
 
 # Create a local server with the remote configured.
-let local = spawn {
+let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
 
@@ -28,9 +28,8 @@ let id1 = tg checkin $referrer_path
 tg index
 let output1 = tg object get --blobs --depth=inf --pretty $id1
 
-# Stop and recreate the local server (simulates a clean restart).
-# This tests that the lockfile is correctly written and read back.
-let local2 = spawn {
+# Stop and recreate the local server (simulates a clean restart). This tests that the lockfile is correctly written and read back.
+let local2 = spawn -n local2 -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
 

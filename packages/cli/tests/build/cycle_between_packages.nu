@@ -19,4 +19,4 @@ let path = artifact {
 }
 
 let output = tg build ($path | path join './foo') | complete
-assert ($output.exit_code != 0)
+assert not equal $output.exit_code 0

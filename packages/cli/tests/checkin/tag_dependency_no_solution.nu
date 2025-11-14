@@ -36,7 +36,7 @@ let path = artifact {
 }
 
 let output = tg checkin $path | complete
-assert ($output.exit_code != 0) 'should fail when no solution exists'
+assert not equal $output.exit_code 0 'should fail when no solution exists'
 
 let stdout = $output.stdout | str replace -a $path ''
 let stderr = $output.stderr | str replace -a $path ''

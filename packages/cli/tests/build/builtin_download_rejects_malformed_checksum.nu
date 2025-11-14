@@ -13,4 +13,4 @@ let path = artifact {
 }
 
 let output = tg build $path | complete
-assert ($output.exit_code != 0)
+assert not equal $output.exit_code 0

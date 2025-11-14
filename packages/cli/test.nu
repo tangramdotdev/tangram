@@ -6,6 +6,7 @@ const path = path self '../../'
 
 def main [
 	--jobs (-j): int # The number of concurrent tests to run.
+	--review (-r) # Review snapshots.
 	filter: string = '.*' # Filter tests.
 ] {
 	# Add the debug build to the path.
@@ -15,19 +16,21 @@ def main [
 
 	# Get the matching tests.
 	let tests_path = ($path | path join 'packages/cli/tests')
-	mut tests = fd -e nu -p $filter $tests_path | lines | each { |path|
+	let tests = fd -e nu -p $filter $tests_path | lines | each { |path|
+		let parsed = $path | path parse
 		{
 			path: $path,
-			name: ($path | str replace $'($tests_path)/' '')
+			name: ($parsed.parent | str replace $'($tests_path)/' '' | path join $parsed.stem)
 		}
 	}
 
 	# Create the state.
+	mut pending = $tests
 	mut running = []
 	mut results = []
 
 	let start = date now
-	let total = $tests | length
+	let total = $pending | length
 
 	# Determine the number of concurrent tests to run.
 	let jobs = $jobs | default (sys cpu | length)
@@ -35,12 +38,11 @@ def main [
 	def spawn [test: record] {
 		job spawn {
 			# Create a temp directory for this test.
-			let temp_path = (mktemp -d | str trim)
+			let temp_path = mktemp -d
 
 			# Remove pending and touch files.
-			let parent_path = $test.path | path dirname
-			let name = $test.path | path parse | get stem
-			for path in (glob $'($parent_path | path join $name){.{pending,touched},/*.{pending,touched}}') {
+			let parsed = $test.path | path parse
+			for path in (glob $'($parsed.parent | path join $parsed.stem){.{pending,touched},/*.{pending,touched}}') {
 				rm $path
 			}
 
@@ -52,8 +54,8 @@ def main [
 			# If the test passed, then delete snapshots which were not touched.
 			if $output.exit_code == 0 {
 				let parent_path = $test.path | path dirname
-				let name = $test.path | path parse | get stem
-				for path in (glob $'($parent_path | path join $name){.snapshot,/*.snapshot}') {
+				let stem = $test.path | path parse | get stem
+				for path in (glob $'($parent_path | path join $stem){.snapshot,/*.snapshot}') {
 					if not ($path | str replace '.snapshot' '.touched' | path exists) {
 						rm $path
 					}
@@ -61,14 +63,13 @@ def main [
 			}
 
 			# Remove touch files.
-			let parent_path = $test.path | path dirname
-			let name = $test.path | path parse | get stem
-			for path in (glob $'($parent_path | path join $name){.touched,/*.touched}') {
+			let parsed = $test.path | path parse
+			for path in (glob $'($parsed.parent | path join $parsed.stem){.touched,/*.touched}') {
 				rm $path
 			}
 
 			# Cleanup the temp directory.
-			chmod +w -R $temp_path
+			chmod -R +w $temp_path
 			rm -rf $temp_path
 
 			# Send the result.
@@ -82,9 +83,9 @@ def main [
 	}
 
 	# Fill the worker pool.
-	while ($running | length) < $jobs and ($tests | length) > 0 {
-		let test = $tests | first
-		$tests = $tests | skip 1
+	while ($running | length) < $jobs and ($pending | length) > 0 {
+		let test = $pending | first
+		$pending = $pending | skip 1
 		let id = spawn $test
 		$running = $running | append $id
 	}
@@ -98,7 +99,7 @@ def main [
 	}
 
 	# Process results as they complete.
-	while ($running | length) > 0 or ($tests | length) > 0 {
+	while ($running | length) > 0 or ($pending | length) > 0 {
 		# Wait for the next event (either test completion or ticker).
 		let result = job recv
 
@@ -113,7 +114,7 @@ def main [
 			}
 			print -e $'($symbol) ($result.name) ($result.duration)'
 			if $result.output.exit_code != 0 {
-				print -e $result.output
+				print -e $result.output.stderr
 			}
 
 			# Store the result.
@@ -123,9 +124,9 @@ def main [
 			$running = $running | skip 1
 
 			# Spawn a new job if there are more tests to run.
-			if ($tests | length) > 0 {
-				let test = $tests | first
-				$tests = $tests | skip 1
+			if ($pending | length) > 0 {
+				let test = $pending | first
+				$pending = $pending | skip 1
 				let id = spawn $test
 				$running = $running | append $id
 			}
@@ -148,6 +149,38 @@ def main [
 	job kill $ticker_job
 	print -e -n "\e[2K\r"
 
+	if $review {
+		for test in $tests {
+			let parsed = $test.path | path parse
+			for pending_path in (glob $'($parsed.parent | path join $parsed.stem){.{pending},/*.{pending}}') {
+				let snapshot_path = $pending_path | str replace '.pending' '.snapshot'
+				clear -k
+				if ($snapshot_path | path exists) {
+					print -e $'(ansi yellow)changed(ansi reset) ($snapshot_path)'
+					delta --file-style=omit --hunk-header-style=omit --no-gitconfig $snapshot_path $pending_path | print -e
+				} else {
+					print -e $'(ansi green)added(ansi reset) ($snapshot_path)'
+					print -e ''
+					print -e -n (ansi green)
+					open $pending_path | print -e
+					print -e (ansi reset)
+				}
+				print -e ''
+				print -e -n $'(ansi green)[a]ccept(ansi reset) or (ansi red)[r]eject(ansi reset): '
+				loop {
+					let response = input -n 1 -s
+					if $response == 'a' {
+						mv -f $pending_path $snapshot_path
+						break
+					} else if $response == 'r' {
+						rm $pending_path
+						break
+					}
+				}
+			}
+		}
+	}
+
 	# Print the summary.
 	let passed = $results | where output.exit_code == 0 | length
 	let failed = $results | where output.exit_code != 0 | length
@@ -159,38 +192,8 @@ def main [
 	}
 }
 
-def "main review" [] {
-	let tests_path = ($path | path join 'packages/cli/tests')
-	for pending_path in (glob $'($tests_path)/**/*.pending') {
-		clear -k
-		let snapshot_path = $pending_path | str replace '.pending' '.snapshot'
-		if ($snapshot_path | path exists) {
-			print -e $'(ansi yellow)changed(ansi reset) ($snapshot_path)'
-			delta --file-style=omit --hunk-header-style=omit --no-gitconfig $snapshot_path $pending_path | print -e
-		} else {
-			print -e $'(ansi green)added(ansi reset) ($snapshot_path)'
-			print -e ''
-			print -e -n (ansi green)
-			open $pending_path | print -e
-			print -e (ansi reset)
-		}
-		print -e ''
-		print -e -n $'(ansi green)[a]ccept(ansi reset) or (ansi red)[r]eject(ansi reset): '
-		loop {
-			let response = input -n 1 -s
-			if $response == 'a' {
-				mv -f $pending_path $snapshot_path
-				break
-			} else if $response == 'r' {
-				rm $pending_path
-				break
-			}
-		}
-	}
-}
-
 export def artifact [artifact] {
-	let path = mktemp -d
+	let path = mktemp -d | path join 'artifact'
 	materialize $artifact $path
 	$path
 }
@@ -385,9 +388,19 @@ def path_to_json [path: string] {
 	}
 }
 
-export def --env spawn [config?: record] {
+export def --env spawn [
+	--config (-c): record
+	--name (-n): string
+] {
+	let default_config = {
+		advanced: {
+			disable_version_check: true
+		},
+		remotes: [],
+	}
+
 	# Write the config.
-	let config = { remotes: [], advanced: { disable_version_check: true } } | merge ($config | default {})
+	let config = $default_config | merge ($config | default {})
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path
@@ -400,10 +413,35 @@ export def --env spawn [config?: record] {
 	$env.TANGRAM_URL = $url
 
 	# Spawn the server.
-	job spawn { tangram -c $config_path -d $directory_path -u $url serve }
+	match $nu.os-info.name {
+		"macos" => {
+			job spawn {
+				bash -c $"
+					PARENT_PID=$PPID
+					SELF_PID=$$
+					\(
+						while kill -0 $PARENT_PID 2>/dev/null; do
+							sleep 1
+						done
+						kill -9 -$SELF_PID
+					\) &
+					tangram -c ($config_path) -d ($directory_path) -u ($url) serve
+				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+			}
+		}
+		"linux" => {
+			job spawn {
+				(
+					setpriv --pdeathsig SIGKILL
+					tangram -c $config_path -d $directory_path -u $url serve
+				) e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+			}
+		}
+	}
+	
 
 	loop {
-		let output = tg health | complete
+		let output = tg -m client health | complete
 		if $output.exit_code == 0 {
 			break;
 		}
@@ -411,4 +449,22 @@ export def --env spawn [config?: record] {
 	}
 
 	{ config: $config_path, directory: $directory_path, url: $url }
+}
+
+export def --env success [
+	output: record
+] {
+	if $output.exit_code != 0 {
+		print -e $output.stderr
+	}
+	$output.exit_code == 0
+}
+
+export def --env failure [
+	output: record
+] {
+	if $output.exit_code == 0 {
+		print -e $output.stderr
+	}
+	$output.exit_code != 0
 }

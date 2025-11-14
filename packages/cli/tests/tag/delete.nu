@@ -15,7 +15,7 @@ for tag in $tags {
 
 # Delete with star should fail.
 let output = tg tag delete "test/*" | complete
-assert ($output.exit_code != 0) 'delete with star should fail'
+assert not equal $output.exit_code 0 'delete with star should fail'
 
 # Delete a leaf tag.
 let output = tg tag delete "test/1.0.0" | from json
@@ -23,7 +23,7 @@ assert (($output.deleted | length) == 1) 'should delete one tag'
 
 # Try to delete branch tag with children - should fail.
 let output = tg tag delete "test/foo" | complete
-assert ($output.exit_code != 0) 'cannot delete branch tag with children'
+assert not equal $output.exit_code 0 'cannot delete branch tag with children'
 let stderr = $output.stderr
 assert ($stderr | str contains "cannot delete branch tag") 'error message should mention branch tag'
 
@@ -32,7 +32,7 @@ tg tag delete "test/foo/bar"
 
 # Still cannot delete branch with remaining child.
 let output = tg tag delete "test/foo" | complete
-assert ($output.exit_code != 0) 'still cannot delete branch with remaining child'
+assert not equal $output.exit_code 0 'still cannot delete branch with remaining child'
 
 # Delete remaining child.
 tg tag delete "test/foo/baz"
@@ -43,6 +43,6 @@ assert (($output.deleted | length) == 1) 'should delete empty branch'
 
 # Try to delete with empty pattern - should fail.
 let output = tg tag delete "" | complete
-assert ($output.exit_code != 0) 'cannot delete empty pattern'
+assert not equal $output.exit_code 0 'cannot delete empty pattern'
 let stderr = $output.stderr
 assert ($stderr | str contains "cannot delete an empty pattern") 'error message should mention empty pattern'

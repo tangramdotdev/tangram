@@ -22,7 +22,7 @@ let path = artifact {
 }
 
 let output = tg checkin $path | complete
-assert ($output.exit_code != 0) 'should fail when dependency in tag is missing'
+assert not equal $output.exit_code 0 'should fail when dependency in tag is missing'
 
 let stderr = $output.stderr | str replace -a $path ''
 

@@ -2,7 +2,7 @@ use std assert
 use ../../test.nu *
 
 # Configure watchdog with low max_depth and fast interval.
-let server = spawn {
+let server = spawn -c {
 	watchdog: {
 		max_depth: 2
 	}
@@ -27,5 +27,5 @@ let path = artifact {
 }
 
 let output = tg build ($path + '#foo') | complete
-assert ($output.exit_code != 0)
+assert not equal $output.exit_code 0
 assert ($output.stderr | str contains 'maximum depth exceeded')
