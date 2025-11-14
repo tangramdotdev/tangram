@@ -177,6 +177,7 @@ def main [
 						break
 					}
 				}
+				print -e ''
 			}
 		}
 	}
@@ -297,7 +298,7 @@ export def doc [string: string] {
 	$result
 }
 
-export def --env "snapshot" [
+export def --env snapshot [
 	value: any
 	--name (-n): string
 	--path (-p)
@@ -330,13 +331,14 @@ export def --env "snapshot" [
 
 	# Error if the snapshot does not exist.
 	if not ($snapshot_path | path exists) {
-		# Print the error.
-		print -e $'(ansi red)snapshot missing(ansi reset) ($name)'
-
-		# Write the pending snapshot.
 		$new_value | save -f $pending_path
-
-		return false
+		error make {
+			msg: "the snapshot does not exist",
+			label: {
+				span: (metadata $value).span,
+				text: "the value",
+			}
+		}
 	}
 
 	# Read the snapshot.
@@ -344,19 +346,24 @@ export def --env "snapshot" [
 
 	# Error if the new value does not match the old value.
 	if $new_value != $old_value {
-		# Print the error.
-		print -e $'(ansi red)snapshot mismatch(ansi reset) ($name)'
-
-		# Render the diff.
-		delta --file-style=omit --hunk-header-style=omit --no-gitconfig $snapshot_path $pending_path | print -e
-
-		# Write the pending snapshot.
 		$new_value | save -f $pending_path
-
-		return false
+		let help = (
+			delta
+				--file-style=omit
+				--hunk-header-style=omit
+				--no-gitconfig
+				$snapshot_path
+				$pending_path
+		) | complete | get stdout
+		error make {
+			msg: "the snapshot does not match",
+			label: {
+				span: (metadata $value).span,
+				text: "the value",
+			},
+			help: $help
+		}
 	}
-
-	true
 }
 
 def path_to_json [path: string] {
@@ -395,12 +402,13 @@ export def --env spawn [
 	let default_config = {
 		advanced: {
 			disable_version_check: true
+			internal_error_locations: false
 		},
 		remotes: [],
 	}
 
 	# Write the config.
-	let config = $default_config | merge ($config | default {})
+	let config = $default_config | merge deep ($config | default {})
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path
@@ -441,7 +449,7 @@ export def --env spawn [
 	
 
 	loop {
-		let output = tg -m client health | complete
+		let output = tg health | complete
 		if $output.exit_code == 0 {
 			break;
 		}
@@ -453,18 +461,32 @@ export def --env spawn [
 
 export def --env success [
 	output: record
+	message?: string
 ] {
 	if $output.exit_code != 0 {
 		print -e $output.stderr
+		error make {
+			msg: ($message | default "the process failed"),
+			label: {
+				span: (metadata $output).span,
+				text: "the output",
+			}
+		}
 	}
-	$output.exit_code == 0
 }
 
 export def --env failure [
 	output: record
+	message?: string
 ] {
 	if $output.exit_code == 0 {
 		print -e $output.stderr
+		error make {
+			msg: ($message | default "the process succeeded"),
+			label: {
+				span: (metadata $output).span,
+				text: "the output",
+			}
+		}
 	}
-	$output.exit_code != 0
 }

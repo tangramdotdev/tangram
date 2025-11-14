@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -12,5 +11,5 @@ let path = artifact {
 }
 
 let output = tg build $path | complete
-assert (success $output)
-assert (snapshot $output.stdout)
+success $output
+snapshot $output.stdout

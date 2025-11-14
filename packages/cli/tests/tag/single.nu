@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -15,8 +14,8 @@ tg tag put $pattern $id
 
 # List tags.
 let list_output = tg tag list $pattern
-assert (snapshot -n list $list_output)
+snapshot -n list $list_output
 
 # Get tag.
 let get_output = tg tag get $pattern
-assert (snapshot -n get $get_output)
+snapshot -n get $get_output

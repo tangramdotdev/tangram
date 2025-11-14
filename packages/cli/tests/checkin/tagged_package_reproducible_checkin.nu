@@ -2,18 +2,18 @@ use std assert
 use ../../test.nu *
 
 # Create a remote server and tag the foo object on it.
-let remote = spawn
+let remote = spawn -n remote
 let foo_path = artifact {
 	'contents': 'foo'
 }
 tg -u $remote.url tag foo ($foo_path | path join 'contents')
 
 # Create two local servers, both configured with the remote.
-let local1 = spawn {
+let local1 = spawn -n local1 -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
 
-let local2 = spawn {
+let local2 = spawn -n local2 -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
 
@@ -35,4 +35,4 @@ tg -u $local2.url index
 let output2 = tg -u $local2.url object get --blobs --depth=inf --pretty $id2
 
 # Confirm that the two outputs are identical (reproducible).
-assert ($output1 == $output2) 'checkin should be reproducible across different servers'
+assert ($output1 == $output2) "The checkin command should be reproducible across different servers."

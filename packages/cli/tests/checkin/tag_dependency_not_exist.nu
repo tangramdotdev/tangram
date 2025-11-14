@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -10,10 +9,8 @@ let path = artifact {
 }
 
 let output = tg checkin $path | complete
-assert not equal $output.exit_code 0 'should fail when tag does not exist'
-
+failure $output "The command should fail when the tag does not exist."
 let stdout = $output.stdout | str replace -a $path ''
 let stderr = $output.stderr | str replace -a $path ''
-
-assert (snapshot -n stderr $stderr)
-assert (snapshot -n stdout $stdout)
+snapshot -n stderr $stderr
+snapshot -n stdout $stdout

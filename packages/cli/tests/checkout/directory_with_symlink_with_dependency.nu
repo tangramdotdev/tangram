@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let tmp = mktemp -d
@@ -23,4 +22,4 @@ let checkout_path = $tmp | path join "checkout"
 # Checkout with dependencies.
 tg checkout --dependencies=true $id $checkout_path
 
-assert (snapshot -n result --path $checkout_path)
+snapshot -n result --path $checkout_path

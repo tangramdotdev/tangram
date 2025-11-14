@@ -1,7 +1,7 @@
 use std assert
 use ../../test.nu *
 
-let remote = spawn
+let remote = spawn -n remote
 
 # Tag the referent on the remote server.
 let referent_path = artifact {
@@ -39,4 +39,4 @@ tg -u $local2.url index
 let output2 = tg -u $local2.url object get --blobs --depth=inf --pretty $id2
 
 # Confirm that the two outputs are the same.
-assert ($output1 == $output2) 'checkin should produce same output after clean'
+assert ($output1 == $output2) "The checkin command should produce the same output after clean."

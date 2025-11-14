@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -24,4 +23,4 @@ let path = artifact {
 # Get the outdated.
 let output = tg outdated $path
 
-assert (snapshot -n outdated $output)
+snapshot -n outdated $output

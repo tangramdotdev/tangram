@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -25,7 +24,7 @@ tg checkin $local_path
 # Verify the lockfile has a/1.0.0.
 let lockfile_path = $local_path | path join 'tangram.lock'
 let lock = open $lockfile_path | from json
-assert (snapshot -n lock_before_update ($lock | to json -i 2))
+snapshot -n lock_before_update ($lock | to json -i 2)
 
 # Tag a new version of a.
 let new_path = artifact {
@@ -40,4 +39,4 @@ tg update $local_path
 
 # Verify the lockfile has been updated to a/1.1.0.
 let lock = open $lockfile_path | from json
-assert (snapshot -n lock_after_update ($lock | to json -i 2))
+snapshot -n lock_after_update ($lock | to json -i 2)

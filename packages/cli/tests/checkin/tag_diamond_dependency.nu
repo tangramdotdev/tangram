@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -45,12 +44,12 @@ let id = tg checkin $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-assert (snapshot -n object $object)
+snapshot -n object $object
 
 let metadata = tg object metadata --pretty $id
-assert (snapshot -n metadata $metadata)
+snapshot -n metadata $metadata
 
 # This should create a lockfile since it has tagged dependencies.
 let lockfile_path = $path | path join 'tangram.lock'
 let lock = open $lockfile_path | from json
-assert (snapshot -n lock ($lock | to json -i 2))
+snapshot -n lock ($lock | to json -i 2)

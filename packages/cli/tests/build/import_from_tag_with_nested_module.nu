@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -33,7 +32,7 @@ let b_path = artifact {
 }
 
 let output = tg build $b_path | complete
-assert equal $output.exit_code 0
+success $output
 
 # Mutate b to call a.baz() instead.
 let new_tangram = '
@@ -46,4 +45,4 @@ $new_tangram | save -f ($b_path | path join 'tangram.ts')
 
 # Rebuild.
 let output = tg build $b_path | complete
-assert equal $output.exit_code 0
+success $output

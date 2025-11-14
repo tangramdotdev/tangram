@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -17,4 +16,4 @@ for tag in $tags {
 let output = tg tag delete --recursive "test/*"
 
 # Verify the order: longest paths first (children before parents).
-assert (snapshot -n deleted $output)
+snapshot -n deleted $output

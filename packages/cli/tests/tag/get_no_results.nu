@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -6,4 +5,4 @@ let server = spawn
 let pattern = "test"
 let output = tg tag get $pattern | complete
 
-assert not equal $output.exit_code 0 'should fail when tag does not exist'
+failure $output "The command should fail when the tag does not exist."

@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -14,4 +13,4 @@ let path = artifact {
 }
 
 let output = tg build $path | complete
-assert not equal $output.exit_code 0
+failure $output

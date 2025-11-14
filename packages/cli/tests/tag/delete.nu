@@ -15,34 +15,34 @@ for tag in $tags {
 
 # Delete with star should fail.
 let output = tg tag delete "test/*" | complete
-assert not equal $output.exit_code 0 'delete with star should fail'
+failure $output "The delete command with star should fail."
 
 # Delete a leaf tag.
 let output = tg tag delete "test/1.0.0" | from json
-assert (($output.deleted | length) == 1) 'should delete one tag'
+assert (($output.deleted | length) == 1) "The command should delete one tag."
 
 # Try to delete branch tag with children - should fail.
 let output = tg tag delete "test/foo" | complete
-assert not equal $output.exit_code 0 'cannot delete branch tag with children'
+failure $output "The command cannot delete a branch tag with children."
 let stderr = $output.stderr
-assert ($stderr | str contains "cannot delete branch tag") 'error message should mention branch tag'
+assert ($stderr | str contains "cannot delete branch tag") "The error message should mention branch tag."
 
 # Delete one child leaf.
 tg tag delete "test/foo/bar"
 
 # Still cannot delete branch with remaining child.
 let output = tg tag delete "test/foo" | complete
-assert not equal $output.exit_code 0 'still cannot delete branch with remaining child'
+failure $output "The command still cannot delete a branch with a remaining child."
 
 # Delete remaining child.
 tg tag delete "test/foo/baz"
 
 # Now we can delete empty branch.
 let output = tg tag delete "test/foo" | from json
-assert (($output.deleted | length) == 1) 'should delete empty branch'
+assert (($output.deleted | length) == 1) "The command should delete the empty branch."
 
 # Try to delete with empty pattern - should fail.
 let output = tg tag delete "" | complete
-assert not equal $output.exit_code 0 'cannot delete empty pattern'
+failure $output "The command cannot delete an empty pattern."
 let stderr = $output.stderr
-assert ($stderr | str contains "cannot delete an empty pattern") 'error message should mention empty pattern'
+assert ($stderr | str contains "cannot delete an empty pattern") "The error message should mention empty pattern."

@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let temp_dir = mktemp -d
@@ -34,9 +33,9 @@ let id = tg build $path
 let checkout_path = $temp_dir | path join "checkout"
 tg checkout --dependencies=true $id $checkout_path
 
-assert (snapshot -n result --path $checkout_path)
+snapshot -n result --path $checkout_path
 
 # Also verify the lockfile structure.
 let lockfile_path = $checkout_path | path join 'tangram.lock'
 let lockfile = open $lockfile_path | from json
-assert (snapshot -n lockfile ($lockfile | to json -i 2))
+snapshot -n lockfile ($lockfile | to json -i 2)

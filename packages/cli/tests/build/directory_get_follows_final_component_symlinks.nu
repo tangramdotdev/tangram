@@ -19,5 +19,5 @@ let path = artifact {
 }
 
 let output = tg build $path | complete
-assert equal $output.exit_code 0
-assert (snapshot $output.stdout)
+success $output
+snapshot $output.stdout

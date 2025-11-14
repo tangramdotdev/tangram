@@ -2,7 +2,7 @@ use std assert
 use ../../test.nu *
 
 # Create remote server.
-let remote_server = spawn
+let remote_server = spawn -n remote_server
 
 # Tag an object on the remote server.
 let tag = "foo"
@@ -10,7 +10,7 @@ let remote_path = artifact 'foo'
 tg tag put $tag $remote_path
 
 # Create a local server with the remote configured.
-let local_server = spawn {
+let local_server = spawn -n local_server -c {
 	remotes: [
 		{ name: "default", url: $remote_server.url }
 	]
@@ -28,5 +28,5 @@ with-env { TG_URL: $remote_server.url } {
 	let remote_output = tg tag get $tag | from json
 
 	# The items should be the same.
-	assert ($local_output.item == $remote_output.item) 'items should match'
+	assert ($local_output.item == $remote_output.item) "The items should match."
 }

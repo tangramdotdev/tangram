@@ -35,10 +35,10 @@ let id = tg checkin $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-assert (snapshot -n object $object)
+snapshot -n object $object
 
 let metadata = tg object metadata --pretty $id
-assert (snapshot -n metadata $metadata)
+snapshot -n metadata $metadata
 
 # The old lockfile should be removed since it was out of date.
 let lockfile_path = $path | path join 'tangram.lock'

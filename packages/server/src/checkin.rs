@@ -1,5 +1,3 @@
-use tracing::Instrument as _;
-
 use {
 	crate::{Context, Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
@@ -16,6 +14,7 @@ use {
 	tangram_http::{Body, request::Ext as _},
 	tangram_ignore as ignore,
 	tokio_util::task::AbortOnDropHandle,
+	tracing::Instrument as _,
 };
 
 mod artifact;
@@ -39,7 +38,7 @@ type IndexObjectMessages =
 type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
 
 impl Server {
-	#[tracing::instrument(fields(path = ?arg.path), name = "checkin", skip_all)]
+	#[tracing::instrument(fields(path = ?arg.path), level = "debug", name = "checkin", skip_all)]
 	pub(crate) async fn checkin_with_context(
 		&self,
 		context: &Context,

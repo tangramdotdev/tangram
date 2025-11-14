@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 let server = spawn
@@ -29,44 +28,44 @@ for tag in $tags {
 
 # List empty pattern.
 let output = tg tag list ""
-assert (snapshot -n "list_empty" $output)
+snapshot -n "list_empty" $output
 
 # List test.
 let output = tg tag list "test"
-assert (snapshot -n "list_test" $output)
+snapshot -n "list_test" $output
 
 # List test/*/*
 let output = tg tag list "test/*/*"
-assert (snapshot -n "list_test_star_star" $output)
+snapshot -n "list_test_star_star" $output
 
 # List test/*
 let output = tg tag list "test/*"
-assert (snapshot -n "list_test_star" $output)
+snapshot -n "list_test_star" $output
 
 # List test/=0.0.1/*
 let output = tg tag list "test/=0.0.1/*"
-assert (snapshot -n "list_test_exact_star" $output)
+snapshot -n "list_test_exact_star" $output
 
 # List test/=0.0.1
 let output = tg tag list "test/=0.0.1"
-assert (snapshot -n "list_test_exact" $output)
+snapshot -n "list_test_exact" $output
 
 # List test/* recursive.
 let output = tg tag list --recursive "test/*"
-assert (snapshot -n "list_test_star_recursive" $output)
+snapshot -n "list_test_star_recursive" $output
 
 # List test recursive.
 let output = tg tag list --recursive "test"
-assert (snapshot -n "list_test_recursive" $output)
+snapshot -n "list_test_recursive" $output
 
 # Get test.
 let output = tg tag get "test"
-assert (snapshot -n "get_test" $output)
+snapshot -n "get_test" $output
 
 # Get test/^1
 let output = tg tag get "test/^1"
-assert (snapshot -n "get_test_caret1" $output)
+snapshot -n "get_test_caret1" $output
 
 # Get test/^10
 let output = tg tag get "test/^10"
-assert (snapshot -n "get_test_caret10" $output)
+snapshot -n "get_test_caret10" $output

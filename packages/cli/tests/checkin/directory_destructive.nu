@@ -23,10 +23,10 @@ let id = tg checkin --destructive --ignore=false ($path | path join 'directory')
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-assert (snapshot -n object $object)
+snapshot -n object $object
 
 let metadata = tg object metadata --pretty $id
-assert (snapshot -n metadata $metadata)
+snapshot -n metadata $metadata
 
 let lockfile_path = $path | path join 'directory' 'tangram.lock'
 assert (not ($lockfile_path | path exists))
