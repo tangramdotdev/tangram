@@ -24,10 +24,6 @@ pub struct Paths {
 
 impl Process {
 	pub fn host_path_for_guest_path(&self, path: PathBuf) -> PathBuf {
-		#[cfg(target_os = "linux")]
-		if path.starts_with("/tmp") {
-			return path;
-		}
 		let Some(path_map) = &self.paths else {
 			return path;
 		};

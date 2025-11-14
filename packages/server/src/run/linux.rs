@@ -321,6 +321,11 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 			.await
 			.ok();
 
+		// Create /tmp.
+		tokio::fs::create_dir_all(temp.path().join("lower/tmp"))
+			.await
+			.ok();
+
 		// Create nsswitch.conf.
 		tokio::fs::write(
 			temp.path().join("lower/etc/nsswitch.conf"),
@@ -379,10 +384,6 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 		output.args.push(bind("/dev", "/dev", false));
 		output.args.push("--mount".to_owned());
 		output.args.push(bind("/proc", "/proc", false));
-		output.args.push("--mount".to_owned());
-		output
-			.args
-			.push("type=tmpfs,source=/tmp,target=/tmp".to_owned());
 		output.args.push("--mount".to_owned());
 		output
 			.args
