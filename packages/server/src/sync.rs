@@ -12,7 +12,9 @@ use {
 };
 
 mod get;
+mod progress;
 mod put;
+mod queue;
 
 impl Server {
 	pub(crate) async fn sync_with_context(

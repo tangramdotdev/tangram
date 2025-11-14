@@ -62,10 +62,10 @@ pub enum Message {
 	Put(Option<PutMessage>),
 
 	#[tangram_serialize(id = 2)]
-	Missing(MissingMessage),
+	Complete(CompleteMessage),
 
 	#[tangram_serialize(id = 3)]
-	Complete(CompleteMessage),
+	Missing(MissingMessage),
 
 	#[tangram_serialize(id = 4)]
 	Progress(ProgressMessage),
@@ -128,27 +128,6 @@ pub struct ObjectPutMessage {
 	pub bytes: Bytes,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum MissingMessage {
-	#[tangram_serialize(id = 0)]
-	Process(ProcessMissingMessage),
-
-	#[tangram_serialize(id = 1)]
-	Object(ObjectMissingMessage),
-}
-
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct ProcessMissingMessage {
-	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
-}
-
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct ObjectMissingMessage {
-	#[tangram_serialize(id = 0)]
-	pub id: tg::object::Id,
-}
-
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum CompleteMessage {
 	#[tangram_serialize(id = 0)]
@@ -181,6 +160,27 @@ pub struct ProcessCompleteMessage {
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct ObjectCompleteMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::object::Id,
+}
+
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub enum MissingMessage {
+	#[tangram_serialize(id = 0)]
+	Process(ProcessMissingMessage),
+
+	#[tangram_serialize(id = 1)]
+	Object(ObjectMissingMessage),
+}
+
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct ProcessMissingMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::process::Id,
+}
+
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct ObjectMissingMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 }
@@ -256,10 +256,9 @@ impl tg::Client {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the error response"))?;
+			let error = response.json().await.map_err(|source| {
+				tg::error!(!source, "failed to deserialize the error response")
+			})?;
 			return Err(error);
 		}
 

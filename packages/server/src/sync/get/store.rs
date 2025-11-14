@@ -1,57 +1,31 @@
 use {
-	super::{Graph, Progress},
-	crate::{Server, database::Database, store::Store},
+	crate::{Server, database::Database, store::Store, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
-	std::{
-		pin::pin,
-		sync::{Arc, Mutex},
-	},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
-	tokio_util::task::AbortOnDropHandle,
 };
 
 impl Server {
-	pub(super) async fn sync_get_store(
+	pub(super) async fn sync_get_store_task(
 		&self,
-		graph: Arc<Mutex<Graph>>,
+		state: &State,
 		process_receiver: tokio::sync::mpsc::Receiver<tg::sync::ProcessPutMessage>,
 		object_receiver: tokio::sync::mpsc::Receiver<tg::sync::ObjectPutMessage>,
-		progress: Arc<Progress>,
 	) -> tg::Result<()> {
-		let process_task = AbortOnDropHandle::new(tokio::spawn({
-			let server = self.clone();
-			let graph = graph.clone();
-			let progress = progress.clone();
-			async move {
-				server
-					.sync_get_process_store(graph, process_receiver, &progress)
-					.await
-			}
-		}));
-		let object_task = AbortOnDropHandle::new(tokio::spawn({
-			let server = self.clone();
-			let graph = graph.clone();
-			let progress = progress.clone();
-			async move {
-				server
-					.sync_get_object_store(graph, object_receiver, &progress)
-					.await
-			}
-		}));
-		let (process_result, object_result) =
-			future::try_join(process_task, object_task).await.unwrap();
-		process_result.and(object_result)?;
+		let processes_future =
+			async { self.sync_get_store_processes(state, process_receiver).await };
+		let objects_future = async { self.sync_get_store_objects(state, object_receiver).await };
+		future::try_join(processes_future, objects_future).await?;
 		Ok(())
 	}
 
-	async fn sync_get_process_store(
+	async fn sync_get_store_processes(
 		&self,
-		graph: Arc<Mutex<Graph>>,
+		state: &State,
 		process_receiver: tokio::sync::mpsc::Receiver<tg::sync::ProcessPutMessage>,
-		progress: &Progress,
 	) -> tg::Result<()> {
 		let stream = ReceiverStream::new(process_receiver);
 		let mut stream = pin!(stream);
@@ -74,17 +48,16 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 				},
 			}
-			graph.lock().unwrap().set_process_stored(&message.id);
-			progress.increment_processes();
+			state.graph.lock().unwrap().set_process_stored(&message.id);
+			state.progress.increment_processes();
 		}
 		Ok(())
 	}
 
-	async fn sync_get_object_store(
+	async fn sync_get_store_objects(
 		&self,
-		graph: Arc<Mutex<Graph>>,
+		state: &State,
 		object_receiver: tokio::sync::mpsc::Receiver<tg::sync::ObjectPutMessage>,
-		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
 		let (concurrency, max_objects_per_batch, max_bytes_per_batch) = match &self.store {
@@ -98,15 +71,15 @@ impl Server {
 		};
 
 		// Create a stream of batches.
-		struct State {
+		struct State_ {
 			message: Option<tg::sync::ObjectPutMessage>,
 			object_receiver: tokio::sync::mpsc::Receiver<tg::sync::ObjectPutMessage>,
 		}
-		let state = State {
+		let state_ = State_ {
 			message: None,
 			object_receiver,
 		};
-		let stream = stream::unfold(state, |mut state| async {
+		let stream = stream::unfold(state_, |mut state| async {
 			let mut batch_bytes = state
 				.message
 				.as_ref()
@@ -138,23 +111,18 @@ impl Server {
 		// Write the batches.
 		stream
 			.map(Ok)
-			.try_for_each_concurrent(concurrency, move |batch| {
-				let graph = graph.clone();
-				async move {
-					self.sync_get_object_store_inner(graph, batch, progress)
-						.await
-				}
+			.try_for_each_concurrent(concurrency, move |batch| async {
+				self.sync_get_store_objects_inner(state, batch).await
 			})
 			.await?;
 
 		Ok(())
 	}
 
-	async fn sync_get_object_store_inner(
+	async fn sync_get_store_objects_inner(
 		&self,
-		graph: Arc<Mutex<Graph>>,
+		state: &State,
 		messages: Vec<tg::sync::ObjectPutMessage>,
-		progress: &Arc<Progress>,
 	) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
@@ -176,7 +144,7 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
 
 		// Mark the nodes as stored.
-		let mut graph = graph.lock().unwrap();
+		let mut graph = state.graph.lock().unwrap();
 		for message in &messages {
 			graph.set_object_stored(&message.id);
 		}
@@ -188,8 +156,8 @@ impl Server {
 			.iter()
 			.map(|message| message.bytes.len().to_u64().unwrap())
 			.sum();
-		progress.increment_objects(objects);
-		progress.increment_bytes(bytes);
+		state.progress.increment_objects(objects);
+		state.progress.increment_bytes(bytes);
 
 		Ok(())
 	}

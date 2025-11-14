@@ -66,15 +66,15 @@ impl Server {
 	}
 
 	async fn index_inner(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
+		// Wait for outstanding tasks to complete.
+		self.tasks.wait().await;
+
 		// Get the stream.
 		let stream = self
 			.messenger
 			.get_stream("index".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
-
-		// Wait for outstanding tasks to complete.
-		self.tasks.wait().await;
 
 		// Wait for the index stream's first sequence to reach the current last sequence.
 		let info = stream

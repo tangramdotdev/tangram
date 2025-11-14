@@ -36,7 +36,7 @@ edition = "2024"
 homepage = "https://www.tangram.dev"
 license = "MIT"
 repository = "https://github.com/tangramdotdev/tangram"
-rust-version = "1.90"
+rust-version = "1.91"
 version = "0.0.0"
 
 [workspace.lints.clippy]
