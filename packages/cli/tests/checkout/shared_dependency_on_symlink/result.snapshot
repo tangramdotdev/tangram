@@ -12,8 +12,7 @@
               "entries": {
                 "file.txt": {
                   "kind": "file",
-                  "contents": "contents",
-                  "executable": false
+                  "contents": "contents"
                 },
                 "link": {
                   "kind": "symlink",
@@ -28,7 +27,6 @@
     "bar.txt": {
       "kind": "file",
       "contents": "bar",
-      "executable": false,
       "xattrs": {
         "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
       }
@@ -36,7 +34,6 @@
     "foo.txt": {
       "kind": "file",
       "contents": "foo",
-      "executable": false,
       "xattrs": {
         "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
       }

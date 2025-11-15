@@ -3,8 +3,7 @@
   "entries": {
     "hello.txt": {
       "kind": "file",
-      "contents": "Hello, World!",
-      "executable": false
+      "contents": "Hello, World!"
     }
   }
 }

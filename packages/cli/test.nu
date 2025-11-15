@@ -195,41 +195,39 @@ def main [
 }
 
 export def artifact [artifact] {
-	let path = mktemp -d | path join 'artifact'
-	materialize $artifact $path
-	$path
-}
-
-def materialize [artifact: any, path: string] {
-	let artifact = if ($artifact | describe) == 'string' {
-		{ kind: 'file', contents: (doc $artifact), executable: false }
-	} else if (($artifact | describe) | str starts-with 'record') {
-		let kind_artifact = ($artifact | get --optional kind)
-		if $artifact.kind? != null {
-			$artifact
+	def inner [artifact: any, path: string] {
+		let artifact = if ($artifact | describe) == 'string' {
+			{ kind: 'file', contents: (doc $artifact), executable: false }
+		} else if (($artifact | describe) | str starts-with 'record') {
+			if $artifact.kind? != null {
+				$artifact
+			} else {
+				{ kind: 'directory', entries: $artifact }
+			}
 		} else {
-			{ kind: 'directory', entries: $artifact }
+			$artifact
 		}
-	} else {
-		$artifact
-	}
-	match $artifact.kind {
-		'directory' => {
-			mkdir -v $path | ignore
-			for entry in ($artifact.entries | transpose name value) {
-				materialize $entry.value ($path | path join $entry.name)
+		match $artifact.kind {
+			'directory' => {
+				mkdir $path | ignore
+				for entry in ($artifact.entries | transpose name value) {
+					inner $entry.value ($path | path join $entry.name)
+				}
+			}
+			'file' => {
+				$artifact.contents | save $path
+				if $artifact.executable {
+					chmod +x $path
+				}
+			}
+			'symlink' => {
+				ln -s $artifact.path $path
 			}
 		}
-		'file' => {
-			$artifact.contents | save $path
-			if $artifact.executable {
-				chmod +x $path
-			}
-		}
-		'symlink' => {
-			ln -s $artifact.path $path
-		}
 	}
+	let path = mktemp -d | path join 'artifact'
+	inner $artifact $path
+	$path
 }
 
 export def directory [entries: record] {
@@ -324,7 +322,7 @@ export def --env snapshot [
 
 	# Snapshot.
 	let new_value = if $path {
-		path_to_json $value | to json -i 2
+		snapshot_path $value | to json -i 2
 	} else {
 		$value | to text
 	}
@@ -366,14 +364,14 @@ export def --env snapshot [
 	}
 }
 
-def path_to_json [path: string] {
+def snapshot_path [path: string] {
 	let $type = $path | path type
 	if $type == 'dir' {
 		let entries = ls -a $path
 			| where name != ($path | path join '.') and name != ($path | path join '..')
 			| each { |entry|
 					let name = $entry.name | path basename
-					let artifact = path_to_json $entry.name
+					let artifact = snapshot_path $entry.name
 					{ name: $name, artifact: $artifact }
 				}
 			| reduce -f {} { |entry, acc|
@@ -383,32 +381,25 @@ def path_to_json [path: string] {
 	} else if $type == 'file' {
 		let contents = open $path
 		let executable = ls -l $path | first | get mode | str contains 'x'
-
-		# Read extended attributes (only user.tangram.* ones)
-		let xattr_names = xattr $path | lines | where { |name| $name starts-with 'user.tangram' }
-		let xattrs = if ($xattr_names | is-empty) {
-			{}
-		} else {
-			$xattr_names | reduce -f {} { |name, acc|
-				let value = xattr -p $name $path | str trim
-				$acc | insert $name $value
-			}
+		let xattrs = xattr $path | lines | where { |name| $name starts-with 'user.tangram' }
+		let xattrs = $xattrs | reduce -f {} { |name, xattrs|
+			let value = xattr -p $name $path | str trim
+			$xattrs | insert $name $value
 		}
-
-		# Only include xattrs field if there are any
-		if ($xattrs | is-empty) {
-			{ kind: 'file', contents: $contents, executable: $executable }
-		} else {
-			{ kind: 'file', contents: $contents, executable: $executable, xattrs: $xattrs }
+		mut output = { kind: 'file', contents: $contents }
+		if $executable {
+			$output.executable = true
 		}
+		if not ($xattrs | is-empty) {
+			$output.xattrs = $xattrs
+		}
+		$output
 	} else if $type == 'symlink' {
-		let target = do -i { ls -l $path | first | get target }
+		mut target = do -i { ls -l $path | first | get target }
 		if $target == null {
-			let target = readlink $path | str trim
-			{ kind: 'symlink', path: $target }
-		} else {
-			{ kind: 'symlink', path: $target }
+			$target = (readlink $path | str trim)
 		}
+		{ kind: 'symlink', path: $target }
 	}
 }
 
