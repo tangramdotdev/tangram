@@ -10,7 +10,7 @@ let foo_path = artifact {
 	'
 }
 let tag_output = tg tag --no-solve foo $foo_path | complete
-success $tag_output "The tag command should succeed with --no-solve."
+success $tag_output "the tag command should succeed with --no-solve"
 
 # Try to check in a package that depends on foo.
 let path = artifact {
@@ -21,7 +21,7 @@ let path = artifact {
 }
 
 let output = tg checkin $path | complete
-failure $output "The command should fail when the dependency in the tag is missing."
+failure $output "the command should fail when the dependency in the tag is missing"
 
 let stderr = $output.stderr | str replace -a $path ''
 

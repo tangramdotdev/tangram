@@ -7,6 +7,7 @@ const path = path self '../../'
 def main [
 	--jobs (-j): int # The number of concurrent tests to run.
 	--review (-r) # Review snapshots.
+	--print-output # Print the output of passing tests.
 	filter: string = '.*' # Filter tests.
 ] {
 	# Add the debug build to the path.
@@ -47,7 +48,7 @@ def main [
 			}
 
 			let start = date now
-			let output = TANGRAM_MODE=client TMPDIR=$temp_path nu $test.path | complete
+			let output = TANGRAM_MODE=client TMPDIR=$temp_path nu $test.path o+e>| complete
 			let end = date now
 			let duration = $end - $start
 
@@ -113,8 +114,8 @@ def main [
 				$'(ansi red)✗(ansi reset)'
 			}
 			print -e $'($symbol) ($result.name) ($result.duration)'
-			if $result.output.exit_code != 0 {
-				print -e $result.output.stderr
+			if $print_output or $result.output.exit_code != 0 {
+				print -e $result.output.stdout
 			}
 
 			# Store the result.
@@ -457,6 +458,21 @@ export def --env spawn [
 	}
 
 	{ config: $config_path, directory: $directory_path, url: $url }
+}
+
+export def --wrapped run [...command] {
+	let output = ^$command.0 ...($command | skip 1) | complete
+	if $output.exit_code != 0 {
+		print -e $output.stderr
+		error make {
+			msg: "the process failed",
+			label: {
+				span: (metadata $command).span,
+				text: "the command",
+			}
+		}
+	}
+	$output.stdout
 }
 
 export def --env success [

@@ -23,4 +23,4 @@ snapshot -n metadata $metadata
 
 # This should not create a lockfile since it only has a local path dependency.
 let lockfile_path = $path | path join 'foo' 'tangram.lock'
-assert (not ($lockfile_path | path exists)) "The lockfile should not exist for local path dependencies."
+assert (not ($lockfile_path | path exists)) "the lockfile should not exist for local path dependencies"

@@ -22,4 +22,4 @@ let path = artifact {
 # Start the build.
 let output = tg build ($path + '#foo') | complete
 failure $output
-assert ($output.stderr | str contains 'heartbeat expired') "The error should mention heartbeat expired."
+assert ($output.stderr | str contains 'heartbeat expired') "the error should mention heartbeat expired"

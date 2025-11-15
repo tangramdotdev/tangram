@@ -39,4 +39,4 @@ tg -u $local2.url index
 let output2 = tg -u $local2.url object get --blobs --depth=inf --pretty $id2
 
 # Confirm that the two outputs are the same.
-assert ($output1 == $output2) "The checkin command should produce the same output after clean."
+assert ($output1 == $output2) "the checkin should produce the same output after clean"

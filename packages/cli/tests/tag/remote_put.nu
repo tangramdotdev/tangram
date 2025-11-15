@@ -22,4 +22,4 @@ let local_output = tg tag get $tag | from json
 let remote_output = tg --url $remote.url tag get $tag | from json
 
 # The items should be the same.
-assert ($local_output.item == $remote_output.item) "The items should match."
+assert ($local_output.item == $remote_output.item) "the items should match"

@@ -9,7 +9,7 @@ let path = artifact {
 }
 
 let output = tg checkin $path | complete
-failure $output "The command should fail when the tag does not exist."
+failure $output "the checkin should fail when the tag does not exist"
 let stdout = $output.stdout | str replace -a $path ''
 let stderr = $output.stderr | str replace -a $path ''
 snapshot -n stderr $stderr

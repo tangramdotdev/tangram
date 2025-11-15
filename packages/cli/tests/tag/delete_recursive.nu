@@ -15,7 +15,7 @@ for tag in $tags {
 
 # Verify tags exist.
 let output = tg tag list "test/*"
-assert (($output | from json | length) > 0) "The tags should exist."
+assert (($output | from json | length) > 0) "the tags should exist"
 
 # Recursively delete from the root - should delete all children in correct order.
 let output = tg tag delete --recursive "test/*"

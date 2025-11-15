@@ -34,5 +34,4 @@ let id2 = tg -u $local2.url checkin $path
 tg -u $local2.url index
 let output2 = tg -u $local2.url object get --blobs --depth=inf --pretty $id2
 
-# Confirm that the two outputs are identical (reproducible).
-assert ($output1 == $output2) "The checkin command should be reproducible across different servers."
+assert ($output1 == $output2) "the checkout should be reproducible across different servers."

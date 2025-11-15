@@ -28,4 +28,4 @@ let path = artifact {
 
 let output = tg build ($path + '#foo') | complete
 failure $output
-assert ($output.stderr | str contains 'maximum depth exceeded') "The error should mention maximum depth exceeded."
+assert ($output.stderr | str contains 'maximum depth exceeded') "the error should mention maximum depth exceeded"
