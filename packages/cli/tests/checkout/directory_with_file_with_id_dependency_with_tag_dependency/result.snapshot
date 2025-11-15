@@ -15,7 +15,10 @@
             "fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0": {
               "kind": "file",
               "contents": "bar",
-              "executable": false
+              "executable": false,
+              "xattrs": {
+                "user.tangram.dependencies": "[\"baz\"]"
+              }
             }
           }
         }
@@ -24,7 +27,10 @@
     "foo": {
       "kind": "file",
       "contents": "foo",
-      "executable": false
+      "executable": false,
+      "xattrs": {
+        "user.tangram.dependencies": "[\"fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0\"]"
+      }
     }
   }
 }

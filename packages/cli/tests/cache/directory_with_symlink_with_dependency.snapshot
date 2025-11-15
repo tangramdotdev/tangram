@@ -15,9 +15,9 @@
       "contents": "bar",
       "executable": false
     },
-    "fil_01qt7gahyfjc54fw0f3qcm79ft5bcg8q10qagvjn3zvgpyvxdm0j0g": {
+    "fil_01ma3sjr26srermw0wjgyhftxancecqx3enjd4prkxetb4dzaknn0g": {
       "kind": "file",
-      "contents": "export default () => {\n\treturn tg.directory({\n\t\tfoo: tg.symlink(tg.file(\"bar\")),\n\t});\n}\n",
+      "contents": "export default () => {\n\treturn tg.directory({\n\t\tfoo: tg.symlink(tg.file(\"bar\")),\n\t});\n}",
       "executable": false
     }
   }

@@ -6,9 +6,9 @@
       "contents": "Hello, World!",
       "executable": true
     },
-    "fil_01sypjs1f3tceazrht9bcq8zhtp7hkbzeys0sv23g5yytd3p266ksg": {
+    "fil_01s9tpdrxj8g8eh6af3wfy6h5h0vq0gkp3hchezfd1t1e05n6srs10": {
       "kind": "file",
-      "contents": "export default () => {\n\treturn tg.file(\"Hello, World!\", { executable: true });\n}\n",
+      "contents": "export default () => {\n\treturn tg.file(\"Hello, World!\", { executable: true });\n}",
       "executable": false
     }
   }

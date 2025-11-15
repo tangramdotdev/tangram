@@ -19,7 +19,10 @@
     "foo": {
       "kind": "file",
       "contents": "foo",
-      "executable": false
+      "executable": false,
+      "xattrs": {
+        "user.tangram.dependencies": "[\"bar\"]"
+      }
     },
     "tangram.lock": {
       "kind": "file",

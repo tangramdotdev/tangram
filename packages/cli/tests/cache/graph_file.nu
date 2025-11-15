@@ -22,7 +22,9 @@ let path = artifact {
 let id = tg build $path | complete | get stdout | str trim
 
 # Cache the artifact.
-tg cache $id | complete | success
+let output = tg cache $id | complete
+
+success $output
 
 # Get the cached artifacts.
 let artifacts_path = $server.directory | path join "artifacts"

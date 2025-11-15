@@ -28,12 +28,18 @@
     "bar.txt": {
       "kind": "file",
       "contents": "bar",
-      "executable": false
+      "executable": false,
+      "xattrs": {
+        "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
+      }
     },
     "foo.txt": {
       "kind": "file",
       "contents": "foo",
-      "executable": false
+      "executable": false,
+      "xattrs": {
+        "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
+      }
     }
   }
 }

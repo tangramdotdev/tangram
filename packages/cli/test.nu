@@ -383,7 +383,24 @@ def path_to_json [path: string] {
 	} else if $type == 'file' {
 		let contents = open $path
 		let executable = ls -l $path | first | get mode | str contains 'x'
-		{ kind: 'file', contents: $contents, executable: $executable }
+
+		# Read extended attributes (only user.tangram.* ones)
+		let xattr_names = xattr $path | lines | where { |name| $name starts-with 'user.tangram' }
+		let xattrs = if ($xattr_names | is-empty) {
+			{}
+		} else {
+			$xattr_names | reduce -f {} { |name, acc|
+				let value = xattr -p $name $path | str trim
+				$acc | insert $name $value
+			}
+		}
+
+		# Only include xattrs field if there are any
+		if ($xattrs | is-empty) {
+			{ kind: 'file', contents: $contents, executable: $executable }
+		} else {
+			{ kind: 'file', contents: $contents, executable: $executable, xattrs: $xattrs }
+		}
 	} else if $type == 'symlink' {
 		let target = do -i { ls -l $path | first | get target }
 		if $target == null {

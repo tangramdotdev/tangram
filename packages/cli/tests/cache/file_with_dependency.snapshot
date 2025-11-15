@@ -6,11 +6,6 @@
       "contents": "bar",
       "executable": false
     },
-    "fil_01epw23z8dy6w1w2tfvhzs8mdtr6zye7ackxcdhkjt7174bd5y73jg": {
-      "kind": "file",
-      "contents": "export default () => {\n\treturn tg.file(\"foo\", {\n\t\tdependencies: {\n\t\t\t\"bar\": tg.file(\"bar\"),\n\t\t},\n\t});\n}\n",
-      "executable": false
-    },
     "fil_01kkwpqw5jmbt5md0ck62tnwrf5mrn75atrrf05n2338yqrdfc1800": {
       "kind": "file",
       "contents": "foo",
@@ -18,6 +13,11 @@
       "xattrs": {
         "user.tangram.dependencies": "[\"bar\"]"
       }
+    },
+    "fil_01r4w78t8c53ncnetxdkrd3m5ezaf0zpfn5gr0rpz07qjx42nqy65g": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.file(\"foo\", {\n\t\tdependencies: {\n\t\t\t\"bar\": tg.file(\"bar\"),\n\t\t},\n\t});\n}",
+      "executable": false
     }
   }
 }

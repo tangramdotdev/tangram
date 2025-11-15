@@ -1,9 +1,9 @@
 {
   "kind": "directory",
   "entries": {
-    "fil_01j2905wk3r0yr5q75zj04r0mn3s8qvkyaxvfq7bc57mxst4e10wcg": {
+    "fil_01h2hnhadn3604qd96sf1xtbwrcbd4zwe8bvc412jdrwqnyv69d8j0": {
       "kind": "file",
-      "contents": "export default () => {\n\treturn tg.symlink(\"/bin/sh\");\n}\n",
+      "contents": "export default () => {\n\treturn tg.symlink(\"/bin/sh\");\n}",
       "executable": false
     },
     "sym_01a5tvcfq8dj5pdwe4v5q0g0mjfk2b4daazgb8e9vbsd3ksd1j368g": {
