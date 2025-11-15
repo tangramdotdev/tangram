@@ -1,0 +1,28 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_01y4pdrkvwrpe63trn2jaqs59fm012wdymntq6nm0qcfd4a0se4d40": {
+      "kind": "directory",
+      "entries": {
+        "foo": {
+          "kind": "file",
+          "contents": "foo",
+          "executable": false,
+          "xattrs": {
+            "user.tangram.dependencies": "[\"bar\"]"
+          }
+        }
+      }
+    },
+    "fil_0101xcwnyk8v568vmb65ytg3ffm0nrzacvzpm8pzw6vtffnc2pwz70": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.directory({\n\t\tfoo: tg.file(\"foo\", {\n\t\t\tdependencies: {\n\t\t\t\t\"bar\": tg.file(\"bar\"),\n\t\t\t},\n\t\t}),\n\t});\n}\n",
+      "executable": false
+    },
+    "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
+      "kind": "file",
+      "contents": "bar",
+      "executable": false
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "kind": "directory",
+  "entries": {
+    "fil_018gyv78y738ns83fmn1rrsvfs8fey4dqv8ygbx02khbka4kh67wc0": {
+      "kind": "file",
+      "contents": "Hello, World!",
+      "executable": true
+    },
+    "fil_01sypjs1f3tceazrht9bcq8zhtp7hkbzeys0sv23g5yytd3p266ksg": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.file(\"Hello, World!\", { executable: true });\n}\n",
+      "executable": false
+    }
+  }
+}

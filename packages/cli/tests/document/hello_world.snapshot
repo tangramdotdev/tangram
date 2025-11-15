@@ -1,0 +1,71 @@
+{
+  "exports": {
+    "default": {
+      "variable": [
+        {
+          "comment": {
+            "tags": [],
+            "text": ""
+          },
+          "location": {
+            "module": {
+              "kind": "ts",
+              "referent": {
+                "item": "fil_01vvkyddtnt47ycfg7nkxdmywd33azmbjpd2pnesnzqzxpe7ytvx9g",
+                "options": {
+                  "path": "tangram.ts"
+                }
+              }
+            },
+            "range": {
+              "end": {
+                "character": 37,
+                "line": 0
+              },
+              "start": {
+                "character": 0,
+                "line": 0
+              }
+            }
+          },
+          "type": {
+            "kind": "function",
+            "value": {
+              "signatures": [
+                {
+                  "location": {
+                    "module": {
+                      "kind": "ts",
+                      "referent": {
+                        "item": "fil_01vvkyddtnt47ycfg7nkxdmywd33azmbjpd2pnesnzqzxpe7ytvx9g",
+                        "options": {
+                          "path": "tangram.ts"
+                        }
+                      }
+                    },
+                    "range": {
+                      "end": {
+                        "character": 36,
+                        "line": 0
+                      },
+                      "start": {
+                        "character": 15,
+                        "line": 0
+                      }
+                    }
+                  },
+                  "parameters": {},
+                  "return": {
+                    "kind": "keyword",
+                    "value": "string"
+                  },
+                  "typeParameters": {}
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
