@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let temp_dir = mktemp -d
+let tmp = mktemp -d
 
 let server = spawn
 
@@ -26,16 +26,11 @@ let path = artifact {
 	'
 }
 
-# Build.
 let id = tg build $path
-
-# Checkout with dependencies.
-let checkout_path = $temp_dir | path join "checkout"
+let checkout_path = $tmp | path join "checkout"
 tg checkout --dependencies=true $id $checkout_path
-
 snapshot -n result --path $checkout_path
 
-# Also verify the lockfile structure.
 let lockfile_path = $checkout_path | path join 'tangram.lock'
 let lockfile = open $lockfile_path | from json
 snapshot -n lockfile ($lockfile | to json -i 2)

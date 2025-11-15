@@ -1,5 +1,7 @@
 use ../test.nu *
 
+let tmp = mktemp -d
+
 # Spawn a remote and local server.
 let remote = spawn -n remote
 let local = spawn -n local -c {
@@ -35,6 +37,6 @@ snapshot -n remote $output
 run tg remote put default $remote.url
 
 # Check out the artifact, confirming it is pulled from the remote.
-let path = (mktemp -d) | path join "output"
+let path = $tmp | path join "output"
 run tg checkout $id $path
 snapshot -n checkout --path $path

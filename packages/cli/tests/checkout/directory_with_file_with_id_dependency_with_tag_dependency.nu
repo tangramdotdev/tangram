@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let temp_dir = mktemp -d
+let tmp = mktemp -d
 
 let server = spawn
 
@@ -25,11 +25,7 @@ let path = artifact {
 	'
 }
 
-# Build.
 let id = tg build $path
-
-# Checkout with dependencies.
-let checkout_path = $temp_dir | path join "checkout"
+let checkout_path = $tmp | path join "checkout"
 tg checkout --dependencies=true $id $checkout_path
-
 snapshot -n result --path $checkout_path

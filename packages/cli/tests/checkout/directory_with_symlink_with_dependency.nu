@@ -14,12 +14,7 @@ let path = artifact {
 	'
 }
 
-# Build.
 let id = tg build $path
-
 let checkout_path = $tmp | path join "checkout"
-
-# Checkout with dependencies.
 tg checkout --dependencies=true $id $checkout_path
-
 snapshot -n result --path $checkout_path

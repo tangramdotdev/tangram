@@ -91,8 +91,8 @@ def main [
 		$running = $running | append $id
 	}
 
-	# Spawn a background job that sends null every 100ms to trigger progress updates.
-	let ticker_job = job spawn {
+	# Spawn a job that sends a null message every 100ms to trigger progress updates.
+	let interval_job = job spawn {
 		loop {
 			sleep 1sec
 			null | job send 0
@@ -115,7 +115,7 @@ def main [
 			}
 			print -e $'($symbol) ($result.name) ($result.duration)'
 			if $print_output or $result.output.exit_code != 0 {
-				print -e $result.output.stdout
+				print -ne $result.output.stdout
 			}
 
 			# Store the result.
@@ -142,12 +142,12 @@ def main [
 		let bar = if $filled > 0 { (1..$filled | each { '=' } | str join) + '>' } else { '>' }
 		let bar = if $filled < 10 { $bar + (1..(9 - $filled) | each { ' ' } | str join) } else { $bar }
 		let elapsed = ((date now) - $start) / 1sec | math floor | into duration -u sec
-		let progress = $"[($bar)] ($completed)/($total): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)"
-		print -e -n $"($progress)"
+		let progress = $'[($bar)] ($completed)/($total): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)'
+		print -e -n $'($progress)'
 	}
 
 	# Clear the progress bar.
-	job kill $ticker_job
+	job kill $interval_job
 	print -e -n "\e[2K\r"
 
 	if $review {
@@ -259,8 +259,7 @@ export def doc [string: string] {
 		$lines = $lines | drop
 	}
 
-	# Get the number of leading tabs to remove.
-	# Filter out lines that are empty or contain only tabs and spaces.
+	# Get the number of leading tabs to remove. Filter out lines that are empty or contain only tabs and spaces.
 	let non_whitespace_lines = $lines | where { |line|
 		let trimmed = $line | str trim
 		($trimmed | str length) > 0
@@ -334,10 +333,10 @@ export def --env snapshot [
 	if not ($snapshot_path | path exists) {
 		$new_value | save -f $pending_path
 		error make {
-			msg: "the snapshot does not exist",
+			msg: 'the snapshot does not exist',
 			label: {
 				span: (metadata $value).span,
-				text: "the value",
+				text: 'the value',
 			}
 		}
 	}
@@ -357,10 +356,10 @@ export def --env snapshot [
 				$pending_path
 		) | complete | get stdout
 		error make {
-			msg: "the snapshot does not match",
+			msg: 'the snapshot does not match',
 			label: {
 				span: (metadata $value).span,
-				text: "the value",
+				text: 'the value',
 			},
 			help: $help
 		}
@@ -423,7 +422,7 @@ export def --env spawn [
 
 	# Spawn the server.
 	match $nu.os-info.name {
-		"macos" => {
+		'macos' => {
 			job spawn {
 				bash -c $"
 					PARENT_PID=$PPID
@@ -438,7 +437,7 @@ export def --env spawn [
 				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
 			}
 		}
-		"linux" => {
+		'linux' => {
 			job spawn {
 				(
 					setpriv --pdeathsig SIGKILL
@@ -463,13 +462,13 @@ export def --env spawn [
 export def --wrapped run [...command] {
 	let output = ^$command.0 ...($command | skip 1) | complete
 	if $output.exit_code != 0 {
-		print -e $output.stderr
 		error make {
-			msg: "the process failed",
+			msg: 'the process failed',
 			label: {
 				span: (metadata $command).span,
-				text: "the command",
-			}
+				text: 'the command',
+			},
+			help: $output.stderr,
 		}
 	}
 	$output.stdout
@@ -480,13 +479,13 @@ export def --env success [
 	message?: string
 ] {
 	if $output.exit_code != 0 {
-		print -e $output.stderr
 		error make {
-			msg: ($message | default "the process failed"),
+			msg: ($message | default 'the process failed'),
 			label: {
 				span: (metadata $output).span,
-				text: "the output",
-			}
+				text: 'the output',
+			},
+			help: $output.stderr,
 		}
 	}
 }
@@ -496,13 +495,13 @@ export def --env failure [
 	message?: string
 ] {
 	if $output.exit_code == 0 {
-		print -e $output.stderr
 		error make {
-			msg: ($message | default "the process succeeded"),
+			msg: ($message | default 'the process succeeded'),
 			label: {
 				span: (metadata $output).span,
-				text: "the output",
+				text: 'the output',
 			}
+			help: $output.stderr,
 		}
 	}
 }
