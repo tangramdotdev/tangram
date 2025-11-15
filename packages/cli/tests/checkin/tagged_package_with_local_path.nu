@@ -4,21 +4,21 @@ let server = spawn
 
 # Tag the a dependency.
 let a_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => "a";
 	'
 }
 tg tag a $a_path
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import a from "a" with { local: "../a" };
 		export default tg.command(async () => {
 			return await a();
 		});
 	'
-	'a': {
-		'tangram.ts': '
+	a: {
+		tangram.ts: '
 			export default () => "a";
 		'
 	}

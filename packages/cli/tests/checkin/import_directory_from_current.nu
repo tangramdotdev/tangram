@@ -4,8 +4,8 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'a': {
-		'mod.tg.ts': 'import a from ".";'
+	a: {
+		mod.tg.ts: 'import a from ".";'
 	}
 }
 

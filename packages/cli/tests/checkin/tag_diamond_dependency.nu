@@ -4,21 +4,21 @@ let server = spawn
 
 # Tag the dependencies.
 let d1_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => "d/1.0.0";
 	'
 }
 tg tag d/1.0.0 $d1_path
 
 let d11_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => "d/1.1.0";
 	'
 }
 tg tag d/1.1.0 $d11_path
 
 let b_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import d from "d/^1";
 		export default () => "b";
 	'
@@ -26,7 +26,7 @@ let b_path = artifact {
 tg tag b $b_path
 
 let c_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import d from "d/^1.0";
 		export default () => "c";
 	'
@@ -34,7 +34,7 @@ let c_path = artifact {
 tg tag c $c_path
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import b from "b";
 		import c from "c";
 	'

@@ -4,8 +4,8 @@ use std assert
 let server = spawn
 
 let path = artifact {
-	'file': 'hello!'
-	'link': (symlink 'file')
+	file: 'hello!'
+	link: (symlink 'file')
 }
 
 # Checkin.

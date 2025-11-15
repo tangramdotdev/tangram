@@ -4,10 +4,10 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'hello.txt': 'Hello, world!'
-	'link': (symlink 'hello.txt')
-	'subdirectory': {
-		'sublink': (symlink '../link')
+	hello.txt: 'Hello, world!'
+	link: (symlink 'hello.txt')
+	subdirectory: {
+		sublink: (symlink '../link')
 	}
 }
 

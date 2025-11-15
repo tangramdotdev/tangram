@@ -4,14 +4,14 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'.tangramignore': '/ignored'
-	'ignored': {
-		'.tangramignore': 'foo.txt'
-		'tangram.ts': 'import * as dependency from "./dependency.tg.ts";'
-		'dependency.tg.ts': ''
-		'foo.txt': 'hello, foo'
+	.tangramignore: '/ignored'
+	ignored: {
+		.tangramignore: 'foo.txt'
+		tangram.ts: 'import * as dependency from "./dependency.tg.ts";'
+		dependency.tg.ts: ''
+		foo.txt: 'hello, foo'
 	}
-	'tangram.ts': ''
+	tangram.ts: ''
 }
 
 let id = tg checkin ($path | path join 'ignored')

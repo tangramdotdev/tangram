@@ -4,12 +4,12 @@ let server = spawn
 
 # Tag the hello dependency.
 let hello_path = artifact {
-	'contents': 'Hello, world!'
+	contents: 'Hello, world!'
 }
 tg tag hello ($hello_path | path join 'contents')
 
 let path = artifact {
-	'tangram.ts': 'import hello from "hello";'
+	tangram.ts: 'import hello from "hello";'
 }
 
 let id = tg checkin $path

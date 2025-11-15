@@ -10,7 +10,7 @@ let local = spawn -n local -c {
 
 # Check in the artifact.
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => "Hello, World!";
 	'
 }

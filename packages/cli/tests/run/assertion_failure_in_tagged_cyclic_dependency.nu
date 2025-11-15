@@ -5,14 +5,14 @@ let server = spawn
 
 let foo = artifact {
 	foo: {
-		'tangram.ts': '
+		tangram.ts: '
 			import bar from "../bar";
 			export default () => bar();
 			export const failure = () => tg.assert(false, "failure in foo");
 		'
 	}
 	bar: {
-		'tangram.ts': '
+		tangram.ts: '
 			import { failure } from "../foo";
 			export default () => failure();
 		'
@@ -21,7 +21,7 @@ let foo = artifact {
 tg tag foo ($foo | path join 'foo')
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import foo from "foo";
 		export default () => foo();
 	'

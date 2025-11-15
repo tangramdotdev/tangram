@@ -219,6 +219,9 @@ export def artifact [artifact] {
 				if $artifact.executable {
 					chmod +x $path
 				}
+				for pair in (($artifact.xattrs? | default {}) | transpose key value) {
+					xattr -w $pair.key $pair.value $path
+				}
 			}
 			'symlink' => {
 				ln -s $artifact.path $path
@@ -235,10 +238,11 @@ export def directory [entries: record] {
 }
 
 export def file [
-	contents: string
 	--executable (-x)
+	--xattrs: record
+	contents?: string
 ] {
-	{ kind: 'file', contents: (doc $contents), executable: $executable }
+	{ kind: 'file', contents: (doc ($contents | default '')), executable: $executable, xattrs: $xattrs }
 }
 
 export def symlink [path: string] {

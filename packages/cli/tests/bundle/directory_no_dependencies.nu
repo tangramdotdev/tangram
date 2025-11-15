@@ -3,8 +3,8 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'file': 'hello'
-	'link': (symlink 'link')
+	file: 'hello'
+	link: (symlink 'link')
 }
 
 # Check in the directory.

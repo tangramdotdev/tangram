@@ -4,14 +4,14 @@ let server = spawn
 
 let path = artifact {
 	foo: {
-		'tangram.ts': '
+		tangram.ts: '
 			import bar from "../bar";
 			export default () => tg.build(bar);
 			export let greeting = () => "foo";
 		'
 	}
 	bar: {
-		'tangram.ts': '
+		tangram.ts: '
 			import * as foo from "../foo";
 			export default () => tg.build(foo.greeting);
 		'

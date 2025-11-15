@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => {
 			let a = "string!";
 			return tg.file`\n\tHello, World!\n\t${a}\n`.then((f) => f.text());

@@ -4,7 +4,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.lock': '
+	tangram.lock: '
 		{
 			"nodes": [
 				{
@@ -13,8 +13,8 @@ let path = artifact {
 			]
 		}
 	'
-	'a': {
-		'tangram.ts': ''
+	a: {
+		tangram.ts: ''
 	}
 }
 

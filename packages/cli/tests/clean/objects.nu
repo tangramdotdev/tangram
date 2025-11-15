@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export let a = () => tg.directory({
 			"b": tg.build(b),
 			"c": tg.build(c),

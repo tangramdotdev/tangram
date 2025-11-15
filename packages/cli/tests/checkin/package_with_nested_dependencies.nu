@@ -4,15 +4,15 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'bar': {
-		'tangram.ts': '
+	bar: {
+		tangram.ts: '
 			import * as baz from "../baz";
 		'
 	}
-	'baz': {
-		'tangram.ts': ''
+	baz: {
+		tangram.ts: ''
 	}
-	'tangram.ts': '
+	tangram.ts: '
 		import * as bar from "./bar";
 		import * as baz from "./baz";
 	'

@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => {
 			let graph = tg.graph({
 				nodes: [

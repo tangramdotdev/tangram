@@ -11,7 +11,7 @@ let output = tg remote put default $remote_server.url | complete
 success $output
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => {
 			return tg.file("Hello, World!")
 		}

@@ -10,7 +10,7 @@ let server = spawn -c {
 
 # Create a build that goes deeper than max_depth.
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export let foo = async () => {
 			await tg.build(bar);
 		};

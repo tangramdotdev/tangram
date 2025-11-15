@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import directory from "./directory" with { type: "directory" };
 		export default async () =>
 			directory.get("hello.txt")
@@ -12,7 +12,7 @@ let path = artifact {
 		;
 	'
 	directory: {
-		'hello.txt': 'Hello, World!'
+		hello.txt: 'Hello, World!'
 	}
 }
 

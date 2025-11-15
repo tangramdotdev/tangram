@@ -4,16 +4,16 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'directory': {
-		'a': {
-			'b': {
-				'c': (symlink '../../a/d/e')
+	directory: {
+		a: {
+			b: {
+				c: (symlink '../../a/d/e')
 			}
-			'd': {
-				'e': (symlink '../../a/f/g')
+			d: {
+				e: (symlink '../../a/f/g')
 			}
-			'f': {
-				'g': ''
+			f: {
+				g: ''
 			}
 		}
 	}

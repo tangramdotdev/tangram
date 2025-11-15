@@ -4,12 +4,12 @@ use std assert
 let server = spawn
 
 let path = artifact {
-	'.tangram': (directory {
-		'artifacts': (directory {
-			'dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg': (directory {})
+	.tangram: (directory {
+		artifacts: (directory {
+			dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg: (directory {})
 		})
 	})
-	'link': (symlink '.tangram/artifacts/dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg')
+	link: (symlink '.tangram/artifacts/dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg')
 }
 
 # Checkin.

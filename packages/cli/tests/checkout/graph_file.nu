@@ -5,7 +5,7 @@ let tmp = mktemp -d
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => {
 			let graph = tg.graph({
 				nodes: [{

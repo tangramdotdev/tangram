@@ -4,7 +4,7 @@ use ../../test.nu *
 # Create a remote server and tag the foo object on it.
 let remote = spawn -n remote
 let foo_path = artifact {
-	'contents': 'foo'
+	contents: 'foo'
 }
 tg -u $remote.url tag foo ($foo_path | path join 'contents')
 
@@ -19,7 +19,7 @@ let local2 = spawn -n local2 -c {
 
 # Create an artifact that imports the tagged object.
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import * as foo from "foo";
 	'
 }

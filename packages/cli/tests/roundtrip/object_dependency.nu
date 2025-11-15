@@ -1,40 +1,38 @@
 use ../../test.nu *
 use std assert
 
+let tmp = mktemp -d
+
 let server = spawn
 
 # Create and tag the empty directory dependency.
 let empty_path = artifact {}
-let output = tg tag empty $empty_path | complete
-success $output
+run tg tag empty $empty_path
 
 # Create a file with xattr dependency.
-let temp_dir = mktemp -d
-let file_path = $temp_dir | path join "file"
-'' | save -f $file_path
-xattr -w user.tangram.dependencies '[\"dir_01ezfk780pwqd3cp3zxan1tycvgtnse2j1nh34y840xh8633rt3a00\"]' $file_path
+let path = artifact {
+  tangram.ts: (file --xattrs {
+    user.tangram.dependencies: '["dir_01ezfk780pwqd3cp3zxan1tycvgtnse2j1nh34y840xh8633rt3a00"]'
+  })
+}
 
 # Checkin with deterministic flag.
-let first_id = tg checkin --deterministic $file_path | complete | get stdout | str trim
+let left = run tg checkin --deterministic $path
 
 # Checkout.
-let checkout_path1 = $temp_dir | path join "checkout1"
-let output = tg checkout $first_id $checkout_path1 | complete
-success $output
+let checkout_path1 = $tmp | path join "checkout1"
+run tg checkout $left $checkout_path1 
 
 # Clean.
-let output = tg tag delete empty | complete
-success $output
-let output = tg clean | complete
-success $output
+run tg tag delete empty
+run tg clean
 
 # Checkin again with deterministic flag.
-let second_id = tg checkin --deterministic $checkout_path1 | complete | get stdout | str trim
+let right = tg checkin --deterministic $checkout_path1
 
 # Checkout again.
-let checkout_path2 = $temp_dir | path join "checkout2"
-let output = tg checkout $second_id $checkout_path2 | complete
-success $output
+let checkout_path2 = $tmp | path join "checkout2"
+run tg checkout $right $checkout_path2
 
 # Verify IDs match.
-assert equal $first_id $second_id
+assert equal $left $right

@@ -5,7 +5,7 @@ let remote = spawn -n remote
 
 # Tag the referent on the remote server.
 let referent_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => "foo";
 	'
 }
@@ -18,7 +18,7 @@ let local = spawn -n local -c {
 
 # Check in the referrer on the local server.
 let referrer_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import foo from "foo";
 		export default () => foo();
 	'

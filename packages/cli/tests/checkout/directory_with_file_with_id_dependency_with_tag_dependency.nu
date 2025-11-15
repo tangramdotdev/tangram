@@ -5,7 +5,7 @@ let tmp = mktemp -d
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default async () => {
 			let dependency = await tg.file("bar", { dependencies: { baz: tg.file("baz") } });
 			return tg.directory({

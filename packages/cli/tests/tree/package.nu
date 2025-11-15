@@ -4,20 +4,20 @@ let server = spawn
 
 # Create and tag dependencies.
 let foo_path = artifact {
-	'tangram.ts': '// foo'
+	tangram.ts: '// foo'
 }
 let output = tg tag foo $foo_path | complete
 success $output
 
 let bar_path = artifact {
-	'tangram.ts': 'import * as foo from "foo"'
+	tangram.ts: 'import * as foo from "foo"'
 }
 let output = tg tag bar $bar_path | complete
 success $output
 
 # Create the main artifact.
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import * as foo from "foo";
 		import * as bar from "bar";
 	'

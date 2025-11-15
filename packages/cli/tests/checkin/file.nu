@@ -4,7 +4,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'README.md': 'Hello, World!'
+	README.md: 'Hello, World!'
 }
 
 let id = tg checkin $path

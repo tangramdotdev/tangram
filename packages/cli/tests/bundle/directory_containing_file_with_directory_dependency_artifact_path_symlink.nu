@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default async () => {
 			let inner_dir = tg.directory({
 				"a": tg.file("a"),

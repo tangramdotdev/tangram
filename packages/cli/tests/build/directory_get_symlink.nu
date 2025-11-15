@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default async () => {
 			let directory = await tg.directory({
 				"hello.txt": "Hello, World!",

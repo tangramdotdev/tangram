@@ -1,5 +1,4 @@
 {
   "kind": "file",
-  "contents": "hello",
-  "executable": false
+  "contents": "hello"
 }

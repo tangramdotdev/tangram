@@ -5,7 +5,7 @@ let tmp = mktemp -d
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default () => {
 			return tg.directory({
 				"foo": tg.symlink({artifact: tg.file("bar")})

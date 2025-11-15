@@ -4,9 +4,9 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': 'import "./b.tg.ts";'
-	'b.tg.ts': ''
-	'tangram.lock': '{
+	tangram.ts: 'import "./b.tg.ts";'
+	b.tg.ts: ''
+	tangram.lock: '{
 		"nodes": [
 			{
 				"kind": "directory",

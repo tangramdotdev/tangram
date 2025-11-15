@@ -4,17 +4,17 @@ let server = spawn
 
 # Tag the a dependency.
 let a_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import foo from "./foo.tg.ts";
 	'
-	'foo.tg.ts': '
+	foo.tg.ts: '
 		import * as a from "./tangram.ts";
 	'
 }
 tg tag a $a_path
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import a from "a";
 	'
 }

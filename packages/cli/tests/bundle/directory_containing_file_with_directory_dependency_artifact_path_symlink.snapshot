@@ -12,8 +12,7 @@
               "entries": {
                 "dep": {
                   "kind": "file",
-                  "contents": "dependency",
-                  "executable": false
+                  "contents": "dependency"
                 },
                 "link": {
                   "kind": "symlink",
@@ -26,8 +25,7 @@
               "entries": {
                 "a": {
                   "kind": "file",
-                  "contents": "a",
-                  "executable": false
+                  "contents": "a"
                 }
               }
             }

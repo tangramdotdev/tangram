@@ -58,11 +58,7 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
-					if dbg!(&event)
-						.event
-						.as_deref()
-						.is_some_and(|event| event == "error")
-					{
+					if event.event.as_deref().is_some_and(|event| event == "error") {
 						match event.try_into() {
 							Ok(error) | Err(error) => Err(error),
 						}

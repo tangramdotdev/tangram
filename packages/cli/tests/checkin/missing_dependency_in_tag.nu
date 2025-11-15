@@ -4,7 +4,7 @@ let server = spawn
 
 # Tag foo which depends on bar (but bar does not exist).
 let foo_path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import bar from "bar";
 		export default () => bar();
 	'
@@ -14,7 +14,7 @@ success $tag_output "the tag command should succeed with --no-solve"
 
 # Try to check in a package that depends on foo.
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import foo from "foo";
 		export default () => foo();
 	'

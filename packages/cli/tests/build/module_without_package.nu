@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'foo.tg.ts': '
+	foo.tg.ts: '
 		export default () => "Hello, World!";
 	'
 }

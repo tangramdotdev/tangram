@@ -5,14 +5,14 @@ let server = spawn
 
 # Create and tag the foo dependency.
 let foo_path = artifact {
-	'tangram.ts': ''
+	tangram.ts: ''
 }
 let output = tg tag foo/1.0.0 $foo_path | complete
 success $output
 
 # Create the main artifact.
 let path = artifact {
-	'tangram.ts': 'import * as foo from "foo/*"'
+	tangram.ts: 'import * as foo from "foo/*"'
 }
 
 # Checkin.

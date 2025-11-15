@@ -4,7 +4,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'link': (symlink '.')
+	link: (symlink '.')
 }
 
 let id = tg checkin $path

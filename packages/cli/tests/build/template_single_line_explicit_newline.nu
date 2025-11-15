@@ -3,13 +3,13 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import foo from "./foo.txt";
 		import bar from "./bar.txt";
 		export default () => tg`${foo}\n${bar}`;
 	'
-	'foo.txt': 'foo'
-	'bar.txt': 'bar'
+	foo.txt: 'foo'
+	bar.txt: 'bar'
 }
 
 let output = tg build $path | complete

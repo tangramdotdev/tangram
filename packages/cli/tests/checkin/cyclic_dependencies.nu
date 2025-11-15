@@ -4,12 +4,12 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'directory': {
-		'foo': {
-			'tangram.ts': 'import * as bar from "../bar";'
+	directory: {
+		foo: {
+			tangram.ts: 'import * as bar from "../bar";'
 		}
-		'bar': {
-			'tangram.ts': 'import * as foo from "../foo";'
+		bar: {
+			tangram.ts: 'import * as foo from "../foo";'
 		}
 	}
 }

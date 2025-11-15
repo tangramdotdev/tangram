@@ -4,14 +4,14 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'.DS_Store': ''
-	'.git': {
-		'config': ''
+	.DS_Store: ''
+	.git: {
+		config: ''
 	}
-	'.tangram': {
-		'config': ''
+	.tangram: {
+		config: ''
 	}
-	'tangram.ts': ''
+	tangram.ts: ''
 }
 
 let id = tg checkin $path

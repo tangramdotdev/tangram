@@ -3,7 +3,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export default async () => {
 			let results = await Promise.all(Array.from(Array(100).keys()).map((i) => tg.run(double, i)));
 			return results.reduce((acc, el) => acc + el, 0);

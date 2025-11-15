@@ -11,7 +11,7 @@ let server = spawn -c {
 
 # Create a long-running process.
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		export let foo = async () => {
 			await tg.sleep(2);
 			return "done";

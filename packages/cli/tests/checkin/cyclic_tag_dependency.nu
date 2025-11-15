@@ -8,13 +8,13 @@ tg tag b $empty_b
 
 # Create a and b with cyclic dependencies.
 let path = artifact {
-	'a': {
-		'tangram.ts': '
+	a: {
+		tangram.ts: '
 			import b from "b" with { local: "../b" };
 		'
 	}
-	'b': {
-		'tangram.ts': '
+	b: {
+		tangram.ts: '
 			import a from "a" with { local: "../a" };
 		'
 	}

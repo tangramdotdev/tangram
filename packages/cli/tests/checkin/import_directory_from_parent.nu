@@ -4,8 +4,8 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'a': {}
-	'tangram.ts': 'import a from "./a";'
+	a: {}
+	tangram.ts: 'import a from "./a";'
 }
 
 let id = tg checkin $path

@@ -15,7 +15,7 @@ for version in ["1.0.0" "1.1.0" "2.0.0"] {
 
 # Create something that uses it.
 let path = artifact {
-	'tangram.ts': '
+	tangram.ts: '
 		import hello from "hello/^1.0";
 	'
 }

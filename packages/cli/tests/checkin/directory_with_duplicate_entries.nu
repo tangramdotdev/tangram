@@ -4,8 +4,8 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	'a.txt': 'Hello, World!'
-	'b.txt': 'Hello, World!'
+	a.txt: 'Hello, World!'
+	b.txt: 'Hello, World!'
 }
 
 let id = tg checkin $path
