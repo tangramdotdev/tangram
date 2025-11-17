@@ -1,76 +1,174 @@
 use {
 	super::{Graph, NodeInner},
-	crate::{Server, index::message::ProcessObjectKind},
+	crate::{Server, index::message::ProcessObjectKind, sync::get::State},
 	bytes::Bytes,
-	futures::prelude::*,
-	std::{
-		collections::BTreeMap,
-		pin::pin,
-		sync::{Arc, Mutex},
-	},
+	futures::{StreamExt as _, TryStreamExt as _},
+	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-const PROCESS_COMPLETE_BATCH_SIZE: usize = 8;
-const PROCESS_COMPLETE_CONCURRENCY: usize = 8;
-const OBJECT_COMPLETE_BATCH_SIZE: usize = 64;
-const OBJECT_COMPLETE_CONCURRENCY: usize = 8;
+const PROCESS_BATCH_SIZE: usize = 16;
+const PROCESS_CONCURRENCY: usize = 8;
+const OBJECT_BATCH_SIZE: usize = 16;
+const OBJECT_CONCURRENCY: usize = 8;
+
 const INDEX_MESSAGE_MAX_BYTES: usize = 1_000_000;
 
+pub struct ProcessItem {
+	pub id: tg::process::Id,
+	pub missing: bool,
+}
+
+pub struct ObjectItem {
+	pub id: tg::object::Id,
+	pub missing: bool,
+}
+
 impl Server {
-	pub(super) async fn sync_get_index(
+	pub(super) async fn sync_get_index_task(
 		&self,
-		graph: Arc<Mutex<Graph>>,
-		process_complete_receiver: tokio::sync::mpsc::Receiver<tg::sync::ProcessPutMessage>,
-		object_complete_receiver: tokio::sync::mpsc::Receiver<tg::sync::ObjectPutMessage>,
-		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
+		state: Arc<State>,
+		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
+		index_object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
 	) -> tg::Result<()> {
-		// Create the process future.
-		let process_stream = ReceiverStream::new(process_complete_receiver);
-		let process_stream = pin!(process_stream);
-		let process_future = process_stream
-			.ready_chunks(PROCESS_COMPLETE_BATCH_SIZE)
+		// Create the processes future.
+		let processes_future = ReceiverStream::new(index_process_receiver)
+			.ready_chunks(PROCESS_BATCH_SIZE)
 			.map(Ok)
-			.try_for_each_concurrent(PROCESS_COMPLETE_CONCURRENCY, {
+			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
 				let server = self.clone();
-				let graph = graph.clone();
-				let sender = sender.clone();
-				move |messages| {
-					let server = server.clone();
-					let graph = graph.clone();
-					let sender = sender.clone();
-					async move {
-						server
-							.sync_get_index_process_batch(messages, graph, sender)
-							.await
-					}
-				}
+				let state = state.clone();
+				async move { server.sync_get_index_process_batch(&state, items).await }
 			});
 
-		// Create the object future.
-		let object_stream = ReceiverStream::new(object_complete_receiver);
-		let object_stream = pin!(object_stream);
-		let object_future = object_stream
-			.ready_chunks(OBJECT_COMPLETE_BATCH_SIZE)
+		// Create the objects future.
+		let objects_future = ReceiverStream::new(index_object_receiver)
+			.ready_chunks(OBJECT_BATCH_SIZE)
 			.map(Ok)
-			.try_for_each_concurrent(OBJECT_COMPLETE_CONCURRENCY, {
+			.try_for_each_concurrent(OBJECT_CONCURRENCY, |items| {
 				let server = self.clone();
-				let graph = graph.clone();
-				let sender = sender.clone();
-				move |ids| {
-					let server = server.clone();
-					let graph = graph.clone();
-					let sender = sender.clone();
-					async move { server.sync_get_index_object_batch(ids, graph, sender).await }
-				}
+				let state = state.clone();
+				async move { server.sync_get_index_object_batch(&state, items).await }
 			});
 
-		// Join the futures.
-		future::try_join(process_future, object_future).await?;
+		// Join the processes and objects futures.
+		futures::try_join!(processes_future, objects_future)?;
 
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_process_batch(
+		&self,
+		state: &State,
+		items: Vec<ProcessItem>,
+	) -> tg::Result<()> {
+		// Get the ids.
+		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+
+		// Touch the processes and get complete and metadata.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let outputs = self
+			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
+			.await?;
+
+		// TODO update the graph.
+
+		for (item, output) in std::iter::zip(items, outputs) {
+			if let Some(complete) = output.as_ref().map(|(complete, _)| complete) {
+				let message = tg::sync::GetMessage::Complete(
+					tg::sync::GetCompleteMessage::Process(tg::sync::GetCompleteProcessMessage {
+						command_complete: complete.command,
+						children_commands_complete: complete.children_commands,
+						children_complete: complete.children,
+						id: item.id.clone(),
+						output_complete: complete.output,
+						children_outputs_complete: complete.children_outputs,
+					}),
+				);
+				state
+					.sender
+					.send(Ok(message))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the complete message"))?;
+			}
+
+			if item.missing {
+				// If the process is not stored, then error.
+				let Some((complete, _)) = output else {
+					return Err(tg::error!(id = %item.id, "failed to find the process"));
+				};
+
+				// Enqueue the children as necessary.
+				let data = self
+					.try_get_process_local(&item.id)
+					.await?
+					.ok_or_else(|| tg::error!("expected the process to exist"))?
+					.data;
+				Self::sync_get_enqueue_process_children(state, &item.id, &data, &complete);
+			}
+		}
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_object_batch(
+		&self,
+		state: &State,
+		items: Vec<ObjectItem>,
+	) -> tg::Result<()> {
+		// Get the ids.
+		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+
+		// Touch the objects and get complete and metadata.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let outputs = self
+			.try_touch_object_and_get_complete_and_metadata_batch(&ids, touched_at)
+			.await?;
+
+		// TODO update the graph.
+
+		for (item, output) in std::iter::zip(items, outputs) {
+			// If the object is complete, then send a complete message.
+			if output.as_ref().is_some_and(|(complete, _)| *complete) {
+				let message = tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Object(
+					tg::sync::GetCompleteObjectMessage {
+						id: item.id.clone(),
+					},
+				));
+				state
+					.sender
+					.send(Ok(message))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the complete message"))?;
+			}
+
+			if item.missing {
+				// If the object is not stored, then error.
+				if output.is_none() {
+					return Err(tg::error!(id = %item.id, "failed to find the object"));
+				}
+
+				// If the object is not complete, then enqueue the children.
+				let complete = output.as_ref().is_some_and(|(complete, _)| *complete);
+				if !complete {
+					let bytes = self
+						.try_get_object_local(&item.id)
+						.await?
+						.ok_or_else(|| tg::error!("expected the object to exist"))?
+						.bytes;
+					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+					Self::sync_get_enqueue_object_children(state, &item.id, &data);
+				}
+			}
+		}
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index(&self, state: Arc<State>) -> tg::Result<()> {
 		// Flush the store.
 		self.store
 			.flush()
@@ -78,10 +176,17 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
 		// Create the messages.
-		let messages = Self::sync_get_index_create_messages(&mut graph.lock().unwrap())?;
+		let messages = Self::sync_get_index_create_messages(&mut state.graph.lock().unwrap())?;
 
 		// Publish the messages.
-		self.sync_get_index_publish_messages(messages).await?;
+		for messages in messages {
+			self.messenger
+				.stream_batch_publish("index".to_owned(), messages)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
+		}
 
 		Ok(())
 	}
@@ -439,114 +544,5 @@ impl Server {
 		let messages = batched.into_values().rev().collect();
 
 		Ok(messages)
-	}
-
-	async fn sync_get_index_publish_messages(&self, messages: Vec<Vec<Bytes>>) -> tg::Result<()> {
-		// Publish the messages.
-		for messages in messages {
-			self.messenger
-				.stream_batch_publish("index".to_owned(), messages)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
-		}
-
-		Ok(())
-	}
-
-	async fn sync_get_index_process_batch(
-		&self,
-		messages: Vec<tg::sync::ProcessPutMessage>,
-		graph: Arc<Mutex<Graph>>,
-		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
-	) -> tg::Result<()> {
-		// Get the ids.
-		let ids = messages
-			.iter()
-			.map(|message| message.id.clone())
-			.collect::<Vec<_>>();
-
-		// Touch the processes and get completes and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let outputs = self
-			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
-			.await?;
-
-		// Handle each message.
-		for (message, output) in std::iter::zip(messages, outputs) {
-			let (complete, metadata) = output.unwrap_or((
-				crate::process::complete::Output::default(),
-				tg::process::Metadata::default(),
-			));
-
-			// Update the graph.
-			let data = serde_json::from_slice(&message.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the process data"))?;
-			graph
-				.lock()
-				.unwrap()
-				.update_process(&message.id, &data, complete.clone(), metadata);
-
-			// If the process is complete, then send a complete message.
-			if complete.children || complete.children_commands || complete.children_outputs {
-				let complete =
-					tg::sync::CompleteMessage::Process(tg::sync::ProcessCompleteMessage {
-						command_complete: complete.command,
-						children_commands_complete: complete.children_commands,
-						children_complete: complete.children,
-						id: message.id,
-						output_complete: complete.output,
-						children_outputs_complete: complete.children_outputs,
-					});
-				let message = tg::sync::Message::Complete(complete);
-				sender.send(Ok(message)).await.ok();
-			}
-		}
-
-		Ok(())
-	}
-
-	async fn sync_get_index_object_batch(
-		&self,
-		messages: Vec<tg::sync::ObjectPutMessage>,
-		graph: Arc<Mutex<Graph>>,
-		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
-	) -> tg::Result<()> {
-		// Get the ids.
-		let ids = messages
-			.iter()
-			.map(|message| message.id.clone())
-			.collect::<Vec<_>>();
-
-		// Touch the objects and get completes and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let outputs = self
-			.try_touch_object_and_get_complete_and_metadata_batch(&ids, touched_at)
-			.await?;
-
-		// Handle each message.
-		for (message, output) in std::iter::zip(messages, outputs) {
-			let (complete, metadata) = output.unwrap_or((false, tg::object::Metadata::default()));
-
-			// Update the graph.
-			let data = tg::object::Data::deserialize(message.id.kind(), message.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
-			graph
-				.lock()
-				.unwrap()
-				.update_object(&message.id, &data, complete, metadata);
-
-			// If the object is complete, then send a complete message.
-			if complete {
-				let complete = tg::sync::CompleteMessage::Object(tg::sync::ObjectCompleteMessage {
-					id: message.id,
-				});
-				let message = tg::sync::Message::Complete(complete);
-				sender.send(Ok(message)).await.ok();
-			}
-		}
-
-		Ok(())
 	}
 }

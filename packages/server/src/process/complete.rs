@@ -73,6 +73,23 @@ impl Server {
 		}
 	}
 
+	pub(crate) async fn try_get_process_complete_and_metadata_batch(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<(super::complete::Output, tg::process::Metadata)>>> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.try_get_process_complete_and_metadata_batch_postgres(database, ids)
+					.await
+			},
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_process_complete_and_metadata_batch_sqlite(database, ids)
+					.await
+			},
+		}
+	}
+
 	pub(crate) async fn try_touch_process_and_get_complete_and_metadata(
 		&self,
 		id: &tg::process::Id,

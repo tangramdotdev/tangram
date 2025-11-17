@@ -182,6 +182,73 @@ impl Server {
 		Ok(output)
 	}
 
+	pub(crate) async fn try_get_object_complete_and_metadata_batch_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		let output = connection
+			.with({
+				let ids = ids.to_owned();
+				move |connection| {
+					Self::try_get_object_complete_and_metadata_batch_sqlite_sync(connection, &ids)
+				}
+			})
+			.await?;
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_object_complete_and_metadata_batch_sqlite_sync(
+		connection: &sqlite::Connection,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let statement = indoc!(
+			"
+				select complete, count, depth, weight
+				from objects
+				where id = ?1;
+			"
+		);
+		let mut statement = connection
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut outputs = Vec::new();
+		for id in ids {
+			let params = sqlite::params![id.to_bytes().to_vec()];
+			let mut rows = statement
+				.query(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let Some(row) = rows
+				.next()
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			else {
+				outputs.push(None);
+				continue;
+			};
+			let complete = row.get_unwrap::<_, u64>(0) != 0;
+			let count = row.get_unwrap(1);
+			let depth = row.get_unwrap(2);
+			let weight = row.get_unwrap(3);
+			let metadata = tg::object::Metadata {
+				count,
+				depth,
+				weight,
+			};
+			outputs.push(Some((complete, metadata)));
+		}
+		Ok(outputs)
+	}
+
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_sqlite(
 		&self,
 		database: &db::sqlite::Database,

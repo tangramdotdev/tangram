@@ -24,6 +24,7 @@ impl Cli {
 		// Pull the items.
 		let arg = tg::pull::Arg {
 			commands: args.commands,
+			eager: args.eager,
 			items: items.clone(),
 			logs: args.logs,
 			outputs: true,

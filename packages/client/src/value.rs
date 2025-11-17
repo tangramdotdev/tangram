@@ -108,7 +108,8 @@ impl Value {
 
 		// Sync.
 		let mut messages = Vec::new();
-		messages.push(Ok(tg::sync::Message::Get(None)));
+		let message = tg::sync::Message::Get(tg::sync::GetMessage::End);
+		messages.push(Ok(message));
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
 				let data = object_.to_data();
@@ -117,13 +118,14 @@ impl Value {
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
-				let message = tg::sync::Message::Put(Some(tg::sync::PutMessage::Object(
-					tg::sync::ObjectPutMessage { id, bytes },
-				)));
+				let message = tg::sync::Message::Put(tg::sync::PutMessage::Item(
+					tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage { id, bytes }),
+				));
 				messages.push(Ok(message));
 			}
 		}
-		messages.push(Ok(tg::sync::Message::Put(None)));
+		let message = tg::sync::Message::Put(tg::sync::PutMessage::End);
+		messages.push(Ok(message));
 		let arg = tg::sync::Arg::default();
 		let stream = stream::iter(messages).boxed();
 		let stream = handle.sync(arg, stream).await?;

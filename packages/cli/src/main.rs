@@ -124,6 +124,10 @@ struct Args {
 
 	#[arg(env = "TANGRAM_TOKEN")]
 	token: Option<String>,
+
+	/// Override the tracing filter.
+	#[arg(env = "TANGRAM_TRACING", long)]
+	tracing: Option<String>,
 }
 
 fn before_help() -> String {
@@ -365,7 +369,7 @@ fn main() -> std::process::ExitCode {
 	Cli::initialize_miette();
 
 	// Initialize tracing.
-	Cli::initialize_tracing(config.as_ref());
+	Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref());
 
 	// Initialize V8.
 	#[cfg(feature = "v8")]
@@ -1058,6 +1062,10 @@ impl Cli {
 			args.push("-u".to_owned());
 			args.push(url.to_string());
 		}
+		if let Some(tracing) = &self.args.tracing {
+			args.push("--tracing".to_owned());
+			args.push(tracing.clone());
+		}
 		args.push("serve".to_owned());
 		command
 			.args(args)
@@ -1421,7 +1429,7 @@ impl Cli {
 	}
 
 	/// Initialize tracing.
-	fn initialize_tracing(config: Option<&Config>) {
+	fn initialize_tracing(config: Option<&Config>, tracing_filter: Option<&String>) {
 		let console_layer = if config
 			.as_ref()
 			.and_then(|config| config.advanced.as_ref())
@@ -1452,8 +1460,9 @@ impl Cli {
 			.and_then(|config| config.tracing.as_ref())
 			.or(Some(&default))
 			.map(|tracing| {
-				let filter =
-					tracing_subscriber::filter::EnvFilter::try_new(&tracing.filter).unwrap();
+				// Prioritize CLI argument over config file.
+				let filter_string = tracing_filter.unwrap_or(&tracing.filter);
+				let filter = tracing_subscriber::filter::EnvFilter::try_new(filter_string).unwrap();
 				let format = tracing
 					.format
 					.unwrap_or(self::config::TracingFormat::Pretty);
@@ -1475,13 +1484,9 @@ impl Cli {
 			.with(console_layer)
 			.with(output_layer)
 			.init();
-		std::panic::set_hook(Box::new(|panic_info| {
-			let payload = panic_info.payload();
-			let payload = payload
-				.downcast_ref::<&str>()
-				.copied()
-				.or(payload.downcast_ref::<String>().map(String::as_str));
-			let location = panic_info.location().map(ToString::to_string);
+		std::panic::set_hook(Box::new(|info| {
+			let payload = info.payload_as_str();
+			let location = info.location().map(ToString::to_string);
 			let backtrace = std::backtrace::Backtrace::force_capture();
 			tracing::error!(payload, location, %backtrace, "panic");
 		}));

@@ -203,7 +203,7 @@ impl Server {
 					.pull(tg::pull::Arg {
 						items: vec![Either::Right(artifact.clone().into())],
 						remote: Some("default".to_owned()),
-						..tg::pull::Arg::default()
+						..Default::default()
 					})
 					.await?;
 				progress.spinner("pull", "pull");

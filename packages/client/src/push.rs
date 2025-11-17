@@ -6,10 +6,13 @@ use {
 	tangram_util::serde::is_false,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub commands: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub eager: bool,
 
 	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
 
@@ -85,5 +88,19 @@ impl tg::Client {
 				)
 			});
 		Ok(stream)
+	}
+}
+
+impl Default for Arg {
+	fn default() -> Self {
+		Self {
+			commands: false,
+			eager: true,
+			items: Vec::new(),
+			logs: false,
+			outputs: true,
+			recursive: false,
+			remote: None,
+		}
 	}
 }

@@ -158,6 +158,7 @@ impl Cli {
 		let stream = handle
 			.push(tg::push::Arg {
 				commands: false,
+				eager: true,
 				items,
 				logs: false,
 				outputs: true,

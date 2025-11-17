@@ -127,6 +127,56 @@ impl Server {
 		Ok(output)
 	}
 
+	pub(crate) async fn try_get_object_complete_and_metadata_batch_postgres(
+		&self,
+		database: &db::postgres::Database,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		let statement = indoc!(
+			"
+				select objects.id, complete, count, depth, weight
+				from unnest($1::bytea[]) as ids (id)
+				left join objects on objects.id = ids.id;
+			",
+		);
+		let output = connection
+			.inner()
+			.query(
+				statement,
+				&[&ids
+					.iter()
+					.map(|id| id.to_bytes().to_vec())
+					.collect::<Vec<_>>()],
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.into_iter()
+			.map(|row| {
+				let id = row.get::<_, Vec<u8>>(0);
+				let id = tg::object::Id::from_slice(&id).unwrap();
+				let complete = row.get::<_, bool>(1);
+				let count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
+				let depth = row.get::<_, Option<i64>>(3).map(|v| v.to_u64().unwrap());
+				let weight = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
+				let metadata = tg::object::Metadata {
+					count,
+					depth,
+					weight,
+				};
+				(id, (complete, metadata))
+			})
+			.collect::<HashMap<_, _, tg::id::BuildHasher>>();
+		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
+		Ok(output)
+	}
+
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
