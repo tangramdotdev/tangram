@@ -25,17 +25,22 @@ pub async fn sync(state: Rc<State>, args: (Serde<Vec<Item>>,)) -> tg::Result<()>
 			async move {
 				let arg = tg::sync::Arg::default();
 				let mut messages = Vec::new();
-				messages.push(Ok(tg::sync::Message::Get(None)));
+				let message = tg::sync::Message::Get(tg::sync::GetMessage::End);
+				messages.push(Ok(message));
 				for item in items {
 					let id = item.id;
 					let data = item.data;
 					let bytes = data.serialize()?;
-					let message = tg::sync::Message::Put(Some(tg::sync::PutMessage::Object(
-						tg::sync::ObjectPutMessage { id, bytes },
-					)));
+					let message = tg::sync::Message::Put(tg::sync::PutMessage::Item(
+						tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage {
+							id,
+							bytes,
+						}),
+					));
 					messages.push(Ok(message));
 				}
-				messages.push(Ok(tg::sync::Message::Put(None)));
+				let message = tg::sync::Message::Put(tg::sync::PutMessage::End);
+				messages.push(Ok(message));
 				let stream = stream::iter(messages).boxed();
 				let stream = handle.sync(arg, stream).await?;
 				pin!(stream)

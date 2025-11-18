@@ -172,7 +172,7 @@ impl Server {
 							.map(|artifact| Either::Right(artifact.clone().into()))
 							.collect(),
 						remote: Some("default".to_owned()),
-						..tg::pull::Arg::default()
+						..Default::default()
 					})
 					.await?;
 				progress.spinner("pull", "pull");

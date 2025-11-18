@@ -445,6 +445,7 @@ impl Cli {
 		if let Some(remote) = remote.clone() {
 			let id = command.id();
 			let arg = tg::push::Arg {
+				commands: true,
 				items: vec![Either::Right(id.into())],
 				remote: Some(remote),
 				..Default::default()

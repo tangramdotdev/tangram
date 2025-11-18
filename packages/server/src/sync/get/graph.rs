@@ -1,11 +1,10 @@
 use {
-	crate::index::message::ProcessObjectKind,
 	indexmap::IndexMap,
-	num::ToPrimitive as _,
 	petgraph::visit::IntoNeighbors as _,
 	smallvec::SmallVec,
 	std::collections::{BTreeSet, HashSet},
 	tangram_client::prelude::*,
+	tangram_util::iter::Ext as _,
 };
 
 #[derive(Default)]
@@ -35,35 +34,32 @@ pub enum Id {
 	Object(tg::object::Id),
 }
 
-#[derive(Debug, Default)]
-pub struct Node {
-	pub parents: SmallVec<[usize; 1]>,
-	pub inner: Option<NodeInner>,
-	pub stored: bool,
-}
-
 #[derive(Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
-pub enum NodeInner {
+pub enum Node {
 	Process(ProcessNode),
 	Object(ObjectNode),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
-	pub children: Vec<usize>,
-	pub complete: crate::process::complete::Output,
-	pub metadata: tg::process::Metadata,
-	pub objects: Vec<(usize, crate::index::message::ProcessObjectKind)>,
+	pub children: Option<Vec<usize>>,
+	pub complete: Option<crate::process::complete::Output>,
+	pub metadata: Option<tg::process::Metadata>,
+	pub objects: Option<Vec<(usize, crate::index::message::ProcessObjectKind)>>,
+	pub parents: SmallVec<[usize; 1]>,
+	pub stored: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
-	pub children: Vec<usize>,
-	pub complete: bool,
-	pub metadata: tg::object::Metadata,
-	pub size: u64,
+	pub children: Option<Vec<usize>>,
+	pub complete: Option<bool>,
+	pub metadata: Option<tg::object::Metadata>,
+	pub parents: SmallVec<[usize; 1]>,
+	pub size: Option<u64>,
+	pub stored: bool,
 }
 
 impl Graph {
@@ -74,96 +70,168 @@ impl Graph {
 	pub fn update_process(
 		&mut self,
 		id: &tg::process::Id,
-		data: &tg::process::Data,
-		complete: crate::process::complete::Output,
-		metadata: tg::process::Metadata,
+		data: Option<&tg::process::Data>,
+		complete: Option<crate::process::complete::Output>,
+		metadata: Option<tg::process::Metadata>,
+		stored: Option<bool>,
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
-		entry.or_default();
-		let children = data
-			.children
-			.as_ref()
+		entry.or_insert_with(|| Node::Process(ProcessNode::default()));
+
+		let children = if let Some(data) = data {
+			data.children.as_ref().map(|children| {
+				children
+					.iter()
+					.map(|child| {
+						let child_entry = self.nodes.entry(child.item.clone().into());
+						let child_index = child_entry.index();
+						let child_node =
+							child_entry.or_insert_with(|| Node::Process(ProcessNode::default()));
+						child_node.unwrap_process_mut().parents.push(index);
+						child_index
+					})
+					.collect()
+			})
+		} else {
+			None
+		};
+
+		let objects = if let Some(data) = data {
+			let mut objects = Vec::new();
+
+			let command_id: tg::object::Id = data.command.clone().into();
+			let command_entry = self.nodes.entry(command_id.into());
+			let command_index = command_entry.index();
+			let command_node = command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+			command_node.unwrap_object_mut().parents.push(index);
+			objects.push((
+				command_index,
+				crate::index::message::ProcessObjectKind::Command,
+			));
+
+			if let Some(output) = &data.output {
+				let mut output_children = BTreeSet::new();
+				output.children(&mut output_children);
+				for object_id in output_children {
+					let object_entry = self.nodes.entry(object_id.into());
+					let object_index = object_entry.index();
+					let object_node =
+						object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+					object_node.unwrap_object_mut().parents.push(index);
+					objects.push((
+						object_index,
+						crate::index::message::ProcessObjectKind::Output,
+					));
+				}
+			}
+
+			Some(objects)
+		} else {
+			None
+		};
+
+		let node = self
+			.nodes
+			.get_index_mut(index)
 			.unwrap()
-			.iter()
-			.map(|child| child.item.clone().into());
-		let children_indices = children
-			.map(|child| {
-				let child_entry = self.nodes.entry(child);
-				let child_index = child_entry.index();
-				let child_entry = child_entry.or_default();
-				child_entry.parents.push(index);
-				child_index
-			})
-			.collect();
-		let command =
-			std::iter::once(data.command.clone().into()).map(|id| (id, ProcessObjectKind::Command));
-		let mut outputs = BTreeSet::new();
-		if let Some(output) = &data.output {
-			output.children(&mut outputs);
+			.1
+			.unwrap_process_mut();
+		if let Some(children) = children {
+			node.children = Some(children);
 		}
-		let outputs = outputs
-			.into_iter()
-			.map(|object| (object, ProcessObjectKind::Output));
-		let objects = std::iter::empty().chain(command).chain(outputs);
-		let object_indices = objects
-			.map(|(object, kind)| {
-				let object_entry = self.nodes.entry(object.into());
-				let object_index = object_entry.index();
-				let object_entry = object_entry.or_default();
-				object_entry.parents.push(index);
-				(object_index, kind)
-			})
-			.collect();
-		self.nodes.entry(id.clone().into()).and_modify(|node| {
-			node.inner.replace(NodeInner::Process(ProcessNode {
-				children: children_indices,
-				complete,
-				metadata,
-				objects: object_indices,
-			}));
-		});
+		if let Some(complete) = complete {
+			node.complete = Some(complete);
+		}
+		if let Some(metadata) = metadata {
+			node.metadata = Some(metadata);
+		}
+		if let Some(objects) = objects {
+			node.objects = Some(objects);
+		}
+		if let Some(stored) = stored {
+			node.stored = stored;
+		}
 	}
 
-	pub fn set_process_stored(&mut self, id: &tg::process::Id) {
-		self.nodes.entry(id.clone().into()).or_default().stored = true;
+	pub fn get_process_complete(
+		&self,
+		id: &tg::process::Id,
+	) -> Option<&crate::process::complete::Output> {
+		self.nodes
+			.get(&Id::Process(id.clone()))
+			.and_then(|node| node.unwrap_process_ref().complete.as_ref())
 	}
 
 	pub fn update_object(
 		&mut self,
 		id: &tg::object::Id,
-		data: &tg::object::Data,
-		complete: bool,
-		metadata: tg::object::Metadata,
+		data: Option<&tg::object::Data>,
+		complete: Option<bool>,
+		metadata: Option<tg::object::Metadata>,
+		size: Option<u64>,
+		stored: Option<bool>,
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
-		entry.or_default();
-		let mut children = BTreeSet::new();
-		data.children(&mut children);
-		let children_indices = children
-			.into_iter()
-			.map(|child| {
-				let child_entry = self.nodes.entry(child.into());
-				let child_index = child_entry.index();
-				let child_entry = child_entry.or_default();
-				child_entry.parents.push(index);
-				child_index
-			})
-			.collect();
-		self.nodes.entry(id.clone().into()).and_modify(|node| {
-			let size = data.serialize().unwrap().len().to_u64().unwrap();
-			node.inner.replace(NodeInner::Object(ObjectNode {
-				children: children_indices,
-				complete,
-				metadata,
-				size,
-			}));
-		});
+		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+
+		let children = if let Some(data) = data {
+			let mut children = BTreeSet::new();
+			data.children(&mut children);
+			let children = children
+				.into_iter()
+				.map(|child| {
+					let child_entry = self.nodes.entry(child.into());
+					let child_index = child_entry.index();
+					let child_node =
+						child_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+					child_node.unwrap_object_mut().parents.push(index);
+					child_index
+				})
+				.collect();
+			Some(children)
+		} else {
+			None
+		};
+
+		let node = self
+			.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.unwrap_object_mut();
+		if let Some(children) = children {
+			node.children = Some(children);
+		}
+		if let Some(complete) = complete {
+			node.complete = Some(complete);
+		}
+		if let Some(metadata) = metadata {
+			node.metadata = Some(metadata);
+		}
+		if let Some(size) = size {
+			node.size = Some(size);
+		}
+		if let Some(stored) = stored {
+			node.stored = stored;
+		}
+	}
+}
+
+impl Node {
+	pub fn parents(&self) -> &SmallVec<[usize; 1]> {
+		match self {
+			Node::Process(node) => &node.parents,
+			Node::Object(node) => &node.parents,
+		}
 	}
 
-	pub fn set_object_stored(&mut self, id: &tg::object::Id) {
-		self.nodes.entry(id.clone().into()).or_default().stored = true;
+	pub fn stored(&self) -> bool {
+		match self {
+			Node::Process(node) => node.stored,
+			Node::Object(node) => node.stored,
+		}
 	}
 }
 
@@ -195,26 +263,24 @@ impl petgraph::visit::NodeIndexable for Graph {
 	}
 }
 
-impl petgraph::visit::IntoNeighbors for &Graph {
-	type Neighbors = std::vec::IntoIter<Self::NodeId>;
+impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
+	type Neighbors = Box<dyn Iterator<Item = usize> + 'a>;
 
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
 		let (_, node) = self.nodes.get_index(id).unwrap();
-		match &node.inner {
-			Some(NodeInner::Process(node)) => std::iter::empty()
-				.chain(&node.children)
-				.chain(node.objects.iter().map(|(id, _)| id))
+		match &node {
+			Node::Process(node) => std::iter::empty()
+				.chain(node.children.iter().flatten())
+				.chain(node.objects.iter().flatten().map(|(id, _)| id))
 				.copied()
-				.collect::<Vec<_>>()
-				.into_iter(),
-			Some(NodeInner::Object(node)) => node.children.clone().into_iter(),
-			None => vec![].into_iter(),
+				.boxed(),
+			Node::Object(node) => node.children.iter().flatten().copied().boxed(),
 		}
 	}
 }
 
-impl petgraph::visit::IntoNeighborsDirected for &Graph {
-	type NeighborsDirected = std::vec::IntoIter<Self::NodeId>;
+impl<'a> petgraph::visit::IntoNeighborsDirected for &'a Graph {
+	type NeighborsDirected = Box<dyn Iterator<Item = usize> + 'a>;
 
 	fn neighbors_directed(
 		self,
@@ -225,7 +291,10 @@ impl petgraph::visit::IntoNeighborsDirected for &Graph {
 			petgraph::Direction::Outgoing => self.neighbors(id),
 			petgraph::Direction::Incoming => {
 				let (_, node) = self.nodes.get_index(id).unwrap();
-				node.parents.clone().into_vec().into_iter()
+				match node {
+					Node::Process(node) => node.parents.iter().copied().boxed(),
+					Node::Object(node) => node.parents.iter().copied().boxed(),
+				}
 			},
 		}
 	}

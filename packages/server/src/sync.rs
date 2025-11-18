@@ -9,12 +9,16 @@ use {
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::task::AbortOnDropHandle,
+	tracing::Instrument,
 };
 
 mod get;
+mod progress;
 mod put;
+mod queue;
 
 impl Server {
+	#[tracing::instrument(fields(get = ?arg.get, put = ?arg.put), name = "sync", skip_all)]
 	pub(crate) async fn sync_with_context(
 		&self,
 		_context: &Context,
@@ -62,6 +66,7 @@ impl Server {
 					},
 				}
 			}
+			.instrument(tracing::Span::current())
 		}));
 
 		let stream = ReceiverStream::new(receiver);
@@ -80,43 +85,71 @@ impl Server {
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
-		let (get_sender, get_receiver) = tokio::sync::mpsc::channel::<tg::sync::Message>(256);
-		let (put_sender, put_receiver) = tokio::sync::mpsc::channel::<tg::sync::Message>(256);
-
-		let stream_future = async move {
+		// Create the future to distribute the input.
+		let (get_input_sender, get_input_receiver) =
+			tokio::sync::mpsc::channel::<tg::sync::PutMessage>(256);
+		let (put_input_sender, put_input_receiver) =
+			tokio::sync::mpsc::channel::<tg::sync::GetMessage>(256);
+		let input_future = async move {
 			while let Some(message) = stream.try_next().await? {
+				tracing::trace!(?message, "received message");
 				match message {
-					tg::sync::Message::Get(_) | tg::sync::Message::Complete(_) => {
-						put_sender.send(message).await.ok();
+					tg::sync::Message::Get(message) => {
+						put_input_sender.send(message).await.ok();
 					},
-					tg::sync::Message::Put(_) | tg::sync::Message::Missing(_) => {
-						get_sender.send(message).await.ok();
+					tg::sync::Message::Put(message) => {
+						get_input_sender.send(message).await.ok();
 					},
-					_ => unreachable!(),
+					tg::sync::Message::End => {
+						break;
+					},
 				}
 			}
 			Ok::<_, tg::Error>(())
 		};
 
+		// Create a future to collect the output.
+		let (get_output_sender, get_output_receiver) =
+			tokio::sync::mpsc::channel::<tg::Result<tg::sync::GetMessage>>(256);
+		let (put_output_sender, put_output_receiver) =
+			tokio::sync::mpsc::channel::<tg::Result<tg::sync::PutMessage>>(256);
+		let output_future = {
+			let sender = sender.clone();
+			async move {
+				let mut stream = stream::select(
+					ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),
+					ReceiverStream::new(put_output_receiver).map_ok(tg::sync::Message::Put),
+				);
+				while let Some(result) = stream.next().await {
+					tracing::trace!(?result, "sending message");
+					sender.send(result).await.ok();
+				}
+			}
+		};
+
 		let get_future = {
 			let server = self.clone();
 			let arg = arg.clone();
-			let stream = ReceiverStream::new(get_receiver).boxed();
-			let sender = sender.clone();
-			async move { server.sync_get(arg, stream, sender).await }
-		};
+			let stream = ReceiverStream::new(get_input_receiver).boxed();
+			async move { server.sync_get(arg, stream, get_output_sender).await }
+		}
+		.instrument(tracing::debug_span!("get"));
 
 		let put_future = {
 			let server = self.clone();
 			let arg = arg.clone();
-			let stream = ReceiverStream::new(put_receiver).boxed();
-			let sender = sender.clone();
-			async move { server.sync_put(arg, stream, sender).await }
-		};
+			let stream = ReceiverStream::new(put_input_receiver).boxed();
+			async move { server.sync_put(arg, stream, put_output_sender).await }
+		}
+		.instrument(tracing::debug_span!("put"));
 
 		match future::try_select(
-			pin!(future::try_join(get_future, put_future)),
-			pin!(stream_future),
+			pin!(future::try_join3(
+				get_future,
+				put_future,
+				output_future.map(Ok)
+			)),
+			pin!(input_future),
 		)
 		.await
 		.map_err(|error| error.factor_first().0)?
@@ -172,10 +205,13 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to deserialize the message"))?;
 
 			// Validate object IDs.
-			if let tg::sync::Message::Put(Some(tg::sync::PutMessage::Object(message))) = &message {
-				let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
-				if message.id != actual {
-					return Err(tg::error!(expected = %message.id, %actual, "invalid object id"));
+			if let tg::sync::Message::Put(tg::sync::PutMessage::Item(
+				tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage { id, bytes }),
+			)) = &message
+			{
+				let actual = tg::object::Id::new(id.kind(), bytes);
+				if id != &actual {
+					return Err(tg::error!(expected = %id, %actual, "invalid object id"));
 				}
 			}
 

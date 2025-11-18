@@ -7,6 +7,15 @@ pub struct Args {
 	#[arg(alias = "command", long)]
 	pub commands: bool,
 
+	#[arg(
+		default_missing_value = "true",
+		default_value = "true",
+		long,
+		num_args = 0..=1,
+		require_equals = true,
+  )]
+	pub eager: bool,
+
 	#[arg(long, short)]
 	pub force: bool,
 
@@ -45,6 +54,7 @@ impl Cli {
 		// Push the items.
 		let arg = tg::push::Arg {
 			commands: args.commands,
+			eager: args.eager,
 			items: items.clone(),
 			logs: args.logs,
 			outputs: true,

@@ -271,9 +271,10 @@ impl Server {
 		// Start the push.
 		let push_arg = tg::sync::Arg {
 			commands: arg.commands,
-			get: None,
+			eager: arg.eager,
+			get: Vec::new(),
 			outputs: arg.outputs,
-			put: None,
+			put: Vec::new(),
 			recursive: arg.recursive,
 			remote: None,
 		};
@@ -285,9 +286,10 @@ impl Server {
 		// Start the pull.
 		let pull_arg = tg::sync::Arg {
 			commands: arg.commands,
-			get: Some(arg.items.clone()),
+			eager: arg.eager,
+			get: arg.items.clone(),
 			outputs: arg.outputs,
-			put: None,
+			put: Vec::new(),
 			recursive: arg.recursive,
 			remote: None,
 		};
@@ -301,7 +303,7 @@ impl Server {
 			let mut push_stream = pin!(push_stream);
 			while let Some(message) = push_stream.try_next().await? {
 				match message {
-					tg::sync::Message::Progress(message) => {
+					tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
 						progress.increment("processes", message.processes);
 						progress.increment("objects", message.objects);
 						progress.increment("bytes", message.bytes);
@@ -326,7 +328,7 @@ impl Server {
 			let mut pull_stream = pin!(pull_stream);
 			while let Some(message) = pull_stream.try_next().await? {
 				match message {
-					tg::sync::Message::Progress(message) => {
+					tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
 						progress.increment("processes", message.processes);
 						progress.increment("objects", message.objects);
 						progress.increment("bytes", message.bytes);

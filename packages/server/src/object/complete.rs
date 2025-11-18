@@ -55,6 +55,24 @@ impl Server {
 		}
 	}
 
+	pub(crate) async fn try_get_object_complete_and_metadata_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+		match &self.index {
+			#[cfg(feature = "postgres")]
+			crate::index::Index::Postgres(database) => {
+				self.try_get_object_complete_and_metadata_batch_postgres(database, ids)
+					.await
+			},
+			crate::index::Index::Sqlite(database) => {
+				self.try_get_object_complete_and_metadata_batch_sqlite(database, ids)
+					.await
+			},
+		}
+	}
+
+	#[expect(dead_code)]
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata(
 		&self,
 		id: &tg::object::Id,

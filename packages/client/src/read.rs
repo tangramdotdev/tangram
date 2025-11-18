@@ -4,7 +4,7 @@ use {
 	futures::{Stream, TryStreamExt as _, stream},
 	http_body_util::BodyStream,
 	num::ToPrimitive as _,
-	serde_with::serde_as,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::{BytesBase64, SeekFromNumberOrString, is_default},
 };
@@ -21,7 +21,7 @@ pub struct Arg {
 #[serde_as]
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Options {
-	#[serde_as(as = "serde_with::PickFirst<(_, Option<serde_with::DisplayFromStr>)>")]
+	#[serde_as(as = "PickFirst<(_, Option<DisplayFromStr>)>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
@@ -29,7 +29,7 @@ pub struct Options {
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
 
-	#[serde_as(as = "serde_with::PickFirst<(_, Option<serde_with::DisplayFromStr>)>")]
+	#[serde_as(as = "PickFirst<(_, Option<DisplayFromStr>)>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
 }
