@@ -194,50 +194,33 @@ impl Server {
 			return Ok(());
 		}
 
-		// Create a future to pull the artifact.
-		let pull_future = {
-			let progress = progress.clone();
-			let server = self.clone();
-			async move {
-				let stream = server
-					.pull(tg::pull::Arg {
-						items: vec![Either::Right(artifact.clone().into())],
-						remote: Some("default".to_owned()),
-						..Default::default()
-					})
-					.await?;
-				progress.spinner("pull", "pull");
-				let mut stream = std::pin::pin!(stream);
-				while let Some(event) = stream.try_next().await? {
-					progress.forward(Ok(event));
-				}
-				Ok::<_, tg::Error>(())
-			}
-			.boxed()
-		};
+		// Index.
+		let stream = self.index().await?;
+		let stream = std::pin::pin!(stream);
+		stream.try_last().await?;
 
-		// Create a future to index then check if the artifact is complete.
-		let index_future = {
-			let artifact = artifact.clone();
-			let server = self.clone();
-			async move {
-				let stream = server.index().await?;
-				let stream = std::pin::pin!(stream);
-				stream.try_last().await?;
-				let complete = server
-					.try_get_object_complete(&artifact.clone().into())
-					.await?
-					.ok_or_else(|| tg::error!(%artifact, "expected an object"))?;
-				if !complete {
-					return Err(tg::error!("expected the object to be complete"));
-				}
-				Ok::<_, tg::Error>(())
-			}
-			.boxed()
-		};
+		// Check if the artifact is complete.
+		let complete = self
+			.try_get_object_complete(&artifact.clone().into())
+			.await?
+			.unwrap_or_default();
+		if complete {
+			return Ok(());
+		}
 
-		// Select the pull and index futures.
-		future::select_ok([pull_future, index_future]).await?;
+		// Pull.
+		let stream = self
+			.pull(tg::pull::Arg {
+				items: vec![Either::Right(artifact.clone().into())],
+				remote: Some("default".to_owned()),
+				..Default::default()
+			})
+			.await?;
+		progress.spinner("pull", "pull");
+		let mut stream = std::pin::pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			progress.forward(Ok(event));
+		}
 
 		progress.finish_all();
 

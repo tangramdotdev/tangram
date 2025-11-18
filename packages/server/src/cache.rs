@@ -160,61 +160,45 @@ impl Server {
 			return Ok(());
 		}
 
-		// Create a future to pull the artifacts.
-		let pull_future = {
-			let progress = progress.clone();
-			let server = self.clone();
-			async move {
-				let stream = server
-					.pull(tg::pull::Arg {
-						items: artifacts
-							.iter()
-							.map(|artifact| Either::Right(artifact.clone().into()))
-							.collect(),
-						remote: Some("default".to_owned()),
-						..Default::default()
-					})
-					.await?;
-				progress.spinner("pull", "pull");
-				let mut stream = std::pin::pin!(stream);
-				while let Some(event) = stream.try_next().await? {
-					progress.forward(Ok(event));
-				}
-				Ok::<_, tg::Error>(())
-			}
-		}
-		.boxed();
+		// Index.
+		let stream = self.index().await?;
+		let stream = std::pin::pin!(stream);
+		stream.try_last().await?;
 
-		// Create a future to index then check if the artifacts are complete.
-		let index_future = {
+		// Check if the artifacts are complete.
+		let complete = future::try_join_all(artifacts.iter().map(|artifact| {
 			let server = self.clone();
+			let artifact = artifact.clone();
 			async move {
-				let stream = server.index().await?;
-				let stream = std::pin::pin!(stream);
-				stream.try_last().await?;
-				let complete = future::try_join_all(artifacts.iter().map(|artifact| {
-					let server = self.clone();
-					let artifact = artifact.clone();
-					async move {
-						server
-							.try_get_object_complete(&artifact.into())
-							.await
-							.map(Option::unwrap_or_default)
-					}
-				}))
-				.await?
-				.iter()
-				.all(|complete| *complete);
-				if !complete {
-					return Err(tg::error!("expected the object to be complete"));
-				}
-				Ok::<_, tg::Error>(())
+				server
+					.try_get_object_complete(&artifact.into())
+					.await
+					.map(Option::unwrap_or_default)
 			}
+		}))
+		.await?
+		.iter()
+		.all(|complete| *complete);
+		if complete {
+			return Ok(());
 		}
-		.boxed();
 
-		// Select the pull and index futures.
-		future::select_ok([pull_future, index_future]).await?;
+		// Pull.
+		let stream = self
+			.pull(tg::pull::Arg {
+				items: artifacts
+					.iter()
+					.map(|artifact| Either::Right(artifact.clone().into()))
+					.collect(),
+				remote: Some("default".to_owned()),
+				..Default::default()
+			})
+			.await?;
+		progress.spinner("pull", "pull");
+		let mut stream = std::pin::pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			progress.forward(Ok(event));
+		}
 
 		progress.finish_all();
 
