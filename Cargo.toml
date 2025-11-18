@@ -119,7 +119,7 @@ num = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
 oauth2 = "5.0.0"
-octocrab = "0.47"
+octocrab = "0.48"
 owo-colors = "4"
 oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }

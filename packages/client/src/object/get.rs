@@ -38,16 +38,15 @@ impl tg::Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			let error = response
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the error response"))?;
+			let error = response.json().await.map_err(|source| {
+				tg::error!(!source, "failed to deserialize the error response")
+			})?;
 			return Err(error);
 		}
 		let bytes = response
-		.bytes()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to read the response body"))?;
+			.bytes()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the response body"))?;
 		let output = tg::object::get::Output { bytes };
 		Ok(Some(output))
 	}

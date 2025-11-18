@@ -18,10 +18,9 @@ impl tg::Client {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response
-				.json()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to deserialize the error response"))?;
+			let error = response.json().await.map_err(|source| {
+				tg::error!(!source, "failed to deserialize the error response")
+			})?;
 			return Err(error);
 		}
 		Ok(())

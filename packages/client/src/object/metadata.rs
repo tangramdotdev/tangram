@@ -57,16 +57,15 @@ impl tg::Client {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			let error = response
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the error response"))?;
+			let error = response.json().await.map_err(|source| {
+				tg::error!(!source, "failed to deserialize the error response")
+			})?;
 			return Err(error);
 		}
 		let metadata = response
-		.json()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to deserialize the response"))?;
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))?;
 		Ok(Some(metadata))
 	}
 }
