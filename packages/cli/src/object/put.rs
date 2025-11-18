@@ -19,27 +19,30 @@ pub struct Args {
 
 	#[arg(long, short)]
 	pub kind: Option<tg::object::Kind>,
+
+	#[command(flatten)]
+	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_object_put(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		let input = if let Some(bytes) = args.bytes {
-			bytes
+		let bytes = if let Some(bytes) = args.bytes {
+			bytes.into_bytes()
 		} else {
-			let mut input = String::new();
+			let mut bytes = Vec::new();
 			crate::util::stdio::stdin()
-				.read_to_string(&mut input)
+				.read_to_end(&mut bytes)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			input
+			bytes
 		};
 
 		let bytes = match args.format {
-			Format::Bytes => input.into_bytes().into(),
+			Format::Bytes => bytes.into(),
 			Format::Json => {
-				let data: tg::object::Data = serde_json::from_str(&input)
+				let data: tg::object::Data = serde_json::from_slice(&bytes)
 					.map_err(|source| tg::error!(!source, "failed to parse JSON"))?;
 				data.serialize()?
 			},
@@ -53,8 +56,10 @@ impl Cli {
 		};
 
 		let arg = tg::object::put::Arg { bytes };
-
 		handle.put_object(&id, arg).await?;
+
+		let value = tg::Value::Object(tg::Object::with_id(id));
+		self.print(&value, args.print).await?;
 
 		Ok(())
 	}

@@ -15,6 +15,9 @@ pub struct Args {
 
 	#[arg(long, short)]
 	pub kind: Option<tg::object::Kind>,
+
+	#[command(flatten)]
+	pub print: crate::print::Options,
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
@@ -40,6 +43,7 @@ impl Cli {
 					format: args.format,
 					id: id.map(Either::unwrap_right),
 					kind,
+					print: args.print,
 				};
 				self.command_object_put(args).await?;
 			},
