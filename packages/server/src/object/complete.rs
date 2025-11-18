@@ -72,6 +72,7 @@ impl Server {
 		}
 	}
 
+	#[expect(dead_code)]
 	pub(crate) async fn try_touch_object_and_get_complete_and_metadata(
 		&self,
 		id: &tg::object::Id,

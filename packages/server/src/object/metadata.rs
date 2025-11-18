@@ -85,31 +85,16 @@ impl Server {
 		database: &db::sqlite::Database,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		// Get an index connection.
 		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
-
-		// Get the object metadata.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select count, depth, weight
-				from objects
-				where id = {p}1;
-			",
-		);
-		let params = db::params![id.to_bytes()];
 		let output = connection
-			.query_optional_into::<db::row::Serde<tg::object::Metadata>>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0);
-
-		// Drop the connection.
-		drop(connection);
-
+			.with({
+				let id = id.to_owned();
+				move |connection| Self::try_get_object_metadata_sqlite_sync(connection, &id)
+			})
+			.await?;
 		Ok(output)
 	}
 

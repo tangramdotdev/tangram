@@ -1,5 +1,5 @@
 use {
-	self::graph::{Graph, NodeInner},
+	self::graph::Graph,
 	super::{progress::Progress, queue::Queue},
 	crate::Server,
 	dashmap::DashMap,

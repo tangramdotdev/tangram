@@ -1,5 +1,5 @@
 use {
-	super::{Graph, NodeInner},
+	super::graph::{Graph, Node},
 	crate::{Server, index::message::ProcessObjectKind, sync::get::State},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _},
@@ -199,11 +199,13 @@ impl Server {
 		// Set complete and metadata.
 		for index in toposort.into_iter().rev() {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
-			let Some(node_inner) = &node.inner else {
-				continue;
-			};
-			match node_inner {
-				NodeInner::Process(node) => {
+			match node {
+				Node::Process(node) => {
+					if node.complete.is_some() && node.metadata.is_some() {
+						continue;
+					}
+
+					// Initialize the complete.
 					let mut complete = crate::process::complete::Output {
 						children: true,
 						children_commands: true,
@@ -211,6 +213,8 @@ impl Server {
 						command: true,
 						output: true,
 					};
+
+					// Initialize the metadata.
 					let mut metadata = tg::process::Metadata {
 						children: tg::process::metadata::Children { count: Some(1) },
 						children_commands: tg::object::Metadata {
@@ -234,193 +238,305 @@ impl Server {
 							weight: Some(0),
 						},
 					};
-					for child_index in &node.children {
-						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let child_inner = if let Some(child_inner) = &child_node.inner {
-							let child_inner =
-								child_inner.try_unwrap_process_ref().ok().ok_or_else(|| {
+
+					// Handle the children.
+					if let Some(children) = &node.children {
+						for child_index in children {
+							let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
+							let child_node =
+								child_node.try_unwrap_process_ref().ok().ok_or_else(|| {
 									tg::error!("all children of processes must be processes")
 								})?;
-							Some(child_inner)
-						} else {
-							None
-						};
-						complete.children = complete.children
-							&& child_inner.is_some_and(|inner| inner.complete.children);
-						metadata.children.count = metadata
-							.children
-							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.children.count))
-							.map(|(a, b)| a + b);
-						complete.children_commands = complete.children_commands
-							&& child_inner.is_some_and(|inner| inner.complete.children_commands);
-						metadata.children_commands.count = metadata
-							.children_commands
-							.count
-							.zip(
-								child_inner
-									.and_then(|inner| inner.metadata.children_commands.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.children_commands.depth = metadata
-							.children_commands
-							.depth
-							.zip(
-								child_inner
-									.and_then(|inner| inner.metadata.children_commands.depth),
-							)
-							.map(|(a, b)| a.max(b));
-						metadata.children_commands.weight = metadata
-							.children_commands
-							.weight
-							.zip(
-								child_inner
-									.and_then(|inner| inner.metadata.children_commands.weight),
-							)
-							.map(|(a, b)| a + b);
-						metadata.children_outputs.count = metadata
-							.children_outputs
-							.count
-							.zip(
-								child_inner.and_then(|inner| inner.metadata.children_outputs.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.children_outputs.depth = metadata
-							.children_outputs
-							.depth
-							.zip(
-								child_inner.and_then(|inner| inner.metadata.children_outputs.depth),
-							)
-							.map(|(a, b)| a.max(b));
-						metadata.children_outputs.weight = metadata
-							.children_outputs
-							.weight
-							.zip(
-								child_inner
-									.and_then(|inner| inner.metadata.children_outputs.weight),
-							)
-							.map(|(a, b)| a + b);
+							complete.children = complete.children
+								&& child_node
+									.complete
+									.as_ref()
+									.is_some_and(|complete| complete.children);
+							metadata.children.count = metadata
+								.children
+								.count
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.children.count),
+								)
+								.map(|(a, b)| a + b);
+							complete.children_commands = complete.children_commands
+								&& child_node
+									.complete
+									.as_ref()
+									.is_some_and(|complete| complete.children_commands);
+							metadata.children_commands.count = metadata
+								.children_commands
+								.count
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.children_commands.count),
+								)
+								.map(|(a, b)| a + b);
+							metadata.children_commands.depth = metadata
+								.children_commands
+								.depth
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.children_commands.depth),
+								)
+								.map(|(a, b)| a.max(b));
+							metadata.children_commands.weight = metadata
+								.children_commands
+								.weight
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.children_commands.weight),
+								)
+								.map(|(a, b)| a + b);
+							metadata.children_outputs.count = metadata
+								.children_outputs
+								.count
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.children_outputs.count),
+								)
+								.map(|(a, b)| a + b);
+							metadata.children_outputs.depth = metadata
+								.children_outputs
+								.depth
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.children_outputs.depth),
+								)
+								.map(|(a, b)| a.max(b));
+							metadata.children_outputs.weight = metadata
+								.children_outputs
+								.weight
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.children_outputs.weight),
+								)
+								.map(|(a, b)| a + b);
+						}
+					} else {
+						complete = crate::process::complete::Output::default();
+						metadata = tg::process::Metadata::default();
 					}
-					for (object_index, object_kind) in &node.objects {
-						let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
-						let object_inner = if let Some(object_inner) = &object_node.inner {
-							let object_inner = object_inner
+
+					// Handle the objects.
+					if let Some(objects) = &node.objects {
+						for (object_index, object_kind) in objects {
+							let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
+							let object_node = object_node
 								.try_unwrap_object_ref()
 								.ok()
 								.ok_or_else(|| tg::error!("expected an object"))?;
-							Some(object_inner)
-						} else {
-							None
-						};
-						match object_kind {
-							ProcessObjectKind::Command => {
-								complete.command = object_inner.is_some_and(|inner| inner.complete);
-								metadata.command.count =
-									object_inner.and_then(|inner| inner.metadata.count);
-								metadata.command.depth =
-									object_inner.and_then(|inner| inner.metadata.depth);
-								metadata.command.weight =
-									object_inner.and_then(|inner| inner.metadata.weight);
+							match object_kind {
+								ProcessObjectKind::Command => {
+									complete.command = object_node.complete.unwrap_or_default();
+									metadata.command.count = object_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.count);
+									metadata.command.depth = object_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.depth);
+									metadata.command.weight = object_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.weight);
 
-								complete.children_commands = complete.children_commands
-									&& object_inner.is_some_and(|inner| inner.complete);
-								metadata.children_commands.count = metadata
-									.children_commands
-									.count
-									.zip(object_inner.and_then(|inner| inner.metadata.count))
-									.map(|(a, b)| a + b);
-								metadata.children_commands.depth = metadata
-									.children_commands
-									.depth
-									.zip(object_inner.and_then(|inner| inner.metadata.depth))
-									.map(|(a, b)| a.max(b));
-								metadata.children_commands.weight = metadata
-									.children_commands
-									.weight
-									.zip(object_inner.and_then(|inner| inner.metadata.weight))
-									.map(|(a, b)| a + b);
-							},
-							ProcessObjectKind::Output => {
-								complete.output = complete.output
-									&& object_inner.is_some_and(|inner| inner.complete);
-								metadata.output.count = metadata
-									.output
-									.count
-									.zip(object_inner.and_then(|inner| inner.metadata.count))
-									.map(|(a, b)| a + b);
-								metadata.output.depth = metadata
-									.output
-									.depth
-									.zip(object_inner.and_then(|inner| inner.metadata.depth))
-									.map(|(a, b)| a.max(b));
-								metadata.output.weight = metadata
-									.output
-									.weight
-									.zip(object_inner.and_then(|inner| inner.metadata.weight))
-									.map(|(a, b)| a + b);
+									complete.children_commands = complete.children_commands
+										&& object_node.complete.unwrap_or_default();
+									metadata.children_commands.count = metadata
+										.children_commands
+										.count
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.count),
+										)
+										.map(|(a, b)| a + b);
+									metadata.children_commands.depth = metadata
+										.children_commands
+										.depth
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.depth),
+										)
+										.map(|(a, b)| a.max(b));
+									metadata.children_commands.weight = metadata
+										.children_commands
+										.weight
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.weight),
+										)
+										.map(|(a, b)| a + b);
+								},
+								ProcessObjectKind::Output => {
+									complete.output =
+										complete.output && object_node.complete.unwrap_or_default();
+									metadata.output.count = metadata
+										.output
+										.count
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.count),
+										)
+										.map(|(a, b)| a + b);
+									metadata.output.depth = metadata
+										.output
+										.depth
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.depth),
+										)
+										.map(|(a, b)| a.max(b));
+									metadata.output.weight = metadata
+										.output
+										.weight
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.weight),
+										)
+										.map(|(a, b)| a + b);
 
-								complete.children_outputs = complete.children_outputs
-									&& object_inner.is_some_and(|inner| inner.complete);
-								metadata.children_outputs.count = metadata
-									.children_outputs
-									.count
-									.zip(object_inner.and_then(|inner| inner.metadata.count))
-									.map(|(a, b)| a + b);
-								metadata.children_outputs.depth = metadata
-									.children_outputs
-									.depth
-									.zip(object_inner.and_then(|inner| inner.metadata.depth))
-									.map(|(a, b)| a.max(b));
-								metadata.children_outputs.weight = metadata
-									.children_outputs
-									.weight
-									.zip(object_inner.and_then(|inner| inner.metadata.weight))
-									.map(|(a, b)| a + b);
-							},
-							_ => {},
+									complete.children_outputs = complete.children_outputs
+										&& object_node.complete.unwrap_or_default();
+									metadata.children_outputs.count = metadata
+										.children_outputs
+										.count
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.count),
+										)
+										.map(|(a, b)| a + b);
+									metadata.children_outputs.depth = metadata
+										.children_outputs
+										.depth
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.depth),
+										)
+										.map(|(a, b)| a.max(b));
+									metadata.children_outputs.weight = metadata
+										.children_outputs
+										.weight
+										.zip(
+											object_node
+												.metadata
+												.as_ref()
+												.and_then(|metadata| metadata.weight),
+										)
+										.map(|(a, b)| a + b);
+								},
+								_ => (),
+							}
 						}
+					} else {
+						complete = crate::process::complete::Output::default();
+						metadata = tg::process::Metadata::default();
 					}
+
+					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
-					let node_inner = node.inner.as_mut().unwrap().unwrap_process_mut();
-					node_inner.complete = complete;
-					node_inner.metadata = metadata;
+					let node_inner = node.unwrap_process_mut();
+					node_inner.complete = Some(complete);
+					node_inner.metadata = Some(metadata);
 				},
-				NodeInner::Object(node) => {
+
+				Node::Object(node) => {
+					if node.complete.is_some() && node.metadata.is_some() {
+						continue;
+					}
+
+					// Initialize the complete.
 					let mut complete = true;
+
+					// Initialize the metadata.
 					let mut metadata = tg::object::Metadata {
 						count: Some(1),
 						depth: Some(1),
-						weight: Some(node.size),
+						weight: node.size,
 					};
-					for child_index in &node.children {
-						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let child_inner = if let Some(child_inner) = &child_node.inner {
-							let child_inner = child_inner
+
+					// Handle each child.
+					if let Some(children) = &node.children {
+						for child_index in children {
+							let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
+							let child_node = child_node
 								.try_unwrap_object_ref()
 								.ok()
 								.ok_or_else(|| tg::error!("expected an object"))?;
-							Some(child_inner)
-						} else {
-							None
-						};
-						complete = complete && child_inner.is_some_and(|inner| inner.complete);
-						metadata.count = metadata
-							.count
-							.zip(child_inner.and_then(|inner| inner.metadata.count))
-							.map(|(a, b)| a + b);
-						metadata.depth = metadata
-							.depth
-							.zip(child_inner.and_then(|inner| inner.metadata.depth))
-							.map(|(a, b)| a.max(1 + b));
-						metadata.weight = metadata
-							.weight
-							.zip(child_inner.and_then(|inner| inner.metadata.weight))
-							.map(|(a, b)| a + b);
+							complete = complete && child_node.complete.unwrap_or_default();
+							metadata.count = metadata
+								.count
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.as_ref()
+										.and_then(|metadata| metadata.count),
+								)
+								.map(|(a, b)| a + b);
+							metadata.depth = metadata
+								.depth
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.as_ref()
+										.and_then(|metadata| metadata.depth),
+								)
+								.map(|(a, b)| a.max(1 + b));
+							metadata.weight = metadata
+								.weight
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.as_ref()
+										.and_then(|metadata| metadata.weight),
+								)
+								.map(|(a, b)| a + b);
+						}
+					} else {
+						complete = false;
+						metadata = tg::object::Metadata::default();
 					}
+
+					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
-					let node_inner = node.inner.as_mut().unwrap().unwrap_object_mut();
-					node_inner.complete = complete;
-					node_inner.metadata = metadata;
+					let node = node.unwrap_object_mut();
+					node.complete = Some(complete);
+					node.metadata = Some(metadata);
 				},
 			}
 		}
@@ -433,21 +549,20 @@ impl Server {
 			.nodes
 			.iter()
 			.enumerate()
-			.filter_map(|(index, (_, node))| node.parents.is_empty().then_some((index, 0)))
+			.filter_map(|(index, (_, node))| node.parents().is_empty().then_some((index, 0)))
 			.collect::<Vec<_>>();
 		while let Some((index, level)) = stack.pop() {
 			let (id, node) = graph.nodes.get_index(index).unwrap();
-			let Some(node_inner) = &node.inner else {
-				continue;
-			};
-			if !node.stored {
+			if !node.stored() {
 				continue;
 			}
-			match node_inner {
-				NodeInner::Process(node) => {
+			match node {
+				Node::Process(node) => {
 					let id = id.unwrap_process_ref().clone();
 					let children = node
 						.children
+						.as_ref()
+						.unwrap()
 						.iter()
 						.map(|index| {
 							graph
@@ -459,10 +574,12 @@ impl Server {
 								.unwrap_process()
 						})
 						.collect();
-					let complete = node.complete.clone();
-					let metadata = node.metadata.clone();
+					let complete = node.complete.clone().unwrap();
+					let metadata = node.metadata.clone().unwrap();
 					let objects = node
 						.objects
+						.as_ref()
+						.unwrap()
 						.iter()
 						.copied()
 						.map(|(index, kind)| {
@@ -486,13 +603,27 @@ impl Server {
 							touched_at,
 						});
 					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(node.children.iter().map(|index| (*index, level + 1)));
-					stack.extend(node.objects.iter().map(|(index, _)| (*index, level + 1)));
+					stack.extend(
+						node.children
+							.as_ref()
+							.unwrap()
+							.iter()
+							.map(|index| (*index, level + 1)),
+					);
+					stack.extend(
+						node.objects
+							.as_ref()
+							.unwrap()
+							.iter()
+							.map(|(index, _)| (*index, level + 1)),
+					);
 				},
-				NodeInner::Object(node) => {
+				Node::Object(node) => {
 					let id = id.unwrap_object_ref().clone();
 					let children = node
 						.children
+						.as_ref()
+						.unwrap()
 						.iter()
 						.map(|index| {
 							graph
@@ -508,14 +639,20 @@ impl Server {
 						crate::index::Message::PutObject(crate::index::message::PutObject {
 							cache_entry: None,
 							children,
-							complete: node.complete,
+							complete: node.complete.unwrap(),
 							id,
-							metadata: node.metadata.clone(),
-							size: node.size,
+							metadata: node.metadata.clone().unwrap(),
+							size: node.size.unwrap(),
 							touched_at,
 						});
 					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(node.children.iter().map(|index| (*index, level + 1)));
+					stack.extend(
+						node.children
+							.as_ref()
+							.unwrap()
+							.iter()
+							.map(|index| (*index, level + 1)),
+					);
 				},
 			}
 		}
