@@ -1,7 +1,9 @@
+#[cfg(feature = "postgres")]
+use indoc::formatdoc;
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, future},
-	indoc::{formatdoc, indoc},
+	indoc::indoc,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},

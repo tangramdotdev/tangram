@@ -74,9 +74,16 @@ impl Server {
 			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
 			.await?;
 
-		// TODO update the graph.
-
 		for (item, output) in std::iter::zip(items, outputs) {
+			// Update the graph.
+			state.graph.lock().unwrap().update_process(
+				&item.id,
+				None,
+				output.as_ref().map(|(complete, _)| complete.clone()),
+				output.as_ref().map(|(_, metadata)| metadata.clone()),
+			);
+
+			// If the process is partially complete, then send a complete message.
 			if let Some(complete) = output.as_ref().map(|(complete, _)| complete) {
 				let message = tg::sync::GetMessage::Complete(
 					tg::sync::GetCompleteMessage::Process(tg::sync::GetCompleteProcessMessage {
@@ -128,9 +135,16 @@ impl Server {
 			.try_touch_object_and_get_complete_and_metadata_batch(&ids, touched_at)
 			.await?;
 
-		// TODO update the graph.
-
 		for (item, output) in std::iter::zip(items, outputs) {
+			// Update the graph.
+			state.graph.lock().unwrap().update_object(
+				&item.id,
+				None,
+				output.as_ref().map(|(complete, _)| *complete),
+				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				None,
+			);
+
 			// If the object is complete, then send a complete message.
 			if output.as_ref().is_some_and(|(complete, _)| *complete) {
 				let message = tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Object(

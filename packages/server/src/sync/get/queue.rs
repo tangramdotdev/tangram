@@ -73,10 +73,16 @@ impl Server {
 			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
 			.await?;
 
-		// TODO update the graph
-
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
+			// Update the graph.
+			state.graph.lock().unwrap().update_process(
+				&item.id,
+				None,
+				output.as_ref().map(|(complete, _)| complete.clone()),
+				output.as_ref().map(|(_, metadata)| metadata.clone()),
+			);
+
 			match output {
 				// If the process is absent, then send a get item message.
 				None => {
@@ -153,10 +159,17 @@ impl Server {
 			.try_touch_object_and_get_complete_and_metadata_batch(&ids, touched_at)
 			.await?;
 
-		// TODO update the graph
-
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
+			// Update the graph.
+			state.graph.lock().unwrap().update_object(
+				&item.id,
+				None,
+				output.as_ref().map(|(complete, _)| *complete),
+				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				None,
+			);
+
 			match output {
 				// If the object is absent, then send a get item message.
 				None => {

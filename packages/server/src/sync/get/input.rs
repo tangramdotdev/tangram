@@ -41,8 +41,13 @@ impl Server {
 						let data = serde_json::from_slice(&message.bytes).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the process")
 						})?;
-						// TODO
-						let complete = crate::process::complete::Output::default();
+						let complete = state
+							.graph
+							.lock()
+							.unwrap()
+							.get_process_complete(&message.id)
+							.unwrap()
+							.clone();
 						Self::sync_get_enqueue_process_children(
 							state,
 							&message.id,
