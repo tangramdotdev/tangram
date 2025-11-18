@@ -125,6 +125,8 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to create the checkout stream"))?;
 		let output = self.render_progress_stream(stream).await?;
 
+		let output = output.path;
+
 		// Print the output.
 		self.print_serde(output, args.print).await?;
 
