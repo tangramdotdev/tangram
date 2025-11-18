@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt};
 
 /// Get an object.
 #[derive(Clone, Debug, clap::Args)]
@@ -23,7 +23,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let value = if args.bytes {
+		if args.bytes {
 			let arg = tg::object::get::Arg {
 				remote: args.remote.clone(),
 			};
@@ -31,10 +31,13 @@ impl Cli {
 				.try_get_object(&args.object, arg)
 				.await?
 				.ok_or_else(|| tg::error!("failed to get the object"))?;
-			tg::Value::Bytes(bytes)
-		} else {
-			tg::Value::Object(tg::Object::with_id(args.object))
-		};
+			tokio::io::stdout()
+				.write_all(&bytes)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+			return Ok(());
+		}
+		let value = tg::Value::Object(tg::Object::with_id(args.object));
 		args.print
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
