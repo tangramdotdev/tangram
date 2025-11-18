@@ -59,14 +59,13 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 				},
 			}
-			state.graph.lock().unwrap().set_process_stored(&item.id);
 			let data = serde_json::from_slice(&item.bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the process"))?;
 			state
 				.graph
 				.lock()
 				.unwrap()
-				.update_process(&item.id, Some(&data), None, None);
+				.update_process(&item.id, Some(&data), None, None, Some(true));
 			state.progress.increment_processes();
 		}
 		Ok(())
@@ -162,7 +161,7 @@ impl Server {
 		for item in &items {
 			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())?;
 			let size = item.bytes.len().to_u64().unwrap();
-			graph.update_object(&item.id, Some(&data), None, None, Some(size));
+			graph.update_object(&item.id, Some(&data), None, None, Some(size), Some(true));
 		}
 		drop(graph);
 

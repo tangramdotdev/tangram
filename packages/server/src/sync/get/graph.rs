@@ -73,6 +73,7 @@ impl Graph {
 		data: Option<&tg::process::Data>,
 		complete: Option<crate::process::complete::Output>,
 		metadata: Option<tg::process::Metadata>,
+		stored: Option<bool>,
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
@@ -148,6 +149,9 @@ impl Graph {
 		if let Some(objects) = objects {
 			node.objects = Some(objects);
 		}
+		if let Some(stored) = stored {
+			node.stored = stored;
+		}
 	}
 
 	pub fn get_process_complete(
@@ -159,14 +163,6 @@ impl Graph {
 			.and_then(|node| node.unwrap_process_ref().complete.as_ref())
 	}
 
-	pub fn set_process_stored(&mut self, id: &tg::process::Id) {
-		self.nodes
-			.entry(id.clone().into())
-			.or_insert_with(|| Node::Process(ProcessNode::default()))
-			.unwrap_process_mut()
-			.stored = true;
-	}
-
 	pub fn update_object(
 		&mut self,
 		id: &tg::object::Id,
@@ -174,6 +170,7 @@ impl Graph {
 		complete: Option<bool>,
 		metadata: Option<tg::object::Metadata>,
 		size: Option<u64>,
+		stored: Option<bool>,
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
@@ -216,14 +213,9 @@ impl Graph {
 		if let Some(size) = size {
 			node.size = Some(size);
 		}
-	}
-
-	pub fn set_object_stored(&mut self, id: &tg::object::Id) {
-		self.nodes
-			.entry(id.clone().into())
-			.or_insert_with(|| Node::Object(ObjectNode::default()))
-			.unwrap_object_mut()
-			.stored = true;
+		if let Some(stored) = stored {
+			node.stored = stored;
+		}
 	}
 }
 

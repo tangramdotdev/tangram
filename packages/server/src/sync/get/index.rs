@@ -81,6 +81,7 @@ impl Server {
 				None,
 				output.as_ref().map(|(complete, _)| complete.clone()),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				None
 			);
 
 			// If the process is partially complete, then send a complete message.
@@ -142,6 +143,7 @@ impl Server {
 				None,
 				output.as_ref().map(|(complete, _)| *complete),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				None,
 				None,
 			);
 
