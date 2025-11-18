@@ -28,6 +28,9 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 		// Canonicalize the path's parent.
+		if !arg.path.is_absolute() {
+			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));
+		}
 		let path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;

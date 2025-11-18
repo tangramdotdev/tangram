@@ -12,9 +12,10 @@ impl Cli {
 	pub async fn command_format(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the absolute path.
-		let path = std::path::absolute(&args.path)
-			.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
+		// Canonicalize the path's parent.
+		let path = tangram_util::fs::canonicalize_parent(&args.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Format.
 		let arg = tg::format::Arg { path };

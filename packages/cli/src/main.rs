@@ -1285,8 +1285,9 @@ impl Cli {
 		let mut item = reference.item().clone();
 		let options = reference.options().clone();
 		if let tg::reference::Item::Path(path) = &mut item {
-			*path = std::path::absolute(&path)
-				.map_err(|source| tg::error!(!source, "failed make the path absolute"))?;
+			*path = tangram_util::fs::canonicalize_parent(&path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 		}
 		let reference = tg::Reference::with_item_and_options(item, options);
 

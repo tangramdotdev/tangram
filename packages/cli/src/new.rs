@@ -4,8 +4,8 @@ use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub path: Option<PathBuf>,
+	#[arg(default_value = ".", index = 1)]
+	pub path: PathBuf,
 }
 
 impl Cli {

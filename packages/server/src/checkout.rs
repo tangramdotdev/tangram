@@ -257,6 +257,9 @@ impl Server {
 			.ok_or_else(|| tg::error!("expected the path to be set"))?;
 
 		// Canonicalize the path's parent.
+		if !path.is_absolute() {
+			return Err(tg::error!(?path, "the path must be absolute"));
+		}
 		let path = tangram_util::fs::canonicalize_parent(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;

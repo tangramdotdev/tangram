@@ -124,8 +124,11 @@ impl Cli {
 						.path()
 						.ok_or_else(|| tg::error!("expected a path!"))?,
 				);
+				let path = tangram_util::fs::canonicalize_parent(&path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 				let args = tg::checkin::Arg {
-					path: std::path::absolute(path.clone()).unwrap(),
+					path: path.clone(),
 					options,
 					updates: Vec::new(),
 				};

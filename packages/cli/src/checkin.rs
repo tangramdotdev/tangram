@@ -9,7 +9,7 @@ pub struct Args {
 
 	/// The path to check in.
 	#[arg(default_value = ".", index = 1)]
-	pub path: Option<PathBuf>,
+	pub path: PathBuf,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -174,9 +174,10 @@ impl Cli {
 		// Get the updates.
 		let updates = args.updates.unwrap_or_default();
 
-		// Get the path.
-		let path = std::path::absolute(args.path.unwrap_or_default())
-			.map_err(|source| tg::error!(!source, "failed to get the path"))?;
+		// Canonicalize the path's parent.
+		let path = tangram_util::fs::canonicalize_parent(&args.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Check in the artifact.
 		let arg = tg::checkin::Arg {

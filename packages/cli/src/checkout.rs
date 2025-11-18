@@ -92,8 +92,9 @@ impl Cli {
 
 		// Get the absolute path.
 		let path = if let Some(path) = args.path {
-			let path = std::path::absolute(path)
-				.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
+			let path = tangram_util::fs::canonicalize_parent(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 			Some(path)
 		} else {
 			None

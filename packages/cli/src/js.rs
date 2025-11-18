@@ -76,9 +76,8 @@ impl Cli {
 			let item = match executable.item().clone() {
 				tg::reference::Item::Object(id) => tg::module::data::Item::Object(id),
 				tg::reference::Item::Path(path) => {
-					let path = std::path::absolute(path).map_err(|source| {
-						tg::error!(!source, "failed to make the path absolute")
-					})?;
+					let path = tangram_util::fs::canonicalize_parent_sync(&path)
+						.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 					tg::module::data::Item::Path(path)
 				},
 				_ => {

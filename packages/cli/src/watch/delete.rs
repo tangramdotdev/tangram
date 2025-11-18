@@ -11,8 +11,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_watch_delete(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let path = std::path::absolute(args.path)
-			.map_err(|source| tg::error!(!source, "failed to get the path"))?;
+		let path = tangram_util::fs::canonicalize_parent(&args.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 		let arg = tg::watch::delete::Arg { path };
 		handle.delete_watch(arg).await?;
 		Ok(())

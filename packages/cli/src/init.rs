@@ -4,15 +4,16 @@ use {crate::Cli, indoc::formatdoc, std::path::PathBuf, tangram_client::prelude::
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub path: Option<PathBuf>,
+	#[arg(default_value = ".", index = 1)]
+	pub path: PathBuf,
 }
 
 impl Cli {
 	pub async fn command_init(&mut self, args: Args) -> tg::Result<()> {
-		// Get the path.
-		let path = std::path::absolute(args.path.unwrap_or_default())
-			.map_err(|source| tg::error!(!source, "failed to get the path"))?;
+		// Canonicalize the path's parent.
+		let path = tangram_util::fs::canonicalize_parent(&args.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Create the directory.
 		tokio::fs::create_dir_all(&path)

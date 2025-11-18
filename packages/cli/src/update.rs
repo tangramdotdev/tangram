@@ -19,9 +19,10 @@ impl Cli {
 	pub async fn command_update(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the absolute path.
-		let path = std::path::absolute(&args.path)
-			.map_err(|source| tg::error!(!source, "failed to get the absolute path"))?;
+		// Canonicalize the path's parent.
+		let path = tangram_util::fs::canonicalize_parent(&args.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 		// Get the updates.
 		let updates = args.updates.unwrap_or_else(|| vec!["*".parse().unwrap()]);
