@@ -10,7 +10,10 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_either::Either,
-	tangram_futures::{stream::{Ext as _, TryExt as _}, task::Task},
+	tangram_futures::{
+		stream::{Ext as _, TryExt as _},
+		task::Task,
+	},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::prelude::*,
 };

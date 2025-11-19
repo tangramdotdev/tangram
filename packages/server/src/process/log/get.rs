@@ -5,7 +5,10 @@ use {
 	num::ToPrimitive as _,
 	std::time::Duration,
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::{Stop, Task}},
+	tangram_futures::{
+		stream::Ext as _,
+		task::{Stop, Task},
+	},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},

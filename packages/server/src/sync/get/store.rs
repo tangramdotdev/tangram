@@ -61,11 +61,13 @@ impl Server {
 			}
 			let data = serde_json::from_slice(&item.bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the process"))?;
-			state
-				.graph
-				.lock()
-				.unwrap()
-				.update_process(&item.id, Some(&data), None, None, Some(true));
+			state.graph.lock().unwrap().update_process(
+				&item.id,
+				Some(&data),
+				None,
+				None,
+				Some(true),
+			);
 			state.progress.increment_processes();
 		}
 		Ok(())

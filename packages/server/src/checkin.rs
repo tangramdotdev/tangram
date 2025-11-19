@@ -53,27 +53,29 @@ impl Server {
 		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			|_| async move {
-				let result = AssertUnwindSafe(server.checkin_inner(arg, &progress))
-					.catch_unwind()
-					.await;
-				match result {
-					Ok(Ok(output)) => {
-						progress.output(output);
-					},
-					Ok(Err(error)) => {
-						progress.error(error);
-					},
-					Err(payload) => {
-						let message = payload
-							.downcast_ref::<String>()
-							.map(String::as_str)
-							.or(payload.downcast_ref::<&str>().copied());
-						progress.error(tg::error!(?message, "the task panicked"));
-					},
+			|_| {
+				async move {
+					let result = AssertUnwindSafe(server.checkin_inner(arg, &progress))
+						.catch_unwind()
+						.await;
+					match result {
+						Ok(Ok(output)) => {
+							progress.output(output);
+						},
+						Ok(Err(error)) => {
+							progress.error(error);
+						},
+						Err(payload) => {
+							let message = payload
+								.downcast_ref::<String>()
+								.map(String::as_str)
+								.or(payload.downcast_ref::<&str>().copied());
+							progress.error(tg::error!(?message, "the task panicked"));
+						},
+					}
 				}
+				.instrument(tracing::Span::current())
 			}
-			.instrument(tracing::Span::current())
 		});
 		let stream = progress.stream().attach(task);
 		Ok(stream)

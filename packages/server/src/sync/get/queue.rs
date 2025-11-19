@@ -81,7 +81,7 @@ impl Server {
 				None,
 				output.as_ref().map(|(complete, _)| complete.clone()),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
-				None
+				None,
 			);
 
 			match output {
@@ -169,7 +169,7 @@ impl Server {
 				output.as_ref().map(|(complete, _)| *complete),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
 				None,
-			None
+				None,
 			);
 
 			match output {

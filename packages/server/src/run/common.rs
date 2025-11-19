@@ -570,22 +570,24 @@ where
 	// Write the stdin blob to stdin if necessary.
 	let stdin = Task::spawn({
 		let server = server.clone();
-		|_| async move {
-			let Some(mut stdin) = stdin else {
-				return Ok(());
-			};
-			let Some(blob) = stdin_blob else {
-				return Ok(());
-			};
-			let mut reader = blob.read(&server, tg::read::Options::default()).await?;
-			tokio::io::copy(&mut reader, &mut stdin)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write the blob to stdin"))?;
-			Ok::<_, tg::Error>(())
+		|_| {
+			async move {
+				let Some(mut stdin) = stdin else {
+					return Ok(());
+				};
+				let Some(blob) = stdin_blob else {
+					return Ok(());
+				};
+				let mut reader = blob.read(&server, tg::read::Options::default()).await?;
+				tokio::io::copy(&mut reader, &mut stdin)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the blob to stdin"))?;
+				Ok::<_, tg::Error>(())
+			}
+			.inspect_err(|error| {
+				tracing::error!(?error);
+			})
 		}
-		.inspect_err(|error| {
-			tracing::error!(?error);
-		})
 	});
 
 	let stdout = Task::spawn({

@@ -4,7 +4,12 @@ use {
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin},
 	tangram_client::prelude::*,
-	tangram_futures::{read::Ext as _, stream::Ext as _, task::{Stop, Task}, write::Ext},
+	tangram_futures::{
+		read::Ext as _,
+		stream::Ext as _,
+		task::{Stop, Task},
+		write::Ext,
+	},
 	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
@@ -35,37 +40,39 @@ impl Server {
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({
 			let server = self.clone();
-			|_| async move {
-				let result = AssertUnwindSafe(server.sync_inner(arg, stream, sender.clone()))
-					.catch_unwind()
-					.await;
-				match result {
-					Ok(Ok(())) => (),
-					Ok(Err(error)) => {
-						sender
-							.send(Err(error))
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to send the error");
-							})
-							.ok();
-					},
-					Err(payload) => {
-						let message = payload
-							.downcast_ref::<String>()
-							.map(String::as_str)
-							.or(payload.downcast_ref::<&str>().copied());
-						sender
-							.send(Err(tg::error!(?message, "the task panicked")))
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to send the panic");
-							})
-							.ok();
-					},
+			|_| {
+				async move {
+					let result = AssertUnwindSafe(server.sync_inner(arg, stream, sender.clone()))
+						.catch_unwind()
+						.await;
+					match result {
+						Ok(Ok(())) => (),
+						Ok(Err(error)) => {
+							sender
+								.send(Err(error))
+								.await
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to send the error");
+								})
+								.ok();
+						},
+						Err(payload) => {
+							let message = payload
+								.downcast_ref::<String>()
+								.map(String::as_str)
+								.or(payload.downcast_ref::<&str>().copied());
+							sender
+								.send(Err(tg::error!(?message, "the task panicked")))
+								.await
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to send the panic");
+								})
+								.ok();
+						},
+					}
 				}
+				.instrument(tracing::Span::current())
 			}
-			.instrument(tracing::Span::current())
 		});
 
 		let stream = ReceiverStream::new(receiver);

@@ -6,7 +6,10 @@ use {
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::{stream::Ext as _, task::{Stop, Task}},
+	tangram_futures::{
+		stream::Ext as _,
+		task::{Stop, Task},
+	},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,

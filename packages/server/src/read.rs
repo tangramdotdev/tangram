@@ -13,7 +13,10 @@ use {
 	sync_wrapper::SyncWrapper,
 	tangram_client::prelude::*,
 	tangram_either::Either,
-	tangram_futures::{stream::Ext as _, task::{Stop, Task}},
+	tangram_futures::{
+		stream::Ext as _,
+		task::{Stop, Task},
+	},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_store::prelude::*,
 	tokio::io::{

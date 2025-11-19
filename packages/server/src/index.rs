@@ -5,7 +5,10 @@ use {
 	std::{panic::AssertUnwindSafe, pin::pin, task::Poll, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database as db,
-	tangram_futures::{stream::Ext as _, task::{Stop, Task}},
+	tangram_futures::{
+		stream::Ext as _,
+		task::{Stop, Task},
+	},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::{self as messenger, Acker, prelude::*},
 };
