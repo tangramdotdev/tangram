@@ -4,11 +4,10 @@ use {
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin},
 	tangram_client::prelude::*,
-	tangram_futures::{read::Ext as _, stream::Ext as _, task::Stop, write::Ext},
+	tangram_futures::{read::Ext as _, stream::Ext as _, task::{Stop, Task}, write::Ext},
 	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
-	tokio_util::task::AbortOnDropHandle,
 	tracing::Instrument,
 };
 
@@ -34,9 +33,9 @@ impl Server {
 
 		// Create the task.
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
-		let task = AbortOnDropHandle::new(tokio::spawn({
+		let task = Task::spawn({
 			let server = self.clone();
-			async move {
+			|_| async move {
 				let result = AssertUnwindSafe(server.sync_inner(arg, stream, sender.clone()))
 					.catch_unwind()
 					.await;
@@ -67,7 +66,7 @@ impl Server {
 				}
 			}
 			.instrument(tracing::Span::current())
-		}));
+		});
 
 		let stream = ReceiverStream::new(receiver);
 		let stream = stream

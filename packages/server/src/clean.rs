@@ -6,11 +6,10 @@ use {
 	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::{stream::Ext as _, task::Stop},
+	tangram_futures::{stream::Ext as _, task::{Stop, Task}},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::Messenger as _,
 	tangram_store::prelude::*,
-	tokio_util::task::AbortOnDropHandle,
 };
 
 #[cfg(feature = "postgres")]
@@ -34,10 +33,10 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 		let progress = crate::progress::Handle::new();
-		let task = AbortOnDropHandle::new(tokio::spawn({
+		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move {
+			|_| async move {
 				let result = AssertUnwindSafe(server.clean_inner(&progress))
 					.catch_unwind()
 					.await;
@@ -57,7 +56,7 @@ impl Server {
 					},
 				}
 			}
-		}));
+		});
 		let stream = progress.stream().attach(task);
 		Ok(stream)
 	}

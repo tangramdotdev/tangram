@@ -14,10 +14,10 @@ fn main() {
 		// Acquire an exclusive lock on the node_modules.lock file to ensure only one build script runs bun install at a time.
 		let lock_path = Path::new("../../node_modules.lock");
 		let lock_file = std::fs::File::create(lock_path).unwrap();
-		lock_file.lock().unwrap();
-		let _guard = scopeguard::guard((), |()| {
+		let lock_file = scopeguard::guard(lock_file, |_| {
 			std::fs::remove_file(lock_path).ok();
 		});
+		lock_file.lock().unwrap();
 
 		std::process::Command::new("bun")
 			.args(["install", "--frozen-lockfile"])

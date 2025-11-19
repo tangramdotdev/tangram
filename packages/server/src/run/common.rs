@@ -15,7 +15,7 @@ use {
 	tangram_futures::{read::Ext as _, task::Task, write::Ext as _},
 	tangram_uri::Uri,
 	tokio::io::{AsyncRead, AsyncWrite},
-	tokio_util::{io::ReaderStream, task::AbortOnDropHandle},
+	tokio_util::io::ReaderStream,
 };
 
 pub struct Arg<'a> {
@@ -568,9 +568,9 @@ where
 	E: AsyncRead + Unpin + Send + 'static,
 {
 	// Write the stdin blob to stdin if necessary.
-	let stdin = AbortOnDropHandle::new(tokio::spawn({
+	let stdin = Task::spawn({
 		let server = server.clone();
-		async move {
+		|_| async move {
 			let Some(mut stdin) = stdin else {
 				return Ok(());
 			};
@@ -586,13 +586,13 @@ where
 		.inspect_err(|error| {
 			tracing::error!(?error);
 		})
-	}));
+	});
 
-	let stdout = AbortOnDropHandle::new(tokio::spawn({
+	let stdout = Task::spawn({
 		let server = server.clone();
 		let id = id.clone();
 		let remote = remote.cloned();
-		async move {
+		|_| async move {
 			let Some(stdout) = stdout else {
 				return Ok(());
 			};
@@ -606,13 +606,13 @@ where
 			.await?;
 			Ok::<_, tg::Error>(())
 		}
-	}));
+	});
 
-	let stderr = AbortOnDropHandle::new(tokio::spawn({
+	let stderr = Task::spawn({
 		let server = server.clone();
 		let id = id.clone();
 		let remote = remote.cloned();
-		async move {
+		|_| async move {
 			let Some(stderr) = stderr else {
 				return Ok(());
 			};
@@ -626,10 +626,10 @@ where
 			.await?;
 			Ok::<_, tg::Error>(())
 		}
-	}));
+	});
 
 	// Join the tasks.
-	let (stdout, stderr) = future::join(stdout, stderr).await;
+	let (stdout, stderr) = future::join(stdout.wait(), stderr.wait()).await;
 	stdout
 		.unwrap()
 		.map_err(|source| tg::error!(!source, "failed to read stdout from pipe"))?;

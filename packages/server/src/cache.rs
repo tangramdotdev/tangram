@@ -10,10 +10,9 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_either::Either,
-	tangram_futures::stream::{Ext as _, TryExt as _},
+	tangram_futures::{stream::{Ext as _, TryExt as _}, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::prelude::*,
-	tokio_util::task::AbortOnDropHandle,
 };
 
 struct State {
@@ -40,10 +39,10 @@ impl Server {
 			return Ok(stream::once(future::ok(tg::progress::Event::Output(()))).left_stream());
 		}
 		let progress = crate::progress::Handle::new();
-		let task = AbortOnDropHandle::new(tokio::spawn({
+		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move {
+			|_| async move {
 				// Ensure the artifact is complete.
 				let result = server
 					.cache_ensure_complete(&artifacts, &progress)
@@ -132,7 +131,7 @@ impl Server {
 					},
 				}
 			}
-		}));
+		});
 		let stream = progress.stream().attach(task).right_stream();
 		Ok(stream)
 	}

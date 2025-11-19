@@ -6,9 +6,10 @@ use {
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
 		stream::{Ext as _, TryExt as _},
+		task::Task,
 	},
 	tokio::io::AsyncBufReadExt as _,
-	tokio_util::{compat::FuturesAsyncReadCompatExt as _, task::AbortOnDropHandle},
+	tokio_util::compat::FuturesAsyncReadCompatExt as _,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -60,9 +61,9 @@ where
 	let position = reader.shared_position();
 	let size = blob.length(handle).await?;
 	let (sender, receiver) = async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
-	let progress_task = AbortOnDropHandle::new(tokio::spawn({
+	let progress_task = Task::spawn({
 		let position = position.clone();
-		async move {
+		|_| async move {
 			loop {
 				let current = position.load(std::sync::atomic::Ordering::Relaxed);
 				let indicator = tg::progress::Indicator {
@@ -80,16 +81,12 @@ where
 				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 			}
 		}
-	}));
-	let stream = receiver.attach(progress_task);
-	let log_task = tokio::spawn({
-		let logger = logger.clone();
-		async move { crate::log_progress_stream(&logger, stream).await.ok() }
 	});
-	let log_task_abort_handle = log_task.abort_handle();
-	scopeguard::defer! {
-		log_task_abort_handle.abort();
-	};
+	let stream = receiver.attach(progress_task);
+	let log_task = Task::spawn({
+		let logger = logger.clone();
+		|_| async move { crate::log_progress_stream(&logger, stream).await.ok() }
+	});
 
 	// Create a temp.
 	let temp = tangram_temp::Temp::new_in(temp_path);
@@ -124,9 +121,8 @@ where
 		.ok_or_else(|| tg::error!("stream ended without output"))?;
 	let artifact = tg::Artifact::with_id(output.artifact.item);
 
-	// Abort and await the log task.
+	// Abort the log task.
 	log_task.abort();
-	log_task.await.ok();
 
 	// Log that the extraction finished.
 	let message = "finished extracting\n";

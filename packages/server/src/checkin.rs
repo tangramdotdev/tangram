@@ -12,10 +12,9 @@ use {
 		time::Instant,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::stream::Ext as _,
+	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tangram_ignore as ignore,
-	tokio_util::task::AbortOnDropHandle,
 };
 
 mod artifact;
@@ -51,10 +50,10 @@ impl Server {
 			arg.path = process.host_path_for_guest_path(arg.path.clone());
 		}
 		let progress = crate::progress::Handle::new();
-		let task = AbortOnDropHandle::new(tokio::spawn({
+		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move {
+			|_| async move {
 				let result = AssertUnwindSafe(server.checkin_inner(arg, &progress))
 					.catch_unwind()
 					.await;
@@ -75,7 +74,7 @@ impl Server {
 				}
 			}
 			.instrument(tracing::Span::current())
-		}));
+		});
 		let stream = progress.stream().attach(task);
 		Ok(stream)
 	}

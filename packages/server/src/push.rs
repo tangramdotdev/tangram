@@ -9,10 +9,9 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_either::Either,
-	tangram_futures::stream::Ext as _,
+	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tokio_stream::wrappers::ReceiverStream,
-	tokio_util::task::AbortOnDropHandle,
 };
 
 impl Server {
@@ -70,20 +69,20 @@ impl Server {
 		);
 
 		// Spawn a task to set the indicator totals as soon as they are ready.
-		let indicator_total_task = AbortOnDropHandle::new(tokio::spawn({
+		let indicator_total_task = Task::spawn({
 			let src = src.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
-			async move { Self::push_or_pull_set_indicator_totals(&src, progress, &arg).await }
-		}));
+			|_| async move { Self::push_or_pull_set_indicator_totals(&src, progress, &arg).await }
+		});
 
 		// Spawn the task.
-		let task = AbortOnDropHandle::new(tokio::spawn({
+		let task = Task::spawn({
 			let progress = progress.clone();
 			let arg = arg.clone();
 			let src = src.clone();
 			let dst = dst.clone();
-			async move {
+			|_| async move {
 				let result =
 					AssertUnwindSafe(Self::push_or_pull_task(arg, progress.clone(), src, dst))
 						.catch_unwind()
@@ -102,7 +101,7 @@ impl Server {
 					},
 				}
 			}
-		}));
+		});
 
 		// Create the stream.
 		let stream = progress.stream().attach(indicator_total_task).attach(task);

@@ -3,8 +3,8 @@ use {
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
 		stream::Ext as _,
+		task::Task,
 	},
-	tokio_util::task::AbortOnDropHandle,
 };
 
 pub(crate) async fn compress<H>(
@@ -54,9 +54,9 @@ where
 	let position = reader.shared_position();
 	let size = blob.length(handle).await?;
 	let (sender, receiver) = async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
-	let progress_task = AbortOnDropHandle::new(tokio::spawn({
+	let progress_task = Task::spawn({
 		let position = position.clone();
-		async move {
+		|_| async move {
 			loop {
 				let current = position.load(std::sync::atomic::Ordering::Relaxed);
 				let indicator = tg::progress::Indicator {
@@ -74,16 +74,12 @@ where
 				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 			}
 		}
-	}));
-	let stream = receiver.attach(progress_task);
-	let log_task = tokio::spawn({
-		let logger = logger.clone();
-		async move { crate::log_progress_stream(&logger, stream).await.ok() }
 	});
-	let log_task_abort_handle = log_task.abort_handle();
-	scopeguard::defer! {
-		log_task_abort_handle.abort();
-	};
+	let stream = receiver.attach(progress_task);
+	let log_task = Task::spawn({
+		let logger = logger.clone();
+		|_| async move { crate::log_progress_stream(&logger, stream).await.ok() }
+	});
 
 	// Compress the blob.
 	let reader = match format {
@@ -102,9 +98,8 @@ where
 	};
 	let blob = tg::Blob::with_reader(handle, reader).await?;
 
-	// Abort and await the log task.
+	// Abort the log task.
 	log_task.abort();
-	log_task.await.ok();
 
 	// Log that the compression finished.
 	let message = "finished compressing\n";

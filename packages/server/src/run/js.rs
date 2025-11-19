@@ -3,6 +3,7 @@ use {
 	futures::FutureExt as _,
 	std::sync::Arc,
 	tangram_client::prelude::*,
+	tokio_util::task::AbortOnDropHandle,
 };
 
 impl Server {
@@ -44,7 +45,7 @@ impl Server {
 				.map_or(1, |config| config.concurrency);
 			tokio_util::task::LocalPoolHandle::new(concurrency)
 		});
-		let task = local_pool_handle.spawn_pinned({
+		let task = AbortOnDropHandle::new(local_pool_handle.spawn_pinned({
 			let server = self.clone();
 			let process = process.clone();
 			move || async move {
@@ -72,11 +73,8 @@ impl Server {
 				.boxed_local()
 				.await
 			}
-		});
-
-		let abort_handle = task.abort_handle();
+		}));
 		scopeguard::defer! {
-			abort_handle.abort();
 			if let Some(isolate_handle) = isolate_handle_receiver.borrow().as_ref() {
 				tracing::trace!("terminating execution");
 				isolate_handle.terminate_execution();

@@ -6,12 +6,12 @@ use {
 	num::ToPrimitive as _,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_either::Either,
-	tangram_futures::{read::Ext, stream::Ext as _, write::Ext as _},
+	tangram_futures::{read::Ext, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::{Body, response::Ext as _},
 	tangram_util::serde::{CommaSeparatedString, is_false},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
-	tokio_util::{io::StreamReader, task::AbortOnDropHandle},
+	tokio_util::io::StreamReader,
 };
 
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
@@ -294,7 +294,7 @@ impl tg::Client {
 		let mut stream = BodyStream::new(response.into_body());
 		let (data_sender, data_receiver) = tokio::sync::mpsc::channel(1);
 		let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
-		let task = AbortOnDropHandle::new(tokio::spawn(async move {
+		let task = Task::spawn(|_| async move {
 			while let Some(result) = stream.next().await {
 				match result {
 					Ok(frame) => {
@@ -313,7 +313,7 @@ impl tg::Client {
 					},
 				}
 			}
-		}));
+		});
 
 		let reader =
 			StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));

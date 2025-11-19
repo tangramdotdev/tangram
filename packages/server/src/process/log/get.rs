@@ -5,12 +5,11 @@ use {
 	num::ToPrimitive as _,
 	std::time::Duration,
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Stop},
+	tangram_futures::{stream::Ext as _, task::{Stop, Task}},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 	tokio_stream::wrappers::IntervalStream,
-	tokio_util::task::AbortOnDropHandle,
 };
 
 impl Server {
@@ -53,14 +52,14 @@ impl Server {
 		// Spawn the task.
 		let server = self.clone();
 		let id = id.clone();
-		let task = AbortOnDropHandle::new(tokio::spawn(async move {
+		let task = Task::spawn(|_| async move {
 			let result = server
 				.try_get_process_log_local_task(&id, arg, sender.clone())
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
 			}
-		}));
+		});
 
 		let stream = receiver.attach(task);
 

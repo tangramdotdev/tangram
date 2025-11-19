@@ -13,14 +13,13 @@ use {
 	sync_wrapper::SyncWrapper,
 	tangram_client::prelude::*,
 	tangram_either::Either,
-	tangram_futures::{stream::Ext as _, task::Stop},
+	tangram_futures::{stream::Ext as _, task::{Stop, Task}},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_store::prelude::*,
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek,
 		AsyncSeekExt as _,
 	},
-	tokio_util::task::AbortOnDropHandle,
 };
 
 pub enum Reader {
@@ -62,9 +61,9 @@ impl Server {
 		let (sender, receiver) = async_channel::unbounded();
 
 		// Spawn the task.
-		let task = AbortOnDropHandle::new(tokio::spawn({
+		let task = Task::spawn({
 			let server = self.clone();
-			async move {
+			|_| async move {
 				let result =
 					AssertUnwindSafe(server.try_read_blob_task(arg, reader, sender.clone()))
 						.catch_unwind()
@@ -95,7 +94,7 @@ impl Server {
 					},
 				}
 			}
-		}));
+		});
 
 		// Create the stream.
 		let stream = receiver.attach(task);

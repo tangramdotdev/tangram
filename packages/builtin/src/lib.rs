@@ -3,7 +3,9 @@ use {
 		archive::archive, bundle::bundle, checksum::checksum, compress::compress,
 		decompress::decompress, download::download, extract::extract,
 	},
+	futures::TryStreamExt as _,
 	futures::{FutureExt as _, future::BoxFuture},
+	std::pin::pin,
 	std::sync::Arc,
 	tangram_client::prelude::*,
 };
@@ -79,9 +81,6 @@ pub(crate) async fn log_progress_stream<T: Send + std::fmt::Debug>(
 	logger: &Logger,
 	stream: impl futures::Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 ) -> tg::Result<()> {
-	use futures::TryStreamExt as _;
-	use std::pin::pin;
-
 	let mut stream = pin!(stream);
 	while let Some(event) = stream.try_next().await? {
 		let (tg::progress::Event::Start(indicator)

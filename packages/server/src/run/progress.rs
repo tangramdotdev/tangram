@@ -6,8 +6,7 @@ use {
 	num::ToPrimitive as _,
 	std::{fmt::Write as _, pin::pin},
 	tangram_client::prelude::*,
-	tangram_futures::stream::Ext as _,
-	tokio_util::task::AbortOnDropHandle,
+	tangram_futures::{stream::Ext as _, task::Task},
 	unicode_width::UnicodeWidthChar as _,
 };
 
@@ -78,7 +77,7 @@ impl Server {
 			lines: None,
 			sender,
 		};
-		let task = AbortOnDropHandle::new(tokio::spawn(async move {
+		let task = Task::spawn(|_| async move {
 			let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
 			let mut stream = pin!(stream);
 			loop {
@@ -107,7 +106,7 @@ impl Server {
 				state.print().await?;
 			}
 			Ok::<_, tg::Error>(())
-		}));
+		});
 		let stream = receiver.attach(task);
 		let arg = tg::pty::write::Arg {
 			master: false,
