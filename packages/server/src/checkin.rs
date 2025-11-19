@@ -1,5 +1,3 @@
-use tracing::Instrument as _;
-
 use {
 	crate::{Context, Server, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
@@ -15,6 +13,7 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tangram_ignore as ignore,
+	tracing::Instrument as _,
 };
 
 mod artifact;
@@ -156,13 +155,13 @@ impl Server {
 		// Attempt to get the graph, lock, and solutions from a watcher.
 		let (mut graph, lock, mut solutions, version) = if arg.options.watch
 			&& let Some(watch) = self.watches.get(&root)
-			&& let state = watch.value().state.lock().unwrap()
-			&& state.options == arg.options
+			&& watch.value().options() == &arg.options
 		{
-			let graph = state.graph.clone();
-			let lock = state.lock.clone();
-			let solutions = state.solutions.clone();
-			let version = Some(state.version);
+			let snapshot = watch.value().get();
+			let graph = snapshot.graph;
+			let lock = snapshot.lock;
+			let solutions = snapshot.solutions;
+			let version = Some(snapshot.version);
 			(graph, lock, solutions, version)
 		} else {
 			let graph = Graph::default();
@@ -294,25 +293,30 @@ impl Server {
 			let entry = self.watches.entry(root.clone());
 			match entry {
 				dashmap::Entry::Occupied(entry) => {
-					let mut state = entry.get().state.lock().unwrap();
-					if let Some(version) = version {
-						let current = state.version;
-						if current != version {
-							return Err(tg::error!("files were modified during checkin"));
-						}
+					// Verify the version.
+					let watch = entry.get();
+
+					// Update the watch.
+					let success = watch.update(graph.clone(), lock, solutions, version, next);
+
+					// If the update was not successful, then files were modified during checkin.
+					if !success {
+						return Err(tg::error!("files were modified during checkin"));
 					}
-					state.graph = graph.clone();
-					state.lock = lock;
 				},
 				dashmap::Entry::Vacant(entry) => {
-					let watch =
-						Watch::new(&root, graph.clone(), lock, arg.options.clone(), solutions)
-							.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
+					let watch = Watch::new(
+						&root,
+						graph.clone(),
+						lock,
+						arg.options.clone(),
+						solutions,
+						next,
+					)
+					.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
 			}
-
-			// On linux, watch the new paths.
 
 			// Spawn a task to clean nodes with no referrers.
 			tokio::task::spawn_blocking({
@@ -320,24 +324,9 @@ impl Server {
 				let root = root.clone();
 				let next = graph.next;
 				move || {
-					// Get the graph.
-					let Some(watch) = server.watches.get(&root) else {
-						return;
-					};
-					let mut state = watch.state.lock().unwrap();
-					let graph = &mut state.graph;
-
-					// Only clean if the graph has not been modified.
-					if graph.next != next {
-						return;
+					if let Some(watch) = server.watches.get(&root) {
+						watch.clean(&root, next);
 					}
-
-					// Clean the graph.
-					graph.clean(&root);
-
-					// Update paths on darwin.
-					#[cfg(target_os = "macos")]
-					state.update_paths();
 				}
 			});
 		}

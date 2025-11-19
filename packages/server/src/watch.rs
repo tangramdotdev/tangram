@@ -13,20 +13,27 @@ pub mod delete;
 pub mod list;
 
 pub struct Watch {
-	pub state: Arc<Mutex<State>>,
+	options: tg::checkin::Options,
+	state: Arc<Mutex<State>>,
 	#[expect(dead_code)]
 	task: Task<()>,
 }
 
-pub struct State {
+struct State {
+	graph: crate::checkin::Graph,
+	lock: Option<Arc<tg::graph::Data>>,
+	#[cfg(target_os = "macos")]
+	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+	solutions: crate::checkin::Solutions,
+	version: u64,
+	watcher: notify::RecommendedWatcher,
+}
+
+pub struct Snapshot {
 	pub graph: crate::checkin::Graph,
 	pub lock: Option<Arc<tg::graph::Data>>,
-	pub options: tg::checkin::Options,
-	#[cfg(target_os = "macos")]
-	pub paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	pub solutions: crate::checkin::Solutions,
 	pub version: u64,
-	pub watcher: notify::RecommendedWatcher,
 }
 
 impl Watch {
@@ -36,6 +43,7 @@ impl Watch {
 		lock: Option<Arc<tg::graph::Data>>,
 		options: tg::checkin::Options,
 		solutions: crate::checkin::Solutions,
+		#[cfg_attr(not(target_os = "linux"), allow(unused_variables))] next: usize,
 	) -> tg::Result<Self> {
 		// Create the watcher.
 		let config = notify::Config::default();
@@ -57,7 +65,6 @@ impl Watch {
 		let state = State {
 			graph,
 			lock,
-			options,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
 			solutions,
@@ -65,6 +72,10 @@ impl Watch {
 			watcher,
 		};
 		let state = Arc::new(Mutex::new(state));
+
+		// On Linux, add the paths.
+		#[cfg(target_os = "linux")]
+		state.lock().unwrap().add_paths_linux(next);
 
 		// Spawn the task.
 		let task = Task::spawn({
@@ -99,10 +110,7 @@ impl Watch {
 
 							// On linux, unwatch the path.
 							#[cfg(target_os = "linux")]
-							{
-								tracing::trace!(path = %path.display(), "unwatched");
-								state.watcher.unwatch(path).ok();
-							}
+							state.remove_path_linux(path);
 
 							// Remove the node.
 							let node = *state.graph.nodes.remove(&index).unwrap();
@@ -147,9 +155,71 @@ impl Watch {
 			}
 		});
 
-		let watch = Self { state, task };
+		let watch = Self {
+			options,
+			state,
+			task,
+		};
 
 		Ok(watch)
+	}
+
+	pub fn options(&self) -> &tg::checkin::Options {
+		&self.options
+	}
+
+	pub fn get(&self) -> Snapshot {
+		let state = self.state.lock().unwrap();
+		Snapshot {
+			graph: state.graph.clone(),
+			lock: state.lock.clone(),
+			solutions: state.solutions.clone(),
+			version: state.version,
+		}
+	}
+
+	pub fn update(
+		&self,
+		graph: crate::checkin::Graph,
+		lock: Option<Arc<tg::graph::Data>>,
+		solutions: crate::checkin::Solutions,
+		version: Option<u64>,
+		#[cfg_attr(not(target_os = "linux"), allow(unused_variables))] next: usize,
+	) -> bool {
+		let mut state = self.state.lock().unwrap();
+
+		if let Some(version) = version
+			&& state.version != version
+		{
+			return false;
+		}
+
+		// Update the state.
+		state.graph = graph;
+		state.lock = lock;
+		state.solutions = solutions;
+
+		// On Linux, add the new paths.
+		#[cfg(target_os = "linux")]
+		state.add_paths_linux(next);
+
+		true
+	}
+
+	pub fn clean(&self, root: &Path, next: usize) {
+		let mut state = self.state.lock().unwrap();
+
+		// Only clean if the graph has not been modified.
+		if state.graph.next != next {
+			return;
+		}
+
+		// Clean the graph.
+		state.graph.clean(root);
+
+		// Update paths on macOS.
+		#[cfg(target_os = "macos")]
+		state.update_paths_darwin();
 	}
 
 	fn changes(event: &notify::Event) -> HashSet<&Path, fnv::FnvBuildHasher> {
@@ -186,7 +256,7 @@ impl Watch {
 
 impl State {
 	#[cfg(target_os = "macos")]
-	pub fn update_paths(&mut self) {
+	fn update_paths_darwin(&mut self) {
 		// Get the new paths.
 		let paths = self.graph.paths.roots();
 
@@ -220,5 +290,26 @@ impl State {
 		if let Err(error) = result {
 			tracing::error!(?error, "failed to watch the paths");
 		}
+	}
+
+	#[cfg(target_os = "linux")]
+	fn add_paths_linux(&mut self, next: usize) {
+		let mut paths = self.watcher.paths_mut();
+		for path in self
+			.graph
+			.nodes
+			.range(next..)
+			.filter_map(|(_, node)| node.path.as_ref())
+		{
+			tracing::trace!(path = %path.display(), "watched");
+			paths.add(path, notify::RecursiveMode::NonRecursive).ok();
+		}
+		paths.commit().ok();
+	}
+
+	#[cfg(target_os = "linux")]
+	fn remove_path_linux(&mut self, path: &Path) {
+		tracing::trace!(path = %path.display(), "unwatched");
+		self.watcher.unwatch(path).ok();
 	}
 }
