@@ -215,7 +215,12 @@ impl Watch {
 		}
 
 		// Clean the graph.
-		state.graph.clean(root);
+		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
+		let removed_paths = state.graph.clean(root);
+
+		// Unwatch removed paths on Linux.
+		#[cfg(target_os = "linux")]
+		state.remove_paths_linux(&removed_paths);
 
 		// Update paths on macOS.
 		#[cfg(target_os = "macos")]
@@ -311,5 +316,15 @@ impl State {
 	fn remove_path_linux(&mut self, path: &Path) {
 		tracing::trace!(path = %path.display(), "unwatched");
 		self.watcher.unwatch(path).ok();
+	}
+
+	#[cfg(target_os = "linux")]
+	fn remove_paths_linux(&mut self, paths: &HashSet<PathBuf, fnv::FnvBuildHasher>) {
+		let mut watcher_paths = self.watcher.paths_mut();
+		for path in paths {
+			tracing::trace!(path = %path.display(), "unwatched");
+			watcher_paths.remove(path).ok();
+		}
+		watcher_paths.commit().ok();
 	}
 }

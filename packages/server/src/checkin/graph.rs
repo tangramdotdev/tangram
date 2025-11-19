@@ -34,7 +34,7 @@ pub struct Node {
 }
 
 impl Graph {
-	pub fn clean(&mut self, root: &Path) {
+	pub fn clean(&mut self, root: &Path) -> HashSet<PathBuf, fnv::FnvBuildHasher> {
 		// Get nodes with no referrers.
 		let root = self.paths.get(root).unwrap();
 		let mut queue = self
@@ -44,6 +44,7 @@ impl Graph {
 			.map(|(index, _)| *index)
 			.collect::<Vec<_>>();
 
+		let mut removed_paths = HashSet::default();
 		let mut visited = std::collections::HashSet::<usize, fnv::FnvBuildHasher>::default();
 		while let Some(index) = queue.pop() {
 			if !visited.insert(index) {
@@ -77,7 +78,14 @@ impl Graph {
 					}
 				}
 			}
+
+			// Add to the removed paths set.
+			if let Some(path) = node.path {
+				removed_paths.insert(path);
+			}
 		}
+
+		removed_paths
 	}
 
 	pub fn unsolve(&mut self) {
