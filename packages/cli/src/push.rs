@@ -7,14 +7,8 @@ pub struct Args {
 	#[arg(alias = "command", long)]
 	pub commands: bool,
 
-	#[arg(
-		default_missing_value = "true",
-		default_value = "true",
-		long,
-		num_args = 0..=1,
-		require_equals = true,
-  )]
-	pub eager: bool,
+	#[command(flatten)]
+	pub eager: Eager,
 
 	#[arg(long, short)]
 	pub force: bool,
@@ -30,6 +24,33 @@ pub struct Args {
 
 	#[arg(long, short)]
 	pub remote: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Eager {
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "lazy",
+		require_equals = true,
+	)]
+	eager: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "eager",
+		require_equals = true,
+	)]
+	lazy: Option<bool>,
+}
+
+impl Eager {
+	pub fn get(&self) -> bool {
+		self.eager.or(self.lazy.map(|v| !v)).unwrap_or(true)
+	}
 }
 
 impl Cli {
@@ -54,7 +75,7 @@ impl Cli {
 		// Push the items.
 		let arg = tg::push::Arg {
 			commands: args.commands,
-			eager: args.eager,
+			eager: args.eager.get(),
 			items: items.clone(),
 			logs: args.logs,
 			outputs: true,
