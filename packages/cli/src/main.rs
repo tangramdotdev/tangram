@@ -1038,7 +1038,7 @@ impl Cli {
 			.await;
 
 		// Get the path to the current executable.
-		let executable = std::env::current_exe()
+		let executable = tangram_util::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 
 		// Spawn the server.

@@ -93,7 +93,7 @@ impl Server {
 		// Render the executable.
 		let executable = match command.host.as_str() {
 			"builtin" => {
-				let tg = std::env::current_exe().map_err(|source| {
+				let tg = tangram_util::env::current_exe().map_err(|source| {
 					tg::error!(!source, "failed to get the current executable")
 				})?;
 				args.insert(0, "builtin".to_owned());
@@ -102,7 +102,7 @@ impl Server {
 			},
 
 			"js" => {
-				let tg = std::env::current_exe().map_err(|source| {
+				let tg = tangram_util::env::current_exe().map_err(|source| {
 					tg::error!(!source, "failed to get the current executable")
 				})?;
 				args.insert(0, "js".to_owned());
@@ -287,7 +287,7 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 		args: vec!["sandbox".to_owned()],
 		cwd: PathBuf::from("/"),
 		env: BTreeMap::new(),
-		executable: std::env::current_exe()
+		executable: tangram_util::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the current executable"))?,
 	};
 
