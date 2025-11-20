@@ -30,16 +30,19 @@ pub(crate) async fn download<H>(
 where
 	H: tg::Handle,
 {
-	let url: Uri = match args.first() {
+	let url = match args.first() {
 		Some(tg::value::Data::String(s)) => s
-			.parse()
+			.parse::<Uri>()
 			.map_err(|source| tg::error!(!source, "invalid url"))?,
 		_ => return Err(tg::error!("expected a string")),
 	};
-	let options: Option<tg::DownloadOptions> = match args.get(1) {
+	let options = match args.get(1) {
 		Some(tg::value::Data::Null) | None => None,
 		Some(tg::value::Data::Map(map)) => {
-			let checksum_algorithm = match map.get("checksum_algorithm") {
+			let checksum_algorithm = match map
+				.get("checksum_algorithm")
+				.or(map.get("checksumAlgorithm"))
+			{
 				Some(tg::value::Data::String(s)) => Some(
 					s.parse()
 						.map_err(|source| tg::error!(!source, "invalid checksum algorithm"))?,

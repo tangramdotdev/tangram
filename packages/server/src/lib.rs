@@ -1,6 +1,3 @@
-#[cfg(feature = "nats")]
-use async_nats as nats;
-use tracing::Instrument as _;
 use {
 	self::{
 		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
@@ -23,6 +20,7 @@ use {
 	tangram_uri::Uri,
 	tangram_util::fs::remove,
 	tokio::io::AsyncWriteExt as _,
+	tracing::Instrument as _,
 };
 
 mod cache;
@@ -341,6 +339,7 @@ impl Server {
 				}
 				#[cfg(feature = "nats")]
 				{
+					use async_nats as nats;
 					let client = nats::connect(nats.url.to_string())
 						.await
 						.map_err(|source| {

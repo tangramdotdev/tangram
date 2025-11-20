@@ -37,7 +37,7 @@ type IndexObjectMessages =
 type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
 
 impl Server {
-	#[tracing::instrument(fields(path = ?arg.path), name = "checkin", skip_all)]
+	#[tracing::instrument(fields(path = ?arg.path), level = "debug", name = "checkin", skip_all)]
 	pub(crate) async fn checkin_with_context(
 		&self,
 		context: &Context,

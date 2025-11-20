@@ -22,7 +22,7 @@ mod put;
 mod queue;
 
 impl Server {
-	#[tracing::instrument(fields(get = ?arg.get, put = ?arg.put), name = "sync", skip_all)]
+	#[tracing::instrument(fields(get = ?arg.get, put = ?arg.put), level = "debug", name = "sync", skip_all)]
 	pub(crate) async fn sync_with_context(
 		&self,
 		_context: &Context,
