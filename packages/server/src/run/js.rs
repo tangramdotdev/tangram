@@ -18,7 +18,11 @@ impl Server {
 			.cwd
 			.clone()
 			.unwrap_or_else(|| std::path::PathBuf::from("/"));
-		let env = data.env;
+		let mut env = data.env;
+		env.insert(
+			"TANGRAM_PROCESS".to_owned(),
+			process.id().to_string().into(),
+		);
 		let executable = data.executable;
 
 		// Create the logger.
