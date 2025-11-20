@@ -77,7 +77,7 @@ impl Server {
 		// Render the args.
 		let mut args = match command.host.as_str() {
 			"builtin" | "js" => render_args_dash_a(&command.args),
-			_ => render_args_string(&artifacts_path, &command.args),
+			_ => render_args_string(&command.args, &artifacts_path),
 		};
 
 		// Get the working directory.
@@ -88,7 +88,7 @@ impl Server {
 		};
 
 		// Render the env.
-		let mut env = render_env(&command.env)?;
+		let mut env = render_env(&command.env, &artifacts_path)?;
 
 		// Render the executable.
 		let executable = match command.host.as_str() {

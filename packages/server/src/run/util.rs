@@ -91,21 +91,9 @@ async fn log_inner(
 	Ok(())
 }
 
-pub fn render_args_string(artifacts_path: &Path, args: &[tg::value::Data]) -> Vec<String> {
+pub fn render_args_string(args: &[tg::value::Data], artifacts_path: &Path) -> Vec<String> {
 	args.iter()
-		.map(|value| match value {
-			tg::value::Data::String(string) => string.clone(),
-			tg::value::Data::Template(template) => template.render(|component| match component {
-				tg::template::data::Component::String(string) => string.clone().into(),
-				tg::template::data::Component::Artifact(artifact) => artifacts_path
-					.join(artifact.to_string())
-					.to_str()
-					.unwrap()
-					.to_owned()
-					.into(),
-			}),
-			_ => tg::Value::try_from_data(value.clone()).unwrap().to_string(),
-		})
+		.map(|value| render_value_string(value, artifacts_path))
 		.collect::<Vec<_>>()
 }
 
@@ -118,7 +106,10 @@ pub fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 		.collect::<Vec<_>>()
 }
 
-pub fn render_env(env: &tg::value::data::Map) -> tg::Result<BTreeMap<String, String>> {
+pub fn render_env(
+	env: &tg::value::data::Map,
+	artifacts_path: &Path,
+) -> tg::Result<BTreeMap<String, String>> {
 	let mut output = BTreeMap::new();
 	for (key, value) in env {
 		let mutation = match value {
@@ -133,15 +124,27 @@ pub fn render_env(env: &tg::value::data::Map) -> tg::Result<BTreeMap<String, Str
 		.iter()
 		.map(|(key, value)| {
 			let key = key.clone();
-			let value = value
-				.try_unwrap_string_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a string"))?
-				.clone();
+			let value = render_value_string(value, artifacts_path);
 			Ok::<_, tg::Error>((key, value))
 		})
 		.collect::<tg::Result<_>>()?;
 	Ok(output)
+}
+
+pub fn render_value_string(value: &tg::value::Data, artifacts_path: &Path) -> String {
+	match value {
+		tg::value::Data::String(string) => string.clone(),
+		tg::value::Data::Template(template) => template.render(|component| match component {
+			tg::template::data::Component::String(string) => string.clone().into(),
+			tg::template::data::Component::Artifact(artifact) => artifacts_path
+				.join(artifact.to_string())
+				.to_str()
+				.unwrap()
+				.to_owned()
+				.into(),
+		}),
+		_ => tg::Value::try_from_data(value.clone()).unwrap().to_string(),
+	}
 }
 
 pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<PathBuf> {

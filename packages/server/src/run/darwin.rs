@@ -50,7 +50,7 @@ impl Server {
 		// Render the args.
 		let mut args = match command.host.as_str() {
 			"builtin" | "js" => render_args_dash_a(&command.args),
-			_ => render_args_string(&artifacts_path, &command.args),
+			_ => render_args_string(&command.args, &artifacts_path),
 		};
 
 		// Create the working directory.
@@ -63,7 +63,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
 
 		// Render the env.
-		let mut env = render_env(&command.env)?;
+		let mut env = render_env(&command.env, &artifacts_path)?;
 
 		// Render the executable.
 		let executable = match command.host.as_str() {

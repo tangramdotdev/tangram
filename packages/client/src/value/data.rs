@@ -108,6 +108,28 @@ impl Data {
 			Self::Template(template) => template.children(children),
 		}
 	}
+
+	pub fn to_serde<T>(self) -> tg::Result<T>
+	where
+		T: serde::de::DeserializeOwned,
+	{
+		let json = serde_json::to_value(&self)
+			.map_err(|source| tg::error!(!source, "failed to convert to json"))?;
+		let result = serde_json::from_value(json)
+			.map_err(|source| tg::error!(!source, "failed to deserialize from json"))?;
+		Ok(result)
+	}
+
+	pub fn from_serde<T>(value: T) -> tg::Result<Self>
+	where
+		T: serde::Serialize,
+	{
+		let json = serde_json::to_value(&value)
+			.map_err(|source| tg::error!(!source, "failed to serialize to json"))?;
+		let result = serde_json::from_value(json)
+			.map_err(|source| tg::error!(!source, "failed to convert from json"))?;
+		Ok(result)
+	}
 }
 
 impl serde::Serialize for Data {

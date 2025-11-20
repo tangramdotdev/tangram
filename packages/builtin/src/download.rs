@@ -39,10 +39,7 @@ where
 	let options = match args.get(1) {
 		Some(tg::value::Data::Null) | None => None,
 		Some(tg::value::Data::Map(map)) => {
-			let checksum_algorithm = match map
-				.get("checksum_algorithm")
-				.or(map.get("checksumAlgorithm"))
-			{
+			let checksum = match map.get("checksum") {
 				Some(tg::value::Data::String(s)) => Some(
 					s.parse()
 						.map_err(|source| tg::error!(!source, "invalid checksum algorithm"))?,
@@ -58,10 +55,7 @@ where
 				Some(tg::value::Data::Null) | None => None,
 				_ => return Err(tg::error!("invalid mode")),
 			};
-			let options = tg::DownloadOptions {
-				checksum_algorithm,
-				mode,
-			};
+			let options = tg::DownloadOptions { checksum, mode };
 			Some(options)
 		},
 		_ => return Err(tg::error!("invalid options")),
@@ -85,7 +79,7 @@ where
 	// Create the checksum writer.
 	let checksum = options
 		.as_ref()
-		.and_then(|options| options.checksum_algorithm)
+		.and_then(|options| options.checksum)
 		.map(|algorithm| {
 			let writer = tg::checksum::Writer::new(algorithm);
 			Arc::new(Mutex::new(writer))
