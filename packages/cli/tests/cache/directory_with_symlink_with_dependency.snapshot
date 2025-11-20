@@ -1,0 +1,22 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_0109qjm6akjjcf25wsyqdpdmegmghkjdtmdb9b6p756yzxt4kdefq0": {
+      "kind": "directory",
+      "entries": {
+        "foo": {
+          "kind": "symlink",
+          "path": "../fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g"
+        }
+      }
+    },
+    "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
+      "kind": "file",
+      "contents": "bar"
+    },
+    "fil_01ma3sjr26srermw0wjgyhftxancecqx3enjd4prkxetb4dzaknn0g": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.directory({\n\t\tfoo: tg.symlink(tg.file(\"bar\")),\n\t});\n}"
+    }
+  }
+}

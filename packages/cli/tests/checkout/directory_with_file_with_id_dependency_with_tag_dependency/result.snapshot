@@ -1,0 +1,33 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "fil_01fhnqtzhfp63rhz2kp274b7z43x6wxmwm2k2254zc0pkv9jyhkt80": {
+              "kind": "file",
+              "contents": "baz"
+            },
+            "fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0": {
+              "kind": "file",
+              "contents": "bar",
+              "xattrs": {
+                "user.tangram.dependencies": "[\"baz\"]"
+              }
+            }
+          }
+        }
+      }
+    },
+    "foo": {
+      "kind": "file",
+      "contents": "foo",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0\"]"
+      }
+    }
+  }
+}

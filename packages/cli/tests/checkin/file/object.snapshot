@@ -1,0 +1,5 @@
+tg.directory({
+  "README.md": tg.file({
+    "contents": tg.blob("Hello, World!"),
+  }),
+})

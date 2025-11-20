@@ -27,18 +27,18 @@ impl Cli {
 
 		// Read input from argument or stdin.
 		let input = if let Some(input) = args.input {
-			input
+			input.into_bytes()
 		} else {
-			let mut input = String::new();
+			let mut input = Vec::new();
 			crate::util::stdio::stdin()
-				.read_to_string(&mut input)
+				.read_to_end(&mut input)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
 			input
 		};
 
 		let id = if args.bytes {
-			let bytes = Bytes::from(input.into_bytes());
+			let bytes = Bytes::from(input);
 
 			// Compute the ID if necessary.
 			let id = if let Some(id) = args.id {
@@ -57,7 +57,9 @@ impl Cli {
 			id
 		} else {
 			// Parse the value.
-			let value = tg::value::parse(&input)
+			let input = std::str::from_utf8(&input)
+				.map_err(|source| tg::error!(!source, "the input was not valid utf-8"))?;
+			let value = tg::value::parse(input)
 				.map_err(|source| tg::error!(!source, "failed to parse the value"))?;
 
 			// Store the value.

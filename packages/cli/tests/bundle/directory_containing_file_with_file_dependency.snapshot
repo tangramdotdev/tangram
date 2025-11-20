@@ -1,0 +1,24 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "fil_0143v1bnvb04nrjr0y1x07wwmkv3873ybk9ap6g0a8bjtva5cathmg": {
+              "kind": "file",
+              "contents": "dependency"
+            }
+          }
+        }
+      }
+    },
+    "file": {
+      "kind": "file",
+      "contents": "f",
+      "executable": true
+    }
+  }
+}

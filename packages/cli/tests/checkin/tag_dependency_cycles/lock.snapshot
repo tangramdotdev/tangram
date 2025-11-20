@@ -1,0 +1,103 @@
+{
+  "nodes": [
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "node": 1
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "a/%2A": {
+          "item": {
+            "node": 2
+          },
+          "options": {
+            "id": "dir_01fdmgbzwjx44hwz9rrdj25y7d1d404p55k8xepkwpr4g3sn69end0",
+            "tag": "a/1.1.0"
+          }
+        },
+        "b/%2A": {
+          "item": {
+            "node": 3
+          },
+          "options": {
+            "id": "dir_01ems2vvs5pj67vvr13yz23sts5xqmxsqed4wxx0hvcpehbn745g2g",
+            "tag": "b/1.0.0"
+          }
+        }
+      }
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "node": 4
+        }
+      }
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "foo.tg.ts": {
+          "node": 5
+        },
+        "tangram.ts": {
+          "node": 6
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "b/%2A": {
+          "item": {
+            "node": 3
+          },
+          "options": {
+            "id": "dir_01ems2vvs5pj67vvr13yz23sts5xqmxsqed4wxx0hvcpehbn745g2g",
+            "tag": "b/1.0.0"
+          }
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "./tangram.ts": {
+          "item": {
+            "node": 6
+          },
+          "options": {
+            "path": "tangram.ts"
+          }
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "./foo.tg.ts": {
+          "item": {
+            "node": 5
+          },
+          "options": {
+            "path": "foo.tg.ts"
+          }
+        },
+        "a/%2A": {
+          "item": {
+            "node": 2
+          },
+          "options": {
+            "id": "dir_01fdmgbzwjx44hwz9rrdj25y7d1d404p55k8xepkwpr4g3sn69end0",
+            "tag": "a/1.1.0"
+          }
+        }
+      }
+    }
+  ]
+}

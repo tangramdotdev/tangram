@@ -1,0 +1,14 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import hello from \"hello\";"),
+    "dependencies": {
+      "hello": {
+        "item": tg.file({
+          "contents": tg.blob("Hello, world!"),
+        }),
+        "id": "fil_01sp9ta6qgjk4msgsw7fxck19fxxeqec551wbsc8w9gjvm59vs9w00",
+        "tag": "hello",
+      },
+    },
+  }),
+})

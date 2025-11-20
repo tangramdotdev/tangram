@@ -1,0 +1,26 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
+              "kind": "file",
+              "contents": "bar"
+            }
+          }
+        }
+      }
+    },
+    "foo": {
+      "kind": "file",
+      "contents": "foo",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g\"]"
+      }
+    }
+  }
+}

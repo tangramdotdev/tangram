@@ -1,0 +1,15 @@
+tree
+└╴tree/of
+  └╴tree/of/tags
+    ├╴tree/of/tags/bar: dir_01apgd3f4my7he6be8a0kckf32bpw01k4ez11pbhfhzzsm6chy9dgg
+    │ └╴entries: map
+    │   └╴tangram.ts: fil_014461y623bj37gwnaf682c81vh8rwps2bjj0sa7222gncqqe6vj10
+    │     ├╴contents: blb_0171ytyz9bccy0k15hrep1as9ccybpy2ny0bjq2cmshydz9265zbz0
+    │     └╴dependencies: map
+    │       └╴tree/of/tags/foo: map
+    │         ├╴item: dir_01x6rye7cfh2jjq6f58ffrs4s6pwb25e4xepm61z9nkg7hq3dky7y0
+    │         └╴tag: "tree/of/tags/foo"
+    └╴tree/of/tags/foo: dir_01x6rye7cfh2jjq6f58ffrs4s6pwb25e4xepm61z9nkg7hq3dky7y0
+      └╴entries: map
+        └╴tangram.ts: fil_01kvs4ge7sm2h03a0dc4fbbz4g4m8rg0b04mvxregc85v90bgs56z0
+          └╴contents: blb_0194cvce5k7jhd4ywjr3b9k3ax0gqv8af172q1mk1y287bwz6gaarg

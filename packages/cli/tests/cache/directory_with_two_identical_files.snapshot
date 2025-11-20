@@ -1,0 +1,22 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_015x7vb1f3wfv5h55h7s72e0x04ns0ak9bs0ayxm5hxp71dnkbkqzg": {
+      "kind": "directory",
+      "entries": {
+        "hello.txt": {
+          "kind": "file",
+          "contents": "Hello, World!"
+        },
+        "world.txt": {
+          "kind": "file",
+          "contents": "Hello, World!"
+        }
+      }
+    },
+    "fil_01gkn747ajvdtn6gqy23r18zynwv3m6w1mqdhe0mkhzpnbets2sbeg": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": \"Hello, World!\",\n\t\t\"world.txt\": \"Hello, World!\",\n\t});\n}"
+    }
+  }
+}

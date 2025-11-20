@@ -8,7 +8,7 @@ use {
 	tokio::io::AsyncWriteExt as _,
 };
 
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
 	/// Whether to print blobs in the value.

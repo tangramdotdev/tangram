@@ -1,0 +1,18 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_01jx4k03rrr7z7ma9f0vepqzzj3wysvx7ga73twmmz28r1ywtjn2fg": {
+      "kind": "directory",
+      "entries": {
+        "link": {
+          "kind": "symlink",
+          "path": "link"
+        }
+      }
+    },
+    "fil_01334nwq42f3841my665rmene9tgnvh7rekze17pxd9rwxyn2vsfk0": {
+      "kind": "file",
+      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: { link: { node: 1 } },\n\t\t\t},\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tartifact: { node: 0 },\n\t\t\t\tpath: \"link\",\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({ graph, node: 0 });\n}"
+    }
+  }
+}

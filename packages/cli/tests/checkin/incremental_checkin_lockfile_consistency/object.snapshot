@@ -1,0 +1,56 @@
+tg.directory({
+  "helper.tg.ts": tg.file({
+    "contents": tg.blob("export default \"helper\";"),
+  }),
+  "mod.tg.ts": tg.file({
+    "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
+    "dependencies": {
+      "./helper.tg.ts": {
+        "item": tg.file({
+          "contents": tg.blob("export default \"helper\";"),
+        }),
+        "path": "helper.tg.ts",
+      },
+    },
+  }),
+  "subdir": tg.directory({
+    "nested.tg.ts": tg.file({
+      "contents": tg.blob("import mod from \"../mod.tg.ts\";"),
+      "dependencies": {
+        "../mod.tg.ts": {
+          "item": tg.file({
+            "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
+            "dependencies": {
+              "./helper.tg.ts": {
+                "item": tg.file({
+                  "contents": tg.blob("export default \"helper\";"),
+                }),
+                "path": "helper.tg.ts",
+              },
+            },
+          }),
+          "path": "../mod.tg.ts",
+        },
+      },
+    }),
+  }),
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import mod from \"./mod.tg.ts\";"),
+    "dependencies": {
+      "./mod.tg.ts": {
+        "item": tg.file({
+          "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
+          "dependencies": {
+            "./helper.tg.ts": {
+              "item": tg.file({
+                "contents": tg.blob("export default \"helper\";"),
+              }),
+              "path": "helper.tg.ts",
+            },
+          },
+        }),
+        "path": "mod.tg.ts",
+      },
+    },
+  }),
+})

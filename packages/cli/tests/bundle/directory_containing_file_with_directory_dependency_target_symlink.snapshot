@@ -1,0 +1,37 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "dir_01rjyptv2qx6qd51m312rmndqwbjf8r129qhdryfettexqdswa26q0": {
+              "kind": "directory",
+              "entries": {
+                "dep": {
+                  "kind": "file",
+                  "contents": "dependency"
+                },
+                "link": {
+                  "kind": "symlink",
+                  "path": "dep"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "file": {
+      "kind": "file",
+      "contents": "f",
+      "executable": true
+    },
+    "link": {
+      "kind": "symlink",
+      "path": "file"
+    }
+  }
+}

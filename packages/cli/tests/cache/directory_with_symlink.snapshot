@@ -1,0 +1,22 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_01mfcyy0ayssk405f66n95a9ead33vmer8y9tvne0xqz01w2t4etxg": {
+      "kind": "directory",
+      "entries": {
+        "hello.txt": {
+          "kind": "file",
+          "contents": "Hello, World!"
+        },
+        "link": {
+          "kind": "symlink",
+          "path": "hello.txt"
+        }
+      }
+    },
+    "fil_01gz85m0vx7y2rpebqyejbxt7e5jf5791k5b5kg95bftx489x7mdv0": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": tg.file(\"Hello, World!\"),\n\t\t\"link\": tg.symlink(\"hello.txt\"),\n\t});\n}"
+    }
+  }
+}

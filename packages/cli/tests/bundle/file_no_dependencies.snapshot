@@ -1,0 +1,3 @@
+tg.file({
+  "contents": tg.blob("hello!"),
+})

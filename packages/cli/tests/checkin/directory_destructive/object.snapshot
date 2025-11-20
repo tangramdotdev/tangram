@@ -1,0 +1,19 @@
+tg.directory({
+  "a": tg.directory({
+    "b": tg.directory({
+      "c": tg.symlink({
+        "path": "../../a/d/e",
+      }),
+    }),
+    "d": tg.directory({
+      "e": tg.symlink({
+        "path": "../../a/f/g",
+      }),
+    }),
+    "f": tg.directory({
+      "g": tg.file({
+        "contents": tg.blob(""),
+      }),
+    }),
+  }),
+})

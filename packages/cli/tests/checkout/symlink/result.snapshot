@@ -1,0 +1,13 @@
+{
+  "kind": "directory",
+  "entries": {
+    "hello.txt": {
+      "kind": "file",
+      "contents": "Hello, World!"
+    },
+    "link": {
+      "kind": "symlink",
+      "path": "hello.txt"
+    }
+  }
+}

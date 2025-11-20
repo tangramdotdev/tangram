@@ -1,0 +1,23 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
+              "kind": "file",
+              "contents": "bar"
+            }
+          }
+        }
+      }
+    },
+    "foo": {
+      "kind": "symlink",
+      "path": ".tangram/artifacts/fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g"
+    }
+  }
+}

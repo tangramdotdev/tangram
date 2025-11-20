@@ -1,0 +1,13 @@
+{
+  "kind": "directory",
+  "entries": {
+    "fil_0147m3km2620ss4ktmzhv70600k40pns04dhn99tx85d4bsg8bjvhg": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.file(\"Hello, World!\");\n}"
+    },
+    "fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60": {
+      "kind": "file",
+      "contents": "Hello, World!"
+    }
+  }
+}

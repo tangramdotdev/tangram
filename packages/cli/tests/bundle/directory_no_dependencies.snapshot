@@ -1,0 +1,8 @@
+tg.directory({
+  "file": tg.file({
+    "contents": tg.blob("hello"),
+  }),
+  "link": tg.symlink({
+    "path": "link",
+  }),
+})

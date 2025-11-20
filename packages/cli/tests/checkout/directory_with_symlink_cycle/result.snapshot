@@ -1,0 +1,9 @@
+{
+  "kind": "directory",
+  "entries": {
+    "link": {
+      "kind": "symlink",
+      "path": "link"
+    }
+  }
+}

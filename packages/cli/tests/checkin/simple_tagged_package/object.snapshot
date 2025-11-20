@@ -1,0 +1,16 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import a from \"a\";\nexport default tg.command(async () => {\n\treturn await a();\n});"),
+    "dependencies": {
+      "a": {
+        "item": tg.directory({
+          "tangram.ts": tg.file({
+            "contents": tg.blob("export default () => \"a\";"),
+          }),
+        }),
+        "id": "dir_01s7bx5nqy2mc2qanmg482z18vq7ddrnvvvk7sv1zwm6b6af781dd0",
+        "tag": "a",
+      },
+    },
+  }),
+})

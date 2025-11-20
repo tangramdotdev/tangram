@@ -1,0 +1,75 @@
+{
+  "nodes": [
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "node": 1
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "b": {
+          "item": {
+            "node": 2
+          },
+          "options": {
+            "id": "dir_01gxjcgm682hjmgtepvc5cj6xgbkxv05zae1r25seffd2eydw5j69g",
+            "tag": "b"
+          }
+        },
+        "c": {
+          "item": {
+            "node": 3
+          },
+          "options": {
+            "id": "dir_01h3az9r0rbyec97ea9zzjrz6bgsr0m5qjzv8zthj4g4ht8dd3zyj0",
+            "tag": "c"
+          }
+        }
+      }
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "node": 4
+        }
+      }
+    },
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "node": 5
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "d/%5E1": {
+          "item": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+          "options": {
+            "id": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+            "tag": "d/1.1.0"
+          }
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "d/%5E1.0": {
+          "item": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+          "options": {
+            "id": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+            "tag": "d/1.1.0"
+          }
+        }
+      }
+    }
+  ]
+}

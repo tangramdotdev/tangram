@@ -113,9 +113,9 @@ impl Server {
 
 			// Listen.
 			let socket_path = path.join("socket").display().to_string();
-			let mut url = if socket_path.len() >= MAX_URL_LEN {
-				let path = urlencoding::encode(&socket_path);
-				format!("http+unix://{path}").parse::<Uri>().unwrap()
+			let mut url = if socket_path.len() <= MAX_URL_LEN {
+				let socket_path = urlencoding::encode(&socket_path);
+				format!("http+unix://{socket_path}").parse::<Uri>().unwrap()
 			} else {
 				"http://localhost:0".to_string().parse::<Uri>().unwrap()
 			};

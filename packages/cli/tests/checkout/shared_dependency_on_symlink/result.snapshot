@@ -1,0 +1,42 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg": {
+              "kind": "directory",
+              "entries": {
+                "file.txt": {
+                  "kind": "file",
+                  "contents": "contents"
+                },
+                "link": {
+                  "kind": "symlink",
+                  "path": "file.txt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bar.txt": {
+      "kind": "file",
+      "contents": "bar",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
+      }
+    },
+    "foo.txt": {
+      "kind": "file",
+      "contents": "foo",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
+      }
+    }
+  }
+}

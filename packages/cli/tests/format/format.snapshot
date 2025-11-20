@@ -1,0 +1,39 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangramignore": {
+      "kind": "file",
+      "contents": "foo"
+    },
+    "bar": {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "kind": "file",
+          "contents": "export default \"formatted\";\n"
+        }
+      }
+    },
+    "bar.tg.ts": {
+      "kind": "file",
+      "contents": "export default \"formatted\";\n"
+    },
+    "foo": {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "kind": "file",
+          "contents": "export default   \"not formatted\""
+        }
+      }
+    },
+    "foo.ts": {
+      "kind": "file",
+      "contents": "export default   \"not formatted\""
+    },
+    "tangram.ts": {
+      "kind": "file",
+      "contents": "export default \"formatted\";\n"
+    }
+  }
+}

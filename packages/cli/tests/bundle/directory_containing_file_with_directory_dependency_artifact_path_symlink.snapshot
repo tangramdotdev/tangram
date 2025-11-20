@@ -1,0 +1,46 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "dir_01070b6af8w8hnmjfq1jy2f830z06c2kw61m10q5dbjmymgxd24cg0": {
+              "kind": "directory",
+              "entries": {
+                "dep": {
+                  "kind": "file",
+                  "contents": "dependency"
+                },
+                "link": {
+                  "kind": "symlink",
+                  "path": "../../../.tangram/artifacts/dir_011vkx0f0t6mf2p868869w28ty27pwefaajzv9kyqf445n207mnzpg/a"
+                }
+              }
+            },
+            "dir_011vkx0f0t6mf2p868869w28ty27pwefaajzv9kyqf445n207mnzpg": {
+              "kind": "directory",
+              "entries": {
+                "a": {
+                  "kind": "file",
+                  "contents": "a"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "file": {
+      "kind": "file",
+      "contents": "f",
+      "executable": true
+    },
+    "link": {
+      "kind": "symlink",
+      "path": "file"
+    }
+  }
+}

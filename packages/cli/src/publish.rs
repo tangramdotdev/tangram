@@ -1,10 +1,7 @@
 use {
 	crate::Cli,
-	petgraph::{
-		algo::tarjan_scc,
-		visit::{GraphBase, IntoNeighbors, IntoNodeIdentifiers, NodeIndexable},
-	},
-	radix_trie::TrieCommon,
+	petgraph::algo::tarjan_scc,
+	radix_trie::TrieCommon as _,
 	std::{collections::HashMap, path::PathBuf},
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -100,9 +97,8 @@ impl Cli {
 
 		// Print the plan if this is a dry run.
 		if args.dry_run {
-			let output = serde_json::to_string_pretty(&plan)
-				.map_err(|source| tg::error!(!source, "failed to serialize plan"))?;
-			println!("{output}");
+			self.print_serde(plan, crate::print::Options::default())
+				.await?;
 			return Ok(());
 		}
 
@@ -174,7 +170,8 @@ impl Cli {
 			.render_progress_stream(stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to push items"))?;
-		eprintln!("pushed {} objects to remote {remote:?}", output.objects);
+		let message = format!("pushed {} objects, {} bytes", output.objects, output.bytes);
+		Self::print_info_message(&message);
 
 		// Put tags on the remote.
 		let tags = tags
@@ -193,9 +190,10 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish tags to remote"))?;
 		for item in &tags {
-			eprintln!("published {} {}", item.tag, item.item);
+			let message = format!("tagged {} {}", item.tag, item.item);
+			Self::print_info_message(&message);
 		}
-		eprintln!("published {} packages to remote {remote:?}", tags.len());
+
 		Ok(())
 	}
 }
@@ -553,12 +551,12 @@ where
 	}
 }
 
-impl GraphBase for Graph {
+impl petgraph::visit::GraphBase for Graph {
 	type EdgeId = ();
 	type NodeId = usize;
 }
 
-impl IntoNodeIdentifiers for &Graph {
+impl petgraph::visit::IntoNodeIdentifiers for &Graph {
 	type NodeIdentifiers = std::ops::Range<usize>;
 
 	fn node_identifiers(self) -> Self::NodeIdentifiers {
@@ -566,7 +564,7 @@ impl IntoNodeIdentifiers for &Graph {
 	}
 }
 
-impl NodeIndexable for Graph {
+impl petgraph::visit::NodeIndexable for Graph {
 	fn from_index(&self, i: usize) -> Self::NodeId {
 		i
 	}
@@ -580,7 +578,7 @@ impl NodeIndexable for Graph {
 	}
 }
 
-impl<'a> IntoNeighbors for &'a Graph {
+impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	type Neighbors = std::iter::Copied<std::slice::Iter<'a, usize>>;
 
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {

@@ -1,0 +1,15 @@
+error an error occurred
+-> the process failed
+   id = PROCESS
+-> Uncaught Error: error in foo
+   ╭─[./tangram.ts:2:22]
+ 1 │ import foo from "foo";
+ 2 │ export default () => foo();
+   ·                      ▲
+   ·                      ╰── Uncaught Error: error in foo
+   ╰────
+   ╭─[foo:tangram.ts:1:25]
+ 1 │ export default () => tg.assert(false, "error in foo");
+   ·                         ▲
+   ·                         ╰── Uncaught Error: error in foo
+   ╰────
