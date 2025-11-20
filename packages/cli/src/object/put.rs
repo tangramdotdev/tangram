@@ -1,21 +1,18 @@
-use {
-	crate::{Cli, put::Format},
-	tangram_client::prelude::*,
-	tokio::io::AsyncReadExt as _,
-};
+use {crate::Cli, bytes::Bytes, tangram_client::prelude::*, tokio::io::AsyncReadExt as _};
 
 /// Put an object.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 2)]
-	pub bytes: Option<String>,
-
-	#[arg(long, default_value = "bytes")]
-	pub format: Format,
+	/// Put the object's raw bytes.
+	#[arg(long)]
+	pub bytes: bool,
 
 	#[arg(index = 1)]
 	pub id: Option<tg::object::Id>,
+
+	#[arg(index = 2)]
+	pub input: Option<String>,
 
 	#[arg(long, short)]
 	pub kind: Option<tg::object::Kind>,
@@ -28,36 +25,56 @@ impl Cli {
 	pub async fn command_object_put(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		let bytes = if let Some(bytes) = args.bytes {
-			bytes.into_bytes()
+		// Read input from argument or stdin.
+		let input = if let Some(input) = args.input {
+			input
 		} else {
-			let mut bytes = Vec::new();
+			let mut input = String::new();
 			crate::util::stdio::stdin()
-				.read_to_end(&mut bytes)
+				.read_to_string(&mut input)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
-			bytes
+			input
 		};
 
-		let bytes = match args.format {
-			Format::Bytes => bytes.into(),
-			Format::Json => {
-				let data: tg::object::Data = serde_json::from_slice(&bytes)
-					.map_err(|source| tg::error!(!source, "failed to parse JSON"))?;
-				data.serialize()?
-			},
-		};
+		let id = if args.bytes {
+			let bytes = Bytes::from(input.into_bytes());
 
-		let id = if let Some(id) = args.id {
+			// Compute the ID if necessary.
+			let id = if let Some(id) = args.id {
+				id
+			} else {
+				let kind = args
+					.kind
+					.ok_or_else(|| tg::error!("kind must be set when using --bytes"))?;
+				tg::object::Id::new(kind, &bytes)
+			};
+
+			// Put the object.
+			let arg = tg::object::put::Arg { bytes };
+			handle.put_object(&id, arg).await?;
+
 			id
 		} else {
-			let kind = args.kind.ok_or_else(|| tg::error!("kind must be set"))?;
-			tg::object::Id::new(kind, &bytes)
+			// Parse the value.
+			let value = tg::value::parse(&input)
+				.map_err(|source| tg::error!(!source, "failed to parse the value"))?;
+
+			// Store the value.
+			value
+				.store(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to store the value"))?;
+
+			// Extract the object from the value.
+			let tg::Value::Object(object) = value else {
+				return Err(tg::error!("expected an object value"));
+			};
+
+			object.id()
 		};
 
-		let arg = tg::object::put::Arg { bytes };
-		handle.put_object(&id, arg).await?;
-
+		// Print the result.
 		let value = tg::Value::Object(tg::Object::with_id(id));
 		self.print(&value, args.print).await?;
 

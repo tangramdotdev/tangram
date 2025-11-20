@@ -1,5 +1,5 @@
 use {
-	self::{parse::parse, print::Printer},
+	self::print::Printer,
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::{StreamExt as _, stream},
@@ -13,7 +13,7 @@ use {
 	tokio::{sync::Semaphore, task::JoinSet},
 };
 
-pub use self::data::*;
+pub use self::{data::*, parse::parse};
 
 pub mod data;
 pub mod parse;
@@ -313,7 +313,7 @@ impl std::str::FromStr for Value {
 	type Err = tg::Error;
 
 	fn from_str(input: &str) -> Result<Self, Self::Err> {
-		parse(input)
+		self::parse::parse(input)
 	}
 }
 
