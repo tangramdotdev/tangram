@@ -935,7 +935,7 @@ impl Server {
 						case
 							when count(object_children.child) = 0
 								then 1
-							when min(child_objects.complete)
+							when min(coalesce(child_objects.complete, 0))
 								then 1
 							else 0
 						end as complete,
@@ -1344,7 +1344,7 @@ impl Server {
 						process_objects.process as id,
 						case
 							when count(process_objects.object) = 0 then 1
-							when min(objects.complete) = 1 then 1
+							when min(coalesce(objects.complete, 0)) = 1 then 1
 							else 0
 						end as output_complete,
 						coalesce(sum(objects.count), 0) as output_count,
