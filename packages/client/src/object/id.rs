@@ -63,6 +63,11 @@ impl Id {
 	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
 		tg::Id::from_reader(bytes)?.try_into()
 	}
+
+	#[must_use]
+	pub fn is_artifact(&self) -> bool {
+		matches!(self, Self::Directory(_) | Self::File(_) | Self::Symlink(_))
+	}
 }
 
 impl Deref for Id {

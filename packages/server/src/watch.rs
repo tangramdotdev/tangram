@@ -43,7 +43,7 @@ impl Watch {
 		lock: Option<Arc<tg::graph::Data>>,
 		options: tg::checkin::Options,
 		solutions: crate::checkin::Solutions,
-		#[cfg_attr(not(target_os = "linux"), allow(unused_variables))] next: usize,
+		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))] next: usize,
 	) -> tg::Result<Self> {
 		// Create the watcher.
 		let config = notify::Config::default();
@@ -184,7 +184,7 @@ impl Watch {
 		lock: Option<Arc<tg::graph::Data>>,
 		solutions: crate::checkin::Solutions,
 		version: Option<u64>,
-		#[cfg_attr(not(target_os = "linux"), allow(unused_variables))] next: usize,
+		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))] next: usize,
 	) -> bool {
 		let mut state = self.state.lock().unwrap();
 

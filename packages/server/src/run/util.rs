@@ -91,40 +91,34 @@ async fn log_inner(
 	Ok(())
 }
 
-/// Render a value.
-pub fn render_value(artifacts_path: &Path, value: &tg::value::Data) -> String {
-	if let Ok(string) = value.try_unwrap_string_ref() {
-		return string.clone();
-	}
-	if let Ok(object) = value.try_unwrap_object_ref()
-		&& let Ok(artifact) = tg::artifact::Id::try_from(object.clone())
-	{
-		let string = artifacts_path
-			.join(artifact.to_string())
-			.to_str()
-			.unwrap()
-			.to_owned();
-		return string;
-	}
-	if let Ok(template) = value.try_unwrap_template_ref() {
-		let string = template.render(|component| match component {
-			tg::template::data::Component::String(string) => string.clone().into(),
-			tg::template::data::Component::Artifact(artifact) => artifacts_path
-				.join(artifact.to_string())
-				.to_str()
-				.unwrap()
-				.to_owned()
-				.into(),
-		});
-		return string;
-	}
-	"<tangram value>".to_owned()
+pub fn render_args_string(artifacts_path: &Path, args: &[tg::value::Data]) -> Vec<String> {
+	args.iter()
+		.map(|value| match value {
+			tg::value::Data::String(string) => string.clone(),
+			tg::value::Data::Template(template) => template.render(|component| match component {
+				tg::template::data::Component::String(string) => string.clone().into(),
+				tg::template::data::Component::Artifact(artifact) => artifacts_path
+					.join(artifact.to_string())
+					.to_str()
+					.unwrap()
+					.to_owned()
+					.into(),
+			}),
+			_ => tg::Value::try_from_data(value.clone()).unwrap().to_string(),
+		})
+		.collect::<Vec<_>>()
 }
 
-pub fn render_env(
-	artifacts_path: &Path,
-	env: &tg::value::data::Map,
-) -> tg::Result<BTreeMap<String, String>> {
+pub fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
+	args.iter()
+		.flat_map(|value| {
+			let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
+			["-A".to_owned(), value]
+		})
+		.collect::<Vec<_>>()
+}
+
+pub fn render_env(env: &tg::value::data::Map) -> tg::Result<BTreeMap<String, String>> {
 	let mut output = BTreeMap::new();
 	for (key, value) in env {
 		let mutation = match value {
@@ -139,7 +133,11 @@ pub fn render_env(
 		.iter()
 		.map(|(key, value)| {
 			let key = key.clone();
-			let value = render_value(artifacts_path, value);
+			let value = value
+				.try_unwrap_string_ref()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a string"))?
+				.clone();
 			Ok::<_, tg::Error>((key, value))
 		})
 		.collect::<tg::Result<_>>()?;

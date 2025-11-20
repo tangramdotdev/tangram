@@ -1,7 +1,7 @@
 use {
 	async_zip::base::read::stream::ZipFileReader,
 	futures::AsyncReadExt as _,
-	std::{os::unix::fs::PermissionsExt as _, pin::pin},
+	std::{os::unix::fs::PermissionsExt as _, path::Path, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
@@ -12,7 +12,6 @@ use {
 	tokio_util::compat::FuturesAsyncReadCompatExt as _,
 };
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn extract<H>(
 	handle: &H,
 	args: tg::value::data::Array,
@@ -20,7 +19,7 @@ pub(crate) async fn extract<H>(
 	_env: tg::value::data::Map,
 	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
-	temp_path: &std::path::Path,
+	temp_path: Option<&Path>,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
@@ -89,7 +88,8 @@ where
 	});
 
 	// Create a temp.
-	let temp = tangram_temp::Temp::new_in(temp_path);
+	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
+	let temp = tangram_temp::Temp::new_in(&temp_path);
 
 	// Extract to the temp.
 	match format {

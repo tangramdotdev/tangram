@@ -1,61 +1,58 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Request {
 	pub module: tg::module::Data,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Response {
 	pub symbols: Option<Vec<Symbol>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Symbol {
 	pub name: String,
 	pub detail: Option<String>,
 	pub kind: Kind,
 	pub tags: Vec<Tag>,
 	pub range: tg::Range,
-	pub selection_range: tg::Range,
+	pub selection: tg::Range,
 	pub children: Option<Vec<Self>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum Kind {
-	File,
-	Module,
-	Namespace,
-	Package,
+	Array,
+	Boolean,
 	Class,
-	Method,
-	Property,
-	Field,
+	Constant,
 	Constructor,
 	Enum,
-	Interface,
-	Function,
-	Variable,
-	Constant,
-	String,
-	Number,
-	Boolean,
-	Array,
-	Object,
-	Key,
-	Null,
 	EnumMember,
 	Event,
+	Field,
+	File,
+	Function,
+	Interface,
+	Key,
+	Method,
+	Module,
+	Namespace,
+	Null,
+	Number,
+	Object,
 	Operator,
+	Package,
+	Property,
+	String,
 	TypeParameter,
+	Variable,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum Tag {
 	Deprecated,
 }
@@ -86,36 +83,36 @@ fn collect_symbol_tree(symbol: Symbol) -> lsp::DocumentSymbol {
 		kind,
 		tags,
 		range,
-		selection_range,
+		selection: selection_range,
 		children,
 	} = symbol;
 
 	let kind = match kind {
-		Kind::File => lsp::SymbolKind::FILE,
-		Kind::Module => lsp::SymbolKind::MODULE,
-		Kind::Namespace => lsp::SymbolKind::NAMESPACE,
-		Kind::Package => lsp::SymbolKind::PACKAGE,
+		Kind::Array => lsp::SymbolKind::ARRAY,
+		Kind::Boolean => lsp::SymbolKind::BOOLEAN,
 		Kind::Class => lsp::SymbolKind::CLASS,
-		Kind::Method => lsp::SymbolKind::METHOD,
-		Kind::Property => lsp::SymbolKind::PROPERTY,
-		Kind::Field => lsp::SymbolKind::FIELD,
+		Kind::Constant => lsp::SymbolKind::CONSTANT,
 		Kind::Constructor => lsp::SymbolKind::CONSTRUCTOR,
 		Kind::Enum => lsp::SymbolKind::ENUM,
-		Kind::Interface => lsp::SymbolKind::INTERFACE,
-		Kind::Function => lsp::SymbolKind::FUNCTION,
-		Kind::Variable => lsp::SymbolKind::VARIABLE,
-		Kind::Constant => lsp::SymbolKind::CONSTANT,
-		Kind::String => lsp::SymbolKind::STRING,
-		Kind::Number => lsp::SymbolKind::NUMBER,
-		Kind::Boolean => lsp::SymbolKind::BOOLEAN,
-		Kind::Array => lsp::SymbolKind::ARRAY,
-		Kind::Object => lsp::SymbolKind::OBJECT,
-		Kind::Key => lsp::SymbolKind::KEY,
-		Kind::Null => lsp::SymbolKind::NULL,
 		Kind::EnumMember => lsp::SymbolKind::ENUM_MEMBER,
 		Kind::Event => lsp::SymbolKind::EVENT,
+		Kind::Field => lsp::SymbolKind::FIELD,
+		Kind::File => lsp::SymbolKind::FILE,
+		Kind::Function => lsp::SymbolKind::FUNCTION,
+		Kind::Interface => lsp::SymbolKind::INTERFACE,
+		Kind::Key => lsp::SymbolKind::KEY,
+		Kind::Method => lsp::SymbolKind::METHOD,
+		Kind::Module => lsp::SymbolKind::MODULE,
+		Kind::Namespace => lsp::SymbolKind::NAMESPACE,
+		Kind::Null => lsp::SymbolKind::NULL,
+		Kind::Number => lsp::SymbolKind::NUMBER,
+		Kind::Object => lsp::SymbolKind::OBJECT,
 		Kind::Operator => lsp::SymbolKind::OPERATOR,
+		Kind::Package => lsp::SymbolKind::PACKAGE,
+		Kind::Property => lsp::SymbolKind::PROPERTY,
+		Kind::String => lsp::SymbolKind::STRING,
 		Kind::TypeParameter => lsp::SymbolKind::TYPE_PARAMETER,
+		Kind::Variable => lsp::SymbolKind::VARIABLE,
 	};
 
 	let tags = tags

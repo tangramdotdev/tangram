@@ -71,6 +71,15 @@ pub struct Options {
 
 impl Reference {
 	#[must_use]
+	pub fn new(item: Item, options: Options, export: Option<String>) -> Self {
+		Self {
+			item,
+			options,
+			export,
+		}
+	}
+
+	#[must_use]
 	pub fn with_item(item: Item) -> Self {
 		Self {
 			item,
@@ -154,6 +163,9 @@ impl Reference {
 		builder = builder.path(path);
 		if !query.is_empty() {
 			builder = builder.query(query);
+		}
+		if let Some(export) = &self.export {
+			builder = builder.fragment(export.to_owned());
 		}
 		builder.build().unwrap()
 	}

@@ -4,6 +4,9 @@ use {crate::Cli, tangram_client::prelude::*, tangram_uri::Uri};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub checksum_algorithm: Option<tg::checksum::Algorithm>,
+
 	#[command(flatten)]
 	pub build: crate::build::Options,
 
@@ -17,7 +20,17 @@ pub struct Args {
 impl Cli {
 	pub async fn command_download(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let options = tg::DownloadOptions { mode: args.mode };
+		let checksum_algorithm = args.checksum_algorithm.or_else(|| {
+			args.build
+				.spawn
+				.checksum
+				.as_ref()
+				.map(tg::Checksum::algorithm)
+		});
+		let options = tg::DownloadOptions {
+			checksum_algorithm,
+			mode: args.mode,
+		};
 		let command = tg::builtin::download_command(&args.url, Some(options));
 		let command = command.store(&handle).await?;
 		let reference = tg::Reference::with_object(command.into());

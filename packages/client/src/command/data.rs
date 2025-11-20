@@ -6,6 +6,7 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		path::PathBuf,
 	},
+	tangram_uri::Uri,
 };
 
 #[derive(
@@ -184,6 +185,27 @@ impl Executable {
 			Self::Path(_) => (),
 		}
 	}
+
+	#[must_use]
+	pub fn to_uri(&self) -> Uri {
+		match self {
+			Self::Artifact(artifact) => artifact.to_uri(),
+			Self::Module(module) => module.to_uri(),
+			Self::Path(path) => path.to_uri(),
+		}
+	}
+
+	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
+		if let Ok(executable) = ModuleExecutable::with_uri(uri) {
+			Ok(Self::Module(executable))
+		} else if let Ok(executable) = ArtifactExecutable::with_uri(uri) {
+			Ok(Self::Artifact(executable))
+		} else if let Ok(executable) = PathExecutable::with_uri(uri) {
+			Ok(Self::Path(executable))
+		} else {
+			Err(tg::error!("invalid uri"))
+		}
+	}
 }
 
 impl ArtifactExecutable {
@@ -203,5 +225,97 @@ impl ModuleExecutable {
 impl Mount {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		children.insert(self.source.clone().into());
+	}
+}
+
+impl ArtifactExecutable {
+	#[must_use]
+	pub fn to_uri(&self) -> Uri {
+		let mut builder = Uri::builder().path(self.artifact.to_string());
+		let mut query = Vec::new();
+		if let Some(path) = &self.path {
+			let path = path.to_string_lossy();
+			let path = urlencoding::encode(&path);
+			let path = format!("path={path}");
+			query.push(path);
+		}
+		if !query.is_empty() {
+			builder = builder.query(query.join("&"));
+		}
+		builder.build().unwrap()
+	}
+
+	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
+		let artifact = uri
+			.path()
+			.parse()
+			.map_err(|_| tg::error!("failed to parse the artifact"))?;
+		let mut path = None;
+		if let Some(query) = uri.query() {
+			for param in query.split('&') {
+				if let Some((key, value)) = param.split_once('=')
+					&& key == "path"
+				{
+					path.replace(
+						urlencoding::decode(value)
+							.map_err(|_| tg::error!("failed to decode the path"))?
+							.into_owned()
+							.into(),
+					);
+				}
+			}
+		}
+		Ok(Self { artifact, path })
+	}
+}
+
+impl ModuleExecutable {
+	#[must_use]
+	pub fn to_uri(&self) -> Uri {
+		let uri = self.module.to_uri();
+		let mut builder = Uri::builder();
+		builder = builder.path(uri.path().to_owned());
+		if let Some(query) = uri.query() {
+			builder = builder.query(query.to_owned());
+		}
+		if let Some(export) = &self.export {
+			builder = builder.fragment(export.to_owned());
+		}
+		builder.build().unwrap()
+	}
+
+	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
+		let module = tg::module::Data::with_uri(uri)?;
+		let export = uri.fragment().map(ToOwned::to_owned);
+		Ok(Self { module, export })
+	}
+}
+
+impl PathExecutable {
+	#[must_use]
+	pub fn to_uri(&self) -> Uri {
+		let path = self.path.to_string_lossy();
+		Uri::builder().path(path.to_string()).build().unwrap()
+	}
+
+	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
+		let path = uri.path().into();
+		Ok(Self { path })
+	}
+}
+
+impl std::fmt::Display for Executable {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.to_uri())
+	}
+}
+
+impl std::str::FromStr for Executable {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
+		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let executable = Self::with_uri(&uri)?;
+		Ok(executable)
 	}
 }

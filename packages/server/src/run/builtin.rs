@@ -12,10 +12,6 @@ impl Server {
 			.unwrap_or_else(|| std::path::PathBuf::from("/"));
 		let env = data.env;
 		let executable = data.executable;
-		let checksum = state
-			.expected_checksum
-			.as_ref()
-			.map(tg::Checksum::algorithm);
 
 		// Create the logger.
 		let logger = std::sync::Arc::new({
@@ -29,23 +25,17 @@ impl Server {
 			}
 		});
 
-		let output = tangram_builtin::run(
-			self,
-			args,
-			cwd,
-			env,
-			executable,
-			logger,
-			checksum,
-			&self.temp_path(),
-		)
-		.await?;
+		let temp_path = self.temp_path();
+		let output =
+			tangram_builtin::run(self, args, cwd, env, executable, logger, Some(&temp_path))
+				.await?;
 		let output = super::Output {
 			checksum: output.checksum,
 			error: output.error,
 			exit: output.exit,
 			output: output.output,
 		};
+
 		Ok(output)
 	}
 }

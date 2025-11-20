@@ -17,36 +17,36 @@ export type Symbol = {
 	kind: Kind;
 	tags: Array<Tag>;
 	range: Range;
-	selectionRange: Range;
+	selection: Range;
 	children: Array<Symbol> | null;
 };
 
 export type Kind =
-	| "file"
-	| "module"
-	| "namespace"
-	| "package"
+	| "array"
+	| "boolean"
 	| "class"
-	| "method"
-	| "property"
-	| "field"
+	| "constant"
 	| "constructor"
 	| "enum"
-	| "interface"
-	| "function"
-	| "variable"
-	| "constant"
-	| "string"
-	| "number"
-	| "boolean"
-	| "array"
-	| "object"
-	| "key"
-	| "null"
-	| "enumMember"
+	| "enum_member"
 	| "event"
+	| "field"
+	| "file"
+	| "function"
+	| "interface"
+	| "key"
+	| "method"
+	| "module"
+	| "namespace"
+	| "null"
+	| "number"
+	| "object"
 	| "operator"
-	| "typeParameter";
+	| "package"
+	| "property"
+	| "string"
+	| "type_parameter"
+	| "variable";
 
 export type Tag = "deprecated";
 
@@ -78,7 +78,7 @@ export let walk = (
 ): Symbol => {
 	let name = tree.text;
 
-	// Find the range of this symbol and its selectionRange.
+	// Find the range of this symbol and its selection range.
 	let startPosition = Math.min(...tree.spans.map((span) => span.start));
 	let endPosition = Math.max(
 		...tree.spans.map((span) => span.start + span.length),
@@ -102,54 +102,53 @@ export let walk = (
 		tags: [],
 		detail: null,
 		range,
-		selectionRange: range,
+		selection: range,
 		children: children ?? null,
 	};
 };
 
-// Map the "kind" field from NavigationTree to a variant that is meaningful to LSP.
 let getKind = (tsKind: string): Kind => {
 	switch (tsKind) {
-		case "script":
-			return "file";
-		case "module":
-			return "module";
-		case "class":
-			return "class";
-		case "local class":
-			return "class";
-		case "interface":
-			return "interface";
-		case "type":
-			return "class";
-		case "enum":
-			return "enum";
-		case "var":
-			return "variable";
-		case "local var":
-			return "variable";
-		case "function":
-			return "function";
-		case "local function":
-			return "function";
-		case "method":
-			return "method";
-		case "getter":
-			return "method";
-		case "setter":
-			return "method";
-		case "property":
-			return "property";
 		case "accessor":
 			return "property";
+		case "class":
+			return "class";
 		case "constructor":
 			return "constructor";
-		case "parameter":
-			return "variable";
-		case "type parameter":
-			return "typeParameter";
+		case "enum":
+			return "enum";
 		case "external module":
 			return "module";
+		case "function":
+			return "function";
+		case "getter":
+			return "method";
+		case "interface":
+			return "interface";
+		case "local class":
+			return "class";
+		case "local function":
+			return "function";
+		case "local var":
+			return "variable";
+		case "method":
+			return "method";
+		case "module":
+			return "module";
+		case "parameter":
+			return "variable";
+		case "property":
+			return "property";
+		case "script":
+			return "file";
+		case "setter":
+			return "method";
+		case "type parameter":
+			return "type_parameter";
+		case "type":
+			return "class";
+		case "var":
+			return "variable";
 		default:
 			return "variable";
 	}

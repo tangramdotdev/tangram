@@ -47,8 +47,8 @@ struct PromiseOutput {
 	result: tg::Result<Box<dyn tangram_v8::Serialize>>,
 }
 
-#[expect(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
+#[expect(clippy::struct_field_names)]
 struct Module {
 	module: tg::module::Data,
 	source_map: Option<SourceMap>,
@@ -63,7 +63,7 @@ pub struct Output {
 	pub output: Option<tg::Value>,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
 	args: tg::value::data::Array,
@@ -77,11 +77,35 @@ pub async fn run<H>(
 where
 	H: tg::Handle,
 {
-	// Extract the module from the executable.
-	let module = if let tg::command::data::Executable::Module(executable) = &executable {
-		executable.module.clone()
-	} else {
-		return Err(tg::error!("expected a module executable"));
+	// Convert the executable to a module.
+	let module = match &executable {
+		tg::command::data::Executable::Artifact(_) => {
+			return Err(tg::error!("invalid executable"));
+		},
+
+		tg::command::data::Executable::Module(executable) => executable.module.clone(),
+
+		tg::command::data::Executable::Path(executable) => {
+			let kind = executable
+				.path
+				.extension()
+				.and_then(|ext| ext.to_str())
+				.and_then(|ext| match ext {
+					"js" => Some(tg::module::Kind::Js),
+					"ts" => Some(tg::module::Kind::Ts),
+					_ => None,
+				})
+				.ok_or_else(|| tg::error!("invalid executable"))?;
+			let item = tg::module::data::Item::Path(executable.path.clone());
+			let options = tg::referent::Options {
+				path: Some(executable.path.clone()),
+				..Default::default()
+			};
+			tg::module::Data {
+				kind,
+				referent: tg::Referent { item, options },
+			}
+		},
 	};
 
 	// Create the state.

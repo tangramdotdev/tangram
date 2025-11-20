@@ -74,14 +74,16 @@ impl Server {
 				.await
 			}
 		}));
-		scopeguard::defer! {
-			if let Some(isolate_handle) = isolate_handle_receiver.borrow().as_ref() {
+
+		// If this future is dropped before the task is done, then terminate the execution of the isolate.
+		let mut done = scopeguard::guard(false, |done| {
+			if !done && let Some(isolate_handle) = isolate_handle_receiver.borrow().as_ref() {
 				tracing::trace!("terminating execution");
 				isolate_handle.terminate_execution();
 			}
-		};
+		});
 
-		// Get the output.
+		// Await the task and get the output.
 		let output = match task.await.unwrap() {
 			Ok(output) => super::Output {
 				checksum: output.checksum,
@@ -96,6 +98,9 @@ impl Server {
 				output: None,
 			},
 		};
+
+		// Mark the task as done.
+		*done = true;
 
 		Ok(output)
 	}

@@ -1,13 +1,11 @@
 use {super::Compiler, itertools::Itertools as _, lsp_types as lsp, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DocumentRequest {
 	modules: Vec<tg::module::Data>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DocumentResponse {
 	pub diagnostics: Vec<tg::diagnostic::Data>,
 }

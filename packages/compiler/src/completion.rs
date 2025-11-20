@@ -1,20 +1,17 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Request {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Response {
 	pub entries: Option<Vec<Entry>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Entry {
 	pub name: String,
 }

@@ -64,4 +64,9 @@ impl Object {
 			Self::Command(command) => command.children(),
 		}
 	}
+
+	#[must_use]
+	pub fn is_artifact(&self) -> bool {
+		matches!(self, Self::Directory(_) | Self::File(_) | Self::Symlink(_))
+	}
 }

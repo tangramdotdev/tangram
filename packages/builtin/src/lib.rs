@@ -3,10 +3,8 @@ use {
 		archive::archive, bundle::bundle, checksum::checksum, compress::compress,
 		decompress::decompress, download::download, extract::extract,
 	},
-	futures::TryStreamExt as _,
-	futures::{FutureExt as _, future::BoxFuture},
-	std::pin::pin,
-	std::sync::Arc,
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture},
+	std::{path::Path, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 };
 
@@ -34,7 +32,6 @@ pub struct Output {
 	pub output: Option<tg::Value>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
 	args: tg::value::data::Array,
@@ -42,8 +39,7 @@ pub async fn run<H>(
 	env: tg::value::data::Map,
 	executable: tg::command::data::Executable,
 	logger: Logger,
-	checksum_: Option<tg::checksum::Algorithm>,
-	temp_path: &std::path::Path,
+	temp_path: Option<&Path>,
 ) -> tg::Result<Output>
 where
 	H: tg::Handle,
@@ -63,10 +59,7 @@ where
 		"checksum" => checksum(handle, args, cwd, env, executable, logger).boxed(),
 		"compress" => compress(handle, args, cwd, env, executable, logger).boxed(),
 		"decompress" => decompress(handle, args, cwd, env, executable, logger).boxed(),
-		"download" => download(
-			handle, args, cwd, env, executable, logger, checksum_, temp_path,
-		)
-		.boxed(),
+		"download" => download(handle, args, cwd, env, executable, logger, temp_path).boxed(),
 		"extract" => extract(handle, args, cwd, env, executable, logger, temp_path).boxed(),
 		_ => {
 			return Err(tg::error!("invalid executable"));

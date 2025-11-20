@@ -5,8 +5,8 @@ export type ArchiveFormat = "tar" | "tgar" | "zip";
 export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 
 export type DownloadOptions = {
-	decompress?: boolean;
-	extract?: boolean;
+	checksumAlgorithm?: tg.Checksum.Algorithm | undefined;
+	mode?: "raw" | "decompress" | "extract" | undefined;
 };
 
 export let archive = async (
@@ -74,6 +74,8 @@ export let download = async (
 	checksum: tg.Checksum,
 	options?: DownloadOptions,
 ): Promise<tg.Blob | tg.Artifact> => {
+	options = options ?? {};
+	options.checksumAlgorithm ??= tg.Checksum.algorithm(checksum);
 	let value = await tg.build({
 		args: [url, options],
 		checksum,

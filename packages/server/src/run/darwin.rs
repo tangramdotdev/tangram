@@ -1,6 +1,8 @@
 use {
-	super::util::{cache_children, render_env, render_value, which},
-	crate::{Context, Server, run::util::whoami, temp::Temp},
+	super::util::{
+		cache_children, render_args_dash_a, render_args_string, render_env, which, whoami,
+	},
+	crate::{Context, Server, temp::Temp},
 	std::{
 		collections::BTreeMap,
 		path::{Path, PathBuf},
@@ -46,11 +48,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
 
 		// Render the args.
-		let mut args = command
-			.args
-			.iter()
-			.map(|value| render_value(&artifacts_path, value))
-			.collect::<Vec<_>>();
+		let mut args = match command.host.as_str() {
+			"builtin" | "js" => render_args_dash_a(&command.args),
+			_ => render_args_string(&artifacts_path, &command.args),
+		};
 
 		// Create the working directory.
 		let cwd = command
@@ -62,26 +63,42 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
 
 		// Render the env.
-		let mut env = render_env(&artifacts_path, &command.env)?;
+		let mut env = render_env(&command.env)?;
 
 		// Render the executable.
-		let executable = match &command.executable {
-			tg::command::data::Executable::Artifact(executable) => {
-				let mut path = artifacts_path.join(executable.artifact.to_string());
-				if let Some(executable_path) = &executable.path {
-					path.push(executable_path);
-				}
-				path
-			},
-			tg::command::data::Executable::Module(_) => {
-				let executable = std::env::current_exe().map_err(|source| {
+		let executable = match command.host.as_str() {
+			"builtin" => {
+				let tg = std::env::current_exe().map_err(|source| {
 					tg::error!(!source, "failed to get the current executable")
 				})?;
-				args = vec!["js".to_owned(), format!("--process={}", process.id())];
-				executable
+				args.insert(0, "builtin".to_owned());
+				args.insert(1, command.executable.to_string());
+				tg
 			},
-			tg::command::data::Executable::Path(executable) => {
-				which(&executable.path, &env).await?
+
+			"js" => {
+				let tg = std::env::current_exe().map_err(|source| {
+					tg::error!(!source, "failed to get the current executable")
+				})?;
+				args.insert(0, "js".to_owned());
+				args.insert(1, command.executable.to_string());
+				tg
+			},
+
+			_ => match &command.executable {
+				tg::command::data::Executable::Artifact(executable) => {
+					let mut path = artifacts_path.join(executable.artifact.to_string());
+					if let Some(executable_path) = &executable.path {
+						path.push(executable_path);
+					}
+					path
+				},
+				tg::command::data::Executable::Module(_) => {
+					return Err(tg::error!("invalid executable"));
+				},
+				tg::command::data::Executable::Path(executable) => {
+					which(&executable.path, &env).await?
+				},
 			},
 		};
 

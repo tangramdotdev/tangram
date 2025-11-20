@@ -3,14 +3,26 @@ use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Set arguments as strings.
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "arg-string",
+		num_args = 1,
+		short = 'a',
+	)]
+	pub arg_strings: Vec<String>,
+
+	/// Set arguments as values.
+	#[arg(
+		action = clap::ArgAction::Append,
+		long = "arg-value",
+		num_args = 1,
+		short = 'A',
+	)]
+	pub arg_values: Vec<String>,
+
 	#[arg(index = 1)]
-	pub executable: Option<tg::Reference>,
-
-	#[arg(long, conflicts_with_all = ["executable", "trailing"])]
-	pub process: Option<tg::process::Id>,
-
-	#[arg(long)]
-	pub temp_path: std::path::PathBuf,
+	pub executable: tg::command::data::Executable,
 
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
@@ -18,8 +30,8 @@ pub struct Args {
 
 impl Cli {
 	#[must_use]
-	pub fn command_builtin(args: Args) -> std::process::ExitCode {
-		match Self::command_builtin_inner(args) {
+	pub fn command_builtin(matches: &clap::ArgMatches, args: Args) -> std::process::ExitCode {
+		match Self::command_builtin_inner(matches, args) {
 			Ok(exit) => exit,
 			Err(error) => {
 				let error = tg::Referent::with_item(error);
@@ -29,69 +41,47 @@ impl Cli {
 		}
 	}
 
-	fn command_builtin_inner(args: Args) -> tg::Result<std::process::ExitCode> {
-		// Create the runtime.
-		let runtime = tokio::runtime::Builder::new_current_thread()
-			.enable_all()
-			.build()
-			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?;
+	fn command_builtin_inner(
+		matches: &clap::ArgMatches,
+		args: Args,
+	) -> tg::Result<std::process::ExitCode> {
+		// Get the args.
+		let mut args_: Vec<tg::Value> = Vec::new();
+		let mut matches = matches;
+		while let Some((_, matches_)) = matches.subcommand() {
+			matches = matches_;
+		}
+		let arg_string_indices = matches.indices_of("arg_strings").unwrap_or_default();
+		let arg_value_indices = matches.indices_of("arg_values").unwrap_or_default();
+		let mut indexed: Vec<(usize, tg::Value)> = Vec::new();
+		for (index, value) in arg_string_indices.zip(args.arg_strings) {
+			let value = tg::Value::String(value);
+			indexed.push((index, value));
+		}
+		for (index, value) in arg_value_indices.zip(args.arg_values) {
+			let value = value
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+			indexed.push((index, value));
+		}
+		indexed.sort_by_key(|&(index, _)| index);
+		args_.extend(indexed.into_iter().map(|(_, value)| value));
+		for arg in args.trailing {
+			args_.push(tg::Value::String(arg));
+		}
+		let args_ = args_.iter().map(tg::Value::to_data).collect();
 
-		// Create the client.
-		let client = tg::Client::with_env()?;
+		// Get the cwd.
+		let cwd = std::env::current_dir()
+			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
 
-		// Get the current tangram process if there is one.
-		let process = args
-			.process
-			.map(|process| tg::Process::new(process, None, None, None, None));
+		// Get the env.
+		let env: tg::value::data::Map = std::env::vars()
+			.map(|(key, value)| (key, tg::value::Data::String(value)))
+			.collect();
 
-		// Get the executable and args from the process if it exists.
-		let (args_, cwd, env, executable, checksum) = if let Some(process) = &process {
-			runtime.block_on(async {
-				let state = process.load(&client).await?;
-				let command = process.command(&client).await?;
-				let data = command.data(&client).await?;
-				let args = data.args;
-				let cwd = if let Some(cwd) = data.cwd {
-					cwd
-				} else {
-					std::env::current_dir().map_err(|source| {
-						tg::error!(!source, "failed to get the current directory")
-					})?
-				};
-				let env = data.env;
-				let executable = data.executable;
-				let checksum = state
-					.expected_checksum
-					.as_ref()
-					.map(tg::Checksum::algorithm);
-				Ok::<_, tg::Error>((args, cwd, env, executable, checksum))
-			})?
-		} else {
-			let args_ = args
-				.trailing
-				.into_iter()
-				.map(tg::value::Data::String)
-				.collect();
-			let cwd = std::env::current_dir()
-				.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-			let env: tg::value::data::Map = std::env::vars()
-				.map(|(key, value)| (key, tg::value::Data::String(value)))
-				.collect();
-			let executable = args
-				.executable
-				.ok_or_else(|| tg::error!("expected an executable"))?;
-			let executable = executable
-				.item()
-				.try_unwrap_path_ref()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a path"))?
-				.clone();
-			let executable =
-				tg::command::data::Executable::Path(tg::command::data::PathExecutable {
-					path: executable,
-				});
-			(args_, cwd, env, executable, None)
-		};
+		// Get the executable.
+		let executable = args.executable;
 
 		// Create a logger that writes to stdio.
 		let logger = std::sync::Arc::new(|stream: tg::process::log::Stream, string: String| {
@@ -109,23 +99,21 @@ impl Cli {
 			.boxed()
 		});
 
+		// Create the client.
+		let client = tg::Client::with_env()?;
+
 		// Run.
-		let future = tangram_builtin::run(
-			&client,
-			args_,
-			cwd,
-			env,
-			executable,
-			logger,
-			checksum,
-			&args.temp_path,
-		);
+		let future = tangram_builtin::run(&client, args_, cwd, env, executable, logger, None);
 		let tangram_builtin::Output {
 			error,
 			exit,
 			output,
 			..
-		} = runtime.block_on(future)?;
+		} = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?
+			.block_on(future)?;
 
 		// Write the output.
 		if let Ok(output_path) = std::env::var("OUTPUT")

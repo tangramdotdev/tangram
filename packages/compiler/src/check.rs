@@ -1,13 +1,11 @@
 use {super::Compiler, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Request {
 	pub modules: Vec<tg::module::Data>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Response {
 	pub diagnostics: Vec<tg::diagnostic::Data>,
 }

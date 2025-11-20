@@ -1,7 +1,10 @@
 use {
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
-	std::sync::{Arc, Mutex, atomic::AtomicU64},
+	std::{
+		path::Path,
+		sync::{Arc, Mutex, atomic::AtomicU64},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::read::Ext as _,
 	tangram_uri::Uri,
@@ -15,7 +18,6 @@ enum Mode {
 	Extract(tg::ArchiveFormat, Option<tg::CompressionFormat>),
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn download<H>(
 	handle: &H,
 	args: tg::value::data::Array,
@@ -23,8 +25,7 @@ pub(crate) async fn download<H>(
 	_env: tg::value::data::Map,
 	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
-	checksum: Option<tg::checksum::Algorithm>,
-	temp_path: &std::path::Path,
+	temp_path: Option<&Path>,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
@@ -38,15 +39,27 @@ where
 	let options: Option<tg::DownloadOptions> = match args.get(1) {
 		Some(tg::value::Data::Null) | None => None,
 		Some(tg::value::Data::Map(map)) => {
+			let checksum_algorithm = match map.get("checksum_algorithm") {
+				Some(tg::value::Data::String(s)) => Some(
+					s.parse()
+						.map_err(|source| tg::error!(!source, "invalid checksum algorithm"))?,
+				),
+				Some(tg::value::Data::Null) | None => None,
+				_ => return Err(tg::error!("invalid checksum algorithm")),
+			};
 			let mode = match map.get("mode") {
 				Some(tg::value::Data::String(s)) => Some(
-					s.parse::<tg::DownloadMode>()
-						.map_err(|source| tg::error!(!source, "invalid download mode"))?,
+					s.parse()
+						.map_err(|source| tg::error!(!source, "invalid mode"))?,
 				),
 				Some(tg::value::Data::Null) | None => None,
 				_ => return Err(tg::error!("invalid mode")),
 			};
-			Some(tg::DownloadOptions { mode })
+			let options = tg::DownloadOptions {
+				checksum_algorithm,
+				mode,
+			};
+			Some(options)
 		},
 		_ => return Err(tg::error!("invalid options")),
 	};
@@ -67,10 +80,13 @@ where
 	let _content_length = response.content_length();
 
 	// Create the checksum writer.
-	let checksum = checksum.map(|algorithm| {
-		let writer = tg::checksum::Writer::new(algorithm);
-		Arc::new(Mutex::new(writer))
-	});
+	let checksum = options
+		.as_ref()
+		.and_then(|options| options.checksum_algorithm)
+		.map(|algorithm| {
+			let writer = tg::checksum::Writer::new(algorithm);
+			Arc::new(Mutex::new(writer))
+		});
 
 	// Create the reader.
 	let stream = response
@@ -117,7 +133,8 @@ where
 	};
 
 	// Download.
-	let temp = tangram_temp::Temp::new_in(temp_path);
+	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
+	let temp = tangram_temp::Temp::new_in(&temp_path);
 	match mode {
 		Mode::Raw => {
 			let mut file = tokio::fs::File::create(temp.path())

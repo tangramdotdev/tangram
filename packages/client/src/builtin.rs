@@ -16,6 +16,13 @@ pub enum CompressionFormat {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct DownloadOptions {
+	#[serde(
+		alias = "checksumAlgorithm",
+		default,
+		skip_serializing_if = "Option::is_none"
+	)]
+	pub checksum_algorithm: Option<tg::checksum::Algorithm>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub mode: Option<DownloadMode>,
 }

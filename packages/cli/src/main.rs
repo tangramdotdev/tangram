@@ -296,13 +296,13 @@ fn main() -> std::process::ExitCode {
 	// Handle internal commands.
 	match args.command {
 		Command::Builtin(args) => {
-			return Cli::command_builtin(args);
+			return Cli::command_builtin(&matches, args);
 		},
 		#[cfg(feature = "js")]
 		Command::Js(args) => {
 			#[cfg(feature = "v8")]
 			Cli::initialize_v8();
-			return Cli::command_js(args);
+			return Cli::command_js(&matches, args);
 		},
 		Command::Sandbox(args) => {
 			return Cli::command_sandbox(args);

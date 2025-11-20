@@ -28,7 +28,8 @@ declare namespace tg {
 	export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 
 	export type DownloadOptions = {
-		mode?: "raw" | "decompress" | "extract";
+		checksumAlgorithm?: tg.Checksum.Algorithm | undefined;
+		mode?: "raw" | "decompress" | "extract" | undefined;
 	};
 
 	/** Archive an artifact. **/

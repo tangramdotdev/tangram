@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 use {
 	futures::{StreamExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
@@ -13,6 +14,7 @@ use {
 	},
 	tangram_client::prelude::*,
 };
+
 mod scroll;
 
 pub struct Log<H> {
