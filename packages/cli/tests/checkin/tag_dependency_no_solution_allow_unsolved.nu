@@ -34,7 +34,7 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path --allow-unsolved
+let id = tg checkin --allow-unsolved-dependencies=true $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id

@@ -1,4 +1,4 @@
 error an error occurred
 -> failed to solve c/*
-   dependended on by a/1.0.0?path=tangram.ts with pattern c/^1
-   dependended on by b/1.0.0?path=tangram.ts with pattern c/^2
+   depended on by a/1.0.0?path=tangram.ts with pattern c/^1
+   depended on by b/1.0.0?path=tangram.ts with pattern c/^2
