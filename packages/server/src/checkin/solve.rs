@@ -409,7 +409,7 @@ impl Server {
 			},
 			MaybeSolvedDependency::Unsolved { backtrack: true } => {
 				// Try to backtrack.
-				if let Some(result) = Self::checkin_solve_backtrack(state, &tag) {
+				if let Some(result) = Self::checkin_solve_backtrack(state, &key) {
 					*checkpoint = result;
 					return Ok(());
 				}
@@ -418,14 +418,14 @@ impl Server {
 				let Checkpoint {
 					graph, solutions, ..
 				} = checkpoint;
-				let solution = solutions.get_mut(&tag).unwrap();
+				let solution = solutions.get_mut(&key).unwrap();
 
 				// Add the new referrer.
 				solution.referrers.push(referrer);
 
 				// Error if we don't allow unsolved dependencies.
 				if !state.allow_unsolved_dependencies {
-					let error = Self::checkin_solve_backtrack_error(state, checkpoint, &tag);
+					let error = Self::checkin_solve_backtrack_error(state, checkpoint, &key);
 					return Err(error);
 				}
 
@@ -436,7 +436,10 @@ impl Server {
 						continue;
 					};
 					for referent in file.dependencies.values_mut() {
-						if referent.as_ref().is_some_and(|r| r.tag() == Some(&tag)) {
+						if referent
+							.as_ref()
+							.and_then(|r| r.tag())
+							.is_some_and(|tag| key.matches(tag)) {
 							referent.take();
 							continue 'outer;
 						}
@@ -448,7 +451,7 @@ impl Server {
 				// Add the referrer to the solution.
 				checkpoint
 					.solutions
-					.get_mut(&tag)
+					.get_mut(&key)
 					.unwrap()
 					.referrers
 					.push(referrer);
@@ -469,7 +472,7 @@ impl Server {
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<MaybeSolvedDependency> {
 		// Check if the tag is already set.
-		if let Some(solution) = checkpoint.solutions.get(tag) {
+		if let Some(solution) = checkpoint.solutions.get(key) {
 			// Get the referent if this tag hasn't been poisoned.
 			let Some(referent) = &solution.referent else {
 				return Ok(MaybeSolvedDependency::Unsolved { backtrack: false });
