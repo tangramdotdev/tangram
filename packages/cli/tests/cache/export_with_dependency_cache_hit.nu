@@ -14,29 +14,34 @@ let output = tg -u $local_server.url remote put default $remote_server.url | com
 success $output
 
 # Create an export that returns a file with nested dependencies.
-# Main file -> Dependency A -> Dependency B
+# Main file -> Directory (contains File A) -> File A depends on File B
 let path = artifact {
 	tangram.ts: '
 		export default async () => {
-			// Create the deepest dependency (Dependency B)
-			let dependencyB = await tg.file("dependency B contents");
+			// Create the deepest dependency (File B).
+			let fileB = await tg.file("file B contents");
 
-			// Create Dependency A that depends on Dependency B
-			let dependencyA = await tg.file({
-				contents: "dependency A contents",
+			// Create File A inside a directory that depends on File B.
+			let fileA = await tg.file({
+				contents: "file A contents",
 				dependencies: {
-					"depB": {
-						item: dependencyB
+					"fileB": {
+						item: fileB
 					}
 				}
 			});
 
-			// Create main file that depends on Dependency A
+			// Create a directory containing File A.
+			let directory = await tg.directory({
+				"fileA": fileA
+			});
+
+			// Create main file that depends on the directory.
 			return tg.file({
 				contents: "main file contents",
 				dependencies: {
-					"depA": {
-						item: dependencyA
+					"dir": {
+						item: directory
 					}
 				}
 			});

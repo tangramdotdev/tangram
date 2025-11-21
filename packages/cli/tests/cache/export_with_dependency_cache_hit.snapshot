@@ -1,27 +1,32 @@
 {
   "kind": "directory",
   "entries": {
-    "fil_0158e7evygsf859rkbn1pf1dxsx3m3wrag589z1ryv49dp5tzcweq0": {
-      "kind": "file",
-      "contents": "dependency A contents",
-      "xattrs": {
-        "user.tangram.dependencies": "[\"depB\"]"
+    "dir_01em45jmzyswg2ffvzn1awy60z5yqk0qk8k54vkwfprhbn65qj63wg": {
+      "kind": "directory",
+      "entries": {
+        "fileA": {
+          "kind": "file",
+          "contents": "file A contents",
+          "xattrs": {
+            "user.tangram.dependencies": "[\"fileB\"]"
+          }
+        }
       }
     },
-    "fil_01cg5gkw9tfzpvfqa410ztqmzpvf4yca6sn05a97je7syvwbyaash0": {
+    "fil_016n4tsmdg4jfhbx04gxpdsc0gff5c1dscsc5vhh56dz6r714rp090": {
+      "kind": "file",
+      "contents": "file B contents"
+    },
+    "fil_01867xb5yphjzxymzwxn9nxyytfqrrqjzh69asxzrf4xmz2tfy1j6g": {
       "kind": "file",
       "contents": "main file contents",
       "xattrs": {
-        "user.tangram.dependencies": "[\"depA\"]"
+        "user.tangram.dependencies": "[\"dir\"]"
       }
     },
-    "fil_01r82t01v1q72degv0h2s9rqcpjhtwtexzxtjkskbn0f5ntm690ew0": {
+    "fil_01w6ace8bmqfyfxg499ybbv97v93k97yjf2y06hee920zvrecbjpy0": {
       "kind": "file",
-      "contents": "export default async () => {\n\t// Create the deepest dependency (Dependency B)\n\tlet dependencyB = await tg.file(\"dependency B contents\");\n\n\t// Create Dependency A that depends on Dependency B\n\tlet dependencyA = await tg.file({\n\t\tcontents: \"dependency A contents\",\n\t\tdependencies: {\n\t\t\t\"depB\": {\n\t\t\t\titem: dependencyB\n\t\t\t}\n\t\t}\n\t});\n\n\t// Create main file that depends on Dependency A\n\treturn tg.file({\n\t\tcontents: \"main file contents\",\n\t\tdependencies: {\n\t\t\t\"depA\": {\n\t\t\t\titem: dependencyA\n\t\t\t}\n\t\t}\n\t});\n}"
-    },
-    "fil_01yrr6fpvs9fwjsaqwy87en2xaarp5c19mwcxgr60e271hrax6b4k0": {
-      "kind": "file",
-      "contents": "dependency B contents"
+      "contents": "export default async () => {\n\t// Create the deepest dependency (File B).\n\tlet fileB = await tg.file(\"file B contents\");\n\n\t// Create File A inside a directory that depends on File B.\n\tlet fileA = await tg.file({\n\t\tcontents: \"file A contents\",\n\t\tdependencies: {\n\t\t\t\"fileB\": {\n\t\t\t\titem: fileB\n\t\t\t}\n\t\t}\n\t});\n\n\t// Create a directory containing File A.\n\tlet directory = await tg.directory({\n\t\t\"fileA\": fileA\n\t});\n\n\t// Create main file that depends on the directory.\n\treturn tg.file({\n\t\tcontents: \"main file contents\",\n\t\tdependencies: {\n\t\t\t\"dir\": {\n\t\t\t\titem: directory\n\t\t\t}\n\t\t}\n\t});\n}"
     }
   }
 }
