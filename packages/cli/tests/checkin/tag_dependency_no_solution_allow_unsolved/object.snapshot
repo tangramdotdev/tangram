@@ -1,0 +1,31 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import * as a from \"a/*\";\nimport * as b from \"b/*\";"),
+    "dependencies": {
+      "a/%2A": {
+        "item": tg.directory({
+          "tangram.ts": tg.file({
+            "contents": tg.blob("import * as c from \"c/^1\""),
+            "dependencies": {
+              "c/%5E1": null,
+            },
+          }),
+        }),
+        "id": "dir_01axfqeskenrmxgby6s3hj3x698w4pdfkcm6t1rdz1s5n9705da09g",
+        "tag": "a/1.0.0",
+      },
+      "b/%2A": {
+        "item": tg.directory({
+          "tangram.ts": tg.file({
+            "contents": tg.blob("import * as c from \"c/^2\""),
+            "dependencies": {
+              "c/%5E2": null,
+            },
+          }),
+        }),
+        "id": "dir_018y9xaczb1ksxt56zdemkxpyt1tpqyk2qr6chebx1xdv46zqjq04g",
+        "tag": "b/1.0.0",
+      },
+    },
+  }),
+})

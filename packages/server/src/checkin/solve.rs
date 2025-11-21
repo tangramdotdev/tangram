@@ -13,6 +13,7 @@ use {
 };
 
 struct State {
+	allow_unsolved_dependencies: bool,
 	checkpoints: Vec<Checkpoint>,
 	updates: Vec<tg::tag::Pattern>,
 	root: PathBuf,
@@ -57,8 +58,13 @@ pub type Solutions = im::HashMap<tg::tag::Pattern, Solution, fnv::FnvBuildHasher
 
 #[derive(Clone)]
 pub struct Solution {
-	pub referent: tg::Referent<usize>,
+	pub referent: Option<tg::Referent<usize>>,
 	pub referrers: Vec<Referrer>,
+}
+
+enum MaybeSolvedDependency {
+	Solved(tg::Referent<usize>),
+	Unsolved { backtrack: bool },
 }
 
 #[derive(Clone)]
@@ -118,6 +124,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the state
 		let mut state = State {
+			allow_unsolved_dependencies: arg.options.allow_unsolved_dependencies,
 			checkpoints: Vec::new(),
 			updates: arg.updates.clone(),
 			root: root.to_owned(),
@@ -309,6 +316,9 @@ impl Server {
 			.clone();
 
 		let tg::reference::Item::Tag(pattern) = reference.item() else {
+			if state.allow_unsolved_dependencies {
+				return Ok(());
+			}
 			return Err(tg::error!(%reference, "expected reference to be a tag"));
 		};
 
@@ -348,70 +358,106 @@ impl Server {
 			.checkin_solve_visit_item_with_tag_inner(state, checkpoint, &item, &key, &pattern)
 			.await?;
 
+		// Get the referrer.
+		let referrer = Referrer {
+			node: item.node,
+			pattern: Some(pattern),
+		};
+
 		// Handle the result.
-		if let Some(referent) = output {
-			// Checkpoint.
-			state.checkpoints.push(checkpoint.clone());
+		match output {
+			MaybeSolvedDependency::Solved(referent) => {
+				// Checkpoint.
+				state.checkpoints.push(checkpoint.clone());
 
-			// Create the edge.
-			checkpoint
-				.graph
-				.nodes
-				.get_mut(&item.node)
-				.unwrap()
-				.variant
-				.unwrap_file_mut()
-				.dependencies
-				.iter_mut()
-				.find_map(|(r, referent)| (r == &reference).then_some(referent))
-				.unwrap()
-				.replace(referent.clone().map(|item| {
-					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-						graph: None,
-						node: item,
-					})
-				}));
-			checkpoint
-				.graph
-				.nodes
-				.get_mut(&referent.item)
-				.unwrap()
-				.referrers
-				.push(item.node);
+				// Create the edge.
+				checkpoint
+					.graph
+					.nodes
+					.get_mut(&item.node)
+					.unwrap()
+					.variant
+					.unwrap_file_mut()
+					.dependencies
+					.iter_mut()
+					.find_map(|(r, referent)| (r == &reference).then_some(referent))
+					.unwrap()
+					.replace(referent.clone().map(|item| {
+						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+							graph: None,
+							node: item,
+						})
+					}));
+				checkpoint
+					.graph
+					.nodes
+					.get_mut(&referent.item)
+					.unwrap()
+					.referrers
+					.push(item.node);
 
-			// Add the referrer to the solution.
-			let referrer = Referrer {
-				node: item.node,
-				pattern: Some(pattern),
-			};
-			checkpoint
-				.solutions
-				.get_mut(&key)
-				.unwrap()
-				.referrers
-				.push(referrer);
-
-			// Enqueue the node's items.
-			Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
-		} else {
-			// Backtrack.
-			*checkpoint = Self::checkin_solve_backtrack(state, &key).ok_or_else(|| {
-				let referrer = Referrer {
-					node: item.node,
-					pattern: Some(pattern),
-				};
+				// Add the referrer to the solution.
 				checkpoint
 					.solutions
 					.get_mut(&key)
 					.unwrap()
 					.referrers
 					.push(referrer);
-				Self::checkin_solve_backtrack_error(state, checkpoint, &key)
-			})?;
 
-			return Ok(());
+				// Enqueue the node's items.
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
+			},
+			MaybeSolvedDependency::Unsolved { backtrack: true } => {
+				// Try to backtrack.
+				if let Some(result) = Self::checkin_solve_backtrack(state, &key) {
+					*checkpoint = result;
+					return Ok(());
+				}
+
+				// Get the solution
+				let Checkpoint {
+					graph, solutions, ..
+				} = checkpoint;
+				let solution = solutions.get_mut(&key).unwrap();
+
+				// Add the new referrer.
+				solution.referrers.push(referrer);
+
+				// Error if we don't allow unsolved dependencies.
+				if !state.allow_unsolved_dependencies {
+					let error = Self::checkin_solve_backtrack_error(state, checkpoint, &key);
+					return Err(error);
+				}
+
+				// Otherwise poison the solution.
+				'outer: for referrer in &solution.referrers {
+					let node = graph.nodes.get_mut(&referrer.node).unwrap();
+					let Variant::File(file) = &mut node.variant else {
+						continue;
+					};
+					for referent in file.dependencies.values_mut() {
+						if referent
+							.as_ref()
+							.and_then(|r| r.tag())
+							.is_some_and(|tag| key.matches(tag))
+						{
+							referent.take();
+							continue 'outer;
+						}
+					}
+				}
+				solution.referent.take();
+			},
+			MaybeSolvedDependency::Unsolved { backtrack: false } => {
+				// Add the referrer to the solution.
+				checkpoint
+					.solutions
+					.get_mut(&key)
+					.unwrap()
+					.referrers
+					.push(referrer);
+			},
 		}
-
 		// Remove the candidates.
 		checkpoint.candidates.take();
 
@@ -425,13 +471,17 @@ impl Server {
 		item: &Item,
 		key: &tg::tag::Pattern,
 		pattern: &tg::tag::Pattern,
-	) -> tg::Result<Option<tg::Referent<usize>>> {
-		// Check if the key is already set.
+	) -> tg::Result<MaybeSolvedDependency> {
+		// Check if the tag is already set.
 		if let Some(solution) = checkpoint.solutions.get(key) {
-			if !pattern.matches(solution.referent.tag().unwrap()) {
-				return Ok(None);
+			// Get the referent if this tag hasn't been poisoned.
+			let Some(referent) = &solution.referent else {
+				return Ok(MaybeSolvedDependency::Unsolved { backtrack: false });
+			};
+			if !pattern.matches(referent.tag().unwrap()) {
+				return Ok(MaybeSolvedDependency::Unsolved { backtrack: true });
 			}
-			return Ok(Some(solution.referent.clone()));
+			return Ok(MaybeSolvedDependency::Solved(referent.clone()));
 		}
 
 		// Get the lock candidate if necessary.
@@ -487,14 +537,14 @@ impl Server {
 		let referent = tg::Referent::new(node, options);
 
 		let solution = Solution {
-			referent: referent.clone(),
+			referent: Some(referent.clone()),
 			referrers: vec![],
 		};
 
 		// Add the solution.
 		checkpoint.solutions.insert(key.clone(), solution);
 
-		Ok(Some(referent))
+		Ok(MaybeSolvedDependency::Solved(referent))
 	}
 
 	fn checkin_solve_get_lock_candidate(
@@ -953,7 +1003,7 @@ impl Server {
 			for referrer in &solution.referrers {
 				let reference =
 					Self::checkin_solve_get_referrer(state, &checkpoint.graph, referrer.node);
-				write!(message, "\ndependended on by {reference}").unwrap();
+				write!(message, "\ndepended on by {reference}").unwrap();
 				if let Some(pattern) = &referrer.pattern {
 					write!(message, " with pattern {pattern}").unwrap();
 				}
