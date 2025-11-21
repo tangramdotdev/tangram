@@ -408,7 +408,7 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 		output.args.push("--mount".to_owned());
 		output
 			.args
-			.push(bind(server.artifacts_path(), "/.tangram/artifacts", false));
+			.push(bind(server.artifacts_path(), "/.tangram/artifacts", true));
 		output.args.push("--mount".to_owned());
 		output.args.push(bind(&output_path, "/output", false));
 	}
