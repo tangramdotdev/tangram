@@ -423,11 +423,11 @@ impl Server {
 					let referent = path.parent().unwrap().join(reference_path);
 					let referent = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
 						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
-							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
+							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
 						)
 					} else {
 						referent.canonicalize().map_err(
-							|source| tg::error!(!source, %path = referent.display(), "failed to canonicalize the path"),
+							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
 						)
 					};
 					dependencies.insert(reference, None);
