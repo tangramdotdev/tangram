@@ -14,7 +14,7 @@ let path = artifact {
 }
 
 # Checkin.
-let first_id = tg checkin $path
+let first_id = run tg checkin $path
 
 # Checkout.
 let temp_dir = mktemp -d
@@ -25,7 +25,7 @@ run tg checkout $first_id $checkout_path1
 run tg clean
 
 # Checkin again.
-let second_id = tg checkin $checkout_path1
+let second_id = run tg checkin $checkout_path1
 
 # Checkout again.
 let checkout_path2 = $temp_dir | path join "checkout2"

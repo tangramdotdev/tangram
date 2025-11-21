@@ -44,8 +44,8 @@ let g_id = run tg build ($path + '#g')
 let h_id = run tg build ($path + '#h')
 
 # Tag c and h.
-tg tag c $c_id
-tg tag h $h_id
+run tg tag c $c_id
+run tg tag h $h_id
 
 # Clean.
 run tg clean

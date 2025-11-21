@@ -9,7 +9,7 @@ let foo_path = artifact {
 		export default () => tg.assert(false, "error in foo");
 	'
 }
-tg tag foo $foo_path
+run tg tag foo $foo_path
 
 let path = artifact {
 	tangram.ts: '

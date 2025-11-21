@@ -11,7 +11,7 @@ let artifact = artifact {
 		}
 	'
 }
-let id = tg build $artifact
+let id = run tg build $artifact
 
 let path = $tmp | path join "checkout"
 run tg checkout $id $path

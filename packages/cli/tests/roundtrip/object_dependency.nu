@@ -28,7 +28,7 @@ run tg tag delete empty
 run tg clean
 
 # Checkin again with deterministic flag.
-let right = tg checkin --deterministic $checkout_path1
+let right = run tg checkin --deterministic $checkout_path1
 
 # Checkout again.
 let checkout_path2 = $tmp | path join "checkout2"

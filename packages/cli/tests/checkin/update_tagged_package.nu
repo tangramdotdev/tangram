@@ -8,7 +8,7 @@ let old_path = artifact {
 		export default () => "a/1.0.0";
 	'
 }
-tg tag a/1.0.0 $old_path
+run tg tag a/1.0.0 $old_path
 
 # Create a package that depends on a/^1.
 let local_path = artifact {
@@ -19,7 +19,7 @@ let local_path = artifact {
 }
 
 # Check in the package.
-tg checkin $local_path
+run tg checkin $local_path
 
 # Verify the lockfile has a/1.0.0.
 let lockfile_path = $local_path | path join 'tangram.lock'
@@ -32,10 +32,10 @@ let new_path = artifact {
 		export default () => "a/1.1.0";
 	'
 }
-tg tag a/1.1.0 $new_path
+run tg tag a/1.1.0 $new_path
 
 # Run update on the package.
-tg update $local_path
+run tg update $local_path
 
 # Verify the lockfile has been updated to a/1.1.0.
 let lock = open $lockfile_path | from json

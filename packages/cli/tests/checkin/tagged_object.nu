@@ -6,19 +6,19 @@ let server = spawn
 let hello_path = artifact {
 	contents: 'Hello, world!'
 }
-tg tag hello ($hello_path | path join 'contents')
+run tg tag hello ($hello_path | path join 'contents')
 
 let path = artifact {
 	tangram.ts: 'import hello from "hello";'
 }
 
-let id = tg checkin $path
-tg index
+let id = run tg checkin $path
+run tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = run tg object get --blobs --depth=inf --pretty $id
 snapshot -n object $object
 
-let metadata = tg object metadata --pretty $id
+let metadata = run tg object metadata --pretty $id
 snapshot -n metadata $metadata
 
 # This should create a lockfile since it has a tagged dependency.

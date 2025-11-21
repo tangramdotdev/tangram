@@ -6,7 +6,7 @@ let server = spawn
 let a1_path = artifact {
 	tangram.ts: ''
 }
-tg tag a/1.0.0 $a1_path
+run tg tag a/1.0.0 $a1_path
 
 let b_path = artifact {
 	foo.tg.ts: '
@@ -17,14 +17,14 @@ let b_path = artifact {
 		import * as foo from "./foo.tg.ts";
 	'
 }
-tg tag b/1.0.0 $b_path
+run tg tag b/1.0.0 $b_path
 
 let a11_path = artifact {
 	tangram.ts: '
 		import * as b from "b/*";
 	'
 }
-tg tag a/1.1.0 $a11_path
+run tg tag a/1.1.0 $a11_path
 
 let path = artifact {
 	tangram.ts: '
@@ -33,13 +33,13 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path
-tg index
+let id = run tg checkin $path
+run tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = run tg object get --blobs --depth=inf --pretty $id
 snapshot -n object $object
 
-let metadata = tg object metadata --pretty $id
+let metadata = run tg object metadata --pretty $id
 snapshot -n metadata $metadata
 
 # This should create a lockfile since it has tagged dependencies.

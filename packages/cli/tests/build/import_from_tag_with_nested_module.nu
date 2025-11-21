@@ -19,7 +19,7 @@ let a_path = artifact {
 		'
 	}
 }
-tg tag a $a_path
+run tg tag a $a_path
 
 # Create package b that imports a.
 let b_path = artifact {

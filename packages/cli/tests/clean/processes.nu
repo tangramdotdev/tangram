@@ -33,8 +33,8 @@ let d_process = run tg process spawn --sandbox ($path + '#d') | from json | get 
 let e_process = run tg process spawn --sandbox ($path + '#e') | from json | get process
 
 # Tag b and d.
-tg tag b $b_process
-tg tag d $d_process
+run tg tag b $b_process
+run tg tag d $d_process
 
 # Clean.
 run tg clean

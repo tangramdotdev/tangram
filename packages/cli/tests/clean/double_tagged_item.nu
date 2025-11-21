@@ -10,11 +10,11 @@ let path = artifact {
 let a_id = run tg build ($path + '#a')
 
 # Tag a with the same tag twice.
-tg tag mytag $a_id
-tg tag mytag $a_id
+run tg tag mytag $a_id
+run tg tag mytag $a_id
 
 # Delete the tag.
-tg tag delete mytag
+run tg tag delete mytag
 
 # Clean.
 run tg clean

@@ -16,22 +16,22 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path
+let id = run tg checkin $path
 
 let override_tag = "overridden-pkg/2.0.0"
 run tg publish --tag $override_tag $path
 
 # Verify override tag on local.
-let local_tag = tg tag get $override_tag | from json | get item
+let local_tag = run tg tag get $override_tag | from json | get item
 assert equal $local_tag $id "Local override tag does not match expected ID."
 
 # Verify override tag on remote.
-let remote_tag = tg --url $remote.url tag get $override_tag | from json | get item
+let remote_tag = run tg --url $remote.url tag get $override_tag | from json | get item
 assert equal $remote_tag $id "Remote override tag does not match expected ID."
 
 # Verify object synced.
-let local_object = tg object get $id
-let remote_object = tg --url $remote.url object get $id
+let local_object = run tg object get $id
+let remote_object = run tg --url $remote.url object get $id
 assert equal $local_object $remote_object "Object not synced between local and remote."
 
 # Index servers.

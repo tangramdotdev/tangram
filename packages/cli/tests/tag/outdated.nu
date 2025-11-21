@@ -6,11 +6,11 @@ let server = spawn
 let path = artifact 'Hello, World!'
 
 # Check in.
-let id = tg checkin $path
+let id = run tg checkin $path
 
 # Tag it a couple times.
 for version in ["1.0.0" "1.1.0" "2.0.0"] {
-	tg tag put $"hello/($version)" $id
+	run tg tag put $"hello/($version)" $id
 }
 
 # Create something that uses it.
@@ -21,6 +21,6 @@ let path = artifact {
 }
 
 # Get the outdated.
-let output = tg outdated $path
+let output = run tg outdated $path
 
 snapshot -n outdated $output

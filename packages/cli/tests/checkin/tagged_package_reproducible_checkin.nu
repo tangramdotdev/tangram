@@ -6,7 +6,7 @@ let remote = spawn -n remote
 let foo_path = artifact {
 	contents: 'foo'
 }
-tg -u $remote.url tag foo ($foo_path | path join 'contents')
+run tg -u $remote.url tag foo ($foo_path | path join 'contents')
 
 # Create two local servers, both configured with the remote.
 let local1 = spawn -n local1 -c {
@@ -25,13 +25,13 @@ let path = artifact {
 }
 
 # Check in on the first local server.
-let id1 = tg -u $local1.url checkin $path
-tg -u $local1.url index
-let output1 = tg -u $local1.url object get --blobs --depth=inf --pretty $id1
+let id1 = run tg -u $local1.url checkin $path
+run tg -u $local1.url index
+let output1 = run tg -u $local1.url object get --blobs --depth=inf --pretty $id1
 
 # Check in on the second local server.
-let id2 = tg -u $local2.url checkin $path
-tg -u $local2.url index
-let output2 = tg -u $local2.url object get --blobs --depth=inf --pretty $id2
+let id2 = run tg -u $local2.url checkin $path
+run tg -u $local2.url index
+let output2 = run tg -u $local2.url object get --blobs --depth=inf --pretty $id2
 
 assert ($output1 == $output2) "the checkout should be reproducible across different servers."

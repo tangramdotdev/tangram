@@ -51,22 +51,22 @@ let a_published_id = do $extract_published_id "test-a/1.0.0"
 let b_published_id = do $extract_published_id "test-b/1.0.0"
 
 # Verify both packages are tagged on local.
-let local_a_tag = tg tag get test-a/1.0.0 | from json | get item
-let local_b_tag = tg tag get test-b/1.0.0 | from json | get item
+let local_a_tag = run tg tag get test-a/1.0.0 | from json | get item
+let local_b_tag = run tg tag get test-b/1.0.0 | from json | get item
 assert equal $local_a_tag $a_published_id "Local tag for test-a does not match published ID."
 assert equal $local_b_tag $b_published_id "Local tag for test-b does not match published ID."
 
 # Verify both packages are tagged on remote.
-let remote_a_tag = tg --url $remote.url tag get test-a/1.0.0 | from json | get item
-let remote_b_tag = tg --url $remote.url tag get test-b/1.0.0 | from json | get item
+let remote_a_tag = run tg --url $remote.url tag get test-a/1.0.0 | from json | get item
+let remote_b_tag = run tg --url $remote.url tag get test-b/1.0.0 | from json | get item
 assert equal $remote_a_tag $a_published_id "Remote tag for test-a does not match published ID."
 assert equal $remote_b_tag $b_published_id "Remote tag for test-b does not match published ID."
 
 # Verify objects are synced to remote.
-let local_a_obj = tg object get $a_published_id
-let remote_a_obj = tg --url $remote.url object get $a_published_id
-let local_b_obj = tg object get $b_published_id
-let remote_b_obj = tg --url $remote.url object get $b_published_id
+let local_a_obj = run tg object get $a_published_id
+let remote_a_obj = run tg --url $remote.url object get $a_published_id
+let local_b_obj = run tg object get $b_published_id
+let remote_b_obj = run tg --url $remote.url object get $b_published_id
 assert equal $local_a_obj $remote_a_obj "Package A object not synced between local and remote."
 assert equal $local_b_obj $remote_b_obj "Package B object not synced between local and remote."
 
@@ -75,9 +75,9 @@ run tg --url $remote.url index
 run tg index
 
 # Verify metadata synced.
-let local_a_metadata = tg object metadata $a_published_id | from json
-let remote_a_metadata = tg --url $remote.url object metadata $a_published_id | from json
-let local_b_metadata = tg object metadata $b_published_id | from json
-let remote_b_metadata = tg --url $remote.url object metadata $b_published_id | from json
+let local_a_metadata = run tg object metadata $a_published_id | from json
+let remote_a_metadata = run tg --url $remote.url object metadata $a_published_id | from json
+let local_b_metadata = run tg object metadata $b_published_id | from json
+let remote_b_metadata = run tg --url $remote.url object metadata $b_published_id | from json
 assert equal $local_a_metadata $remote_a_metadata "Package A metadata not synced between local and remote."
 assert equal $local_b_metadata $remote_b_metadata "Package B metadata not synced between local and remote."

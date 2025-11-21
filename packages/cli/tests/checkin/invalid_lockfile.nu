@@ -18,13 +18,13 @@ let path = artifact {
 	}
 }
 
-let id = tg checkin ($path | path join 'a')
-tg index
+let id = run tg checkin ($path | path join 'a')
+run tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = run tg object get --blobs --depth=inf --pretty $id
 snapshot -n object $object
 
-let metadata = tg object metadata --pretty $id
+let metadata = run tg object metadata --pretty $id
 snapshot -n metadata $metadata
 
 let lockfile_path = $path | path join 'a' 'tangram.lock'
