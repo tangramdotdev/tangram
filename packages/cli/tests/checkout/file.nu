@@ -4,15 +4,15 @@ let tmp = mktemp -d
 
 let server = spawn
 
-let path = artifact {
+let artifact = artifact {
 	tangram.ts: '
 		export default () => {
 			return tg.file("Hello, World!")
 		}
 	'
 }
+let id = tg build $artifact
 
-let id = run tg build $path
-let checkout_path = $tmp | path join "checkout"
-run tg checkout $id $checkout_path
-snapshot --path $checkout_path
+let path = $tmp | path join "checkout"
+run tg checkout $id $path
+snapshot --path $path

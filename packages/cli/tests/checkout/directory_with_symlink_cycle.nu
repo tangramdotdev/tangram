@@ -4,7 +4,7 @@ let tmp = mktemp -d
 
 let server = spawn
 
-let path = artifact {
+let artifact = artifact {
 	tangram.ts: '
 		export default () => {
 			let graph = tg.graph({
@@ -23,8 +23,8 @@ let path = artifact {
 		}
 	'
 }
+let id = tg build $artifact
 
-let id = tg build $path
-let checkout_path = $tmp | path join "checkout"
-tg checkout --dependencies=true $id $checkout_path
-snapshot --path $checkout_path
+let path = $tmp | path join "checkout"
+run tg checkout --dependencies=true $id $path
+snapshot --path $path
