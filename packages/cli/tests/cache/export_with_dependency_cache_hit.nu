@@ -71,16 +71,17 @@ let clean_server = spawn -n clean
 let output = tg -u $clean_server.url remote put default $remote_server.url | complete
 success $output
 
-# # Build on the clean server. This should get a cache hit from the remote.
-# let clean_id = tg -u $clean_server.url build $path | complete | get stdout | str trim
+# Build on the clean server. This should get a cache hit from the remote.
+let clean_id = tg -u $clean_server.url build $path | complete | get stdout | str trim
 
-# # The IDs should match (confirming cache hit).
-# if $id != $clean_id {
-# 	error make { msg: "IDs do not match - cache hit did not occur" }
-# }
+# The IDs should match (confirming cache hit).
+if $id != $clean_id {
+	error make { msg: "IDs do not match - cache hit did not occur" }
+}
 
-let output = tg -u $clean_server.url checkout $id | complete
+# Now checkout the build result.
+let output = tg -u $clean_server.url checkout $clean_id | complete
 success $output
 
-# Snapshot the artifacts directory.
+# Snapshot the artifacts directory. If transitive dependencies are missing, they won't be in the snapshot.
 snapshot --path ($clean_server.directory | path join 'artifacts')

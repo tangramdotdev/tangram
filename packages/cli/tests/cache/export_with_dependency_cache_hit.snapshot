@@ -23,6 +23,10 @@
       "xattrs": {
         "user.tangram.dependencies": "[\"dir\"]"
       }
+    },
+    "fil_01w6ace8bmqfyfxg499ybbv97v93k97yjf2y06hee920zvrecbjpy0": {
+      "kind": "file",
+      "contents": "export default async () => {\n\t// Create the deepest dependency (File B).\n\tlet fileB = await tg.file(\"file B contents\");\n\n\t// Create File A inside a directory that depends on File B.\n\tlet fileA = await tg.file({\n\t\tcontents: \"file A contents\",\n\t\tdependencies: {\n\t\t\t\"fileB\": {\n\t\t\t\titem: fileB\n\t\t\t}\n\t\t}\n\t});\n\n\t// Create a directory containing File A.\n\tlet directory = await tg.directory({\n\t\t\"fileA\": fileA\n\t});\n\n\t// Create main file that depends on the directory.\n\treturn tg.file({\n\t\tcontents: \"main file contents\",\n\t\tdependencies: {\n\t\t\t\"dir\": {\n\t\t\t\titem: directory\n\t\t\t}\n\t\t}\n\t});\n}"
     }
   }
 }
