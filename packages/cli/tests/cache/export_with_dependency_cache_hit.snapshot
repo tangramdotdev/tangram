@@ -1,0 +1,27 @@
+{
+  "kind": "directory",
+  "entries": {
+    "fil_0158e7evygsf859rkbn1pf1dxsx3m3wrag589z1ryv49dp5tzcweq0": {
+      "kind": "file",
+      "contents": "dependency A contents",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"depB\"]"
+      }
+    },
+    "fil_01cg5gkw9tfzpvfqa410ztqmzpvf4yca6sn05a97je7syvwbyaash0": {
+      "kind": "file",
+      "contents": "main file contents",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"depA\"]"
+      }
+    },
+    "fil_01r82t01v1q72degv0h2s9rqcpjhtwtexzxtjkskbn0f5ntm690ew0": {
+      "kind": "file",
+      "contents": "export default async () => {\n\t// Create the deepest dependency (Dependency B)\n\tlet dependencyB = await tg.file(\"dependency B contents\");\n\n\t// Create Dependency A that depends on Dependency B\n\tlet dependencyA = await tg.file({\n\t\tcontents: \"dependency A contents\",\n\t\tdependencies: {\n\t\t\t\"depB\": {\n\t\t\t\titem: dependencyB\n\t\t\t}\n\t\t}\n\t});\n\n\t// Create main file that depends on Dependency A\n\treturn tg.file({\n\t\tcontents: \"main file contents\",\n\t\tdependencies: {\n\t\t\t\"depA\": {\n\t\t\t\titem: dependencyA\n\t\t\t}\n\t\t}\n\t});\n}"
+    },
+    "fil_01yrr6fpvs9fwjsaqwy87en2xaarp5c19mwcxgr60e271hrax6b4k0": {
+      "kind": "file",
+      "contents": "dependency B contents"
+    }
+  }
+}
