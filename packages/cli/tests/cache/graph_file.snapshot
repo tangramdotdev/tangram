@@ -4,10 +4,6 @@
     "fil_01frvykaz0sqdpbcpwncqjrv9m6bqrnykbhs3mj3hq70c9a1430rm0": {
       "kind": "file",
       "contents": "Hello, World!"
-    },
-    "fil_01wc4tk1wafmmbx57jj7snb6dhn4w4phr3tsj72wzp2nydjhn3masg": {
-      "kind": "file",
-      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"file\",\n\t\t\t\tcontents: \"Hello, World!\",\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.file({ graph, node: 0 });\n}"
     }
   }
 }

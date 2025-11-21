@@ -13,10 +13,6 @@
           "path": "hello.txt"
         }
       }
-    },
-    "fil_01gz85m0vx7y2rpebqyejbxt7e5jf5791k5b5kg95bftx489x7mdv0": {
-      "kind": "file",
-      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": tg.file(\"Hello, World!\"),\n\t\t\"link\": tg.symlink(\"hello.txt\"),\n\t});\n}"
     }
   }
 }

@@ -10,9 +10,9 @@
         }
       }
     },
-    "fil_01334nwq42f3841my665rmene9tgnvh7rekze17pxd9rwxyn2vsfk0": {
+    "fil_01gfmwc3sy4x6cnzwhmyj77nr2x18ja63hnz2kqzbd4meh0k0q9g7g": {
       "kind": "file",
-      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: { link: { node: 1 } },\n\t\t\t},\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tartifact: { node: 0 },\n\t\t\t\tpath: \"link\",\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({ graph, node: 0 });\n}"
+      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: {\n\t\t\t\t\tlink: { node: 1 }\n\t\t\t\t}\n\t\t\t},\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tartifact: { node: 0 },\n\t\t\t\tpath: \"link\"\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({\n\t\tgraph,\n\t\tnode: 0\n\t});\n}"
     }
   }
 }

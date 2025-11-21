@@ -1,10 +1,6 @@
 {
   "kind": "directory",
   "entries": {
-    "fil_01h2hnhadn3604qd96sf1xtbwrcbd4zwe8bvc412jdrwqnyv69d8j0": {
-      "kind": "file",
-      "contents": "export default () => {\n\treturn tg.symlink(\"/bin/sh\");\n}"
-    },
     "sym_01a5tvcfq8dj5pdwe4v5q0g0mjfk2b4daazgb8e9vbsd3ksd1j368g": {
       "kind": "symlink",
       "path": "/bin/sh"

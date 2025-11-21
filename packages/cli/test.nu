@@ -18,10 +18,9 @@ def main [
 	# Get the matching tests.
 	let tests_path = ($path | path join 'packages/cli/tests')
 	let tests = fd -e nu -p $filter $tests_path | lines | each { |path|
-		let parsed = $path | path parse
 		{
 			path: $path,
-			name: ($parsed.parent | str replace $'($tests_path)/' '' | path join $parsed.stem)
+			name: ($path | path relative-to $tests_path)
 		}
 	}
 
@@ -49,7 +48,11 @@ def main [
 
 			# Run the test.
 			let start = date now
-			let output = open /dev/null | TANGRAM_MODE=client TMPDIR=$temp_path nu $test.path o+e>| complete
+			let output = with-env {
+				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
+				TANGRAM_MODE: client,
+				TMPDIR: $temp_path,
+			} { open /dev/null | nu $test.path o+e>| complete }
 			let end = date now
 			let duration = $end - $start
 

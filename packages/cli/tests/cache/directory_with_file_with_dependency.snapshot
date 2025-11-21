@@ -16,10 +16,6 @@
     "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
       "kind": "file",
       "contents": "bar"
-    },
-    "fil_01z8gkg2x7czvwmyrn03n2ah79p93bv50rwkxd7t9mkqenqn6t8gcg": {
-      "kind": "file",
-      "contents": "export default () => {\n\treturn tg.directory({\n\t\tfoo: tg.file(\"foo\", {\n\t\t\tdependencies: {\n\t\t\t\t\"bar\": tg.file(\"bar\"),\n\t\t\t},\n\t\t}),\n\t});\n}"
     }
   }
 }

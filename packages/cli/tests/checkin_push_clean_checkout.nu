@@ -8,13 +8,11 @@ let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
 
-# Check in the artifact.
-let path = artifact {
-	tangram.ts: '
-		export default () => "Hello, World!";
-	'
-}
-let id = run tg checkin $path
+# Create the artifact.
+let artifact = '
+	tg.file("Hello, World!")
+'
+let id = run tg put $artifact
 let output = run tg object get --blobs --depth=inf --pretty $id
 snapshot -n local $output
 

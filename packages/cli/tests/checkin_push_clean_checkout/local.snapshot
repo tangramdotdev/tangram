@@ -1,5 +1,3 @@
-tg.directory({
-  "tangram.ts": tg.file({
-    "contents": tg.blob("export default () => \"Hello, World!\";"),
-  }),
+tg.file({
+  "contents": tg.blob("Hello, World!"),
 })

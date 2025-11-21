@@ -29,7 +29,7 @@ let path = artifact {
 let id = tg build $path
 let checkout_path = $tmp | path join "checkout"
 tg checkout --dependencies=true $id $checkout_path
-snapshot -n result --path $checkout_path
+snapshot --path $checkout_path
 
 let lockfile_path = $checkout_path | path join 'tangram.lock'
 let lockfile = open $lockfile_path | from json

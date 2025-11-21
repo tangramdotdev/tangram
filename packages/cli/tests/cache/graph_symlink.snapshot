@@ -1,10 +1,6 @@
 {
   "kind": "directory",
   "entries": {
-    "fil_01w85cb46q8a53q1nvvgzp724havxtdjff31rdpw07c9d73xc752c0": {
-      "kind": "file",
-      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tpath: \"/bin/sh\",\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({ graph, node: 0 });\n}"
-    },
     "sym_01j4terqyd7btz9tm8wsh4ybwavbkt8dnc512p9mewa140hsdg7ydg": {
       "kind": "symlink",
       "path": "/bin/sh"

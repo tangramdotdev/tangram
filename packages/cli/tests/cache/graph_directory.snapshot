@@ -10,9 +10,9 @@
         }
       }
     },
-    "fil_01f7pyfnp6h4cneek373zg2zabqgp2zgxapyp7arx9tff1gm6nve70": {
+    "fil_01mwzqcc9f5v9761mhchvrxwsgrf907v9pgqmvkwwt3faqbgx98330": {
       "kind": "file",
-      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: {\n\t\t\t\t\t\"hello.txt\": tg.file(\"Hello, World!\")\n\t\t\t\t}\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.directory({ graph, node: 0 });\n}"
+      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: {\n\t\t\t\t\t\"hello.txt\": tg.file(\"Hello, World!\")\n\t\t\t\t}\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.directory({\n\t\tgraph,\n\t\tnode: 0\n\t});\n}"
     }
   }
 }

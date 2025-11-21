@@ -284,7 +284,7 @@ fn directory(input: &mut Input) -> ModalResult<tg::Object> {
 		("directory", whitespace, "(", whitespace),
 		cut_err(delimited(
 			whitespace,
-			alt((directory_node, directory_reference)),
+			alt((directory_reference, directory_node)),
 			(whitespace, ")"),
 		)),
 	)
@@ -306,7 +306,7 @@ fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 			("{", whitespace),
 			cut_err(separated(
 				0..,
-				separated_pair(string, (whitespace, ":", whitespace), graph_edge_artifact),
+				separated_pair(string, (whitespace, ":", whitespace), directory_node_entry),
 				(whitespace, ",", whitespace),
 			)),
 			(whitespace, opt(","), whitespace, "}"),
@@ -330,16 +330,55 @@ fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 	.parse_next(input)
 }
 
+fn directory_node_entry(input: &mut Input) -> ModalResult<tg::graph::object::Edge<tg::Artifact>> {
+	alt((
+		string.map(|s| {
+			let bytes = Bytes::from(s.into_bytes());
+			let leaf = tg::blob::object::Leaf { bytes };
+			let blob_object = tg::blob::Object::Leaf(leaf);
+			let blob = tg::Blob::with_object(blob_object);
+			let node = tg::graph::object::File {
+				contents: blob,
+				dependencies: BTreeMap::new(),
+				executable: false,
+			};
+			let object = tg::file::Object::Node(node);
+			let file = tg::File::with_object(object);
+			tg::graph::object::Edge::Object(tg::Artifact::File(file))
+		}),
+		graph_edge_artifact,
+	))
+	.parse_next(input)
+}
+
 fn file(input: &mut Input) -> ModalResult<tg::Object> {
 	preceded(
 		("file", whitespace, "(", whitespace),
 		cut_err(delimited(
 			whitespace,
-			alt((file_node, file_reference)),
+			alt((file_reference, file_node, file_string)),
 			(whitespace, ")"),
 		)),
 	)
 	.parse_next(input)
+}
+
+fn file_string(input: &mut Input) -> ModalResult<tg::Object> {
+	string
+		.map(|s| {
+			let bytes = Bytes::from(s.into_bytes());
+			let leaf = tg::blob::object::Leaf { bytes };
+			let blob_object = tg::blob::Object::Leaf(leaf);
+			let blob = tg::Blob::with_object(blob_object);
+			let node = tg::graph::object::File {
+				contents: blob,
+				dependencies: BTreeMap::new(),
+				executable: false,
+			};
+			let object = tg::file::Object::Node(node);
+			tg::File::with_object(object).into()
+		})
+		.parse_next(input)
 }
 
 fn file_reference(input: &mut Input) -> ModalResult<tg::Object> {
@@ -368,13 +407,21 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 		for (key, value) in entries {
 			match key.as_str() {
 				"contents" => {
-					let object = value
-						.try_unwrap_object_ref()
-						.map_err(|_| tg::error!("expected object for contents"))?;
-					let blob = object
-						.try_unwrap_blob_ref()
-						.map_err(|_| tg::error!("expected blob object for contents"))?;
-					contents = Some(blob.clone());
+					let blob = if let Ok(s) = value.try_unwrap_string_ref() {
+						let bytes = Bytes::from(s.as_bytes().to_vec());
+						let leaf = tg::blob::object::Leaf { bytes };
+						let blob_object = tg::blob::Object::Leaf(leaf);
+						tg::Blob::with_object(blob_object)
+					} else {
+						let object = value
+							.try_unwrap_object_ref()
+							.map_err(|_| tg::error!("expected object or string for contents"))?;
+						let blob = object
+							.try_unwrap_blob_ref()
+							.map_err(|_| tg::error!("expected blob object for contents"))?;
+						blob.clone()
+					};
+					contents = Some(blob);
 				},
 				"dependencies" => {
 					let map = value
@@ -423,7 +470,7 @@ fn symlink(input: &mut Input) -> ModalResult<tg::Object> {
 		("symlink", whitespace, "(", whitespace),
 		cut_err(delimited(
 			whitespace,
-			alt((symlink_node, symlink_reference)),
+			alt((symlink_reference, symlink_node)),
 			(whitespace, ")"),
 		)),
 	)

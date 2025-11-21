@@ -2,24 +2,18 @@ use ../../test.nu *
 
 let server = spawn
 
-let path = artifact {
-	tangram.ts: '
-		export default () => {
-			return tg.directory({
-				foo: tg.symlink(tg.file("bar")),
-			});
-		}
-	'
-}
+# Create the artifact.
+let artifact = '
+	tg.directory({
+		"foo": tg.symlink({
+			"artifact": tg.file("bar")
+		})
+	})
+'
+let id = run tg put $artifact
 
-# Build the module.
-let id = tg build $path | complete | get stdout | str trim
+# Cache.
+run tg cache $id
 
-# Cache the artifact.
-let output = tg cache $id | complete
-
-success $output
-
-# Get the cached artifacts.
-let artifacts_path = $server.directory | path join "artifacts"
-snapshot --path $artifacts_path
+# Snapshot.
+snapshot --path ($server.directory | path join "artifacts")

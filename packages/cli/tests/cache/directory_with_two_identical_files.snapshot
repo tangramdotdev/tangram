@@ -13,10 +13,6 @@
           "contents": "Hello, World!"
         }
       }
-    },
-    "fil_01gkn747ajvdtn6gqy23r18zynwv3m6w1mqdhe0mkhzpnbets2sbeg": {
-      "kind": "file",
-      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": \"Hello, World!\",\n\t\t\"world.txt\": \"Hello, World!\",\n\t});\n}"
     }
   }
 }

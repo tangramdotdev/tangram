@@ -1,9 +1,4 @@
 {
-  "kind": "directory",
-  "entries": {
-    "tangram.ts": {
-      "kind": "file",
-      "contents": "export default () => \"Hello, World!\";"
-    }
-  }
+  "kind": "file",
+  "contents": "Hello, World!"
 }

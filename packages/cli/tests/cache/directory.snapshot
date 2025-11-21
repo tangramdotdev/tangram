@@ -9,10 +9,6 @@
           "contents": "Hello, World!"
         }
       }
-    },
-    "fil_0109vqp9mhncwr9pwy6edyz9czwtzrv2h4eabys8dtqzxq8s1xnywg": {
-      "kind": "file",
-      "contents": "export default () => {\n\treturn tg.directory({\n\t\t\"hello.txt\": \"Hello, World!\",\n\t});\n}"
     }
   }
 }
