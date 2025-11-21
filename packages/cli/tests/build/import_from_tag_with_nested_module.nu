@@ -31,8 +31,7 @@ let b_path = artifact {
 	'
 }
 
-let output = tg build $b_path | complete
-success $output
+run tg build $b_path
 
 # Mutate b to call a.baz() instead.
 let new_tangram = '
@@ -44,5 +43,4 @@ let new_tangram = '
 $new_tangram | save -f ($b_path | path join 'tangram.ts')
 
 # Rebuild.
-let output = tg build $b_path | complete
-success $output
+run tg build $b_path

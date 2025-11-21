@@ -17,7 +17,7 @@ let bottom_path = artifact {
 	'
 }
 
-let bottom_id = tg checkin $bottom_path | complete | get stdout | str trim
+let bottom_id = tg checkin $bottom_path
 
 # Create a tag for the bottom package on the local server so it can be resolved.
 tg tag put test-bottom/1.0.0 $bottom_id | complete
@@ -35,7 +35,7 @@ let left_path = artifact {
 	'
 }
 
-let left_id = tg checkin $left_path | complete | get stdout | str trim
+let left_id = tg checkin $left_path
 
 # Create a tag for the left package on the local server so it can be resolved.
 tg tag put test-left/1.0.0 $left_id | complete
@@ -53,7 +53,7 @@ let right_path = artifact {
 	'
 }
 
-let right_id = tg checkin $right_path | complete | get stdout | str trim
+let right_id = tg checkin $right_path
 
 # Create a tag for the right package on the local server so it can be resolved.
 tg tag put test-right/1.0.0 $right_id | complete
@@ -72,7 +72,7 @@ let main_path = artifact {
 	'
 }
 
-let main_id = tg checkin $main_path | complete | get stdout | str trim
+let main_id = tg checkin $main_path
 
 # Publish the main package - this should publish bottom, then left and right, then main.
 let output = tg publish $main_path | complete

@@ -6,6 +6,5 @@ let path = artifact {
 	tangram.ts: 'export default (name: string) => `Hello, ${name}!`;'
 }
 
-let output = tg build $path -a 'Tangram' | complete
-success $output
-snapshot $output.stdout
+let output = run tg build $path -a 'Tangram'
+snapshot $output

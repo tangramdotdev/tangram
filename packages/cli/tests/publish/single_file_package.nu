@@ -20,11 +20,10 @@ let file_path = $temp_dir | path join "package.ts"
 $file_content | save $file_path
 
 # Checkin the file.
-let id = tg checkin $file_path | complete | get stdout | str trim
+let id = tg checkin $file_path
 
 # Publish the file.
-let output = tg publish $file_path | complete
-success $output
+run tg publish $file_path
 
 # Verify tag on local.
 let local_tag = tg tag get test-single-file/1.0.0 | from json | get item

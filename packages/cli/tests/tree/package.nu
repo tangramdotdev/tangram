@@ -6,14 +6,12 @@ let server = spawn
 let foo_path = artifact {
 	tangram.ts: '// foo'
 }
-let output = tg tag foo $foo_path | complete
-success $output
+run tg tag foo $foo_path
 
 let bar_path = artifact {
 	tangram.ts: 'import * as foo from "foo"'
 }
-let output = tg tag bar $bar_path | complete
-success $output
+run tg tag bar $bar_path
 
 # Create the main artifact.
 let path = artifact {
@@ -24,7 +22,5 @@ let path = artifact {
 }
 
 # Run tree command with package kind.
-let output = tg tree $path --kind=package | complete
-success $output
-
-snapshot $output.stdout
+let output = run tg tree $path --kind=package
+snapshot $output

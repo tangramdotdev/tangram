@@ -16,13 +16,12 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path | complete | get stdout | str trim
+let id = tg checkin $path
 
 let tag = "test-pkg/1.0.0"
 tg tag put $tag $id | complete
 
-let output = tg publish $tag | complete
-success $output
+run tg publish $tag
 
 # Verify tag on local.
 let local_tag = tg tag get $tag | from json | get item

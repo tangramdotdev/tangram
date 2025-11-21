@@ -14,6 +14,5 @@ let path = artifact {
 	}
 }
 
-let output = tg build ($path | path join './foo') | complete
-success $output
-snapshot $output.stdout
+let output = run tg build ($path | path join './foo')
+snapshot $output

@@ -8,13 +8,11 @@ let path = artifact {
 }
 
 # Check in the directory.
-let id = tg checkin $path | complete | get stdout | str trim
+let id = tg checkin $path
 
 # Bundle the directory.
-let bundle_id = tg bundle $id | complete | get stdout | str trim
+let bundle_id = tg bundle $id
 
 # Get the bundled object.
-let output = tg object get $bundle_id --blobs --depth=inf --pretty | complete
-success $output
-
-snapshot $output.stdout
+let output = run tg object get $bundle_id --blobs --depth=inf --pretty
+snapshot $output

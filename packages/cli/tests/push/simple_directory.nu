@@ -7,8 +7,7 @@ let remote_server = spawn -n remote
 let local_server = spawn -n local
 
 # Add the remote to the local server.
-let output = tg remote put default $remote_server.url | complete
-success $output
+run tg remote put default $remote_server.url
 
 let path = artifact {
 	tangram.ts: r#'
@@ -24,32 +23,29 @@ let path = artifact {
 }
 
 # Build the module.
-let id = tg build $path | complete | get stdout | str trim
+let id = tg build $path
 
 # Push the object.
-let output = tg push $id | complete
-success $output
+run tg push $id
 
 # Confirm the object is on the remote and the same.
-let local_object = tg get $id --blobs --depth=inf --pretty | complete | get stdout
+let local_object = tg get $id --blobs --depth=inf --pretty
 
-let remote_object = tg get $id --blobs --depth=inf --pretty | complete | get stdout
+let remote_object = tg get $id --blobs --depth=inf --pretty
 
 if $local_object != $remote_object {
 	error make { msg: "objects do not match" }
 }
 
 # Index.
-let output = tg index | complete
-success $output
+run tg index
 
-let output = tg --url $remote_server.url index | complete
-success $output
+run tg --url $remote_server.url index
 
 # Get the metadata.
-let local_metadata = tg object metadata $id --pretty | complete | get stdout
+let local_metadata = tg object metadata $id --pretty
 
-let remote_metadata = tg --url $remote_server.url object metadata $id --pretty | complete | get stdout
+let remote_metadata = tg --url $remote_server.url object metadata $id --pretty
 
 if $local_metadata != $remote_metadata {
 	error make { msg: "metadata does not match" }

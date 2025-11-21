@@ -16,11 +16,10 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path | complete | get stdout | str trim
+let id = tg checkin $path
 
 let override_tag = "overridden-pkg/2.0.0"
-let output = tg publish --tag $override_tag $path | complete
-success $output
+run tg publish --tag $override_tag $path
 
 # Verify override tag on local.
 let local_tag = tg tag get $override_tag | from json | get item
