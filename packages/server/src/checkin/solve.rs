@@ -439,7 +439,8 @@ impl Server {
 						if referent
 							.as_ref()
 							.and_then(|r| r.tag())
-							.is_some_and(|tag| key.matches(tag)) {
+							.is_some_and(|tag| key.matches(tag))
+						{
 							referent.take();
 							continue 'outer;
 						}
@@ -1002,7 +1003,7 @@ impl Server {
 			for referrer in &solution.referrers {
 				let reference =
 					Self::checkin_solve_get_referrer(state, &checkpoint.graph, referrer.node);
-				write!(message, "\ndependended on by {reference}").unwrap();
+				write!(message, "\ndepended on by {reference}").unwrap();
 				if let Some(pattern) = &referrer.pattern {
 					write!(message, " with pattern {pattern}").unwrap();
 				}
