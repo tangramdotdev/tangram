@@ -8,7 +8,6 @@ use {
 	},
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -38,22 +37,26 @@ impl Server {
 				},
 
 				tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Process(complete)) => {
-					let id = Either::Left(complete.id.clone());
-					let complete = if state.arg.recursive {
-						complete.children_complete
-							&& (!state.arg.commands || complete.children_commands_complete)
-							&& (!state.arg.outputs || complete.children_outputs_complete)
-					} else {
-						(!state.arg.commands || complete.command_complete)
-							&& (!state.arg.outputs || complete.output_complete)
+					let complete_output = crate::process::complete::Output {
+						children: complete.children_complete,
+						children_commands: complete.children_commands_complete,
+						children_outputs: complete.children_outputs_complete,
+						command: complete.command_complete,
+						output: complete.output_complete,
 					};
-					state.graph.lock().unwrap().update(None, id, complete);
+					state
+						.graph
+						.lock()
+						.unwrap()
+						.update_process(&complete.id, None, Some(complete_output));
 				},
 
 				tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Object(complete)) => {
-					let id = Either::Right(complete.id.clone());
-					let complete = true;
-					state.graph.lock().unwrap().update(None, id, complete);
+					state
+						.graph
+						.lock()
+						.unwrap()
+						.update_object(&complete.id, None, true);
 				},
 
 				tg::sync::GetMessage::Progress(_) => (),

@@ -114,7 +114,7 @@ impl Server {
 						.data;
 
 					// Enqueue the children as necessary.
-					Self::sync_get_enqueue_process_children(state, &item.id, &data, &complete);
+					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&complete));
 
 					// Send a complete message if necessary.
 					if complete.children || complete.children_commands || complete.children_outputs
@@ -230,12 +230,12 @@ impl Server {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		complete: &crate::process::complete::Output,
+		complete: Option<&crate::process::complete::Output>,
 	) {
 		// Enqueue the children if necessary.
-		if ((state.arg.recursive && !complete.children)
-			|| (state.arg.commands && !complete.children_commands)
-			|| (state.arg.outputs && !complete.children_outputs))
+		if ((state.arg.recursive && !complete.is_some_and(|complete| complete.children))
+			|| (state.arg.commands && !complete.is_some_and(|complete| complete.children_commands))
+			|| (state.arg.outputs && !complete.is_some_and(|complete| complete.children_outputs)))
 			&& let Some(children) = &data.children
 		{
 			for referent in children {
@@ -248,7 +248,7 @@ impl Server {
 		}
 
 		// Enqueue the command if necessary.
-		if state.arg.commands && !complete.command {
+		if state.arg.commands && !complete.is_some_and(|complete| complete.command) {
 			let item = ObjectItem {
 				parent: Some(Either::Left(id.clone())),
 				id: data.command.clone().into(),
@@ -258,7 +258,7 @@ impl Server {
 		}
 
 		// Enqueue the output if necessary.
-		if (state.arg.outputs && !complete.output)
+		if (state.arg.outputs && !complete.is_some_and(|complete| complete.output))
 			&& let Some(output) = &data.output
 		{
 			let mut children = BTreeSet::new();

@@ -9,7 +9,6 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::sync::Arc,
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 const PROCESS_BATCH_SIZE: usize = 16;
@@ -92,10 +91,11 @@ impl Server {
 		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
 	) -> tg::Result<()> {
 		for item in items {
-			let (inserted, complete) = state.graph.lock().unwrap().update(
-				item.parent.clone().map(Either::Left),
-				Either::Left(item.id.clone()),
-				false,
+			let parent = item.parent.clone().map(super::graph::Id::Process);
+			let (inserted, complete) = state.graph.lock().unwrap().update_process(
+				&item.id,
+				parent,
+				None,
 			);
 			if !inserted || complete {
 				let item = super::index::ProcessItem { id: item.id };
@@ -125,9 +125,13 @@ impl Server {
 		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
 	) -> tg::Result<()> {
 		for item in items {
-			let (inserted, complete) = state.graph.lock().unwrap().update(
-				item.parent.clone(),
-				Either::Right(item.id.clone()),
+			let parent = item.parent.clone().map(|either| match either {
+				tangram_either::Either::Left(process_id) => super::graph::Id::Process(process_id),
+				tangram_either::Either::Right(object_id) => super::graph::Id::Object(object_id),
+			});
+			let (inserted, complete) = state.graph.lock().unwrap().update_object(
+				&item.id,
+				parent,
 				false,
 			);
 			if !inserted || complete {
