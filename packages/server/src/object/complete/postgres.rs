@@ -245,6 +245,7 @@ impl Server {
 				set touched_at = greatest($1::int8, touched_at)
 				from unnest($2::bytea[]) as ids (id)
 				where objects.id = ids.id
+				order by objects.id
 				returning objects.id, complete, count, depth, weight;
 			",
 		);
