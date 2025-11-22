@@ -371,6 +371,7 @@ impl Server {
 				set touched_at = greatest($1::int8, touched_at)
 				from unnest($2::bytea[]) as ids (id)
 				where processes.id = ids.id
+				order by processes.id
 				returning
 					processes.id,
 					children_complete,
