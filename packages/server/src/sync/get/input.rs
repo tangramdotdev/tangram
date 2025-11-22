@@ -34,9 +34,6 @@ impl Server {
 							tg::error!("failed to send the process to the index task")
 						})?;
 					} else {
-						// Decrement the queue counter.
-						state.queue.decrement(1);
-
 						// Enqueue the children as necessary.
 						let data = serde_json::from_slice(&message.bytes).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the process")
@@ -54,6 +51,9 @@ impl Server {
 							&data,
 							&complete,
 						);
+
+						// Decrement the queue counter.
+						state.queue.decrement(1);
 					}
 
 					// Send to the store task.
@@ -84,15 +84,15 @@ impl Server {
 							tg::error!("failed to send the object to the index task")
 						})?;
 					} else {
-						// Decrement the queue counter.
-						state.queue.decrement(1);
-
 						// Enqueue the children.
 						let data = tg::object::Data::deserialize(
 							message.id.kind(),
 							message.bytes.as_ref(),
 						)?;
 						Self::sync_get_enqueue_object_children(state, &message.id, &data);
+
+						// Decrement the queue counter.
+						state.queue.decrement(1);
 					}
 
 					// Send to the store task.
