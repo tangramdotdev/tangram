@@ -224,23 +224,6 @@ impl Server {
 				let Some(referent) = referent else {
 					return Ok::<_, tg::Error>((reference, None));
 				};
-				let artifact = if state.dependencies {
-					match &referent.item {
-						tg::graph::data::Edge::Reference(reference) => {
-							let id = state.ids[reference.node].clone().try_into().unwrap();
-							Some(id)
-						},
-						tg::graph::data::Edge::Object(id) => {
-							let id = id
-								.clone()
-								.try_into()
-								.map_err(|_| tg::error!("expected an artifact"))?;
-							Some(id)
-						},
-					}
-				} else {
-					None
-				};
 				let edge = match referent.item {
 					tg::graph::data::Edge::Reference(mut reference) => {
 						if reference.graph.is_none() {
@@ -256,6 +239,12 @@ impl Server {
 					},
 				};
 				let node = self.checkout_create_lock_inner(state, &edge)?;
+				let artifact = if state.dependencies {
+					let id = state.ids[node].clone().try_into().unwrap();
+					Some(id)
+				} else {
+					None
+				};
 				let item = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 					graph: None,
 					node,
