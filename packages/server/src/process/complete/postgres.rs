@@ -371,7 +371,6 @@ impl Server {
 				set touched_at = greatest($1::int8, touched_at)
 				from unnest($2::bytea[]) as ids (id)
 				where processes.id = ids.id
-				order by processes.id
 				returning
 					processes.id,
 					children_complete,
@@ -394,13 +393,17 @@ impl Server {
 					output_weight;
 			",
 		);
+		// Sort the IDs to ensure consistent lock ordering and prevent deadlocks.
+		let mut sorted_ids = ids.to_vec();
+		sorted_ids.sort();
 		let output = connection
 			.inner()
 			.query(
 				statement,
 				&[
 					&touched_at,
-					&ids.iter()
+					&sorted_ids
+						.iter()
 						.map(|id| id.to_bytes().to_vec())
 						.collect::<Vec<_>>(),
 				],
