@@ -241,24 +241,27 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 		let statement = indoc!(
 			"
+				with locked as (
+					select objects.id
+					from objects
+					join unnest($2::bytea[]) as ids (id) on objects.id = ids.id
+					order by objects.id
+					for update
+				)
 				update objects
 				set touched_at = greatest($1::int8, touched_at)
-				from unnest($2::bytea[]) as ids (id)
-				where objects.id = ids.id
+				from locked
+				where objects.id = locked.id
 				returning objects.id, complete, count, depth, weight;
 			",
 		);
-		// Sort the IDs to ensure consistent lock ordering and prevent deadlocks.
-		let mut sorted_ids = ids.to_vec();
-		sorted_ids.sort();
 		let output = connection
 			.inner()
 			.query(
 				statement,
 				&[
 					&touched_at,
-					&sorted_ids
-						.iter()
+					&ids.iter()
 						.map(|id| id.to_bytes().to_vec())
 						.collect::<Vec<_>>(),
 				],
