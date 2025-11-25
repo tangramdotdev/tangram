@@ -1,5 +1,4 @@
 use ../../test.nu *
-use std assert
 
 let remote = spawn -n remote
 let local = spawn -n local -c {

@@ -10,9 +10,16 @@ pub struct ProcessItem {
 	pub parent: Option<tg::process::Id>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ObjectKind {
+	Command,
+	Output,
+}
+
 pub struct ObjectItem {
 	pub eager: bool,
 	pub id: tg::object::Id,
+	pub kind: Option<ObjectKind>,
 	pub parent: Option<Either<tg::process::Id, tg::object::Id>>,
 }
 

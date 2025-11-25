@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 # Spawn a remote and local server.

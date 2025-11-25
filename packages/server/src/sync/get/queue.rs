@@ -76,7 +76,7 @@ impl Server {
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
-			state.graph.lock().unwrap().update_process(
+			let inserted = state.graph.lock().unwrap().update_process(
 				&item.id,
 				None,
 				output.as_ref().map(|(complete, _)| complete.clone()),
@@ -84,9 +84,12 @@ impl Server {
 				None,
 			);
 
-			match output {
+			match &output {
 				// If the process is absent, then send a get item message.
 				None => {
+					if !inserted {
+						continue;
+					}
 					if !item.eager {
 						state.queue.increment(1);
 					}
@@ -114,7 +117,7 @@ impl Server {
 						.data;
 
 					// Enqueue the children as necessary.
-					Self::sync_get_enqueue_process_children(state, &item.id, &data, &complete);
+					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(complete));
 
 					// Send a complete message if necessary.
 					if complete.children || complete.children_commands || complete.children_outputs
@@ -125,7 +128,7 @@ impl Server {
 									command_complete: complete.command,
 									children_commands_complete: complete.children_commands,
 									children_complete: complete.children,
-									id: item.id,
+									id: item.id.clone(),
 									output_complete: complete.output,
 									children_outputs_complete: complete.children_outputs,
 								},
@@ -163,7 +166,7 @@ impl Server {
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
-			state.graph.lock().unwrap().update_object(
+			let inserted = state.graph.lock().unwrap().update_object(
 				&item.id,
 				None,
 				output.as_ref().map(|(complete, _)| *complete),
@@ -175,6 +178,9 @@ impl Server {
 			match output {
 				// If the object is absent, then send a get item message.
 				None => {
+					if !inserted {
+						continue;
+					}
 					if !item.eager {
 						state.queue.increment(1);
 					}
@@ -202,15 +208,16 @@ impl Server {
 						.ok_or_else(|| tg::error!("expected the object to exist"))?
 						.bytes;
 					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
-					Self::sync_get_enqueue_object_children(state, &item.id, &data);
+					Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
 				},
 
 				// If the object is complete, then send a complete message.
 				Some((true, _)) => {
-					let message =
-						tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Object(
-							tg::sync::GetCompleteObjectMessage { id: item.id },
-						));
+					let message = tg::sync::GetMessage::Complete(
+						tg::sync::GetCompleteMessage::Object(tg::sync::GetCompleteObjectMessage {
+							id: item.id.clone(),
+						}),
+					);
 					state
 						.sender
 						.send(Ok(message))
@@ -230,12 +237,10 @@ impl Server {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		complete: &crate::process::complete::Output,
+		complete: Option<&crate::process::complete::Output>,
 	) {
 		// Enqueue the children if necessary.
-		if ((state.arg.recursive && !complete.children)
-			|| (state.arg.commands && !complete.children_commands)
-			|| (state.arg.outputs && !complete.children_outputs))
+		if (state.arg.recursive && !complete.is_some_and(|complete| complete.children))
 			&& let Some(children) = &data.children
 		{
 			for referent in children {
@@ -248,17 +253,18 @@ impl Server {
 		}
 
 		// Enqueue the command if necessary.
-		if state.arg.commands && !complete.command {
+		if state.arg.commands && !complete.is_some_and(|complete| complete.command) {
 			let item = ObjectItem {
 				parent: Some(Either::Left(id.clone())),
 				id: data.command.clone().into(),
+				kind: Some(crate::sync::queue::ObjectKind::Command),
 				eager: state.arg.eager,
 			};
 			state.queue.enqueue_object(item);
 		}
 
 		// Enqueue the output if necessary.
-		if (state.arg.outputs && !complete.output)
+		if (state.arg.outputs && !complete.is_some_and(|complete| complete.output))
 			&& let Some(output) = &data.output
 		{
 			let mut children = BTreeSet::new();
@@ -268,6 +274,7 @@ impl Server {
 				.enqueue_objects(children.into_iter().map(|object| ObjectItem {
 					parent: Some(Either::Left(id.clone())),
 					id: object,
+					kind: Some(crate::sync::queue::ObjectKind::Output),
 					eager: state.arg.eager,
 				}));
 		}
@@ -277,6 +284,7 @@ impl Server {
 		state: &State,
 		id: &tg::object::Id,
 		data: &tg::object::Data,
+		kind: Option<crate::sync::queue::ObjectKind>,
 	) {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
@@ -285,6 +293,7 @@ impl Server {
 			.enqueue_objects(children.into_iter().map(|object| ObjectItem {
 				parent: Some(Either::Right(id.clone())),
 				id: object,
+				kind,
 				eager: state.arg.eager,
 			}));
 	}

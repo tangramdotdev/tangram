@@ -343,20 +343,18 @@ impl tg::Client {
 				.ok_or_else(|| tg::error!("missing event"))?
 				.to_str()
 				.map_err(|source| tg::error!(!source, "invalid event"))?;
-			match event {
-				"end" => Ok(tg::sync::Message::End),
-				"error" => {
-					let data = trailers
-						.get("x-tg-data")
-						.ok_or_else(|| tg::error!("missing data"))?
-						.to_str()
-						.map_err(|source| tg::error!(!source, "invalid data"))?;
-					let error = serde_json::from_str(data).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the header value")
-					})?;
-					Err(error)
-				},
-				_ => Err(tg::error!("invalid event")),
+			if let "error" = event {
+				let data = trailers
+					.get("x-tg-data")
+					.ok_or_else(|| tg::error!("missing data"))?
+					.to_str()
+					.map_err(|source| tg::error!(!source, "invalid data"))?;
+				let error = serde_json::from_str(data).map_err(|source| {
+					tg::error!(!source, "failed to deserialize the header value")
+				})?;
+				Err(error)
+			} else {
+				Err(tg::error!("invalid event"))
 			}
 		});
 

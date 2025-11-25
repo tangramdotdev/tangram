@@ -27,7 +27,7 @@ impl Cli {
 			eager: args.eager.get(),
 			items: items.clone(),
 			logs: args.logs,
-			outputs: true,
+			outputs: args.outputs.get(),
 			recursive: args.recursive,
 			remote: Some(remote.clone()),
 		};

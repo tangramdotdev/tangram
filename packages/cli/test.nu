@@ -2,6 +2,8 @@
 
 use std/util 'path add'
 
+export use std assert
+
 const path = path self '../../'
 
 def main [

@@ -38,18 +38,13 @@ impl Server {
 						let data = serde_json::from_slice(&message.bytes).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the process")
 						})?;
-						let complete = state
-							.graph
-							.lock()
-							.unwrap()
-							.get_process_complete(&message.id)
-							.unwrap()
-							.clone();
+						let graph = state.graph.lock().unwrap();
+						let complete = graph.get_process_complete(&message.id);
 						Self::sync_get_enqueue_process_children(
 							state,
 							&message.id,
 							&data,
-							&complete,
+							complete,
 						);
 
 						// Decrement the queue counter.
@@ -89,7 +84,7 @@ impl Server {
 							message.id.kind(),
 							message.bytes.as_ref(),
 						)?;
-						Self::sync_get_enqueue_object_children(state, &message.id, &data);
+						Self::sync_get_enqueue_object_children(state, &message.id, &data, None);
 
 						// Decrement the queue counter.
 						state.queue.decrement(1);

@@ -19,6 +19,7 @@ pub struct ProcessItem {
 
 pub struct ObjectItem {
 	pub id: tg::object::Id,
+	pub kind: Option<crate::sync::queue::ObjectKind>,
 	pub eager: bool,
 }
 
@@ -112,24 +113,30 @@ impl Server {
 				state.queue.enqueue_processes(items);
 			}
 
-			// Enqueue the objects.
-			if item.eager {
-				let mut objects: Vec<tg::object::Id> = Vec::new();
-				if state.arg.commands {
-					objects.push(output.data.command.clone().into());
-				}
-				if state.arg.outputs
-					&& let Some(output) = &output.data.output
-				{
-					let mut children = BTreeSet::new();
-					output.children(&mut children);
-					objects.extend(children);
-				}
-				let items = objects
+			// Enqueue the command.
+			if item.eager && state.arg.commands {
+				let item = crate::sync::queue::ObjectItem {
+					parent: Some(Either::Left(item.id.clone())),
+					id: output.data.command.clone().into(),
+					kind: Some(crate::sync::queue::ObjectKind::Command),
+					eager: item.eager,
+				};
+				state.queue.enqueue_object(item);
+			}
+
+			// Enqueue the outputs.
+			if item.eager
+				&& state.arg.outputs
+				&& let Some(output) = &output.data.output
+			{
+				let mut children = BTreeSet::new();
+				output.children(&mut children);
+				let items = children
 					.into_iter()
 					.map(|child| crate::sync::queue::ObjectItem {
 						parent: Some(Either::Left(item.id.clone())),
 						id: child,
+						kind: Some(crate::sync::queue::ObjectKind::Output),
 						eager: item.eager,
 					});
 				state.queue.enqueue_objects(items);
@@ -192,6 +199,7 @@ impl Server {
 					.map(|child| crate::sync::queue::ObjectItem {
 						parent: Some(Either::Right(item.id.clone())),
 						id: child,
+						kind: item.kind,
 						eager: item.eager,
 					});
 				state.queue.enqueue_objects(items);

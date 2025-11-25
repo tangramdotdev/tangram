@@ -71,6 +71,7 @@ impl Server {
 					let item = super::queue::ObjectItem {
 						parent: None,
 						id: object.clone(),
+						kind: None,
 						eager: state.arg.eager,
 					};
 					state.queue.enqueue_object(item);
