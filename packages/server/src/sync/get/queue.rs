@@ -240,7 +240,7 @@ impl Server {
 		complete: Option<&crate::process::complete::Output>,
 	) {
 		// Enqueue the children if necessary.
-		if (state.arg.recursive && (!complete.is_some_and(|complete| complete.children) || !complete.is_some_and(|complete| complete.children_commands) || !complete.is_some_and(|complete| complete.children_outputs)))
+		if (state.arg.recursive && (!complete.is_some_and(|complete| complete.children) || (state.arg.commands && !complete.is_some_and(|complete| complete.children_commands)) || (state.arg.outputs && !complete.is_some_and(|complete| complete.children_outputs))))
 			&& let Some(children) = &data.children
 		{
 			for referent in children {
