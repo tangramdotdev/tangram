@@ -59,6 +59,7 @@ pub struct Options {
 	pub expand_packages: bool,
 	pub expand_processes: bool,
 	pub expand_tags: bool,
+	pub expand_values: bool,
 	pub show_process_commands: bool,
 }
 

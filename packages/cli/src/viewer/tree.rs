@@ -229,7 +229,7 @@ where
 					false
 				}
 			},
-			Some(Item::Value(_)) => true,
+			Some(Item::Value(_)) => options.expand_values,
 			_ => false,
 		};
 

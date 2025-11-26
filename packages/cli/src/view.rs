@@ -106,6 +106,7 @@ impl Cli {
 						expand_packages: args.expand_packages,
 						expand_processes: args.expand_processes,
 						expand_tags: args.expand_tags,
+						expand_values: matches!(mode, Mode::Inline),
 						show_process_commands: true,
 					};
 					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);

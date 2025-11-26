@@ -139,6 +139,7 @@ impl Cli {
 								expand_packages: false,
 								expand_processes: true,
 								expand_tags: false,
+								expand_values: false,
 								show_process_commands: false,
 							};
 							let mut viewer =
