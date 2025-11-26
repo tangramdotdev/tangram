@@ -1098,19 +1098,12 @@ where
 				if node.borrow().options.collapse_process_children && finished {
 					return;
 				}
-
-				let parent = if node.borrow().options.expand_processes {
-					node
-				} else {
-					node.borrow().children[0].clone()
-				};
-
 				let item = child.clone().map(Item::Process);
-				let child_node = Self::create_node(&handle, &parent, None, Some(item));
+				let child_node = Self::create_node(&handle, &node, None, Some(item));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
-					parent.borrow_mut().guard.replace(guard);
+					node.borrow_mut().guard.replace(guard);
 					let counter = child_node.borrow().counter.clone();
 					let guard = counter.guard();
 					let options = child_node.borrow().options.clone();
@@ -1131,7 +1124,7 @@ where
 				child_node.borrow_mut().update_task.replace(update_task);
 
 				// Add the child to the children node.
-				parent.borrow_mut().children.push(child_node);
+				node.borrow_mut().children.push(child_node);
 			};
 			update_sender.send(Box::new(update)).unwrap();
 		}
