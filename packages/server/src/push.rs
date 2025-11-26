@@ -91,7 +91,9 @@ impl Server {
 					Ok(Ok(output)) => {
 						progress.output(output);
 					},
-					Ok(Err(error)) => progress.error(error),
+					Ok(Err(error)) => {
+						progress.error(error);
+					},
 					Err(payload) => {
 						let message = payload
 							.downcast_ref::<String>()
@@ -277,9 +279,9 @@ impl Server {
 			recursive: arg.recursive,
 			remote: None,
 		};
-		let stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
-		let push_stream = src
-			.sync(push_arg, stream)
+		let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
+		let push_output_stream = src
+			.sync(push_arg, push_input_stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the push stream"))?;
 
@@ -293,16 +295,16 @@ impl Server {
 			recursive: arg.recursive,
 			remote: None,
 		};
-		let stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
-		let pull_stream = dst
-			.sync(pull_arg, stream)
+		let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
+		let pull_output_stream = dst
+			.sync(pull_arg, pull_input_stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the pull stream"))?;
 
 		// Create the push future.
 		let push_future = async {
-			let mut push_stream = pin!(push_stream);
-			while let Some(message) = push_stream.try_next().await? {
+			let mut push_output_stream = pin!(push_output_stream);
+			while let Some(message) = push_output_stream.try_next().await? {
 				match message {
 					tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
 						progress.increment("processes", message.processes);
@@ -329,8 +331,8 @@ impl Server {
 
 		// Create the pull future.
 		let pull_future = async {
-			let mut pull_stream = pin!(pull_stream);
-			while let Some(message) = pull_stream.try_next().await? {
+			let mut pull_output_stream = pin!(pull_output_stream);
+			while let Some(message) = pull_output_stream.try_next().await? {
 				match message {
 					tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
 						progress.increment("processes", message.processes);

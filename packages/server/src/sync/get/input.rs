@@ -6,6 +6,7 @@ use {
 };
 
 impl Server {
+	#[tracing::instrument(level = "debug", name = "input", skip_all)]
 	pub(super) async fn sync_get_input_task(
 		&self,
 		state: &State,
@@ -18,6 +19,8 @@ impl Server {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(message)) => {
+					tracing::trace!(id = %message.id, "received process");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -63,6 +66,8 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
+					tracing::trace!(id = %message.id, "received object");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -102,6 +107,8 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(message)) => {
+					tracing::trace!(id = %message.id, "received missing process");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -123,6 +130,8 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(message)) => {
+					tracing::trace!(id = %message.id, "received missing object");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -146,6 +155,7 @@ impl Server {
 				tg::sync::PutMessage::Progress(_) => (),
 
 				tg::sync::PutMessage::End => {
+					tracing::trace!("received end");
 					return Ok(());
 				},
 			}

@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
-	std::{panic::AssertUnwindSafe, pin::pin},
+	std::panic::AssertUnwindSafe,
 	tangram_client::prelude::*,
 	tangram_futures::{
 		read::Ext as _,
@@ -44,6 +44,7 @@ impl Server {
 				async move {
 					let result = AssertUnwindSafe(server.sync_inner(arg, stream, sender.clone()))
 						.catch_unwind()
+						.instrument(tracing::Span::current())
 						.await;
 					match result {
 						Ok(Ok(())) => (),
@@ -91,55 +92,52 @@ impl Server {
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
-		// Create the future to distribute the input.
+		// Spawn the input task to receive the input.
 		let (get_input_sender, get_input_receiver) =
 			tokio::sync::mpsc::channel::<tg::sync::PutMessage>(256);
 		let (put_input_sender, put_input_receiver) =
 			tokio::sync::mpsc::channel::<tg::sync::GetMessage>(256);
-		let input_future = async move {
+		let mut input_task = Task::spawn(|_| async move {
 			while let Some(message) = stream.try_next().await? {
-				tracing::trace!(?message, "received message");
 				match message {
 					tg::sync::Message::Get(message) => {
-						put_input_sender.send(message).await.map_err(|_| {
-							tg::error!("failed to send the get message to the put future")
-						})?;
+						put_input_sender.send(message).await.ok();
 					},
 					tg::sync::Message::Put(message) => {
-						get_input_sender.send(message).await.map_err(|_| {
-							tg::error!("failed to send the put message to the get future")
-						})?;
+						get_input_sender.send(message).await.ok();
 					},
-					tg::sync::Message::End => (),
+					tg::sync::Message::End => {
+						tracing::trace!("received end");
+						return Ok(());
+					},
 				}
 			}
-			Ok(())
-		};
+			Ok::<_, tg::Error>(())
+		});
+		input_task.detach();
 
-		// Create a future to collect the output.
+		// Create the output future to send the output.
 		let (get_output_sender, get_output_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::sync::GetMessage>>(256);
 		let (put_output_sender, put_output_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::sync::PutMessage>>(256);
-		let output_future = {
-			async move {
-				let mut stream = stream::select(
-					ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),
-					ReceiverStream::new(put_output_receiver).map_ok(tg::sync::Message::Put),
-				)
-				.chain(stream::once(future::ok(tg::sync::Message::End)))
-				.take_while_inclusive(|result| future::ready(result.is_ok()));
-				while let Some(result) = stream.next().await {
-					tracing::trace!(?result, "sending message");
-					sender
-						.send(result)
-						.await
-						.map_err(|_| tg::error!("failed to send the message"))?;
-				}
-				Ok::<_, tg::Error>(())
+		let output_future = async move {
+			let mut stream = stream::select(
+				ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),
+				ReceiverStream::new(put_output_receiver).map_ok(tg::sync::Message::Put),
+			)
+			.chain(stream::once(future::ok(tg::sync::Message::End)))
+			.take_while_inclusive(|result| future::ready(result.is_ok()));
+			while let Some(result) = stream.next().await {
+				sender
+					.send(result)
+					.await
+					.map_err(|_| tg::error!("failed to send the message"))?;
 			}
+			Ok::<_, tg::Error>(())
 		};
 
+		// Create the get future.
 		let get_future = {
 			let server = self.clone();
 			let arg = arg.clone();
@@ -152,6 +150,7 @@ impl Server {
 			}
 		};
 
+		// Create the put future.
 		let put_future = {
 			let server = self.clone();
 			let arg = arg.clone();
@@ -164,18 +163,17 @@ impl Server {
 			}
 		};
 
-		match future::try_select(
-			pin!(future::try_join3(get_future, put_future, output_future)),
-			pin!(input_future),
+		// Await the futures.
+		future::try_join4(
+			input_task
+				.wait()
+				.map_err(|source| tg::error!(!source, "the input task panicked"))
+				.and_then(future::ready),
+			output_future,
+			get_future,
+			put_future,
 		)
-		.await
-		.map_err(|error| error.factor_first().0)?
-		{
-			future::Either::Left(_) => (),
-			future::Either::Right(((), future)) => {
-				future.await?;
-			},
-		}
+		.await?;
 
 		Ok(())
 	}

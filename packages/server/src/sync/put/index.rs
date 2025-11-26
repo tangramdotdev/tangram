@@ -20,6 +20,7 @@ pub struct ObjectItem {
 }
 
 impl Server {
+	#[tracing::instrument(err, level = "debug", name = "index", ret, skip_all)]
 	pub(super) async fn sync_put_index_task(
 		&self,
 		state: Arc<State>,

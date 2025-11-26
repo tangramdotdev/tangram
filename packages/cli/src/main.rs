@@ -1475,7 +1475,6 @@ impl Cli {
 						.boxed(),
 					self::config::TracingFormat::Pretty => tracing_tree::HierarchicalLayer::new(2)
 						.with_bracketed_fields(true)
-						.with_indent_lines(true)
 						.with_span_retrace(true)
 						.boxed(),
 				};

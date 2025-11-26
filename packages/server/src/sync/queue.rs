@@ -75,17 +75,17 @@ impl Queue {
 	pub fn decrement(&self, n: usize) {
 		let previous = self.counter.fetch_sub(n, Ordering::SeqCst);
 		if previous == n {
-			tracing::trace!("closing the queue");
 			self.process_sender.close();
 			self.object_sender.close();
+			tracing::trace!("closed the queue");
 		}
 	}
 
 	pub fn close_if_empty(&self) {
 		if self.counter.load(Ordering::SeqCst) == 0 {
-			tracing::trace!("closing the queue");
 			self.process_sender.close();
 			self.object_sender.close();
+			tracing::trace!("closed the queue");
 		}
 	}
 }

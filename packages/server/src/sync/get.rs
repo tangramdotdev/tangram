@@ -187,14 +187,18 @@ impl Server {
 		}
 
 		// Await the tasks.
-		future::try_join3(
+		future::try_join4(
+			input_task
+				.wait()
+				.map_err(|source| tg::error!(!source, "the input task panicked"))
+				.and_then(future::ready),
 			queue_task
 				.wait()
 				.map_err(|source| tg::error!(!source, "the queue task panicked"))
 				.and_then(future::ready),
 			index_task
 				.wait()
-				.map_err(|source| tg::error!(!source, "the store task panicked"))
+				.map_err(|source| tg::error!(!source, "the index task panicked"))
 				.and_then(future::ready),
 			store_task
 				.wait()
@@ -202,9 +206,6 @@ impl Server {
 				.and_then(future::ready),
 		)
 		.await?;
-
-		// Abort the input task.
-		input_task.abort();
 
 		// Stop and await the progress task.
 		progress_task.stop();
