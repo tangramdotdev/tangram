@@ -1,13 +1,14 @@
 use {
 	crate::task::Stop,
 	futures::{future::BoxFuture, prelude::*},
-	std::sync::Arc,
+	std::sync::{Arc, atomic::AtomicBool},
 };
 
 #[derive(Clone)]
 pub struct Task<T>(Arc<Inner<T>>);
 
 struct Inner<T> {
+	abort_on_drop: AtomicBool,
 	abort_handle: tokio::task::AbortHandle,
 	future: future::Shared<BoxFuture<'static, Result<T, Arc<tokio::task::JoinError>>>>,
 	stop: Stop,
@@ -27,6 +28,7 @@ where
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
 		Self(Arc::new(Inner {
+			abort_on_drop: AtomicBool::new(true),
 			abort_handle,
 			future,
 			stop,
@@ -43,6 +45,7 @@ where
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
 		Self(Arc::new(Inner {
+			abort_on_drop: AtomicBool::new(true),
 			abort_handle,
 			future,
 			stop,
@@ -61,6 +64,7 @@ where
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
 		Self(Arc::new(Inner {
+			abort_on_drop: AtomicBool::new(true),
 			abort_handle,
 			future,
 			stop,
@@ -76,6 +80,12 @@ where
 		self.0.abort_handle.abort();
 	}
 
+	pub fn detach(&self) {
+		self.0
+			.abort_on_drop
+			.store(false, std::sync::atomic::Ordering::SeqCst);
+	}
+
 	pub fn stop(&self) {
 		self.0.stop.stop();
 	}
@@ -87,6 +97,8 @@ where
 
 impl<T> Drop for Inner<T> {
 	fn drop(&mut self) {
-		self.abort_handle.abort();
+		if self.abort_on_drop.load(std::sync::atomic::Ordering::SeqCst) {
+			self.abort_handle.abort();
+		}
 	}
 }

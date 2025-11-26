@@ -26,7 +26,7 @@ let b_path = artifact {
 	tangram.ts: '
 		import * as a from "a";
 		export default async () => {
-		  return a.bar();
+			return a.bar();
 		};
 	'
 }
@@ -37,7 +37,7 @@ run tg build $b_path
 let new_tangram = '
 	import * as a from "a";
 	export default async () => {
-	  return a.baz();
+		return a.baz();
 	};
 '
 $new_tangram | save -f ($b_path | path join 'tangram.ts')

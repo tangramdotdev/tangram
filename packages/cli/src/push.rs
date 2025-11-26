@@ -16,6 +16,9 @@ pub struct Args {
 	#[arg(alias = "log", long)]
 	pub logs: bool,
 
+	#[command(flatten)]
+	pub outputs: Outputs,
+
 	#[arg(long)]
 	pub recursive: bool,
 
@@ -53,6 +56,35 @@ impl Eager {
 	}
 }
 
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Outputs {
+	#[arg(
+		alias = "output",
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_outputs",
+		require_equals = true,
+	)]
+	outputs: Option<bool>,
+
+	#[arg(
+		alias = "no-output",
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "outputs",
+		require_equals = true,
+	)]
+	no_outputs: Option<bool>,
+}
+
+impl Outputs {
+	pub fn get(&self) -> bool {
+		self.outputs.or(self.no_outputs.map(|v| !v)).unwrap_or(true)
+	}
+}
+
 impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
@@ -78,7 +110,7 @@ impl Cli {
 			eager: args.eager.get(),
 			items: items.clone(),
 			logs: args.logs,
-			outputs: true,
+			outputs: args.outputs.get(),
 			recursive: args.recursive,
 			remote: Some(remote.clone()),
 		};

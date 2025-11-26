@@ -6,6 +6,7 @@ use {
 };
 
 impl Server {
+	#[tracing::instrument(level = "debug", name = "input", skip_all)]
 	pub(super) async fn sync_get_input_task(
 		&self,
 		state: &State,
@@ -18,6 +19,8 @@ impl Server {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(message)) => {
+					tracing::trace!(id = %message.id, "received process");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -38,18 +41,13 @@ impl Server {
 						let data = serde_json::from_slice(&message.bytes).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the process")
 						})?;
-						let complete = state
-							.graph
-							.lock()
-							.unwrap()
-							.get_process_complete(&message.id)
-							.unwrap()
-							.clone();
+						let graph = state.graph.lock().unwrap();
+						let complete = graph.get_process_complete(&message.id);
 						Self::sync_get_enqueue_process_children(
 							state,
 							&message.id,
 							&data,
-							&complete,
+							complete,
 						);
 
 						// Decrement the queue counter.
@@ -68,6 +66,8 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
+					tracing::trace!(id = %message.id, "received object");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -89,7 +89,7 @@ impl Server {
 							message.id.kind(),
 							message.bytes.as_ref(),
 						)?;
-						Self::sync_get_enqueue_object_children(state, &message.id, &data);
+						Self::sync_get_enqueue_object_children(state, &message.id, &data, None);
 
 						// Decrement the queue counter.
 						state.queue.decrement(1);
@@ -107,6 +107,8 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(message)) => {
+					tracing::trace!(id = %message.id, "received missing process");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -128,6 +130,8 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(message)) => {
+					tracing::trace!(id = %message.id, "received missing object");
+
 					// Remove the get.
 					let eager = state
 						.gets
@@ -151,10 +155,11 @@ impl Server {
 				tg::sync::PutMessage::Progress(_) => (),
 
 				tg::sync::PutMessage::End => {
-					break;
+					tracing::trace!("received end");
+					return Ok(());
 				},
 			}
 		}
-		Ok(())
+		Err(tg::error!("failed to receive the put end message"))
 	}
 }

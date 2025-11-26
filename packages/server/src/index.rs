@@ -95,7 +95,7 @@ impl Server {
 			Some(0),
 			Some(total),
 		);
-		while first_sequence < last_sequence {
+		while first_sequence <= last_sequence {
 			let info = stream
 				.info()
 				.await

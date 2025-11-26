@@ -11,8 +11,10 @@ use {
 	tangram_messenger::prelude::*,
 };
 
+#[derive(derive_more::Debug)]
 struct LocalOutput {
 	id: tg::process::Id,
+	#[debug(ignore)]
 	permit: Option<ProcessPermit>,
 	status: tg::process::Status,
 	token: Option<String>,
@@ -78,6 +80,7 @@ impl Server {
 				.try_get_cached_process_local(&transaction, &arg)
 				.await?
 		{
+			tracing::trace!(?output, "got cached local process");
 			Some(output)
 		} else if cacheable
 			&& matches!(arg.cached, None | Some(true))
@@ -86,12 +89,14 @@ impl Server {
 				.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, host)
 				.await?
 		{
+			tracing::trace!(?output, "got cached local process with mismatched checksum");
 			Some(output)
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = self
 				.create_local_process(&transaction, &arg, cacheable, &host)
 				.await?;
+			tracing::trace!(?output, "created local process");
 			Some(output)
 		} else {
 			None
@@ -156,16 +161,20 @@ impl Server {
 		};
 
 		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
-		let (id, token) = match future::select(pin!(local_future), pin!(remote_future)).await {
+		let output = match future::select(pin!(local_future), pin!(remote_future)).await {
 			future::Either::Left((result, remote_future)) => {
 				if result?.is_some() {
 					let output = output.unwrap();
-					(output.id, output.token)
+					tg::process::spawn::Output {
+						process: output.id,
+						remote: None,
+						token: output.token,
+					}
 				} else {
-					let Some(output) = remote_future.await? else {
+					let Some(remote_output) = remote_future.await? else {
 						return Ok(None);
 					};
-					(output.process, output.token)
+					remote_output
 				}
 			},
 			future::Either::Right((result, _)) => {
@@ -184,30 +193,34 @@ impl Server {
 							}
 						});
 					}
-					(remote_output.process, remote_output.token)
+					remote_output
 				} else {
 					let Some(output) = output else {
 						return Ok(None);
 					};
-					(output.id, output.token)
+					tg::process::spawn::Output {
+						process: output.id,
+						remote: None,
+						token: output.token,
+					}
 				}
 			},
 		};
 
-		if let Some(parent) = &arg.parent {
-			self.add_process_child(parent, &id, &arg.command.options, token.as_ref())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %parent, child = %id, "failed to add the process as a child"),
-				)?;
+		if output.remote.is_none()
+			&& let Some(parent) = &arg.parent
+		{
+			self.add_process_child(
+				parent,
+				&output.process,
+				&arg.command.options,
+				output.token.as_ref(),
+			)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %parent, child = %output.process, "failed to add the process as a child"),
+			)?;
 		}
-
-		// Create the output.
-		let output = tg::process::spawn::Output {
-			process: id,
-			remote: None,
-			token,
-		};
 
 		Ok(Some(output))
 	}
@@ -741,7 +754,7 @@ impl Server {
 					};
 					let mut output = client.spawn_process(arg).await?;
 					output.remote.replace(name);
-					Ok::<_, tg::Error>(Some((output, client)))
+					Ok::<_, tg::Error>(Some(output))
 				})
 			})
 			.collect::<Vec<_>>();
@@ -750,7 +763,7 @@ impl Server {
 		if futures.is_empty() {
 			return Ok(None);
 		}
-		let Ok((Some((output, _remote)), _)) = future::select_ok(futures).await else {
+		let Ok((Some(output), _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
 

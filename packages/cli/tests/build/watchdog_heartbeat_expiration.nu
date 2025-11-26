@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 # Configure watchdog with short TTL and fast interval.

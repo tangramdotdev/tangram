@@ -10,9 +10,16 @@ pub struct ProcessItem {
 	pub parent: Option<tg::process::Id>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ObjectKind {
+	Command,
+	Output,
+}
+
 pub struct ObjectItem {
 	pub eager: bool,
 	pub id: tg::object::Id,
+	pub kind: Option<ObjectKind>,
 	pub parent: Option<Either<tg::process::Id, tg::object::Id>>,
 }
 
@@ -68,17 +75,17 @@ impl Queue {
 	pub fn decrement(&self, n: usize) {
 		let previous = self.counter.fetch_sub(n, Ordering::SeqCst);
 		if previous == n {
-			tracing::trace!("closing the queue");
 			self.process_sender.close();
 			self.object_sender.close();
+			tracing::trace!("closed the queue");
 		}
 	}
 
 	pub fn close_if_empty(&self) {
 		if self.counter.load(Ordering::SeqCst) == 0 {
-			tracing::trace!("closing the queue");
 			self.process_sender.close();
 			self.object_sender.close();
+			tracing::trace!("closed the queue");
 		}
 	}
 }

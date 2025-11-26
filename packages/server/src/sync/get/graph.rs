@@ -74,8 +74,9 @@ impl Graph {
 		complete: Option<crate::process::complete::Output>,
 		metadata: Option<tg::process::Metadata>,
 		stored: Option<bool>,
-	) {
+	) -> bool {
 		let entry = self.nodes.entry(id.clone().into());
+		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Process(ProcessNode::default()));
 
@@ -152,6 +153,8 @@ impl Graph {
 		if let Some(stored) = stored {
 			node.stored = stored;
 		}
+
+		inserted
 	}
 
 	pub fn get_process_complete(
@@ -171,8 +174,9 @@ impl Graph {
 		metadata: Option<tg::object::Metadata>,
 		size: Option<u64>,
 		stored: Option<bool>,
-	) {
+	) -> bool {
 		let entry = self.nodes.entry(id.clone().into());
+		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 
@@ -216,6 +220,8 @@ impl Graph {
 		if let Some(stored) = stored {
 			node.stored = stored;
 		}
+
+		inserted
 	}
 }
 

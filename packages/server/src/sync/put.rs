@@ -71,6 +71,7 @@ impl Server {
 					let item = super::queue::ObjectItem {
 						parent: None,
 						id: object.clone(),
+						kind: None,
 						eager: state.arg.eager,
 					};
 					state.queue.enqueue_object(item);
@@ -162,7 +163,9 @@ impl Server {
 			}
 		});
 
-		// Await the queue, index, and store tasks.
+		drop(state);
+
+		// Await the tasks.
 		future::try_join3(
 			queue_task
 				.wait()

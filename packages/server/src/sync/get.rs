@@ -74,6 +74,7 @@ impl Server {
 					let item = super::queue::ObjectItem {
 						parent: None,
 						id: object.clone(),
+						kind: None,
 						eager: state.arg.eager,
 					};
 					state.queue.enqueue_object(item);
@@ -175,25 +176,29 @@ impl Server {
 		scopeguard::defer! {
 			self.tasks.spawn({
 				let server = self.clone();
-				let state = state.clone();
 				|_| async move {
 					let result = server.sync_get_index(state).await;
 					if let Err(error) = result {
 						tracing::error!(?error);
 					}
-			}.instrument(tracing::Span::current())
+				}
+				.instrument(tracing::Span::current())
 			});
 		}
 
-		// Await the queue, index, and store tasks.
-		future::try_join3(
+		// Await the tasks.
+		future::try_join4(
+			input_task
+				.wait()
+				.map_err(|source| tg::error!(!source, "the input task panicked"))
+				.and_then(future::ready),
 			queue_task
 				.wait()
 				.map_err(|source| tg::error!(!source, "the queue task panicked"))
 				.and_then(future::ready),
 			index_task
 				.wait()
-				.map_err(|source| tg::error!(!source, "the store task panicked"))
+				.map_err(|source| tg::error!(!source, "the index task panicked"))
 				.and_then(future::ready),
 			store_task
 				.wait()
@@ -201,9 +206,6 @@ impl Server {
 				.and_then(future::ready),
 		)
 		.await?;
-
-		// Abort the input task.
-		input_task.abort();
 
 		// Stop and await the progress task.
 		progress_task.stop();

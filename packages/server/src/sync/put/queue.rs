@@ -19,6 +19,7 @@ const OBJECT_CONCURRENCY: usize = 8;
 
 impl Server {
 	#[expect(clippy::too_many_arguments)]
+	#[tracing::instrument(err, level = "debug", name = "queue", ret, skip_all)]
 	pub(super) async fn sync_put_queue_task(
 		&self,
 		state: Arc<State>,
@@ -92,11 +93,22 @@ impl Server {
 		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
 	) -> tg::Result<()> {
 		for item in items {
-			let (inserted, complete) = state.graph.lock().unwrap().update(
-				item.parent.clone().map(Either::Left),
-				Either::Left(item.id.clone()),
-				false,
-			);
+			let parent = item.parent.clone().map(super::graph::Id::Process);
+			let (inserted, complete) = state
+				.graph
+				.lock()
+				.unwrap()
+				.update_process(&item.id, parent, None);
+			let complete = complete.is_some_and(|complete| {
+				if state.arg.recursive {
+					complete.children
+						&& (!state.arg.commands || complete.children_commands)
+						&& (!state.arg.outputs || complete.children_outputs)
+				} else {
+					(!state.arg.commands || complete.command)
+						&& (!state.arg.outputs || complete.output)
+				}
+			});
 			if !inserted || complete {
 				let item = super::index::ProcessItem { id: item.id };
 				index_process_sender
@@ -125,11 +137,16 @@ impl Server {
 		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
 	) -> tg::Result<()> {
 		for item in items {
-			let (inserted, complete) = state.graph.lock().unwrap().update(
-				item.parent.clone(),
-				Either::Right(item.id.clone()),
-				false,
-			);
+			let parent = item.parent.clone().map(|either| match either {
+				Either::Left(id) => super::graph::Id::Process(id),
+				Either::Right(id) => super::graph::Id::Object(id),
+			});
+			let (inserted, complete) = state
+				.graph
+				.lock()
+				.unwrap()
+				.update_object(&item.id, parent, item.kind, None);
+			let complete = complete.is_some_and(|complete| complete);
 			if !inserted || complete {
 				let item = super::index::ObjectItem { id: item.id };
 				index_object_sender
@@ -139,6 +156,7 @@ impl Server {
 			} else {
 				let item = super::store::ObjectItem {
 					id: item.id,
+					kind: item.kind,
 					eager: item.eager,
 				};
 				store_object_sender

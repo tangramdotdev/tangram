@@ -1,5 +1,4 @@
 use ../../test.nu *
-use std assert
 
 let server = spawn
 

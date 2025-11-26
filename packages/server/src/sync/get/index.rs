@@ -115,7 +115,7 @@ impl Server {
 					.await?
 					.ok_or_else(|| tg::error!("expected the process to exist"))?
 					.data;
-				Self::sync_get_enqueue_process_children(state, &item.id, &data, &complete);
+				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&complete));
 			}
 		}
 
@@ -176,7 +176,7 @@ impl Server {
 						.ok_or_else(|| tg::error!("expected the object to exist"))?
 						.bytes;
 					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
-					Self::sync_get_enqueue_object_children(state, &item.id, &data);
+					Self::sync_get_enqueue_object_children(state, &item.id, &data, None);
 				}
 			}
 		}

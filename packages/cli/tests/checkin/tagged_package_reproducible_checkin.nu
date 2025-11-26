@@ -1,4 +1,3 @@
-use std assert
 use ../../test.nu *
 
 # Create a remote server and tag the foo object on it.
