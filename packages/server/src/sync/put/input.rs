@@ -16,6 +16,7 @@ impl Server {
 		state: &State,
 		mut stream: BoxStream<'static, tg::sync::GetMessage>,
 	) -> tg::Result<()> {
+		let mut end = false;
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(message)) => {
@@ -64,9 +65,13 @@ impl Server {
 				tg::sync::GetMessage::Progress(_) => (),
 
 				tg::sync::GetMessage::End => {
+					end = true;
 					state.queue.decrement(1);
 				},
 			}
+		}
+		if !end {
+			return Err(tg::error!("failed to receive the get end message"));
 		}
 		Ok(())
 	}

@@ -163,7 +163,9 @@ impl Server {
 			}
 		});
 
-		// Await the queue, index, and store tasks.
+		drop(state);
+
+		// Await the tasks.
 		future::try_join3(
 			queue_task
 				.wait()

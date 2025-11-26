@@ -101,17 +101,19 @@ impl Server {
 				tracing::trace!(?message, "received message");
 				match message {
 					tg::sync::Message::Get(message) => {
-						put_input_sender.send(message).await.ok();
+						put_input_sender.send(message).await.map_err(|_| {
+							tg::error!("failed to send the get message to the put future")
+						})?;
 					},
 					tg::sync::Message::Put(message) => {
-						get_input_sender.send(message).await.ok();
+						get_input_sender.send(message).await.map_err(|_| {
+							tg::error!("failed to send the put message to the get future")
+						})?;
 					},
-					tg::sync::Message::End => {
-						break;
-					},
+					tg::sync::Message::End => (),
 				}
 			}
-			Ok::<_, tg::Error>(())
+			Ok(())
 		};
 
 		// Create a future to collect the output.
@@ -120,16 +122,21 @@ impl Server {
 		let (put_output_sender, put_output_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::sync::PutMessage>>(256);
 		let output_future = {
-			let sender = sender.clone();
 			async move {
 				let mut stream = stream::select(
 					ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),
 					ReceiverStream::new(put_output_receiver).map_ok(tg::sync::Message::Put),
-				);
+				)
+				.chain(stream::once(future::ok(tg::sync::Message::End)))
+				.take_while_inclusive(|result| future::ready(result.is_ok()));
 				while let Some(result) = stream.next().await {
 					tracing::trace!(?result, "sending message");
-					sender.send(result).await.ok();
+					sender
+						.send(result)
+						.await
+						.map_err(|_| tg::error!("failed to send the message"))?;
 				}
+				Ok::<_, tg::Error>(())
 			}
 		};
 
@@ -137,24 +144,28 @@ impl Server {
 			let server = self.clone();
 			let arg = arg.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
-			async move { server.sync_get(arg, stream, get_output_sender).await }
-		}
-		.instrument(tracing::debug_span!("get"));
+			async move {
+				server
+					.sync_get(arg, stream, get_output_sender)
+					.instrument(tracing::debug_span!("get"))
+					.await
+			}
+		};
 
 		let put_future = {
 			let server = self.clone();
 			let arg = arg.clone();
 			let stream = ReceiverStream::new(put_input_receiver).boxed();
-			async move { server.sync_put(arg, stream, put_output_sender).await }
-		}
-		.instrument(tracing::debug_span!("put"));
+			async move {
+				server
+					.sync_put(arg, stream, put_output_sender)
+					.instrument(tracing::debug_span!("put"))
+					.await
+			}
+		};
 
 		match future::try_select(
-			pin!(future::try_join3(
-				get_future,
-				put_future,
-				output_future.map(Ok)
-			)),
+			pin!(future::try_join3(get_future, put_future, output_future)),
 			pin!(input_future),
 		)
 		.await
@@ -165,11 +176,6 @@ impl Server {
 				future.await?;
 			},
 		}
-
-		sender
-			.send(Ok(tg::sync::Message::End))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the end message"))?;
 
 		Ok(())
 	}

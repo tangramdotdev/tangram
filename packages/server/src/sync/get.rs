@@ -176,17 +176,17 @@ impl Server {
 		scopeguard::defer! {
 			self.tasks.spawn({
 				let server = self.clone();
-				let state = state.clone();
 				|_| async move {
 					let result = server.sync_get_index(state).await;
 					if let Err(error) = result {
 						tracing::error!(?error);
 					}
-			}.instrument(tracing::Span::current())
+				}
+				.instrument(tracing::Span::current())
 			});
 		}
 
-		// Await the queue, index, and store tasks.
+		// Await the tasks.
 		future::try_join3(
 			queue_task
 				.wait()

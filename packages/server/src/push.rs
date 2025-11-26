@@ -264,8 +264,8 @@ impl Server {
 		progress.set("bytes", 0);
 
 		// Create the channels.
-		let (push_sender, push_receiver) = tokio::sync::mpsc::channel(1024);
-		let (pull_sender, pull_receiver) = tokio::sync::mpsc::channel(1024);
+		let (push_output_sender, push_output_receiver) = tokio::sync::mpsc::channel(1024);
+		let (pull_output_sender, pull_output_receiver) = tokio::sync::mpsc::channel(1024);
 
 		// Start the push.
 		let push_arg = tg::sync::Arg {
@@ -277,8 +277,9 @@ impl Server {
 			recursive: arg.recursive,
 			remote: None,
 		};
+		let stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
 		let push_stream = src
-			.sync(push_arg, ReceiverStream::new(pull_receiver).boxed())
+			.sync(push_arg, stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the push stream"))?;
 
@@ -292,8 +293,9 @@ impl Server {
 			recursive: arg.recursive,
 			remote: None,
 		};
+		let stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
 		let pull_stream = dst
-			.sync(pull_arg, ReceiverStream::new(push_receiver).boxed())
+			.sync(pull_arg, stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the pull stream"))?;
 
@@ -315,7 +317,10 @@ impl Server {
 						return Ok(());
 					},
 					_ => {
-						push_sender.send(Ok(message.clone())).await.ok();
+						push_output_sender
+							.send(message.clone())
+							.await
+							.map_err(|_| tg::error!("failed to send the message"))?;
 					},
 				}
 			}
@@ -340,7 +345,10 @@ impl Server {
 						return Ok(());
 					},
 					_ => {
-						pull_sender.send(Ok(message.clone())).await.ok();
+						pull_output_sender
+							.send(message.clone())
+							.await
+							.map_err(|_| tg::error!("failed to send the message"))?;
 					},
 				}
 			}

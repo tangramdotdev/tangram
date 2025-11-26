@@ -146,10 +146,10 @@ impl Server {
 				tg::sync::PutMessage::Progress(_) => (),
 
 				tg::sync::PutMessage::End => {
-					break;
+					return Ok(());
 				},
 			}
 		}
-		Ok(())
+		Err(tg::error!("failed to receive the put end message"))
 	}
 }
