@@ -17,7 +17,6 @@ impl Server {
 		state: &State,
 		mut stream: BoxStream<'static, tg::sync::GetMessage>,
 	) {
-		let mut end = false;
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(message)) => {
