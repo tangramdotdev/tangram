@@ -40,6 +40,7 @@ mod http;
 mod index;
 mod lsp;
 mod messenger;
+mod module;
 mod object;
 mod pipe;
 mod process;

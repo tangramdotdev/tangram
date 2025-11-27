@@ -223,6 +223,14 @@ impl Server {
 				server.handle_get_request(request, &context, path).boxed()
 			},
 
+			// Modules.
+			(http::Method::POST, ["modules", "load"]) => {
+				server.handle_load_module_request(request, &context).boxed()
+			},
+			(http::Method::POST, ["modules", "resolve"]) => server
+				.handle_resolve_module_request(request, &context)
+				.boxed(),
+
 			// Objects.
 			(http::Method::GET, ["objects", object, "metadata"]) => server
 				.handle_get_object_metadata_request(request, &context, object)

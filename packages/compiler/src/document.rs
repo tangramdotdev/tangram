@@ -246,9 +246,12 @@ impl Compiler {
 				// Wait 100ms before running checkin.
 				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-				// Run checkin.
+				// Check in the path.
 				let arg = tg::checkin::Arg {
-					options: tg::checkin::Options::default(),
+					options: tg::checkin::Options {
+						watch: true,
+						..Default::default()
+					},
 					path: path.clone(),
 					updates: Vec::new(),
 				};

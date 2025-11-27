@@ -36,16 +36,19 @@ pub enum Artifact {
 
 impl Artifact {
 	#[must_use]
-	pub fn with_graph_ref(kind: tg::artifact::Kind, ref_: tg::graph::object::Reference) -> Self {
+	pub fn with_reference(
+		kind: tg::artifact::Kind,
+		reference: tg::graph::object::Reference,
+	) -> Self {
 		match kind {
 			tg::artifact::Kind::Directory => {
-				tg::Directory::with_graph_and_node(ref_.graph.unwrap(), ref_.node).into()
+				tg::Directory::with_graph_and_node(reference.graph.unwrap(), reference.node).into()
 			},
 			tg::artifact::Kind::File => {
-				tg::File::with_graph_and_node(ref_.graph.unwrap(), ref_.node).into()
+				tg::File::with_graph_and_node(reference.graph.unwrap(), reference.node).into()
 			},
 			tg::artifact::Kind::Symlink => {
-				tg::Symlink::with_graph_and_node(ref_.graph.unwrap(), ref_.node).into()
+				tg::Symlink::with_graph_and_node(reference.graph.unwrap(), reference.node).into()
 			},
 		}
 	}

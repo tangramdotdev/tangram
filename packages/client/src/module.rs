@@ -4,6 +4,8 @@ pub use self::{data::Module as Data, import::Import};
 
 pub mod data;
 pub mod import;
+pub mod load;
+pub mod resolve;
 
 #[derive(Clone, Debug)]
 pub struct Module {

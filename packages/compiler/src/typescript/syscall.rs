@@ -1,6 +1,6 @@
 #![allow(clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
 
-use {super::Compiler, tangram_client::prelude::*};
+use {crate::Compiler, tangram_client::prelude::*};
 
 mod document;
 mod encoding;

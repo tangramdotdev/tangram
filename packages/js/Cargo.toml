@@ -30,9 +30,9 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sourcemap = { workspace = true }
 tangram_client = { workspace = true }
+tangram_compiler = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
-tangram_module = { workspace = true }
 tangram_v8 = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

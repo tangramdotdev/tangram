@@ -3055,15 +3055,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3c2a6c0b4b5637c41719973ef40c6a1cf564f9db6958350de6193fbee9c23f5"
 
 [[package]]
-name = "json-strip-comments"
-version = "3.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4135b29c84322dbc3327272084360785665452213a576a991b3ac2f63148e82"
-dependencies = [
- "memchr",
-]
-
-[[package]]
 name = "jsonwebtoken"
 version = "10.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3419,12 +3410,6 @@ dependencies = [
  "tagptr",
  "uuid",
 ]
-
-[[package]]
-name = "natord"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "308d96db8debc727c3fd9744aac51751243420e46edf401010908da7f8d5e57c"
 
 [[package]]
 name = "ndk-context"
@@ -3837,18 +3822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxc-schemars"
-version = "0.8.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d8b748122c8ec59a5f5f9cfff48c1e2f0c7a142a52f8bd24b40b10eb3e3bcfe"
-dependencies = [
- "dyn-clone",
- "oxc_schemars_derive",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "oxc_allocator"
 version = "0.98.0"
 source = "git+https://github.com/oxc-project/oxc#51085d09678016a553e132405507b9dea815cbe4"
@@ -3968,28 +3941,6 @@ version = "0.98.0"
 source = "git+https://github.com/oxc-project/oxc#51085d09678016a553e132405507b9dea815cbe4"
 
 [[package]]
-name = "oxc_formatter"
-version = "0.14.0"
-source = "git+https://github.com/oxc-project/oxc#51085d09678016a553e132405507b9dea815cbe4"
-dependencies = [
- "cow-utils",
- "json-strip-comments",
- "natord",
- "oxc-schemars",
- "oxc_allocator",
- "oxc_ast",
- "oxc_data_structures",
- "oxc_parser",
- "oxc_span",
- "oxc_syntax",
- "phf 0.13.1",
- "rustc-hash 2.1.1",
- "serde",
- "serde_json",
- "unicode-width 0.2.0",
-]
-
-[[package]]
 name = "oxc_index"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4090,18 +4041,6 @@ dependencies = [
  "phf 0.13.1",
  "rustc-hash 2.1.1",
  "unicode-id-start",
-]
-
-[[package]]
-name = "oxc_schemars_derive"
-version = "0.8.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1912e59b2446292fdbaf4f20d4a7b0fdbd2017f948ba6e3f8e8bfe3669bca35f"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde_derive_internals",
- "syn 2.0.110",
 ]
 
 [[package]]
@@ -5528,17 +5467,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_derive_internals"
-version = "0.29.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.110",
-]
-
-[[package]]
 name = "serde_json"
 version = "1.0.145"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6049,7 +5977,6 @@ dependencies = [
  "futures",
  "num",
  "reqwest",
- "scopeguard",
  "tangram_client",
  "tangram_futures",
  "tangram_temp",
@@ -6078,7 +6005,6 @@ dependencies = [
  "futures",
  "indexmap 2.12.0",
  "indoc",
- "insta",
  "libc",
  "miette",
  "num",
@@ -6090,7 +6016,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tangram_builtin",
- "tangram_cli_test",
  "tangram_client",
  "tangram_either",
  "tangram_futures",
@@ -6098,7 +6023,6 @@ dependencies = [
  "tangram_sandbox",
  "tangram_server",
  "tangram_session",
- "tangram_temp",
  "tangram_uri",
  "tangram_util",
  "tokio",
@@ -6180,16 +6104,23 @@ dependencies = [
 name = "tangram_compiler"
 version = "0.0.0"
 dependencies = [
+ "biome_js_formatter",
+ "biome_js_parser",
+ "biome_js_syntax",
  "bytes",
  "dashmap",
  "data-encoding",
  "derive_more",
  "fnv",
  "futures",
+ "glob",
+ "include_dir",
+ "indoc",
  "itertools 0.14.0",
  "lsp-types",
  "num",
  "num-traits",
+ "oxc",
  "scopeguard",
  "serde",
  "serde_json",
@@ -6198,7 +6129,6 @@ dependencies = [
  "sourcemap",
  "tangram_client",
  "tangram_futures",
- "tangram_module",
  "tangram_v8",
  "tokio",
  "tokio-util",
@@ -6313,9 +6243,9 @@ dependencies = [
  "serde_yaml",
  "sourcemap",
  "tangram_client",
+ "tangram_compiler",
  "tangram_either",
  "tangram_futures",
- "tangram_module",
  "tangram_v8",
  "tokio",
  "tokio-util",
@@ -6336,27 +6266,6 @@ dependencies = [
  "tangram_either",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "tangram_module"
-version = "0.0.0"
-dependencies = [
- "biome_js_formatter",
- "biome_js_parser",
- "biome_js_syntax",
- "dashmap",
- "fnv",
- "glob",
- "include_dir",
- "indoc",
- "oxc",
- "oxc_formatter",
- "scopeguard",
- "tangram_client",
- "tangram_either",
- "tangram_util",
- "tokio",
 ]
 
 [[package]]
@@ -6446,7 +6355,6 @@ dependencies = [
  "tangram_ignore",
  "tangram_js",
  "tangram_messenger",
- "tangram_module",
  "tangram_serialize",
  "tangram_session",
  "tangram_store",

@@ -21,7 +21,6 @@ async_zip = { workspace = true }
 futures = { workspace = true }
 num = { workspace = true }
 reqwest = { workspace = true }
-scopeguard = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_temp = { workspace = true }

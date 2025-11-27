@@ -1,5 +1,5 @@
 use {
-	self::{document::Document, syscall::syscall},
+	self::document::Document,
 	dashmap::DashMap,
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	lsp_types::{self as lsp, notification::Notification as _, request::Request as _},
@@ -12,19 +12,22 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 	},
 	tokio_util::task::TaskTracker,
 };
 
+#[cfg(feature = "typescript")]
+mod typescript;
+mod util;
+
+pub mod analyze;
 pub mod check;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
 pub mod document;
-pub mod error;
 pub mod format;
 pub mod hover;
 pub mod initialize;
@@ -32,13 +35,11 @@ pub mod jsonrpc;
 pub mod references;
 pub mod rename;
 pub mod symbols;
-pub mod syscall;
+pub mod transpile;
 pub mod version;
 pub mod workspace;
 
-const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.heapsnapshot"));
-
-const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
+pub const LIBRARY: include_dir::Dir = include_dir::include_dir!("$OUT_DIR/lib");
 
 #[derive(Clone)]
 pub struct Handle(Arc<Inner>);
@@ -67,10 +68,8 @@ pub struct State {
 	/// The library path.
 	library_path: PathBuf,
 
-	/// The lock cache.
-	locks: DashMap<PathBuf, (Arc<tg::graph::Data>, u64)>,
-
 	/// A handle to the main tokio runtime.
+	#[cfg_attr(not(feature = "typescript"), expect(dead_code))]
 	main_runtime_handle: tokio::runtime::Handle,
 
 	/// The position encoding negotiated with the LSP client.
@@ -91,11 +90,9 @@ pub struct State {
 	/// The tags path.
 	tags_path: PathBuf,
 
-	/// The typescript request sender.
-	typescript_request_sender: Mutex<Option<RequestSender>>,
-
-	/// The typescript request thread.
-	typescript_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+	/// The typescript service.
+	#[cfg(feature = "typescript")]
+	typescript: self::typescript::Typescript,
 
 	/// The version.
 	version: String,
@@ -134,11 +131,6 @@ enum Response {
 	TypeDefinition(definition::Response),
 }
 
-type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
-type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
-type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
-type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<Response>>;
-
 impl Handle {
 	pub fn stop(&self) {
 		self.task.stop();
@@ -161,13 +153,12 @@ impl Compiler {
 	) -> Handle {
 		let checkin_tasks = tangram_futures::task::Map::default();
 		let documents = DashMap::default();
-		let typescript_request_sender = Mutex::new(None);
-		let typescript_thread = Mutex::new(None);
-		let locks = DashMap::new();
 		let requests = DashMap::new();
 		let request_id = AtomicI32::new(1);
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
+		#[cfg(feature = "typescript")]
+		let typescript = self::typescript::Typescript::new();
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the compiler.
@@ -177,7 +168,6 @@ impl Compiler {
 			documents,
 			handle,
 			library_path,
-			locks,
 			main_runtime_handle,
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
 			request_id,
@@ -185,8 +175,8 @@ impl Compiler {
 			sender,
 			serve_task,
 			tags_path,
-			typescript_request_sender,
-			typescript_thread,
+			#[cfg(feature = "typescript")]
+			typescript,
 			version,
 			workspaces,
 		}));
@@ -201,13 +191,11 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
-				// Stop and await the typescript thread.
-				compiler.typescript_request_sender.lock().unwrap().take();
-				let thread = compiler.typescript_thread.lock().unwrap().take();
-				if let Some(thread) = thread {
-					tokio::task::spawn_blocking(move || thread.join().unwrap())
-						.await
-						.unwrap();
+				// Stop and await the typescript service.
+				#[cfg(feature = "typescript")]
+				{
+					compiler.typescript.stop();
+					compiler.typescript.join().await;
 				}
 			}
 		};
@@ -707,119 +695,14 @@ impl Compiler {
 	}
 
 	async fn request(&self, request: Request) -> tg::Result<Response> {
-		// Spawn the typescript thread if necessary.
+		#[cfg(feature = "typescript")]
 		{
-			let mut thread = self.typescript_thread.lock().unwrap();
-			if thread.is_none() {
-				let (sender, receiver) =
-					tokio::sync::mpsc::unbounded_channel::<(Request, ResponseSender)>();
-				self.typescript_request_sender
-					.lock()
-					.unwrap()
-					.replace(sender);
-				thread.replace(std::thread::spawn({
-					let compiler = self.clone();
-					move || compiler.run_typescript(receiver)
-				}));
-			}
+			self.typescript.request(self, request).await
 		}
-
-		// Create a oneshot channel for the response.
-		let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-
-		// Send the request.
-		self.typescript_request_sender
-			.lock()
-			.unwrap()
-			.as_ref()
-			.unwrap()
-			.send((request, response_sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-
-		// Receive the response.
-		let response = response_receiver.await.map_err(|error| {
-			tg::error!(
-				source = error,
-				"failed to receive a response for the request"
-			)
-		})??;
-
-		Ok(response)
-	}
-
-	/// Run typescript.
-	fn run_typescript(&self, mut request_receiver: RequestReceiver) {
-		// Create the isolate.
-		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
-		let mut isolate = v8::Isolate::new(params);
-
-		// Set the prepare stack trace callback.
-		isolate.set_prepare_stack_trace_callback(self::error::prepare_stack_trace_callback);
-
-		// Create the context.
-		let scope = &mut v8::HandleScope::new(&mut isolate);
-		let context = v8::Context::new(scope, v8::ContextOptions::default());
-		let scope = &mut v8::ContextScope::new(scope, context);
-
-		// Set the server on the context.
-		context.set_slot(self.clone());
-
-		// Add the syscall function to the global.
-		let syscall_string = v8::String::new_external_onebyte_static(scope, b"syscall").unwrap();
-		let syscall_function = v8::Function::new(scope, syscall).unwrap();
-		context
-			.global(scope)
-			.set(scope, syscall_string.into(), syscall_function.into())
-			.unwrap();
-
-		// Get the handle function.
-		let global = context.global(scope);
-		let handle = v8::String::new_external_onebyte_static(scope, b"handle").unwrap();
-		let handle = global.get(scope, handle.into()).unwrap();
-		let handle = v8::Local::<v8::Function>::try_from(handle).unwrap();
-
-		while let Some((request, response_sender)) = request_receiver.blocking_recv() {
-			// Create a try catch scope.
-			let scope = &mut v8::TryCatch::new(scope);
-
-			// Serialize the request.
-			let result = Serde(request)
-				.serialize(scope)
-				.map_err(|source| tg::error!(!source, "failed to serialize the request"));
-			let request = match result {
-				Ok(request) => request,
-				Err(error) => {
-					response_sender.send(Err(error)).ok();
-					continue;
-				},
-			};
-
-			// Call the handle function.
-			let receiver = v8::undefined(scope).into();
-			let response = handle.call(scope, receiver, &[request]);
-
-			// Handle an error.
-			if let Some(exception) = scope.exception() {
-				let error = error::from_exception(scope, exception);
-				response_sender.send(Err(error)).ok();
-				continue;
-			}
-			let response = response.unwrap();
-
-			// Deserialize the response.
-			let result = Serde::deserialize(scope, response)
-				.map(|output| output.0)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the response"));
-			let response = match result {
-				Ok(response) => response,
-				Err(error) => {
-					response_sender.send(Err(error)).ok();
-					continue;
-				},
-			};
-
-			// Send the response.
-			response_sender.send(Ok(response)).ok();
+		#[cfg(not(feature = "typescript"))]
+		{
+			let _ = request;
+			Err(tg::error!("the typescript feature is not enabled"))
 		}
 	}
 
@@ -1052,10 +935,10 @@ impl Compiler {
 						.map_err(|source| {
 							tg::error!(!source, "failed create the library temp directory")
 						})?;
-					let contents = tangram_module::load::LIBRARY
-						.get_file(relative_path)
-						.ok_or_else(|| tg::error!("invalid path"))?
-						.contents();
+					let arg = tg::module::load::Arg {
+						module: module.clone(),
+					};
+					let contents = self.handle.load_module(arg).await?.text;
 					tokio::fs::write(&absolute_path, contents)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
@@ -1197,9 +1080,12 @@ impl Compiler {
 		}
 
 		// Otherwise, load the module.
-		let module = tangram_module::load(&self.handle, module).await?;
+		let arg = tg::module::load::Arg {
+			module: module.clone(),
+		};
+		let output = self.handle.load_module(arg).await?;
 
-		Ok(module)
+		Ok(output.text)
 	}
 
 	/// Find the lockfile for a given path.
@@ -1256,10 +1142,7 @@ impl Deref for Compiler {
 
 impl Drop for Handle {
 	fn drop(&mut self) {
-		self.compiler
-			.typescript_request_sender
-			.lock()
-			.unwrap()
-			.take();
+		#[cfg(feature = "typescript")]
+		self.compiler.typescript.stop();
 	}
 }

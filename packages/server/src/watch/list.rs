@@ -13,7 +13,6 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-
 		let data = self
 			.watches
 			.iter()

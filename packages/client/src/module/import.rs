@@ -1,8 +1,10 @@
 use {crate::prelude::*, std::collections::BTreeMap};
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Import {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<tg::module::Kind>,
+
 	pub reference: tg::Reference,
 }
 

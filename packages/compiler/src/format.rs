@@ -2,21 +2,16 @@ use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 impl Compiler {
 	pub fn format(text: &str) -> tg::Result<String> {
-		let module = tg::module::Data {
-			kind: tg::module::Kind::Ts,
-			referent: tg::Referent::with_item(tg::module::data::Item::Path("module.ts".into())),
-		};
-		let output = tangram_module::format(&module, text);
-		if !output.diagnostics.is_empty() {
-			let diagnostics = output
-				.diagnostics
-				.into_iter()
-				.filter_map(|diagnostic| diagnostic.try_into().ok())
-				.collect();
-			let error = tg::error!(diagnostics = diagnostics, "failed to format the module");
-			return Err(error);
-		}
-		Ok(output.text)
+		let source_type = biome_js_syntax::JsFileSource::ts();
+		let options = biome_js_parser::JsParserOptions::default();
+		let node = biome_js_parser::parse(text, source_type, options);
+		let options = biome_js_formatter::context::JsFormatOptions::new(source_type);
+		let formatted = biome_js_formatter::format_node(options, &node.syntax())
+			.map_err(|source| tg::error!(!source, "failed to format the module"))?;
+		let text = formatted
+			.print()
+			.map_err(|source| tg::error!(!source, "failed to format the module"))?;
+		Ok(text.into_code())
 	}
 }
 

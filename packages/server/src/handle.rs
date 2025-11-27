@@ -120,6 +120,22 @@ impl tg::Handle for Owned {
 	}
 }
 
+impl tg::handle::Module for Owned {
+	async fn resolve_module(
+		&self,
+		arg: tg::module::resolve::Arg,
+	) -> tg::Result<tg::module::resolve::Output> {
+		self.0.resolve_module(arg).await
+	}
+
+	async fn load_module(
+		&self,
+		arg: tg::module::load::Arg,
+	) -> tg::Result<tg::module::load::Output> {
+		self.0.load_module(arg).await
+	}
+}
+
 impl tg::handle::Object for Owned {
 	async fn try_get_object_metadata(
 		&self,
@@ -556,6 +572,24 @@ impl tg::Handle for Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
 		self.write_with_context(&Context::default(), reader).await
+	}
+}
+
+impl tg::handle::Module for Server {
+	async fn resolve_module(
+		&self,
+		arg: tg::module::resolve::Arg,
+	) -> tg::Result<tg::module::resolve::Output> {
+		self.resolve_module_with_context(&Context::default(), arg)
+			.await
+	}
+
+	async fn load_module(
+		&self,
+		arg: tg::module::load::Arg,
+	) -> tg::Result<tg::module::load::Output> {
+		self.load_module_with_context(&Context::default(), arg)
+			.await
 	}
 }
 
@@ -1033,6 +1067,22 @@ impl tg::Handle for ServerWithContext {
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
 		self.0.write_with_context(&self.1, reader).await
+	}
+}
+
+impl tg::handle::Module for ServerWithContext {
+	async fn resolve_module(
+		&self,
+		arg: tg::module::resolve::Arg,
+	) -> tg::Result<tg::module::resolve::Output> {
+		self.0.resolve_module_with_context(&self.1, arg).await
+	}
+
+	async fn load_module(
+		&self,
+		arg: tg::module::load::Arg,
+	) -> tg::Result<tg::module::load::Output> {
+		self.0.load_module_with_context(&self.1, arg).await
 	}
 }
 

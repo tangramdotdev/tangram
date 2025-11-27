@@ -398,7 +398,7 @@ impl Server {
 				kind,
 				referent: tg::Referent::with_item(tg::module::data::Item::Path(path.clone())),
 			};
-			let analysis = tangram_module::analyze(&module, &text);
+			let analysis = tangram_compiler::Compiler::analyze(&module, &text);
 			for diagnostic in analysis.diagnostics {
 				state.progress.diagnostic(diagnostic);
 			}

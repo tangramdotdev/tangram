@@ -1,7 +1,7 @@
 use tangram_client::prelude::*;
 
 #[must_use]
-pub fn convert(
+pub fn convert_diagnostic(
 	diagnostic: &oxc::diagnostics::OxcDiagnostic,
 	module: &tg::module::Data,
 	text: &str,

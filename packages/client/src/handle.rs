@@ -12,7 +12,20 @@ mod ext;
 pub use self::ext::Ext;
 
 pub trait Handle:
-	Object + Process + Pipe + Pty + Remote + Tag + User + Watch + Clone + Unpin + Send + Sync + 'static
+	Module
+	+ Object
+	+ Process
+	+ Pipe
+	+ Pty
+	+ Remote
+	+ Tag
+	+ User
+	+ Watch
+	+ Clone
+	+ Unpin
+	+ Send
+	+ Sync
+	+ 'static
 {
 	fn cache(
 		&self,
@@ -128,6 +141,18 @@ pub trait Handle:
 		&self,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::write::Output>> + Send;
+}
+
+pub trait Module: Clone + Unpin + Send + Sync + 'static {
+	fn resolve_module(
+		&self,
+		arg: tg::module::resolve::Arg,
+	) -> impl Future<Output = tg::Result<tg::module::resolve::Output>> + Send;
+
+	fn load_module(
+		&self,
+		arg: tg::module::load::Arg,
+	) -> impl Future<Output = tg::Result<tg::module::load::Output>> + Send;
 }
 
 pub trait Object: Clone + Unpin + Send + Sync + 'static {
@@ -568,6 +593,22 @@ impl tg::Handle for tg::Client {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::write::Output>> {
 		self.write(reader)
+	}
+}
+
+impl tg::handle::Module for tg::Client {
+	fn resolve_module(
+		&self,
+		arg: tg::module::resolve::Arg,
+	) -> impl Future<Output = tg::Result<tg::module::resolve::Output>> {
+		self.resolve_module(arg)
+	}
+
+	fn load_module(
+		&self,
+		arg: tg::module::load::Arg,
+	) -> impl Future<Output = tg::Result<tg::module::load::Output>> {
+		self.load_module(arg)
 	}
 }
 

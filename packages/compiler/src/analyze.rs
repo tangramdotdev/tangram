@@ -1,4 +1,5 @@
 use {
+	super::Compiler,
 	oxc::{
 		ast::ast::{
 			ExportAllDeclaration, ExportNamedDeclaration, Expression, ImportAttributeKey,
@@ -17,29 +18,31 @@ pub struct Analysis {
 	pub imports: HashSet<tg::module::Import, fnv::FnvBuildHasher>,
 }
 
-/// Analyze a module.
-#[must_use]
-pub fn analyze(module: &tg::module::Data, text: &str) -> Analysis {
-	let allocator = oxc::allocator::Allocator::default();
+impl Compiler {
+	/// Analyze a module.
+	#[must_use]
+	pub fn analyze(module: &tg::module::Data, text: &str) -> Analysis {
+		let allocator = oxc::allocator::Allocator::default();
 
-	let mut diagnostics = Vec::new();
+		let mut diagnostics = Vec::new();
 
-	// Parse the text.
-	let source_type = oxc::span::SourceType::ts();
-	let output = oxc::parser::Parser::new(&allocator, text, source_type).parse();
-	for error in &output.errors {
-		diagnostics.push(crate::diagnostic::convert(error, module, text));
-	}
+		// Parse the text.
+		let source_type = oxc::span::SourceType::ts();
+		let output = oxc::parser::Parser::new(&allocator, text, source_type).parse();
+		for error in &output.errors {
+			diagnostics.push(crate::util::convert_diagnostic(error, module, text));
+		}
 
-	// Create the visitor and visit the module.
-	let mut visitor = Visitor::new(module, text);
-	visitor.visit_program(&output.program);
-	diagnostics.extend(visitor.diagnostics);
-	let imports = visitor.imports;
+		// Create the visitor and visit the module.
+		let mut visitor = Visitor::new(module, text);
+		visitor.visit_program(&output.program);
+		diagnostics.extend(visitor.diagnostics);
+		let imports = visitor.imports;
 
-	Analysis {
-		diagnostics,
-		imports,
+		Analysis {
+			diagnostics,
+			imports,
+		}
 	}
 }
 
@@ -152,7 +155,7 @@ impl<'a> Visitor<'a> {
 					location,
 					message: error
 						.message
-						.unwrap_or_else(|| "failed to parse import".to_owned()),
+						.unwrap_or_else(|| "failed to parse the import".to_owned()),
 					severity: tg::diagnostic::Severity::Error,
 				};
 				self.diagnostics.push(diagnostic);
@@ -200,7 +203,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 			self.add_import(literal.value.as_str(), attributes.as_ref(), expression.span);
 		} else {
 			self.diagnostics.push(tg::diagnostic::Data {
-				message: "the argument to the import function must be a string literal".to_owned(),
+				message: "The argument to the import function must be a string literal.".to_owned(),
 				location: {
 					let byte_range = expression.span.start as usize..expression.span.end as usize;
 					let range = tg::Range::try_from_byte_range_in_string(
@@ -256,7 +259,7 @@ mod tests {
 			kind: tg::module::Kind::Ts,
 			referent: tg::Referent::with_item(tg::module::data::Item::Path("test.tg.ts".into())),
 		};
-		let found = analyze(&module, text).imports;
+		let found = Compiler::analyze(&module, text).imports;
 		let expected = [
 			"default_import",
 			"./named_import.tg.js",

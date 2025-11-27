@@ -1448,7 +1448,6 @@ impl Cli {
 				"tangram_database=info",
 				"tangram_js=info",
 				"tangram_messenger=info",
-				"tangram_module=info",
 				"tangram_server=info",
 				"tangram_store=info",
 				"tangram_vfs=info",

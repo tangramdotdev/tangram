@@ -15,21 +15,18 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-compiler = ["v8", "tangram_server/compiler"]
-default = ["compiler", "js"]
+compiler = ["tangram_server/compiler"]
+default = ["js", "typescript"]
 foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
 js = ["v8", "tangram_server/js"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
 scylla = ["tangram_server/scylla"]
+typescript = ["compiler", "v8", "tangram_server/typescript"]
 v8 = ["dep:v8"]
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-insta = { workspace = true }
-tangram_cli_test = { workspace = true }
 
 [dependencies]
 anstream = { workspace = true }
@@ -66,7 +63,6 @@ tangram_js = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }
 tangram_session = { workspace = true }
-tangram_temp = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }

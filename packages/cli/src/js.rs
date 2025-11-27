@@ -108,7 +108,7 @@ impl Cli {
 			.worker_threads(1)
 			.build()
 			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?;
-		runtime.block_on(client.connect()).ok();
+		runtime.block_on(client.connect())?;
 
 		// Run.
 		let future = tangram_js::run(

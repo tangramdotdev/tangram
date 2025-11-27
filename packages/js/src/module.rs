@@ -55,11 +55,14 @@ pub fn host_import_module_dynamically_callback<'s>(
 		let root = state.root.clone();
 		async move {
 			let module = if let (Some(referrer), Some(import)) = (referrer, import) {
-				tangram_module::resolve(&handle, &referrer, &import, None)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
-					})?
+				let arg = tg::module::resolve::Arg {
+					referrer: referrer.clone(),
+					import: import.clone(),
+				};
+				let output = handle.resolve_module(arg).await.map_err(|source| {
+					tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
+				})?;
+				output.module
 			} else {
 				root
 			};
@@ -93,13 +96,13 @@ pub fn host_import_module_dynamically_callback<'s>(
 				let promise = state.create_promise(scope, {
 					let handle = state.handle.clone();
 					async move {
-						let text =
-							tangram_module::load(&handle, &module)
-								.await
-								.map_err(|source| {
-									tg::error!(!source, ?module, "failed to load the module")
-								})?;
-						Ok(Serde((module, text)))
+						let arg = tg::module::load::Arg {
+							module: module.clone(),
+						};
+						let output = handle.load_module(arg).await.map_err(|source| {
+							tg::error!(!source, ?module, "failed to load the module")
+						})?;
+						Ok(Serde((module, output.text)))
 					}
 				});
 				return_value.set(promise.into());
@@ -266,7 +269,8 @@ fn resolve_module_sync(
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let result = tangram_module::resolve(&handle, &referrer, &import, None).await;
+			let arg = tg::module::resolve::Arg { referrer, import };
+			let result = handle.resolve_module(arg).await.map(|output| output.module);
 			sender.send(result).unwrap();
 		}
 	});
@@ -294,7 +298,8 @@ fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> O
 		let handle = state.handle.clone();
 		let module = module.clone();
 		async move {
-			let result = tangram_module::load(&handle, &module).await;
+			let arg = tg::module::load::Arg { module };
+			let result = handle.load_module(arg).await.map(|output| output.text);
 			sender.send(result).unwrap();
 		}
 	});
@@ -324,7 +329,7 @@ fn compile_module<'s>(
 	let state = context.get_slot::<Rc<State>>().unwrap().clone();
 
 	// Transpile the module.
-	let output = tangram_module::transpile(text, module);
+	let output = tangram_compiler::Compiler::transpile(text, module);
 	if !output.diagnostics.is_empty() {
 		let diagnostics = output
 			.diagnostics

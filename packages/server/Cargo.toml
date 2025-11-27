@@ -14,13 +14,14 @@ version = { workspace = true }
 workspace = true
 
 [features]
-default = ["js"]
+default = ["js", "typescript"]
 compiler = ["dep:tangram_compiler"]
 foundationdb = ["tangram_store/foundationdb"]
 js = ["dep:tangram_js"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 scylla = ["tangram_store/scylla"]
+typescript = ["compiler", "tangram_compiler/typescript"]
 
 [dependencies]
 async-channel = { workspace = true }
@@ -74,7 +75,6 @@ tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_js = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
-tangram_module = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_session = { workspace = true }
 tangram_store = { workspace = true, features = ["lmdb"] }
