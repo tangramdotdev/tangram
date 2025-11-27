@@ -1,4 +1,4 @@
 error an error occurred
 -> no matching tags were found
    pattern = a/^1.2
-   referrer = /private/tangram.ts
+   referrer = /tangram.ts

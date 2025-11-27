@@ -421,20 +421,29 @@ impl Server {
 						variant: ParentVariant::FileDependency(reference.clone()),
 					};
 					let referent = path.parent().unwrap().join(reference_path);
-					let referent = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
+					let result = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
 						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
-							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize path"),
-						)?
+							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
+						)
 					} else {
 						referent.canonicalize().map_err(
 							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
-						)?
+						)
+					};
+					dependencies.insert(reference, None);
+					let referent = match result {
+						Ok(referent) => referent,
+						Err(error) => {
+							if state.arg.options.unsolved_dependencies {
+								continue;
+							}
+							return Err(error);
+						},
 					};
 					stack.push(Item {
 						path: referent,
 						parent: Some(parent),
 					});
-					dependencies.insert(reference, None);
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
 					let referent =
 						tg::Referent::with_item(tg::graph::data::Edge::Object(id.clone()));

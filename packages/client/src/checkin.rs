@@ -5,7 +5,7 @@ use {
 	std::{path::PathBuf, pin::pin},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{is_false, is_true, return_true},
+	tangram_util::serde::{is_false, is_true, return_false, return_true},
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -49,6 +49,10 @@ pub struct Options {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub solve: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default = "return_false", skip_serializing_if = "is_false")]
+	pub unsolved_dependencies: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -139,6 +143,7 @@ impl Default for Options {
 			lock: true,
 			locked: false,
 			solve: true,
+			unsolved_dependencies: false,
 			watch: false,
 		}
 	}
