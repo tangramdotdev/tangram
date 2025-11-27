@@ -40,7 +40,7 @@ def main [
 	def spawn [test: record] {
 		job spawn {
 			# Create a temp directory for this test.
-			let temp_path = mktemp -d
+			let temp_path = mktemp -d | path expand
 
 			# Remove pending and touch files.
 			let parsed = $test.path | path parse

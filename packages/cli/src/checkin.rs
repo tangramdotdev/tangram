@@ -49,6 +49,9 @@ pub struct Options {
 	#[command(flatten)]
 	pub solve: Solve,
 
+	#[command(flatten)]
+	pub unsolved_dependencies: UnsolvedDependencies,
+
 	#[arg(long)]
 	pub watch: bool,
 }
@@ -167,6 +170,36 @@ impl Lock {
 	}
 }
 
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct UnsolvedDependencies {
+	/// Whether to allow unsolved dependencies.
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_unsolved_dependencies",
+		require_equals = true,
+	)]
+	unsolved_dependencies: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "unsolved_dependencies",
+		require_equals = true,
+	)]
+	no_unsolved_dependencies: Option<bool>,
+}
+
+impl UnsolvedDependencies {
+	pub fn get(&self) -> bool {
+		self.unsolved_dependencies
+			.or(self.no_unsolved_dependencies.map(|v| !v))
+			.unwrap_or(false)
+	}
+}
+
 impl Cli {
 	pub async fn command_checkin(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
@@ -210,6 +243,7 @@ impl Options {
 			lock: self.lock.get(),
 			locked: self.locked,
 			solve: self.solve.get(),
+			unsolved_dependencies: self.unsolved_dependencies.get(),
 			watch: self.watch,
 		}
 	}

@@ -249,6 +249,7 @@ impl Compiler {
 				// Check in the path.
 				let arg = tg::checkin::Arg {
 					options: tg::checkin::Options {
+						unsolved_dependencies: true,
 						watch: true,
 						..Default::default()
 					},
