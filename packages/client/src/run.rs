@@ -1,8 +1,4 @@
-use {
-	crate::prelude::*,
-	std::{collections::BTreeMap, path::PathBuf},
-	tangram_either::Either,
-};
+use {crate::prelude::*, std::path::PathBuf, tangram_either::Either};
 
 #[derive(Clone, Debug, Default)]
 pub struct Arg {
