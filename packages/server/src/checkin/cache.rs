@@ -41,7 +41,9 @@ impl Server {
 					async move {
 						tokio::task::spawn_blocking(move || server.checkin_cache_inner(batch))
 							.await
-							.unwrap()
+							.map_err(|source| {
+								tg::error!(!source, "the checkin cache task panicked")
+							})?
 					}
 				})
 				.collect::<Vec<_>>();

@@ -276,7 +276,7 @@ impl Server {
 				move || server.cache_dependency_write(&path, &id, node, graph.as_ref())
 			})
 			.await
-			.unwrap()?;
+			.map_err(|source| tg::error!(!source, "the cache task panicked"))??;
 
 			// Recursively cache all dependencies concurrently.
 			let server = self.clone();

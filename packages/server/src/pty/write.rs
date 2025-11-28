@@ -63,7 +63,7 @@ impl Server {
 						Ok(())
 					})
 					.await
-					.unwrap()
+					.map_err(|source| tg::error!(!source, "the pty write task panicked"))?
 					.map_err(|source| tg::error!(!source, "failed to write to the pty"))?;
 				},
 				tg::pty::Event::Size(size) => {
@@ -95,7 +95,7 @@ impl Server {
 			Ok(())
 		})
 		.await
-		.unwrap()
+		.map_err(std::io::Error::other)?
 	}
 
 	pub(crate) async fn handle_write_pty_request(

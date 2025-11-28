@@ -197,7 +197,7 @@ impl Server {
 			}
 		})
 		.await
-		.unwrap()?;
+		.map_err(|source| tg::error!(!source, "the clean task panicked"))??;
 
 		// Delete objects.
 		let ttl = ttl.as_secs();

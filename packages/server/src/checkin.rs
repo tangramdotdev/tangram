@@ -187,7 +187,11 @@ impl Server {
 		let (fixup_task, fixup_sender) = if arg.options.destructive {
 			let (sender, receiver) = std::sync::mpsc::channel();
 			let task = tokio::task::spawn_blocking(move || Self::checkin_fixup_task(&receiver))
-				.map(|result| result.unwrap());
+				.map(|result| {
+					result
+						.map_err(|source| tg::error!(!source, "the fixup task panicked"))
+						.and_then(|x| x)
+				});
 			(Some(task), Some(sender))
 		} else {
 			(None, None)
@@ -218,7 +222,7 @@ impl Server {
 			}
 		})
 		.await
-		.unwrap()?;
+		.map_err(|source| tg::error!(!source, "the checkin input task panicked"))??;
 		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
 		// Solve.
@@ -415,7 +419,7 @@ impl Server {
 			Ok::<_, tg::Error>((output, ignorer))
 		})
 		.await
-		.unwrap()?;
+		.map_err(|source| tg::error!(!source, "the checkin root task panicked"))??;
 		Ok(output)
 	}
 

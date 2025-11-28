@@ -304,7 +304,7 @@ impl Server {
 		})
 		.wait()
 		.await
-		.unwrap();
+		.map_err(|source| tg::error!(!source, "the checkout task panicked"))?;
 
 		// Delete the partially constructed output if checkout failed.
 		if let Err(error) = result {

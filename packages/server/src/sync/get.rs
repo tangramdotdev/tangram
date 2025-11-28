@@ -209,7 +209,10 @@ impl Server {
 
 		// Stop and await the progress task.
 		progress_task.stop();
-		progress_task.wait().await.unwrap();
+		progress_task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the progress task panicked"))?;
 
 		Ok(())
 	}

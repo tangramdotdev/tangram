@@ -49,7 +49,7 @@ impl Server {
 
 		// Stop and await the compiler.
 		compiler.stop();
-		compiler.wait().await.unwrap();
+		compiler.wait().await?;
 
 		Ok(output)
 	}

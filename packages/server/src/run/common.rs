@@ -66,7 +66,9 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	// Stop and await the serve task.
 	if let Some((task, _)) = serve_task {
 		task.stop();
-		task.wait().await.unwrap();
+		task.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
 	}
 
 	// Create the output.
@@ -343,7 +345,9 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	signal_task.abort();
 
 	// Await the stdio task.
-	stdio_task.await.unwrap()?;
+	stdio_task
+		.await
+		.map_err(|source| tg::error!(!source, "the stdio task panicked"))??;
 
 	Ok(exit)
 }
@@ -548,7 +552,9 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	signal_task.abort();
 
 	// Await the stdio task.
-	stdio_task.await.unwrap()?;
+	stdio_task
+		.await
+		.map_err(|source| tg::error!(!source, "the stdio task panicked"))??;
 
 	Ok(exit)
 }
@@ -633,10 +639,10 @@ where
 	// Join the tasks.
 	let (stdout, stderr) = future::join(stdout.wait(), stderr.wait()).await;
 	stdout
-		.unwrap()
+		.map_err(|source| tg::error!(!source, "the stdout task panicked"))?
 		.map_err(|source| tg::error!(!source, "failed to read stdout from pipe"))?;
 	stderr
-		.unwrap()
+		.map_err(|source| tg::error!(!source, "the stderr task panicked"))?
 		.map_err(|source| tg::error!(!source, "failed to read stderr from pipe"))?;
 
 	// Abort the stdin task.

@@ -88,7 +88,10 @@ impl Server {
 		});
 
 		// Await the task and get the output.
-		let output = match task.await.unwrap() {
+		let output = match task
+			.await
+			.map_err(|source| tg::error!(!source, "the task panicked"))?
+		{
 			Ok(output) => super::Output {
 				checksum: output.checksum,
 				error: output.error,

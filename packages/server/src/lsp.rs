@@ -34,7 +34,7 @@ impl Server {
 		let compiler = self.create_compiler();
 		compiler.serve(input, output).await?;
 		compiler.stop();
-		compiler.wait().await.unwrap();
+		compiler.wait().await?;
 		Ok(())
 	}
 }

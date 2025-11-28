@@ -136,8 +136,11 @@ impl Handle {
 		self.task.stop();
 	}
 
-	pub async fn wait(&self) -> Result<(), Arc<tokio::task::JoinError>> {
-		self.task.wait().await
+	pub async fn wait(&self) -> tg::Result<()> {
+		self.task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the compiler task panicked"))
 	}
 }
 

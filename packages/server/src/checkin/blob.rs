@@ -45,7 +45,7 @@ impl Server {
 					}
 				})
 				.await
-				.unwrap()?;
+				.map_err(|source| tg::error!(!source, "the blob task panicked"))??;
 				Ok::<_, tg::Error>((index, blob))
 			})
 			.buffer_unordered(CONCURRENCY)

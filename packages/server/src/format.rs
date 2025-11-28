@@ -44,7 +44,7 @@ impl Server {
 			move || server.format_inner(&path, &mut ignore)
 		})
 		.await
-		.unwrap()?;
+		.map_err(|source| tg::error!(!source, "the format task panicked"))??;
 
 		Ok(())
 	}

@@ -62,7 +62,7 @@ impl Server {
 				Ok(Some(tg::pty::Event::Chunk(bytes)))
 			})
 			.await
-			.unwrap()
+			.map_err(|source| tg::error!(!source, "the pty read task panicked"))?
 			.map_err(|source| tg::error!(!source, "failed to read the pty"))?
 			else {
 				return Ok::<_, tg::Error>(None);
