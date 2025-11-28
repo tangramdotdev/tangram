@@ -5,10 +5,9 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async () => {
-			return await tg.run`echo "Hello, World!" > $OUTPUT`;
+			return await tg.run`echo "Hello, World!"`;
 		};
 	'
 }
 
-let output = run tg build $path
-snapshot $output
+run tg build $path

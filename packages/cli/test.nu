@@ -7,9 +7,10 @@ export use std assert
 const path = path self '../../'
 
 def main [
-	--jobs (-j): int # The number of concurrent tests to run.
 	--review (-r) # Review snapshots.
+	--jobs (-j): int # The number of concurrent tests to run.
 	--print-output # Print the output of passing tests.
+	--timeout: duration = 10sec # The timeout for each test.
 	filter: string = '.*' # Filter tests.
 ] {
 	# Add the debug build to the path.
@@ -50,11 +51,12 @@ def main [
 
 			# Run the test.
 			let start = date now
+			let timeout = $timeout | into int | $in / 1_000_000_000
 			let output = with-env {
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TMPDIR: $temp_path,
-			} { open /dev/null | nu $test.path o+e>| complete }
+			} { open /dev/null | timeout $timeout nu $test.path o+e>| complete }
 			let end = date now
 			let duration = $end - $start
 
