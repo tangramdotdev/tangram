@@ -47,23 +47,30 @@ where
 		.ok_or_else(|| tg::error!("expected the executable to be set"))?;
 	let mut builder = tg::Command::builder(host, executable);
 	builder = builder.args(arg.args);
-	let cwd = std::env::current_dir()
-		.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-	let cwd = arg.cwd.unwrap_or(cwd);
+	let cwd = if let Some(command) = &command {
+		if command.cwd.is_some() {
+			let cwd = std::env::current_dir()
+				.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+			Some(cwd)
+		} else {
+			None
+		}
+	} else {
+		let cwd = std::env::current_dir()
+			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+		Some(cwd)
+	};
+	let cwd = arg.cwd.or(cwd);
 	builder = builder.cwd(cwd);
-	let mut env = BTreeMap::new();
-	for (key, value) in std::env::vars() {
-		env.insert(key, value.into());
-	}
+	let mut env = if let Some(command) = &command {
+		command.env.clone()
+	} else {
+		std::env::vars()
+			.map(|(key, value)| (key, value.into()))
+			.collect()
+	};
 	env.remove("TANGRAM_PROCESS");
 	env.remove("TANGRAM_URL");
-	for (key, value) in arg.env.clone() {
-		if let Ok(mutation) = value.try_unwrap_mutation_ref() {
-			mutation.apply(&mut env, &key)?;
-		} else {
-			env.insert(key, value);
-		}
-	}
 	builder = builder.env(env);
 	let mut command_mounts = vec![];
 	let mut process_mounts = vec![];

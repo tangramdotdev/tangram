@@ -39,11 +39,15 @@ export function run(...args: any): any {
 
 async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	let cwd =
-		tg.Process.current === undefined ||
-		(await tg.Process.current.cwd()) !== undefined
-			? tg.process.cwd
-			: undefined;
-	let env = { ...tg.process.env };
+		tg.Process.current !== undefined
+			? (await tg.Process.current.cwd()) !== undefined
+				? tg.process.cwd
+				: undefined
+			: tg.process.cwd;
+	let env =
+		tg.Process.current !== undefined
+			? await tg.Process.current.env()
+			: { ...tg.process.env };
 	delete env.TANGRAM_PROCESS;
 	delete env.TANGRAM_URL;
 	let arg = await arg_(

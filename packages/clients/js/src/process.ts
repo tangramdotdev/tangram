@@ -76,7 +76,7 @@ export class Process {
 	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
 		let env = await (await this.command()).env();
 		if (name === undefined) {
-			return env;
+			return { ...env };
 		} else {
 			return env[name];
 		}
