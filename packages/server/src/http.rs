@@ -57,9 +57,10 @@ impl Server {
 		// Create the service.
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.layer(tower_http::timeout::TimeoutLayer::new(Duration::from_secs(
-				60,
-			)))
+			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
+				http::StatusCode::REQUEST_TIMEOUT,
+				Duration::from_secs(60),
+			))
 			.add_extension(stop.clone())
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
 			.layer(
