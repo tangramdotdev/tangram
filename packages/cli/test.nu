@@ -253,7 +253,7 @@ export def artifact [artifact] {
 					chmod +x $path
 				}
 				for pair in (($artifact.xattrs? | default {}) | transpose key value) {
-					xattr -w $pair.key $pair.value $path
+					xattr-write $pair.key $pair.value $path
 				}
 			}
 			'symlink' => {
@@ -418,11 +418,8 @@ def snapshot_path [path: string] {
 	} else if $type == 'file' {
 		let contents = open $path
 		let executable = ls -l $path | first | get mode | str contains 'x'
-		let xattrs = xattr $path | lines | where { |name| $name starts-with 'user.tangram' }
-		let xattrs = $xattrs | reduce -f {} { |name, xattrs|
-			let value = xattr -p $name $path | str trim
-			$xattrs | insert $name $value
-		}
+		let names = xattr-list $path | where { |name| $name starts-with 'user.tangram' }
+		let xattrs = $names | reduce -f {} { |name, acc| $acc | insert $name (xattr-read $name $path) }
 		mut output = { kind: 'file', contents: $contents }
 		if $executable {
 			$output.executable = true
@@ -548,5 +545,26 @@ export def --env failure [
 			},
 			help: $output.stderr,
 		}
+	}
+}
+
+def xattr-list [path: string] {
+	match $nu.os-info.name {
+		'macos' => { xattr $path | lines }
+		'linux' => { getfattr -m '.' $path | complete | get stdout | lines | where { |l| not ($l starts-with '#') and $l != '' } }
+	}
+}
+
+def xattr-read [name: string, path: string] {
+	match $nu.os-info.name {
+		'macos' => { xattr -p $name $path | str trim }
+		'linux' => { getfattr -n $name --only-values $path | str trim }
+	}
+}
+
+def xattr-write [name: string, value: string, path: string] {
+	match $nu.os-info.name {
+		'macos' => { xattr -w $name $value $path }
+		'linux' => { setfattr -n $name -v $value $path }
 	}
 }
