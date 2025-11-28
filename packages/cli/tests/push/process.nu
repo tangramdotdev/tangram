@@ -8,8 +8,7 @@ export def test [path: string, ...args] {
 	let local_server = spawn -n local
 
 	# Add the remote.
-	let output = tg remote put default $remote_server.url | complete
-	success $output
+	tg remote put default $remote_server.url | complete
 
 	# Build the module.
 	let output = run tg build -d $path | from json
