@@ -216,8 +216,8 @@ impl ArtifactExecutable {
 
 impl ModuleExecutable {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		if let tg::module::data::Item::Object(object) = &self.module.referent.item {
-			children.insert(object.clone());
+		if let tg::module::data::Item::Edge(edge) = &self.module.referent.item {
+			edge.children(children);
 		}
 	}
 }

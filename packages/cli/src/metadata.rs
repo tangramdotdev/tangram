@@ -17,25 +17,25 @@ impl Cli {
 		let referent = self.get_reference(&args.reference).await?;
 		let item = referent
 			.item
-			.map_left(|process| process.id().clone())
-			.map_right(|object| object.id().clone());
+			.map_left(|object| object.id().clone())
+			.map_right(|process| process.id().clone());
 
 		match item {
-			Either::Left(process) => {
-				let args = crate::process::metadata::Args {
-					process,
-					print: args.print,
-					remote: None,
-				};
-				self.command_process_metadata(args).await?;
-			},
-			Either::Right(object) => {
+			Either::Left(object) => {
 				let args = crate::object::metadata::Args {
 					object,
 					print: args.print,
 					remote: None,
 				};
 				self.command_object_metadata(args).await?;
+			},
+			Either::Right(process) => {
+				let args = crate::process::metadata::Args {
+					process,
+					print: args.print,
+					remote: None,
+				};
+				self.command_process_metadata(args).await?;
 			},
 		}
 

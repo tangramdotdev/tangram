@@ -57,7 +57,7 @@ pub struct State {
 	cache_path: PathBuf,
 
 	/// The checkin tasks.
-	checkin_tasks: tangram_futures::task::Map<PathBuf, (), fnv::FnvBuildHasher>,
+	checkin_tasks: tangram_futures::task::Map<PathBuf, (), (), fnv::FnvBuildHasher>,
 
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
@@ -761,7 +761,8 @@ impl Compiler {
 					.ok_or_else(|| tg::error!("expected a directory"))?;
 				directory.get(&self.handle, &path).await?.id().into()
 			};
-			let item = tg::module::data::Item::Object(object);
+			let edge = tg::graph::data::Edge::Object(object);
+			let item = tg::module::data::Item::Edge(edge);
 			let options = if path.as_os_str().is_empty() {
 				tg::referent::Options::default()
 			} else {
@@ -879,7 +880,8 @@ impl Compiler {
 			let tag = tg::Tag::new(tag_components.join("/"));
 
 			// Create the referent.
-			let item = tg::module::data::Item::Object(object);
+			let edge = tg::graph::data::Edge::Object(object);
+			let item = tg::module::data::Item::Edge(edge);
 			let path = if relative_path.as_os_str().is_empty() {
 				None
 			} else {
@@ -963,24 +965,31 @@ impl Compiler {
 			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Object(object),
+						item: tg::module::data::Item::Edge(edge),
 						options,
 					},
 				..
 			} => {
-				// Cache the artifact.
+				let artifact = match edge {
+					tg::graph::data::Edge::Reference(reference) => {
+						let reference = tg::graph::Reference::try_from_data(reference.clone())?;
+						let artifact = tg::Artifact::with_reference(reference);
+						artifact.store(&self.handle).await?
+					},
+					tg::graph::data::Edge::Object(object) => object
+						.clone()
+						.try_into()
+						.map_err(|_| tg::error!("expected an artifact"))?,
+				};
 				let artifact = if let Some(id) = &options.id {
 					id.clone()
 						.try_into()
 						.map_err(|_| tg::error!("expected an artifact"))?
 				} else {
-					object
-						.clone()
-						.try_into()
-						.map_err(|_| tg::error!("expected an artifact"))?
+					artifact
 				};
 				let arg = tg::cache::Arg {
-					artifacts: vec![artifact],
+					artifacts: vec![artifact.clone()],
 				};
 				self.handle
 					.cache(arg)
@@ -1050,7 +1059,7 @@ impl Compiler {
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
 					self.cache_path.join(id.to_string()).join(path)
 				} else {
-					self.cache_path.join(object.to_string())
+					self.cache_path.join(artifact.to_string())
 				};
 
 				let uri = format!("file://{}", path.display()).parse().unwrap();

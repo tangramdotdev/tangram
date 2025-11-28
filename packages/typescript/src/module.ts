@@ -6,9 +6,18 @@ export type Module = {
 };
 
 type Referent = {
-	item: string;
+	item: Item;
 	options?: Options;
 };
+
+type Item = string | Id | Reference;
+
+type Reference = {
+	graph: Id;
+	node: number;
+};
+
+type Id = string;
 
 type Options = {
 	id?: string;

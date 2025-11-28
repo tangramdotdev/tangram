@@ -95,7 +95,10 @@ impl Command {
 	}
 
 	pub fn unload(&self) {
-		self.state.write().unwrap().object.take();
+		let mut state = self.state.write().unwrap();
+		if state.stored {
+			state.object.take();
+		}
 	}
 
 	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>

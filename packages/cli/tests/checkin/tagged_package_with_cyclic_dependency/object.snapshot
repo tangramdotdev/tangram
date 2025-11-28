@@ -4,7 +4,7 @@ tg.directory({
     "dependencies": {
       "a": {
         "item": tg.directory({
-          "foo.tg.ts": tg.file({
+          "foo.tg.ts": {
             "graph": tg.graph({
               "nodes": [
                 {
@@ -13,7 +13,8 @@ tg.directory({
                   "dependencies": {
                     "./tangram.ts": {
                       "item": {
-                        "node": 1,
+                        "index": 1,
+                        "kind": "file",
                       },
                       "path": "tangram.ts",
                     },
@@ -25,7 +26,8 @@ tg.directory({
                   "dependencies": {
                     "./foo.tg.ts": {
                       "item": {
-                        "node": 0,
+                        "index": 0,
+                        "kind": "file",
                       },
                       "path": "foo.tg.ts",
                     },
@@ -33,9 +35,10 @@ tg.directory({
                 },
               ],
             }),
-            "node": 0,
-          }),
-          "tangram.ts": tg.file({
+            "index": 0,
+            "kind": "file",
+          },
+          "tangram.ts": {
             "graph": tg.graph({
               "nodes": [
                 {
@@ -44,7 +47,8 @@ tg.directory({
                   "dependencies": {
                     "./tangram.ts": {
                       "item": {
-                        "node": 1,
+                        "index": 1,
+                        "kind": "file",
                       },
                       "path": "tangram.ts",
                     },
@@ -56,7 +60,8 @@ tg.directory({
                   "dependencies": {
                     "./foo.tg.ts": {
                       "item": {
-                        "node": 0,
+                        "index": 0,
+                        "kind": "file",
                       },
                       "path": "foo.tg.ts",
                     },
@@ -64,10 +69,11 @@ tg.directory({
                 },
               ],
             }),
-            "node": 1,
-          }),
+            "index": 1,
+            "kind": "file",
+          },
         }),
-        "id": "dir_01xd5yz3zne6k2bw4pe5nvadbpv2y41gmer7777m30xx8qx54czaz0",
+        "id": "dir_01k7kmkdhgmtdgkd7pw32gneznxe31fbmt7e21668z7rgd534hc4sg",
         "tag": "a",
       },
     },

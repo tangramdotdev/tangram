@@ -1,7 +1,6 @@
 use {
 	super::{Builder, Data, Id, Object},
 	crate::prelude::*,
-	futures::{TryStreamExt, stream::FuturesUnordered},
 	std::{collections::BTreeMap, path::Path, sync::Arc},
 };
 
@@ -91,7 +90,10 @@ impl Directory {
 	}
 
 	pub fn unload(&self) {
-		self.state.write().unwrap().object.take();
+		let mut state = self.state.write().unwrap();
+		if state.stored {
+			state.object.take();
+		}
 	}
 
 	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
@@ -123,17 +125,22 @@ impl Directory {
 	pub fn with_entries(entries: BTreeMap<String, tg::Artifact>) -> Self {
 		let entries = entries
 			.into_iter()
-			.map(|(name, artifact)| (name, tg::graph::object::Edge::Object(artifact)))
+			.map(|(name, artifact)| (name, tg::graph::Edge::Object(artifact)))
 			.collect();
 		Self::with_object(Object::Node(tg::directory::object::Node { entries }))
 	}
 
 	#[must_use]
-	pub fn with_graph_and_node(graph: tg::Graph, node: usize) -> Self {
-		Self::with_object(Object::Reference(tg::graph::object::Reference {
-			graph: Some(graph),
-			node,
-		}))
+	pub fn with_reference(reference: tg::graph::Reference) -> Self {
+		Self::with_object(Object::Reference(reference))
+	}
+
+	#[must_use]
+	pub fn with_edge(edge: tg::graph::Edge<Self>) -> Self {
+		match edge {
+			tg::graph::Edge::Reference(reference) => Self::with_reference(reference),
+			tg::graph::Edge::Object(directory) => directory,
+		}
 	}
 
 	pub async fn builder<H>(&self, handle: &H) -> tg::Result<Builder>
@@ -153,11 +160,11 @@ impl Directory {
 		let entries = match object.as_ref() {
 			Object::Reference(object) => {
 				let graph = object.graph.as_ref().unwrap();
-				let node = object.node;
+				let index = object.index;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(node)
+					.get(index)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let directory = node
 					.try_unwrap_directory_ref()
@@ -166,97 +173,97 @@ impl Directory {
 				directory
 					.entries
 					.iter()
-					.map(async |(name, edge)| {
+					.map(|(name, edge)| {
 						let artifact = match edge {
-							tg::graph::object::Edge::Reference(reference) => {
-								let (graph, object) = if let Some(graph) = &reference.graph {
-									let graph = graph.clone();
-									let object = graph.object(handle).await?;
-									(graph, object)
-								} else {
-									(graph.clone(), object.clone())
-								};
-								let kind = object
-									.nodes
-									.get(reference.node)
-									.ok_or_else(|| tg::error!("invalid index"))?
-									.kind();
-								match kind {
-									tg::artifact::Kind::Directory => {
-										tg::Directory::with_graph_and_node(graph, reference.node)
-											.into()
-									},
-									tg::artifact::Kind::File => {
-										tg::File::with_graph_and_node(graph, reference.node).into()
-									},
-									tg::artifact::Kind::Symlink => {
-										tg::Symlink::with_graph_and_node(graph, reference.node)
-											.into()
-									},
-								}
+							tg::graph::Edge::Reference(reference) => {
+								let graph =
+									reference.graph.clone().unwrap_or_else(|| graph.clone());
+								tg::Artifact::with_reference(tg::graph::Reference {
+									graph: Some(graph),
+									index: reference.index,
+									kind: reference.kind,
+								})
 							},
-							tg::graph::object::Edge::Object(object) => object.clone(),
+							tg::graph::Edge::Object(object) => object.clone(),
 						};
 						Ok::<_, tg::Error>((name.clone(), artifact))
 					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?
+					.collect::<tg::Result<_>>()?
 			},
-			Object::Node(node) => {
-				node.entries
-					.clone()
-					.into_iter()
-					.map(async |(name, edge)| {
-						let artifact = match edge {
-							tg::graph::object::Edge::Reference(reference) => {
-								let graph =
-									reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
-								let object = graph.object(handle).await?;
-								let kind = object
-									.nodes
-									.get(reference.node)
-									.ok_or_else(|| tg::error!("invalid index"))?
-									.kind();
-								match kind {
-									tg::artifact::Kind::Directory => {
-										tg::Directory::with_graph_and_node(graph, reference.node)
-											.into()
-									},
-									tg::artifact::Kind::File => {
-										tg::File::with_graph_and_node(graph, reference.node).into()
-									},
-									tg::artifact::Kind::Symlink => {
-										tg::Symlink::with_graph_and_node(graph, reference.node)
-											.into()
-									},
-								}
-							},
-							tg::graph::object::Edge::Object(object) => object,
-						};
-						Ok::<_, tg::Error>((name, artifact))
-					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?
-			},
+			Object::Node(node) => node
+				.entries
+				.clone()
+				.into_iter()
+				.map(|(name, edge)| {
+					let artifact = match edge {
+						tg::graph::Edge::Reference(reference) => {
+							let graph =
+								reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
+							tg::Artifact::with_reference(tg::graph::Reference {
+								graph: Some(graph),
+								index: reference.index,
+								kind: reference.kind,
+							})
+						},
+						tg::graph::Edge::Object(object) => object,
+					};
+					Ok::<_, tg::Error>((name, artifact))
+				})
+				.collect::<tg::Result<_>>()?,
 		};
 		Ok(entries)
+	}
+
+	pub async fn get_entry<H>(&self, handle: &H, name: &str) -> tg::Result<tg::Artifact>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_entry(handle, name)
+			.await?
+			.ok_or_else(|| tg::error!("expected the entry to exist"))
 	}
 
 	pub async fn try_get_entry<H>(&self, handle: &H, name: &str) -> tg::Result<Option<tg::Artifact>>
 	where
 		H: tg::Handle,
 	{
+		let Some(edge) = self.try_get_entry_edge(handle, name).await? else {
+			return Ok(None);
+		};
+		let artifact = tg::Artifact::with_edge(edge);
+		Ok(Some(artifact))
+	}
+
+	pub async fn get_entry_edge<H>(
+		&self,
+		handle: &H,
+		name: &str,
+	) -> tg::Result<tg::graph::Edge<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_entry_edge(handle, name)
+			.await?
+			.ok_or_else(|| tg::error!("expected the entry to exist"))
+	}
+
+	pub async fn try_get_entry_edge<H>(
+		&self,
+		handle: &H,
+		name: &str,
+	) -> tg::Result<Option<tg::graph::Edge<tg::Artifact>>>
+	where
+		H: tg::Handle,
+	{
 		let object = self.object(handle).await?;
-		let artifact = match object.as_ref() {
+		let edge = match object.as_ref() {
 			Object::Reference(object) => {
 				let graph = object.graph.as_ref().unwrap();
-				let node = object.node;
+				let index = object.index;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
-					.get(node)
+					.get(index)
 					.ok_or_else(|| tg::error!("invalid index"))?;
 				let directory = node
 					.try_unwrap_directory_ref()
@@ -264,62 +271,33 @@ impl Directory {
 					.ok_or_else(|| tg::error!("expected a directory"))?;
 				match directory.entries.get(name) {
 					None => None,
-					Some(tg::graph::object::Edge::Reference(reference)) => {
-						let (graph, object) = if let Some(graph) = &reference.graph {
-							let graph = graph.clone();
-							let object = graph.object(handle).await?;
-							(graph, object)
-						} else {
-							(graph.clone(), object.clone())
-						};
-						let kind = object
-							.nodes
-							.get(reference.node)
-							.ok_or_else(|| tg::error!("invalid index"))?
-							.kind();
-						let artifact = match kind {
-							tg::artifact::Kind::Directory => {
-								tg::Directory::with_graph_and_node(graph, reference.node).into()
-							},
-							tg::artifact::Kind::File => {
-								tg::File::with_graph_and_node(graph, reference.node).into()
-							},
-							tg::artifact::Kind::Symlink => {
-								tg::Symlink::with_graph_and_node(graph, reference.node).into()
-							},
-						};
-						Some(artifact)
+					Some(tg::graph::Edge::Reference(reference)) => {
+						let graph = reference.graph.clone().unwrap_or_else(|| graph.clone());
+						Some(tg::graph::Edge::Reference(tg::graph::Reference {
+							graph: Some(graph),
+							index: reference.index,
+							kind: reference.kind,
+						}))
 					},
-					Some(tg::graph::object::Edge::Object(object)) => Some(object.clone()),
+					Some(tg::graph::Edge::Object(object)) => {
+						Some(tg::graph::Edge::Object(object.clone()))
+					},
 				}
 			},
 			Object::Node(node) => match node.entries.get(name).cloned() {
 				None => None,
-				Some(tg::graph::object::Edge::Reference(reference)) => {
+				Some(tg::graph::Edge::Reference(reference)) => {
 					let graph = reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
-					let object = graph.object(handle).await?;
-					let kind = object
-						.nodes
-						.get(reference.node)
-						.ok_or_else(|| tg::error!("invalid index"))?
-						.kind();
-					let artifact = match kind {
-						tg::artifact::Kind::Directory => {
-							tg::Directory::with_graph_and_node(graph, reference.node).into()
-						},
-						tg::artifact::Kind::File => {
-							tg::File::with_graph_and_node(graph, reference.node).into()
-						},
-						tg::artifact::Kind::Symlink => {
-							tg::Symlink::with_graph_and_node(graph, reference.node).into()
-						},
-					};
-					Some(artifact)
+					Some(tg::graph::Edge::Reference(tg::graph::Reference {
+						graph: Some(graph),
+						index: reference.index,
+						kind: reference.kind,
+					}))
 				},
-				Some(tg::graph::object::Edge::Object(object)) => Some(object),
+				Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
 			},
 		};
-		Ok(artifact)
+		Ok(edge)
 	}
 
 	pub async fn get<H>(&self, handle: &H, path: impl AsRef<Path>) -> tg::Result<tg::Artifact>

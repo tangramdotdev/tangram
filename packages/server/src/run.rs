@@ -136,7 +136,7 @@ impl Server {
 			let mut objects = BTreeSet::new();
 			output.children(&mut objects);
 			let arg = tg::push::Arg {
-				items: objects.into_iter().map(Either::Right).collect(),
+				items: objects.into_iter().map(Either::Left).collect(),
 				remote: Some(remote.to_owned()),
 				..Default::default()
 			};

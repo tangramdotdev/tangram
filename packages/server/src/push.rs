@@ -44,7 +44,7 @@ impl Server {
 	{
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
-		if arg.items.iter().any(Either::is_left) {
+		if arg.items.iter().any(Either::is_right) {
 			progress.start(
 				"processes".to_owned(),
 				"processes".to_owned(),
@@ -127,7 +127,17 @@ impl Server {
 				async move {
 					loop {
 						match item {
-							Either::Left(process) => {
+							Either::Left(object) => {
+								let metadata_arg = tg::object::metadata::Arg::default();
+								let metadata = src
+									.try_get_object_metadata(object, metadata_arg)
+									.await?
+									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+								if metadata.count.is_some() && metadata.weight.is_some() {
+									break Ok::<_, tg::Error>(Either::Left(metadata));
+								}
+							},
+							Either::Right(process) => {
 								let metadata_arg = tg::process::metadata::Arg::default();
 								let Some(metadata) = src
 									.try_get_process_metadata(process, metadata_arg)
@@ -164,16 +174,6 @@ impl Server {
 									}
 								}
 								if complete {
-									break Ok::<_, tg::Error>(Either::Left(metadata));
-								}
-							},
-							Either::Right(object) => {
-								let metadata_arg = tg::object::metadata::Arg::default();
-								let metadata = src
-									.try_get_object_metadata(object, metadata_arg)
-									.await?
-									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-								if metadata.count.is_some() && metadata.weight.is_some() {
 									break Ok::<_, tg::Error>(Either::Right(metadata));
 								}
 							},
@@ -189,6 +189,14 @@ impl Server {
 		while let Some(Ok(metadata)) = metadata_futures.next().await {
 			match metadata {
 				Either::Left(metadata) => {
+					if let Some(count) = metadata.count {
+						*objects.get_or_insert(0) += count;
+					}
+					if let Some(weight) = metadata.weight {
+						*bytes.get_or_insert(0) += weight;
+					}
+				},
+				Either::Right(metadata) => {
 					if arg.recursive {
 						if let Some(children_count) = metadata.children.count {
 							*processes.get_or_insert(0) += children_count;
@@ -226,14 +234,6 @@ impl Server {
 								*bytes.get_or_insert(0) += output_weight;
 							}
 						}
-					}
-				},
-				Either::Right(metadata) => {
-					if let Some(count) = metadata.count {
-						*objects.get_or_insert(0) += count;
-					}
-					if let Some(weight) = metadata.weight {
-						*bytes.get_or_insert(0) += weight;
 					}
 				},
 			}

@@ -186,6 +186,12 @@ export class Command<
 		return this.#state.object!;
 	}
 
+	unload(): void {
+		if (this.#state.stored) {
+			this.#state.object = undefined;
+		}
+	}
+
 	async store(): Promise<tg.Command.Id> {
 		await tg.Value.store(this);
 		return this.id;

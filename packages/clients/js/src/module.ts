@@ -19,13 +19,15 @@ export namespace Module {
 		| "graph"
 		| "command";
 
-	export type Item = string | tg.Object;
+	export type Item = string | tg.Graph.Edge<tg.Object>;
 
 	export let toData = (value: tg.Module): tg.Module.Data => {
 		return {
 			kind: value.kind,
 			referent: tg.Referent.toData(value.referent, (item) =>
-				typeof item === "string" ? item : item.id,
+				typeof item === "string"
+					? item
+					: tg.Graph.Edge.toDataString(item, (object) => object.id),
 			),
 		};
 	};
@@ -34,10 +36,13 @@ export namespace Module {
 		return {
 			kind: data.kind,
 			referent: tg.Referent.fromData(data.referent, (item) => {
-				if (item.startsWith(".") || item.startsWith("/")) {
+				if (
+					typeof item === "string" &&
+					(item.startsWith(".") || item.startsWith("/"))
+				) {
 					return item;
 				} else {
-					return tg.Object.withId(item);
+					return tg.Graph.Edge.fromData(item, tg.Object.withId);
 				}
 			}),
 		};
@@ -45,7 +50,15 @@ export namespace Module {
 
 	export let toDataString = (value: tg.Module): string => {
 		let item = value.referent.item;
-		let string = item.toString();
+		let string: string;
+		if (
+			typeof item === "string" &&
+			(item.startsWith(".") || item.startsWith("/"))
+		) {
+			string = item;
+		} else {
+			string = tg.Graph.Edge.toDataString(item, (id) => id.toString());
+		}
 		let params = [];
 		if (value.referent.options?.artifact !== undefined) {
 			params.push(
@@ -72,8 +85,17 @@ export namespace Module {
 
 	export let fromDataString = (data: string): tg.Module => {
 		let [itemString, params] = data.split("?");
+		tg.assert(itemString !== undefined);
 		let kind: tg.Module.Kind | undefined;
-		let item = tg.Object.withId(itemString!);
+		let item: tg.Module.Item;
+		if (
+			typeof itemString === "string" &&
+			(itemString.startsWith(".") || itemString.startsWith("/"))
+		) {
+			item = itemString;
+		} else {
+			item = tg.Graph.Edge.fromDataString(itemString, tg.Object.withId);
+		}
 		let options: tg.Referent.Data.Options = {};
 		if (params !== undefined) {
 			for (let param of params.split("&")) {
@@ -125,7 +147,7 @@ export namespace Module {
 
 	export let children = (value: Module): Array<tg.Object> => {
 		if (typeof value.referent.item !== "string") {
-			return [value.referent.item];
+			return tg.Graph.Edge.children(value.referent.item);
 		} else {
 			return [];
 		}
@@ -133,6 +155,6 @@ export namespace Module {
 
 	export type Data = {
 		kind: Module.Kind;
-		referent: tg.Referent.Data<tg.Object.Id>;
+		referent: tg.Referent.Data<tg.Graph.Data.Edge<tg.Object.Id>>;
 	};
 }

@@ -10,20 +10,20 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-const PROCESS_BATCH_SIZE: usize = 16;
-const PROCESS_CONCURRENCY: usize = 8;
 const OBJECT_BATCH_SIZE: usize = 16;
 const OBJECT_CONCURRENCY: usize = 8;
+const PROCESS_BATCH_SIZE: usize = 16;
+const PROCESS_CONCURRENCY: usize = 8;
 
 const INDEX_MESSAGE_MAX_BYTES: usize = 1_000_000;
 
-pub struct ProcessItem {
-	pub id: tg::process::Id,
+pub struct ObjectItem {
+	pub id: tg::object::Id,
 	pub missing: bool,
 }
 
-pub struct ObjectItem {
-	pub id: tg::object::Id,
+pub struct ProcessItem {
+	pub id: tg::process::Id,
 	pub missing: bool,
 }
 
@@ -31,19 +31,9 @@ impl Server {
 	pub(super) async fn sync_get_index(
 		&self,
 		state: Arc<State>,
-		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 		index_object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
+		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
-		// Create the processes future.
-		let processes_future = ReceiverStream::new(index_process_receiver)
-			.ready_chunks(PROCESS_BATCH_SIZE)
-			.map(Ok)
-			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
-				let server = self.clone();
-				let state = state.clone();
-				async move { server.sync_get_index_process_batch(&state, items).await }
-			});
-
 		// Create the objects future.
 		let objects_future = ReceiverStream::new(index_object_receiver)
 			.ready_chunks(OBJECT_BATCH_SIZE)
@@ -54,70 +44,18 @@ impl Server {
 				async move { server.sync_get_index_object_batch(&state, items).await }
 			});
 
-		// Join the processes and objects futures.
-		futures::try_join!(processes_future, objects_future)?;
+		// Create the processes future.
+		let processes_future = ReceiverStream::new(index_process_receiver)
+			.ready_chunks(PROCESS_BATCH_SIZE)
+			.map(Ok)
+			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
+				let server = self.clone();
+				let state = state.clone();
+				async move { server.sync_get_index_process_batch(&state, items).await }
+			});
 
-		Ok(())
-	}
-
-	pub(super) async fn sync_get_index_process_batch(
-		&self,
-		state: &State,
-		items: Vec<ProcessItem>,
-	) -> tg::Result<()> {
-		// Get the ids.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
-
-		// Touch the processes and get complete and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let outputs = self
-			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
-			.await?;
-
-		for (item, output) in std::iter::zip(items, outputs) {
-			// Update the graph.
-			state.graph.lock().unwrap().update_process(
-				&item.id,
-				None,
-				output.as_ref().map(|(complete, _)| complete.clone()),
-				output.as_ref().map(|(_, metadata)| metadata.clone()),
-				None,
-			);
-
-			// If the process is partially complete, then send a complete message.
-			if let Some(complete) = output.as_ref().map(|(complete, _)| complete) {
-				let message = tg::sync::GetMessage::Complete(
-					tg::sync::GetCompleteMessage::Process(tg::sync::GetCompleteProcessMessage {
-						command_complete: complete.command,
-						children_commands_complete: complete.children_commands,
-						children_complete: complete.children,
-						id: item.id.clone(),
-						output_complete: complete.output,
-						children_outputs_complete: complete.children_outputs,
-					}),
-				);
-				state
-					.sender
-					.send(Ok(message))
-					.await
-					.map_err(|source| tg::error!(!source, "failed to send the complete message"))?;
-			}
-
-			if item.missing {
-				// If the process is not stored, then error.
-				let Some((complete, _)) = output else {
-					return Err(tg::error!(id = %item.id, "failed to find the process"));
-				};
-
-				// Enqueue the children as necessary.
-				let data = self
-					.try_get_process_local(&item.id)
-					.await?
-					.ok_or_else(|| tg::error!("expected the process to exist"))?
-					.data;
-				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&complete));
-			}
-		}
+		// Join the objects and processes futures.
+		futures::try_join!(objects_future, processes_future)?;
 
 		Ok(())
 	}
@@ -178,6 +116,68 @@ impl Server {
 					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
 					Self::sync_get_enqueue_object_children(state, &item.id, &data, None);
 				}
+			}
+		}
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_process_batch(
+		&self,
+		state: &State,
+		items: Vec<ProcessItem>,
+	) -> tg::Result<()> {
+		// Get the ids.
+		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+
+		// Touch the processes and get complete and metadata.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let outputs = self
+			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
+			.await?;
+
+		for (item, output) in std::iter::zip(items, outputs) {
+			// Update the graph.
+			state.graph.lock().unwrap().update_process(
+				&item.id,
+				None,
+				output.as_ref().map(|(complete, _)| complete.clone()),
+				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				None,
+			);
+
+			// If the process is partially complete, then send a complete message.
+			if let Some(complete) = output.as_ref().map(|(complete, _)| complete) {
+				let message = tg::sync::GetMessage::Complete(
+					tg::sync::GetCompleteMessage::Process(tg::sync::GetCompleteProcessMessage {
+						command_complete: complete.command,
+						children_commands_complete: complete.children_commands,
+						children_complete: complete.children,
+						id: item.id.clone(),
+						output_complete: complete.output,
+						children_outputs_complete: complete.children_outputs,
+					}),
+				);
+				state
+					.sender
+					.send(Ok(message))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to send the complete message"))?;
+			}
+
+			if item.missing {
+				// If the process is not stored, then error.
+				let Some((complete, _)) = output else {
+					return Err(tg::error!(id = %item.id, "failed to find the process"));
+				};
+
+				// Enqueue the children as necessary.
+				let data = self
+					.try_get_process_local(&item.id)
+					.await?
+					.ok_or_else(|| tg::error!("expected the process to exist"))?
+					.data;
+				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&complete));
 			}
 		}
 

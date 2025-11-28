@@ -48,10 +48,31 @@ pub enum Edge<T> {
 	Object(T),
 }
 
+impl From<Edge<tg::Artifact>> for Edge<tg::Object> {
+	fn from(value: Edge<tg::Artifact>) -> Self {
+		match value {
+			Edge::Reference(reference) => Self::Reference(reference),
+			Edge::Object(artifact) => Self::Object(artifact.into()),
+		}
+	}
+}
+
+impl TryFrom<Edge<tg::Object>> for Edge<tg::Artifact> {
+	type Error = tg::Error;
+
+	fn try_from(value: Edge<tg::Object>) -> tg::Result<Self> {
+		match value {
+			Edge::Reference(reference) => Ok(Self::Reference(reference)),
+			Edge::Object(object) => Ok(Self::Object(object.try_into()?)),
+		}
+	}
+}
+
 #[derive(Clone, Debug)]
 pub struct Reference {
 	pub graph: Option<tg::Graph>,
-	pub node: usize,
+	pub index: usize,
+	pub kind: tg::artifact::Kind,
 }
 
 impl Graph {
@@ -141,7 +162,7 @@ impl Directory {
 			.into_iter()
 			.map(|(name, edge)| Ok((name, Edge::try_from_data(edge)?)))
 			.collect::<tg::Result<_>>()?;
-		let directory = tg::graph::object::Directory { entries };
+		let directory = tg::graph::Directory { entries };
 		Ok(directory)
 	}
 
@@ -191,7 +212,7 @@ impl File {
 			})
 			.collect::<tg::Result<_>>()?;
 		let executable = data.executable;
-		let file = tg::graph::object::File {
+		let file = tg::graph::File {
 			contents,
 			dependencies,
 			executable,
@@ -222,7 +243,7 @@ impl Symlink {
 	pub fn try_from_data(data: tg::graph::data::Symlink) -> tg::Result<Self> {
 		let artifact = data.artifact.map(Edge::try_from_data).transpose()?;
 		let path = data.path;
-		let symlink = tg::graph::object::Symlink { artifact, path };
+		let symlink = tg::graph::Symlink { artifact, path };
 		Ok(symlink)
 	}
 
@@ -236,13 +257,14 @@ impl Edge<tg::Object> {
 	#[must_use]
 	pub fn to_data(&self) -> tg::graph::data::Edge<tg::object::Id> {
 		match self {
-			tg::graph::object::Edge::Reference(reference) => {
+			tg::graph::Edge::Reference(reference) => {
 				tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 					graph: reference.graph.as_ref().map(tg::Graph::id),
-					node: reference.node,
+					index: reference.index,
+					kind: reference.kind,
 				})
 			},
-			tg::graph::object::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
+			tg::graph::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
 		}
 	}
 }
@@ -251,13 +273,14 @@ impl Edge<tg::Artifact> {
 	#[must_use]
 	pub fn to_data_artifact(&self) -> tg::graph::data::Edge<tg::artifact::Id> {
 		match self {
-			tg::graph::object::Edge::Reference(reference) => {
+			tg::graph::Edge::Reference(reference) => {
 				tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 					graph: reference.graph.as_ref().map(tg::Graph::id),
-					node: reference.node,
+					index: reference.index,
+					kind: reference.kind,
 				})
 			},
-			tg::graph::object::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
+			tg::graph::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
 		}
 	}
 }
@@ -301,15 +324,16 @@ impl Reference {
 	#[must_use]
 	pub fn to_data(&self) -> tg::graph::data::Reference {
 		let graph = self.graph.as_ref().map(tg::Graph::id);
-		let node = self.node;
-		tg::graph::data::Reference { graph, node }
+		let index = self.index;
+		let kind = self.kind;
+		tg::graph::data::Reference { graph, index, kind }
 	}
 
 	pub fn try_from_data(data: tg::graph::data::Reference) -> tg::Result<Self> {
 		let graph = data.graph.map(tg::Graph::with_id);
-		let node = data.node;
-		let reference = tg::graph::object::Reference { graph, node };
-		Ok(reference)
+		let index = data.index;
+		let kind = data.kind;
+		Ok(Self { graph, index, kind })
 	}
 
 	#[must_use]
@@ -324,7 +348,7 @@ impl Reference {
 		self.graph
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing graph"))?
-			.get(handle, self.node)
+			.get(handle, self.index)
 			.await
 	}
 }
@@ -362,7 +386,7 @@ impl std::fmt::Display for Reference {
 		if let Some(graph) = &self.graph {
 			write!(f, "graph={graph}&")?;
 		}
-		write!(f, "node={}", self.node)?;
+		write!(f, "index={}&kind={}", self.index, self.kind)?;
 		Ok(())
 	}
 }
@@ -377,11 +401,16 @@ impl std::str::FromStr for Reference {
 			.map(|s| s.parse())
 			.transpose()?
 			.map(tg::Graph::with_id);
-		let node = value
-			.get("node")
-			.ok_or_else(|| tg::error!("missing node"))?
+		let index = value
+			.get("index")
+			.ok_or_else(|| tg::error!("missing index"))?
 			.parse()
 			.map_err(|_| tg::error!("expected a number"))?;
-		Ok(Self { graph, node })
+		let kind = value
+			.get("kind")
+			.ok_or_else(|| tg::error!("missing kind"))?
+			.parse()
+			.map_err(|source| tg::error!(!source, "invalid kind"))?;
+		Ok(Self { graph, index, kind })
 	}
 }

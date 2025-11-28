@@ -16,7 +16,14 @@ impl Cli {
 	pub async fn command_children(&mut self, args: Args) -> tg::Result<()> {
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
-			Either::Left(process) => {
+			Either::Left(object) => {
+				let args = crate::object::children::Args {
+					object: object.id(),
+					print: args.print,
+				};
+				self.command_object_children(args).await?;
+			},
+			Either::Right(process) => {
 				let args = crate::process::children::Args {
 					length: None,
 					position: None,
@@ -26,13 +33,6 @@ impl Cli {
 					size: None,
 				};
 				self.command_process_children(args).await?;
-			},
-			Either::Right(object) => {
-				let args = crate::object::children::Args {
-					object: object.id(),
-					print: args.print,
-				};
-				self.command_object_children(args).await?;
 			},
 		}
 		Ok(())

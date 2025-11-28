@@ -173,7 +173,7 @@ impl Reference {
 	pub async fn get<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>>
+	) -> tg::Result<tg::Referent<Either<tg::Object, tg::Process>>>
 	where
 		H: tg::Handle,
 	{

@@ -22,6 +22,7 @@ pub struct Graph {
 pub struct Node {
 	pub artifact: Option<tg::artifact::Id>,
 	pub complete: bool,
+	pub edge: Option<tg::graph::data::Edge<tg::object::Id>>,
 	pub id: Option<tg::object::Id>,
 	pub lock_node: Option<usize>,
 	pub metadata: Option<tg::object::Metadata>,
@@ -53,11 +54,12 @@ impl Graph {
 
 			// Remove the node.
 			let node = self.nodes.remove(&index).unwrap();
-			tracing::trace!(path = ?node.path, artifact = ?node.artifact, id = ?node.id.as_ref().map(ToString::to_string), "cleaned");
+			tracing::trace!(path = ?node.path, artifact = ?node.artifact, edge = ?node.edge.as_ref().map(ToString::to_string), "cleaned");
 			if let Some(artifact) = &node.artifact {
 				self.artifacts.remove(artifact).unwrap();
 			}
-			if let Some(id) = &node.id
+			if let Some(edge) = &node.edge
+				&& let Some(id) = edge.try_unwrap_object_ref().ok()
 				&& let Some(nodes) = self.ids.get_mut(id)
 			{
 				nodes.retain(|i| *i != index);
@@ -130,7 +132,7 @@ impl Node {
 					if let Ok(reference) = edge.try_unwrap_reference_ref()
 						&& reference.graph.is_none()
 					{
-						children.push(reference.node);
+						children.push(reference.index);
 					}
 				}
 			},
@@ -139,7 +141,7 @@ impl Node {
 					if let Ok(reference) = referent.item.try_unwrap_reference_ref()
 						&& reference.graph.is_none()
 					{
-						children.push(reference.node);
+						children.push(reference.index);
 					}
 				}
 			},
@@ -148,7 +150,7 @@ impl Node {
 					&& let Ok(reference) = edge.try_unwrap_reference_ref()
 					&& reference.graph.is_none()
 				{
-					children.push(reference.node);
+					children.push(reference.index);
 				}
 			},
 		}
@@ -163,6 +165,17 @@ pub enum Variant {
 	Directory(Directory),
 	File(File),
 	Symlink(Symlink),
+}
+
+impl Variant {
+	#[must_use]
+	pub fn kind(&self) -> tg::artifact::Kind {
+		match self {
+			Self::Directory(_) => tg::artifact::Kind::Directory,
+			Self::File(_) => tg::artifact::Kind::File,
+			Self::Symlink(_) => tg::artifact::Kind::Symlink,
+		}
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -233,8 +246,8 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 				.filter_map(move |edge| {
 					edge.try_unwrap_reference_ref()
 						.ok()
-						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
-						.filter(|&node| node >= next)
+						.and_then(|reference| reference.graph.is_none().then_some(reference.index))
+						.filter(|&index| index >= next)
 				})
 				.boxed(),
 			Variant::File(file) => file
@@ -246,10 +259,10 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 						.map(|referent| &referent.item)
 						.and_then(|edge| {
 							edge.try_unwrap_reference_ref().ok().and_then(|reference| {
-								reference.graph.is_none().then_some(reference.node)
+								reference.graph.is_none().then_some(reference.index)
 							})
 						})
-						.filter(|&node| node >= next)
+						.filter(|&index| index >= next)
 				})
 				.boxed(),
 			Variant::Symlink(symlink) => symlink
@@ -258,8 +271,8 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 				.filter_map(move |edge| {
 					edge.try_unwrap_reference_ref()
 						.ok()
-						.and_then(|reference| reference.graph.is_none().then_some(reference.node))
-						.filter(|&node| node >= next)
+						.and_then(|reference| reference.graph.is_none().then_some(reference.index))
+						.filter(|&index| index >= next)
 				})
 				.boxed(),
 		}

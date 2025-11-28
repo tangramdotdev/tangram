@@ -18,7 +18,8 @@ let artifact = artifact {
 			});
 			return tg.directory({
 				graph,
-				node: 0
+				index: 0,
+				kind: "directory"
 			});
 		}
 	'

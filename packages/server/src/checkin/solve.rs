@@ -190,16 +190,18 @@ impl Server {
 								checkpoint,
 								&item,
 								graph_id,
-								reference.node,
+								reference.index,
 							)
 							.await?;
+						let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
 						let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
 						match &item.variant {
 							ItemVariant::DirectoryEntry(name) => {
 								let edge =
 									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 										graph: None,
-										node: index,
+										index,
+										kind,
 									});
 								*node
 									.variant
@@ -212,7 +214,8 @@ impl Server {
 								let edge =
 									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 										graph: None,
-										node: index,
+										index,
+										kind,
 									});
 								node.variant
 									.unwrap_file_mut()
@@ -226,7 +229,8 @@ impl Server {
 								let edge =
 									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 										graph: None,
-										node: index,
+										index,
+										kind,
 									});
 								*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() =
 									edge;
@@ -241,7 +245,7 @@ impl Server {
 							.push(item.node);
 						Some(index)
 					} else {
-						Some(reference.node)
+						Some(reference.index)
 					}
 				},
 				tg::graph::data::Edge::Object(id) => {
@@ -254,13 +258,15 @@ impl Server {
 						None
 					};
 					if let Some(index) = index {
+						let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
 						let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
 						match &item.variant {
 							ItemVariant::DirectoryEntry(name) => {
 								let edge =
 									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 										graph: None,
-										node: index,
+										index,
+										kind,
 									});
 								*node
 									.variant
@@ -273,7 +279,8 @@ impl Server {
 								let edge =
 									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 										graph: None,
-										node: index,
+										index,
+										kind,
 									});
 								node.variant
 									.unwrap_file_mut()
@@ -287,7 +294,8 @@ impl Server {
 								let edge =
 									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 										graph: None,
-										node: index,
+										index,
+										kind,
 									});
 								*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() =
 									edge;
@@ -376,6 +384,13 @@ impl Server {
 				state.checkpoints.push(checkpoint.clone());
 
 				// Create the edge.
+				let kind = checkpoint
+					.graph
+					.nodes
+					.get(&referent.item)
+					.unwrap()
+					.variant
+					.kind();
 				checkpoint
 					.graph
 					.nodes
@@ -390,7 +405,8 @@ impl Server {
 					.replace(referent.clone().map(|item| {
 						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 							graph: None,
-							node: item,
+							index: item,
+							kind,
 						})
 					}));
 				checkpoint
@@ -615,7 +631,7 @@ impl Server {
 			.data
 			.into_iter()
 			.filter_map(|output| {
-				let object = output.item?.right()?;
+				let object = output.item?.left()?;
 				let node = None;
 				let tag = output.tag;
 				let candidate = Candidate { node, object, tag };
@@ -648,7 +664,7 @@ impl Server {
 					return Err(tg::error!("invalid artifact"));
 				};
 				return self
-					.checkin_solve_add_graph_node(checkpoint, item, &graph, reference.node)
+					.checkin_solve_add_graph_node(checkpoint, item, &graph, reference.index)
 					.await;
 			},
 			tg::artifact::Data::Directory(tg::directory::Data::Node(directory)) => {
@@ -701,9 +717,10 @@ impl Server {
 		let node = Node {
 			artifact: None,
 			complete: false,
+			edge: None,
+			id: None,
 			lock_node,
 			metadata: None,
-			id: None,
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
@@ -762,7 +779,8 @@ impl Server {
 							let graph = reference.graph.clone().or_else(|| Some(graph_id.clone()));
 							tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 								graph,
-								node: reference.node,
+								index: reference.index,
+								kind: reference.kind,
 							})
 						},
 						tg::graph::data::Edge::Object(id) => {
@@ -808,7 +826,8 @@ impl Server {
 									reference.graph.clone().or_else(|| Some(graph_id.clone()));
 								tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 									graph,
-									node: reference.node,
+									index: reference.index,
+									kind: reference.kind,
 								})
 							},
 							tg::graph::data::Edge::Object(id) => {
@@ -831,7 +850,8 @@ impl Server {
 						let graph = reference.graph.clone().or_else(|| Some(graph_id.clone()));
 						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 							graph,
-							node: reference.node,
+							index: reference.index,
+							kind: reference.kind,
 						})
 					},
 					tg::graph::data::Edge::Object(id) => tg::graph::data::Edge::Object(id.clone()),
@@ -846,9 +866,10 @@ impl Server {
 		let node = Node {
 			artifact: None,
 			complete: false,
+			edge: None,
+			id: None,
 			lock_node,
 			metadata: None,
-			id: None,
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
@@ -883,7 +904,7 @@ impl Server {
 					.get(name)?
 					.try_unwrap_reference_ref()
 					.ok()?
-					.node,
+					.index,
 			),
 			ItemVariant::FileDependency(reference) => Some(
 				parent_node
@@ -895,7 +916,7 @@ impl Server {
 					.item()
 					.try_unwrap_reference_ref()
 					.ok()?
-					.node,
+					.index,
 			),
 			ItemVariant::SymlinkArtifact => Some(
 				parent_node
@@ -905,7 +926,7 @@ impl Server {
 					.as_ref()?
 					.try_unwrap_reference_ref()
 					.ok()?
-					.node,
+					.index,
 			),
 		}
 	}
@@ -1044,7 +1065,7 @@ impl Server {
 							if reference.graph.is_some() {
 								return None;
 							}
-							(reference.node == current).then_some(name.clone())
+							(reference.index == current).then_some(name.clone())
 						})
 						.unwrap();
 					components.push(name);
@@ -1059,7 +1080,7 @@ impl Server {
 							if reference.graph.is_some() {
 								return None;
 							}
-							(reference.node == current).then_some(referent)
+							(reference.index == current).then_some(referent)
 						})
 						.unwrap();
 

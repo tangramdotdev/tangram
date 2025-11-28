@@ -9,13 +9,13 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-pub struct ProcessItem {
-	pub id: tg::process::Id,
+pub struct ObjectItem {
+	pub id: tg::object::Id,
 	pub bytes: Bytes,
 }
 
-pub struct ObjectItem {
-	pub id: tg::object::Id,
+pub struct ProcessItem {
+	pub id: tg::process::Id,
 	pub bytes: Bytes,
 }
 
@@ -23,53 +23,13 @@ impl Server {
 	pub(super) async fn sync_get_store(
 		&self,
 		state: &State,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
+		let objects_future = async { self.sync_get_store_objects(state, object_receiver).await };
 		let processes_future =
 			async { self.sync_get_store_processes(state, process_receiver).await };
-		let objects_future = async { self.sync_get_store_objects(state, object_receiver).await };
-		future::try_join(processes_future, objects_future).await?;
-		Ok(())
-	}
-
-	async fn sync_get_store_processes(
-		&self,
-		state: &State,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
-	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(process_receiver);
-		let mut stream = pin!(stream);
-		while let Some(item) = stream.next().await {
-			let id = &item.id;
-			let data = serde_json::from_slice(&item.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the process data"))?;
-			let arg = tg::process::put::Arg { data };
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			match &self.database {
-				#[cfg(feature = "postgres")]
-				Database::Postgres(database) => {
-					Self::put_process_postgres(id, &arg, database, now)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
-				},
-				Database::Sqlite(database) => {
-					Self::put_process_sqlite(id, &arg, database, now)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
-				},
-			}
-			let data = serde_json::from_slice(&item.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the process"))?;
-			state.graph.lock().unwrap().update_process(
-				&item.id,
-				Some(&data),
-				None,
-				None,
-				Some(true),
-			);
-			state.progress.increment_processes();
-		}
+		future::try_join(objects_future, processes_future).await?;
 		Ok(())
 	}
 
@@ -176,6 +136,46 @@ impl Server {
 		state.progress.increment_objects(objects);
 		state.progress.increment_bytes(bytes);
 
+		Ok(())
+	}
+
+	async fn sync_get_store_processes(
+		&self,
+		state: &State,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
+	) -> tg::Result<()> {
+		let stream = ReceiverStream::new(process_receiver);
+		let mut stream = pin!(stream);
+		while let Some(item) = stream.next().await {
+			let id = &item.id;
+			let data = serde_json::from_slice(&item.bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the process data"))?;
+			let arg = tg::process::put::Arg { data };
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			match &self.database {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(database) => {
+					Self::put_process_postgres(id, &arg, database, now)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+				},
+				Database::Sqlite(database) => {
+					Self::put_process_sqlite(id, &arg, database, now)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+				},
+			}
+			let data = serde_json::from_slice(&item.bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the process"))?;
+			state.graph.lock().unwrap().update_process(
+				&item.id,
+				Some(&data),
+				None,
+				None,
+				Some(true),
+			);
+			state.progress.increment_processes();
+		}
 		Ok(())
 	}
 }

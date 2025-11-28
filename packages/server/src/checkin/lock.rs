@@ -262,9 +262,9 @@ impl Server {
 						entries.insert(name.clone(), edge.clone());
 						if let Ok(reference) = edge.try_unwrap_reference_ref()
 							&& reference.graph.is_none()
-							&& !visited.contains(&reference.node)
+							&& !visited.contains(&reference.index)
 						{
-							children.push(reference.node);
+							children.push(reference.index);
 						}
 					}
 					let data = tg::graph::data::Directory { entries };
@@ -280,9 +280,9 @@ impl Server {
 							&& let Ok(edge_reference) =
 								referent_value.item.try_unwrap_reference_ref()
 							&& edge_reference.graph.is_none()
-							&& !visited.contains(&edge_reference.node)
+							&& !visited.contains(&edge_reference.index)
 						{
-							children.push(edge_reference.node);
+							children.push(edge_reference.index);
 						}
 					}
 					let data = tg::graph::data::File {
@@ -298,9 +298,9 @@ impl Server {
 					if let Some(edge) = &symlink.artifact
 						&& let Ok(reference) = edge.try_unwrap_reference_ref()
 						&& reference.graph.is_none()
-						&& !visited.contains(&reference.node)
+						&& !visited.contains(&reference.index)
 					{
-						children.push(reference.node);
+						children.push(reference.index);
 					}
 					let data = tg::graph::data::Symlink {
 						artifact: symlink.artifact.clone(),
@@ -326,9 +326,9 @@ impl Server {
 					for edge in directory.entries.values_mut() {
 						if let tg::graph::data::Edge::Reference(reference) = edge
 							&& reference.graph.is_none()
-							&& let Some(lock_index) = mapping.get(&reference.node)
+							&& let Some(lock_index) = mapping.get(&reference.index)
 						{
-							reference.node = *lock_index;
+							reference.index = *lock_index;
 						}
 					}
 				},
@@ -337,18 +337,18 @@ impl Server {
 						if let tg::graph::data::Edge::Reference(reference) =
 							&mut referent_value.item
 							&& reference.graph.is_none()
-							&& let Some(lock_index) = mapping.get(&reference.node)
+							&& let Some(lock_index) = mapping.get(&reference.index)
 						{
-							reference.node = *lock_index;
+							reference.index = *lock_index;
 						}
 					}
 				},
 				tg::graph::data::Node::Symlink(symlink) => {
 					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
 						&& reference.graph.is_none()
-						&& let Some(lock_index) = mapping.get(&reference.node)
+						&& let Some(lock_index) = mapping.get(&reference.index)
 					{
-						reference.node = *lock_index;
+						reference.index = *lock_index;
 					}
 				},
 			}
@@ -375,7 +375,7 @@ impl Server {
 							.entries
 							.values()
 							.filter_map(|edge| edge.try_unwrap_reference_ref().ok())
-							.any(|reference| marks[reference.node]),
+							.any(|reference| marks[reference.index]),
 						tg::graph::data::Node::File(file) => {
 							file.dependencies.iter().any(|(reference, referent)| {
 								let Some(referent) = referent else {
@@ -384,7 +384,7 @@ impl Server {
 								let Ok(item) = referent.item().try_unwrap_reference_ref() else {
 									return false;
 								};
-								marks[item.node]
+								marks[item.index]
 									|| (reference.is_solvable()
 										&& (referent.id().is_some() || referent.tag().is_some()))
 							})
@@ -393,7 +393,7 @@ impl Server {
 							.artifact
 							.as_ref()
 							.and_then(|edge| edge.try_unwrap_reference_ref().ok())
-							.is_some_and(|reference| marks[reference.node]),
+							.is_some_and(|reference| marks[reference.index]),
 					}
 			});
 			if marked {
@@ -419,12 +419,12 @@ impl Server {
 				tg::graph::data::Node::Directory(directory) => {
 					// Remove unmarked entries.
 					directory.entries.retain(|_name, edge| match edge {
-						tg::graph::data::Edge::Reference(reference) => marks[reference.node],
+						tg::graph::data::Edge::Reference(reference) => marks[reference.index],
 						tg::graph::data::Edge::Object(_) => true,
 					});
 					for edge in directory.entries.values_mut() {
 						if let tg::graph::data::Edge::Reference(reference) = edge {
-							reference.node = map.get(&reference.node).copied().unwrap();
+							reference.index = map.get(&reference.index).copied().unwrap();
 						}
 					}
 				},
@@ -437,7 +437,7 @@ impl Server {
 						let Ok(item) = referent.item().try_unwrap_reference_ref() else {
 							return false;
 						};
-						marks[item.node]
+						marks[item.index]
 							|| (reference.is_solvable()
 								&& (referent.id().is_some() || referent.tag().is_some()))
 					});
@@ -450,10 +450,10 @@ impl Server {
 						let tg::graph::data::Edge::Reference(reference) = &mut referent.item else {
 							continue;
 						};
-						if marks[reference.node] {
-							reference.node = map.get(&reference.node).copied().unwrap();
+						if marks[reference.index] {
+							reference.index = map.get(&reference.index).copied().unwrap();
 						} else {
-							let id = ids[reference.node].clone();
+							let id = ids[reference.index].clone();
 							referent.item = tg::graph::data::Edge::Object(id);
 						}
 					}
@@ -461,7 +461,7 @@ impl Server {
 				tg::graph::data::Node::Symlink(symlink) => {
 					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
 					{
-						reference.node = map.get(&reference.node).copied().unwrap();
+						reference.index = map.get(&reference.index).copied().unwrap();
 					}
 				},
 			}
@@ -512,7 +512,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.filter_map(|edge| {
 					edge.try_unwrap_reference_ref()
 						.ok()
-						.map(|reference| reference.node)
+						.map(|reference| reference.index)
 				})
 				.boxed(),
 			tg::graph::data::Node::File(file) => file
@@ -524,7 +524,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 						.item
 						.try_unwrap_reference_ref()
 						.ok()
-						.map(|reference| reference.node)
+						.map(|reference| reference.index)
 				})
 				.boxed(),
 			tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, .. }) => artifact
@@ -532,7 +532,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.filter_map(|edge| {
 					edge.try_unwrap_reference_ref()
 						.ok()
-						.map(|reference| reference.node)
+						.map(|reference| reference.index)
 				})
 				.boxed(),
 		}

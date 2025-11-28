@@ -72,7 +72,7 @@ impl Cli {
 		let referent = self
 			.get_reference(&reference)
 			.await?
-			.try_map(|item| item.right().ok_or_else(|| tg::error!("expected an object")))?;
+			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
 
 		// Create the state.
 		let mut state = State::default();
@@ -108,7 +108,7 @@ impl Cli {
 		// Collect all the local items.
 		let mut items = tags
 			.iter()
-			.map(|(_, id)| Either::Right(id.clone()))
+			.map(|(_, id)| Either::Left(id.clone()))
 			.collect::<Vec<_>>();
 
 		// Execute the plan.
@@ -132,7 +132,7 @@ impl Cli {
 				item.referent.item = artifact.id().into();
 			}
 			if item.push {
-				items.push(Either::Right(item.referent.item.clone()));
+				items.push(Either::Left(item.referent.item.clone()));
 				tags.push((item.tag.clone(), item.referent.item.clone()));
 			}
 			handle
@@ -140,7 +140,7 @@ impl Cli {
 					&item.tag,
 					tg::tag::put::Arg {
 						force: true,
-						item: Either::Right(item.referent.item().clone()),
+						item: Either::Left(item.referent.item().clone()),
 						remote: None,
 					},
 				)
@@ -178,7 +178,7 @@ impl Cli {
 			.into_iter()
 			.map(|(tag, item)| tg::tag::post::Item {
 				tag,
-				item: Either::Right(item),
+				item: Either::Left(item),
 				force: false,
 			})
 			.collect::<Vec<_>>();
@@ -244,7 +244,9 @@ async fn try_get_package_tag(
 	};
 
 	// Create a module for the item.
-	let referent = tg::Referent::with_item(tg::module::Item::Object(object));
+	let item = tg::graph::Edge::Object(object);
+	let item = tg::module::Item::Edge(item);
+	let referent = tg::Referent::with_item(item);
 	let module = tg::Module { kind, referent };
 	let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
 		module,

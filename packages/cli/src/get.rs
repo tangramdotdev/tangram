@@ -23,20 +23,12 @@ impl Cli {
 	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
 		let referent = self.get_reference(&args.reference).await?;
 		let referent = referent.map(|item| {
-			item.map_left(|process| process.id().clone())
-				.map_right(|object| object.id().clone())
+			item.map_left(|object| object.id().clone())
+				.map_right(|process| process.id().clone())
 		});
 		Self::print_info_message(&referent.to_string());
 		match referent.item {
-			Either::Left(process) => {
-				let args = crate::process::get::Args {
-					print: args.print,
-					process,
-					remote: args.remote,
-				};
-				self.command_process_get(args).await?;
-			},
-			Either::Right(object) => {
+			Either::Left(object) => {
 				let args = crate::object::get::Args {
 					bytes: args.bytes,
 					object,
@@ -44,6 +36,14 @@ impl Cli {
 					remote: args.remote,
 				};
 				self.command_object_get(args).await?;
+			},
+			Either::Right(process) => {
+				let args = crate::process::get::Args {
+					print: args.print,
+					process,
+					remote: args.remote,
+				};
+				self.command_process_get(args).await?;
 			},
 		}
 		Ok(())

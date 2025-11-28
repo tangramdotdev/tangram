@@ -44,15 +44,19 @@ impl Store {
 		Some(cache_reference)
 	}
 
-	pub fn try_get_object_data(&self, id: &tg::object::Id) -> tg::Result<Option<tg::object::Data>> {
+	pub fn try_get_object_data(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		let Some(entry) = self.0.get(id) else {
 			return Ok(None);
 		};
 		let Some(bytes) = &entry.bytes else {
 			return Ok(None);
 		};
+		let size = bytes.len().to_u64().unwrap();
 		let data = tg::object::Data::deserialize(id.kind(), bytes.as_ref())?;
-		Ok(Some(data))
+		Ok(Some((size, data)))
 	}
 }
 

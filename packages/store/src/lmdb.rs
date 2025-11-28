@@ -126,7 +126,7 @@ impl Store {
 	pub fn try_get_object_data_sync(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Data>> {
+	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		let transaction = self.env.read_txn().unwrap();
 		let kind = id.kind();
 		let id = id.to_bytes();
@@ -138,8 +138,9 @@ impl Store {
 		else {
 			return Ok(None);
 		};
+		let size = bytes.len().to_u64().unwrap();
 		let data = tg::object::Data::deserialize(kind, bytes)?;
-		Ok(Some(data))
+		Ok(Some((size, data)))
 	}
 
 	pub fn try_get_cache_reference_sync(

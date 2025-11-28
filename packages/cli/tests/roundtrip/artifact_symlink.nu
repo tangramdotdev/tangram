@@ -2,33 +2,25 @@ use ../../test.nu *
 
 let server = spawn
 
-let path = artifact {
-	.tangram: (directory {
-		artifacts: (directory {
-			dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg: (directory {})
-		})
-	})
-	link: (symlink '.tangram/artifacts/dir_01ds3dt46yzjdndgmtdv2ppm4c47tmr20s46ae9qs5qwvf1je3r9wg')
+let artifact = artifact {
+	tangram.ts: '
+		export default () => {
+			const directory = tg.directory({});
+			return tg.directory({
+				directory: directory,
+				link: tg.symlink({ artifact: directory }),
+			});
+		}
+	'
 }
+let id = run tg build $artifact
 
-# Checkin.
-let first_id = run tg checkin $path
+let tmp = mktemp -d
+let path = $tmp | path join "checkout"
+run tg checkout --dependencies=true $id $path
 
-# Checkout.
-let temp_dir = mktemp -d
-let checkout_path1 = $temp_dir | path join "checkout1"
-run tg checkout $first_id $checkout_path1
+run tg clean
 
-# Clean.
-let output =  tg clean | complete
-success $output
+let left = run tg checkin $path
 
-# Checkin again.
-let second_id = run tg checkin $checkout_path1
-
-# Checkout again.
-let checkout_path2 = $temp_dir | path join "checkout2"
-run tg checkout $second_id $checkout_path2
-
-# Verify IDs match.
-assert equal $first_id $second_id
+assert equal $left $id

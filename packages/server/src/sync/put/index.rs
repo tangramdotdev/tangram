@@ -6,17 +6,17 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-const PROCESS_BATCH_SIZE: usize = 16;
-const PROCESS_CONCURRENCY: usize = 8;
 const OBJECT_BATCH_SIZE: usize = 16;
 const OBJECT_CONCURRENCY: usize = 8;
-
-pub struct ProcessItem {
-	pub id: tg::process::Id,
-}
+const PROCESS_BATCH_SIZE: usize = 16;
+const PROCESS_CONCURRENCY: usize = 8;
 
 pub struct ObjectItem {
 	pub id: tg::object::Id,
+}
+
+pub struct ProcessItem {
+	pub id: tg::process::Id,
 }
 
 impl Server {
@@ -24,19 +24,9 @@ impl Server {
 	pub(super) async fn sync_put_index(
 		&self,
 		state: Arc<State>,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
-		// Create the processes future.
-		let processes_future = ReceiverStream::new(process_receiver)
-			.ready_chunks(PROCESS_BATCH_SIZE)
-			.map(Ok)
-			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
-				let server = self.clone();
-				let state = state.clone();
-				async move { server.sync_put_index_process_batch(&state, items).await }
-			});
-
 		// Create the objects future.
 		let objects_future = ReceiverStream::new(object_receiver)
 			.ready_chunks(OBJECT_BATCH_SIZE)
@@ -47,9 +37,41 @@ impl Server {
 				async move { server.sync_put_index_object_batch(&state, items).await }
 			});
 
-		// Join the processes and objects futures.
-		futures::try_join!(processes_future, objects_future)?;
+		// Create the processes future.
+		let processes_future = ReceiverStream::new(process_receiver)
+			.ready_chunks(PROCESS_BATCH_SIZE)
+			.map(Ok)
+			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
+				let server = self.clone();
+				let state = state.clone();
+				async move { server.sync_put_index_process_batch(&state, items).await }
+			});
 
+		// Join the objects and processes futures.
+		futures::try_join!(objects_future, processes_future)?;
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_put_index_object_batch(
+		&self,
+		state: &State,
+		items: Vec<ObjectItem>,
+	) -> tg::Result<()> {
+		state.queue.decrement(items.len());
+		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
+		let outputs = self
+			.try_get_object_complete_and_metadata_batch(&ids)
+			.await?;
+		for output in outputs {
+			let Some((_, metadata)) = output else {
+				continue;
+			};
+			let processes = 0;
+			let objects = metadata.count.unwrap_or_default();
+			let bytes = metadata.weight.unwrap_or_default();
+			state.progress.increment(processes, objects, bytes);
+		}
 		Ok(())
 	}
 
@@ -109,28 +131,6 @@ impl Server {
 			state
 				.progress
 				.increment(message.processes, message.objects, message.bytes);
-		}
-		Ok(())
-	}
-
-	pub(super) async fn sync_put_index_object_batch(
-		&self,
-		state: &State,
-		items: Vec<ObjectItem>,
-	) -> tg::Result<()> {
-		state.queue.decrement(items.len());
-		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
-		let outputs = self
-			.try_get_object_complete_and_metadata_batch(&ids)
-			.await?;
-		for output in outputs {
-			let Some((_, metadata)) = output else {
-				continue;
-			};
-			let processes = 0;
-			let objects = metadata.count.unwrap_or_default();
-			let bytes = metadata.weight.unwrap_or_default();
-			state.progress.increment(processes, objects, bytes);
 		}
 		Ok(())
 	}

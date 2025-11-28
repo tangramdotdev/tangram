@@ -85,15 +85,7 @@ impl Cli {
 
 	fn print_location_basic(module: &tg::Module, range: &tg::Range) {
 		match &module.referent.item {
-			tg::module::Item::Path(path) => {
-				eprint!(
-					"   {}:{}:{}",
-					path.display(),
-					range.start.line + 1,
-					range.start.character + 1,
-				);
-			},
-			tg::module::Item::Object(_) => {
+			tg::module::Item::Edge(_) => {
 				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
@@ -116,6 +108,15 @@ impl Cli {
 					range.start.character + 1,
 				);
 				eprintln!();
+			},
+
+			tg::module::Item::Path(path) => {
+				eprint!(
+					"   {}:{}:{}",
+					path.display(),
+					range.start.line + 1,
+					range.start.character + 1,
+				);
 			},
 		}
 	}
@@ -221,19 +222,7 @@ impl Cli {
 	async fn print_location(&mut self, location: &tg::Location, message: &str) {
 		let tg::Location { module, range } = location;
 		match &module.referent.item {
-			tg::module::Item::Path(path) => {
-				if true {
-					Self::print_code_path(&path.display().to_string(), range, message, path).await;
-				} else {
-					eprintln!(
-						"   {}:{}:{}",
-						path.display(),
-						location.range.start.line + 1,
-						location.range.start.character + 1,
-					);
-				}
-			},
-			tg::module::Item::Object(object) => {
+			tg::module::Item::Edge(edge) => {
 				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
@@ -251,7 +240,7 @@ impl Cli {
 					write!(title, "<unknown>").unwrap();
 				}
 				if true {
-					self.print_code_object(&title, range, message, &object.id())
+					self.print_code_with_edge(&title, range, message, edge)
 						.await;
 				} else {
 					eprintln!(
@@ -261,10 +250,57 @@ impl Cli {
 					);
 				}
 			},
+
+			tg::module::Item::Path(path) => {
+				if true {
+					Self::print_code_with_path(&path.display().to_string(), range, message, path)
+						.await;
+				} else {
+					eprintln!(
+						"   {}:{}:{}",
+						path.display(),
+						location.range.start.line + 1,
+						location.range.start.character + 1,
+					);
+				}
+			},
 		}
 	}
 
-	async fn print_code_path(title: &str, range: &tg::Range, message: &str, path: &Path) {
+	async fn print_code_with_edge(
+		&mut self,
+		title: &str,
+		range: &tg::Range,
+		message: &str,
+		edge: &tg::graph::Edge<tg::Object>,
+	) {
+		let Ok(handle) = self.handle().await else {
+			return;
+		};
+		let file = match edge {
+			tg::graph::Edge::Reference(reference) => {
+				let Ok(artifact) = reference.get(&handle).await else {
+					return;
+				};
+				let Ok(file) = artifact.try_unwrap_file() else {
+					return;
+				};
+				file
+			},
+			tg::graph::Edge::Object(object) => {
+				let Ok(file) = object.clone().try_unwrap_file() else {
+					return;
+				};
+				file
+			},
+		};
+		let Ok(text) = file.text(&handle).await else {
+			return;
+		};
+		Self::print_code(title, range, message, text);
+	}
+
+	async fn print_code_with_path(title: &str, range: &tg::Range, message: &str, path: &Path) {
 		let Ok(file) = tokio::fs::File::open(path).await else {
 			return;
 		};
@@ -272,25 +308,6 @@ impl Cli {
 		let mut buffer = Vec::new();
 		reader.read_to_end(&mut buffer).await.ok();
 		let Ok(text) = String::from_utf8(buffer) else {
-			return;
-		};
-		Self::print_code(title, range, message, text);
-	}
-
-	async fn print_code_object(
-		&mut self,
-		title: &str,
-		range: &tg::Range,
-		message: &str,
-		object: &tg::object::Id,
-	) {
-		let Ok(handle) = self.handle().await else {
-			return;
-		};
-		let Ok(file) = object.clone().try_unwrap_file() else {
-			return;
-		};
-		let Ok(text) = tg::File::with_id(file).text(&handle).await else {
 			return;
 		};
 		Self::print_code(title, range, message, text);

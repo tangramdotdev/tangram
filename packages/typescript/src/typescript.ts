@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { unreachable } from "./assert.ts";
+import { assert, unreachable } from "./assert.ts";
 import type { Diagnostic, Severity } from "./diagnostics.ts";
 import { log } from "./log.ts";
 import { Module } from "./module.ts";
@@ -226,7 +226,9 @@ let getImportAttributesFromImportExpression = (
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module: Module): string => {
 	if (module.kind === "dts") {
-		return `lib:/${module.referent.item.slice(2)}`;
+		let item = module.referent.item;
+		assert(typeof item === "string");
+		return `lib:/${item.slice(2)}`;
 	}
 	let string = Module.toDataString(module);
 	let extension: string;

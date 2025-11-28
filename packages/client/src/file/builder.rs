@@ -47,7 +47,7 @@ impl Builder {
 				.map(|(reference, referent)| {
 					(
 						reference,
-						referent.map(|referent| referent.map(tg::graph::object::Edge::Object)),
+						referent.map(|referent| referent.map(tg::graph::Edge::Object)),
 					)
 				})
 				.collect(),

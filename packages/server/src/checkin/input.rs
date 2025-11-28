@@ -28,7 +28,7 @@ struct Item {
 }
 
 struct Parent {
-	node: usize,
+	index: usize,
 	variant: ParentVariant,
 }
 
@@ -264,9 +264,10 @@ impl Server {
 		let node = Node {
 			artifact: None,
 			complete: false,
+			edge: None,
+			id: None,
 			lock_node,
 			metadata: None,
-			id: None,
 			path: Some(item.path),
 			path_metadata: Some(metadata),
 			referrers: SmallVec::new(),
@@ -334,7 +335,7 @@ impl Server {
 		// Push items for children onto the stack.
 		for name in names {
 			let parent = Parent {
-				node: index,
+				index,
 				variant: ParentVariant::DirectoryEntry(name.clone()),
 			};
 			let path = state
@@ -391,7 +392,7 @@ impl Server {
 				};
 				if let Some(reference_path) = reference_path {
 					let parent = Parent {
-						node: index,
+						index,
 						variant: ParentVariant::FileDependency(reference.clone()),
 					};
 					let referent = path.parent().unwrap().join(reference_path);
@@ -445,7 +446,7 @@ impl Server {
 				};
 				if let Some(reference_path) = reference_path {
 					let parent = Parent {
-						node: index,
+						index,
 						variant: ParentVariant::FileDependency(reference.clone()),
 					};
 					let referent = path.parent().unwrap().join(reference_path);
@@ -549,7 +550,7 @@ impl Server {
 
 			// Create an item for the artifact.
 			let parent = Parent {
-				node: index,
+				index,
 				variant: ParentVariant::SymlinkArtifact,
 			};
 			let path = artifacts_path.join(artifact.to_string());
@@ -598,24 +599,21 @@ impl Server {
 		parent: Parent,
 		child_index: usize,
 	) -> tg::Result<()> {
-		state
-			.graph
-			.nodes
-			.get_mut(&child_index)
-			.unwrap()
-			.referrers
-			.push(parent.node);
+		let child_node = state.graph.nodes.get_mut(&child_index).unwrap();
+		child_node.referrers.push(parent.index);
+		let kind = child_node.variant.kind();
 		match parent.variant {
 			ParentVariant::DirectoryEntry(name) => {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
 					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 						graph: None,
-						node: child_index,
+						index: child_index,
+						kind,
 					});
 				state
 					.graph
 					.nodes
-					.get_mut(&parent.node)
+					.get_mut(&parent.index)
 					.unwrap()
 					.variant
 					.unwrap_directory_mut()
@@ -627,7 +625,8 @@ impl Server {
 				let edge: tg::graph::data::Edge<tg::object::Id> =
 					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 						graph: None,
-						node: child_index,
+						index: child_index,
+						kind,
 					});
 				let path = state
 					.graph
@@ -640,7 +639,7 @@ impl Server {
 				let parent_path = state
 					.graph
 					.nodes
-					.get(&parent.node)
+					.get(&parent.index)
 					.unwrap()
 					.path
 					.as_ref()
@@ -660,7 +659,7 @@ impl Server {
 				state
 					.graph
 					.nodes
-					.get_mut(&parent.node)
+					.get_mut(&parent.index)
 					.unwrap()
 					.variant
 					.unwrap_file_mut()
@@ -674,12 +673,13 @@ impl Server {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
 					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 						graph: None,
-						node: child_index,
+						index: child_index,
+						kind,
 					});
 				state
 					.graph
 					.nodes
-					.get_mut(&parent.node)
+					.get_mut(&parent.index)
 					.unwrap()
 					.variant
 					.unwrap_symlink_mut()
@@ -697,7 +697,7 @@ impl Server {
 		let Some(parent) = parent else {
 			return if lock.nodes.is_empty() { None } else { Some(0) };
 		};
-		let parent_index = state.graph.nodes.get(&parent.node).unwrap().lock_node?;
+		let parent_index = state.graph.nodes.get(&parent.index).unwrap().lock_node?;
 		let parent_node = &lock.nodes[parent_index];
 		match &parent.variant {
 			ParentVariant::DirectoryEntry(name) => Some(
@@ -708,7 +708,7 @@ impl Server {
 					.get(name)?
 					.try_unwrap_reference_ref()
 					.ok()?
-					.node,
+					.index,
 			),
 			ParentVariant::FileDependency(reference) => Some(
 				parent_node
@@ -720,7 +720,7 @@ impl Server {
 					.item()
 					.try_unwrap_reference_ref()
 					.ok()?
-					.node,
+					.index,
 			),
 			ParentVariant::SymlinkArtifact => Some(
 				parent_node
@@ -730,7 +730,7 @@ impl Server {
 					.as_ref()?
 					.try_unwrap_reference_ref()
 					.ok()?
-					.node,
+					.index,
 			),
 		}
 	}

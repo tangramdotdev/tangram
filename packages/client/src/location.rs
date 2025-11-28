@@ -24,7 +24,7 @@ impl Location {
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
-		let module = data.module.into();
+		let module = data.module.try_into()?;
 		let range = data.range;
 		Ok(Self { module, range })
 	}

@@ -88,10 +88,11 @@ impl Server {
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
 				if !state.graphs.contains_key(graph) {
-					let data = self
+					let (_size, data) = self
 						.store
 						.try_get_object_data_sync(&graph.clone().into())?
-						.ok_or_else(|| tg::error!("failed to load the graph"))?
+						.ok_or_else(|| tg::error!("failed to load the graph"))?;
+					let data = data
 						.try_into()
 						.map_err(|_| tg::error!("expected graph data"))?;
 					state.graphs.insert(graph.clone(), data);
@@ -103,7 +104,7 @@ impl Server {
 					.get(graph)
 					.unwrap()
 					.nodes
-					.get(reference.node)
+					.get(reference.index)
 					.ok_or_else(|| tg::error!("invalid node index"))?;
 
 				// Compute the id.
@@ -132,10 +133,11 @@ impl Server {
 				}
 
 				// Load the object.
-				let data = self
+				let (_size, data) = self
 					.store
 					.try_get_object_data_sync(&id.clone().into())?
-					.ok_or_else(|| tg::error!("failed to load the object"))?
+					.ok_or_else(|| tg::error!("failed to load the object"))?;
+				let data = data
 					.try_into()
 					.map_err(|_| tg::error!("expected artifact data"))?;
 
@@ -198,10 +200,12 @@ impl Server {
 				{
 					reference.graph = graph.cloned();
 				}
-				let node = self.checkout_create_lock_inner(state, &edge)?;
+				let kind = edge.artifact_kind();
+				let index = self.checkout_create_lock_inner(state, &edge)?;
 				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 					graph: None,
-					node,
+					index,
+					kind,
 				});
 				Ok::<_, tg::Error>((name, edge))
 			})
@@ -238,16 +242,18 @@ impl Server {
 						tg::graph::data::Edge::Object(id)
 					},
 				};
-				let node = self.checkout_create_lock_inner(state, &edge)?;
+				let kind = edge.artifact_kind();
+				let index = self.checkout_create_lock_inner(state, &edge)?;
 				let artifact = if state.dependencies {
-					let id = state.ids[node].clone().try_into().unwrap();
+					let id = state.ids[index].clone().try_into().unwrap();
 					Some(id)
 				} else {
 					None
 				};
 				let item = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
 					graph: None,
-					node,
+					index,
+					kind,
 				});
 				let options = tg::referent::Options {
 					artifact,
@@ -282,12 +288,17 @@ impl Server {
 				{
 					reference.graph = graph.cloned();
 				}
-				self.checkout_create_lock_inner(state, &edge)
+				let kind = edge.artifact_kind();
+				let node_index = self.checkout_create_lock_inner(state, &edge)?;
+				Ok::<_, tg::Error>(tg::graph::data::Edge::Reference(
+					tg::graph::data::Reference {
+						graph: None,
+						index: node_index,
+						kind,
+					},
+				))
 			})
-			.transpose()?
-			.map(|node| {
-				tg::graph::data::Edge::Reference(tg::graph::data::Reference { graph: None, node })
-			});
+			.transpose()?;
 		let symlink = tg::graph::data::Symlink {
 			artifact,
 			path: node.path,

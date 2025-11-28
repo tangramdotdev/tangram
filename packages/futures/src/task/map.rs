@@ -3,31 +3,35 @@ use {
 	dashmap::DashMap,
 	futures::{prelude::*, stream::FuturesUnordered},
 	std::{
+		collections::hash_map::RandomState,
 		hash::{BuildHasher, Hash},
 		sync::Arc,
 	},
 };
 
-pub struct Map<K, T, H> {
-	map: Arc<DashMap<K, Shared<T>, H>>,
+pub struct Map<K, T, C = (), H = RandomState> {
+	map: Arc<DashMap<K, Shared<T, C>, H>>,
 }
 
-impl<K, T, H> Map<K, T, H>
+impl<K, T, C, H> Map<K, T, C, H>
 where
 	K: Hash + Eq + Clone + Send + Sync + 'static,
 	T: Clone + Send + Sync + 'static,
+	C: Clone + Send + Sync + 'static,
 	H: BuildHasher + Default + Clone + Send + Sync + 'static,
 {
-	pub fn spawn<F, Fut>(&self, key: K, f: F) -> Shared<T>
+	pub fn spawn_with_context<G, F, Fut>(&self, key: K, context: G, f: F) -> Shared<T, C>
 	where
-		F: FnOnce(Stop) -> Fut,
+		G: FnOnce() -> C,
+		F: FnOnce(C, Stop) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		let map = self.map.clone();
-		let value = Shared::spawn({
+		let context = context();
+		let value = Shared::spawn_with_context(context.clone(), {
 			let key = key.clone();
 			move |stop| {
-				let future = f(stop);
+				let future = f(context, stop);
 				async move {
 					let result = future.await;
 					let id = tokio::task::id();
@@ -40,17 +44,19 @@ where
 		value
 	}
 
-	pub fn get_or_spawn<F, Fut>(&self, key: K, f: F) -> Shared<T>
+	pub fn get_or_spawn_with_context<G, F, Fut>(&self, key: K, context: G, f: F) -> Shared<T, C>
 	where
-		F: FnOnce(Stop) -> Fut,
+		G: FnOnce() -> C,
+		F: FnOnce(C, Stop) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		let map = self.map.clone();
 		self.map
 			.entry(key.clone())
 			.or_insert_with(move || {
-				Shared::spawn(move |stop| {
-					let future = f(stop);
+				let context = context();
+				Shared::spawn_with_context(context.clone(), move |stop| {
+					let future = f(context, stop);
 					async move {
 						let result = future.await;
 						let id = tokio::task::id();
@@ -63,7 +69,7 @@ where
 			.clone()
 	}
 
-	pub fn get_or_spawn_blocking<F>(&self, key: K, f: F) -> Shared<T>
+	pub fn get_or_spawn_blocking_with_context<F>(&self, key: K, context: C, f: F) -> Shared<T, C>
 	where
 		F: FnOnce(Stop) -> T + Send + 'static,
 	{
@@ -71,7 +77,7 @@ where
 		self.map
 			.entry(key.clone())
 			.or_insert_with(move || {
-				Shared::spawn_blocking(move |stop| {
+				Shared::spawn_blocking_with_context(context, move |stop| {
 					let result = f(stop);
 					let id = tokio::task::id();
 					map.remove_if(&key, |_, task| task.id() == id);
@@ -125,7 +131,37 @@ where
 	}
 }
 
-impl<K, T, H> Clone for Map<K, T, H> {
+impl<K, T, H> Map<K, T, (), H>
+where
+	K: Hash + Eq + Clone + Send + Sync + 'static,
+	T: Clone + Send + Sync + 'static,
+	H: BuildHasher + Default + Clone + Send + Sync + 'static,
+{
+	pub fn spawn<F, Fut>(&self, key: K, f: F) -> Shared<T, ()>
+	where
+		F: FnOnce(Stop) -> Fut,
+		Fut: Future<Output = T> + Send + 'static,
+	{
+		self.spawn_with_context(key, || (), |(), stop| f(stop))
+	}
+
+	pub fn get_or_spawn<F, Fut>(&self, key: K, f: F) -> Shared<T, ()>
+	where
+		F: FnOnce(Stop) -> Fut,
+		Fut: Future<Output = T> + Send + 'static,
+	{
+		self.get_or_spawn_with_context(key, || (), |(), stop| f(stop))
+	}
+
+	pub fn get_or_spawn_blocking<F>(&self, key: K, f: F) -> Shared<T, ()>
+	where
+		F: FnOnce(Stop) -> T + Send + 'static,
+	{
+		self.get_or_spawn_blocking_with_context(key, (), f)
+	}
+}
+
+impl<K, T, C, H> Clone for Map<K, T, C, H> {
 	fn clone(&self) -> Self {
 		Self {
 			map: self.map.clone(),
@@ -133,10 +169,11 @@ impl<K, T, H> Clone for Map<K, T, H> {
 	}
 }
 
-impl<K, T, H> Default for Map<K, T, H>
+impl<K, T, C, H> Default for Map<K, T, C, H>
 where
 	K: Hash + Eq + Clone + Send + Sync + 'static,
 	T: Clone + Send + Sync + 'static,
+	C: Clone + Send + Sync + 'static,
 	H: BuildHasher + Default + Clone + Send + Sync + 'static,
 {
 	fn default() -> Self {

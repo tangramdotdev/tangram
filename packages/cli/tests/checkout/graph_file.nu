@@ -14,7 +14,7 @@ let artifact = artifact {
 					executable: false,
 				}],
 			});
-			return tg.file({ graph, node: 0 });
+			return tg.file({ graph, index: 0, kind: "file" });
 		};
 	'
 }

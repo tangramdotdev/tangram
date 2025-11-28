@@ -12,7 +12,7 @@ pub struct Args {
 	pub input: Option<String>,
 
 	#[arg(long)]
-	pub id: Option<Either<tg::process::Id, tg::object::Id>>,
+	pub id: Option<Either<tg::object::Id, tg::process::Id>>,
 
 	#[arg(long, short)]
 	pub kind: Option<tg::object::Kind>,
@@ -24,22 +24,22 @@ pub struct Args {
 impl Cli {
 	pub async fn command_put(&mut self, args: Args) -> tg::Result<()> {
 		match (args.id, args.kind) {
-			(Some(Either::Left(id)), None) => {
-				let args = crate::process::put::Args {
-					bytes: args.input,
-					id,
-				};
-				self.command_process_put(args).await?;
-			},
-			(id, kind) if id.is_none() || id.as_ref().is_some_and(Either::is_right) => {
+			(id, kind) if id.is_none() || id.as_ref().is_some_and(Either::is_left) => {
 				let args = crate::object::put::Args {
 					bytes: args.bytes,
-					id: id.map(Either::unwrap_right),
+					id: id.map(Either::unwrap_left),
 					input: args.input,
 					kind,
 					print: args.print,
 				};
 				self.command_object_put(args).await?;
+			},
+			(Some(Either::Right(id)), None) => {
+				let args = crate::process::put::Args {
+					bytes: args.input,
+					id,
+				};
+				self.command_process_put(args).await?;
 			},
 			_ => {
 				return Err(tg::error!("invalid args"));

@@ -311,16 +311,14 @@ fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 			)),
 			(whitespace, opt(","), whitespace, "}"),
 		)
-		.map(
-			|entries: Vec<(String, tg::graph::object::Edge<tg::Artifact>)>| {
-				let entries = entries.into_iter().collect::<BTreeMap<_, _>>();
-				let node = tg::graph::object::Directory { entries };
-				let object = tg::directory::Object::Node(node);
-				tg::Directory::with_object(object).into()
-			},
-		),
+		.map(|entries: Vec<(String, tg::graph::Edge<tg::Artifact>)>| {
+			let entries = entries.into_iter().collect::<BTreeMap<_, _>>();
+			let node = tg::graph::Directory { entries };
+			let object = tg::directory::Object::Node(node);
+			tg::Directory::with_object(object).into()
+		}),
 		whitespace.map(|()| {
-			let node = tg::graph::object::Directory {
+			let node = tg::graph::Directory {
 				entries: BTreeMap::new(),
 			};
 			let object = tg::directory::Object::Node(node);
@@ -330,21 +328,21 @@ fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 	.parse_next(input)
 }
 
-fn directory_node_entry(input: &mut Input) -> ModalResult<tg::graph::object::Edge<tg::Artifact>> {
+fn directory_node_entry(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Artifact>> {
 	alt((
 		string.map(|s| {
 			let bytes = Bytes::from(s.into_bytes());
 			let leaf = tg::blob::object::Leaf { bytes };
 			let blob_object = tg::blob::Object::Leaf(leaf);
 			let blob = tg::Blob::with_object(blob_object);
-			let node = tg::graph::object::File {
+			let node = tg::graph::File {
 				contents: blob,
 				dependencies: BTreeMap::new(),
 				executable: false,
 			};
 			let object = tg::file::Object::Node(node);
 			let file = tg::File::with_object(object);
-			tg::graph::object::Edge::Object(tg::Artifact::File(file))
+			tg::graph::Edge::Object(tg::Artifact::File(file))
 		}),
 		graph_edge_artifact,
 	))
@@ -370,7 +368,7 @@ fn file_string(input: &mut Input) -> ModalResult<tg::Object> {
 			let leaf = tg::blob::object::Leaf { bytes };
 			let blob_object = tg::blob::Object::Leaf(leaf);
 			let blob = tg::Blob::with_object(blob_object);
-			let node = tg::graph::object::File {
+			let node = tg::graph::File {
 				contents: blob,
 				dependencies: BTreeMap::new(),
 				executable: false,
@@ -454,7 +452,7 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 			}
 		}
 		let contents = contents.ok_or_else(|| tg::error!("missing contents field"))?;
-		let node = tg::graph::object::File {
+		let node = tg::graph::File {
 			contents,
 			dependencies,
 			executable,
@@ -507,7 +505,7 @@ fn symlink_node(input: &mut Input) -> ModalResult<tg::Object> {
 						.map_err(|_| tg::error!("expected object for artifact"))?;
 					let value = tg::Artifact::try_from(value.clone())
 						.map_err(|error| tg::error!(!error, "expected artifact object"))?;
-					artifact = Some(tg::graph::object::Edge::Object(value));
+					artifact = Some(tg::graph::Edge::Object(value));
 				},
 				"path" => {
 					let value = value
@@ -520,7 +518,7 @@ fn symlink_node(input: &mut Input) -> ModalResult<tg::Object> {
 				},
 			}
 		}
-		let node = tg::graph::object::Symlink { artifact, path };
+		let node = tg::graph::Symlink { artifact, path };
 		let object = tg::symlink::Object::Node(node);
 		Ok(tg::Symlink::with_object(object).into())
 	})
@@ -836,7 +834,7 @@ fn template_inner(input: &mut Input) -> ModalResult<tg::Template> {
 	.parse_next(input)
 }
 
-fn graph_reference(input: &mut Input) -> ModalResult<tg::graph::object::Reference> {
+fn graph_reference(input: &mut Input) -> ModalResult<tg::graph::Reference> {
 	delimited(
 		("{", whitespace),
 		cut_err(separated(
@@ -848,7 +846,8 @@ fn graph_reference(input: &mut Input) -> ModalResult<tg::graph::object::Referenc
 	)
 	.try_map(|entries: Vec<(String, tg::Value)>| {
 		let mut graph = None;
-		let mut node = None;
+		let mut index = None;
+		let mut kind = None;
 		for (key, value) in entries {
 			match key.as_str() {
 				"graph" => {
@@ -860,34 +859,43 @@ fn graph_reference(input: &mut Input) -> ModalResult<tg::graph::object::Referenc
 						.map_err(|_| tg::error!("expected graph object for graph field"))?;
 					graph = Some(value.clone());
 				},
-				"node" => {
+				"index" => {
 					let value = value
 						.try_unwrap_number_ref()
-						.map_err(|_| tg::error!("expected number for node"))?;
+						.map_err(|_| tg::error!("expected number for index"))?;
 					let n = value
 						.to_usize()
-						.ok_or_else(|| tg::error!("node must be a non-negative integer"))?;
-					node = Some(n);
+						.ok_or_else(|| tg::error!("index must be a non-negative integer"))?;
+					index = Some(n);
+				},
+				"kind" => {
+					let value = value
+						.try_unwrap_string_ref()
+						.map_err(|_| tg::error!("expected string for kind"))?
+						.parse()
+						.map_err(|_| tg::error!("invalid kind"))?;
+					kind = Some(value);
 				},
 				_ => {
 					return Err(tg::error!("unexpected field in graph reference: {}", key));
 				},
 			}
 		}
-		let node = node.ok_or_else(|| tg::error!("missing node field"))?;
-		Ok(tg::graph::object::Reference { graph, node })
+		let index = index.ok_or_else(|| tg::error!("missing index field"))?;
+		let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
+		Ok(tg::graph::Reference { graph, index, kind })
 	})
 	.parse_next(input)
 }
 
-fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::object::Edge<tg::Artifact>> {
+fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Artifact>> {
 	alt((
-		graph_reference.map(tg::graph::object::Edge::Reference),
+		graph_reference.map(tg::graph::Edge::Reference),
 		value.verify_map(|value| {
 			if let tg::Value::Object(value) = value {
 				tg::Artifact::try_from(value)
 					.ok()
-					.map(tg::graph::object::Edge::Object)
+					.map(tg::graph::Edge::Object)
 			} else {
 				None
 			}
@@ -896,9 +904,7 @@ fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::object::Edge
 	.parse_next(input)
 }
 
-fn parse_referent(
-	map: &tg::value::Map,
-) -> tg::Result<tg::Referent<tg::graph::object::Edge<tg::Object>>> {
+fn parse_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>> {
 	let mut item = None;
 	let mut artifact = None;
 	let mut id = None;
@@ -911,7 +917,7 @@ fn parse_referent(
 				let value = value
 					.try_unwrap_object_ref()
 					.map_err(|_| tg::error!("expected object for item"))?;
-				item = Some(tg::graph::object::Edge::Object(value.clone()));
+				item = Some(tg::graph::Edge::Object(value.clone()));
 			},
 			"artifact" => {
 				let value = value
@@ -998,7 +1004,7 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 					let artifact = tg::Artifact::try_from(value.clone()).map_err(|error| {
 						tg::error!(!error, "expected artifact object for entry")
 					})?;
-					entries.insert(key.clone(), tg::graph::object::Edge::Object(artifact));
+					entries.insert(key.clone(), tg::graph::Edge::Object(artifact));
 				}
 			},
 			"contents" => {
@@ -1042,7 +1048,7 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 				let artifact_value = tg::Artifact::try_from(value.clone()).map_err(|error| {
 					tg::error!(!error, "expected artifact object for artifact field")
 				})?;
-				artifact = Some(tg::graph::object::Edge::Object(artifact_value));
+				artifact = Some(tg::graph::Edge::Object(artifact_value));
 			},
 			"path" => {
 				let value = value
@@ -1057,19 +1063,17 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 	}
 	let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
 	match kind.as_str() {
-		"directory" => Ok(tg::graph::Node::Directory(tg::graph::object::Directory {
-			entries,
-		})),
+		"directory" => Ok(tg::graph::Node::Directory(tg::graph::Directory { entries })),
 		"file" => {
 			let contents =
 				contents.ok_or_else(|| tg::error!("missing contents field for file node"))?;
-			Ok(tg::graph::Node::File(tg::graph::object::File {
+			Ok(tg::graph::Node::File(tg::graph::File {
 				contents,
 				dependencies,
 				executable,
 			}))
 		},
-		"symlink" => Ok(tg::graph::Node::Symlink(tg::graph::object::Symlink {
+		"symlink" => Ok(tg::graph::Node::Symlink(tg::graph::Symlink {
 			artifact,
 			path,
 		})),
@@ -1204,10 +1208,11 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 						.map_err(|_| tg::error!("expected string"))?;
 					item = Some(tg::module::Item::Path(PathBuf::from(value)));
 				} else if value.is_object() {
-					let obj = value
+					let object = value
 						.try_unwrap_object_ref()
 						.map_err(|_| tg::error!("expected object"))?;
-					item = Some(tg::module::Item::Object(obj.clone()));
+					let edge = tg::graph::Edge::Object(object.clone());
+					item = Some(tg::module::Item::Edge(edge));
 				} else {
 					return Err(tg::error!("expected string or object for item"));
 				}

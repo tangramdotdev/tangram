@@ -13,7 +13,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub referent: tg::Referent<Either<tg::process::Id, tg::object::Id>>,
+	pub referent: tg::Referent<Either<tg::object::Id, tg::process::Id>>,
 }
 
 impl tg::Client {

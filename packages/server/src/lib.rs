@@ -103,7 +103,12 @@ pub struct State {
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
 }
 
-type CacheTasks = tangram_futures::task::Map<tg::artifact::Id, tg::Result<()>, tg::id::BuildHasher>;
+type CacheTasks = tangram_futures::task::Map<
+	tg::artifact::Id,
+	tg::Result<()>,
+	crate::progress::Handle<()>,
+	tg::id::BuildHasher,
+>;
 
 struct Http {
 	url: Uri,
@@ -117,7 +122,7 @@ struct ProcessPermit(
 	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), tg::id::BuildHasher>;
+type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
 
 impl Owned {
 	pub fn stop(&self) {

@@ -13,7 +13,7 @@ let artifact = artifact {
 					path: "/bin/sh",
 				}],
 			});
-			return tg.symlink({ graph, node: 0 });
+			return tg.symlink({ graph, index: 0, kind: "symlink" });
 		}
 	'
 }

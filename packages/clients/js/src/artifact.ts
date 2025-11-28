@@ -5,6 +5,8 @@ export type Artifact = tg.Directory | tg.File | tg.Symlink;
 export namespace Artifact {
 	export type Id = string;
 
+	export type Kind = "directory" | "file" | "symlink";
+
 	export let withId = (id: Artifact.Id): Artifact => {
 		tg.assert(
 			typeof id === "string",
@@ -19,6 +21,19 @@ export namespace Artifact {
 			return tg.Symlink.withId(id);
 		} else {
 			throw new Error(`invalid artifact id: ${id}`);
+		}
+	};
+
+	export let withReference = (reference: tg.Graph.Reference): Artifact => {
+		switch (reference.kind) {
+			case "directory":
+				return tg.Directory.withReference(reference);
+			case "file":
+				return tg.File.withReference(reference);
+			case "symlink":
+				return tg.Symlink.withReference(reference);
+			default:
+				throw new Error(`invalid artifact kind`);
 		}
 	};
 

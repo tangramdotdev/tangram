@@ -4,7 +4,8 @@
       "kind": "directory",
       "entries": {
         "tangram.ts": {
-          "node": 1
+          "index": 1,
+          "kind": "file"
         }
       }
     },
@@ -13,7 +14,8 @@
       "dependencies": {
         "b": {
           "item": {
-            "node": 2
+            "index": 2,
+            "kind": "directory"
           },
           "options": {
             "id": "dir_01gxjcgm682hjmgtepvc5cj6xgbkxv05zae1r25seffd2eydw5j69g",
@@ -22,7 +24,8 @@
         },
         "c": {
           "item": {
-            "node": 3
+            "index": 3,
+            "kind": "directory"
           },
           "options": {
             "id": "dir_01h3az9r0rbyec97ea9zzjrz6bgsr0m5qjzv8zthj4g4ht8dd3zyj0",
@@ -35,7 +38,8 @@
       "kind": "directory",
       "entries": {
         "tangram.ts": {
-          "node": 4
+          "index": 4,
+          "kind": "file"
         }
       }
     },
@@ -43,7 +47,8 @@
       "kind": "directory",
       "entries": {
         "tangram.ts": {
-          "node": 5
+          "index": 5,
+          "kind": "file"
         }
       }
     },

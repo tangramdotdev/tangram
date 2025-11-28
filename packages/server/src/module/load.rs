@@ -49,12 +49,18 @@ impl Server {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Object(object),
+						item: tg::module::data::Item::Edge(edge),
 						..
 					},
 				..
 			} => {
-				let object = tg::Object::with_id(object.clone());
+				let object = match edge {
+					tg::graph::data::Edge::Reference(reference) => {
+						let reference = tg::graph::Reference::try_from_data(reference.clone())?;
+						tg::Artifact::with_reference(reference).into()
+					},
+					tg::graph::data::Edge::Object(object) => tg::Object::with_id(object.clone()),
+				};
 				let file = object
 					.try_unwrap_file()
 					.ok()
@@ -89,11 +95,18 @@ impl Server {
 					_ => unreachable!(),
 				};
 				let text = match item {
+					tg::module::data::Item::Edge(edge) => match edge {
+						tg::graph::data::Edge::Reference(reference) => {
+							format!(
+								r#"export default tg.{class}.withReference(tg.Graph.Reference.fromDataString("{reference}"));"#
+							)
+						},
+						tg::graph::data::Edge::Object(object) => {
+							format!(r#"export default tg.{class}.withId("{object}");"#)
+						},
+					},
 					tg::module::data::Item::Path(_) => {
 						r"export default undefined as unknown as tg.{class};".to_owned()
-					},
-					tg::module::data::Item::Object(object) => {
-						format!(r#"export default tg.{class}.withId("{object}");"#)
 					},
 				};
 				Ok(tg::module::load::Output { text })

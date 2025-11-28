@@ -1,7 +1,7 @@
 {
   "kind": "directory",
   "entries": {
-    "dir_01jx4k03rrr7z7ma9f0vepqzzj3wysvx7ga73twmmz28r1ywtjn2fg": {
+    "dir_010p4gtkn60htscqpkdzeby5rj5jqf8rfr5bc087mfw016g2e2z7y0": {
       "kind": "directory",
       "entries": {
         "link": {
@@ -10,9 +10,9 @@
         }
       }
     },
-    "fil_01gfmwc3sy4x6cnzwhmyj77nr2x18ja63hnz2kqzbd4meh0k0q9g7g": {
+    "fil_01bka3v0naexr53m3prn4a0ek3hj9rfaf2t6egng5tkmexgj4gv4z0": {
       "kind": "file",
-      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: {\n\t\t\t\t\tlink: { node: 1 }\n\t\t\t\t}\n\t\t\t},\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tartifact: { node: 0 },\n\t\t\t\tpath: \"link\"\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({\n\t\tgraph,\n\t\tnode: 0\n\t});\n}"
+      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{\n\t\t\t\tkind: \"directory\",\n\t\t\t\tentries: {\n\t\t\t\t\tlink: { index: 1, kind: \"symlink\" }\n\t\t\t\t}\n\t\t\t},\n\t\t\t{\n\t\t\t\tkind: \"symlink\",\n\t\t\t\tartifact: { index: 0, kind: \"directory\" },\n\t\t\t\tpath: \"link\"\n\t\t\t}\n\t\t]\n\t});\n\treturn tg.symlink({\n\t\tgraph,\n\t\tindex: 0,\n\t\tkind: \"directory\"\n\t});\n}"
     }
   }
 }

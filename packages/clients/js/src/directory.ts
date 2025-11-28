@@ -21,6 +21,10 @@ export class Directory {
 		return new tg.Directory({ id, stored: true });
 	}
 
+	static withReference(reference: tg.Graph.Reference): tg.Directory {
+		return new tg.Directory({ object: reference, stored: false });
+	}
+
 	static withObject(object: tg.Directory.Object): tg.Directory {
 		return new tg.Directory({ object, stored: false });
 	}
@@ -34,12 +38,8 @@ export class Directory {
 	): Promise<tg.Directory> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
-			if (
-				typeof arg === "object" &&
-				"node" in arg &&
-				typeof arg.node === "number"
-			) {
-				return tg.Directory.withObject(arg as tg.Graph.Reference);
+			if (tg.Graph.Arg.Reference.is(arg)) {
+				return tg.Directory.withObject(tg.Graph.Reference.fromArg(arg));
 			}
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));
@@ -103,10 +103,12 @@ export class Directory {
 						if (value === undefined) {
 							delete entries[name];
 						} else if (typeof value === "number") {
-							entries[name] = { node: value };
+							throw new Error(
+								"cannot use number as directory entry without kind",
+							);
 						} else if (
 							typeof value === "object" &&
-							typeof value.node === "number"
+							typeof value.index === "number"
 						) {
 							entries[name] = value;
 						} else if (
@@ -167,6 +169,12 @@ export class Directory {
 			this.#state.object = object;
 		}
 		return this.#state.object!;
+	}
+
+	unload(): void {
+		if (this.#state.stored) {
+			this.#state.object = undefined;
+		}
 	}
 
 	async store(): Promise<tg.Directory.Id> {
@@ -264,9 +272,9 @@ export class Directory {
 				await Promise.all(
 					Object.entries(object.entries).map(async ([name, edge]) => {
 						tg.assert(typeof edge === "object", "expected an obejct");
-						if ("node" in edge) {
+						if ("index" in edge) {
 							tg.assert(edge.graph !== undefined, "missing graph");
-							let artifact = await edge.graph.get(edge.node);
+							let artifact = await edge.graph.get(edge.index);
 							return [name, artifact];
 						}
 						return [name, edge];
@@ -277,7 +285,7 @@ export class Directory {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
 			let nodes = await graph.nodes();
-			let node = nodes[object.node];
+			let node = nodes[object.index];
 			tg.assert(
 				node !== undefined && node.kind === "directory",
 				"expected a directory",
@@ -288,8 +296,8 @@ export class Directory {
 						if (typeof edge === "number") {
 							let artifact = await graph.get(edge);
 							return [name, artifact];
-						} else if ("node" in edge) {
-							let artifact = await (edge.graph ?? graph).get(edge.node);
+						} else if ("index" in edge) {
+							let artifact = await (edge.graph ?? graph).get(edge.index);
 							return [name, artifact];
 						}
 						return [name, edge];
@@ -329,7 +337,7 @@ export namespace Directory {
 
 	export namespace Object {
 		export let toData = (object: tg.Directory.Object): tg.Directory.Data => {
-			if ("node" in object) {
+			if ("index" in object) {
 				return tg.Graph.Reference.toData(object);
 			} else {
 				return tg.Graph.Directory.toData(object);
@@ -345,7 +353,7 @@ export namespace Directory {
 		};
 
 		export let children = (object: tg.Directory.Object): Array<tg.Object> => {
-			if ("node" in object) {
+			if ("index" in object) {
 				return tg.Graph.Reference.children(object);
 			} else {
 				return tg.Graph.Directory.children(object);

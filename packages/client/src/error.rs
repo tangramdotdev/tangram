@@ -216,7 +216,10 @@ impl TryFrom<data::File> for File {
 	fn try_from(value: data::File) -> Result<Self, Self::Error> {
 		let value = match value {
 			data::File::Internal(path) => File::Internal(path),
-			data::File::Module(module) => File::Module(module.into()),
+			data::File::Module(module) => {
+				let module = module.try_into()?;
+				File::Module(module)
+			},
 		};
 		Ok(value)
 	}

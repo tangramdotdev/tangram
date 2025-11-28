@@ -53,16 +53,16 @@ pub enum Kind {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
+	Edge(tg::graph::Edge<tg::Object>),
 	Path(PathBuf),
-	Object(tg::Object),
 }
 
 impl Module {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::object::Handle> {
 		match &self.referent.item {
+			Item::Edge(edge) => edge.children(),
 			Item::Path(_) => vec![],
-			Item::Object(object) => vec![object.clone()],
 		}
 	}
 
@@ -70,24 +70,34 @@ impl Module {
 	pub fn to_data(&self) -> Data {
 		let kind = self.kind;
 		let referent = self.referent.clone().map(|item| match item {
+			Item::Edge(edge) => tg::module::data::Item::Edge(edge.to_data()),
 			Item::Path(path) => tg::module::data::Item::Path(path),
-			Item::Object(object) => tg::module::data::Item::Object(object.id()),
 		});
 		tg::module::Data { kind, referent }
 	}
+
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		let kind = data.kind;
+		let referent = data.referent.try_map(|item| {
+			let item = match item {
+				tg::module::data::Item::Edge(edge) => {
+					let edge = tg::graph::Edge::try_from_data(edge)?;
+					tg::module::Item::Edge(edge)
+				},
+				tg::module::data::Item::Path(path) => tg::module::Item::Path(path),
+			};
+			Ok::<_, tg::Error>(item)
+		})?;
+		let module = Self { kind, referent };
+		Ok(module)
+	}
 }
 
-impl From<tg::module::Data> for Module {
-	fn from(value: tg::module::Data) -> Self {
-		Self {
-			kind: value.kind,
-			referent: value.referent.map(|item| match item {
-				tg::module::data::Item::Path(path) => tg::module::Item::Path(path),
-				tg::module::data::Item::Object(object) => {
-					tg::module::Item::Object(tg::Object::with_id(object))
-				},
-			}),
-		}
+impl TryFrom<tg::module::Data> for Module {
+	type Error = tg::Error;
+
+	fn try_from(value: tg::module::Data) -> Result<Self, Self::Error> {
+		Self::try_from_data(value)
 	}
 }
 

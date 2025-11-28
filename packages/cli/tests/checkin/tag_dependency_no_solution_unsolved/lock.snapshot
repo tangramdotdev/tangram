@@ -4,7 +4,8 @@
       "kind": "directory",
       "entries": {
         "tangram.ts": {
-          "node": 1
+          "index": 1,
+          "kind": "file"
         }
       }
     },

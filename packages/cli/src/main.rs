@@ -1265,7 +1265,7 @@ impl Cli {
 	async fn get_reference(
 		&mut self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
+	) -> tg::Result<tg::Referent<Either<tg::Object, tg::Process>>> {
 		self.get_reference_with_arg(reference, tg::get::Arg::default())
 			.await
 	}
@@ -1274,7 +1274,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> tg::Result<tg::Referent<Either<tg::Process, tg::Object>>> {
+	) -> tg::Result<tg::Referent<Either<tg::Object, tg::Process>>> {
 		let handle = self.handle().await?;
 
 		// Make the path absolute.
@@ -1314,7 +1314,7 @@ impl Cli {
 	async fn get_references(
 		&mut self,
 		references: &[tg::Reference],
-	) -> tg::Result<Vec<tg::Referent<Either<tg::Process, tg::Object>>>> {
+	) -> tg::Result<Vec<tg::Referent<Either<tg::Object, tg::Process>>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
 			let referent = self.get_reference(reference).await?;
@@ -1331,7 +1331,7 @@ impl Cli {
 		let item = referent
 			.item
 			.clone()
-			.right()
+			.left()
 			.ok_or_else(|| tg::error!("expected an object"))?;
 		let mut referent = referent.map(|_| item);
 
@@ -1360,7 +1360,8 @@ impl Cli {
 					unreachable!();
 				};
 				let item = directory.get(&handle, root_module_name).await?;
-				let item = tg::module::Item::Object(item.into());
+				let item = tg::graph::Edge::Object(item.into());
+				let item = tg::module::Item::Edge(item);
 				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }
 			},
@@ -1379,7 +1380,9 @@ impl Cli {
 				} else {
 					unreachable!()
 				};
-				let item = tg::module::Item::Object(file.clone().into());
+				let item = file.clone().into();
+				let item = tg::graph::Edge::Object(item);
+				let item = tg::module::Item::Edge(item);
 				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }
 			},

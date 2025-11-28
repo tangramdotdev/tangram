@@ -21,6 +21,7 @@ use {
 pub struct Module {
 	#[tangram_serialize(id = 0)]
 	pub kind: Kind,
+
 	#[tangram_serialize(id = 1)]
 	pub referent: tg::Referent<Item>,
 }
@@ -46,14 +47,14 @@ pub struct Module {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
+	Edge(tg::graph::data::Edge<tg::object::Id>),
 	Path(PathBuf),
-	Object(tg::object::Id),
 }
 
 impl Module {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		if let Item::Object(id) = &self.referent.item {
-			children.insert(id.clone());
+		if let Item::Edge(edge) = &self.referent.item {
+			edge.children(children);
 		}
 	}
 }
@@ -194,6 +195,9 @@ impl std::str::FromStr for Module {
 impl std::fmt::Display for Item {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Self::Edge(edge) => {
+				write!(f, "{edge}")?;
+			},
 			Self::Path(path) => {
 				if path
 					.components()
@@ -203,9 +207,6 @@ impl std::fmt::Display for Item {
 					write!(f, "./")?;
 				}
 				write!(f, "{}", path.display())?;
-			},
-			Self::Object(object) => {
-				write!(f, "{object}")?;
 			},
 		}
 		Ok(())
@@ -219,7 +220,7 @@ impl std::str::FromStr for Item {
 		if s.starts_with('.') || s.starts_with('/') {
 			Ok(Self::Path(s.strip_prefix("./").unwrap_or(s).into()))
 		} else {
-			Ok(Self::Object(s.parse()?))
+			Ok(Self::Edge(s.parse()?))
 		}
 	}
 }

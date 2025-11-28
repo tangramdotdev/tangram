@@ -49,8 +49,8 @@ impl Compiler {
 
 		// Generate the output code with source maps.
 		let name = match &module.referent.item {
+			tg::module::data::Item::Edge(_) => "module.ts".to_owned(),
 			tg::module::data::Item::Path(path) => path.to_str().unwrap().to_owned(),
-			tg::module::data::Item::Object(_) => "module.ts".to_owned(),
 		};
 		let options = oxc::codegen::CodegenOptions {
 			source_map_path: Some(PathBuf::from(format!("{name}.map"))),

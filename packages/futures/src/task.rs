@@ -7,17 +7,19 @@ pub mod set;
 pub mod shared;
 pub mod stop;
 
-pub struct Task<T> {
+pub struct Task<T, C = ()> {
 	abort_on_drop: bool,
+	context: C,
 	handle: Option<tokio::task::JoinHandle<T>>,
 	stop: Stop,
 }
 
-impl<T> Task<T>
+impl<T, C> Task<T, C>
 where
 	T: Send + 'static,
+	C: Clone + Send + Sync + 'static,
 {
-	pub fn spawn<F, Fut>(f: F) -> Self
+	pub fn spawn_with_context<F, Fut>(context: C, f: F) -> Self
 	where
 		F: FnOnce(Stop) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
@@ -26,12 +28,13 @@ where
 		let handle = tokio::spawn(f(stop.clone()));
 		Self {
 			abort_on_drop: true,
+			context,
 			stop,
 			handle: Some(handle),
 		}
 	}
 
-	pub fn spawn_local<F, Fut>(f: F) -> Self
+	pub fn spawn_local_with_context<F, Fut>(context: C, f: F) -> Self
 	where
 		F: 'static,
 		Fut: Future<Output = T> + 'static,
@@ -41,12 +44,13 @@ where
 		let handle = tokio::task::spawn_local(f(stop.clone()));
 		Self {
 			abort_on_drop: true,
+			context,
 			stop,
 			handle: Some(handle),
 		}
 	}
 
-	pub fn spawn_blocking<F>(f: F) -> Self
+	pub fn spawn_blocking_with_context<F>(context: C, f: F) -> Self
 	where
 		F: FnOnce(Stop) -> T + Send + 'static,
 	{
@@ -57,9 +61,15 @@ where
 		});
 		Self {
 			abort_on_drop: true,
+			context,
 			stop,
 			handle: Some(handle),
 		}
+	}
+
+	#[must_use]
+	pub fn context(&self) -> &C {
+		&self.context
 	}
 
 	pub fn abort(&self) {
@@ -84,7 +94,36 @@ where
 	}
 }
 
-impl<T> Drop for Task<T> {
+impl<T> Task<T, ()>
+where
+	T: Send + 'static,
+{
+	pub fn spawn<F, Fut>(f: F) -> Self
+	where
+		F: FnOnce(Stop) -> Fut,
+		Fut: Future<Output = T> + Send + 'static,
+	{
+		Self::spawn_with_context((), f)
+	}
+
+	pub fn spawn_local<F, Fut>(f: F) -> Self
+	where
+		F: 'static,
+		Fut: Future<Output = T> + 'static,
+		F: FnOnce(Stop) -> Fut,
+	{
+		Self::spawn_local_with_context((), f)
+	}
+
+	pub fn spawn_blocking<F>(f: F) -> Self
+	where
+		F: FnOnce(Stop) -> T + Send + 'static,
+	{
+		Self::spawn_blocking_with_context((), f)
+	}
+}
+
+impl<T, C> Drop for Task<T, C> {
 	fn drop(&mut self) {
 		if self.abort_on_drop
 			&& let Some(handle) = self.handle.take()

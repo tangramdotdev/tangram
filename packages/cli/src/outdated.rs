@@ -18,7 +18,7 @@ impl Cli {
 		let referent = self
 			.get_reference(&args.reference)
 			.await?
-			.try_map(|item| item.right().ok_or_else(|| tg::error!("expected an object")))?;
+			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
 		tg::object::visit(&handle, &mut visitor, &referent)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to walk objects"))?;

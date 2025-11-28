@@ -7,19 +7,19 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-const PROCESS_BATCH_SIZE: usize = 16;
-const PROCESS_CONCURRENCY: usize = 8;
 const OBJECT_BATCH_SIZE: usize = 16;
 const OBJECT_CONCURRENCY: usize = 8;
-
-pub struct ProcessItem {
-	pub id: tg::process::Id,
-	pub eager: bool,
-}
+const PROCESS_BATCH_SIZE: usize = 16;
+const PROCESS_CONCURRENCY: usize = 8;
 
 pub struct ObjectItem {
 	pub id: tg::object::Id,
 	pub kind: Option<crate::sync::queue::ObjectKind>,
+	pub eager: bool,
+}
+
+pub struct ProcessItem {
+	pub id: tg::process::Id,
 	pub eager: bool,
 }
 
@@ -28,19 +28,9 @@ impl Server {
 	pub(super) async fn sync_put_store(
 		&self,
 		state: Arc<State>,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
-		// Create the processes future.
-		let processes_future = ReceiverStream::new(process_receiver)
-			.ready_chunks(PROCESS_BATCH_SIZE)
-			.map(Ok)
-			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
-				let server = self.clone();
-				let state = state.clone();
-				async move { server.sync_put_store_process_batch(&state, items).await }
-			});
-
 		// Create the objects future.
 		let objects_future = ReceiverStream::new(object_receiver)
 			.ready_chunks(OBJECT_BATCH_SIZE)
@@ -51,8 +41,81 @@ impl Server {
 				async move { server.sync_put_store_object_batch(&state, items).await }
 			});
 
-		// Join the processes and objects futures.
-		futures::try_join!(processes_future, objects_future)?;
+		// Create the processes future.
+		let processes_future = ReceiverStream::new(process_receiver)
+			.ready_chunks(PROCESS_BATCH_SIZE)
+			.map(Ok)
+			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
+				let server = self.clone();
+				let state = state.clone();
+				async move { server.sync_put_store_process_batch(&state, items).await }
+			});
+
+		// Join the objects and processes futures.
+		futures::try_join!(objects_future, processes_future)?;
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_put_store_object_batch(
+		&self,
+		state: &State,
+		items: Vec<ObjectItem>,
+	) -> tg::Result<()> {
+		// Get the objects.
+		let n = items.len();
+		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+		let outputs = self
+			.try_get_object_batch(&ids)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+
+		// Handle the objects.
+		for (item, output) in std::iter::zip(items, outputs) {
+			// If the object is missing, then send a missing message.
+			let Some(output) = output else {
+				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
+					tg::sync::PutMissingObjectMessage {
+						id: item.id.clone(),
+					},
+				));
+				state.sender.send(Ok(message)).await.ok();
+				continue;
+			};
+
+			// Send the object.
+			let message = tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(
+				tg::sync::PutItemObjectMessage {
+					id: item.id.clone(),
+					bytes: output.bytes.clone(),
+				},
+			));
+			state
+				.sender
+				.send(Ok(message))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
+
+			// Enqueue the children.
+			if item.eager {
+				let bytes = output.bytes;
+				let data = tg::object::Data::deserialize(item.id.kind(), bytes.clone())?;
+				let mut children = BTreeSet::new();
+				data.children(&mut children);
+				let items = children
+					.into_iter()
+					.map(|child| crate::sync::queue::ObjectItem {
+						parent: Some(Either::Left(item.id.clone())),
+						id: child,
+						kind: item.kind,
+						eager: item.eager,
+					});
+				state.queue.enqueue_objects(items);
+			}
+		}
+
+		// Ack the items.
+		state.queue.decrement(n);
 
 		Ok(())
 	}
@@ -117,7 +180,7 @@ impl Server {
 			// Enqueue the command.
 			if item.eager && state.arg.commands {
 				let item = crate::sync::queue::ObjectItem {
-					parent: Some(Either::Left(item.id.clone())),
+					parent: Some(Either::Right(item.id.clone())),
 					id: output.data.command.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
 					eager: item.eager,
@@ -135,72 +198,9 @@ impl Server {
 				let items = children
 					.into_iter()
 					.map(|child| crate::sync::queue::ObjectItem {
-						parent: Some(Either::Left(item.id.clone())),
-						id: child,
-						kind: Some(crate::sync::queue::ObjectKind::Output),
-						eager: item.eager,
-					});
-				state.queue.enqueue_objects(items);
-			}
-		}
-
-		// Ack the items.
-		state.queue.decrement(n);
-
-		Ok(())
-	}
-
-	pub(super) async fn sync_put_store_object_batch(
-		&self,
-		state: &State,
-		items: Vec<ObjectItem>,
-	) -> tg::Result<()> {
-		// Get the objects.
-		let n = items.len();
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
-		let outputs = self
-			.try_get_object_batch(&ids)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
-
-		// Handle the objects.
-		for (item, output) in std::iter::zip(items, outputs) {
-			// If the object is missing, then send a missing message.
-			let Some(output) = output else {
-				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
-					tg::sync::PutMissingObjectMessage {
-						id: item.id.clone(),
-					},
-				));
-				state.sender.send(Ok(message)).await.ok();
-				continue;
-			};
-
-			// Send the object.
-			let message = tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(
-				tg::sync::PutItemObjectMessage {
-					id: item.id.clone(),
-					bytes: output.bytes.clone(),
-				},
-			));
-			state
-				.sender
-				.send(Ok(message))
-				.await
-				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
-
-			// Enqueue the children.
-			if item.eager {
-				let bytes = output.bytes;
-				let data = tg::object::Data::deserialize(item.id.kind(), bytes.clone())?;
-				let mut children = BTreeSet::new();
-				data.children(&mut children);
-				let items = children
-					.into_iter()
-					.map(|child| crate::sync::queue::ObjectItem {
 						parent: Some(Either::Right(item.id.clone())),
 						id: child,
-						kind: item.kind,
+						kind: Some(crate::sync::queue::ObjectKind::Output),
 						eager: item.eager,
 					});
 				state.queue.enqueue_objects(items);

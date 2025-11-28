@@ -36,7 +36,7 @@ export class Graph {
 				if (node.kind === "directory") {
 					let entries = Object.fromEntries(
 						Object.entries(node.entries ?? {}).map(([name, edge]) => {
-							return [name, tg.Graph.Edge.fromArg(edge)];
+							return [name, tg.Graph.Edge.fromArg(edge, arg.nodes)];
 						}),
 					);
 					return {
@@ -53,13 +53,13 @@ export class Graph {
 							let referent: tg.Referent<tg.Graph.Edge<tg.Object>>;
 							if (
 								typeof value === "number" ||
-								"node" in value ||
+								"index" in value ||
 								tg.Object.is(value)
 							) {
-								let item = tg.Graph.Edge.fromArg(value);
+								let item = tg.Graph.Edge.fromArg(value, arg.nodes);
 								referent = { item, options: {} };
 							} else {
-								let item = tg.Graph.Edge.fromArg(value.item);
+								let item = tg.Graph.Edge.fromArg(value.item, arg.nodes);
 								referent = { item, options: value.options };
 							}
 							return [key, referent];
@@ -73,7 +73,7 @@ export class Graph {
 						executable,
 					};
 				} else if (node.kind === "symlink") {
-					let artifact = tg.Graph.Edge.fromArg(node.artifact);
+					let artifact = tg.Graph.Edge.fromArg(node.artifact, arg.nodes);
 					let path = node.path;
 					return {
 						kind: "symlink" as const,
@@ -113,10 +113,10 @@ export class Graph {
 									node.entries[name] = entry + offset;
 								} else if (
 									typeof entry === "object" &&
-									"node" in entry &&
+									"index" in entry &&
 									entry.graph === undefined
 								) {
-									entry.node += offset;
+									entry.index += offset;
 									node.entries[name] = entry;
 								} else if (entry) {
 									node.entries[name] = entry;
@@ -142,7 +142,7 @@ export class Graph {
 								let referent: tg.Referent<tg.Graph.Arg.Edge<tg.Object>>;
 								if (
 									typeof value === "number" ||
-									"node" in value ||
+									"index" in value ||
 									tg.Object.is(value)
 								) {
 									referent = { item: value, options: {} };
@@ -154,11 +154,11 @@ export class Graph {
 										item: referent.item + offset,
 										options: referent.options,
 									};
-								} else if ("node" in referent.item) {
+								} else if ("index" in referent.item) {
 									node.dependencies[reference] = {
 										item: {
-											graph: referent.item.graph,
-											node: referent.item.node + offset,
+											...referent.item,
+											index: referent.item.index + offset,
 										},
 										options: referent.options,
 									};
@@ -175,16 +175,16 @@ export class Graph {
 					}
 					nodes.push(node);
 				} else if (argNode.kind === "symlink") {
-					let artifact: tg.Graph.Edge<tg.Artifact> | undefined;
+					let artifact: tg.Graph.Arg.Edge<tg.Artifact> | undefined;
 					if (typeof argNode.artifact === "number") {
-						artifact = { graph: undefined, node: argNode.artifact + offset };
+						artifact = argNode.artifact + offset;
 					} else if (
 						argNode.artifact !== undefined &&
-						"node" in argNode.artifact
+						"index" in argNode.artifact
 					) {
 						artifact = {
-							graph: argNode.artifact.graph,
-							node: argNode.artifact.node + offset,
+							...argNode.artifact,
+							index: argNode.artifact.index + offset,
 						};
 					} else {
 						artifact = argNode.artifact;
@@ -238,6 +238,12 @@ export class Graph {
 		return this.#state.object!;
 	}
 
+	unload(): void {
+		if (this.#state.stored) {
+			this.#state.object = undefined;
+		}
+	}
+
 	async store(): Promise<tg.Graph.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -258,13 +264,21 @@ export class Graph {
 		tg.assert(node !== undefined, "invalid graph index");
 		switch (node.kind) {
 			case "directory": {
-				return tg.Directory.withObject({ graph: this, node: index });
+				return tg.Directory.withObject({
+					graph: this,
+					index,
+					kind: "directory",
+				});
 			}
 			case "file": {
-				return tg.File.withObject({ graph: this, node: index });
+				return tg.File.withObject({ graph: this, index, kind: "file" });
 			}
 			case "symlink": {
-				return tg.Symlink.withObject({ graph: this, node: index });
+				return tg.Symlink.withObject({
+					graph: this,
+					index,
+					kind: "symlink",
+				});
 			}
 		}
 	}
@@ -317,7 +331,8 @@ export namespace Graph {
 			| number
 			| {
 					graph?: tg.Graph | undefined;
-					node: number;
+					index: number;
+					kind?: tg.Artifact.Kind;
 			  };
 
 		export namespace Reference {
@@ -326,8 +341,8 @@ export namespace Graph {
 					typeof value === "number" ||
 					(typeof value === "object" &&
 						value !== null &&
-						"node" in value &&
-						typeof value.node === "number")
+						"index" in value &&
+						typeof value.index === "number")
 				);
 			};
 		}
@@ -571,11 +586,45 @@ export namespace Graph {
 	export type Edge<T> = tg.Graph.Reference | T;
 
 	export namespace Edge {
-		export let fromArg = <T>(arg: tg.Graph.Arg.Edge<T>): tg.Graph.Edge<T> => {
-			if (tg.Graph.Arg.Reference.is(arg)) {
-				return tg.Graph.Reference.fromArg(arg);
+		export let fromArg = <T>(
+			arg: tg.Graph.Arg.Edge<T>,
+			nodes?: Array<tg.Graph.Arg.Node>,
+		): tg.Graph.Edge<T> => {
+			if (typeof arg === "number") {
+				if (nodes === undefined) {
+					throw new Error(
+						"cannot convert number to edge without nodes context",
+					);
+				}
+				let kind = nodes[arg]?.kind;
+				if (!kind) {
+					throw new Error(`invalid node index: ${arg}`);
+				}
+				return { index: arg, kind };
+			} else if (
+				typeof arg === "object" &&
+				arg !== null &&
+				"index" in arg &&
+				typeof arg.index === "number"
+			) {
+				let reference = arg as {
+					graph?: tg.Graph;
+					index: number;
+					kind?: tg.Artifact.Kind;
+				};
+				if (reference.kind !== undefined) {
+					return reference as tg.Graph.Reference;
+				}
+				if (nodes === undefined) {
+					throw new Error("cannot infer kind without nodes context");
+				}
+				let kind = nodes[reference.index]?.kind;
+				if (!kind) {
+					throw new Error(`invalid node index: ${reference.index}`);
+				}
+				return { ...reference, kind };
 			} else {
-				return arg;
+				return arg as T;
 			}
 		};
 
@@ -583,7 +632,7 @@ export namespace Graph {
 			object: tg.Graph.Edge<T>,
 			f: (item: T) => U,
 		): tg.Graph.Data.Edge<U> => {
-			if (typeof object === "object" && object !== null && "node" in object) {
+			if (typeof object === "object" && object !== null && "index" in object) {
 				return tg.Graph.Reference.toData(object);
 			} else {
 				return f(object);
@@ -596,7 +645,7 @@ export namespace Graph {
 		): tg.Graph.Edge<U> => {
 			if (
 				typeof data === "string" ||
-				(typeof data === "object" && data !== null && "node" in data)
+				(typeof data === "object" && data !== null && "index" in data)
 			) {
 				try {
 					return tg.Graph.Reference.fromData(data);
@@ -609,10 +658,21 @@ export namespace Graph {
 			object: tg.Graph.Edge<T>,
 			f: (item: T) => U,
 		): string => {
-			if (typeof object === "object" && object !== null && "node" in object) {
+			if (typeof object === "object" && object !== null && "index" in object) {
 				return tg.Graph.Reference.toDataString(object);
 			} else {
 				return f(object);
+			}
+		};
+
+		export let fromDataString = <T>(
+			data: string,
+			f: (item: string) => T,
+		): tg.Graph.Edge<T> => {
+			if (data.includes("index=")) {
+				return tg.Graph.Reference.fromDataString(data);
+			} else {
+				return f(data);
 			}
 		};
 
@@ -622,7 +682,7 @@ export namespace Graph {
 			} else if (
 				typeof object === "object" &&
 				object !== null &&
-				"node" in object
+				"index" in object
 			) {
 				return tg.Graph.Reference.children(object);
 			} else if (tg.Object.is(object)) {
@@ -635,22 +695,33 @@ export namespace Graph {
 
 	export type Reference = {
 		graph?: tg.Graph | undefined;
-		node: number;
+		index: number;
+		kind: tg.Artifact.Kind;
 	};
 
 	export namespace Reference {
 		export let fromArg = (arg: tg.Graph.Arg.Reference): tg.Graph.Reference => {
-			return typeof arg === "number" ? { node: arg } : arg;
+			if (typeof arg === "number") {
+				throw new Error("cannot convert number to Reference without kind");
+			}
+			if (arg.kind === undefined) {
+				throw new Error("cannot convert Reference without kind");
+			}
+			return arg as tg.Graph.Reference;
 		};
 
 		export let toData = (
 			object: tg.Graph.Reference,
 		): tg.Graph.Data.Reference => {
-			let data: { graph?: tg.Graph.Id; node: number };
+			let data: { graph?: tg.Graph.Id; index: number; kind: tg.Artifact.Kind };
 			if (object.graph !== undefined) {
-				data = { graph: object.graph.id, node: object.node };
+				data = {
+					graph: object.graph.id,
+					index: object.index,
+					kind: object.kind,
+				};
 			} else {
-				data = { node: object.node };
+				data = { index: object.index, kind: object.kind };
 			}
 			return data;
 		};
@@ -658,13 +729,11 @@ export namespace Graph {
 		export let fromData = (
 			data: tg.Graph.Data.Reference,
 		): tg.Graph.Reference => {
-			if (typeof data === "number") {
-				return { graph: undefined, node: data };
-			} else if (typeof data === "string") {
+			if (typeof data === "string") {
 				return tg.Graph.Reference.fromDataString(data);
 			} else {
 				let graph = data.graph ? tg.Graph.withId(data.graph) : undefined;
-				return { graph, node: data.node };
+				return { graph, index: data.index, kind: data.kind };
 			}
 		};
 
@@ -673,13 +742,15 @@ export namespace Graph {
 			if (object.graph !== undefined) {
 				string += `graph=${object.graph.id}&`;
 			}
-			string += `node=${object.node}`;
+			string += `index=${object.index}`;
+			string += `&kind=${object.kind}`;
 			return string;
 		};
 
 		export let fromDataString = (data: string): tg.Graph.Reference => {
 			let graph: tg.Graph | undefined;
-			let node: number | undefined;
+			let index: number | undefined;
+			let kind: tg.Artifact.Kind | undefined;
 			for (let param of data.split("&")) {
 				let [key, value] = param.split("=");
 				if (value === undefined) {
@@ -690,8 +761,12 @@ export namespace Graph {
 						graph = tg.Graph.withId(decodeURIComponent(value));
 						break;
 					}
-					case "node": {
-						node = Number.parseInt(decodeURIComponent(value), 10);
+					case "index": {
+						index = Number.parseInt(decodeURIComponent(value), 10);
+						break;
+					}
+					case "kind": {
+						kind = decodeURIComponent(value) as tg.Artifact.Kind;
 						break;
 					}
 					default: {
@@ -699,8 +774,9 @@ export namespace Graph {
 					}
 				}
 			}
-			tg.assert(node !== undefined);
-			return { graph, node };
+			tg.assert(index !== undefined, "missing index");
+			tg.assert(kind !== undefined, "missing kind");
+			return { graph, index, kind };
 		};
 
 		export let children = (object: tg.Graph.Reference): Array<tg.Object> => {
@@ -715,8 +791,8 @@ export namespace Graph {
 			return (
 				typeof value === "object" &&
 				value !== null &&
-				"node" in value &&
-				typeof value.node === "number"
+				"index" in value &&
+				typeof value.index === "number"
 			);
 		};
 	}
@@ -759,7 +835,8 @@ export namespace Graph {
 			| string
 			| {
 					graph?: tg.Graph.Id;
-					node: number;
+					index: number;
+					kind: tg.Artifact.Kind;
 			  };
 
 		export namespace Reference {
@@ -769,8 +846,8 @@ export namespace Graph {
 					typeof value === "string" ||
 					(typeof value === "object" &&
 						value !== null &&
-						"node" in value &&
-						typeof value.node === "number")
+						"index" in value &&
+						typeof value.index === "number")
 				);
 			};
 		}

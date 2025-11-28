@@ -58,6 +58,10 @@ export class File {
 		return new File({ id, stored: true });
 	}
 
+	static withReference(reference: tg.Graph.Reference): File {
+		return new File({ object: reference, stored: false });
+	}
+
 	static withObject(object: File.Object): File {
 		return new File({ object, stored: false });
 	}
@@ -69,8 +73,8 @@ export class File {
 	static async new(...args: tg.Args<File.Arg>): Promise<File> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
-			if (typeof arg === "object" && "node" in arg) {
-				return tg.File.withObject(arg as tg.Graph.Reference);
+			if (tg.Graph.Arg.Reference.is(arg)) {
+				return tg.File.withObject(tg.Graph.Reference.fromArg(arg));
 			}
 		}
 		let arg = await tg.File.arg(...args);
@@ -80,7 +84,7 @@ export class File {
 				let referent: tg.Referent<tg.Graph.Edge<tg.Object>> | undefined;
 				if (
 					typeof value === "number" ||
-					(value && "node" in value) ||
+					(value && "index" in value) ||
 					tg.Object.is(value)
 				) {
 					let item = tg.Graph.Edge.fromArg(value);
@@ -163,6 +167,12 @@ export class File {
 		return this.#state.object!;
 	}
 
+	unload(): void {
+		if (this.#state.stored) {
+			this.#state.object = undefined;
+		}
+	}
+
 	async store(): Promise<tg.File.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -175,11 +185,11 @@ export class File {
 
 	async contents(): Promise<tg.Blob> {
 		let object = await this.object();
-		if ("node" in object) {
+		if ("index" in object) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
 			let nodes = await graph.nodes();
-			let node = nodes[object.node];
+			let node = nodes[object.index];
 			tg.assert(node !== undefined);
 			tg.assert(node.kind === "file");
 			return node.contents;
@@ -193,11 +203,11 @@ export class File {
 		[reference: tg.Reference]: tg.Referent<tg.Object> | undefined;
 	}> {
 		let object = await this.object();
-		if ("node" in object) {
+		if ("index" in object) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
 			let nodes = await graph.nodes();
-			let node = nodes[object.node];
+			let node = nodes[object.index];
 			tg.assert(node !== undefined);
 			tg.assert(node.kind === "file");
 			let dependencies = node.dependencies;
@@ -210,9 +220,9 @@ export class File {
 						let object: tg.Object | undefined;
 						if (typeof referent.item === "number") {
 							object = await graph.get(referent.item);
-						} else if ("node" in referent.item) {
+						} else if ("index" in referent.item) {
 							object = await (referent.item.graph ?? graph).get(
-								referent.item.node,
+								referent.item.index,
 							);
 						} else {
 							object = referent.item;
@@ -235,9 +245,9 @@ export class File {
 						}
 						let object: tg.Object | undefined;
 						tg.assert(typeof referent.item === "object");
-						if ("node" in referent.item) {
+						if ("index" in referent.item) {
 							tg.assert(referent.item.graph !== undefined);
-							object = await referent.item.graph.get(referent.item.node);
+							object = await referent.item.graph.get(referent.item.index);
 						} else {
 							object = referent.item;
 						}
@@ -269,11 +279,11 @@ export class File {
 
 	async executable(): Promise<boolean> {
 		let object = await this.object();
-		if ("node" in object) {
+		if ("index" in object) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
 			let nodes = await graph.nodes();
-			let node = nodes[object.node];
+			let node = nodes[object.index];
 			tg.assert(node !== undefined);
 			tg.assert(node.kind === "file");
 			return node.executable;
@@ -320,7 +330,7 @@ export namespace File {
 
 	export namespace Object {
 		export let toData = (object: tg.File.Object): tg.File.Data => {
-			if ("node" in object) {
+			if ("index" in object) {
 				return tg.Graph.Reference.toData(object);
 			} else {
 				return tg.Graph.File.toData(object);
@@ -336,7 +346,7 @@ export namespace File {
 		};
 
 		export let children = (object: tg.File.Object): Array<tg.Object> => {
-			if ("node" in object) {
+			if ("index" in object) {
 				return tg.Graph.Reference.children(object);
 			} else {
 				return tg.Graph.File.children(object);

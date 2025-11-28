@@ -14,7 +14,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
-	pub items: Vec<Either<tg::process::Id, tg::object::Id>>,
+	pub items: Vec<Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs: bool,

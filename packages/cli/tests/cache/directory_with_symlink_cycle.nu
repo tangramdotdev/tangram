@@ -11,19 +11,20 @@ let artifact = artifact {
 					{
 						kind: "directory",
 						entries: {
-							link: { node: 1 }
+							link: { index: 1, kind: "symlink" }
 						}
 					},
 					{
 						kind: "symlink",
-						artifact: { node: 0 },
+						artifact: { index: 0, kind: "directory" },
 						path: "link"
 					}
 				]
 			});
 			return tg.symlink({
 				graph,
-				node: 0
+				index: 0,
+				kind: "directory"
 			});
 		}
 	'

@@ -93,7 +93,10 @@ impl Graph {
 	}
 
 	pub fn unload(&self) {
-		self.state.write().unwrap().object.take();
+		let mut state = self.state.write().unwrap();
+		if state.stored {
+			state.object.take();
+		}
 	}
 
 	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
@@ -135,15 +138,11 @@ impl Graph {
 		let node = nodes
 			.get(index)
 			.ok_or_else(|| tg::error!("invalid node index"))?;
-		let artifact = match node.kind() {
-			tg::artifact::Kind::Directory => {
-				tg::Directory::with_graph_and_node(self.clone(), index).into()
-			},
-			tg::artifact::Kind::File => tg::File::with_graph_and_node(self.clone(), index).into(),
-			tg::artifact::Kind::Symlink => {
-				tg::Symlink::with_graph_and_node(self.clone(), index).into()
-			},
-		};
+		let artifact = tg::Artifact::with_reference(tg::graph::Reference {
+			graph: Some(self.clone()),
+			index,
+			kind: node.kind(),
+		});
 		Ok(artifact)
 	}
 }

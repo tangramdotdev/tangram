@@ -18,7 +18,7 @@ pub struct Item {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 	pub tag: tg::Tag,
-	pub item: Either<tg::process::Id, tg::object::Id>,
+	pub item: Either<tg::object::Id, tg::process::Id>,
 }
 
 impl tg::Client {

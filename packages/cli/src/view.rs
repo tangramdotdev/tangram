@@ -72,17 +72,17 @@ impl Cli {
 			Kind::Value | Kind::Package => {
 				let referent = self.get_reference(&args.reference).await?;
 				let item = match (referent.item(), args.kind) {
-					(Either::Left(_), Kind::Package) => {
-						return Err(tg::error!(reference = %args.reference, "expected an object"));
-					},
-					(Either::Left(process), Kind::Value) => {
-						crate::viewer::Item::Process(process.clone())
-					},
-					(Either::Right(object), Kind::Package) => {
+					(Either::Left(object), Kind::Package) => {
 						crate::viewer::Item::Package(crate::viewer::Package(object.clone()))
 					},
-					(Either::Right(object), Kind::Value) => {
+					(Either::Left(object), Kind::Value) => {
 						crate::viewer::Item::Value(object.clone().into())
+					},
+					(Either::Right(_), Kind::Package) => {
+						return Err(tg::error!(reference = %args.reference, "expected an object"));
+					},
+					(Either::Right(process), Kind::Value) => {
+						crate::viewer::Item::Process(process.clone())
 					},
 					(_, Kind::Tag) => unreachable!(),
 				};

@@ -20,8 +20,8 @@ impl Server {
 		}
 		let reference = reference.clone();
 		match &reference.item() {
-			tg::reference::Item::Process(process) => {
-				let item = Either::Left(process.clone());
+			tg::reference::Item::Object(object) => {
+				let item = Either::Left(object.clone());
 				let output = tg::get::Output {
 					referent: tg::Referent::with_item(item),
 				};
@@ -30,8 +30,8 @@ impl Server {
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 
-			tg::reference::Item::Object(object) => {
-				let item = Either::Right(object.clone());
+			tg::reference::Item::Process(process) => {
+				let item = Either::Right(process.clone());
 				let output = tg::get::Output {
 					referent: tg::Referent::with_item(item),
 				};
@@ -60,7 +60,7 @@ impl Server {
 					},
 					tg::progress::Event::Output(output) => {
 						let referent = tg::Referent {
-							item: Either::Right(output.artifact.item.into()),
+							item: Either::Left(output.artifact.item.into()),
 							options: output.artifact.options,
 						};
 						let output = Some(tg::get::Output { referent });
@@ -77,7 +77,7 @@ impl Server {
 					return Ok::<_, tg::Error>(stream.boxed());
 				};
 				let item = item.ok_or_else(|| tg::error!("expected the tag to have an item"))?;
-				let id = item.as_ref().right().cloned();
+				let id = item.as_ref().left().cloned();
 				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,

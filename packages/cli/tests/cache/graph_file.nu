@@ -13,7 +13,8 @@ let artifact = '
 				}
 			]
 		}),
-		"node": 0
+		"index": 0,
+		"kind": "file"
 	})
 '
 let id = run tg put $artifact

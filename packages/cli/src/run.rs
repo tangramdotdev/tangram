@@ -238,7 +238,7 @@ impl Cli {
 			let referent = self.get_reference(&reference).await?;
 			let directory = referent
 				.item
-				.right()
+				.left()
 				.ok_or_else(|| tg::error!("expected an object"))?
 				.try_unwrap_directory()
 				.ok()

@@ -1,12 +1,13 @@
 tg.directory({
-  "a": tg.directory({
+  "a": {
     "graph": tg.graph({
       "nodes": [
         {
           "kind": "directory",
           "entries": {
             "mod.tg.ts": {
-              "node": 1,
+              "index": 1,
+              "kind": "file",
             },
           },
         },
@@ -16,7 +17,8 @@ tg.directory({
           "dependencies": {
             ".": {
               "item": {
-                "node": 0,
+                "index": 0,
+                "kind": "directory",
               },
               "path": ".",
             },
@@ -24,6 +26,7 @@ tg.directory({
         },
       ],
     }),
-    "node": 0,
-  }),
+    "index": 0,
+    "kind": "directory",
+  },
 })

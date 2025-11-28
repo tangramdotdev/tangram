@@ -2,11 +2,13 @@ use {
 	crate::{Context, Server, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	itertools::Itertools as _,
+	num::ToPrimitive as _,
 	std::{
-		collections::HashMap,
+		collections::{HashMap, HashSet},
 		os::unix::fs::PermissionsExt as _,
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
+		pin::pin,
 	},
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -16,6 +18,8 @@ use {
 	},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::prelude::*,
+	tangram_util::read::InspectReader,
+	tokio_stream::wrappers::UnboundedReceiverStream,
 };
 
 struct State {
@@ -23,13 +27,24 @@ struct State {
 	depth: usize,
 	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	path: PathBuf,
+	progress: crate::progress::Handle<()>,
+	progress_task_sender: tokio::sync::mpsc::UnboundedSender<ProgressTaskMessage>,
 }
 
-type GetNodeOutput = (
-	tg::artifact::Id,
-	tg::graph::data::Node,
-	Option<tg::graph::Id>,
-);
+struct GetNodeOutput {
+	id: tg::artifact::Id,
+	node: tg::graph::data::Node,
+	graph: Option<tg::graph::Id>,
+	size: Option<u64>,
+}
+
+struct ProgressTaskMessage {
+	id: tg::object::Id,
+	count: u64,
+	weight: u64,
+}
+
+type Dependency = (tg::graph::data::Edge<tg::artifact::Id>, GetNodeOutput);
 
 impl Server {
 	pub(crate) async fn cache_with_context(
@@ -65,7 +80,7 @@ impl Server {
 					);
 				}
 
-				let _metadata = future::try_join_all(artifacts.iter().map(|artifact| async {
+				let metadata = future::try_join_all(artifacts.iter().map(|artifact| async {
 					server
 						.try_get_object_metadata(
 							&artifact.clone().into(),
@@ -105,18 +120,63 @@ impl Server {
 					)
 				});
 
+				// Create the progress indicators.
+				progress.spinner("cache", "cache");
+				let count = metadata.as_ref().and_then(|m| m.count);
+				let weight = metadata.as_ref().and_then(|m| m.weight);
+				progress.start(
+					"objects".to_owned(),
+					"objects".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					count,
+				);
+				progress.start(
+					"bytes".to_owned(),
+					"bytes".to_owned(),
+					tg::progress::IndicatorFormat::Bytes,
+					Some(0),
+					weight,
+				);
+
+				// Create a channel for the progress task.
+				let (progress_task_sender, progress_task_receiver) =
+					tokio::sync::mpsc::unbounded_channel();
+
+				// Spawn the progress task.
+				let progress_task = Task::spawn({
+					let server = server.clone();
+					let progress = progress.clone();
+					|_| async move {
+						server
+							.cache_progress_task(&progress, progress_task_receiver)
+							.await;
+					}
+				});
+
 				let result = future::try_join_all(artifacts.into_iter().map({
 					|artifact| {
 						let server = server.clone();
+						let progress = progress.clone();
+						let progress_task_sender = progress_task_sender.clone();
 						async move {
-							AssertUnwindSafe(server.cache_task(&artifact))
-								.catch_unwind()
-								.await
+							AssertUnwindSafe(server.cache_task(
+								&artifact,
+								&progress,
+								&progress_task_sender,
+							))
+							.catch_unwind()
+							.await
 						}
 					}
 				}))
 				.await
 				.map(|results| results.into_iter().try_collect::<_, (), _>());
+
+				// Abort the progress task.
+				progress_task.abort();
+
+				progress.finish_all();
 
 				match result {
 					Ok(Ok(output)) => {
@@ -190,7 +250,7 @@ impl Server {
 			.pull(tg::pull::Arg {
 				items: artifacts
 					.iter()
-					.map(|artifact| Either::Right(artifact.clone().into()))
+					.map(|artifact| Either::Left(artifact.clone().into()))
 					.collect(),
 				remote: Some("default".to_owned()),
 				..Default::default()
@@ -207,43 +267,174 @@ impl Server {
 		Ok(())
 	}
 
-	async fn cache_task(&self, id: &tg::artifact::Id) -> tg::Result<()> {
+	async fn cache_progress_task(
+		&self,
+		progress: &crate::progress::Handle<()>,
+		progress_task_receiver: tokio::sync::mpsc::UnboundedReceiver<ProgressTaskMessage>,
+	) {
+		let mut stream = UnboundedReceiverStream::new(progress_task_receiver).ready_chunks(256);
+		while let Some(messages) = stream.next().await {
+			let ids = messages
+				.iter()
+				.map(|message| message.id.clone())
+				.collect::<Vec<_>>();
+			let Ok(metadata) = self.try_get_object_complete_and_metadata_batch(&ids).await else {
+				continue;
+			};
+			for (message, metadata) in std::iter::zip(messages, metadata) {
+				if let Some((_, metadata)) = metadata {
+					if let Some(count) = metadata.count {
+						progress.increment("objects", count.saturating_sub(message.count));
+					}
+					if let Some(weight) = metadata.weight {
+						progress.increment("bytes", weight.saturating_sub(message.weight));
+					}
+				}
+			}
+		}
+	}
+
+	async fn cache_task(
+		&self,
+		id: &tg::artifact::Id,
+		progress: &crate::progress::Handle<()>,
+		progress_task_sender: &tokio::sync::mpsc::UnboundedSender<ProgressTaskMessage>,
+	) -> tg::Result<()> {
 		// Get the node in a blocking task.
 		let edge = tg::graph::data::Edge::Object(id.clone());
-		let (id, node, graph) = tokio::task::spawn_blocking({
+		let GetNodeOutput {
+			id,
+			node,
+			graph,
+			size,
+		} = tokio::task::spawn_blocking({
 			let server = self.clone();
-			move || server.cache_get_node(None, &edge)
+			let edge = edge.clone();
+			let progress = progress.clone();
+			move || server.cache_get_node(None, &edge, &progress)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		// Get or spawn and await the cache task.
-		self.cache_dependency(id, node, graph).await?;
+		self.cache_dependency(edge, id, node, graph, size, progress, progress_task_sender)
+			.await?;
 
 		Ok(())
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	async fn cache_dependency(
 		&self,
+		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		id: tg::artifact::Id,
 		node: tg::graph::data::Node,
 		graph: Option<tg::graph::Id>,
+		size: Option<u64>,
+		progress: &crate::progress::Handle<()>,
+		progress_task_sender: &tokio::sync::mpsc::UnboundedSender<ProgressTaskMessage>,
 	) -> tg::Result<()> {
-		self.cache_tasks
-			.get_or_spawn(id.clone(), {
+		let task = self.cache_tasks.get_or_spawn_with_context(
+			id.clone(),
+			|| {
+				let progress = crate::progress::Handle::new();
+				progress.start(
+					"objects".to_owned(),
+					"objects".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					None,
+				);
+				progress.start(
+					"bytes".to_owned(),
+					"bytes".to_owned(),
+					tg::progress::IndicatorFormat::Bytes,
+					Some(0),
+					None,
+				);
+				progress
+			},
+			{
 				let server = self.clone();
-				move |_| {
+				let id = id.clone();
+				move |dependency_progress, _| {
 					let server = server.clone();
 					async move {
-						server
-							.cache_dependency_task(&id, node, graph.as_ref())
-							.await
+						// Create a channel for the dependency's progress task.
+						let (dependency_progress_task_sender, dependency_progress_task_receiver) =
+							tokio::sync::mpsc::unbounded_channel();
+
+						// Spawn the dependency's progress task.
+						let dependency_progress_task = Task::spawn({
+							let server = server.clone();
+							let dependency_progress = dependency_progress.clone();
+							|_| async move {
+								server
+									.cache_progress_task(
+										&dependency_progress,
+										dependency_progress_task_receiver,
+									)
+									.await;
+							}
+						});
+
+						// Cache.
+						let result = server
+							.cache_dependency_task(
+								&id,
+								node,
+								graph.as_ref(),
+								size,
+								&dependency_progress,
+								&dependency_progress_task_sender,
+							)
+							.await;
+
+						// Abort the dependency's progress task.
+						dependency_progress_task.abort();
+
+						result
 					}
 				}
-			})
-			.wait()
-			.await
-			.unwrap()
+			},
+		);
+
+		// Forward progress events from the dependency to our progress handle.
+		let mut dependency_count = 0u64;
+		let mut dependency_weight = 0u64;
+		let mut stream = pin!(task.context().stream().fuse());
+		let mut task_future = pin!(task.wait().fuse());
+		loop {
+			futures::select! {
+				event = stream.next() => {
+					if let Some(Ok(tg::progress::Event::Update(indicator))) = event {
+						if indicator.name == "objects" && let Some(current) = indicator.current {
+							progress.increment("objects", current.saturating_sub(dependency_count));
+							dependency_count = current;
+						} else if indicator.name == "bytes" && let Some(current) = indicator.current {
+							progress.increment("bytes", current.saturating_sub(dependency_weight));
+							dependency_weight = current;
+						}
+					}
+				}
+				result = task_future => {
+					result.unwrap()?;
+					break;
+				}
+			}
+		}
+
+		// Send a message to the progress task to add the count and weight of this dependency.
+		if let tg::graph::data::Edge::Object(id) = &edge {
+			let message = ProgressTaskMessage {
+				id: id.clone().into(),
+				count: dependency_count,
+				weight: dependency_weight,
+			};
+			progress_task_sender.send(message).ok();
+		}
+
+		Ok(())
 	}
 
 	fn cache_dependency_task(
@@ -251,6 +442,9 @@ impl Server {
 		id: &tg::artifact::Id,
 		node: tg::graph::data::Node,
 		graph: Option<&tg::graph::Id>,
+		size: Option<u64>,
+		progress: &crate::progress::Handle<()>,
+		progress_task_sender: &tokio::sync::mpsc::UnboundedSender<ProgressTaskMessage>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
 			// Create the path.
@@ -273,23 +467,43 @@ impl Server {
 				let path = temp.path().to_owned();
 				let id = id.clone();
 				let graph = graph.cloned();
-				move || server.cache_dependency_write(&path, &id, node, graph.as_ref())
+				let progress = progress.clone();
+				let progress_task_sender = progress_task_sender.clone();
+				move || {
+					server.cache_dependency_write(
+						&path,
+						&id,
+						node,
+						graph.as_ref(),
+						size,
+						&progress,
+						&progress_task_sender,
+					)
+				}
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the cache task panicked"))??;
 
 			// Recursively cache all dependencies concurrently.
 			let server = self.clone();
-			future::try_join_all(dependencies.into_iter().map(
-				|(dependency_id, dependency_node, dependency_graph)| {
-					let server = server.clone();
-					async move {
-						server
-							.cache_dependency(dependency_id, dependency_node, dependency_graph)
-							.await
-					}
-				},
-			))
+			future::try_join_all(dependencies.into_iter().map(|(edge, output)| {
+				let server = server.clone();
+				let progress = progress.clone();
+				let progress_task_sender = progress_task_sender.clone();
+				async move {
+					server
+						.cache_dependency(
+							edge,
+							output.id,
+							output.node,
+							output.graph,
+							output.size,
+							&progress,
+							&progress_task_sender,
+						)
+						.await
+				}
+			}))
 			.await?;
 
 			// Rename the temp to the cache path.
@@ -364,23 +578,29 @@ impl Server {
 		}
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	fn cache_dependency_write(
 		&self,
 		path: &Path,
 		id: &tg::artifact::Id,
 		node: tg::graph::data::Node,
 		graph: Option<&tg::graph::Id>,
-	) -> tg::Result<Vec<GetNodeOutput>> {
+		size: Option<u64>,
+		progress: &crate::progress::Handle<()>,
+		progress_task_sender: &tokio::sync::mpsc::UnboundedSender<ProgressTaskMessage>,
+	) -> tg::Result<Vec<Dependency>> {
 		// Create the state.
 		let mut state = State {
 			artifact: id.clone(),
 			depth: 0,
 			graphs: HashMap::default(),
 			path: path.to_owned(),
+			progress: progress.clone(),
+			progress_task_sender: progress_task_sender.clone(),
 		};
 
 		// Cache the artifact and collect dependencies.
-		let dependencies = self.cache_artifact(&mut state, path, id, node, graph)?;
+		let dependencies = self.cache_artifact(&mut state, path, id, node, graph, size)?;
 
 		// Set permissions on the temp directory before rename.
 		if id.is_directory() {
@@ -400,15 +620,18 @@ impl Server {
 		id: &tg::artifact::Id,
 		node: tg::graph::data::Node,
 		graph: Option<&tg::graph::Id>,
-	) -> tg::Result<Vec<GetNodeOutput>> {
+		size: Option<u64>,
+	) -> tg::Result<Vec<Dependency>> {
 		// Write the artifact and collect dependencies.
 		let dependencies = match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.cache_directory(state, path, id, graph, &node)?
+				self.cache_directory(state, path, id, graph, &node, size)?
 			},
-			tg::graph::data::Node::File(node) => self.cache_file(state, path, id, graph, &node)?,
+			tg::graph::data::Node::File(node) => {
+				self.cache_file(state, path, id, graph, &node, size)?
+			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.cache_symlink(state, path, id, graph, &node)?
+				self.cache_symlink(state, path, id, graph, &node, size)?
 			},
 		};
 
@@ -421,112 +644,6 @@ impl Server {
 		Ok(dependencies)
 	}
 
-	fn cache_get_node(
-		&self,
-		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-	) -> tg::Result<GetNodeOutput> {
-		let mut local_graphs = HashMap::default();
-		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
-		match edge {
-			tg::graph::data::Edge::Reference(reference) => {
-				// Load the graph.
-				let graph = reference
-					.graph
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing graph"))?;
-				if !graphs.contains_key(graph) {
-					let data = self
-						.store
-						.try_get_object_data_sync(&graph.clone().into())?
-						.ok_or_else(|| tg::error!("failed to load the graph"))?
-						.try_into()
-						.map_err(|_| tg::error!("expected graph data"))?;
-					graphs.insert(graph.clone(), data);
-				}
-
-				// Get the node.
-				let node = graphs
-					.get(graph)
-					.unwrap()
-					.nodes
-					.get(reference.node)
-					.ok_or_else(|| tg::error!("invalid graph node"))?
-					.clone();
-
-				// Compute the id.
-				let data: tg::artifact::data::Artifact = match node.kind() {
-					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Reference(reference.clone()).into()
-					},
-					tg::artifact::Kind::File => tg::file::Data::Reference(reference.clone()).into(),
-					tg::artifact::Kind::Symlink => {
-						tg::symlink::Data::Reference(reference.clone()).into()
-					},
-				};
-				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
-
-				Ok((id, node, Some(graph.clone())))
-			},
-
-			tg::graph::data::Edge::Object(id) => {
-				// Load the object.
-				let data = self
-					.store
-					.try_get_object_data_sync(&id.clone().into())?
-					.ok_or_else(|| tg::error!("failed to load the object"))?
-					.try_into()
-					.map_err(|_| tg::error!("expected artifact data"))?;
-
-				match data {
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
-						reference,
-					))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(reference))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
-						reference,
-					)) => {
-						// Load the graph.
-						let graph = reference
-							.graph
-							.as_ref()
-							.ok_or_else(|| tg::error!("missing graph"))?;
-						if !graphs.contains_key(graph) {
-							let data = self
-								.store
-								.try_get_object_data_sync(&graph.clone().into())?
-								.ok_or_else(|| tg::error!("failed to load the graph"))?
-								.try_into()
-								.map_err(|_| tg::error!("expected graph data"))?;
-							graphs.insert(graph.clone(), data);
-						}
-
-						// Get the node.
-						let node = graphs
-							.get(graph)
-							.unwrap()
-							.nodes
-							.get(reference.node)
-							.ok_or_else(|| tg::error!("invalid graph node"))?
-							.clone();
-
-						Ok((id.clone(), node, Some(graph.clone())))
-					},
-
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
-						Ok((id.clone(), tg::graph::data::Node::Directory(node), None))
-					},
-					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
-						Ok((id.clone(), tg::graph::data::Node::File(node), None))
-					},
-					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
-						Ok((id.clone(), tg::graph::data::Node::Symlink(node), None))
-					},
-				}
-			},
-		}
-	}
-
 	fn cache_directory(
 		&self,
 		state: &mut State,
@@ -534,7 +651,8 @@ impl Server {
 		_id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::Directory,
-	) -> tg::Result<Vec<GetNodeOutput>> {
+		size: Option<u64>,
+	) -> tg::Result<Vec<Dependency>> {
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
@@ -542,6 +660,7 @@ impl Server {
 
 		// Recurse into the entries.
 		let mut dependencies = Vec::new();
+		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
@@ -551,10 +670,19 @@ impl Server {
 			}
 			let path = path.join(name);
 			state.depth += 1;
-			let (id, node, graph) = self.cache_get_node(Some(&mut state.graphs), &edge)?;
+			let GetNodeOutput {
+				id,
+				node,
+				graph,
+				size,
+			} = self.cache_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
 			let entry_dependencies =
-				self.cache_artifact(state, &path, &id, node, graph.as_ref())?;
-			dependencies.extend(entry_dependencies);
+				self.cache_artifact(state, &path, &id, node, graph.as_ref(), size)?;
+			if visited.insert(id) {
+				for dependency in entry_dependencies {
+					dependencies.push(dependency);
+				}
+			}
 			state.depth -= 1;
 		}
 
@@ -563,6 +691,12 @@ impl Server {
 		std::fs::set_permissions(path, permissions).map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to set permissions"),
 		)?;
+
+		// Increment the progress.
+		if let Some(size) = size {
+			state.progress.increment("objects", 1);
+			state.progress.increment("bytes", size);
+		}
 
 		Ok(dependencies)
 	}
@@ -574,13 +708,16 @@ impl Server {
 		id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::File,
-	) -> tg::Result<Vec<GetNodeOutput>> {
+		size: Option<u64>,
+	) -> tg::Result<Vec<Dependency>> {
 		let mut dependencies = Vec::new();
+		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
 		for referent in node.dependencies.values() {
 			let Some(referent) = referent else {
 				continue;
 			};
-			// Skip object edges.
+
+			// Get the edge.
 			let mut edge = match referent.item.clone() {
 				tg::graph::data::Edge::Reference(graph) => tg::graph::data::Edge::Reference(graph),
 				tg::graph::data::Edge::Object(id) => match id.try_into() {
@@ -597,14 +734,33 @@ impl Server {
 			}
 
 			// Get the node.
-			let (dependency_id, dependency_node, dependency_graph) =
-				self.cache_get_node(Some(&mut state.graphs), &edge)?;
+			let GetNodeOutput {
+				id: dependency_id,
+				node: dependency_node,
+				graph: dependency_graph,
+				size: dependency_size,
+			} = self.cache_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
 
 			// Collect the dependency if it is not the root artifact.
-			if dependency_id != state.artifact {
-				dependencies.push((dependency_id, dependency_node, dependency_graph));
+			if dependency_id != state.artifact && visited.insert(dependency_id.clone()) {
+				dependencies.push((
+					edge.clone(),
+					GetNodeOutput {
+						id: dependency_id,
+						node: dependency_node,
+						graph: dependency_graph,
+						size: dependency_size,
+					},
+				));
 			}
 		}
+
+		let mut done = false;
+		let contents = node
+			.contents
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing contents"))?;
+		let mut weight = 0;
 
 		let src = &self.cache_path().join(id.to_string());
 		let dst = &path;
@@ -622,36 +778,65 @@ impl Server {
 			if result.is_ok()
 				|| result.is_err_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists)
 			{
-				return Ok(dependencies);
+				let len = std::fs::symlink_metadata(dst)
+					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
+					.len();
+				state.progress.increment("bytes", len);
+				weight += len;
+
+				done = true;
 			}
 		}
 
-		// Attempt to write the file.
-		let contents = node
-			.contents
-			.as_ref()
-			.ok_or_else(|| tg::error!("missing contents"))?;
-		let mut reader = crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
-			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
-		let mut file = std::fs::File::create(dst)
-			.map_err(|source| tg::error!(!source, path = ?dst, "failed to create the file"))?;
-		std::io::copy(&mut reader, &mut file)
-			.map_err(|source| tg::error!(!source, path = ?dst, "failed to write to the file"))?;
+		// Otherwise, write the file.
+		if !done {
+			let mut reader =
+				crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
+					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+			let mut reader = InspectReader::new(&mut reader, {
+				|buffer| {
+					let len = buffer.len().to_u64().unwrap();
+					state.progress.increment("bytes", len);
+					weight += len;
+				}
+			});
+			let mut file = std::fs::File::create(dst)
+				.map_err(|source| tg::error!(!source, path = ?dst, "failed to create the file"))?;
+			std::io::copy(&mut reader, &mut file).map_err(
+				|source| tg::error!(!source, path = ?dst, "failed to write to the file"),
+			)?;
 
-		// Set the dependencies attr.
-		let dependencies_ = node.dependencies.keys().cloned().collect::<Vec<_>>();
-		if !dependencies_.is_empty() {
-			let dependencies = serde_json::to_vec(&dependencies_)
-				.map_err(|source| tg::error!(!source, "failed to serialize the dependencies"))?;
-			xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
-				.map_err(|source| tg::error!(!source, "failed to write the dependencies attr"))?;
+			// Set the dependencies attr.
+			let dependencies_ = node.dependencies.keys().cloned().collect::<Vec<_>>();
+			if !dependencies_.is_empty() {
+				let dependencies = serde_json::to_vec(&dependencies_).map_err(|source| {
+					tg::error!(!source, "failed to serialize the dependencies")
+				})?;
+				xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
+					|source| tg::error!(!source, "failed to write the dependencies attr"),
+				)?;
+			}
+
+			// Set the permissions.
+			let mode = if node.executable { 0o555 } else { 0o444 };
+			let permissions = std::fs::Permissions::from_mode(mode);
+			std::fs::set_permissions(dst, permissions)
+				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 		}
 
-		// Set the permissions.
-		let mode = if node.executable { 0o555 } else { 0o444 };
-		let permissions = std::fs::Permissions::from_mode(mode);
-		std::fs::set_permissions(dst, permissions)
-			.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+		// Increment the progress.
+		if let Some(size) = size {
+			state.progress.increment("objects", 1);
+			state.progress.increment("bytes", size);
+		}
+
+		// Send the progress task message for the contents.
+		let message = ProgressTaskMessage {
+			id: contents.clone().into(),
+			count: 0,
+			weight,
+		};
+		state.progress_task_sender.send(message).ok();
 
 		Ok(dependencies)
 	}
@@ -663,7 +848,8 @@ impl Server {
 		_id: &tg::artifact::Id,
 		graph: Option<&tg::graph::Id>,
 		node: &tg::graph::data::Symlink,
-	) -> tg::Result<Vec<GetNodeOutput>> {
+		size: Option<u64>,
+	) -> tg::Result<Vec<Dependency>> {
 		// Collect the dependency.
 		let mut dependencies = Vec::new();
 
@@ -679,8 +865,12 @@ impl Server {
 			}
 
 			// Get the dependency node.
-			let (dependency_id, dependency_node, dependency_graph) =
-				self.cache_get_node(Some(&mut state.graphs), &edge)?;
+			let GetNodeOutput {
+				id: dependency_id,
+				node: dependency_node,
+				graph: dependency_graph,
+				size: dependency_size,
+			} = self.cache_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
 
 			if dependency_id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
@@ -688,9 +878,13 @@ impl Server {
 			} else {
 				// Collect the dependency.
 				dependencies.push((
-					dependency_id.clone(),
-					dependency_node,
-					dependency_graph.clone(),
+					edge.clone(),
+					GetNodeOutput {
+						id: dependency_id.clone(),
+						node: dependency_node,
+						graph: dependency_graph.clone(),
+						size: dependency_size,
+					},
 				));
 
 				// Update the target.
@@ -719,7 +913,153 @@ impl Server {
 		std::os::unix::fs::symlink(target, path)
 			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
+		// Increment the progress.
+		if let Some(size) = size {
+			state.progress.increment("objects", 1);
+			state.progress.increment("bytes", size);
+		}
+
 		Ok(dependencies)
+	}
+
+	fn cache_get_node(
+		&self,
+		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
+		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+		progress: &crate::progress::Handle<()>,
+	) -> tg::Result<GetNodeOutput> {
+		let mut local_graphs = HashMap::default();
+		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
+		match edge {
+			tg::graph::data::Edge::Reference(reference) => {
+				// Load the graph.
+				let graph = reference
+					.graph
+					.as_ref()
+					.ok_or_else(|| tg::error!("missing graph"))?;
+				if !graphs.contains_key(graph) {
+					let (size, data) = self
+						.store
+						.try_get_object_data_sync(&graph.clone().into())?
+						.ok_or_else(|| tg::error!("failed to load the graph"))?;
+					let data = data
+						.try_into()
+						.map_err(|_| tg::error!("expected graph data"))?;
+					graphs.insert(graph.clone(), data);
+					progress.increment("objects", 1);
+					progress.increment("bytes", size);
+				}
+
+				// Get the node.
+				let node = graphs
+					.get(graph)
+					.unwrap()
+					.nodes
+					.get(reference.index)
+					.ok_or_else(|| tg::error!("invalid graph node"))?
+					.clone();
+
+				// Compute the id.
+				let data: tg::artifact::data::Artifact = match node.kind() {
+					tg::artifact::Kind::Directory => {
+						tg::directory::Data::Reference(reference.clone()).into()
+					},
+					tg::artifact::Kind::File => tg::file::Data::Reference(reference.clone()).into(),
+					tg::artifact::Kind::Symlink => {
+						tg::symlink::Data::Reference(reference.clone()).into()
+					},
+				};
+				let bytes = data.serialize()?;
+				let id = tg::artifact::Id::new(node.kind(), &bytes);
+
+				Ok(GetNodeOutput {
+					id,
+					node,
+					graph: Some(graph.clone()),
+					size: None,
+				})
+			},
+
+			tg::graph::data::Edge::Object(id) => {
+				// Load the object.
+				let (size, data) = self
+					.store
+					.try_get_object_data_sync(&id.clone().into())?
+					.ok_or_else(|| tg::error!("failed to load the object"))?;
+				let data = data
+					.try_into()
+					.map_err(|_| tg::error!("expected artifact data"))?;
+
+				match data {
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
+						reference,
+					))
+					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(reference))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
+						reference,
+					)) => {
+						// Load the graph.
+						let graph = reference
+							.graph
+							.as_ref()
+							.ok_or_else(|| tg::error!("missing graph"))?;
+						if !graphs.contains_key(graph) {
+							let (size, data) = self
+								.store
+								.try_get_object_data_sync(&graph.clone().into())?
+								.ok_or_else(|| tg::error!("failed to load the graph"))?;
+							let data = data
+								.try_into()
+								.map_err(|_| tg::error!("expected graph data"))?;
+							graphs.insert(graph.clone(), data);
+							progress.increment("objects", 1);
+							progress.increment("bytes", size);
+						}
+
+						// Get the node.
+						let node = graphs
+							.get(graph)
+							.unwrap()
+							.nodes
+							.get(reference.index)
+							.ok_or_else(|| tg::error!("invalid graph node"))?
+							.clone();
+
+						Ok(GetNodeOutput {
+							id: id.clone(),
+							node,
+							graph: Some(graph.clone()),
+							size: Some(size),
+						})
+					},
+
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
+						Ok(GetNodeOutput {
+							id: id.clone(),
+							node: tg::graph::data::Node::Directory(node),
+							graph: None,
+							size: Some(size),
+						})
+					},
+					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
+						Ok(GetNodeOutput {
+							id: id.clone(),
+							node: tg::graph::data::Node::File(node),
+							graph: None,
+							size: Some(size),
+						})
+					},
+					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
+						Ok(GetNodeOutput {
+							id: id.clone(),
+							node: tg::graph::data::Node::Symlink(node),
+							graph: None,
+							size: Some(size),
+						})
+					},
+				}
+			},
+		}
 	}
 
 	pub(crate) async fn handle_cache_request(

@@ -61,17 +61,12 @@ where
 				.into_iter()
 				.enumerate()
 				.map(|(index, node)| {
-					let object = match node.kind() {
-						tg::artifact::Kind::Directory => {
-							tg::Directory::with_graph_and_node(graph.clone(), index).into()
-						},
-						tg::artifact::Kind::File => {
-							tg::File::with_graph_and_node(graph.clone(), index).into()
-						},
-						tg::artifact::Kind::Symlink => {
-							tg::Symlink::with_graph_and_node(graph.clone(), index).into()
-						},
-					};
+					let object: tg::Object = tg::Artifact::with_reference(tg::graph::Reference {
+						graph: Some(graph.clone()),
+						index,
+						kind: node.kind(),
+					})
+					.into();
 					let mut child = tg::Referent::with_item(object);
 					child.inherit(&referent);
 					child

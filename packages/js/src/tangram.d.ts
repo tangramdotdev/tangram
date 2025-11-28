@@ -507,7 +507,7 @@ declare namespace tg {
 
 		export type Reference = {
 			graph?: tg.Graph | undefined;
-			node: number;
+			index: number;
 		};
 	}
 

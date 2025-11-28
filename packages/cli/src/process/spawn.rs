@@ -238,7 +238,7 @@ impl Cli {
 		let item = referent
 			.item
 			.clone()
-			.right()
+			.left()
 			.ok_or_else(|| tg::error!("expected an object"))?;
 		let mut referent = referent.map(|_| item);
 
@@ -279,7 +279,8 @@ impl Cli {
 					unreachable!();
 				};
 				let item = directory.get(&handle, root_module_file_name).await?;
-				let item = tg::module::Item::Object(item.into());
+				let item = tg::graph::Edge::Object(item.into());
+				let item = tg::module::Item::Edge(item);
 				let referent = tg::Referent::with_item(item);
 				let module = tg::Module { kind, referent };
 				let export = reference.export().unwrap_or("default").to_owned();
@@ -307,7 +308,9 @@ impl Cli {
 					} else {
 						unreachable!()
 					};
-					let item = tg::module::Item::Object(file.clone().into());
+					let item = file.clone().into();
+					let item = tg::graph::Edge::Object(item);
+					let item = tg::module::Item::Edge(item);
 					let referent = tg::Referent::with_item(item);
 					let module = tg::Module { kind, referent };
 					let export = reference.export().unwrap_or("default").to_owned();
@@ -446,7 +449,7 @@ impl Cli {
 			let id = command.id();
 			let arg = tg::push::Arg {
 				commands: true,
-				items: vec![Either::Right(id.into())],
+				items: vec![Either::Left(id.into())],
 				remote: Some(remote),
 				..Default::default()
 			};
@@ -496,7 +499,7 @@ impl Cli {
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
-			let item = Either::Left(output.process.clone());
+			let item = Either::Right(output.process.clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,

@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	anstream::eprintln,
+	anstream::{eprintln, println},
 	crossterm::{style::Stylize, tty::IsTty as _},
 	futures::{Stream, TryStreamExt as _},
 	std::pin::pin,
@@ -31,6 +31,13 @@ pub enum Depth {
 }
 
 impl Cli {
+	pub(crate) fn print_display<T>(value: T)
+	where
+		T: std::fmt::Display,
+	{
+		println!("{value}");
+	}
+
 	pub(crate) async fn print(&mut self, value: &tg::Value, options: Options) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());

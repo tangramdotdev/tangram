@@ -96,7 +96,7 @@ impl Store {
 	pub fn try_get_object_data_sync(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Data>> {
+	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => store.try_get_object_data_sync(id),

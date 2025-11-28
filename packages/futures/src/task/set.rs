@@ -11,7 +11,7 @@ use {
 };
 
 pub struct Set<T, H = std::collections::hash_map::RandomState> {
-	map: Map<u64, T, H>,
+	map: Map<u64, T, (), H>,
 	next_id: Arc<AtomicU64>,
 }
 
@@ -20,7 +20,7 @@ where
 	T: Clone + Send + Sync + 'static,
 	H: BuildHasher + Default + Clone + Send + Sync + 'static,
 {
-	pub fn spawn<F, Fut>(&self, f: F) -> Shared<T>
+	pub fn spawn<F, Fut>(&self, f: F) -> Shared<T, ()>
 	where
 		F: FnOnce(Stop) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
@@ -29,7 +29,7 @@ where
 		self.map.spawn(id, f)
 	}
 
-	pub fn spawn_blocking<F>(&self, f: F) -> Shared<T>
+	pub fn spawn_blocking<F>(&self, f: F) -> Shared<T, ()>
 	where
 		F: FnOnce(Stop) -> T + Send + 'static,
 	{

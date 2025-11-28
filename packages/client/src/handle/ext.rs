@@ -466,7 +466,7 @@ pub trait Ext: tg::Handle {
 		Output = tg::Result<
 			impl Stream<
 				Item = tg::Result<
-					tg::progress::Event<tg::Referent<Either<tg::Process, tg::Object>>>,
+					tg::progress::Event<tg::Referent<Either<tg::Object, tg::Process>>>,
 				>,
 			> + Send
 			+ 'static,
@@ -493,8 +493,9 @@ pub trait Ext: tg::Handle {
 						crate::progress::Event::Output(output) => output
 							.map(|output| {
 								let referent = output.referent.map(|item| {
-									item.map_left(|id| tg::Process::new(id, None, None, None, None))
-										.map_right(tg::Object::with_id)
+									item.map_left(tg::Object::with_id).map_right(|id| {
+										tg::Process::new(id, None, None, None, None)
+									})
 								});
 								crate::progress::Event::Output(referent)
 							})

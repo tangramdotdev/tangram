@@ -29,7 +29,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub get: Vec<Either<tg::process::Id, tg::object::Id>>,
+	pub get: Vec<Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -37,7 +37,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub put: Vec<Either<tg::process::Id, tg::object::Id>>,
+	pub put: Vec<Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -83,19 +83,10 @@ pub enum GetMessage {
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum GetItemMessage {
 	#[tangram_serialize(id = 0)]
-	Process(GetItemProcessMessage),
+	Object(GetItemObjectMessage),
 
 	#[tangram_serialize(id = 1)]
-	Object(GetItemObjectMessage),
-}
-
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetItemProcessMessage {
-	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
-
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
-	pub eager: bool,
+	Process(GetItemProcessMessage),
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -107,13 +98,28 @@ pub struct GetItemObjectMessage {
 	pub eager: bool,
 }
 
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct GetItemProcessMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::process::Id,
+
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	pub eager: bool,
+}
+
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum GetCompleteMessage {
 	#[tangram_serialize(id = 0)]
-	Process(GetCompleteProcessMessage),
+	Object(GetCompleteObjectMessage),
 
 	#[tangram_serialize(id = 1)]
-	Object(GetCompleteObjectMessage),
+	Process(GetCompleteProcessMessage),
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct GetCompleteObjectMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::object::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -137,12 +143,6 @@ pub struct GetCompleteProcessMessage {
 	pub children_outputs_complete: bool,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetCompleteObjectMessage {
-	#[tangram_serialize(id = 0)]
-	pub id: tg::object::Id,
-}
-
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutMessage {
 	#[tangram_serialize(id = 0)]
@@ -161,19 +161,10 @@ pub enum PutMessage {
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutItemMessage {
 	#[tangram_serialize(id = 0)]
-	Process(PutItemProcessMessage),
-
-	#[tangram_serialize(id = 1)]
 	Object(PutItemObjectMessage),
-}
-
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemProcessMessage {
-	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
 
 	#[tangram_serialize(id = 1)]
-	pub bytes: Bytes,
+	Process(PutItemProcessMessage),
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -186,24 +177,33 @@ pub struct PutItemObjectMessage {
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum PutMissingMessage {
+pub struct PutItemProcessMessage {
 	#[tangram_serialize(id = 0)]
-	Process(PutMissingProcessMessage),
+	pub id: tg::process::Id,
 
 	#[tangram_serialize(id = 1)]
-	Object(PutMissingObjectMessage),
+	pub bytes: Bytes,
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutMissingProcessMessage {
+pub enum PutMissingMessage {
 	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
+	Object(PutMissingObjectMessage),
+
+	#[tangram_serialize(id = 1)]
+	Process(PutMissingProcessMessage),
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutMissingObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
+}
+
+#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct PutMissingProcessMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::process::Id,
 }
 
 #[derive(

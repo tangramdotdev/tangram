@@ -120,7 +120,10 @@ pub struct Symlink {
 	Clone,
 	Debug,
 	Eq,
+	Hash,
+	Ord,
 	PartialEq,
+	PartialOrd,
 	derive_more::IsVariant,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
@@ -138,11 +141,34 @@ pub enum Edge<T> {
 	Object(T),
 }
 
+impl From<Edge<tg::artifact::Id>> for Edge<tg::object::Id> {
+	fn from(value: Edge<tg::artifact::Id>) -> Self {
+		match value {
+			Edge::Reference(reference) => Self::Reference(reference),
+			Edge::Object(id) => Self::Object(id.into()),
+		}
+	}
+}
+
+impl TryFrom<Edge<tg::object::Id>> for Edge<tg::artifact::Id> {
+	type Error = tg::Error;
+
+	fn try_from(value: Edge<tg::object::Id>) -> tg::Result<Self> {
+		match value {
+			Edge::Reference(reference) => Ok(Self::Reference(reference)),
+			Edge::Object(id) => Ok(Self::Object(id.try_into()?)),
+		}
+	}
+}
+
 #[derive(
 	Clone,
 	Debug,
 	Eq,
+	Hash,
+	Ord,
 	PartialEq,
+	PartialOrd,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -154,7 +180,10 @@ pub struct Reference {
 	pub graph: Option<tg::graph::Id>,
 
 	#[tangram_serialize(id = 1)]
-	pub node: usize,
+	pub index: usize,
+
+	#[tangram_serialize(id = 2)]
+	pub kind: tg::artifact::Kind,
 }
 
 impl Graph {
@@ -237,6 +266,26 @@ impl Symlink {
 	}
 }
 
+impl Edge<tg::object::Id> {
+	#[must_use]
+	pub fn kind(&self) -> tg::object::Kind {
+		match self {
+			Edge::Reference(reference) => reference.kind.into(),
+			Edge::Object(object) => object.kind(),
+		}
+	}
+}
+
+impl Edge<tg::artifact::Id> {
+	#[must_use]
+	pub fn artifact_kind(&self) -> tg::artifact::Kind {
+		match self {
+			Edge::Reference(reference) => reference.kind,
+			Edge::Object(object) => object.kind(),
+		}
+	}
+}
+
 impl<T> Edge<T>
 where
 	T: Into<tg::object::Id> + Clone,
@@ -294,7 +343,7 @@ impl std::fmt::Display for Reference {
 		if let Some(graph) = &self.graph {
 			write!(f, "graph={graph}&")?;
 		}
-		write!(f, "node={}", self.node)?;
+		write!(f, "index={}&kind={}", self.index, self.kind)?;
 		Ok(())
 	}
 }
@@ -306,12 +355,17 @@ impl std::str::FromStr for Reference {
 		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)
 			.map_err(|_| tg::error!("failed to deserialize edge"))?;
 		let graph = value.get("graph").map(|s| s.parse()).transpose()?;
-		let node = value
-			.get("node")
-			.ok_or_else(|| tg::error!("missing node"))?
+		let index = value
+			.get("index")
+			.ok_or_else(|| tg::error!("missing index"))?
 			.parse()
 			.map_err(|_| tg::error!("expected a number"))?;
-		Ok(Self { graph, node })
+		let kind = value
+			.get("kind")
+			.ok_or_else(|| tg::error!("missing kind"))?
+			.parse()
+			.map_err(|source| tg::error!(!source, "invalid kind"))?;
+		Ok(Self { graph, index, kind })
 	}
 }
 
@@ -321,7 +375,8 @@ enum ReferenceSerde {
 	String(String),
 	Object {
 		graph: Option<tg::graph::Id>,
-		node: usize,
+		index: usize,
+		kind: tg::artifact::Kind,
 	},
 }
 
@@ -331,7 +386,7 @@ impl TryFrom<ReferenceSerde> for Reference {
 	fn try_from(value: ReferenceSerde) -> Result<Self, Self::Error> {
 		match value {
 			ReferenceSerde::String(string) => string.parse(),
-			ReferenceSerde::Object { graph, node } => Ok(Self { graph, node }),
+			ReferenceSerde::Object { graph, index, kind } => Ok(Self { graph, index, kind }),
 		}
 	}
 }

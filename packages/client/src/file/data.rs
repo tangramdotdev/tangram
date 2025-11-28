@@ -20,6 +20,11 @@ pub enum File {
 pub type Node = tg::graph::data::File;
 
 impl File {
+	#[must_use]
+	pub fn with_reference(reference: tg::graph::data::Reference) -> Self {
+		Self::Reference(reference)
+	}
+
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
 		bytes.push(0);

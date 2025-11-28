@@ -19,6 +19,10 @@ export class Symlink {
 		return new Symlink({ id, stored: true });
 	}
 
+	static withReference(reference: tg.Graph.Reference): tg.Symlink {
+		return new Symlink({ object: reference, stored: false });
+	}
+
 	static withObject(object: tg.Symlink.Object): tg.Symlink {
 		return new Symlink({ object, stored: false });
 	}
@@ -31,12 +35,11 @@ export class Symlink {
 		let arg = await tg.Symlink.arg(arg_);
 		if (tg.Graph.Arg.Reference.is(arg)) {
 			return tg.Symlink.withObject(tg.Graph.Reference.fromArg(arg));
-		} else {
-			return tg.Symlink.withObject({
-				artifact: tg.Graph.Edge.fromArg(arg.artifact),
-				path: arg.path,
-			});
 		}
+		return tg.Symlink.withObject({
+			artifact: tg.Graph.Edge.fromArg(arg.artifact),
+			path: arg.path,
+		});
 	}
 
 	static async arg(
@@ -113,6 +116,12 @@ export class Symlink {
 		return this.#state.object!;
 	}
 
+	unload(): void {
+		if (this.#state.stored) {
+			this.#state.object = undefined;
+		}
+	}
+
 	async store(): Promise<tg.Symlink.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -125,23 +134,26 @@ export class Symlink {
 
 	async artifact(): Promise<tg.Artifact | undefined> {
 		let object = await this.object();
-		if ("node" in object) {
+		if ("index" in object) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
-			let node = (await graph.nodes())[object.node];
+			let node = (await graph.nodes())[object.index];
 			tg.assert(node !== undefined);
 			tg.assert(node.kind === "symlink");
 			if (typeof node.artifact === "number") {
 				return await graph.get(node.artifact);
-			} else if (typeof node.artifact === "object" && "node" in node.artifact) {
-				return await (node.artifact.graph ?? graph).get(node.artifact.node);
+			} else if (
+				typeof node.artifact === "object" &&
+				"index" in node.artifact
+			) {
+				return await (node.artifact.graph ?? graph).get(node.artifact.index);
 			}
 			return node.artifact;
 		} else {
 			tg.assert(typeof object.artifact !== "number");
-			if (typeof object.artifact === "object" && "node" in object.artifact) {
+			if (typeof object.artifact === "object" && "index" in object.artifact) {
 				tg.assert(object.artifact.graph !== undefined);
-				return await object.artifact.graph.get(object.artifact.node);
+				return await object.artifact.graph.get(object.artifact.index);
 			}
 			return object.artifact;
 		}
@@ -149,11 +161,11 @@ export class Symlink {
 
 	async path(): Promise<string | undefined> {
 		let object = await this.object();
-		if ("node" in object) {
+		if ("index" in object) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
 			let nodes = await graph.nodes();
-			let node = nodes[object.node];
+			let node = nodes[object.index];
 			tg.assert(node !== undefined);
 			tg.assert(node.kind === "symlink");
 			return node.path;
@@ -200,7 +212,7 @@ export namespace Symlink {
 
 	export namespace Object {
 		export let toData = (object: tg.Symlink.Object): tg.Symlink.Data => {
-			if ("node" in object) {
+			if ("index" in object) {
 				return tg.Graph.Reference.toData(object);
 			} else {
 				return tg.Graph.Symlink.toData(object);
@@ -216,7 +228,7 @@ export namespace Symlink {
 		};
 
 		export let children = (object: tg.Symlink.Object): Array<tg.Object> => {
-			if ("node" in object) {
+			if ("index" in object) {
 				return tg.Graph.Reference.children(object);
 			} else {
 				return tg.Graph.Symlink.children(object);

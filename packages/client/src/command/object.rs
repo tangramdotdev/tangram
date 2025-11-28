@@ -191,10 +191,11 @@ impl ModuleExecutable {
 	}
 
 	pub fn try_from_data(data: tg::command::data::ModuleExecutable) -> tg::Result<Self> {
-		Ok(Self {
-			module: data.module.into(),
+		let executable = Self {
+			module: data.module.try_into()?,
 			export: data.export,
-		})
+		};
+		Ok(executable)
 	}
 
 	#[must_use]

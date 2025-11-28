@@ -13,7 +13,8 @@ let artifact = '
 				}
 			]
 		}),
-		"node": 0
+		"index": 0,
+		"kind": "symlink"
 	})
 '
 let id = run tg put $artifact
@@ -26,7 +27,7 @@ snapshot --path ($server.directory | path join "artifacts") '
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "sym_01j4terqyd7btz9tm8wsh4ybwavbkt8dnc512p9mewa140hsdg7ydg": {
+	    "sym_01ajczwn8gdjcpjn0fcf2re3qjmzga18cda8hxjn7dgmcyywv5p240": {
 	      "kind": "symlink",
 	      "path": "/bin/sh"
 	    }

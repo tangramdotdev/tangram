@@ -29,12 +29,12 @@ mod store;
 
 pub(crate) use self::{graph::Graph, solve::Solutions};
 
-type StoreArgs = IndexMap<tg::object::Id, crate::store::PutArg, tg::id::BuildHasher>;
-
 type IndexObjectMessages =
 	IndexMap<tg::object::Id, crate::index::message::PutObject, tg::id::BuildHasher>;
 
 type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
+
+type StoreArgs = IndexMap<tg::object::Id, crate::store::PutArg, tg::id::BuildHasher>;
 
 impl Server {
 	#[tracing::instrument(fields(path = ?arg.path), level = "debug", name = "checkin", skip_all)]
@@ -383,9 +383,10 @@ impl Server {
 			.nodes
 			.get(&node)
 			.unwrap()
-			.id
+			.edge
 			.as_ref()
 			.unwrap()
+			.unwrap_object_ref()
 			.clone()
 			.try_into()
 			.unwrap();

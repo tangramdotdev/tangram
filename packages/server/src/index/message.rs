@@ -190,7 +190,7 @@ pub struct PutTagMessage {
 	pub tag: String,
 
 	#[tangram_serialize(id = 1)]
-	pub item: Either<tg::process::Id, tg::object::Id>,
+	pub item: Either<tg::object::Id, tg::process::Id>,
 }
 
 #[derive(

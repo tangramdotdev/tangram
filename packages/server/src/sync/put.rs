@@ -38,11 +38,11 @@ impl Server {
 		let progress = Progress::new();
 
 		// Create the queue.
-		let (queue_process_sender, queue_process_receiver) =
-			async_channel::unbounded::<super::queue::ProcessItem>();
 		let (queue_object_sender, queue_object_receiver) =
 			async_channel::unbounded::<super::queue::ObjectItem>();
-		let queue = Queue::new(queue_process_sender, queue_object_sender);
+		let (queue_process_sender, queue_process_receiver) =
+			async_channel::unbounded::<super::queue::ProcessItem>();
+		let queue = Queue::new(queue_object_sender, queue_process_sender);
 
 		// Create the state.
 		let state = Arc::new(State {
@@ -59,15 +59,7 @@ impl Server {
 		// Enqueue the items.
 		for item in &state.arg.put {
 			match item {
-				Either::Left(process) => {
-					let item = super::queue::ProcessItem {
-						parent: None,
-						id: process.clone(),
-						eager: state.arg.eager,
-					};
-					state.queue.enqueue_process(item);
-				},
-				Either::Right(object) => {
+				Either::Left(object) => {
 					let item = super::queue::ObjectItem {
 						parent: None,
 						id: object.clone(),
@@ -76,18 +68,26 @@ impl Server {
 					};
 					state.queue.enqueue_object(item);
 				},
+				Either::Right(process) => {
+					let item = super::queue::ProcessItem {
+						parent: None,
+						id: process.clone(),
+						eager: state.arg.eager,
+					};
+					state.queue.enqueue_process(item);
+				},
 			}
 		}
 
 		// Create the channels.
-		let (index_process_sender, index_process_receiver) =
-			tokio::sync::mpsc::channel::<self::index::ProcessItem>(256);
 		let (index_object_sender, index_object_receiver) =
 			tokio::sync::mpsc::channel::<self::index::ObjectItem>(256);
-		let (store_process_sender, store_process_receiver) =
-			tokio::sync::mpsc::channel::<self::store::ProcessItem>(256);
+		let (index_process_sender, index_process_receiver) =
+			tokio::sync::mpsc::channel::<self::index::ProcessItem>(256);
 		let (store_object_sender, store_object_receiver) =
 			tokio::sync::mpsc::channel::<self::store::ObjectItem>(256);
+		let (store_process_sender, store_process_receiver) =
+			tokio::sync::mpsc::channel::<self::store::ProcessItem>(256);
 
 		// Spawn the input task.
 		let input_task = Task::spawn({
@@ -114,12 +114,12 @@ impl Server {
 
 		// Create the index future.
 		let index_future = self
-			.sync_put_index(state.clone(), index_process_receiver, index_object_receiver)
+			.sync_put_index(state.clone(), index_object_receiver, index_process_receiver)
 			.instrument(tracing::Span::current());
 
 		// Create the store future.
 		let store_future = self
-			.sync_put_store(state.clone(), store_process_receiver, store_object_receiver)
+			.sync_put_store(state.clone(), store_object_receiver, store_process_receiver)
 			.instrument(tracing::Span::current());
 
 		// Spawn the progress task.

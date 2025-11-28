@@ -102,7 +102,7 @@ impl Cli {
 
 		// Get the artifact.
 		let referent = self.get_reference(&args.reference).await?;
-		let Either::Right(object) = referent.item else {
+		let Either::Left(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
 		let artifact = tg::Artifact::try_from(object)?;
@@ -125,10 +125,8 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to create the checkout stream"))?;
 		let output = self.render_progress_stream(stream).await?;
 
-		let output = output.path;
-
 		// Print the output.
-		self.print_serde(output, args.print).await?;
+		Self::print_display(output.path.display());
 
 		Ok(())
 	}

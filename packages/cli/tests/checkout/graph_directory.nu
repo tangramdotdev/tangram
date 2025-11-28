@@ -15,7 +15,7 @@ let artifact = artifact {
 					},
 				],
 			});
-			return tg.directory({ graph, node: 0 });
+			return tg.directory({ graph, index: 0, kind: "directory" });
 		}
 	'
 }

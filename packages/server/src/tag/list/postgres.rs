@@ -7,7 +7,7 @@ use {
 pub struct Match {
 	pub id: u64,
 	pub tag: tg::Tag,
-	pub item: Option<Either<tg::process::Id, tg::object::Id>>,
+	pub item: Option<Either<tg::object::Id, tg::process::Id>>,
 }
 
 impl Server {
