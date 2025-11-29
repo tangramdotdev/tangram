@@ -154,6 +154,7 @@ where
 			self.array_value(|s| s.value(value))?;
 		}
 		self.finish_array()?;
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -164,6 +165,7 @@ where
 			self.map_entry(key, |s| s.value(value))?;
 		}
 		self.finish_map()?;
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -199,6 +201,7 @@ where
 			},
 			(None, None, _) => unreachable!(),
 		}
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -236,6 +239,7 @@ where
 			},
 			(None, None, _) => unreachable!(),
 		}
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -290,6 +294,7 @@ where
 			},
 			(None, None, _) => unreachable!(),
 		}
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -366,6 +371,7 @@ where
 			},
 			(None, None, _) => unreachable!(),
 		}
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -410,6 +416,7 @@ where
 			},
 			(None, None, _) => unreachable!(),
 		}
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -482,6 +489,7 @@ where
 			},
 			(None, None, _) => unreachable!(),
 		}
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -630,6 +638,7 @@ where
 		}
 		self.finish_map()?;
 		write!(self.writer, ")")?;
+		self.depth -= 1;
 		Ok(())
 	}
 
@@ -652,6 +661,7 @@ where
 		}
 		self.finish_array()?;
 		write!(self.writer, ")")?;
+		self.depth -= 1;
 		Ok(())
 	}
 }

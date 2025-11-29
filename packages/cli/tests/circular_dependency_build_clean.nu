@@ -28,13 +28,10 @@ let id = run tg -u $server.url checkin $foo_path | from json
 run tg -u $server.url tag foo $id
 
 # Build the artifact.
-let output = tg -u $server.url build foo | complete
-success $output
+run tg -u $server.url build foo
 
 # Clean the server.
-let output = tg -u $server.url clean | complete
-success $output
+run tg -u $server.url clean
 
 # Build the artifact again after clean.
-let output = tg -u $server.url build foo | complete
-success $output
+run tg -u $server.url build foo
