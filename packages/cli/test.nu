@@ -9,7 +9,8 @@ const path = path self '../../'
 def main [
 	--review (-r) # Review snapshots.
 	--jobs (-j): int # The number of concurrent tests to run.
-	--print-output # Print the output of passing tests.
+	--print-passing-output # Print the output of passing tests.
+	--no-capture # Do not capture stdout and stderr of each test. Sets jobs to 1.
 	--timeout: duration = 10sec # The timeout for each test.
 	filter: string = '.*' # Filter tests.
 ] {
@@ -37,6 +38,11 @@ def main [
 
 	# Determine the number of concurrent tests to run.
 	let jobs = $jobs | default (sys cpu | length)
+	let jobs = if $no_capture {
+		1
+	} else {
+		$jobs
+	}
 
 	def spawn [test: record] {
 		job spawn {
@@ -56,7 +62,16 @@ def main [
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TMPDIR: $temp_path,
-			} { open /dev/null | timeout $timeout nu $test.path o+e>| complete }
+			} {
+				if $no_capture {
+					try {
+						open /dev/null | timeout $timeout nu $test.path o+e> /dev/tty 
+					}
+					{ exit_code: $env.LAST_EXIT_CODE, stdout: '', stderr: '' }
+				} else {
+					open /dev/null | timeout $timeout nu $test.path o+e>| complete
+				}
+			}
 			let end = date now
 			let duration = $end - $start
 
@@ -126,7 +141,7 @@ def main [
 				$'(ansi red)✗(ansi reset)'
 			}
 			print -e $'($symbol) ($result.name) ($result.duration)'
-			if $print_output or $result.output.exit_code != 0 {
+			if $print_passing_output or $result.output.exit_code != 0 {
 				print -e -n $result.output.stdout
 			}
 
@@ -145,14 +160,11 @@ def main [
 			}
 		}
 
-		# Save the cursor position.
-		print -e -n "\e[s"
-
-		# # Print the running tests.
-		# for run in $running {
-		# 	let duration = ((date now) - $run.start) / 1sec | math floor | into duration -u sec
-		# 	print -e $'(ansi blue)●(ansi reset) ($run.name) ($duration)'
-		# }
+		# Print the running tests.
+		for test in $running {
+			let duration = ((date now) - $test.start) / 1sec | math floor | into duration -u sec
+			print -e $'(ansi blue)●(ansi reset) ($test.name) ($duration)'
+		}
 
 		# Print the progress bar.
 		let completed = $results | length
@@ -166,8 +178,11 @@ def main [
 		let progress = $'[($bar)] ($completed)/($total): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)'
 		print -e -n $'($progress)'
 
-		# Restore the cursor position.
-		print -e -n "\e[u"
+		# Move the cursor up.
+		print -e -n $"\r"
+		if ($running | length) > 0 {
+			print -e -n $"\e[($running | length)A"
+		}
 	}
 
 	job kill $interval_job
