@@ -161,9 +161,17 @@ def main [
 		}
 
 		# Print the running tests.
+		let term_width = term size | get columns
 		for test in $running {
 			let duration = ((date now) - $test.start) / 1sec | math floor | into duration -u sec
-			print -e $'(ansi blue)●(ansi reset) ($test.name) ($duration)'
+			let text = $'($test.name) ($duration)'
+			let max_length = $term_width - 2
+			let text = if ($text | str length) > $max_length {
+				($text | str substring ..($max_length - 2)) + '…'
+			} else {
+				$text
+			}
+			print -e $'(ansi blue)●(ansi reset) ($text)'
 		}
 
 		# Print the progress bar.
