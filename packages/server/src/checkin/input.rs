@@ -52,6 +52,23 @@ impl Server {
 		progress: crate::progress::Handle<tg::checkin::Output>,
 		root: &Path,
 	) -> tg::Result<()> {
+		// Start the progress indicators.
+		progress.spinner("traversing", "traversing");
+		progress.start(
+			"artifacts".to_owned(),
+			"artifacts".to_owned(),
+			tg::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
+		progress.start(
+			"bytes".to_owned(),
+			"bytes".to_owned(),
+			tg::progress::IndicatorFormat::Bytes,
+			Some(0),
+			None,
+		);
+
 		// Create the state.
 		let mut state = State {
 			arg,
@@ -146,6 +163,11 @@ impl Server {
 			}
 		}
 
+		// Finish the progress indicators.
+		state.progress.finish("traversing");
+		state.progress.finish("artifacts");
+		state.progress.finish("bytes");
+
 		Ok(())
 	}
 
@@ -189,6 +211,12 @@ impl Server {
 				.is_some_and(|ignore| ignore)
 		{
 			return Ok(());
+		}
+
+		// Update the progress.
+		state.progress.increment("artifacts", 1);
+		if metadata.is_file() {
+			state.progress.increment("bytes", metadata.len());
 		}
 
 		// Create the variant.

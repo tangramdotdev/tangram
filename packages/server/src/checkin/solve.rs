@@ -75,6 +75,7 @@ pub struct Referrer {
 }
 
 impl Server {
+	#[expect(clippy::too_many_arguments)]
 	pub(super) async fn checkin_solve(
 		&self,
 		arg: &tg::checkin::Arg,
@@ -83,7 +84,9 @@ impl Server {
 		lock: Option<Arc<tg::graph::Data>>,
 		solutions: &mut Solutions,
 		root: &Path,
+		progress: &crate::progress::Handle<tg::checkin::Output>,
 	) -> tg::Result<()> {
+		progress.spinner("solving", "solving");
 		if solutions.is_empty() {
 			// If solutions is empty, then just solve.
 			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
@@ -111,6 +114,7 @@ impl Server {
 			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
 				.await?;
 		}
+		progress.finish("solving");
 		Ok(())
 	}
 

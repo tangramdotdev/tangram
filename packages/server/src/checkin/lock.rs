@@ -63,7 +63,10 @@ impl Server {
 		next: usize,
 		lock: Option<&tg::graph::Data>,
 		root: &Path,
+		progress: &crate::progress::Handle<tg::checkin::Output>,
 	) -> tg::Result<()> {
+		progress.spinner("locking", "locking");
+
 		// Get the root node.
 		let root_index = graph.paths.get(root).unwrap();
 		let root_node = graph.nodes.get(root_index).unwrap();
@@ -155,6 +158,8 @@ impl Server {
 
 			Variant::Symlink(_) => {},
 		}
+
+		progress.finish("locking");
 
 		Ok(())
 	}

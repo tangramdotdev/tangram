@@ -228,8 +228,16 @@ impl Server {
 		// Solve.
 		if arg.options.solve {
 			let start = Instant::now();
-			self.checkin_solve(&arg, &mut graph, next, lock.clone(), &mut solutions, &root)
-				.await?;
+			self.checkin_solve(
+				&arg,
+				&mut graph,
+				next,
+				lock.clone(),
+				&mut solutions,
+				&root,
+				progress,
+			)
+			.await?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
@@ -249,6 +257,7 @@ impl Server {
 			&mut store_args,
 			&mut object_messages,
 			touched_at,
+			progress,
 		)
 		.await?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create blobs");
@@ -272,21 +281,21 @@ impl Server {
 			task.await?;
 		}
 		let start = Instant::now();
-		self.checkin_cache(&arg, &graph, next, &root)
+		self.checkin_cache(&arg, &graph, next, &root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "cache");
 
 		// Store.
 		let start = Instant::now();
-		self.checkin_store(store_args.into_values().collect())
+		self.checkin_store(store_args.into_values().collect(), progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
 		// Write the lock.
 		let start = Instant::now();
-		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), &root)
+		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), &root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
