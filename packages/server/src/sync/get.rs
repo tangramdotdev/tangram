@@ -3,7 +3,7 @@ use {
 	super::{progress::Progress, queue::Queue},
 	crate::Server,
 	dashmap::DashMap,
-	futures::{TryFutureExt as _, future, stream::BoxStream},
+	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -95,68 +95,46 @@ impl Server {
 		let (index_object_sender, index_object_receiver) =
 			tokio::sync::mpsc::channel::<self::index::ObjectItem>(256);
 
-		// Spawn the input task.
-		let input_task = Task::spawn({
+		// Create the input future.
+		let input_future = {
 			let server = self.clone();
 			let state = state.clone();
-			|_| {
-				async move {
-					server
-						.sync_get_input_task(
-							&state,
-							stream,
-							index_process_sender,
-							index_object_sender,
-							store_process_sender,
-							store_object_sender,
-						)
-						.await
-				}
-				.instrument(tracing::Span::current())
+			async move {
+				server
+					.sync_get_input(
+						&state,
+						stream,
+						index_process_sender,
+						index_object_sender,
+						store_process_sender,
+						store_object_sender,
+					)
+					.await
 			}
-		});
+			.instrument(tracing::Span::current())
+		};
 
-		// Spawn the queue task.
-		let queue_task = Task::spawn({
-			let server = self.clone();
-			let state = state.clone();
-			|_| {
-				async move {
-					server
-						.sync_get_queue_task(state, queue_process_receiver, queue_object_receiver)
-						.await
-				}
-				.instrument(tracing::Span::current())
-			}
-		});
+		// Create the queue future.
+		let queue_future = self
+			.sync_get_queue(state.clone(), queue_process_receiver, queue_object_receiver)
+			.instrument(tracing::Span::current());
 
-		// Spawn the index task.
-		let index_task = Task::spawn({
-			let server = self.clone();
-			let state = state.clone();
-			|_| {
-				async move {
-					server
-						.sync_get_index_task(state, index_process_receiver, index_object_receiver)
-						.await
-				}
-				.instrument(tracing::Span::current())
-			}
-		});
+		// Create the index future.
+		let index_future = self
+			.sync_get_index(state.clone(), index_process_receiver, index_object_receiver)
+			.instrument(tracing::Span::current());
 
-		// Spawn the store task.
-		let store_task = Task::spawn({
+		// Create the store future.
+		let store_future = {
 			let server = self.clone();
 			let state = state.clone();
-			|_| {
-				async move {
-					server
-						.sync_get_store_task(&state, store_process_receiver, store_object_receiver)
-						.await
-				}
-				.instrument(tracing::Span::current())
+			async move {
+				server
+					.sync_get_store(&state, store_process_receiver, store_object_receiver)
+					.await
 			}
-		});
+			.instrument(tracing::Span::current())
+		};
 
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
@@ -177,7 +155,7 @@ impl Server {
 			self.tasks.spawn({
 				let server = self.clone();
 				|_| async move {
-					let result = server.sync_get_index(state).await;
+					let result = server.sync_get_index_publish(state).await;
 					if let Err(error) = result {
 						tracing::error!(?error);
 					}
@@ -186,26 +164,8 @@ impl Server {
 			});
 		}
 
-		// Await the tasks.
-		future::try_join4(
-			input_task
-				.wait()
-				.map_err(|source| tg::error!(!source, "the input task panicked"))
-				.and_then(future::ready),
-			queue_task
-				.wait()
-				.map_err(|source| tg::error!(!source, "the queue task panicked"))
-				.and_then(future::ready),
-			index_task
-				.wait()
-				.map_err(|source| tg::error!(!source, "the index task panicked"))
-				.and_then(future::ready),
-			store_task
-				.wait()
-				.map_err(|source| tg::error!(!source, "the store task panicked"))
-				.and_then(future::ready),
-		)
-		.await?;
+		// Await the futures.
+		future::try_join4(input_future, queue_future, index_future, store_future).await?;
 
 		// Stop and await the progress task.
 		progress_task.stop();

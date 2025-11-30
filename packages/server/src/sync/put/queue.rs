@@ -20,7 +20,7 @@ const OBJECT_CONCURRENCY: usize = 8;
 impl Server {
 	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(err, level = "debug", name = "queue", ret, skip_all)]
-	pub(super) async fn sync_put_queue_task(
+	pub(super) async fn sync_put_queue(
 		&self,
 		state: Arc<State>,
 		queue_object_receiver: async_channel::Receiver<ObjectItem>,

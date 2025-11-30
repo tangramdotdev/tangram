@@ -20,7 +20,7 @@ pub struct ObjectItem {
 }
 
 impl Server {
-	pub(super) async fn sync_get_store_task(
+	pub(super) async fn sync_get_store(
 		&self,
 		state: &State,
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,

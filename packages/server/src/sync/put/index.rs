@@ -21,7 +21,7 @@ pub struct ObjectItem {
 
 impl Server {
 	#[tracing::instrument(err, level = "debug", name = "index", ret, skip_all)]
-	pub(super) async fn sync_put_index_task(
+	pub(super) async fn sync_put_index(
 		&self,
 		state: Arc<State>,
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,

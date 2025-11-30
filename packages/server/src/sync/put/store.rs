@@ -25,7 +25,7 @@ pub struct ObjectItem {
 
 impl Server {
 	#[tracing::instrument(err, level = "debug", name = "store", ret, skip_all)]
-	pub(super) async fn sync_put_store_task(
+	pub(super) async fn sync_put_store(
 		&self,
 		state: Arc<State>,
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,

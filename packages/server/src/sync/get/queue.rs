@@ -18,7 +18,7 @@ const OBJECT_BATCH_SIZE: usize = 16;
 const OBJECT_CONCURRENCY: usize = 8;
 
 impl Server {
-	pub(super) async fn sync_get_queue_task(
+	pub(super) async fn sync_get_queue(
 		&self,
 		state: Arc<State>,
 		queue_process_receiver: async_channel::Receiver<ProcessItem>,

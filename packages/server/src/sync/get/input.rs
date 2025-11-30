@@ -7,7 +7,7 @@ use {
 
 impl Server {
 	#[tracing::instrument(level = "debug", name = "input", skip_all)]
-	pub(super) async fn sync_get_input_task(
+	pub(super) async fn sync_get_input(
 		&self,
 		state: &State,
 		mut stream: BoxStream<'static, tg::sync::PutMessage>,
