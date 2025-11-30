@@ -19,11 +19,14 @@ impl Server {
 		graph: &Graph,
 		next: usize,
 		root: &Path,
+		progress: &crate::progress::Handle<tg::checkin::Output>,
 	) -> tg::Result<()> {
 		if arg.options.destructive {
+			progress.spinner("copying", "copying");
 			self.checkin_cache_destructive(graph, root).await?;
+			progress.finish("copying");
 		} else {
-			let batches = graph
+			let files = graph
 				.nodes
 				.range(next..)
 				.filter_map(|(_, node)| {
@@ -33,25 +36,52 @@ impl Server {
 						return None;
 					}
 					let id = node.id.as_ref()?.clone();
-					Some((path, metadata, id))
+					let size = metadata.len();
+					Some((path, metadata, id, size))
 				})
+				.collect::<Vec<_>>();
+
+			// Start the progress indicator.
+			progress.spinner("copying", "copying");
+			let total = files.iter().map(|(_, _, _, size)| size).sum::<u64>();
+			progress.start(
+				"bytes".to_owned(),
+				"bytes".to_owned(),
+				tg::progress::IndicatorFormat::Bytes,
+				Some(0),
+				Some(total),
+			);
+
+			let batches = files
+				.into_iter()
 				.batches(BATCH_SIZE)
 				.map(|batch| {
 					let server = self.clone();
+					let batch_bytes: u64 = batch.iter().map(|(_, _, _, size)| size).sum();
+					let batch: Vec<_> = batch
+						.into_iter()
+						.map(|(path, metadata, id, _)| (path, metadata, id))
+						.collect();
 					async move {
 						tokio::task::spawn_blocking(move || server.checkin_cache_inner(batch))
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "the checkin cache task panicked")
-							})?
+							})??;
+						progress.increment("bytes", batch_bytes);
+						Ok::<_, tg::Error>(())
 					}
 				})
 				.collect::<Vec<_>>();
+
 			stream::iter(batches)
 				.buffer_unordered(CONCURRENCY)
 				.try_collect::<()>()
 				.await
 				.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
+
+			progress.finish("copying");
+			progress.finish("bytes");
 		}
 		Ok(())
 	}

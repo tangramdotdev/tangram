@@ -18,6 +18,7 @@ impl Server {
 		store_args: &mut StoreArgs,
 		object_messages: &mut IndexObjectMessages,
 		touched_at: i64,
+		progress: &crate::progress::Handle<tg::checkin::Output>,
 	) -> tg::Result<()> {
 		let nodes = graph
 			.nodes
@@ -28,29 +29,50 @@ impl Server {
 					return None;
 				}
 				let path = node.path.clone()?;
-				Some((*index, path))
+				let size = node.path_metadata.as_ref().map(std::fs::Metadata::len);
+				Some((*index, path, size))
 			})
 			.collect::<Vec<_>>();
+
+		progress.spinner("hashing", "hashing");
+		let total = nodes.iter().filter_map(|(_, _, size)| *size).sum::<u64>();
+		progress.start(
+			"bytes".to_owned(),
+			"bytes".to_owned(),
+			tg::progress::IndicatorFormat::Bytes,
+			Some(0),
+			Some(total),
+		);
+
 		let blobs = stream::iter(nodes)
-			.map(|(index, path)| async move {
-				let blob = tokio::task::spawn_blocking({
-					let path = path.clone();
-					move || {
-						let file = std::fs::File::open(&path).map_err(
-							|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
-						)?;
-						Self::write_inner_sync(file, None).map_err(
-							|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
-						)
+			.map(|(index, path, size)| {
+				let progress = progress.clone();
+				async move {
+					let blob = tokio::task::spawn_blocking({
+						let path = path.clone();
+						move || {
+							let file = std::fs::File::open(&path).map_err(
+								|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
+							)?;
+							Self::write_inner_sync(file, None).map_err(
+								|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
+							)
+						}
+					})
+					.await
+					.map_err(|source| tg::error!(!source, "the blob task panicked"))??;
+					if let Some(size) = size {
+						progress.increment("bytes", size);
 					}
-				})
-				.await
-				.map_err(|source| tg::error!(!source, "the blob task panicked"))??;
-				Ok::<_, tg::Error>((index, blob))
+					Ok::<_, tg::Error>((index, blob))
+				}
 			})
 			.buffer_unordered(CONCURRENCY)
 			.try_collect::<Vec<_>>()
 			.await?;
+
+		progress.finish("hashing");
+		progress.finish("bytes");
 
 		// Convert blobs to store args and index messages.
 		let mut entries = Vec::new();
