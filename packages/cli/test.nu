@@ -160,36 +160,38 @@ def main [
 			}
 		}
 
-		# Print the running tests.
-		let term_width = term size | get columns
-		for test in $running {
-			let duration = ((date now) - $test.start) / 1sec | math floor | into duration -u sec
-			let text = $'($test.name) ($duration)'
-			let max_length = $term_width - 2
-			let text = if ($text | str length) > $max_length {
-				($text | str substring ..($max_length - 2)) + '…'
-			} else {
-				$text
+		if not $no_capture {
+			# Print the running tests.
+			let term_width = term size | get columns
+			for test in $running {
+				let duration = ((date now) - $test.start) / 1sec | math floor | into duration -u sec
+				let text = $'($test.name) ($duration)'
+				let max_length = $term_width - 2
+				let text = if ($text | str length) > $max_length {
+					($text | str substring ..($max_length - 2)) + '…'
+				} else {
+					$text
+				}
+				print -e $'(ansi blue)●(ansi reset) ($text)'
 			}
-			print -e $'(ansi blue)●(ansi reset) ($text)'
-		}
 
-		# Print the progress bar.
-		let completed = $results | length
-		let passed = $results | where output.exit_code == 0 | length
-		let failed = $results | where output.exit_code != 0 | length
-		let ratio = if $total > 0 { $completed / $total } else { 0 }
-		let filled = ($ratio * 10) | math floor
-		let bar = if $filled > 0 { (1..$filled | each { '=' } | str join) + '>' } else { '>' }
-		let bar = if $filled < 10 { $bar + (1..(9 - $filled) | each { ' ' } | str join) } else { $bar }
-		let elapsed = ((date now) - $start) / 1sec | math floor | into duration -u sec
-		let progress = $'[($bar)] ($completed)/($total): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)'
-		print -e -n $'($progress)'
+			# Print the progress bar.
+			let completed = $results | length
+			let passed = $results | where output.exit_code == 0 | length
+			let failed = $results | where output.exit_code != 0 | length
+			let ratio = if $total > 0 { $completed / $total } else { 0 }
+			let filled = ($ratio * 10) | math floor
+			let bar = if $filled > 0 { (1..$filled | each { '=' } | str join) + '>' } else { '>' }
+			let bar = if $filled < 10 { $bar + (1..(9 - $filled) | each { ' ' } | str join) } else { $bar }
+			let elapsed = ((date now) - $start) / 1sec | math floor | into duration -u sec
+			let progress = $'[($bar)] ($completed)/($total): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)'
+			print -e -n $'($progress)'
 
-		# Move the cursor up.
-		print -e -n $"\r"
-		if ($running | length) > 0 {
-			print -e -n $"\e[($running | length)A"
+			# Move the cursor up.
+			print -e -n $"\r"
+			if ($running | length) > 0 {
+				print -e -n $"\e[($running | length)A"
+			}
 		}
 	}
 
