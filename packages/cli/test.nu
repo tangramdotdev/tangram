@@ -75,7 +75,7 @@ def main [
 			let end = date now
 			let duration = $end - $start
 
-			# If the test passed, then delete snapshots which were not touched.
+			# If the test passed, then delete snapshots which were not touched and remove touch files.
 			if $output.exit_code == 0 {
 				let parent_path = $test.path | path dirname
 				let stem = $test.path | path parse | get stem
@@ -84,12 +84,9 @@ def main [
 						rm $path
 					}
 				}
-			}
-
-			# Remove touch files.
-			let parsed = $test.path | path parse
-			for path in (glob $'($parsed.parent | path join $parsed.stem){.touched,/*.touched}') {
-				rm $path
+				for path in (glob $'($parent_path | path join $stem){.touched,/*.touched}') {
+					rm $path
+				}
 			}
 
 			# Cleanup the temp directory.
@@ -235,7 +232,8 @@ def main [
 				print -e ''
 			}
 
-			for inline_path in (glob $'($parsed.parent | path join $parsed.stem).inline') {
+			let inline_paths = glob $'($parsed.parent | path join $parsed.stem).inline'
+			for inline_path in $inline_paths {
 				let entries = open $inline_path | from json
 				for entry in $entries {
 					clear -k
@@ -263,6 +261,20 @@ def main [
 					break
 				}
 				print -e ''
+			}
+
+			# Delete snapshots which were not touched and remove touch files.
+			if ($inline_paths | length) > 0 {
+				let parent_path = $test.path | path dirname
+				let stem = $test.path | path parse | get stem
+				for path in (glob $'($parent_path | path join $stem){.snapshot,/*.snapshot}') {
+					if not ($path | str replace '.snapshot' '.touched' | path exists) {
+						rm $path
+					}
+				}
+				for path in (glob $'($parent_path | path join $stem){.touched,/*.touched}') {
+					rm $path
+				}
 			}
 		}
 	}

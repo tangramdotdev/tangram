@@ -17,4 +17,14 @@ let id = run tg build $artifact
 
 let path = $tmp | path join "checkout"
 run tg checkout $id $path
-snapshot --path $path
+snapshot --path $path '
+	{
+	  "kind": "directory",
+	  "entries": {
+	    "hello.txt": {
+	      "kind": "file",
+	      "contents": "Hello, World!"
+	    }
+	  }
+	}
+'
