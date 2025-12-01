@@ -29,4 +29,5 @@ snapshot $output '
 	    "latest": "hello/2.0.0",
 	  },
 	]
+
 '

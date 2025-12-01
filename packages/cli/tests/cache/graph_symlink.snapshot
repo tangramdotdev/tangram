@@ -1,9 +1,0 @@
-{
-  "kind": "directory",
-  "entries": {
-    "sym_01j4terqyd7btz9tm8wsh4ybwavbkt8dnc512p9mewa140hsdg7ydg": {
-      "kind": "symlink",
-      "path": "/bin/sh"
-    }
-  }
-}

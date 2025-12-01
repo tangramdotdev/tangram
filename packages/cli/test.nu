@@ -63,13 +63,16 @@ def main [
 				TANGRAM_MODE: client,
 				TMPDIR: $temp_path,
 			} {
+				let startup = '
+					$env.config.display_errors.exit_code = true
+				'
 				if $no_capture {
 					try {
-						open /dev/null | timeout $timeout nu $test.path o+e> /dev/tty 
+						open /dev/null | timeout $timeout nu -e $startup $test.path o+e> /dev/tty
 					}
 					{ exit_code: $env.LAST_EXIT_CODE, stdout: '', stderr: '' }
 				} else {
-					open /dev/null | timeout $timeout nu $test.path o+e>| complete
+					open /dev/null | timeout $timeout nu -e $startup $test.path o+e>| complete
 				}
 			}
 			let end = date now
@@ -362,7 +365,7 @@ export def doc [string: string] {
 	}
 	if ($lines | length) > 0 {
 		let last = $lines | last
-		if ($last | str length) > 0 and (($last | str trim | str length) == 0) {
+		if ($last | str trim | str length) == 0 {
 			$lines = $lines | drop
 		}
 	}
@@ -665,9 +668,14 @@ def literal [value: string, indent: string] {
 	let open = if $raw { "r#'" } else { "'" }
 	let close = if $raw { "'#" } else { "'" }
 	if ($value | str contains "\n") {
+		let has_trailing_newline = $value | str ends-with "\n"
 		let trimmed = $value | str trim --right --char "\n"
 		let indented = $trimmed | split row "\n" | each { |line| $"($indent)\t($line)" } | str join "\n"
-		$"($open)\n($indented)\n($indent)($close)"
+		if $has_trailing_newline {
+			$"($open)\n($indented)\n\n($indent)($close)"
+		} else {
+			$"($open)\n($indented)\n($indent)($close)"
+		}
 	} else {
 		$"($open)($value)($close)"
 	}
