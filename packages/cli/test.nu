@@ -49,9 +49,9 @@ def main [
 			# Create a temp directory for this test.
 			let temp_path = mktemp -d | path expand
 
-			# Remove pending and touch files.
+			# Remove inline, pending, and touch files.
 			let parsed = $test.path | path parse
-			for path in (glob $'($parsed.parent | path join $parsed.stem){.{pending,touched},/*.{pending,touched}}') {
+			for path in (glob $'($parsed.parent | path join $parsed.stem){.{inline,pending,touched},/*.{pending,touched}}') {
 				rm $path
 			}
 
@@ -204,12 +204,13 @@ def main [
 	if $review {
 		for test in $tests {
 			let parsed = $test.path | path parse
+
 			for pending_path in (glob $'($parsed.parent | path join $parsed.stem){.{pending},/*.{pending}}') {
 				let snapshot_path = $pending_path | str replace '.pending' '.snapshot'
 				clear -k
 				if ($snapshot_path | path exists) {
 					print -e $'(ansi yellow)changed(ansi reset) ($snapshot_path)'
-					delta --file-style=omit --hunk-header-style=omit --no-gitconfig $snapshot_path $pending_path | print -e
+					diff $snapshot_path $pending_path --path | print -e
 				} else {
 					print -e $'(ansi green)added(ansi reset) ($snapshot_path)'
 					print -e ''
@@ -228,6 +229,36 @@ def main [
 						rm $pending_path
 						break
 					}
+				}
+				print -e ''
+			}
+
+			for inline_path in (glob $'($parsed.parent | path join $parsed.stem).inline') {
+				let entries = open $inline_path | from json
+				for entry in $entries {
+					clear -k
+					print -e $'(ansi yellow)changed(ansi reset) ($test.path)'
+					diff $entry.old $entry.new | print -e
+					print -e ''
+				}
+				print -e -n $'(ansi green)[a]ccept(ansi reset) or (ansi red)[r]eject(ansi reset): '
+				loop {
+					let response = input -n 1 -s
+					if $response == 'a' {
+						let sorted_entries = $entries | sort-by position --reverse
+						mut source = open $test.path
+						for entry in $sorted_entries {
+							let before = $source | str substring ..<$entry.position
+							let indent = get_indent $source $entry.position
+							let after = $source | str substring ($entry.position + $entry.length)..
+							$source = $before ++ (literal $entry.new $indent) ++ $after
+						}
+						$source | save -f $test.path
+					} else if $response != 'r' {
+						continue
+					}
+					rm $inline_path
+					break
 				}
 				print -e ''
 			}
@@ -278,7 +309,7 @@ export def artifact [artifact] {
 					chmod +x $path
 				}
 				for pair in (($artifact.xattrs? | default {}) | transpose key value) {
-					xattr-write $pair.key $pair.value $path
+					xattr_write $pair.key $pair.value $path
 				}
 			}
 			'symlink' => {
@@ -311,12 +342,15 @@ export def doc [string: string] {
 	# Split the lines.
 	mut lines = $string | split row "\n"
 
-	# Remove the first and last lines if they are empty or contain only whitespace.
+	# Remove the first line if it is empty or contains only whitespace.
 	if ($lines | length) > 0 and (($lines | first | str trim | str length) == 0) {
 		$lines = $lines | skip 1
 	}
-	if ($lines | length) > 0 and (($lines | last | str trim | str length) == 0) {
-		$lines = $lines | drop
+	if ($lines | length) > 0 {
+		let last = $lines | last
+		if ($last | str length) > 0 and (($last | str trim | str length) == 0) {
+			$lines = $lines | drop
+		}
 	}
 
 	# Get the number of leading tabs to remove. Filter out lines that are empty or contain only tabs and spaces.
@@ -359,10 +393,88 @@ export def doc [string: string] {
 }
 
 export def --env snapshot [
-	value: any
 	--name (-n): string
 	--path (-p)
+	value: any
+	inline?: string
 ] {
+	if $inline != null {
+		snapshot_inline --path=$path --span=(metadata $inline).span $value $inline
+	} else {
+		snapshot_file --name=$name --path=$path $value
+	}
+}
+
+def --env snapshot_inline [
+	--path (-p)
+	--span: record
+	value: any
+	inline: string
+] {
+	let new_value = if $path {
+		snapshot_path $value | to json -i 2
+	} else {
+		$value | to text
+	}
+
+	# Get the expected value by processing the snapshot with doc.
+	let expected_value = doc $inline
+
+	# If the values match, return early.
+	if $new_value == $expected_value {
+		return
+	}
+
+	# Save the inline snapshot.
+	let test_path = $env.CURRENT_FILE
+	let test_name = $test_path | path parse | get stem
+	let test_directory_path = $test_path | path dirname
+	let inline_path = $test_directory_path | path join $'($test_name).inline'
+
+	# Read existing inline data or start fresh.
+	mut inline_entries = if ($inline_path | path exists) {
+		open $inline_path | from json
+	} else {
+		[]
+	}
+
+	# Get the exact file position using view files.
+	let files = view files
+	let file = $files | where { |f| $span.start >= $f.start and $span.start < $f.end } | first
+	let position = $span.start - $file.start
+	let length = $span.end - $span.start
+
+	# Add this entry.
+	$inline_entries = $inline_entries | append {
+		position: $position,
+		length: $length,
+		old: $expected_value,
+		new: $new_value,
+	}
+
+	$inline_entries | to json | save -f $inline_path
+
+	error make {
+		msg: 'the snapshot does not match',
+		help: (diff $expected_value $new_value),
+		label: {
+			span: $span,
+			text: 'the snapshot',
+		},
+	}
+}
+
+def --env snapshot_file [
+	--name (-n): string
+	--path (-p): string
+	value: any
+] {
+	let new_value = if $path {
+		snapshot_path $value | to json -i 2
+	} else {
+		$value | to text
+	}
+
 	# Get the snapshot path.
 	let test_path = $env.CURRENT_FILE
 	let test_name = $test_path | path parse | get stem
@@ -382,13 +494,6 @@ export def --env snapshot [
 	# Touch the snapshot.
 	touch $touched_path
 
-	# Snapshot.
-	let new_value = if $path {
-		snapshot_path $value | to json -i 2
-	} else {
-		$value | to text
-	}
-
 	# Error if the snapshot does not exist.
 	if not ($snapshot_path | path exists) {
 		$new_value | save -f $pending_path
@@ -407,21 +512,13 @@ export def --env snapshot [
 	# Error if the new value does not match the old value.
 	if $new_value != $old_value {
 		$new_value | save -f $pending_path
-		let help = (
-			delta
-				--file-style=omit
-				--hunk-header-style=omit
-				--no-gitconfig
-				$snapshot_path
-				$pending_path
-		) | complete | get stdout
 		error make {
 			msg: 'the snapshot does not match',
+			help: (diff $snapshot_path $pending_path --path),
 			label: {
 				span: (metadata $value).span,
 				text: 'the value',
 			},
-			help: $help,
 		}
 	}
 }
@@ -443,8 +540,8 @@ def snapshot_path [path: string] {
 	} else if $type == 'file' {
 		let contents = open $path
 		let executable = ls -l $path | first | get mode | str contains 'x'
-		let names = xattr-list $path | where { |name| $name starts-with 'user.tangram' }
-		let xattrs = $names | reduce -f {} { |name, acc| $acc | insert $name (xattr-read $name $path) }
+		let names = xattr_list $path | where { |name| $name starts-with 'user.tangram' }
+		let xattrs = $names | reduce -f {} { |name, acc| $acc | insert $name (xattr_read $name $path) }
 		mut output = { kind: 'file', contents: $contents }
 		if $executable {
 			$output.executable = true
@@ -541,6 +638,35 @@ export def --wrapped run [...command] {
 	$output.stdout
 }
 
+def diff [old: string, new: string, --path] {
+	let old_path = if $path { $old } else { let t = mktemp; $old | save -f $t; $t }
+	let new_path = if $path { $new } else { let t = mktemp; $new | save -f $t; $t }
+	let result = delta --file-style=omit --hunk-header-style=omit --no-gitconfig $old_path $new_path | complete | get stdout
+	if not $path { rm $old_path $new_path }
+	$result
+}
+
+def literal [value: string, indent: string] {
+	let raw = $value | str contains "'"
+	let open = if $raw { "r#'" } else { "'" }
+	let close = if $raw { "'#" } else { "'" }
+	if ($value | str contains "\n") {
+		let trimmed = $value | str trim --right --char "\n"
+		let indented = $trimmed | split row "\n" | each { |line| $"($indent)\t($line)" } | str join "\n"
+		$"($open)\n($indented)\n($indent)($close)"
+	} else {
+		$"($open)($value)($close)"
+	}
+}
+
+def get_indent [source: string, position: int] {
+	let before = $source | str substring ..<$position
+	let line_start = $before | str index-of "\n" --end
+	let line_start = if $line_start == -1 { 0 } else { $line_start + 1 }
+	let line_prefix = $source | str substring $line_start..<$position
+	$line_prefix | parse --regex '^(\s*)' | get capture0.0? | default ''
+}
+
 export def --env success [
 	output: record
 	message?: string
@@ -573,21 +699,21 @@ export def --env failure [
 	}
 }
 
-def xattr-list [path: string] {
+def xattr_list [path: string] {
 	match $nu.os-info.name {
 		'macos' => { xattr $path | lines }
 		'linux' => { getfattr -m '.' $path | complete | get stdout | lines | where { |l| not ($l starts-with '#') and $l != '' } }
 	}
 }
 
-def xattr-read [name: string, path: string] {
+def xattr_read [name: string, path: string] {
 	match $nu.os-info.name {
 		'macos' => { xattr -p $name $path | str trim }
 		'linux' => { getfattr -n $name --only-values $path | str trim }
 	}
 }
 
-def xattr-write [name: string, value: string, path: string] {
+def xattr_write [name: string, value: string, path: string] {
 	match $nu.os-info.name {
 		'macos' => { xattr -w $name $value $path }
 		'linux' => { setfattr -n $name -v $value $path }

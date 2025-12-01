@@ -20,7 +20,13 @@ let path = artifact {
 	'
 }
 
-# Get the outdated.
-let output = run tg outdated $path
-
-snapshot -n outdated $output
+let output = run tg outdated --pretty $path
+snapshot $output '
+	[
+	  {
+	    "compatible": "hello/1.1.0",
+	    "current": "hello/1.1.0",
+	    "latest": "hello/2.0.0",
+	  },
+	]
+'
