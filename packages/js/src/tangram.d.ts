@@ -149,6 +149,8 @@ declare namespace tg {
 	export function blob(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
 
 	export class Blob {
+		#__brand;
+
 		/** Get a blob with an ID. */
 		static withId(id: tg.Blob.Id): tg.Blob;
 
@@ -216,6 +218,8 @@ declare namespace tg {
 
 	/** A directory. */
 	export class Directory {
+		#__brand;
+
 		/** Get a directory with an ID. */
 		static withId(id: tg.Directory.Id): tg.Directory;
 
@@ -281,6 +285,8 @@ declare namespace tg {
 
 	/** A file. */
 	export class File {
+		#__brand;
+
 		/** Get a file with an ID. */
 		static withId(id: tg.File.Id): tg.File;
 
@@ -354,6 +360,8 @@ declare namespace tg {
 
 	/** A symlink. */
 	export class Symlink {
+		#__brand;
+
 		/** Get a symlink with an ID. */
 		static withId(id: tg.Symlink.Id): tg.Symlink;
 
@@ -402,6 +410,8 @@ declare namespace tg {
 
 	/** A graph. */
 	export class Graph {
+		#__brand;
+
 		/** Get a graph with an ID. */
 		static withId(id: tg.Graph.Id): tg.Graph;
 
@@ -537,6 +547,8 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> {
+		#__brand;
+
 		/** Get a command with an ID. */
 		static withId(id: tg.Command.Id): tg.Command;
 
@@ -740,6 +752,8 @@ declare namespace tg {
 	): Promise<tg.Mutation<T>>;
 
 	export class Mutation<T extends tg.Value = tg.Value> {
+		#__brand;
+
 		/** Create a mutation. */
 		static new<T extends tg.Value = tg.Value>(): Promise<tg.Mutation<T>>;
 
@@ -869,6 +883,8 @@ declare namespace tg {
 
 	/** A template. */
 	export class Template {
+		#__brand;
+
 		static new(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
 
 		/** Expect that a value is a `tg.Template`. */
@@ -907,6 +923,8 @@ declare namespace tg {
 
 	/** A placeholder. */
 	export class Placeholder {
+		#__brand;
+
 		constructor(name: string);
 
 		/** Expect that a value is a `tg.Placeholder`. */
@@ -1059,6 +1077,8 @@ declare namespace tg {
 	};
 
 	export class Process {
+		#__brand;
+
 		/** Expect that a value is a `tg.Process`. */
 		static expect(value: unknown): tg.Process;
 
@@ -1223,6 +1243,8 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {
+		#__brand;
+
 		constructor(...args: tg.Args<tg.Process.BuildArgObject>);
 
 		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
@@ -1279,6 +1301,8 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {
+		#__brand;
+
 		constructor(...args: tg.Args<tg.Command.Arg.Object>);
 
 		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
@@ -1337,6 +1361,8 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {
+		#__brand;
+
 		constructor(...args: tg.Args<tg.Process.RunArgObject>);
 
 		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
