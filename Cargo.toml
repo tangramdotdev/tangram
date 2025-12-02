@@ -18,7 +18,6 @@ members = [
   "packages/server",
   "packages/session",
   "packages/store",
-  "packages/temp",
   "packages/uri",
   "packages/util",
   "packages/v8",
@@ -147,6 +146,7 @@ sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
 syn = "2"
+tempfile = "3"
 sync_wrapper = "1"
 tangram_builtin = { path = "packages/builtin" }
 tangram_client = { path = "packages/client" }
@@ -164,7 +164,6 @@ tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server", default-features = false }
 tangram_session = { path = "packages/session", default-features = false }
 tangram_store = { path = "packages/store", default-features = false }
-tangram_temp = { path = "packages/temp" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }

@@ -2,27 +2,27 @@ use {
 	super::Ignorer,
 	indoc::indoc,
 	pretty_assertions::assert_eq,
-	tangram_temp::{self as temp, Temp},
+	tangram_util::{self as util, artifact::Artifact},
 };
 
 #[tokio::test]
 async fn test() {
-	let temp = Temp::new();
-	let artifact = temp::Artifact::from(temp::directory! {
-		".DS_Store" => temp::file!(""),
-		".gitignore" => temp::file!(indoc!("
+	let temp = tempfile::TempDir::new().unwrap();
+	let artifact = Artifact::from(util::directory! {
+		".DS_Store" => util::file!(""),
+		".gitignore" => util::file!(indoc!("
 			foo
 			foo.txt
 		")),
-		"foo" => temp::directory! {
-			"foo.txt" => temp::file!(""),
+		"foo" => util::directory! {
+			"foo.txt" => util::file!(""),
 		},
-		"bar" => temp::directory! {
-			"bar.txt" => temp::file!(""),
+		"bar" => util::directory! {
+			"bar.txt" => util::file!(""),
 		},
-		"foo.txt" => temp::file!(""),
-		"bar.txt" => temp::file!(""),
-		"directory" => temp::directory! {},
+		"foo.txt" => util::file!(""),
+		"bar.txt" => util::file!(""),
+		"directory" => util::directory! {},
 	});
 	artifact.to_path(temp.path()).await.unwrap();
 	let file_names = vec![".gitignore".into()];

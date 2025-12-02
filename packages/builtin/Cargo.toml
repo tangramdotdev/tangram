@@ -23,7 +23,7 @@ num = { workspace = true }
 reqwest = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
-tangram_temp = { workspace = true }
+tempfile = { workspace = true }
 tangram_uri = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

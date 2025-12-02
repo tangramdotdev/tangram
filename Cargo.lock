@@ -1748,7 +1748,7 @@ dependencies = [
 [[package]]
 name = "derive_more"
 version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#1b5d314b8c8391e476653f32f1ca95572492b964"
+source = "git+https://github.com/jeltef/derive_more#2d3805b66f00cb31303c7e75edfef9003d48ff04"
 dependencies = [
  "derive_more-impl",
 ]
@@ -1756,7 +1756,7 @@ dependencies = [
 [[package]]
 name = "derive_more-impl"
 version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#1b5d314b8c8391e476653f32f1ca95572492b964"
+source = "git+https://github.com/jeltef/derive_more#2d3805b66f00cb31303c7e75edfef9003d48ff04"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -5978,8 +5978,8 @@ dependencies = [
  "reqwest",
  "tangram_client",
  "tangram_futures",
- "tangram_temp",
  "tangram_uri",
+ "tempfile",
  "tokio",
  "tokio-util",
 ]
@@ -6212,7 +6212,8 @@ dependencies = [
  "globset",
  "indoc",
  "pretty_assertions",
- "tangram_temp",
+ "tangram_util",
+ "tempfile",
  "tokio",
 ]
 
@@ -6407,19 +6408,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_temp"
-version = "0.0.0"
-dependencies = [
- "derive_more",
- "futures",
- "rand 0.9.2",
- "serde",
- "tangram_client",
- "tokio",
- "xattr",
-]
-
-[[package]]
 name = "tangram_uri"
 version = "0.0.0"
 dependencies = [
@@ -6435,6 +6423,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "data-encoding",
+ "derive_more",
  "fnv",
  "futures",
  "im",
@@ -6444,6 +6433,7 @@ dependencies = [
  "tangram_either",
  "tokio",
  "tracing",
+ "xattr",
 ]
 
 [[package]]
@@ -6491,6 +6481,19 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "tempfile"
+version = "3.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
+dependencies = [
+ "fastrand",
+ "getrandom 0.3.4",
+ "once_cell",
+ "rustix 1.1.2",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "termcolor"

@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 bytes = { workspace = true }
 data-encoding = { workspace = true }
+derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 im = { workspace = true }
@@ -25,3 +26,4 @@ serde_with = { workspace = true }
 tangram_either = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+xattr = { workspace = true }

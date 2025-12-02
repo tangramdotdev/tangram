@@ -15,7 +15,8 @@ workspace = true
 [dev-dependencies]
 indoc = { workspace = true }
 pretty_assertions = { workspace = true }
-tangram_temp = { workspace = true }
+tangram_util = { workspace = true }
+tempfile = { workspace = true }
 
 [dependencies]
 derive_more = { workspace = true }

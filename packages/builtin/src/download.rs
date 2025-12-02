@@ -131,15 +131,18 @@ where
 
 	// Download.
 	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
-	let temp = tangram_temp::Temp::new_in(&temp_path);
-	match mode {
+	let temp = tempfile::TempDir::new_in(&temp_path)
+		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+	let path = match mode {
 		Mode::Raw => {
-			let mut file = tokio::fs::File::create(temp.path())
+			let path = temp.path().join("file");
+			let mut file = tokio::fs::File::create(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
 			tokio::io::copy(&mut reader, &mut file)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+			path
 		},
 		Mode::Decompress(format) => {
 			let mut reader = match format {
@@ -156,22 +159,27 @@ where
 					async_compression::tokio::bufread::ZstdDecoder::new(&mut reader).boxed()
 				},
 			};
-			let mut file = tokio::fs::File::create(temp.path())
+			let path = temp.path().join("file");
+			let mut file = tokio::fs::File::create(&path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
 			tokio::io::copy(&mut reader, &mut file)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+			path
 		},
-		Mode::Extract(format, compression) => match format {
-			tg::ArchiveFormat::Tar => {
-				super::extract::extract_tar(&temp, &mut reader, compression).await?;
-			},
-			tg::ArchiveFormat::Zip => {
-				super::extract::extract_zip(&temp, &mut reader).await?;
-			},
+		Mode::Extract(format, compression) => {
+			match format {
+				tg::ArchiveFormat::Tar => {
+					super::extract::extract_tar(&temp, &mut reader, compression).await?;
+				},
+				tg::ArchiveFormat::Zip => {
+					super::extract::extract_zip(&temp, &mut reader).await?;
+				},
+			}
+			temp.path().to_owned()
 		},
-	}
+	};
 
 	// Drain and drop the reader.
 	tokio::io::copy(&mut reader, &mut tokio::io::sink())
@@ -197,7 +205,7 @@ where
 			lock: false,
 			..Default::default()
 		},
-		path: temp.path().to_owned(),
+		path,
 		updates: Vec::new(),
 	};
 	let artifact = tg::checkin(handle, arg)

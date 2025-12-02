@@ -89,7 +89,8 @@ where
 
 	// Create a temp.
 	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
-	let temp = tangram_temp::Temp::new_in(&temp_path);
+	let temp = tempfile::TempDir::new_in(&temp_path)
+		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 	// Extract to the temp.
 	match format {
@@ -141,7 +142,7 @@ where
 }
 
 pub(crate) async fn extract_tar(
-	temp: &tangram_temp::Temp,
+	temp: &tempfile::TempDir,
 	reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Result<()> {
@@ -170,7 +171,7 @@ pub(crate) async fn extract_tar(
 }
 
 pub(crate) async fn extract_zip(
-	temp: &tangram_temp::Temp,
+	temp: &tempfile::TempDir,
 	reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 ) -> tg::Result<()> {
 	// Create the reader.
