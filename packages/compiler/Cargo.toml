@@ -15,7 +15,8 @@ workspace = true
 
 [features]
 default = []
-typescript = ["dep:biome_js_formatter", "dep:biome_js_parser", "dep:biome_js_syntax", "dep:tangram_v8", "dep:v8"]
+biome = ["dep:biome_js_formatter", "dep:biome_js_parser", "dep:biome_js_syntax"]
+typescript = ["dep:tangram_v8", "dep:v8"]
 
 [build-dependencies]
 data-encoding = { workspace = true }

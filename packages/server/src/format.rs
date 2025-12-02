@@ -3,22 +3,22 @@ use {
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
-#[cfg(feature = "typescript")]
+#[cfg(feature = "biome")]
 use {std::path::Path, tangram_ignore as ignore};
 
 impl Server {
-	#[cfg(not(feature = "typescript"))]
+	#[cfg(not(feature = "biome"))]
 	pub(crate) async fn format_with_context(
 		&self,
 		_context: &Context,
 		_arg: tg::format::Arg,
 	) -> tg::Result<()> {
 		Err(tg::error!(
-			"this version of tangram was not compiled with typescript support"
+			"this version of tangram was not compiled with biome support"
 		))
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "biome")]
 	pub(crate) async fn format_with_context(
 		&self,
 		context: &Context,
@@ -49,7 +49,7 @@ impl Server {
 		Ok(())
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "biome")]
 	fn format_inner(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
 		let metadata = std::fs::symlink_metadata(path)
 			.map_err(|source| tg::error!(!source, "failed to read the metadata"))?;
@@ -61,7 +61,7 @@ impl Server {
 		Ok(())
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "biome")]
 	fn format_directory(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
 		// Read the directory entries.
 		let mut entries = Vec::new();
@@ -101,7 +101,7 @@ impl Server {
 		Ok(())
 	}
 
-	#[cfg(feature = "typescript")]
+	#[cfg(feature = "biome")]
 	fn format_file(path: &Path) -> tg::Result<()> {
 		// Get the text.
 		let text = std::fs::read_to_string(path)
