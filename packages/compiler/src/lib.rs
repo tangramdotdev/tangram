@@ -752,16 +752,19 @@ impl Compiler {
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			let path = path.components().skip(1).collect::<PathBuf>();
-			let object = if path.as_os_str().is_empty() {
-				id.clone()
+			let edge: tg::graph::data::Edge<tg::object::Id> = if path.as_os_str().is_empty() {
+				tg::graph::data::Edge::Object(id.clone())
 			} else {
 				let directory = tg::Object::with_id(id.clone())
 					.try_unwrap_directory()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a directory"))?;
-				directory.get(&self.handle, &path).await?.id().into()
+				directory
+					.get_edge(&self.handle, &path)
+					.await?
+					.to_data_artifact()
+					.into()
 			};
-			let edge = tg::graph::data::Edge::Object(object);
 			let item = tg::module::data::Item::Edge(edge);
 			let options = if path.as_os_str().is_empty() {
 				tg::referent::Options::default()
@@ -861,26 +864,26 @@ impl Compiler {
 			};
 			let kind = self.module_kind_for_path(&path).await?;
 
-			// Get the object.
-			let object = if relative_path.as_os_str().is_empty() {
-				id.clone()
-			} else {
-				let directory = tg::Object::with_id(id.clone())
-					.try_unwrap_directory()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?;
-				directory
-					.get(&self.handle, &relative_path)
-					.await?
-					.id()
-					.into()
-			};
+			// Get the edge.
+			let edge: tg::graph::data::Edge<tg::object::Id> =
+				if relative_path.as_os_str().is_empty() {
+					tg::graph::data::Edge::Object(id.clone())
+				} else {
+					let directory = tg::Object::with_id(id.clone())
+						.try_unwrap_directory()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a directory"))?;
+					directory
+						.get_edge(&self.handle, &relative_path)
+						.await?
+						.to_data_artifact()
+						.into()
+				};
 
 			// Create the tag.
 			let tag = tg::Tag::new(tag_components.join("/"));
 
 			// Create the referent.
-			let edge = tg::graph::data::Edge::Object(object);
 			let item = tg::module::data::Item::Edge(edge);
 			let path = if relative_path.as_os_str().is_empty() {
 				None

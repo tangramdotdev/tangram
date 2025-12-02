@@ -304,11 +304,8 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		let artifact = self
-			.try_get(handle, path)
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the artifact"))?;
-		Ok(artifact)
+		let edge = self.get_edge(handle, path).await?;
+		Ok(tg::Artifact::with_edge(edge))
 	}
 
 	pub async fn try_get<H>(
@@ -319,10 +316,36 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
+		let edge = self.try_get_edge(handle, path).await?;
+		Ok(edge.map(tg::Artifact::with_edge))
+	}
+
+	pub async fn get_edge<H>(
+		&self,
+		handle: &H,
+		path: impl AsRef<Path>,
+	) -> tg::Result<tg::graph::Edge<tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_edge(handle, path)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the artifact"))
+	}
+
+	pub async fn try_get_edge<H>(
+		&self,
+		handle: &H,
+		path: impl AsRef<Path>,
+	) -> tg::Result<Option<tg::graph::Edge<tg::Artifact>>>
+	where
+		H: tg::Handle,
+	{
 		let mut path = path.as_ref().to_owned();
 
-		// Track the current artifact.
+		// Track the current artifact and its edge.
 		let mut artifact: tg::Artifact = self.clone().into();
+		let mut edge: tg::graph::Edge<tg::Artifact> = tg::graph::Edge::Object(artifact.clone());
 
 		// Track the parent directories.
 		let mut parents: Vec<tg::Directory> = vec![];
@@ -348,10 +371,11 @@ impl Directory {
 				// If the component is a parent component, then remove the last parent and continue.
 				std::path::Component::ParentDir => {
 					path = path.components().skip(1).collect();
-					artifact = parents
+					let parent = parents
 						.pop()
-						.ok_or_else(|| tg::error!("the path is external"))?
-						.into();
+						.ok_or_else(|| tg::error!("the path is external"))?;
+					artifact = parent.clone().into();
+					edge = tg::graph::Edge::Object(artifact.clone());
 					continue;
 				},
 
@@ -370,11 +394,12 @@ impl Directory {
 				.try_unwrap_directory()
 				.ok()
 				.ok_or_else(|| tg::error!("the path is external"))?;
-			let Some(entry) = directory.try_get_entry(handle, &name).await? else {
+			let Some(entry_edge) = directory.try_get_entry_edge(handle, &name).await? else {
 				return Ok(None);
 			};
 			parents.push(directory.clone());
-			artifact = entry;
+			edge = entry_edge.clone();
+			artifact = tg::Artifact::with_edge(entry_edge);
 
 			// Handle a symlink.
 			if let tg::Artifact::Symlink(symlink) = &artifact {
@@ -385,17 +410,18 @@ impl Directory {
 				let path_ = symlink.path(handle).await?.clone();
 				match (artifact_, path_) {
 					(None, Some(path_)) => {
-						artifact = parents
+						let parent = parents
 							.pop()
-							.ok_or_else(|| tg::error!("the path is external"))?
-							.into();
+							.ok_or_else(|| tg::error!("the path is external"))?;
+						artifact = parent.clone().into();
+						edge = tg::graph::Edge::Object(artifact.clone());
 						path = path_.join(path);
 					},
 					(Some(artifact), None) => {
-						return Ok(Some(artifact));
+						return Ok(Some(tg::graph::Edge::Object(artifact)));
 					},
 					(Some(tg::Artifact::Directory(directory)), Some(path)) => {
-						return Box::pin(directory.try_get(handle, path)).await;
+						return Box::pin(directory.try_get_edge(handle, path)).await;
 					},
 					_ => {
 						return Err(tg::error!("invalid symlink"));
@@ -404,7 +430,7 @@ impl Directory {
 			}
 		}
 
-		Ok(Some(artifact))
+		Ok(Some(edge))
 	}
 }
 

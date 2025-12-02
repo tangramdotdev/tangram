@@ -244,7 +244,8 @@ impl Cli {
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
 			let artifact = directory.get(&handle, path).await?;
-			tg::Reference::with_object(artifact.id().into())
+			let id = artifact.store(&handle).await?;
+			tg::Reference::with_object(id.into())
 		} else {
 			reference
 		};

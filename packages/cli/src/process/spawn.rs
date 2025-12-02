@@ -280,9 +280,10 @@ impl Cli {
 				} else {
 					unreachable!();
 				};
-				let item = directory.get(&handle, root_module_file_name).await?;
-				let item = tg::graph::Edge::Object(item.into());
-				let item = tg::module::Item::Edge(item);
+				let item = directory
+					.get_entry_edge(&handle, root_module_file_name)
+					.await?;
+				let item = tg::module::Item::Edge(item.into());
 				let referent = tg::Referent::with_item(item);
 				let module = tg::Module { kind, referent };
 				let export = reference.export().unwrap_or("default").to_owned();
