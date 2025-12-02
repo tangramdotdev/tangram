@@ -259,7 +259,7 @@ impl Cli {
 				let root_module_file_name =
 					tg::package::try_get_root_module_file_name(&handle, Either::Left(&directory))
 						.await?
-						.ok_or_else(|| tg::error!("could not determine the executable"))?;
+						.ok_or_else(|| tg::error!(directory = %directory.id(), "failed to find a root module"))?;
 				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_file_name);
 				} else {
