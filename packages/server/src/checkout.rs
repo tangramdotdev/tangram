@@ -40,6 +40,7 @@ struct GetNodeOutput {
 	node: tg::graph::data::Node,
 	graph: Option<tg::graph::Id>,
 	size: Option<u64>,
+	graph_size: Option<u64>,
 }
 
 struct ProgressTaskMessage {
@@ -149,8 +150,6 @@ impl Server {
 				let result = AssertUnwindSafe(server.checkout_task(artifact, arg, &progress))
 					.catch_unwind()
 					.await;
-
-				tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
 				progress.finish_all();
 
@@ -322,7 +321,23 @@ impl Server {
 					node,
 					graph,
 					size,
+					graph_size,
 				} = server.checkout_get_node(None, &edge, &state.progress)?;
+
+				// If a new graph was loaded, count it directly.
+				if let (Some(graph), Some(graph_size)) = (&graph, graph_size) {
+					// Increment progress directly for the graph object itself.
+					state.progress.increment("objects", 1);
+					state.progress.increment("bytes", graph_size);
+
+					// Send a message.
+					let message = ProgressTaskMessage {
+						id: graph.clone().into(),
+						count: 1,
+						weight: graph_size,
+					};
+					state.progress_task_sender.send(message).ok();
+				}
 
 				// Check out the artifact.
 				let path = state.path.clone();
@@ -488,16 +503,33 @@ impl Server {
 			let GetNodeOutput {
 				id,
 				node,
-				graph,
+				graph: child_graph,
 				size: child_size,
+				graph_size,
 			} = self.checkout_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
+
+			// If a new graph was loaded, count it directly.
+			if let (Some(child_graph), Some(graph_size)) = (&child_graph, graph_size) {
+				// Increment progress directly for the graph object itself.
+				state.progress.increment("objects", 1);
+				state.progress.increment("bytes", graph_size);
+
+				// Send a message.
+				let message = ProgressTaskMessage {
+					id: child_graph.clone().into(),
+					count: 1,
+					weight: graph_size,
+				};
+				state.progress_task_sender.send(message).ok();
+			}
+
 			// Only pass size if this directory is being counted and this is the first time we have seen this child in this directory.
 			let child_size = if size.is_some() && visited_children.insert(id.clone()) {
 				child_size
 			} else {
 				None
 			};
-			self.checkout_artifact(state, &path, &edge, &id, node, graph.as_ref(), child_size)?;
+			self.checkout_artifact(state, &path, &edge, &id, node, child_graph.as_ref(), child_size)?;
 		}
 
 		// Increment the progress.
@@ -540,11 +572,28 @@ impl Server {
 			let GetNodeOutput {
 				id,
 				node,
-				graph,
+				graph: dependency_graph,
 				size,
+				graph_size,
 			} = self.checkout_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
+
+			// If a new graph was loaded, count it directly.
+			if let (Some(dependency_graph), Some(graph_size)) = (&dependency_graph, graph_size) {
+				// Increment progress directly for the graph object itself.
+				state.progress.increment("objects", 1);
+				state.progress.increment("bytes", graph_size);
+
+				// Send a message.
+				let message = ProgressTaskMessage {
+					id: dependency_graph.clone().into(),
+					count: 1,
+					weight: graph_size,
+				};
+				state.progress_task_sender.send(message).ok();
+			}
+
 			if id != state.artifact {
-				self.checkout_dependency(state, &edge, &id, node, graph.as_ref(), size)?;
+				self.checkout_dependency(state, &edge, &id, node, dependency_graph.as_ref(), size)?;
 			}
 		}
 
@@ -679,7 +728,23 @@ impl Server {
 				node: dependency_node,
 				graph: dependency_graph,
 				size: dependency_size,
+				graph_size,
 			} = self.checkout_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
+
+			// If a new graph was loaded, count it directly.
+			if let (Some(dependency_graph), Some(graph_size)) = (&dependency_graph, graph_size) {
+				// Increment progress directly for the graph object itself.
+				state.progress.increment("objects", 1);
+				state.progress.increment("bytes", graph_size);
+
+				// Send a message.
+				let message = ProgressTaskMessage {
+					id: dependency_graph.clone().into(),
+					count: 1,
+					weight: graph_size,
+				};
+				state.progress_task_sender.send(message).ok();
+			}
 
 			if dependency_id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
@@ -738,7 +803,7 @@ impl Server {
 		&self,
 		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-		progress: &crate::progress::Handle<tg::checkout::Output>,
+		_progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<GetNodeOutput> {
 		let mut local_graphs = HashMap::default();
 		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
@@ -749,7 +814,9 @@ impl Server {
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				if !graphs.contains_key(graph) {
+				let graph_size = if graphs.contains_key(graph) {
+					None
+				} else {
 					let (size, data) = self
 						.store
 						.try_get_object_data_sync(&graph.clone().into())?
@@ -758,11 +825,8 @@ impl Server {
 						.try_into()
 						.map_err(|_| tg::error!("expected graph data"))?;
 					graphs.insert(graph.clone(), data);
-
-					// Increment progress for the graph.
-					progress.increment("objects", 1);
-					progress.increment("bytes", size);
-				}
+					Some(size)
+				};
 
 				// Get the node.
 				let node = graphs
@@ -783,13 +847,15 @@ impl Server {
 						tg::symlink::Data::Reference(reference.clone()).into()
 					},
 				};
-				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
+				let bytes = data.serialize()?;
+				let id = tg::artifact::Id::new(node.kind(), &bytes);
 
 				Ok(GetNodeOutput {
 					id,
 					node,
 					graph: Some(graph.clone()),
 					size: None,
+					graph_size,
 				})
 			},
 
@@ -816,8 +882,10 @@ impl Server {
 							.graph
 							.as_ref()
 							.ok_or_else(|| tg::error!("missing graph"))?;
-						if !graphs.contains_key(graph) {
-							let (size, data) = self
+						let graph_size = if graphs.contains_key(graph) {
+							None
+						} else {
+							let (graph_size, data) = self
 								.store
 								.try_get_object_data_sync(&graph.clone().into())?
 								.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -825,11 +893,8 @@ impl Server {
 								.try_into()
 								.map_err(|_| tg::error!("expected graph data"))?;
 							graphs.insert(graph.clone(), data);
-
-							// Increment progress for the graph.
-							progress.increment("objects", 1);
-							progress.increment("bytes", size);
-						}
+							Some(graph_size)
+						};
 
 						// Get the node.
 						let node = graphs
@@ -844,7 +909,8 @@ impl Server {
 							id: id.clone(),
 							node,
 							graph: Some(graph.clone()),
-							size: Some(size),
+							size: None,
+							graph_size,
 						})
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
@@ -853,6 +919,7 @@ impl Server {
 							node: tg::graph::data::Node::Directory(node),
 							graph: None,
 							size: Some(size),
+							graph_size: None,
 						})
 					},
 					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
@@ -861,6 +928,7 @@ impl Server {
 							node: tg::graph::data::Node::File(node),
 							graph: None,
 							size: Some(size),
+							graph_size: None,
 						})
 					},
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
@@ -869,6 +937,7 @@ impl Server {
 							node: tg::graph::data::Node::Symlink(node),
 							graph: None,
 							size: Some(size),
+							graph_size: None,
 						})
 					},
 				}
