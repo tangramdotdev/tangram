@@ -1,0 +1,34 @@
+tg.file({
+  "graph": tg.graph({
+    "nodes": [
+      {
+        "kind": "file",
+        "contents": tg.blob("import \"./tangram.ts\";"),
+        "dependencies": {
+          "./tangram.ts": {
+            "item": {
+              "index": 1,
+              "kind": "file",
+            },
+            "path": "tangram.ts",
+          },
+        },
+      },
+      {
+        "kind": "file",
+        "contents": tg.blob("import \"./foo.tg.ts\";"),
+        "dependencies": {
+          "./foo.tg.ts": {
+            "item": {
+              "index": 0,
+              "kind": "file",
+            },
+            "path": "foo.tg.ts",
+          },
+        },
+      },
+    ],
+  }),
+  "index": 0,
+  "kind": "file",
+})

@@ -66,8 +66,8 @@ impl Server {
 			touched_at,
 		);
 
-		// Create a reference artifact for the root if necessary.
-		let index = graph.paths.get(root).copied().unwrap();
+		// Create a reference artifact for the path if necessary.
+		let index = graph.paths.get(&arg.path).copied().unwrap();
 		let node = graph.nodes.get(&index).unwrap();
 		if let tg::graph::data::Edge::Reference(reference) = node.edge.as_ref().unwrap().clone() {
 			Self::checkin_create_reference_artifact(
@@ -509,7 +509,7 @@ impl Server {
 				tg::symlink::Data::Reference(reference).into()
 			},
 		};
-		let (id, complete, metadata) = Self::checkin_create_artifact(
+		let (_id, complete, metadata) = Self::checkin_create_artifact(
 			graph,
 			&data,
 			&[global],
@@ -522,8 +522,6 @@ impl Server {
 		let node = graph.nodes.get_mut(&global).unwrap();
 		node.complete = complete;
 		node.metadata = Some(metadata);
-		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
-		graph.ids.entry(id).or_default().push(global);
 
 		Ok(())
 	}

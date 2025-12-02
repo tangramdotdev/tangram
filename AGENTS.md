@@ -1,1 +1,19 @@
-Please run `cargo` commands with `--workspace` for better cache hits. Please prefer `cargo clippy` over `cargo check` and clear clippy warnings when you complete tasks. Please do not omit articles in error messages and comments and make comments complete sentences that end in periods and do not use contractions. To run all tests, please run `bun run test`. To run a specific CLI test, run `nu packages/cli/test.nu <pattern>`.
+# Agents
+
+Tangram is a build system and package manager that makes builds and tests fast and reliable.
+
+## Checking
+
+Run `bun run check` to check changes for errors. Please run `cargo` commands with `--workspace` for better cache hits. Please prefer `cargo clippy` over `cargo check` and clear clippy warnings when you complete tasks.
+
+## Formatting
+
+Run `bun run format` to format all code when you complete changes.
+
+## Testing
+
+To run all tests, run `bun run test`. The most important tests are the CLI tests in `packages/cli/tests`. You can run the CLI tests with `nu packages/cli/test.nu`, and provide a regex pattern as an arg for the tests in the tests directory.
+
+## Style
+
+Please do not omit articles in error messages and comments. Comments should be complete sentences that end in periods and do not use contractions. Error messages should be sentence fragments that start with lowercase letters.

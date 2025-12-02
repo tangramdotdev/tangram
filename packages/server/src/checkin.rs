@@ -383,10 +383,9 @@ impl Server {
 			.nodes
 			.get(&node)
 			.unwrap()
-			.edge
+			.id
 			.as_ref()
 			.unwrap()
-			.unwrap_object_ref()
 			.clone()
 			.try_into()
 			.unwrap();
