@@ -443,6 +443,10 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				count: Some(blob.count),
 				depth: Some(blob.depth),
+				self_solvable: false,
+				self_solved: true,
+				solvable: Some(false),
+				solved: Some(true),
 				weight: Some(blob.weight),
 			};
 			let size = blob.size;

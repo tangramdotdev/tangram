@@ -32,12 +32,41 @@ impl Server {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let size = arg.bytes.len().to_u64().unwrap();
+
+		// Compute self_solvable and self_solved from the data.
+		let (self_solvable, self_solved) = match data {
+			tg::object::Data::File(file) => match file {
+				tg::file::Data::Reference(_) => (false, true),
+				tg::file::Data::Node(node) => (node.self_solvable(), node.self_solved()),
+			},
+			tg::object::Data::Graph(graph) => {
+				graph
+					.nodes
+					.iter()
+					.fold((false, true), |(solvable, solved), node| {
+						if let tg::graph::data::Node::File(file) = node {
+							(
+								solvable || file.self_solvable(),
+								solved && file.self_solved(),
+							)
+						} else {
+							(solvable, solved)
+						}
+					})
+			},
+			_ => (false, true),
+		};
+
 		let message = crate::index::Message::PutObject(crate::index::message::PutObject {
 			cache_entry: None,
 			children,
 			complete: false,
 			id: id.clone(),
-			metadata: tg::object::Metadata::default(),
+			metadata: tg::object::Metadata {
+				self_solvable,
+				self_solved,
+				..Default::default()
+			},
 			size,
 			touched_at: now,
 		});

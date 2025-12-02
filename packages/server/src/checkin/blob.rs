@@ -83,6 +83,10 @@ impl Server {
 				let metadata = tg::object::Metadata {
 					count: Some(output.count),
 					depth: Some(output.depth),
+					self_solvable: false,
+					self_solved: true,
+					solvable: Some(false),
+					solved: Some(true),
 					weight: Some(output.weight),
 				};
 				let size = output.size;

@@ -97,6 +97,22 @@ impl Server {
 			.values()
 			.map(|message| message.metadata.depth.map(|depth| depth.to_i64().unwrap()))
 			.collect::<Vec<_>>();
+		let object_self_solvables = put_object_messages
+			.values()
+			.map(|message| message.metadata.self_solvable)
+			.collect::<Vec<_>>();
+		let object_self_solveds = put_object_messages
+			.values()
+			.map(|message| message.metadata.self_solved)
+			.collect::<Vec<_>>();
+		let object_solvables = put_object_messages
+			.values()
+			.map(|message| message.metadata.solvable)
+			.collect::<Vec<_>>();
+		let object_solveds = put_object_messages
+			.values()
+			.map(|message| message.metadata.solved)
+			.collect::<Vec<_>>();
 		let object_weights = put_object_messages
 			.values()
 			.map(|message| {
@@ -421,19 +437,19 @@ impl Server {
 					$6::int8[],
 					$7::int8[],
 					$8::int8[],
-					$9::int8[],
+					$9::bool[],
 					$10::bool[],
-					$11::bytea[],
-					$12::int8[],
+					$11::bool[],
+					$12::bool[],
 					$13::int8[],
-					$14::bytea[],
+					$14::bool[],
 					$15::bytea[],
 					$16::int8[],
-					$17::bool[],
-					$18::int8[],
-					$19::bool[],
+					$17::int8[],
+					$18::bytea[],
+					$19::bytea[],
 					$20::int8[],
-					$21::int8[],
+					$21::bool[],
 					$22::int8[],
 					$23::bool[],
 					$24::int8[],
@@ -447,17 +463,21 @@ impl Server {
 					$32::int8[],
 					$33::int8[],
 					$34::int8[],
-					$35::bytea[],
+					$35::bool[],
 					$36::int8[],
 					$37::int8[],
-					$38::bytea[],
-					$39::int8[],
+					$38::int8[],
+					$39::bytea[],
 					$40::int8[],
 					$41::int8[],
 					$42::bytea[],
-					$43::text[],
-					$44::bytea[],
-					$45::text[]
+					$43::int8[],
+					$44::int8[],
+					$45::int8[],
+					$46::bytea[],
+					$47::text[],
+					$48::bytea[],
+					$49::text[]
 				);
 			"
 		);
@@ -474,6 +494,10 @@ impl Server {
 					&object_touched_ats.as_slice(),
 					&object_counts.as_slice(),
 					&object_depths.as_slice(),
+					&object_self_solvables.as_slice(),
+					&object_self_solveds.as_slice(),
+					&object_solvables.as_slice(),
+					&object_solveds.as_slice(),
 					&object_weights.as_slice(),
 					&object_completes.as_slice(),
 					&object_children.as_slice(),

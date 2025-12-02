@@ -123,7 +123,21 @@ impl Server {
 		for item in &items {
 			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())?;
 			let size = item.bytes.len().to_u64().unwrap();
-			graph.update_object(&item.id, Some(&data), None, None, Some(size), Some(true));
+			// Compute self_solvable and self_solved from the data.
+			let (self_solvable, self_solved) = compute_self_solvable_and_solved(&data);
+			let metadata = tg::object::Metadata {
+				self_solvable,
+				self_solved,
+				..Default::default()
+			};
+			graph.update_object(
+				&item.id,
+				Some(&data),
+				None,
+				Some(metadata),
+				Some(size),
+				Some(true),
+			);
 		}
 		drop(graph);
 
@@ -177,5 +191,30 @@ impl Server {
 			state.progress.increment_processes();
 		}
 		Ok(())
+	}
+}
+
+fn compute_self_solvable_and_solved(data: &tg::object::Data) -> (bool, bool) {
+	match data {
+		tg::object::Data::File(file) => match file {
+			tg::file::Data::Reference(_) => (false, true),
+			tg::file::Data::Node(node) => (node.self_solvable(), node.self_solved()),
+		},
+		tg::object::Data::Graph(graph) => {
+			graph
+				.nodes
+				.iter()
+				.fold((false, true), |(solvable, solved), node| {
+					if let tg::graph::data::Node::File(file) = node {
+						(
+							solvable || file.self_solvable(),
+							solved && file.self_solved(),
+						)
+					} else {
+						(solvable, solved)
+					}
+				})
+		},
+		_ => (false, true),
 	}
 }

@@ -559,6 +559,10 @@ impl Server {
 								let metadata = tg::object::Metadata {
 									count: Some(output.count),
 									depth: Some(output.depth),
+									self_solvable: false,
+									self_solved: true,
+									solvable: Some(false),
+									solved: Some(true),
 									weight: Some(output.weight),
 								};
 								Some((true, Some(metadata)))
@@ -577,13 +581,54 @@ impl Server {
 			}
 		});
 		let mut complete = true;
+		// Reference objects don't have dependencies themselves, so self_solvable is false.
+		let is_reference = matches!(
+			data,
+			tg::object::Data::Directory(tg::directory::Data::Reference(_))
+				| tg::object::Data::File(tg::file::Data::Reference(_))
+				| tg::object::Data::Symlink(tg::symlink::Data::Reference(_))
+		);
+		let (self_solvable, self_solved) = if is_reference {
+			(false, true)
+		} else {
+			scc.iter()
+				.fold((false, true), |(solvable, solved), &index| {
+					let node = graph.nodes.get(&index).unwrap();
+					if let Variant::File(file) = &node.variant {
+						// self_solvable: true if any dependency reference is a tag.
+						let file_solvable =
+							file.dependencies.keys().any(tg::Reference::is_solvable);
+						// self_solved: true if no dependency has referent = None.
+						let file_solved = file
+							.dependencies
+							.iter()
+							.filter(|(reference, _)| reference.is_solvable())
+							.all(|(_, referent)| referent.is_some());
+						(solvable || file_solvable, solved && file_solved)
+					} else {
+						(solvable, solved)
+					}
+				})
+		};
 		let mut metadata = tg::object::Metadata {
 			count: Some(1),
 			depth: Some(1),
+			self_solvable,
+			self_solved,
+			solvable: Some(self_solvable),
+			solved: Some(self_solved),
 			weight: Some(bytes.len().to_u64().unwrap()),
 		};
 		for (child_complete, child_metadata) in children {
 			complete = complete && child_complete;
+			metadata.solvable = metadata
+				.solvable
+				.zip(child_metadata.as_ref().and_then(|m| m.solvable))
+				.map(|(a, b)| a || b);
+			metadata.solved = metadata
+				.solved
+				.zip(child_metadata.as_ref().and_then(|m| m.solved))
+				.map(|(a, b)| a && b);
 			metadata.count = metadata
 				.count
 				.zip(child_metadata.as_ref().and_then(|metadata| metadata.count))

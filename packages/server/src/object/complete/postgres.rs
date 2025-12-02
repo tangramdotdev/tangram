@@ -103,11 +103,15 @@ impl Server {
 			complete: bool,
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"
-				select complete, count, depth, weight
+				select complete, count, depth, self_solvable, self_solved, solvable, solved, weight
 				from objects
 				where id = $1;
 			",
@@ -125,6 +129,10 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				count: output.count,
 				depth: output.depth,
+				self_solvable: output.self_solvable,
+				self_solved: output.self_solved,
+				solvable: output.solvable,
+				solved: output.solved,
 				weight: output.weight,
 			};
 			(output.complete, metadata)
@@ -154,12 +162,18 @@ impl Server {
 			count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<bool>>")]
+			solvable: Option<bool>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<bool>>")]
+			solved: Option<bool>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"
-				select objects.id, complete, count, depth, weight
+				select objects.id, complete, count, depth, self_solvable, self_solved, solvable, solved, weight
 				from unnest($1::bytea[]) as ids (id)
 				left join objects on objects.id = ids.id;
 			",
@@ -182,6 +196,10 @@ impl Server {
 				let metadata = tg::object::Metadata {
 					count: row.count.map(|v| v.to_u64().unwrap()),
 					depth: row.depth.map(|v| v.to_u64().unwrap()),
+					self_solvable: row.self_solvable,
+					self_solved: row.self_solved,
+					solvable: row.solvable,
+					solved: row.solved,
 					weight: row.weight.map(|v| v.to_u64().unwrap()),
 				};
 				Ok((row.id, (row.complete, metadata)))
@@ -208,6 +226,10 @@ impl Server {
 			complete: bool,
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
@@ -215,7 +237,7 @@ impl Server {
 				update objects
 				set touched_at = greatest($1::int8, touched_at)
 				where id = $2
-				returning complete, count, depth, weight;
+				returning complete, count, depth, self_solvable, self_solved, solvable, solved, weight;
 			",
 		);
 		let params = db::params![touched_at, id.to_bytes()];
@@ -231,6 +253,10 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				count: output.count,
 				depth: output.depth,
+				self_solvable: output.self_solvable,
+				self_solved: output.self_solved,
+				solvable: output.solvable,
+				solved: output.solved,
 				weight: output.weight,
 			};
 			(output.complete, metadata)
@@ -276,6 +302,12 @@ impl Server {
 			count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<bool>>")]
+			solvable: Option<bool>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<bool>>")]
+			solved: Option<bool>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			weight: Option<u64>,
 		}
@@ -292,7 +324,7 @@ impl Server {
 				set touched_at = greatest($1::int8, touched_at)
 				from locked
 				where objects.id = locked.id
-				returning objects.id, complete, count, depth, weight;
+				returning objects.id, complete, count, depth, self_solvable, self_solved, solvable, solved, weight;
 			",
 		);
 		let result = connection
@@ -326,6 +358,10 @@ impl Server {
 				let metadata = tg::object::Metadata {
 					count: row.count.map(|v| v.to_u64().unwrap()),
 					depth: row.depth.map(|v| v.to_u64().unwrap()),
+					self_solvable: row.self_solvable,
+					self_solved: row.self_solved,
+					solvable: row.solvable,
+					solved: row.solved,
 					weight: row.weight.map(|v| v.to_u64().unwrap()),
 				};
 				Ok((row.id, (row.complete, metadata)))

@@ -154,11 +154,15 @@ impl Server {
 			complete: bool,
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"
-				select complete, count, depth, weight
+				select complete, count, depth, self_solvable, self_solved, solvable, solved, weight
 				from objects
 				where id = ?1;
 			",
@@ -182,6 +186,10 @@ impl Server {
 		let metadata = tg::object::Metadata {
 			count: row.count,
 			depth: row.depth,
+			self_solvable: row.self_solvable,
+			self_solved: row.self_solved,
+			solvable: row.solvable,
+			solved: row.solved,
 			weight: row.weight,
 		};
 		Ok(Some((complete, metadata)))
@@ -222,11 +230,15 @@ impl Server {
 			complete: bool,
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"
-				select complete, count, depth, weight
+				select complete, count, depth, self_solvable, self_solved, solvable, solved, weight
 				from objects
 				where id = ?1;
 			"
@@ -253,6 +265,10 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				count: row.count,
 				depth: row.depth,
+				self_solvable: row.self_solvable,
+				self_solved: row.self_solved,
+				solvable: row.solvable,
+				solved: row.solved,
 				weight: row.weight,
 			};
 			outputs.push(Some((complete, metadata)));
@@ -293,6 +309,10 @@ impl Server {
 			complete: bool,
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
@@ -300,7 +320,7 @@ impl Server {
 				update objects
 				set touched_at = max(?1, touched_at)
 				where id = ?2
-				returning complete, count, depth, weight;
+				returning complete, count, depth, self_solvable, self_solved, solvable, solved, weight;
 			"
 		);
 		let mut statement = connection
@@ -322,6 +342,10 @@ impl Server {
 		let metadata = tg::object::Metadata {
 			count: row.count,
 			depth: row.depth,
+			self_solvable: row.self_solvable,
+			self_solved: row.self_solved,
+			solvable: row.solvable,
+			solved: row.solved,
 			weight: row.weight,
 		};
 		Ok(Some((complete, metadata)))
@@ -376,6 +400,10 @@ impl Server {
 			complete: bool,
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
@@ -383,7 +411,7 @@ impl Server {
 				update objects
 				set touched_at = max(?1, touched_at)
 				where id = ?2
-				returning complete, count, depth, weight;
+				returning complete, count, depth, self_solvable, self_solved, solvable, solved, weight;
 			"
 		);
 		let mut statement = transaction
@@ -408,6 +436,10 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				count: row.count,
 				depth: row.depth,
+				self_solvable: row.self_solvable,
+				self_solved: row.self_solved,
+				solvable: row.solvable,
+				solved: row.solved,
 				weight: row.weight,
 			};
 			outputs.push(Some((complete, metadata)));

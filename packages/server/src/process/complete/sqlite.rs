@@ -261,21 +261,25 @@ impl Server {
 				count: row.command_count,
 				depth: row.command_depth,
 				weight: row.command_weight,
+				..Default::default()
 			};
 			let children_commands = tg::object::Metadata {
 				count: row.children_commands_count,
 				depth: row.children_commands_depth,
 				weight: row.children_commands_weight,
+				..Default::default()
 			};
 			let output = tg::object::Metadata {
 				count: row.output_count,
 				depth: row.output_depth,
 				weight: row.output_weight,
+				..Default::default()
 			};
 			let children_outputs = tg::object::Metadata {
 				count: row.children_outputs_count,
 				depth: row.children_outputs_depth,
 				weight: row.children_outputs_weight,
+				..Default::default()
 			};
 			let metadata = tg::process::Metadata {
 				children,
@@ -393,21 +397,25 @@ impl Server {
 			count: row.command_count,
 			depth: row.command_depth,
 			weight: row.command_weight,
+			..Default::default()
 		};
 		let children_commands = tg::object::Metadata {
 			count: row.children_commands_count,
 			depth: row.children_commands_depth,
 			weight: row.children_commands_weight,
+			..Default::default()
 		};
 		let output = tg::object::Metadata {
 			count: row.output_count,
 			depth: row.output_depth,
 			weight: row.output_weight,
+			..Default::default()
 		};
 		let children_outputs = tg::object::Metadata {
 			count: row.children_outputs_count,
 			depth: row.children_outputs_depth,
 			weight: row.children_outputs_weight,
+			..Default::default()
 		};
 		let metadata = tg::process::Metadata {
 			children,
@@ -532,21 +540,25 @@ impl Server {
 				count: row.command_count,
 				depth: row.command_depth,
 				weight: row.command_weight,
+				..Default::default()
 			};
 			let children_commands = tg::object::Metadata {
 				count: row.children_commands_count,
 				depth: row.children_commands_depth,
 				weight: row.children_commands_weight,
+				..Default::default()
 			};
 			let output = tg::object::Metadata {
 				count: row.output_count,
 				depth: row.output_depth,
 				weight: row.output_weight,
+				..Default::default()
 			};
 			let children_outputs = tg::object::Metadata {
 				count: row.children_outputs_count,
 				depth: row.children_outputs_depth,
 				weight: row.children_outputs_weight,
+				..Default::default()
 			};
 			let metadata = tg::process::Metadata {
 				children,

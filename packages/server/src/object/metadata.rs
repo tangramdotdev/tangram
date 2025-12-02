@@ -65,12 +65,16 @@ impl Server {
 		struct Row {
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select count, depth, weight
+				select count, depth, self_solvable, self_solved, solvable, solved, weight
 				from objects
 				where id = {p}1;
 			",
@@ -83,6 +87,10 @@ impl Server {
 			.map(|row| tg::object::Metadata {
 				count: row.count,
 				depth: row.depth,
+				self_solvable: row.self_solvable,
+				self_solved: row.self_solved,
+				solvable: row.solvable,
+				solved: row.solved,
 				weight: row.weight,
 			});
 
@@ -118,11 +126,15 @@ impl Server {
 		struct Row {
 			count: Option<u64>,
 			depth: Option<u64>,
+			self_solvable: bool,
+			self_solved: bool,
+			solvable: Option<bool>,
+			solved: Option<bool>,
 			weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"
-				select count, depth, weight
+				select count, depth, self_solvable, self_solved, solvable, solved, weight
 				from objects
 				where id = ?1;
 			"
@@ -144,6 +156,10 @@ impl Server {
 		let metadata = tg::object::Metadata {
 			count: row.count,
 			depth: row.depth,
+			self_solvable: row.self_solvable,
+			self_solved: row.self_solved,
+			solvable: row.solvable,
+			solved: row.solved,
 			weight: row.weight,
 		};
 		Ok(Some(metadata))
