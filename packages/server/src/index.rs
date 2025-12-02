@@ -1,6 +1,7 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
+	bytes::Bytes,
+	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin, task::Poll, time::Duration},
 	tangram_client::prelude::*,
@@ -11,15 +12,15 @@ use {
 	},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::{self as messenger, Acker, prelude::*},
+	tokio_stream::wrappers::IntervalStream,
 };
-
-#[cfg(feature = "postgres")]
-pub mod postgres;
-pub mod sqlite;
 
 pub use self::message::Message;
 
 pub mod message;
+#[cfg(feature = "postgres")]
+pub mod postgres;
+pub mod sqlite;
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -73,15 +74,25 @@ impl Server {
 		self.tasks.wait().await;
 		progress.finish("tasks");
 
-		// Get the stream.
-		let stream = self
+		// Get the index stream.
+		let index_stream = self
 			.messenger
 			.get_stream("index".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the index stream"))?;
 
+		// Subscribe to indexer progress.
+		let indexer_progress_stream = self
+			.messenger
+			.subscribe("indexer_progress".to_owned(), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe to indexer progress"))?;
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
+		let mut indexer_progress_stream =
+			stream::select(indexer_progress_stream.map(|_| ()), interval.map(|_| ()));
+
 		// Wait for the index stream's first sequence to reach the current last sequence.
-		let info = stream
+		let info = index_stream
 			.info()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
@@ -95,14 +106,17 @@ impl Server {
 			Some(0),
 			Some(total),
 		);
-		while first_sequence <= last_sequence {
-			let info = stream
+		loop {
+			let info = index_stream
 				.info()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
 			progress.increment("messages", info.first_sequence - first_sequence);
 			first_sequence = info.first_sequence;
-			tokio::time::sleep(Duration::from_millis(10)).await;
+			if first_sequence > last_sequence {
+				break;
+			}
+			indexer_progress_stream.next().await;
 		}
 		progress.finish("messages");
 
@@ -122,9 +136,10 @@ impl Server {
 			if count == 0 {
 				break;
 			}
-			tokio::time::sleep(Duration::from_millis(10)).await;
+			indexer_progress_stream.next().await;
 		}
 		progress.finish("queue");
+
 		Ok::<_, tg::Error>(())
 	}
 
@@ -152,6 +167,11 @@ impl Server {
 						};
 						if n == 0 {
 							wait = true;
+						} else {
+							self.messenger
+								.publish("indexer_progress".to_owned(), Bytes::new())
+								.await
+								.ok();
 						}
 						continue;
 					},
@@ -179,6 +199,12 @@ impl Server {
 			if let Err(error) = result {
 				tracing::error!(?error, "failed to handle the messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
+			} else {
+				// Publish indexer progress.
+				self.messenger
+					.publish("indexer_progress".to_owned(), Bytes::new())
+					.await
+					.ok();
 			}
 		}
 	}
