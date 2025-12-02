@@ -139,13 +139,6 @@ mod typescript {
 		v8::V8::initialize_platform(platform);
 		v8::V8::initialize();
 
-		// Create the typescript snapshot.
-		let path = out_dir_path.join("main.heapsnapshot");
-		let snapshot = create_snapshot(out_dir_path.join("main.js"));
-		std::fs::write(path, snapshot).unwrap();
-	}
-
-	fn create_snapshot(path: impl AsRef<Path>) -> v8::StartupData {
 		// Create the isolate.
 		let mut isolate = v8::Isolate::snapshot_creator(None, None);
 
@@ -157,6 +150,7 @@ mod typescript {
 			let scope = &mut v8::ContextScope::new(handle_scope, context);
 
 			// Compile the script.
+			let path = out_dir_path.join("main.js");
 			let script = std::fs::read_to_string(path).unwrap();
 			let script = v8::String::new(scope, &script).unwrap();
 			let resource_name = v8::Integer::new(scope, 0).into();
@@ -189,7 +183,11 @@ mod typescript {
 		}
 
 		// Create the snapshot.
-		isolate.create_blob(v8::FunctionCodeHandling::Keep).unwrap()
+		let snapshot = isolate.create_blob(v8::FunctionCodeHandling::Keep).unwrap();
+
+		// Write the snapshot.
+		let path = out_dir_path.join("main.heapsnapshot");
+		std::fs::write(path, snapshot).unwrap();
 	}
 
 	fn fixup_source_map(path: impl AsRef<Path>) {
