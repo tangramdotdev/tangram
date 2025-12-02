@@ -4,33 +4,27 @@ let server = spawn
 
 # Create and tag the foo dependency.
 let foo_path = artifact {
-	tangram.ts: ''
+	tangram.ts: 'export default () => tg.file("foo");'
 }
 run tg tag foo/1.0.0 $foo_path
 
-# Create the main artifact.
-let path = artifact {
-	tangram.ts: 'import * as foo from "foo/*"'
+# Create and build the main artifact.
+let artifact = artifact {
+	tangram.ts: '
+		import foo from "foo/*";
+		export default () => tg.directory({ foo: foo() });
+	'
 }
+let id = run tg build $artifact
 
-# Checkin.
-let first_id = run tg checkin $path
-
-# Checkout.
-let temp_dir = mktemp -d
-let checkout_path1 = $temp_dir | path join "checkout1"
-run tg checkout $first_id $checkout_path1
+let tmp = mktemp -d
+let path = $tmp | path join "checkout"
+run tg checkout --dependencies=true $id $path
 
 # Clean.
 run tg tag delete foo/1.0.0
 run tg clean
 
-# Checkin again.
-let second_id = run tg checkin $checkout_path1
+let left = run tg checkin $path
 
-# Checkout again.
-let checkout_path2 = $temp_dir | path join "checkout2"
-run tg checkout $second_id $checkout_path2
-
-# Verify IDs match.
-assert equal $first_id $second_id
+assert equal $left $id
