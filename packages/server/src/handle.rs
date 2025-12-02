@@ -953,6 +953,7 @@ impl tg::handle::Watch for Server {
 }
 
 #[derive(Clone)]
+#[cfg_attr(not(feature = "js"), expect(dead_code))]
 pub struct ServerWithContext(pub Server, pub Context);
 
 impl tg::Handle for ServerWithContext {

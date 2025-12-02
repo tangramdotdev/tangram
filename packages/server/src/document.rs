@@ -5,18 +5,18 @@ use {
 };
 
 impl Server {
-	#[cfg(not(feature = "compiler"))]
+	#[cfg(not(feature = "typescript"))]
 	pub(crate) async fn document_with_context(
 		&self,
 		_context: &Context,
 		_arg: tg::document::Arg,
 	) -> tg::Result<serde_json::Value> {
 		Err(tg::error!(
-			"this version of tangram was not compiled with compiler support"
+			"this version of tangram was not compiled with typescript support"
 		))
 	}
 
-	#[cfg(feature = "compiler")]
+	#[cfg(feature = "typescript")]
 	pub(crate) async fn document_with_context(
 		&self,
 		context: &Context,

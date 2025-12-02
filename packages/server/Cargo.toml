@@ -14,14 +14,15 @@ version = { workspace = true }
 workspace = true
 
 [features]
+boa = ["tangram_js/boa"]
 default = ["js", "typescript"]
-compiler = ["dep:tangram_compiler"]
+v8 = ["js", "tangram_js/v8"]
 foundationdb = ["tangram_store/foundationdb"]
 js = ["dep:tangram_js"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 scylla = ["tangram_store/scylla"]
-typescript = ["compiler", "tangram_compiler/typescript"]
+typescript = ["tangram_compiler/typescript"]
 
 [dependencies]
 async-channel = { workspace = true }
@@ -67,7 +68,7 @@ smallvec = { workspace = true }
 sync_wrapper = { workspace = true }
 tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
-tangram_compiler = { workspace = true, optional = true }
+tangram_compiler = { workspace = true }
 tangram_database = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }

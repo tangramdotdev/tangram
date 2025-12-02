@@ -9,19 +9,6 @@ use {
 };
 
 impl Server {
-	#[cfg(not(feature = "compiler"))]
-	pub(crate) async fn lsp_with_context(
-		&self,
-		_context: &Context,
-		_input: impl AsyncBufRead + Send + Unpin + 'static,
-		_output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> tg::Result<()> {
-		Err(tg::error!(
-			"this version of tangram was not compiled with compiler support"
-		))
-	}
-
-	#[cfg(feature = "compiler")]
 	pub(crate) async fn lsp_with_context(
 		&self,
 		context: &Context,

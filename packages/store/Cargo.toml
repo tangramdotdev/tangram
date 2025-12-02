@@ -15,7 +15,7 @@ workspace = true
 
 [features]
 default = ["lmdb"]
-foundationdb = ["dep:foundationdb", "dep:tangram_fdb"]
+foundationdb = ["dep:foundationdb"]
 lmdb = ["dep:heed"]
 scylla = ["dep:scylla"]
 
@@ -38,7 +38,6 @@ scylla = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_client = { workspace = true }
-tangram_fdb = { workspace = true, optional = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 time = { workspace = true }

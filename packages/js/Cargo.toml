@@ -10,6 +10,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+boa = ["dep:boa_engine"]
+v8 = ["dep:tangram_v8", "dep:v8"]
+
 [lints]
 workspace = true
 
@@ -17,9 +21,10 @@ workspace = true
 data-encoding = { workspace = true }
 scopeguard = { workspace = true }
 serde_json = { workspace = true }
-v8 = { workspace = true }
+v8 = { workspace = true, optional = true }
 
 [dependencies]
+boa_engine = { workspace = true, optional = true }
 bytes = { workspace = true }
 data-encoding = { workspace = true }
 futures = { workspace = true }
@@ -33,8 +38,8 @@ tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
-tangram_v8 = { workspace = true }
+tangram_v8 = { workspace = true, optional = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
-v8 = { workspace = true }
+v8 = { workspace = true, optional = true }

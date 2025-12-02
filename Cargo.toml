@@ -71,6 +71,7 @@ biome_js_formatter = { git = "https://github.com/biomejs/biome" }
 biome_js_parser = { git = "https://github.com/biomejs/biome" }
 biome_js_syntax = { git = "https://github.com/biomejs/biome" }
 blake3 = "1"
+boa_engine = "0.21"
 byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"
 bytes = { version = "1", features = ["serde"] }

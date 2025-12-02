@@ -37,8 +37,8 @@ impl Server {
 			}
 		});
 
-		// Create a channel to receive the isolate handle.
-		let (isolate_handle_sender, isolate_handle_receiver) = tokio::sync::watch::channel(None);
+		// Create a channel to receive the abort handle.
+		let (abort_sender, abort_receiver) = tokio::sync::watch::channel(None);
 
 		// Spawn the task.
 		let local_pool_handle = self.local_pool_handle.get_or_init(|| {
@@ -72,18 +72,18 @@ impl Server {
 					executable,
 					logger,
 					main_runtime_handle,
-					Some(isolate_handle_sender),
+					Some(abort_sender),
 				)
 				.boxed_local()
 				.await
 			}
 		}));
 
-		// If this future is dropped before the task is done, then terminate the execution of the isolate.
+		// If this future is dropped before the task is done, then abort execution.
 		let mut done = scopeguard::guard(false, |done| {
-			if !done && let Some(isolate_handle) = isolate_handle_receiver.borrow().as_ref() {
-				tracing::trace!("terminating execution");
-				isolate_handle.terminate_execution();
+			if !done && let Some(abort) = abort_receiver.borrow().as_ref() {
+				tracing::trace!("aborting execution");
+				abort.abort();
 			}
 		});
 

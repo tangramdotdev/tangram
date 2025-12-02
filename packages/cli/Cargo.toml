@@ -15,14 +15,14 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-compiler = ["tangram_server/compiler"]
-default = ["js", "typescript"]
-foundationdb = ["dep:foundationdb", "tangram_server/foundationdb"]
-js = ["v8", "tangram_server/js"]
+boa = ["tangram_server/boa"]
+default = ["js", "typescript", "v8"]
+foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
+js = ["tangram_server/js"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
 scylla = ["tangram_server/scylla"]
-typescript = ["compiler", "v8", "tangram_server/typescript"]
+typescript = ["tangram_server/typescript", "v8"]
 v8 = ["dep:v8"]
 
 [lints]
@@ -58,6 +58,7 @@ serde_with = { workspace = true }
 tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
 tangram_either = { workspace = true }
+tangram_fdb = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
 tangram_js = { workspace = true }
 tangram_sandbox = { workspace = true }

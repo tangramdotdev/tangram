@@ -829,7 +829,6 @@ impl Server {
 		Ok(handle)
 	}
 
-	#[cfg(feature = "compiler")]
 	fn create_compiler(&self) -> tangram_compiler::Handle {
 		tangram_compiler::Compiler::start(
 			tg::handle::dynamic::Handle::new(self.clone()),
