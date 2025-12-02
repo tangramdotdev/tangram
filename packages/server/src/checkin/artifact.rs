@@ -651,9 +651,9 @@ impl Server {
 
 				// Get the artifact and path.
 				let (artifact, path) = if arg.options.destructive {
-					let index = graph.paths.get(root).unwrap();
-					let node = graph.nodes.get(index).unwrap();
-					let id = node.id.as_ref().unwrap().clone();
+					let root_index = graph.paths.get(root).unwrap();
+					let root_node = graph.nodes.get(root_index).unwrap();
+					let id = root_node.id.as_ref().unwrap().clone();
 					let path = node
 						.path
 						.as_ref()
