@@ -1,10 +1,10 @@
 use {
-	futures::{Stream, StreamExt as _, future, stream},
+	futures::{future, stream, Stream, StreamExt as _},
 	indexmap::IndexMap,
 	std::{
 		sync::{
-			Arc, Mutex, RwLock,
 			atomic::{AtomicU64, Ordering},
+			Arc, Mutex, RwLock,
 		},
 		time::Duration,
 	},
@@ -88,6 +88,16 @@ impl<T> Handle<T> {
 				.as_ref()
 				.unwrap()
 				.fetch_add(amount, std::sync::atomic::Ordering::Relaxed);
+		}
+	}
+
+	pub fn decrement(&self, name: &str, amount: u64) {
+		if let Some(indicator) = self.indicators.read().unwrap().get(name) {
+			indicator
+				.current
+				.as_ref()
+				.unwrap()
+				.fetch_sub(amount, std::sync::atomic::Ordering::Relaxed);
 		}
 	}
 

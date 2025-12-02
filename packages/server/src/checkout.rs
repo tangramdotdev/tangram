@@ -150,6 +150,8 @@ impl Server {
 					.catch_unwind()
 					.await;
 
+				tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
 				progress.finish_all();
 
 				match result {
@@ -378,7 +380,11 @@ impl Server {
 						progress.increment("objects", count.saturating_sub(message.count));
 					}
 					if let Some(weight) = metadata.weight {
-						progress.increment("bytes", weight.saturating_sub(message.weight));
+						if message.weight > weight {
+							progress.decrement("bytes", message.weight - weight);
+						} else {
+							progress.increment("bytes", weight - message.weight);
+						}
 					}
 				}
 			}
@@ -466,6 +472,10 @@ impl Server {
 			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
 		)?;
 
+		// Track visited children within this directory to handle deduplication.
+		let mut visited_children =
+			HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
+
 		// Recurse into the entries.
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
@@ -479,9 +489,15 @@ impl Server {
 				id,
 				node,
 				graph,
-				size,
+				size: child_size,
 			} = self.checkout_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
-			self.checkout_artifact(state, &path, &edge, &id, node, graph.as_ref(), size)?;
+			// Only pass size if this directory is being counted and this is the first time we have seen this child in this directory.
+			let child_size = if size.is_some() && visited_children.insert(id.clone()) {
+				child_size
+			} else {
+				None
+			};
+			self.checkout_artifact(state, &path, &edge, &id, node, graph.as_ref(), child_size)?;
 		}
 
 		// Increment the progress.
@@ -548,7 +564,10 @@ impl Server {
 			let len = std::fs::symlink_metadata(dst)
 				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
 				.len();
-			state.progress.increment("bytes", len);
+			// Only count bytes if this is not a duplicate direct child.
+			if size.is_some() {
+				state.progress.increment("bytes", len);
+			}
 			weight += len;
 
 			if cfg!(target_os = "linux") {
@@ -579,10 +598,14 @@ impl Server {
 			let mut reader =
 				crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+			// Only count bytes if size is Some (i.e., this is not a duplicate direct child).
+			let should_count = size.is_some();
 			let mut reader = InspectReader::new(&mut reader, {
 				|buffer| {
 					let len = buffer.len().to_u64().unwrap();
-					state.progress.increment("bytes", len);
+					if should_count {
+						state.progress.increment("bytes", len);
+					}
 					weight += len;
 				}
 			});
@@ -615,15 +638,15 @@ impl Server {
 		if let Some(size) = size {
 			state.progress.increment("objects", 1);
 			state.progress.increment("bytes", size);
-		}
 
-		// Send the progress task message for the contents.
-		let message = ProgressTaskMessage {
-			id: contents.clone().into(),
-			count: 0,
-			weight,
-		};
-		state.progress_task_sender.send(message).ok();
+			// Send the progress task message for the contents.
+			let message = ProgressTaskMessage {
+				id: contents.clone().into(),
+				count: 0,
+				weight,
+			};
+			state.progress_task_sender.send(message).ok();
+		}
 
 		Ok(())
 	}

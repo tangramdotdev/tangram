@@ -36,6 +36,8 @@ struct GetNodeOutput {
 	node: tg::graph::data::Node,
 	graph: Option<tg::graph::Id>,
 	size: Option<u64>,
+	/// The size of the graph if it was newly loaded (not already in the cache).
+	graph_size: Option<u64>,
 }
 
 struct ProgressTaskMessage {
@@ -176,6 +178,8 @@ impl Server {
 				// Abort the progress task.
 				progress_task.abort();
 
+				tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
 				progress.finish_all();
 
 				match result {
@@ -287,7 +291,12 @@ impl Server {
 						progress.increment("objects", count.saturating_sub(message.count));
 					}
 					if let Some(weight) = metadata.weight {
-						progress.increment("bytes", weight.saturating_sub(message.weight));
+						// Handle blobs with duplicate children.
+						if message.weight > weight {
+							progress.decrement("bytes", message.weight - weight);
+						} else {
+							progress.increment("bytes", weight - message.weight);
+						}
 					}
 				}
 			}
@@ -307,6 +316,7 @@ impl Server {
 			node,
 			graph,
 			size,
+			graph_size,
 		} = tokio::task::spawn_blocking({
 			let server = self.clone();
 			let edge = edge.clone();
@@ -317,7 +327,7 @@ impl Server {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		// Get or spawn and await the cache task.
-		self.cache_dependency(edge, id, node, graph, size, progress, progress_task_sender)
+		self.cache_dependency(edge, id, node, graph, size, graph_size, progress, progress_task_sender)
 			.await?;
 
 		Ok(())
@@ -331,6 +341,7 @@ impl Server {
 		node: tg::graph::data::Node,
 		graph: Option<tg::graph::Id>,
 		size: Option<u64>,
+		graph_size: Option<u64>,
 		progress: &crate::progress::Handle<()>,
 		progress_task_sender: &tokio::sync::mpsc::UnboundedSender<ProgressTaskMessage>,
 	) -> tg::Result<()> {
@@ -425,11 +436,14 @@ impl Server {
 		}
 
 		// Send a message to the progress task to add the count and weight of this dependency.
+		// If we loaded a new graph, add 1 to count and the graph's size to weight so that
+		// the progress task does not double-count the graph when looking up metadata.
 		if let tg::graph::data::Edge::Object(id) = &edge {
+			let (graph_count, graph_weight) = graph_size.map_or((0, 0), |size| (1, size));
 			let message = ProgressTaskMessage {
 				id: id.clone().into(),
-				count: dependency_count,
-				weight: dependency_weight,
+				count: dependency_count + graph_count,
+				weight: dependency_weight + graph_weight,
 			};
 			progress_task_sender.send(message).ok();
 		}
@@ -498,6 +512,7 @@ impl Server {
 							output.node,
 							output.graph,
 							output.size,
+							output.graph_size,
 							&progress,
 							&progress_task_sender,
 						)
@@ -660,7 +675,8 @@ impl Server {
 
 		// Recurse into the entries.
 		let mut dependencies = Vec::new();
-		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
+		// Track visited children within this directory to handle deduplication.
+		let mut visited_children = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
@@ -674,14 +690,19 @@ impl Server {
 				id,
 				node,
 				graph,
-				size,
+				size: child_size,
+				..
 			} = self.cache_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
+			// Only pass size if this directory itself is being counted and this is the first time we have seen this child in this directory.
+			let child_size = if size.is_some() && visited_children.insert(id.clone()) {
+				child_size
+			} else {
+				None
+			};
 			let entry_dependencies =
-				self.cache_artifact(state, &path, &id, node, graph.as_ref(), size)?;
-			if visited.insert(id) {
-				for dependency in entry_dependencies {
-					dependencies.push(dependency);
-				}
+				self.cache_artifact(state, &path, &id, node, graph.as_ref(), child_size)?;
+			for dependency in entry_dependencies {
+				dependencies.push(dependency);
 			}
 			state.depth -= 1;
 		}
@@ -739,6 +760,7 @@ impl Server {
 				node: dependency_node,
 				graph: dependency_graph,
 				size: dependency_size,
+				graph_size: dependency_graph_size,
 			} = self.cache_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
 
 			// Collect the dependency if it is not the root artifact.
@@ -750,6 +772,7 @@ impl Server {
 						node: dependency_node,
 						graph: dependency_graph,
 						size: dependency_size,
+						graph_size: dependency_graph_size,
 					},
 				));
 			}
@@ -781,7 +804,10 @@ impl Server {
 				let len = std::fs::symlink_metadata(dst)
 					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
 					.len();
-				state.progress.increment("bytes", len);
+				// Only count bytes if this is not a duplicate direct child.
+				if size.is_some() {
+					state.progress.increment("bytes", len);
+				}
 				weight += len;
 
 				done = true;
@@ -793,10 +819,14 @@ impl Server {
 			let mut reader =
 				crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
 					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+			// Only count bytes this is not a duplicate direct child.
+			let should_count = size.is_some();
 			let mut reader = InspectReader::new(&mut reader, {
 				|buffer| {
 					let len = buffer.len().to_u64().unwrap();
-					state.progress.increment("bytes", len);
+					if should_count {
+						state.progress.increment("bytes", len);
+					}
 					weight += len;
 				}
 			});
@@ -828,15 +858,15 @@ impl Server {
 		if let Some(size) = size {
 			state.progress.increment("objects", 1);
 			state.progress.increment("bytes", size);
-		}
 
-		// Send the progress task message for the contents.
-		let message = ProgressTaskMessage {
-			id: contents.clone().into(),
-			count: 0,
-			weight,
-		};
-		state.progress_task_sender.send(message).ok();
+			// Send the progress task message for the contents.
+			let message = ProgressTaskMessage {
+				id: contents.clone().into(),
+				count: 0,
+				weight,
+			};
+			state.progress_task_sender.send(message).ok();
+		}
 
 		Ok(dependencies)
 	}
@@ -870,6 +900,7 @@ impl Server {
 				node: dependency_node,
 				graph: dependency_graph,
 				size: dependency_size,
+				graph_size: dependency_graph_size,
 			} = self.cache_get_node(Some(&mut state.graphs), &edge, &state.progress)?;
 
 			if dependency_id == state.artifact {
@@ -884,6 +915,7 @@ impl Server {
 						node: dependency_node,
 						graph: dependency_graph.clone(),
 						size: dependency_size,
+						graph_size: dependency_graph_size,
 					},
 				));
 
@@ -937,7 +969,7 @@ impl Server {
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				if !graphs.contains_key(graph) {
+				let graph_size = if !graphs.contains_key(graph) {
 					let (size, data) = self
 						.store
 						.try_get_object_data_sync(&graph.clone().into())?
@@ -948,7 +980,10 @@ impl Server {
 					graphs.insert(graph.clone(), data);
 					progress.increment("objects", 1);
 					progress.increment("bytes", size);
-				}
+					Some(size)
+				} else {
+					None
+				};
 
 				// Get the node.
 				let node = graphs
@@ -977,6 +1012,7 @@ impl Server {
 					node,
 					graph: Some(graph.clone()),
 					size: None,
+					graph_size,
 				})
 			},
 
@@ -1003,8 +1039,8 @@ impl Server {
 							.graph
 							.as_ref()
 							.ok_or_else(|| tg::error!("missing graph"))?;
-						if !graphs.contains_key(graph) {
-							let (size, data) = self
+						let graph_size = if !graphs.contains_key(graph) {
+							let (graph_size, data) = self
 								.store
 								.try_get_object_data_sync(&graph.clone().into())?
 								.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -1013,8 +1049,11 @@ impl Server {
 								.map_err(|_| tg::error!("expected graph data"))?;
 							graphs.insert(graph.clone(), data);
 							progress.increment("objects", 1);
-							progress.increment("bytes", size);
-						}
+							progress.increment("bytes", graph_size);
+							Some(graph_size)
+						} else {
+							None
+						};
 
 						// Get the node.
 						let node = graphs
@@ -1030,6 +1069,7 @@ impl Server {
 							node,
 							graph: Some(graph.clone()),
 							size: Some(size),
+							graph_size,
 						})
 					},
 
@@ -1039,6 +1079,7 @@ impl Server {
 							node: tg::graph::data::Node::Directory(node),
 							graph: None,
 							size: Some(size),
+							graph_size: None,
 						})
 					},
 					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
@@ -1047,6 +1088,7 @@ impl Server {
 							node: tg::graph::data::Node::File(node),
 							graph: None,
 							size: Some(size),
+							graph_size: None,
 						})
 					},
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
@@ -1055,6 +1097,7 @@ impl Server {
 							node: tg::graph::data::Node::Symlink(node),
 							graph: None,
 							size: Some(size),
+							graph_size: None,
 						})
 					},
 				}
