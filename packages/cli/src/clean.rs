@@ -1,4 +1,7 @@
-use {crate::Cli, std::os::unix::fs::PermissionsExt as _, tangram_client::prelude::*};
+use {
+	crate::Cli, num::ToPrimitive, std::os::unix::fs::PermissionsExt as _,
+	tangram_client::prelude::*,
+};
 
 /// Remove unused processes and objects.
 #[derive(Clone, Debug, clap::Args)]
@@ -35,11 +38,30 @@ impl Cli {
 
 	pub async fn command_clean_force(&mut self) -> tg::Result<()> {
 		let path = self.directory_path();
+
+		// Stop the server if it is running.
+		self.stop_server().await.ok();
+
+		// Create the progress handle.
+		let progress = tangram_server::progress::Handle::<()>::new();
+
+		// Spawn the blocking task to clean the directory.
+		let progress_ = progress.clone();
 		tokio::task::spawn_blocking(move || {
 			if !path.exists() {
+				progress_.output(());
 				return Ok(());
 			}
-			let mut stack = vec![path.clone()];
+
+			progress_.start(
+				"cleaning".to_owned(),
+				"cleaning".to_owned(),
+				tg::progress::IndicatorFormat::Normal,
+				Some(0),
+				None,
+			);
+			let mut paths = Vec::new();
+			let mut stack = vec![path];
 			while let Some(path) = stack.pop() {
 				let metadata = std::fs::symlink_metadata(&path)
 					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
@@ -71,13 +93,38 @@ impl Cli {
 						stack.push(entry.path());
 					}
 				}
+				paths.push((path, metadata));
+				progress_.increment("cleaning", 1);
 			}
-			std::fs::remove_dir_all(&path)
-				.map_err(|source| tg::error!(!source, "failed to remove the directory"))?;
+			progress_.finish("cleaning");
+
+			progress_.start(
+				"cleaning".to_owned(),
+				"cleaning".to_owned(),
+				tg::progress::IndicatorFormat::Normal,
+				Some(0),
+				Some(paths.len().to_u64().unwrap()),
+			);
+			for (path, metadata) in paths.into_iter().rev() {
+				if metadata.is_dir() {
+					std::fs::remove_dir(&path)
+						.map_err(|source| tg::error!(!source, "failed to remove the directory"))?;
+				} else {
+					std::fs::remove_file(&path)
+						.map_err(|source| tg::error!(!source, "failed to remove the file"))?;
+				}
+				progress_.increment("cleaning", 1);
+			}
+			progress_.finish("cleaning");
+
+			progress_.output(());
+
 			Ok::<_, tg::Error>(())
-		})
-		.await
-		.unwrap()?;
+		});
+
+		// Render the progress stream.
+		self.render_progress_stream(progress.stream()).await?;
+
 		Ok(())
 	}
 }

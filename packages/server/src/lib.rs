@@ -44,7 +44,6 @@ mod module;
 mod object;
 mod pipe;
 mod process;
-mod progress;
 mod pty;
 mod pull;
 mod push;
@@ -64,6 +63,7 @@ mod write;
 pub use self::config::Config;
 
 pub mod config;
+pub mod progress;
 
 #[derive(Clone)]
 pub struct Owned(Arc<Inner>);

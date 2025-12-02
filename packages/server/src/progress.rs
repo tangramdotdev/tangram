@@ -30,6 +30,7 @@ struct Indicator {
 }
 
 impl<T> Handle<T> {
+	#[must_use]
 	pub fn new() -> Self {
 		let (sender, receiver) = async_channel::unbounded();
 		let indicators = Arc::new(RwLock::new(IndexMap::new()));
