@@ -185,8 +185,10 @@ impl Server {
 
 		// Index.
 		let stream = self.index().await?;
-		let stream = std::pin::pin!(stream);
-		stream.try_last().await?;
+		let mut stream = std::pin::pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			progress.forward(Ok(event));
+		}
 
 		// Check if the artifact is complete.
 		let complete = self
