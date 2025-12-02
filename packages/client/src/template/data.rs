@@ -35,6 +35,8 @@ pub enum Component {
 	String(String),
 	#[tangram_serialize(id = 1)]
 	Artifact(tg::artifact::Id),
+	#[tangram_serialize(id = 2)]
+	Placeholder(tg::placeholder::Data),
 }
 
 impl From<tg::directory::Id> for Component {

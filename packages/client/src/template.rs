@@ -26,6 +26,7 @@ pub struct Template {
 pub enum Component {
 	String(String),
 	Artifact(tg::Artifact),
+	Placeholder(tg::Placeholder),
 }
 
 impl Template {
@@ -44,7 +45,7 @@ impl Template {
 		self.components
 			.iter()
 			.filter_map(|component| match component {
-				Component::String(_) => None,
+				Component::String(_) | Component::Placeholder(_) => None,
 				Component::Artifact(artifact) => Some(artifact),
 			})
 	}
@@ -108,6 +109,9 @@ impl Template {
 				Component::Artifact(tg::Artifact::with_id(id))
 			},
 			tg::template::data::Component::String(string) => Component::String(string),
+			tg::template::data::Component::Placeholder(data) => {
+				Component::Placeholder(tg::Placeholder { name: data.name })
+			},
 		});
 		Ok(Self::with_components(components))
 	}
@@ -206,6 +210,9 @@ impl Component {
 		match self {
 			Self::String(string) => tg::template::data::Component::String(string.clone()),
 			Self::Artifact(artifact) => tg::template::data::Component::Artifact(artifact.id()),
+			Self::Placeholder(placeholder) => {
+				tg::template::data::Component::Placeholder(placeholder.to_data())
+			},
 		}
 	}
 }
@@ -250,6 +257,9 @@ impl TryFrom<tg::template::data::Component> for Component {
 			tg::template::data::Component::String(string) => Self::String(string),
 			tg::template::data::Component::Artifact(id) => {
 				Self::Artifact(tg::Artifact::with_id(id))
+			},
+			tg::template::data::Component::Placeholder(data) => {
+				Self::Placeholder(tg::Placeholder::try_from_data(data)?)
 			},
 		})
 	}

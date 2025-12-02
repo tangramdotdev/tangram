@@ -10,7 +10,8 @@ export type Value =
 	| tg.Object
 	| Uint8Array
 	| tg.Mutation
-	| tg.Template;
+	| tg.Template
+	| tg.Placeholder;
 
 export namespace Value {
 	export let toData = (value: Value): Data => {
@@ -31,6 +32,8 @@ export namespace Value {
 			return { kind: "mutation", value: tg.Mutation.toData(value) };
 		} else if (value instanceof tg.Template) {
 			return { kind: "template", value: tg.Template.toData(value) };
+		} else if (value instanceof tg.Placeholder) {
+			return { kind: "placeholder", value: tg.Placeholder.toData(value) };
 		} else if (typeof value === "object") {
 			return {
 				kind: "map",
@@ -68,6 +71,8 @@ export namespace Value {
 			return tg.Mutation.fromData(data.value);
 		} else if (data.kind === "template") {
 			return tg.Template.fromData(data.value);
+		} else if (data.kind === "placeholder") {
+			return tg.Placeholder.fromData(data.value);
 		} else {
 			throw new Error("unknown value data");
 		}
@@ -84,7 +89,8 @@ export namespace Value {
 			tg.Object.is(value) ||
 			value instanceof Uint8Array ||
 			value instanceof tg.Mutation ||
-			value instanceof tg.Template
+			value instanceof tg.Template ||
+			value instanceof tg.Placeholder
 		);
 	};
 
@@ -111,6 +117,7 @@ export namespace Value {
 			value instanceof Uint8Array ||
 			value instanceof tg.Mutation ||
 			value instanceof tg.Template ||
+			value instanceof tg.Placeholder ||
 			tg.Object.is(value)
 		) {
 			return false;
@@ -129,6 +136,8 @@ export namespace Value {
 			return value.objects();
 		} else if (value instanceof tg.Template) {
 			return value.objects();
+		} else if (value instanceof tg.Placeholder) {
+			return [];
 		} else {
 			return [];
 		}
@@ -191,5 +200,6 @@ export namespace Value {
 		| { kind: "object"; value: tg.Object.Id }
 		| { kind: "bytes"; value: string }
 		| { kind: "mutation"; value: tg.Mutation.Data }
-		| { kind: "template"; value: tg.Template.Data };
+		| { kind: "template"; value: tg.Template.Data }
+		| { kind: "placeholder"; value: tg.Placeholder.Data };
 }

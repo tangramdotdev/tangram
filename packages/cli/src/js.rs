@@ -133,7 +133,7 @@ impl Cli {
 			.block_on(future)?;
 
 		// Write the output.
-		if let Ok(output_path) = std::env::var("OUTPUT")
+		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
 			&& (output.is_some() || error.is_some())
 		{
 			std::fs::write(&output_path, "")

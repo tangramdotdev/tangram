@@ -48,6 +48,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		tg.Process.current !== undefined
 			? await tg.Process.current.env()
 			: { ...tg.process.env };
+	delete env.TANGRAM_OUTPUT;
 	delete env.TANGRAM_PROCESS;
 	delete env.TANGRAM_URL;
 	let arg = await arg_(

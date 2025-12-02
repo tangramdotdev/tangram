@@ -1282,6 +1282,13 @@ where
 						map.insert("kind".to_owned(), tg::Value::String("string".to_owned()));
 						map.insert("value".to_owned(), tg::Value::String(string));
 					},
+					tg::template::Component::Placeholder(placeholder) => {
+						map.insert(
+							"kind".to_owned(),
+							tg::Value::String("placeholder".to_owned()),
+						);
+						map.insert("value".to_owned(), tg::Value::Placeholder(placeholder));
+					},
 				}
 				tg::Value::Map(map)
 			})
@@ -1410,6 +1417,9 @@ where
 				tg::Value::Bytes(_) => "bytes".to_owned(),
 				tg::Value::Mutation(_) => "mutation".to_owned(),
 				tg::Value::Template(_) => "template".to_owned(),
+				tg::Value::Placeholder(placeholder) => {
+					format!("placeholder(\"{}\")", placeholder.name)
+				},
 			},
 			Item::Process(_) => String::new(),
 		}

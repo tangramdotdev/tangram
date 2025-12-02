@@ -57,7 +57,11 @@ export class Template {
 				resolved.map(async (arg) => {
 					if (arg === undefined) {
 						return [];
-					} else if (typeof arg === "string" || tg.Artifact.is(arg)) {
+					} else if (
+						typeof arg === "string" ||
+						tg.Artifact.is(arg) ||
+						arg instanceof tg.Placeholder
+					) {
 						return [arg];
 					} else {
 						return arg.components;
@@ -100,6 +104,11 @@ export class Template {
 			components: value.components.map((component) => {
 				if (typeof component === "string") {
 					return { kind: "string", value: component };
+				} else if (component instanceof tg.Placeholder) {
+					return {
+						kind: "placeholder",
+						value: tg.Placeholder.toData(component),
+					};
 				} else {
 					return { kind: "artifact", value: component.id };
 				}
@@ -112,6 +121,8 @@ export class Template {
 			data.components.map((component) => {
 				if (component.kind === "string") {
 					return component.value;
+				} else if (component.kind === "placeholder") {
+					return tg.Placeholder.fromData(component.value);
 				} else {
 					return tg.Artifact.withId(component.value);
 				}
@@ -121,7 +132,10 @@ export class Template {
 
 	objects(): Array<tg.Object> {
 		return this.#components.flatMap((component) => {
-			if (typeof component === "string") {
+			if (
+				typeof component === "string" ||
+				component instanceof tg.Placeholder
+			) {
 				return [];
 			} else {
 				return [component];
@@ -156,7 +170,7 @@ export class Template {
 export namespace Template {
 	export type Arg = undefined | tg.Template.Component | tg.Template;
 
-	export type Component = string | tg.Artifact;
+	export type Component = string | tg.Artifact | tg.Placeholder;
 
 	export type Data = {
 		components: Array<tg.Template.Data.Component>;
@@ -165,7 +179,8 @@ export namespace Template {
 	export namespace Data {
 		export type Component =
 			| { kind: "string"; value: string }
-			| { kind: "artifact"; value: tg.Artifact.Id };
+			| { kind: "artifact"; value: tg.Artifact.Id }
+			| { kind: "placeholder"; value: tg.Placeholder.Data };
 	}
 
 	export let raw = async (

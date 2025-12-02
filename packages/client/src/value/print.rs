@@ -127,6 +127,7 @@ where
 			tg::Value::Bytes(v) => self.bytes(v),
 			tg::Value::Mutation(v) => self.mutation(v),
 			tg::Value::Template(v) => self.template(v),
+			tg::Value::Placeholder(v) => self.placeholder(v),
 		}
 	}
 
@@ -656,6 +657,9 @@ where
 					tg::template::Component::String(string) => {
 						s.string(string)?;
 					},
+					tg::template::Component::Placeholder(placeholder) => {
+						s.placeholder(placeholder)?;
+					},
 				}
 				Ok(())
 			})?;
@@ -663,6 +667,13 @@ where
 		self.finish_array()?;
 		write!(self.writer, ")")?;
 		self.depth -= 1;
+		Ok(())
+	}
+
+	pub fn placeholder(&mut self, value: &tg::Placeholder) -> Result {
+		write!(self.writer, "tg.placeholder(")?;
+		self.string(&value.name)?;
+		write!(self.writer, ")")?;
 		Ok(())
 	}
 }

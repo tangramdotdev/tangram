@@ -91,10 +91,14 @@ async fn log_inner(
 	Ok(())
 }
 
-pub fn render_args_string(args: &[tg::value::Data], artifacts_path: &Path) -> Vec<String> {
+pub fn render_args_string(
+	args: &[tg::value::Data],
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<Vec<String>> {
 	args.iter()
-		.map(|value| render_value_string(value, artifacts_path))
-		.collect::<Vec<_>>()
+		.map(|value| render_value_string(value, artifacts_path, output_path))
+		.collect::<tg::Result<Vec<_>>>()
 }
 
 pub fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
@@ -109,6 +113,7 @@ pub fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 pub fn render_env(
 	env: &tg::value::data::Map,
 	artifacts_path: &Path,
+	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
 	let mut output = BTreeMap::new();
 	for (key, value) in env {
@@ -124,26 +129,50 @@ pub fn render_env(
 		.iter()
 		.map(|(key, value)| {
 			let key = key.clone();
-			let value = render_value_string(value, artifacts_path);
+			let value = render_value_string(value, artifacts_path, output_path)?;
 			Ok::<_, tg::Error>((key, value))
 		})
 		.collect::<tg::Result<_>>()?;
 	Ok(output)
 }
 
-pub fn render_value_string(value: &tg::value::Data, artifacts_path: &Path) -> String {
+pub fn render_value_string(
+	value: &tg::value::Data,
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<String> {
 	match value {
-		tg::value::Data::String(string) => string.clone(),
-		tg::value::Data::Template(template) => template.render(|component| match component {
-			tg::template::data::Component::String(string) => string.clone().into(),
-			tg::template::data::Component::Artifact(artifact) => artifacts_path
+		tg::value::Data::String(string) => Ok(string.clone()),
+		tg::value::Data::Template(template) => template.try_render(|component| match component {
+			tg::template::data::Component::String(string) => Ok(string.clone().into()),
+			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
 				.join(artifact.to_string())
 				.to_str()
 				.unwrap()
 				.to_owned()
-				.into(),
+				.into()),
+			tg::template::data::Component::Placeholder(placeholder) => {
+				if placeholder.name == "output" {
+					Ok(output_path.to_str().unwrap().to_owned().into())
+				} else {
+					Err(tg::error!(
+						name = %placeholder.name,
+						"invalid placeholder"
+					))
+				}
+			},
 		}),
-		_ => tg::Value::try_from_data(value.clone()).unwrap().to_string(),
+		tg::value::Data::Placeholder(placeholder) => {
+			if placeholder.name == "output" {
+				Ok(output_path.to_str().unwrap().to_owned())
+			} else {
+				Err(tg::error!(
+					name = %placeholder.name,
+					"invalid placeholder"
+				))
+			}
+		},
+		_ => Ok(tg::Value::try_from_data(value.clone()).unwrap().to_string()),
 	}
 }
 

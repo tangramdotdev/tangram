@@ -11,6 +11,7 @@ export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 		| Uint8Array
 		| tg.Mutation
 		| tg.Template
+		| tg.Placeholder
 		? T
 		: T extends Array<infer U extends tg.Value>
 			? Array<tg.Unresolved<U>>
@@ -28,6 +29,7 @@ export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
 	| Uint8Array
 	| tg.Mutation
 	| tg.Template
+	| tg.Placeholder
 	? T
 	: T extends Array<infer U extends tg.Unresolved<tg.Value>>
 		? Array<tg.Resolved<U>>
@@ -65,7 +67,8 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 			value instanceof tg.Command ||
 			value instanceof Uint8Array ||
 			value instanceof tg.Mutation ||
-			value instanceof tg.Template
+			value instanceof tg.Template ||
+			value instanceof tg.Placeholder
 		) {
 			output = value as tg.Resolved<T>;
 		} else if (value instanceof Array) {

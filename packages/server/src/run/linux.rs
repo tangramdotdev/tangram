@@ -74,10 +74,17 @@ impl Server {
 			"/.tangram/artifacts".into()
 		};
 
+		// Get the output path.
+		let output_path = if root_mounted {
+			temp.path().join("output/output")
+		} else {
+			Path::new("/output/output").to_owned()
+		};
+
 		// Render the args.
 		let mut args = match command.host.as_str() {
 			"builtin" | "js" => render_args_dash_a(&command.args),
-			_ => render_args_string(&command.args, &artifacts_path),
+			_ => render_args_string(&command.args, &artifacts_path, &output_path)?,
 		};
 
 		// Get the working directory.
@@ -88,7 +95,7 @@ impl Server {
 		};
 
 		// Render the env.
-		let mut env = render_env(&command.env, &artifacts_path)?;
+		let mut env = render_env(&command.env, &artifacts_path, &output_path)?;
 
 		// Render the executable.
 		let executable = match command.host.as_str() {
@@ -133,13 +140,11 @@ impl Server {
 			.chain(command.mounts.iter().map(Either::Right))
 			.collect::<Vec<_>>();
 
-		// Set `$OUTPUT`.
-		let path = if root_mounted {
-			temp.path().join("output/output")
-		} else {
-			Path::new("/output/output").to_owned()
-		};
-		env.insert("OUTPUT".to_owned(), path.to_str().unwrap().to_owned());
+		// Set `$TANGRAM_OUTPUT`.
+		env.insert(
+			"TANGRAM_OUTPUT".to_owned(),
+			output_path.to_str().unwrap().to_owned(),
+		);
 
 		// Set `$TANGRAM_PROCESS`.
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());

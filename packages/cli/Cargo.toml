@@ -23,7 +23,7 @@ nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
 scylla = ["tangram_server/scylla"]
 typescript = ["tangram_server/typescript", "v8"]
-v8 = ["dep:v8"]
+v8 = ["dep:v8", "tangram_server/v8"]
 
 [lints]
 workspace = true

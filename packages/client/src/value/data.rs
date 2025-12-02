@@ -51,6 +51,9 @@ pub enum Data {
 
 	#[tangram_serialize(id = 9)]
 	Template(tg::template::Data),
+
+	#[tangram_serialize(id = 10)]
+	Placeholder(tg::placeholder::Data),
 }
 
 pub type Array = Vec<Data>;
@@ -90,7 +93,12 @@ impl Data {
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Null | Self::Bool(_) | Self::Number(_) | Self::String(_) | Self::Bytes(_) => (),
+			Self::Null
+			| Self::Bool(_)
+			| Self::Number(_)
+			| Self::String(_)
+			| Self::Bytes(_)
+			| Self::Placeholder(_) => (),
 			Self::Array(array) => {
 				for value in array {
 					value.children(children);
@@ -176,6 +184,12 @@ impl serde::Serialize for Data {
 			Self::Template(value) => {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "template")?;
+				map.serialize_entry("value", value)?;
+				map.end()
+			},
+			Self::Placeholder(value) => {
+				let mut map = serializer.serialize_map(Some(2))?;
+				map.serialize_entry("kind", "placeholder")?;
 				map.serialize_entry("value", value)?;
 				map.end()
 			},
@@ -304,6 +318,7 @@ impl<'de> serde::Deserialize<'de> for Data {
 								),
 								"mutation" => Data::Mutation(map.next_value()?),
 								"template" => Data::Template(map.next_value()?),
+								"placeholder" => Data::Placeholder(map.next_value()?),
 								_ => {
 									return Err(serde::de::Error::unknown_variant(kind, &["kind"]));
 								},

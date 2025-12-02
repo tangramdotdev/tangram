@@ -29,6 +29,7 @@ import { Mutation, mutation } from "./mutation.ts";
 // biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 import { Object } from "./object.ts";
 import { path } from "./path.ts";
+import { output, Placeholder, placeholder } from "./placeholder.ts";
 import { Process, process, setProcess } from "./process.ts";
 import type { Range } from "./range.ts";
 import type { Reference } from "./reference.ts";
@@ -92,6 +93,7 @@ export {
 	Module,
 	Mutation,
 	Object,
+	Placeholder,
 	Process,
 	Referent,
 	RunBuilder,
@@ -116,7 +118,9 @@ export {
 	graph,
 	handle,
 	mutation,
+	output,
 	path,
+	placeholder,
 	process,
 	resolve,
 	run,

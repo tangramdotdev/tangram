@@ -72,7 +72,8 @@ declare namespace tg {
 		| tg.Object
 		| Uint8Array
 		| tg.Mutation
-		| tg.Template;
+		| tg.Template
+		| tg.Placeholder;
 
 	export namespace Value {
 		export type Id = string;
@@ -889,13 +890,37 @@ declare namespace tg {
 	export namespace Template {
 		export type Arg = undefined | tg.Template.Component | tg.Template;
 
-		export type Component = string | tg.Artifact;
+		export type Component = string | tg.Artifact | tg.Placeholder;
 
 		/** A tagged template function that behaves identically to `tg.template` except that it does not trim leading whitespace. **/
 		export let raw: (
 			strings: TemplateStringsArray,
 			...placeholders: tg.Args<tg.Template.Arg>
 		) => Promise<tg.Template>;
+	}
+
+	/** Create a placeholder. */
+	export function placeholder(name: string): tg.Placeholder;
+
+	/** The output placeholder. */
+	export const output: tg.Placeholder;
+
+	/** A placeholder. */
+	export class Placeholder {
+		constructor(name: string);
+
+		/** Expect that a value is a `tg.Placeholder`. */
+		static expect(value: unknown): tg.Placeholder;
+
+		/** Assert that a value is a `tg.Placeholder`. */
+		static assert(value: unknown): asserts value is tg.Placeholder;
+
+		/** Get this placeholder's name. */
+		get name(): string;
+	}
+
+	export namespace Placeholder {
+		export type Data = { name: string };
 	}
 
 	/* Compute a checksum. */
@@ -1402,6 +1427,7 @@ declare namespace tg {
 			| Uint8Array
 			| tg.Mutation
 			| tg.Template
+			| tg.Placeholder
 			? T
 			: T extends Array<infer U extends tg.Value>
 				? Array<tg.Unresolved<U>>
@@ -1431,6 +1457,7 @@ declare namespace tg {
 		| Uint8Array
 		| tg.Mutation
 		| tg.Template
+		| tg.Placeholder
 		? T
 		: T extends Array<infer U extends tg.Unresolved<tg.Value>>
 			? Array<Resolved<U>>
@@ -1474,6 +1501,7 @@ declare namespace tg {
 		| Uint8Array
 		| tg.Mutation
 		| tg.Template
+		| tg.Placeholder
 		| Array<infer _U extends tg.Value>
 		? T
 		: T extends { [key: string]: tg.Value }

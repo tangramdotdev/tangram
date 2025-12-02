@@ -65,6 +65,7 @@ where
 			.map(|(key, value)| (key, value.into()))
 			.collect()
 	};
+	env.remove("TANGRAM_OUTPUT");
 	env.remove("TANGRAM_PROCESS");
 	env.remove("TANGRAM_URL");
 	builder = builder.env(env);

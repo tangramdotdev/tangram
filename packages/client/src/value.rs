@@ -63,6 +63,9 @@ pub enum Value {
 
 	/// A template value.
 	Template(tg::Template),
+
+	/// A placeholder value.
+	Placeholder(tg::Placeholder),
 }
 
 pub type Array = Vec<Value>;
@@ -162,6 +165,7 @@ impl Value {
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
 			Self::Template(template) => Data::Template(template.to_data()),
+			Self::Placeholder(placeholder) => Data::Placeholder(placeholder.to_data()),
 		}
 	}
 
@@ -186,6 +190,9 @@ impl Value {
 			Data::Bytes(bytes) => Self::Bytes(bytes),
 			Data::Mutation(mutation) => Self::Mutation(tg::Mutation::try_from_data(mutation)?),
 			Data::Template(template) => Self::Template(tg::Template::try_from_data(template)?),
+			Data::Placeholder(placeholder) => {
+				Self::Placeholder(tg::Placeholder::try_from_data(placeholder)?)
+			},
 		};
 		Ok(value)
 	}

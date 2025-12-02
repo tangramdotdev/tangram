@@ -823,9 +823,14 @@ fn template_inner(input: &mut Input) -> ModalResult<tg::Template> {
 				let artifact = tg::Artifact::try_from(value)
 					.map_err(|error| tg::error!(!error, "expected artifact object in template"))?;
 				components.push(tg::template::Component::Artifact(artifact));
+			} else if value.is_placeholder() {
+				let value = value
+					.try_unwrap_placeholder()
+					.map_err(|_| tg::error!("expected placeholder"))?;
+				components.push(tg::template::Component::Placeholder(value));
 			} else {
 				return Err(tg::error!(
-					"template components must be strings or artifact objects"
+					"template components must be strings, artifacts, or placeholders"
 				));
 			}
 		}

@@ -26,6 +26,7 @@ pub use self::{
 	module::Module,
 	mutation::Mutation,
 	object::Handle as Object,
+	placeholder::Placeholder,
 	position::Position,
 	process::Process,
 	range::Range,
@@ -69,6 +70,7 @@ pub mod mutation;
 pub mod object;
 pub mod package;
 pub mod pipe;
+pub mod placeholder;
 pub mod position;
 pub mod process;
 pub mod progress;
