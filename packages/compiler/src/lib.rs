@@ -28,7 +28,6 @@ pub mod completion;
 pub mod definition;
 pub mod diagnostics;
 pub mod document;
-#[cfg(feature = "biome")]
 pub mod format;
 pub mod hover;
 pub mod initialize;
@@ -450,7 +449,6 @@ impl Compiler {
 				})
 				.boxed(),
 
-			#[cfg(feature = "biome")]
 			lsp::request::Formatting::METHOD => self
 				.handle_request_with::<lsp::request::Formatting, _, _>(request, |params| {
 					self.handle_format_request(params)

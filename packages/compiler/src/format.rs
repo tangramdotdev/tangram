@@ -1,6 +1,12 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 impl Compiler {
+	#[cfg(not(feature = "biome"))]
+	pub fn format(_text: &str) -> tg::Result<String> {
+		Err(tg::error!("biome is not enabled"))
+	}
+
+	#[cfg(feature = "biome")]
 	pub fn format(text: &str) -> tg::Result<String> {
 		let source_type = biome_js_syntax::JsFileSource::ts();
 		let options = biome_js_parser::JsParserOptions::default();
