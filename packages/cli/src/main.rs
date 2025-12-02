@@ -1340,7 +1340,9 @@ impl Cli {
 				let root_module_name =
 					tg::package::try_get_root_module_file_name(&handle, Either::Left(&directory))
 						.await?
-						.ok_or_else(|| tg::error!(directory = %directory.id(), "failed to find a root module"))?;
+						.ok_or_else(
+							|| tg::error!(directory = %directory.id(), "failed to find a root module"),
+						)?;
 				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_name);
 				} else {
@@ -1359,9 +1361,8 @@ impl Cli {
 				} else {
 					unreachable!();
 				};
-				let item = directory.get(&handle, root_module_name).await?;
-				let item = tg::graph::Edge::Object(item.into());
-				let item = tg::module::Item::Edge(item);
+				let item = directory.get_entry_edge(&handle, root_module_name).await?;
+				let item = tg::module::Item::Edge(item.into());
 				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }
 			},
