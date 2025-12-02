@@ -488,8 +488,7 @@ impl Server {
 		)?;
 
 		// Track visited children within this directory to handle deduplication.
-		let mut visited_children =
-			HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
+		let mut visited_children = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
 
 		// Recurse into the entries.
 		for (name, edge) in &node.entries {
@@ -529,7 +528,15 @@ impl Server {
 			} else {
 				None
 			};
-			self.checkout_artifact(state, &path, &edge, &id, node, child_graph.as_ref(), child_size)?;
+			self.checkout_artifact(
+				state,
+				&path,
+				&edge,
+				&id,
+				node,
+				child_graph.as_ref(),
+				child_size,
+			)?;
 		}
 
 		// Increment the progress.

@@ -1,10 +1,10 @@
 use {
-	futures::{future, stream, Stream, StreamExt as _},
+	futures::{Stream, StreamExt as _, future, stream},
 	indexmap::IndexMap,
 	std::{
 		sync::{
-			atomic::{AtomicU64, Ordering},
 			Arc, Mutex, RwLock,
+			atomic::{AtomicU64, Ordering},
 		},
 		time::Duration,
 	},

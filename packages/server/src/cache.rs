@@ -178,8 +178,6 @@ impl Server {
 				// Abort the progress task.
 				progress_task.abort();
 
-				tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
 				progress.finish_all();
 
 				match result {
@@ -327,8 +325,17 @@ impl Server {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		// Get or spawn and await the cache task.
-		self.cache_dependency(edge, id, node, graph, size, graph_size, progress, progress_task_sender)
-			.await?;
+		self.cache_dependency(
+			edge,
+			id,
+			node,
+			graph,
+			size,
+			graph_size,
+			progress,
+			progress_task_sender,
+		)
+		.await?;
 
 		Ok(())
 	}
@@ -969,7 +976,9 @@ impl Server {
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				let graph_size = if !graphs.contains_key(graph) {
+				let graph_size = if graphs.contains_key(graph) {
+					None
+				} else {
 					let (size, data) = self
 						.store
 						.try_get_object_data_sync(&graph.clone().into())?
@@ -981,8 +990,6 @@ impl Server {
 					progress.increment("objects", 1);
 					progress.increment("bytes", size);
 					Some(size)
-				} else {
-					None
 				};
 
 				// Get the node.
@@ -1039,7 +1046,9 @@ impl Server {
 							.graph
 							.as_ref()
 							.ok_or_else(|| tg::error!("missing graph"))?;
-						let graph_size = if !graphs.contains_key(graph) {
+						let graph_size = if graphs.contains_key(graph) {
+							None
+						} else {
 							let (graph_size, data) = self
 								.store
 								.try_get_object_data_sync(&graph.clone().into())?
@@ -1051,8 +1060,6 @@ impl Server {
 							progress.increment("objects", 1);
 							progress.increment("bytes", graph_size);
 							Some(graph_size)
-						} else {
-							None
 						};
 
 						// Get the node.
