@@ -6039,18 +6039,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_cli_test"
-version = "0.0.0"
-dependencies = [
- "serde_json",
- "tangram_client",
- "tangram_temp",
- "tangram_uri",
- "tokio",
- "urlencoding",
-]
-
-[[package]]
 name = "tangram_client"
 version = "0.0.0"
 dependencies = [

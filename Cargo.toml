@@ -3,7 +3,6 @@ default-members = ["packages/cli"]
 members = [
   "packages/builtin",
   "packages/cli",
-  "packages/cli/test",
   "packages/client",
   "packages/compiler",
   "packages/database",
@@ -150,7 +149,6 @@ sourcemap = "9"
 syn = "2"
 sync_wrapper = "1"
 tangram_builtin = { path = "packages/builtin" }
-tangram_cli_test = { path = "packages/cli/test" }
 tangram_client = { path = "packages/client" }
 tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }
