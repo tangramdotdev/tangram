@@ -15,7 +15,7 @@ workspace = true
 
 [features]
 default = []
-typescript = ["dep:tangram_v8", "dep:v8"]
+typescript = ["dep:biome_js_formatter", "dep:biome_js_parser", "dep:biome_js_syntax", "dep:tangram_v8", "dep:v8"]
 
 [build-dependencies]
 data-encoding = { workspace = true }
@@ -25,9 +25,9 @@ serde_json = { workspace = true }
 v8 = { workspace = true, optional = true }
 
 [dependencies]
-biome_js_formatter = { workspace = true }
-biome_js_parser = { workspace = true }
-biome_js_syntax = { workspace = true }
+biome_js_formatter = { workspace = true, optional = true }
+biome_js_parser = { workspace = true, optional = true }
+biome_js_syntax = { workspace = true, optional = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }
