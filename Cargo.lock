@@ -607,7 +607,7 @@ dependencies = [
 [[package]]
 name = "biome_aria"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_aria_metadata",
 ]
@@ -615,7 +615,7 @@ dependencies = [
 [[package]]
 name = "biome_aria_metadata"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_deserialize",
  "biome_deserialize_macros",
@@ -631,7 +631,7 @@ dependencies = [
 [[package]]
 name = "biome_console"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_markup",
  "biome_text_size",
@@ -644,7 +644,7 @@ dependencies = [
 [[package]]
 name = "biome_deserialize"
 version = "0.6.0"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -657,7 +657,7 @@ dependencies = [
 [[package]]
 name = "biome_deserialize_macros"
 version = "0.6.0"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_string_case",
  "proc-macro-error2",
@@ -669,7 +669,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "backtrace",
  "biome_console",
@@ -689,7 +689,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics_categories"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "quote",
  "serde",
@@ -698,7 +698,7 @@ dependencies = [
 [[package]]
 name = "biome_diagnostics_macros"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -709,7 +709,7 @@ dependencies = [
 [[package]]
 name = "biome_formatter"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_console",
  "biome_deserialize",
@@ -728,7 +728,7 @@ dependencies = [
 [[package]]
 name = "biome_js_factory"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_js_syntax",
  "biome_rowan",
@@ -737,7 +737,7 @@ dependencies = [
 [[package]]
 name = "biome_js_formatter"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_deserialize",
  "biome_deserialize_macros",
@@ -758,7 +758,7 @@ dependencies = [
 [[package]]
 name = "biome_js_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -779,7 +779,7 @@ dependencies = [
 [[package]]
 name = "biome_js_syntax"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_aria",
  "biome_aria_metadata",
@@ -793,7 +793,7 @@ dependencies = [
 [[package]]
 name = "biome_json_factory"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_json_syntax",
  "biome_rowan",
@@ -802,7 +802,7 @@ dependencies = [
 [[package]]
 name = "biome_json_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -818,7 +818,7 @@ dependencies = [
 [[package]]
 name = "biome_json_syntax"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_rowan",
  "biome_string_case",
@@ -830,7 +830,7 @@ dependencies = [
 [[package]]
 name = "biome_markup"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -840,7 +840,7 @@ dependencies = [
 [[package]]
 name = "biome_parser"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -854,7 +854,7 @@ dependencies = [
 [[package]]
 name = "biome_rowan"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_text_edit",
  "biome_text_size",
@@ -866,7 +866,7 @@ dependencies = [
 [[package]]
 name = "biome_string_case"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_rowan",
 ]
@@ -874,7 +874,7 @@ dependencies = [
 [[package]]
 name = "biome_suppression"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
@@ -884,7 +884,7 @@ dependencies = [
 [[package]]
 name = "biome_text_edit"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "biome_text_size",
  "serde",
@@ -894,7 +894,7 @@ dependencies = [
 [[package]]
 name = "biome_text_size"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 dependencies = [
  "serde",
 ]
@@ -902,7 +902,7 @@ dependencies = [
 [[package]]
 name = "biome_unicode_table"
 version = "0.5.7"
-source = "git+https://github.com/biomejs/biome#93182ea8e9d479fd0187ce21ff8fdcdf143d64cf"
+source = "git+https://github.com/biomejs/biome#f3aee1a92fba7c61de4b6f5ada3063fb126db885"
 
 [[package]]
 name = "bitflags"
@@ -1879,7 +1879,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.111",
 ]
 
 [[package]]
@@ -1927,16 +1927,16 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#2d3805b66f00cb31303c7e75edfef9003d48ff04"
+version = "2.1.0"
+source = "git+https://github.com/jeltef/derive_more#c354bad7c9707edb05a471ba35c6b059f3023e78"
 dependencies = [
  "derive_more-impl",
 ]
 
 [[package]]
 name = "derive_more-impl"
-version = "2.0.1"
-source = "git+https://github.com/jeltef/derive_more#2d3805b66f00cb31303c7e75edfef9003d48ff04"
+version = "2.1.0"
+source = "git+https://github.com/jeltef/derive_more#c354bad7c9707edb05a471ba35c6b059f3023e78"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -1988,7 +1988,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2201,7 +2201,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2967,9 +2967,9 @@ dependencies = [
 
 [[package]]
 name = "hyper-util"
-version = "0.1.18"
+version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52e9a2a24dc5c6821e71a7030e1e14b7b632acac55c40e9d2e082c621261bb56"
+checksum = "727805d60e7938b76b826a6ef209eb70eaa1812794f9424d4a4e2d740662df5f"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -2983,7 +2983,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
@@ -3001,7 +3001,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -3243,9 +3243,9 @@ dependencies = [
 
 [[package]]
 name = "instability"
-version = "0.3.9"
+version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "435d80800b936787d62688c927b6490e887c7ef5ff9ce922c6c6050fca75eb9a"
+checksum = "6778b0196eefee7df739db78758e5cf9b37412268bfa5650bfeed028aed20d9c"
 dependencies = [
  "darling 0.20.11",
  "indoc",
@@ -3429,9 +3429,9 @@ checksum = "2c4a545a15244c7d945065b5d392b2d2d7f21526fba56ce51467b06ed445e8f7"
 
 [[package]]
 name = "libc"
-version = "0.2.177"
+version = "0.2.178"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
+checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
 
 [[package]]
 name = "libloading"
@@ -3538,9 +3538,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.28"
+version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
+checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "loom"
@@ -3827,7 +3827,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3994,7 +3994,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.16",
  "http 1.4.0",
@@ -4122,8 +4122,8 @@ checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
 
 [[package]]
 name = "oxc"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -4186,8 +4186,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_allocator"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "allocator-api2",
  "bumpalo",
@@ -4198,8 +4198,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "bitflags 2.10.0",
  "oxc_allocator",
@@ -4214,8 +4214,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast_macros"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "phf 0.13.1",
  "proc-macro2",
@@ -4225,8 +4225,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast_visit"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
@@ -4236,8 +4236,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_codegen"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "bitflags 2.10.0",
  "cow-utils",
@@ -4256,8 +4256,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_compat"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "cow-utils",
  "oxc-browserslist",
@@ -4268,16 +4268,16 @@ dependencies = [
 
 [[package]]
 name = "oxc_data_structures"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "ropey",
 ]
 
 [[package]]
 name = "oxc_diagnostics"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "cow-utils",
  "oxc-miette",
@@ -4286,8 +4286,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_ecmascript"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "cow-utils",
  "num-bigint",
@@ -4300,8 +4300,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_estree"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 
 [[package]]
 name = "oxc_index"
@@ -4315,8 +4315,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_isolated_declarations"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "bitflags 2.10.0",
  "oxc_allocator",
@@ -4331,8 +4331,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_mangler"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "itertools 0.14.0",
  "oxc_allocator",
@@ -4347,8 +4347,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_minifier"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "cow-utils",
  "oxc_allocator",
@@ -4371,8 +4371,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_parser"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "bitflags 2.10.0",
  "cow-utils",
@@ -4393,8 +4393,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_regular_expression"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "bitflags 2.10.0",
  "oxc_allocator",
@@ -4408,8 +4408,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_semantic"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "itertools 0.14.0",
  "oxc_allocator",
@@ -4441,8 +4441,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_span"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "compact_str 0.9.0",
  "oxc-miette",
@@ -4453,8 +4453,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_syntax"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "bitflags 2.10.0",
  "cow-utils",
@@ -4472,8 +4472,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_transformer"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "base64 0.22.1",
  "compact_str 0.9.0",
@@ -4500,8 +4500,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_transformer_plugins"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "cow-utils",
  "itoa",
@@ -4521,8 +4521,8 @@ dependencies = [
 
 [[package]]
 name = "oxc_traverse"
-version = "0.99.0"
-source = "git+https://github.com/oxc-project/oxc#99e672363e21cde4470fa272459499d512fda501"
+version = "0.101.0"
+source = "git+https://github.com/oxc-project/oxc#9001234a7bbcd771264492699417e1089f398241"
 dependencies = [
  "itoa",
  "oxc_allocator",
@@ -5023,7 +5023,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -5060,9 +5060,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5508,7 +5508,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6925,7 +6925,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7615,9 +7615,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.18.1"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
+checksum = "e2e054861b4bd027cd373e18e8d8d8e6548085000e41290d95ce0c373a654b4a"
 dependencies = [
  "getrandom 0.3.4",
  "js-sys",
@@ -7922,7 +7922,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8576,18 +8576,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.30"
+version = "0.8.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ea879c944afe8a2b25fef16bb4ba234f47c694565e97383b36f3a878219065c"
+checksum = "fd74ec98b9250adb3ca554bdde269adf631549f51d8a8f8f0a10b50f1cb298c3"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.30"
+version = "0.8.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf955aa904d6040f70dc8e9384444cb1030aed272ba3cb09bbc4ab9e7c1f34f5"
+checksum = "d8a8d209fdf45cf5138cbb5a506f6b52522a25afccc534d1475dad8e31105c6a"
 dependencies = [
  "proc-macro2",
  "quote",

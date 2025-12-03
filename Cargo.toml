@@ -85,7 +85,7 @@ dashmap = "6"
 data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.74"
-derive_more = { git = "https://github.com/jeltef/derive_more", features = ["full"] }
+derive_more = { version = "2", features = ["full"] }
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
