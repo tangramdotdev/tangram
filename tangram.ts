@@ -18,6 +18,7 @@ export type Arg = {
 	nats?: boolean;
 	postgres?: boolean;
 	sdk?: std.sdk.Arg;
+	scylla?: boolean;
 };
 
 export const build = async (arg?: Arg) => {
@@ -28,6 +29,7 @@ export const build = async (arg?: Arg) => {
 		nats = false,
 		postgres = false,
 		sdk,
+		scylla = false,
 	} = arg ?? {};
 	const host = host_ ?? (await std.triple.host());
 	const build = build_ ?? host;
@@ -61,6 +63,9 @@ export const build = async (arg?: Arg) => {
 	}
 	if (postgres) {
 		features.push("postgres");
+	}
+	if (scylla) {
+		features.push("scylla");
 	}
 	if (useFoundationdb) {
 		if (std.triple.os(host) !== "linux") {
@@ -145,6 +150,7 @@ export const cloud = async (arg?: CloudArg) => {
 		nats: true,
 		postgres: true,
 		sdk,
+		scylla: true,
 	});
 };
 
@@ -157,7 +163,9 @@ export const nodeModules = async (hostArg?: string) => {
 	const bunLock = source.get("bun.lock").then(tg.File.expect);
 	const clientsJs = source.get("packages/clients/js").then(tg.Directory.expect);
 	const js = source.get("packages/js").then(tg.Directory.expect);
-	const typescript = source.get("packages/typescript").then(tg.Directory.expect);
+	const typescript = source
+		.get("packages/typescript")
+		.then(tg.Directory.expect);
 	const vscode = source.get("packages/vscode").then(tg.Directory.expect);
 
 	const workspaceSource = tg.directory({
@@ -174,8 +182,8 @@ export const nodeModules = async (hostArg?: string) => {
 	});
 
 	let output = await $`
-			cp -R ${workspaceSource}/. $OUTPUT
-			cd $OUTPUT
+			cp -R ${workspaceSource}/. ${tg.output}
+			cd ${tg.output}
 			bun install --frozen-lockfile || true
 			mkdir -p packages/js/node_modules/@tangramdotdev
 			ln -sf ../../../../clients/js packages/js/node_modules/@tangramdotdev/client
@@ -189,12 +197,11 @@ export const nodeModules = async (hostArg?: string) => {
 	if (hostOs === "linux") {
 		const hostArch = std.triple.arch(host);
 		const pathArch = hostArch === "aarch64" ? "arm64" : "x64";
-		const biomeVersion = await getBiomeVersion(await bunLock);
-		const path = `node_modules/.bun/@biomejs+biome@${biomeVersion}/node_modules/@biomejs/cli-linux-${pathArch}/biome`;
+		const path = `node_modules/@biomejs/cli-linux-${pathArch}/biome`;
 		const unwrapped = await output.get(path).then(tg.File.expect);
 		const wrapped = await std.wrap(unwrapped);
 		output = await tg.directory(output, {
-			[`${path}`]: wrapped,
+			[path]: wrapped,
 		});
 	}
 
@@ -271,15 +278,6 @@ const getRustyV8Version = async (lockfile: tg.File) => {
 
 type CargoLock = {
 	package: Array<{ name: string; version: string }>;
-};
-
-const getBiomeVersion = async (lockfile: tg.File) => {
-	const text = await lockfile.text();
-	const match = text.match(/"@biomejs\/biome":\s*\[\s*"@biomejs\/biome@([^"]+)"/);
-	if (!match) {
-		throw new Error("Could not find @biomejs/biome version in lockfile.");
-	}
-	return match[1];
 };
 
 export const test = async () => {
