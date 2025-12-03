@@ -54,7 +54,7 @@ pub struct Options {
 	)]
 	pub cached: Option<bool>,
 
-	/// Whether to check out the output. The output must be an artifact. A path to check out to may be provided.
+	/// The output's expected checksum.
 	#[arg(long)]
 	pub checksum: Option<tg::Checksum>,
 
