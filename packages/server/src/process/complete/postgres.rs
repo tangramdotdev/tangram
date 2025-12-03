@@ -3,7 +3,7 @@ use {
 	crate::Server,
 	indoc::indoc,
 	num::ToPrimitive as _,
-	std::collections::HashMap,
+	std::{collections::HashMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -358,8 +358,23 @@ impl Server {
 		ids: &[tg::process::Id],
 		touched_at: i64,
 	) -> tg::Result<Vec<Option<(Output, tg::process::Metadata)>>> {
+		let options = tangram_futures::retry::Options::default();
+		tangram_futures::retry(&options, || {
+			self.try_touch_process_and_get_complete_and_metadata_batch_postgres_attempt(
+				database, ids, touched_at,
+			)
+		})
+		.await
+	}
+
+	async fn try_touch_process_and_get_complete_and_metadata_batch_postgres_attempt(
+		&self,
+		database: &db::postgres::Database,
+		ids: &[tg::process::Id],
+		touched_at: i64,
+	) -> tg::Result<ControlFlow<Vec<Option<(Output, tg::process::Metadata)>>, tg::Error>> {
 		if ids.is_empty() {
-			return Ok(vec![]);
+			return Ok(ControlFlow::Break(vec![]));
 		}
 		let connection = database
 			.write_connection()
@@ -400,7 +415,7 @@ impl Server {
 					output_weight;
 			",
 		);
-		let output = connection
+		let result = connection
 			.inner()
 			.query(
 				statement,
@@ -411,8 +426,19 @@ impl Server {
 						.collect::<Vec<_>>(),
 				],
 			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.await;
+		let output = match result {
+			Ok(output) => output,
+			Err(error) if db::postgres::util::error_is_retryable(&error) => {
+				let error = tg::error!(!error, "failed to execute the statement");
+				return Ok(ControlFlow::Continue(error));
+			},
+			Err(error) => {
+				let error = tg::error!(!error, "failed to execute the statement");
+				return Err(error);
+			},
+		};
+		let output = output
 			.into_iter()
 			.map(|row| {
 				let id = row.get::<_, Vec<u8>>(0);
@@ -482,6 +508,6 @@ impl Server {
 			})
 			.collect::<HashMap<_, _, tg::id::BuildHasher>>();
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 }
