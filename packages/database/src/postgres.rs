@@ -12,6 +12,8 @@ use {
 
 pub use postgres::types::Json;
 
+pub mod util;
+
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
 	Postgres(postgres::Error),

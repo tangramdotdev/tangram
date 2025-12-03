@@ -6605,7 +6605,9 @@ version = "0.0.0"
 dependencies = [
  "dashmap",
  "futures",
+ "num",
  "pin-project",
+ "rand 0.9.2",
  "tokio",
  "tokio-util",
 ]
