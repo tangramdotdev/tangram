@@ -99,26 +99,28 @@ impl Server {
 		let mut first_sequence = info.first_sequence;
 		let last_sequence = info.last_sequence;
 		let total = info.last_sequence.saturating_sub(info.first_sequence);
-		progress.start(
-			"messages".to_string(),
-			"messages".to_owned(),
-			tg::progress::IndicatorFormat::Normal,
-			Some(0),
-			Some(total),
-		);
-		loop {
-			let info = index_stream
-				.info()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
-			progress.increment("messages", info.first_sequence - first_sequence);
-			first_sequence = info.first_sequence;
-			if first_sequence > last_sequence {
-				break;
+		if last_sequence > 0 {
+			progress.start(
+				"messages".to_string(),
+				"messages".to_owned(),
+				tg::progress::IndicatorFormat::Normal,
+				Some(0),
+				Some(total),
+			);
+			loop {
+				let info = index_stream
+					.info()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the index stream info"))?;
+				progress.increment("messages", info.first_sequence - first_sequence);
+				first_sequence = info.first_sequence;
+				if first_sequence > last_sequence {
+					break;
+				}
+				indexer_progress_stream.next().await;
 			}
-			indexer_progress_stream.next().await;
+			progress.finish("messages");
 		}
-		progress.finish("messages");
 
 		// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
 		let transaction_id = self.indexer_get_transaction_id().await?;
