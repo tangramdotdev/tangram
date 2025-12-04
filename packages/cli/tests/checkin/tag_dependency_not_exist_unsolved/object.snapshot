@@ -1,0 +1,8 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import * as a from \"a/^1.2\";"),
+    "dependencies": {
+      "a/%5E1.2": null,
+    },
+  }),
+})

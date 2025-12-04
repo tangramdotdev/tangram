@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "index": 1,
+          "kind": "file"
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "dependencies": {
+        "a/%5E1": {
+          "item": "dir_01nsc2dyes4g87r7hxk4mxbcw3gh854a4c61hs03rzwh0w8q6a08v0",
+          "options": {
+            "id": "dir_01nsc2dyes4g87r7hxk4mxbcw3gh854a4c61hs03rzwh0w8q6a08v0",
+            "tag": "a/1.0.0"
+          }
+        }
+      }
+    }
+  ]
+}
