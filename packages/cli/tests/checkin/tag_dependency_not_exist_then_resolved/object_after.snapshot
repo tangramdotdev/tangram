@@ -1,0 +1,16 @@
+tg.directory({
+  "tangram.ts": tg.file({
+    "contents": tg.blob("import * as a from \"a/^1\";"),
+    "dependencies": {
+      "a/%5E1": {
+        "item": tg.directory({
+          "tangram.ts": tg.file({
+            "contents": tg.blob(""),
+          }),
+        }),
+        "id": "dir_01nsc2dyes4g87r7hxk4mxbcw3gh854a4c61hs03rzwh0w8q6a08v0",
+        "tag": "a/1.0.0",
+      },
+    },
+  }),
+})

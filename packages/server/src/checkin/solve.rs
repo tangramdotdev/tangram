@@ -65,7 +65,7 @@ pub struct Solution {
 enum TagInnerOutput {
 	Solved(tg::Referent<usize>),
 	Conflicted,
-	Poisoned,
+	Unsolved,
 }
 
 #[derive(Clone)]
@@ -451,7 +451,7 @@ impl Server {
 					return Err(error);
 				}
 
-				// Otherwise, remove the edges from the referrers and poison the solution.
+				// Otherwise, remove the edges from the referrers and remove the solution's referent.
 				'outer: for referrer in &solution.referrers {
 					let node = graph.nodes.get_mut(&referrer.node).unwrap();
 					let Variant::File(file) = &mut node.variant else {
@@ -471,7 +471,7 @@ impl Server {
 				solution.referent.take();
 			},
 
-			TagInnerOutput::Poisoned => {
+			TagInnerOutput::Unsolved => {
 				// Add the referrer to the solution.
 				checkpoint
 					.solutions
@@ -498,7 +498,7 @@ impl Server {
 		// Check if the solution exists.
 		if let Some(solution) = checkpoint.solutions.get(key) {
 			let Some(referent) = &solution.referent else {
-				return Ok(TagInnerOutput::Poisoned);
+				return Ok(TagInnerOutput::Unsolved);
 			};
 			if !pattern.matches(referent.tag().unwrap()) {
 				return Ok(TagInnerOutput::Conflicted);
@@ -525,18 +525,21 @@ impl Server {
 		}
 
 		// Get the next candidate.
-		let candidate = checkpoint
-			.candidates
-			.as_mut()
-			.unwrap()
-			.pop_back()
-			.ok_or_else(|| {
-				tg::error!(
-					referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.node),
-					%pattern,
-					"no matching tags were found",
-				)
-			})?;
+		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_back() else {
+			if state.unsolved_dependencies {
+				let solution = Solution {
+					referent: None,
+					referrers: vec![],
+				};
+				checkpoint.solutions.insert(key.clone(), solution);
+				return Ok(TagInnerOutput::Unsolved);
+			}
+			return Err(tg::error!(
+				referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.node),
+				%pattern,
+				"no matching tags were found",
+			));
+		};
 
 		// Try to reuse a node if it exists. Otherwise, create a new node.
 		let node = if let Some(node) = candidate.node {
