@@ -42,7 +42,7 @@ impl Server {
 			let server = self.clone();
 			|_| {
 				async move {
-					let result = AssertUnwindSafe(server.sync_inner(arg, stream, sender.clone()))
+					let result = AssertUnwindSafe(server.sync_task(arg, stream, sender.clone()))
 						.catch_unwind()
 						.instrument(tracing::Span::current())
 						.await;
@@ -86,7 +86,7 @@ impl Server {
 		Ok(stream.boxed())
 	}
 
-	async fn sync_inner(
+	async fn sync_task(
 		&self,
 		arg: tg::sync::Arg,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,

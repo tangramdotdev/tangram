@@ -40,7 +40,7 @@ impl Server {
 			let server = self.clone();
 			let progress = progress.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(server.clean_inner(&progress))
+				let result = AssertUnwindSafe(server.clean_task(&progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -64,7 +64,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn clean_inner(
+	async fn clean_task(
 		&self,
 		progress: &crate::progress::Handle<tg::clean::Output>,
 	) -> tg::Result<tg::clean::Output> {

@@ -146,7 +146,7 @@ impl Server {
 
 		// Index.
 		let stream = self.index().await?;
-		let mut stream = std::pin::pin!(stream);
+		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			progress.forward(Ok(event));
 		}
@@ -181,7 +181,7 @@ impl Server {
 			})
 			.await?;
 		progress.spinner("pull", "pull");
-		let mut stream = std::pin::pin!(stream);
+		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			progress.forward(Ok(event));
 		}

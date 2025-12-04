@@ -1,8 +1,5 @@
 use {
-	crate::Server,
-	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	tangram_client::prelude::*,
-	tangram_either::Either,
+	crate::Server, futures::{stream::FuturesUnordered, TryStreamExt as _}, std::pin::pin, tangram_client::prelude::*, tangram_either::Either
 };
 
 impl Server {
@@ -33,7 +30,7 @@ impl Server {
 						..Default::default()
 					};
 					let stream = server.pull(arg).await?;
-					let mut stream = std::pin::pin!(stream);
+					let mut stream = pin!(stream);
 					while stream.try_next().await?.is_some() {}
 					Ok::<_, tg::Error>(())
 				})

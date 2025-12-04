@@ -54,7 +54,7 @@ impl Server {
 			let progress = progress.clone();
 			|_| {
 				async move {
-					let result = AssertUnwindSafe(server.checkin_inner(arg, &progress))
+					let result = AssertUnwindSafe(server.checkin_task(arg, &progress))
 						.catch_unwind()
 						.await;
 					match result {
@@ -81,7 +81,7 @@ impl Server {
 	}
 
 	// Check in the artifact.
-	async fn checkin_inner(
+	async fn checkin_task(
 		&self,
 		mut arg: tg::checkin::Arg,
 		progress: &crate::progress::Handle<tg::checkin::Output>,

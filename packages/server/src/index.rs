@@ -44,7 +44,7 @@ impl Server {
 			let progress = progress.clone();
 			let server = self.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(server.index_inner(&progress))
+				let result = AssertUnwindSafe(server.index_task(&progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -68,7 +68,7 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn index_inner(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
+	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
 		// Wait for outstanding tasks to complete.
 		progress.spinner("tasks", "waiting for tasks");
 		self.tasks.wait().await;
