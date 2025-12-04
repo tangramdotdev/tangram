@@ -232,8 +232,12 @@ impl Server {
 			let url = config.url.clone().unwrap_or_else(|| {
 				let path = path.join("socket");
 				let path = path.to_str().unwrap();
-				let path = urlencoding::encode(path);
-				format!("http+unix://{path}").parse().unwrap()
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(path)
+					.path("")
+					.build()
+					.unwrap()
 			});
 			Http { url }
 		});

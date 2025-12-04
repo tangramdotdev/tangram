@@ -1,16 +1,19 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
 
 impl tg::Client {
 	pub async fn delete_remote(&self, name: &str) -> tg::Result<()> {
 		let method = http::Method::DELETE;
-		let name = urlencoding::encode(name);
-		let uri = format!("/remotes/{name}");
+		let uri = Uri::builder()
+			.path(&format!("/remotes/{name}"))
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
-			.uri(uri)
+			.uri(uri.to_string())
 			.empty()
 			.unwrap();
 		let response = self

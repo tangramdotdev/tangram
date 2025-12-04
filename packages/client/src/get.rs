@@ -28,7 +28,7 @@ impl tg::Client {
 		let uri = reference.to_uri();
 		let path = uri.path();
 		let path = format!("/_/{path}");
-		let mut query = if let Some(query) = uri.query() {
+		let mut query = if let Some(query) = uri.query_raw() {
 			serde_urlencoded::from_str::<Vec<(String, String)>>(query)
 				.map_err(|source| tg::error!(!source, "failed to parse the query"))?
 		} else {
@@ -41,11 +41,11 @@ impl tg::Client {
 				.map_err(|source| tg::error!(!source, "failed to parse arg query"))?;
 			query.extend(arg_params);
 		}
-		let mut uri = uri.to_builder().path(path);
+		let mut uri = uri.to_builder().path(&path);
 		if !query.is_empty() {
 			let query = serde_urlencoded::to_string(&query)
 				.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
-			uri = uri.query(query);
+			uri = uri.query_raw(&query);
 		}
 		let uri = uri.build().unwrap();
 		let request = http::request::Builder::default()

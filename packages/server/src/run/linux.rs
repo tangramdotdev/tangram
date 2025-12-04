@@ -156,9 +156,13 @@ impl Server {
 			Path::new("/.tangram/socket").to_owned()
 		};
 		let path = path.to_str().unwrap();
-		let path = urlencoding::encode(path);
-		let url = format!("http+unix://{path}");
-		env.insert("TANGRAM_URL".to_owned(), url);
+		let url = tangram_uri::Uri::builder()
+			.scheme("http+unix")
+			.authority(path)
+			.path("")
+			.build()
+			.unwrap();
+		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Get the server's user.
 		let whoami = whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
@@ -213,20 +217,27 @@ impl Server {
 			// Create the guest uri.
 			let socket = Path::new("/.tangram/socket");
 			let socket = socket.to_str().unwrap();
-			let socket = urlencoding::encode(socket);
-			let guest_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
+			let guest_uri = tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(socket)
+				.path("")
+				.build()
+				.unwrap();
 
 			// Create the host uri.
 			let socket = temp.path().join(".tangram/socket");
 			tokio::fs::create_dir_all(socket.parent().unwrap())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-			let socket = urlencoding::encode(
-				socket
-					.to_str()
-					.ok_or_else(|| tg::error!(path = %socket.display(), "invalid path"))?,
-			);
-			let host_uri = format!("http+unix://{socket}").parse::<Uri>().unwrap();
+			let socket = socket
+				.to_str()
+				.ok_or_else(|| tg::error!(path = %socket.display(), "invalid path"))?;
+			let host_uri = tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(socket)
+				.path("")
+				.build()
+				.unwrap();
 
 			// Listen.
 			let listener = Server::listen(&host_uri).await?;

@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	std::{os::unix::ffi::OsStrExt as _, path::PathBuf, pin::pin},
+	std::{path::PathBuf, pin::pin},
 	tangram_either::Either,
 	tangram_futures::stream::TryExt as _,
 	tangram_uri::Uri,
@@ -134,17 +134,25 @@ impl Reference {
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let path = uri.path();
-		let path =
-			urlencoding::decode(path).map_err(|source| tg::error!(!source, "invalid path"))?;
 		let item = path.parse()?;
-		let options = uri
-			.query()
-			.map(|query| {
-				serde_urlencoded::from_str(query)
-					.map_err(|source| tg::error!(!source, "invalid query"))
-			})
-			.transpose()?
-			.unwrap_or_default();
+		let mut options = Options::default();
+		if let Some(query) = uri.query_raw() {
+			for param in query.split('&') {
+				if let Some((key, value)) = param.split_once('=') {
+					let value = tangram_uri::decode_query_value(value)
+						.map_err(|_| tg::error!("failed to decode the value"))?;
+					match key {
+						"local" => {
+							options.local.replace(value.into_owned().into());
+						},
+						"remote" => {
+							options.remote.replace(value.into_owned());
+						},
+						_ => {},
+					}
+				}
+			}
+		}
 		let export = uri.fragment().map(ToOwned::to_owned);
 		Ok(Self {
 			item,
@@ -156,16 +164,26 @@ impl Reference {
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
 		let path = self.item.to_string();
-		let query = serde_urlencoded::to_string(&self.options)
-			.map_err(|source| tg::error!(!source, "failed to serialize the options"))
-			.unwrap();
 		let mut builder = Uri::builder();
-		builder = builder.path(path);
+		builder = builder.path(&path);
+		let mut query = Vec::new();
+		if let Some(local) = &self.options.local {
+			let local = local.to_string_lossy();
+			let local = tangram_uri::encode_query_value(&local);
+			let local = format!("local={local}");
+			query.push(local);
+		}
+		if let Some(remote) = &self.options.remote {
+			let remote = tangram_uri::encode_query_value(remote);
+			let remote = format!("remote={remote}");
+			query.push(remote);
+		}
 		if !query.is_empty() {
-			builder = builder.query(query);
+			let query = query.join("&");
+			builder = builder.query_raw(&query);
 		}
 		if let Some(export) = &self.export {
-			builder = builder.fragment(export.to_owned());
+			builder = builder.fragment(export);
 		}
 		builder.build().unwrap()
 	}
@@ -229,41 +247,13 @@ impl std::fmt::Display for Item {
 				{
 					write!(f, "./")?;
 				}
-				for (i, component) in path.components().enumerate() {
-					if i > 0 {
-						write!(f, "/")?;
-					}
-					match component {
-						std::path::Component::Prefix(_) => {
-							unreachable!()
-						},
-						std::path::Component::RootDir => (),
-						std::path::Component::CurDir => {
-							write!(f, ".")?;
-						},
-						std::path::Component::ParentDir => {
-							write!(f, "..")?;
-						},
-						std::path::Component::Normal(name) => {
-							write!(f, "{}", urlencoding::encode_binary(name.as_bytes()))?;
-						},
-					}
-				}
+				write!(f, "{}", path.display())?;
 			},
 			Item::Process(process) => {
 				write!(f, "{process}")?;
 			},
 			Item::Tag(tag) => {
-				for (i, component) in tag.components().enumerate() {
-					if i > 0 {
-						write!(f, "/")?;
-					}
-					if component == "*" {
-						write!(f, "%2A")?;
-					} else {
-						write!(f, "{}", urlencoding::encode(component))?;
-					}
-				}
+				write!(f, "{tag}")?;
 			},
 		}
 		Ok(())

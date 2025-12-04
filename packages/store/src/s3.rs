@@ -106,10 +106,12 @@ impl crate::Store for Store {
 		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
 		let authority = url.authority().ok_or_else(|| Error::other("invalid url"))?;
 		let bucket = &self.config.bucket;
+		let authority = format!("{bucket}.{authority}");
+		let path = format!("/{id}");
 		let url = url
 			.to_builder()
-			.authority(format!("{bucket}.{authority}"))
-			.path(format!("/{id}"))
+			.authority(&authority)
+			.path(&path)
 			.build()
 			.unwrap();
 		let request = self
@@ -154,10 +156,12 @@ impl crate::Store for Store {
 		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
 		let authority = url.authority().ok_or_else(|| Error::other("invalid url"))?;
 		let bucket = &self.config.bucket;
+		let authority = format!("{bucket}.{authority}");
+		let path = format!("/{id}", id = arg.id);
 		let url = url
 			.to_builder()
-			.authority(format!("{bucket}.{authority}"))
-			.path(format!("/{id}", id = arg.id))
+			.authority(&authority)
+			.path(&path)
 			.build()
 			.unwrap();
 		let request = self
@@ -193,10 +197,12 @@ impl crate::Store for Store {
 		let url = tangram_uri::Uri::parse(self.config.url.as_str()).unwrap();
 		let authority = url.authority().ok_or_else(|| Error::other("invalid url"))?;
 		let bucket = &self.config.bucket;
+		let authority = format!("{bucket}.{authority}");
+		let path = format!("/{id}", id = arg.id);
 		let url = url
 			.to_builder()
-			.authority(format!("{bucket}.{authority}"))
-			.path(format!("/{id}", id = arg.id))
+			.authority(&authority)
+			.path(&path)
 			.build()
 			.unwrap();
 		let if_unmodified_since =

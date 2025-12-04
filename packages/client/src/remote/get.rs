@@ -13,11 +13,13 @@ pub struct Output {
 impl tg::Client {
 	pub async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
 		let method = http::Method::GET;
-		let name = urlencoding::encode(name);
-		let uri = format!("/remotes/{name}");
+		let uri = Uri::builder()
+			.path(&format!("/remotes/{name}"))
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
-			.uri(uri)
+			.uri(uri.to_string())
 			.empty()
 			.unwrap();
 		let response = self

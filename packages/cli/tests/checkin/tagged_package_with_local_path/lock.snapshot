@@ -12,7 +12,7 @@
     {
       "kind": "file",
       "dependencies": {
-        "a?local=..%2Fa": {
+        "a?local=../a": {
           "item": "dir_01s7bx5nqy2mc2qanmg482z18vq7ddrnvvvk7sv1zwm6b6af781dd0",
           "options": {
             "id": "dir_01s7bx5nqy2mc2qanmg482z18vq7ddrnvvvk7sv1zwm6b6af781dd0",

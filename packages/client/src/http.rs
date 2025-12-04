@@ -109,9 +109,7 @@ impl tg::Client {
 		match url.scheme() {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
-				let path = urlencoding::decode(path)
-					.map_err(|source| tg::error!(!source, "invalid url"))?;
-				let path = PathBuf::from(path.into_owned());
+				let path = PathBuf::from(path);
 				Self::connect_unix_h1(&path).await
 			},
 			Some("http") => {
@@ -145,9 +143,7 @@ impl tg::Client {
 		match url.scheme() {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
-				let path = urlencoding::decode(path)
-					.map_err(|source| tg::error!(!source, %path, "invalid url"))?;
-				let path = PathBuf::from(path.into_owned());
+				let path = PathBuf::from(path);
 				Self::connect_unix_h2(&path).await
 			},
 			Some("http") => {

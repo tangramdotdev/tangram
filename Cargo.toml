@@ -121,6 +121,7 @@ octocrab = "0.48"
 owo-colors = "4"
 oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
+percent-encoding = "2"
 petgraph = "0.8"
 pin-project = "1"
 pretty_assertions = "1"
@@ -183,7 +184,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"
 unicode-segmentation = "1"
 unicode-width = "0.2"
-urlencoding = "2"
 uuid = { version = "1", features = ["v7"] }
 v8 = { git = "https://github.com/tangramdotdev/rusty_v8", branch = "rusty-v8-archive-target-var" }
 webbrowser = "1"

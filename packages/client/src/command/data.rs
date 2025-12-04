@@ -231,16 +231,18 @@ impl Mount {
 impl ArtifactExecutable {
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
-		let mut builder = Uri::builder().path(self.artifact.to_string());
+		let path = self.artifact.to_string();
+		let mut builder = Uri::builder().path(&path);
 		let mut query = Vec::new();
 		if let Some(path) = &self.path {
 			let path = path.to_string_lossy();
-			let path = urlencoding::encode(&path);
+			let path = tangram_uri::encode_query_value(&path);
 			let path = format!("path={path}");
 			query.push(path);
 		}
 		if !query.is_empty() {
-			builder = builder.query(query.join("&"));
+			let query = query.join("&");
+			builder = builder.query_raw(&query);
 		}
 		builder.build().unwrap()
 	}
@@ -251,13 +253,13 @@ impl ArtifactExecutable {
 			.parse()
 			.map_err(|_| tg::error!("failed to parse the artifact"))?;
 		let mut path = None;
-		if let Some(query) = uri.query() {
+		if let Some(query) = uri.query_raw() {
 			for param in query.split('&') {
 				if let Some((key, value)) = param.split_once('=')
 					&& key == "path"
 				{
 					path.replace(
-						urlencoding::decode(value)
+						tangram_uri::decode_query_value(value)
 							.map_err(|_| tg::error!("failed to decode the path"))?
 							.into_owned()
 							.into(),
@@ -274,12 +276,12 @@ impl ModuleExecutable {
 	pub fn to_uri(&self) -> Uri {
 		let uri = self.module.to_uri();
 		let mut builder = Uri::builder();
-		builder = builder.path(uri.path().to_owned());
-		if let Some(query) = uri.query() {
-			builder = builder.query(query.to_owned());
+		builder = builder.path(uri.path());
+		if let Some(query) = uri.query_raw() {
+			builder = builder.query_raw(query);
 		}
 		if let Some(export) = &self.export {
-			builder = builder.fragment(export.to_owned());
+			builder = builder.fragment(export);
 		}
 		builder.build().unwrap()
 	}
@@ -295,7 +297,7 @@ impl PathExecutable {
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
 		let path = self.path.to_string_lossy();
-		Uri::builder().path(path.to_string()).build().unwrap()
+		Uri::builder().path(&path).build().unwrap()
 	}
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {

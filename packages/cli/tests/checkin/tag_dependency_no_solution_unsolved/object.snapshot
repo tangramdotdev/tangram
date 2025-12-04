@@ -2,7 +2,7 @@ tg.directory({
   "tangram.ts": tg.file({
     "contents": tg.blob("import * as a from \"a/*\";\nimport * as b from \"b/*\";"),
     "dependencies": {
-      "a/%2A": {
+      "a/*": {
         "item": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import * as c from \"c/^1\""),
@@ -14,7 +14,7 @@ tg.directory({
         "id": "dir_01axfqeskenrmxgby6s3hj3x698w4pdfkcm6t1rdz1s5n9705da09g",
         "tag": "a/1.0.0",
       },
-      "b/%2A": {
+      "b/*": {
         "item": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import * as c from \"c/^2\""),

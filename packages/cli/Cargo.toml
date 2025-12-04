@@ -75,7 +75,6 @@ tracing-subscriber = { workspace = true }
 tracing-tree = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
-urlencoding = { workspace = true }
 v8 = { workspace = true, optional = true }
 webbrowser = { workspace = true }
 xattr = { workspace = true }

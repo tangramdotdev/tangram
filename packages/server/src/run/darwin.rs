@@ -117,8 +117,12 @@ impl Server {
 			// Listen.
 			let socket_path = path.join("socket").display().to_string();
 			let mut url = if socket_path.len() <= MAX_URL_LEN {
-				let socket_path = urlencoding::encode(&socket_path);
-				format!("http+unix://{socket_path}").parse::<Uri>().unwrap()
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(&socket_path)
+					.path("")
+					.build()
+					.unwrap()
 			} else {
 				"http://localhost:0".to_string().parse::<Uri>().unwrap()
 			};
@@ -162,8 +166,13 @@ impl Server {
 			|| {
 				let path = self.path.join("socket");
 				let path = path.to_str().unwrap();
-				let path = urlencoding::encode(path);
-				format!("http+unix://{path}")
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(path)
+					.path("")
+					.build()
+					.unwrap()
+					.to_string()
 			},
 			|(_, url)| url.to_string(),
 		);

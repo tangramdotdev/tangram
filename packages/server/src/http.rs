@@ -20,9 +20,7 @@ impl Server {
 		let listener = match url.scheme() {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
-				let path = urlencoding::decode(path)
-					.map_err(|source| tg::error!(!source, "invalid url"))?;
-				let path = Path::new(path.as_ref());
+				let path = Path::new(path);
 				let listener = UnixListener::bind(path).map_err(
 					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
 				)?;

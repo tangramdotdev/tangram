@@ -438,9 +438,9 @@ impl Cli {
 
 		// Create the handle.
 		let handle = match self.mode {
-			Mode::Auto => Either::Left(self.auto().await?),
-			Mode::Client => Either::Left(self.client().await?),
-			Mode::Server => Either::Right(self.server().await?),
+			Mode::Auto => Either::Left(self.auto().boxed().await?),
+			Mode::Client => Either::Left(self.client().boxed().await?),
+			Mode::Server => Either::Right(self.server().boxed().await?),
 		};
 
 		// Get the health and print diagnostics.
@@ -473,8 +473,13 @@ impl Cli {
 				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
 				let path = self.directory_path().join("socket");
-				let path = urlencoding::encode(path.to_str().unwrap());
-				format!("http+unix://{path}").parse().unwrap()
+				let path = path.to_str().unwrap();
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(path)
+					.path("")
+					.build()
+					.unwrap()
 			});
 
 		// Get the token.
@@ -488,7 +493,7 @@ impl Cli {
 
 		// If the client is not connected and the URL is local, then start the server and attempt to connect.
 		let local = client.url().scheme() == Some("http+unix")
-			|| matches!(client.url().host(), Some("localhost" | "0.0.0.0"));
+			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
 		if !connected && local {
 			// Start the server.
 			self.start_server().await?;
@@ -560,8 +565,13 @@ impl Cli {
 				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
 				let path = self.directory_path().join("socket");
-				let path = urlencoding::encode(path.to_str().unwrap());
-				format!("http+unix://{path}").parse().unwrap()
+				let path = path.to_str().unwrap();
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(path)
+					.path("")
+					.build()
+					.unwrap()
 			});
 
 		// Get the token.

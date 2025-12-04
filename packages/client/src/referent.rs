@@ -152,39 +152,41 @@ where
 	T: std::fmt::Display,
 {
 	pub fn to_uri(&self) -> Uri {
-		let mut builder = Uri::builder().path(self.item.to_string());
+		let path = self.item.to_string();
+		let mut builder = Uri::builder().path(&path);
 		let mut query = Vec::new();
-		if let Some(id) = &self.options.artifact {
-			let id = id.to_string();
-			let id = urlencoding::encode(&id);
-			let id = format!("artifact={id}");
-			query.push(id);
+		if let Some(artifact) = &self.options.artifact {
+			let artifact = artifact.to_string();
+			let artifact = tangram_uri::encode_query_value(&artifact);
+			let artifact = format!("artifact={artifact}");
+			query.push(artifact);
 		}
 		if let Some(id) = &self.options.id {
 			let id = id.to_string();
-			let id = urlencoding::encode(&id);
+			let id = tangram_uri::encode_query_value(&id);
 			let id = format!("id={id}");
 			query.push(id);
 		}
 		if let Some(name) = &self.options.name {
-			let name = urlencoding::encode(name);
+			let name = tangram_uri::encode_query_value(name);
 			let name = format!("name={name}");
 			query.push(name);
 		}
 		if let Some(path) = &self.options.path {
 			let path = path.to_string_lossy();
-			let path = urlencoding::encode(&path);
+			let path = tangram_uri::encode_query_value(&path);
 			let path = format!("path={path}");
 			query.push(path);
 		}
 		if let Some(tag) = &self.options.tag {
 			let tag = tag.to_string();
-			let tag = urlencoding::encode(&tag);
+			let tag = tangram_uri::encode_query_value(&tag);
 			let tag = format!("tag={tag}");
 			query.push(tag);
 		}
 		if !query.is_empty() {
-			builder = builder.query(query.join("&"));
+			let query = query.join("&");
+			builder = builder.query_raw(&query);
 		}
 		builder.build().unwrap()
 	}
@@ -200,48 +202,35 @@ where
 			.parse()
 			.map_err(|_| tg::error!("failed to parse the item"))?;
 		let mut options = Options::default();
-		if let Some(query) = uri.query() {
+		if let Some(query) = uri.query_raw() {
 			for param in query.split('&') {
 				if let Some((key, value)) = param.split_once('=') {
+					let value = tangram_uri::decode_query_value(value)
+						.map_err(|_| tg::error!("failed to decode the value"))?;
 					match key {
 						"artifact" => {
 							options.artifact.replace(
-								urlencoding::decode(value)
-									.map_err(|_| tg::error!("failed to decode the artifact"))?
-									.into_owned()
+								value
 									.parse()
 									.map_err(|_| tg::error!("failed to parse the artifact"))?,
 							);
 						},
 						"id" => {
 							options.id.replace(
-								urlencoding::decode(value)
-									.map_err(|_| tg::error!("failed to decode the id"))?
-									.into_owned()
+								value
 									.parse()
 									.map_err(|_| tg::error!("failed to parse the id"))?,
 							);
 						},
 						"name" => {
-							options.name.replace(
-								urlencoding::decode(value)
-									.map_err(|_| tg::error!("failed to decode the name"))?
-									.into_owned(),
-							);
+							options.name.replace(value.into_owned());
 						},
 						"path" => {
-							options.path.replace(
-								urlencoding::decode(value)
-									.map_err(|_| tg::error!("failed to decode the path"))?
-									.into_owned()
-									.into(),
-							);
+							options.path.replace(value.into_owned().into());
 						},
 						"tag" => {
 							options.tag.replace(
-								urlencoding::decode(value)
-									.map_err(|_| tg::error!("failed to decode the tag"))?
-									.into_owned()
+								value
 									.parse()
 									.map_err(|_| tg::error!("failed to parse the tag"))?,
 							);

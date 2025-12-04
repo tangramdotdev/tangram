@@ -1,5 +1,78 @@
 use crate::Uri;
 
+/// Characters that must be percent-encoded in the authority component.
+/// RFC 3986 Section 3.2: reg-name allows unreserved / pct-encoded / sub-delims.
+/// We encode everything not in unreserved or sub-delims, plus "/" to support Unix socket paths.
+const AUTHORITY_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+	.add(b' ')
+	.add(b'"')
+	.add(b'#')
+	.add(b'/')
+	.add(b'<')
+	.add(b'>')
+	.add(b'?')
+	.add(b'[')
+	.add(b'\\')
+	.add(b']')
+	.add(b'^')
+	.add(b'`')
+	.add(b'{')
+	.add(b'|')
+	.add(b'}');
+
+/// Characters that must be percent-encoded in path segments.
+/// RFC 3986 Section 3.3: pchar allows unreserved / pct-encoded / sub-delims / ":" / "@".
+/// We preserve "/" as the path separator.
+const PATH_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+	.add(b' ')
+	.add(b'"')
+	.add(b'#')
+	.add(b'<')
+	.add(b'>')
+	.add(b'?')
+	.add(b'[')
+	.add(b'\\')
+	.add(b']')
+	.add(b'^')
+	.add(b'`')
+	.add(b'{')
+	.add(b'|')
+	.add(b'}');
+
+/// Characters that must be percent-encoded in the query component.
+/// RFC 3986 Section 3.4: query allows pchar / "/" / "?".
+const QUERY_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+	.add(b' ')
+	.add(b'"')
+	.add(b'#')
+	.add(b'<')
+	.add(b'>')
+	.add(b'[')
+	.add(b'\\')
+	.add(b']')
+	.add(b'^')
+	.add(b'`')
+	.add(b'{')
+	.add(b'|')
+	.add(b'}');
+
+/// Characters that must be percent-encoded in the fragment component.
+/// RFC 3986 Section 3.5: fragment allows pchar / "/" / "?".
+const FRAGMENT_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+	.add(b' ')
+	.add(b'"')
+	.add(b'#')
+	.add(b'<')
+	.add(b'>')
+	.add(b'[')
+	.add(b'\\')
+	.add(b']')
+	.add(b'^')
+	.add(b'`')
+	.add(b'{')
+	.add(b'|')
+	.add(b'}');
+
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
 	scheme: Option<String>,
@@ -15,32 +88,60 @@ pub struct Error;
 
 impl Builder {
 	#[must_use]
-	pub fn scheme(mut self, scheme: impl Into<Option<String>>) -> Self {
-		self.scheme = scheme.into();
+	pub fn scheme(mut self, scheme: &str) -> Self {
+		self.scheme = Some(scheme.to_owned());
 		self
 	}
 
 	#[must_use]
-	pub fn authority(mut self, authority: impl Into<Option<String>>) -> Self {
-		self.authority = authority.into();
+	pub fn authority_raw(mut self, authority: &str) -> Self {
+		self.authority = Some(authority.to_owned());
 		self
 	}
 
 	#[must_use]
-	pub fn path(mut self, path: impl Into<String>) -> Self {
-		self.path = Some(path.into());
+	pub fn authority(mut self, authority: &str) -> Self {
+		self.authority = Some(
+			percent_encoding::utf8_percent_encode(authority, AUTHORITY_ENCODE_SET).to_string(),
+		);
 		self
 	}
 
 	#[must_use]
-	pub fn query(mut self, query: impl Into<Option<String>>) -> Self {
-		self.query = query.into();
+	pub fn path_raw(mut self, path: &str) -> Self {
+		self.path = Some(path.to_owned());
 		self
 	}
 
 	#[must_use]
-	pub fn fragment(mut self, fragment: impl Into<Option<String>>) -> Self {
-		self.fragment = fragment.into();
+	pub fn path(mut self, path: &str) -> Self {
+		self.path = Some(percent_encoding::utf8_percent_encode(path, PATH_ENCODE_SET).to_string());
+		self
+	}
+
+	#[must_use]
+	pub fn query_raw(mut self, query: &str) -> Self {
+		self.query = Some(query.to_owned());
+		self
+	}
+
+	#[must_use]
+	pub fn query(mut self, query: &str) -> Self {
+		self.query =
+			Some(percent_encoding::utf8_percent_encode(query, QUERY_ENCODE_SET).to_string());
+		self
+	}
+
+	#[must_use]
+	pub fn fragment_raw(mut self, fragment: &str) -> Self {
+		self.fragment = Some(fragment.to_owned());
+		self
+	}
+
+	#[must_use]
+	pub fn fragment(mut self, fragment: &str) -> Self {
+		self.fragment =
+			Some(percent_encoding::utf8_percent_encode(fragment, FRAGMENT_ENCODE_SET).to_string());
 		self
 	}
 
