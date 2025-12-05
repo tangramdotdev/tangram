@@ -1185,6 +1185,47 @@ impl Solutions {
 		self.referrers.clear();
 	}
 
+	pub fn remove_by_node(&mut self, node: usize) {
+		if let Some(patterns) = self.referents.remove(&node) {
+			for pattern in &patterns {
+				if let Some(solution) = self.solutions.remove(pattern) {
+					for referrer in &solution.referrers {
+						if let Some(referrer_patterns) = self.referrers.get_mut(&referrer.node) {
+							referrer_patterns.remove(pattern);
+							if referrer_patterns.is_empty() {
+								self.referrers.remove(&referrer.node);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if let Some(patterns) = self.referrers.remove(&node) {
+			let mut to_remove = Vec::new();
+			for pattern in patterns {
+				if let Some(solution) = self.solutions.get_mut(&pattern) {
+					solution.referrers.retain(|r| r.node != node);
+					if solution.referrers.is_empty() {
+						to_remove.push(pattern);
+					}
+				}
+			}
+			for pattern in to_remove {
+				if let Some(solution) = self.solutions.remove(&pattern) {
+					if let Some(referent) = &solution.referent
+						&& let Some(referent_patterns) = self.referents.get_mut(&referent.item)
+					{
+						referent_patterns.remove(&pattern);
+						if referent_patterns.is_empty() {
+							self.referents.remove(&referent.item);
+						}
+					}
+				}
+			}
+		}
+	}
+
 	pub fn clear_referent(&mut self, key: &tg::tag::Pattern) {
 		if let Some(solution) = self.solutions.get_mut(key)
 			&& let Some(referent) = solution.referent.take()
@@ -1204,30 +1245,6 @@ impl Solutions {
 			.insert(key.clone());
 		if let Some(solution) = self.solutions.get_mut(key) {
 			solution.referrers.push(referrer);
-		}
-	}
-
-	pub fn remove_by_node(&mut self, node: usize) {
-		if let Some(patterns) = self.referents.remove(&node) {
-			for pattern in &patterns {
-				if let Some(solution) = self.solutions.remove(pattern) {
-					for referrer in &solution.referrers {
-						if let Some(referrer_patterns) = self.referrers.get_mut(&referrer.node) {
-							referrer_patterns.remove(pattern);
-							if referrer_patterns.is_empty() {
-								self.referrers.remove(&referrer.node);
-							}
-						}
-					}
-				}
-			}
-		}
-		if let Some(patterns) = self.referrers.remove(&node) {
-			for pattern in patterns {
-				if let Some(solution) = self.solutions.get_mut(&pattern) {
-					solution.referrers.retain(|r| r.node != node);
-				}
-			}
 		}
 	}
 }
