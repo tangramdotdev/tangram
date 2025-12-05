@@ -29,48 +29,56 @@ pub fn row_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 	let field_exprs: Vec<_> = fields
 		.named
 		.iter()
-		.map(|f| {
-			let name = f.ident.as_ref().unwrap();
+		.map(|field| {
+			let name = field.ident.as_ref().unwrap();
 			let name_str = name.to_string();
-			let field_type = &f.ty;
-			let attrs = FieldAttrs::from_attrs(&f.attrs);
+			let field_type = &field.ty;
+			let attrs = FieldAttrs::from_attrs(&field.attrs);
 
-			if let Some(func) = attrs.deserialize_with {
+			if let Some(deserialize_with) = attrs.deserialize_with {
 				quote! {
-					#name: #func(&row, #name_str)?
+					#name: {
+						#deserialize_with(&row, #name_str)
+							.map_err(|error| format!("failed to deserialize column \"{error}\": {}", #name_str))?
+					}
 				}
 			} else if let Some(as_type) = attrs.as_type {
 				quote! {
-					#name: <#as_type as tangram_database::value::DeserializeAs<#field_type>>::deserialize_as(
-						row.get(tangram_either::Either::Right(#name_str))
-							.ok_or_else(|| format!("missing field: {}", #name_str))?
-							.clone()
-					)?
+					#name: {
+						let value = row.get(tangram_either::Either::Right(#name_str))
+							.ok_or_else(|| format!("missing column \"{}\"", #name_str))?
+							.clone();
+						<#as_type as tangram_database::value::DeserializeAs<#field_type>>::deserialize_as(value)
+							.map_err(|error| format!("failed to deserialize column \"{}\": {error}", #name_str))?
+					}
 				}
 			} else if let Some(try_from) = attrs.try_from {
 				quote! {
 					#name: {
 						let value = row.get(tangram_either::Either::Right(#name_str))
-							.ok_or_else(|| format!("missing field: {}", #name_str))?
+							.ok_or_else(|| format!("missing column \"{}\"", #name_str))?
 							.clone();
-						let intermediate = <#try_from as tangram_database::value::Deserialize>::deserialize(value)?;
-						intermediate.try_into()?
+						let try_from = <#try_from as tangram_database::value::Deserialize>::deserialize(value)
+							.map_err(|error| format!("failed to deserialize column \"{}\": {error}", #name_str))?;
+						try_from.try_into()
+							.map_err(|error| format!("failed to convert column \"{}\": {error}", #name_str))?
 					}
 				}
 			} else {
 				quote! {
 					#name: {
 						let value = row.get(tangram_either::Either::Right(#name_str))
-							.ok_or_else(|| format!("missing field: {}", #name_str))?
+							.ok_or_else(|| format!("missing column \"{}\"", #name_str))?
 							.clone();
-						<#field_type as tangram_database::value::Deserialize>::deserialize(value)?
+						<#field_type as tangram_database::value::Deserialize>::deserialize(value)
+							.map_err(|error| format!("failed to deserialize column \"{}\": {error}", #name_str))?
 					}
 				}
 			}
 		})
 		.collect();
 
-	let expanded = quote! {
+	let code = quote! {
 		impl tangram_database::row::Deserialize for #name {
 			fn deserialize(row: tangram_database::Row) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
 				Ok(Self {
@@ -80,7 +88,7 @@ pub fn row_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 		}
 	};
 
-	expanded.into()
+	code.into()
 }
 
 #[proc_macro_derive(PostgresRowDeserialize, attributes(tangram_database))]
@@ -106,41 +114,43 @@ pub fn postgres_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::T
 	let field_exprs: Vec<_> = fields
 		.named
 		.iter()
-		.map(|f| {
-			let name = f.ident.as_ref().unwrap();
+		.map(|field| {
+			let name = field.ident.as_ref().unwrap();
 			let name_str = name.to_string();
-			let field_type = &f.ty;
-			let attrs = FieldAttrs::from_attrs(&f.attrs);
+			let field_type = &field.ty;
+			let attrs = FieldAttrs::from_attrs(&field.attrs);
 
-			if let Some(func) = attrs.deserialize_with {
+			if let Some(deserialize_with) = attrs.deserialize_with {
 				quote! {
-					#name: #func(row, #name_str)?
+					#name: {
+						#deserialize_with(row, #name_str)
+							.map_err(|error| tangram_database::postgres::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
+					}
 				}
 			} else if let Some(as_type) = attrs.as_type {
 				quote! {
 					#name: {
 						let raw = row.get::<_, tangram_database::postgres::value::Raw>(#name_str);
-						<#as_type as tangram_database::postgres::value::DeserializeAs<#field_type>>::deserialize_as(
-							raw.ty(),
-							raw.raw(),
-						)?
+						<#as_type as tangram_database::postgres::value::DeserializeAs<#field_type>>::deserialize_as(raw.ty(), raw.raw())
+							.map_err(|error| tangram_database::postgres::Error::other(format!("failed to deserialize column \"{}\" (type {}): {error}", #name_str, raw.ty())))?
 					}
 				}
 			} else if let Some(try_from) = attrs.try_from {
 				quote! {
 					#name: {
-						row.get::<_, #try_from>(#name_str).try_into().map_err(|e| {
-							tangram_database::postgres::Error::other(e)
-						})?
+						row.get::<_, #try_from>(#name_str).try_into()
+							.map_err(|error| tangram_database::postgres::Error::other(format!("failed to convert column \"{}\": {error}", #name_str)))?
 					}
 				}
 			} else {
-				quote! { #name: row.get::<_, #field_type>(#name_str) }
+				quote! {
+					#name: row.get::<_, #field_type>(#name_str)
+				}
 			}
 		})
 		.collect();
 
-	let expanded = quote! {
+	let code = quote! {
 		impl tangram_database::postgres::row::Deserialize for #name {
 			fn deserialize(row: &tokio_postgres::Row) -> Result<Self, tangram_database::postgres::Error> {
 				Ok(Self {
@@ -150,7 +160,7 @@ pub fn postgres_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::T
 		}
 	};
 
-	expanded.into()
+	code.into()
 }
 
 #[proc_macro_derive(SqliteRowDeserialize, attributes(tangram_database))]
@@ -176,37 +186,49 @@ pub fn sqlite_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Tok
 	let field_exprs: Vec<_> = fields
 		.named
 		.iter()
-		.map(|f| {
-			let name = f.ident.as_ref().unwrap();
+		.map(|field| {
+			let name = field.ident.as_ref().unwrap();
 			let name_str = name.to_string();
-			let field_type = &f.ty;
-			let attrs = FieldAttrs::from_attrs(&f.attrs);
+			let field_type = &field.ty;
+			let attrs = FieldAttrs::from_attrs(&field.attrs);
 
-			if let Some(func) = attrs.deserialize_with {
+			if let Some(deserialize_with) = attrs.deserialize_with {
 				quote! {
-					#name: #func(row, #name_str)?
+					#name: {
+						#deserialize_with(row, #name_str)
+							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
+					}
 				}
 			} else if let Some(as_type) = attrs.as_type {
 				quote! {
-					#name: <#as_type as tangram_database::sqlite::value::DeserializeAs<#field_type>>::deserialize_as(
-						row.get_ref(#name_str)?.into()
-					)?
+					#name: {
+						let value = row.get_ref(#name_str)
+							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to get column \"{}\": {error}", #name_str)))?;
+						<#as_type as tangram_database::sqlite::value::DeserializeAs<#field_type>>::deserialize_as(value.into())
+							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
+					}
 				}
 			} else if let Some(try_from) = attrs.try_from {
 				quote! {
 					#name: {
-						row.get::<_, #try_from>(#name_str)?.try_into().map_err(|e| {
-							tangram_database::sqlite::Error::other(e)
-						})?
+						let value = row.get::<_, #try_from>(#name_str)
+							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to get column \"{}\": {error}", #name_str)))?;
+						value.try_into()
+							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to convert column \"{}\": {error}", #name_str)))?
 					}
 				}
 			} else {
-				quote! { #name: row.get(#name_str)? }
+				quote! {
+					#name: {
+						row.get(#name_str)
+							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
+					}
+				}
 			}
 		})
 		.collect();
 
-	let expanded = quote! {
+	let code = quote! {
 		impl tangram_database::sqlite::row::Deserialize for #name {
 			fn deserialize(row: &rusqlite::Row) -> Result<Self, tangram_database::sqlite::Error> {
 				Ok(Self {
@@ -216,7 +238,7 @@ pub fn sqlite_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Tok
 		}
 	};
 
-	expanded.into()
+	code.into()
 }
 
 impl FieldAttrs {
