@@ -13,7 +13,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_either::Either,
 	tangram_futures::task::Task,
-	tangram_uri::Uri,
 };
 
 struct SandboxArg<'a> {
