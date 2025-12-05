@@ -24,10 +24,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the user for the token.
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::user::Id,
+			email: String,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select users.id, users.email, tokens.token
+				select users.id, users.email
 				from users
 				join tokens on tokens.user = users.id
 				where tokens.token = {p}1;
@@ -35,10 +41,13 @@ impl Server {
 		);
 		let params = db::params![token];
 		let user = connection
-			.query_optional_into::<db::row::Serde<_>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|user| user.0);
+			.map(|row| tg::user::User {
+				id: row.id,
+				email: row.email,
+			});
 
 		// Drop the database connection.
 		drop(connection);

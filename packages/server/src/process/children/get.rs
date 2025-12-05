@@ -226,10 +226,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Get the children.
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
 			child: tg::process::Id,
-			options: db::value::Json<tg::referent::Options>,
+			#[tangram_database(as = "db::value::Json<tg::referent::Options>")]
+			options: tg::referent::Options,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -244,13 +246,13 @@ impl Server {
 		);
 		let params = db::params![id.to_string(), length, position];
 		let children = connection
-			.query_all_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_all_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| tg::Referent {
-				item: row.0.child,
-				options: row.0.options.0,
+				item: row.child,
+				options: row.options,
 			})
 			.collect();
 

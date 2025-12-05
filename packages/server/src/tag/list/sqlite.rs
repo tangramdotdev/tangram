@@ -65,6 +65,13 @@ impl Server {
 			&& m.item.is_none()
 		{
 			// This is a branch tag, get its children.
+			#[derive(db::sqlite::row::Deserialize)]
+			struct Row {
+				id: u64,
+				component: String,
+				#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
+				item: Option<Either<tg::object::Id, tg::process::Id>>,
+			}
 			let statement = indoc!(
 				"
 					select id, component, item
@@ -84,21 +91,15 @@ impl Server {
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 			{
-				let id = row
-					.get::<_, u64>(0)
-					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-				let component = row
-					.get::<_, String>(1)
-					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-				let item = row
-					.get::<_, Option<String>>(2)
-					.map_err(|source| tg::error!(!source, "failed to get the item"))?
-					.map(|s| s.parse())
-					.transpose()
-					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+				let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 				let mut tag = m.tag.clone();
-				tag.push(&component);
-				let m = Match { id, tag, item };
+				tag.push(&row.component);
+				let m = Match {
+					id: row.id,
+					tag,
+					item: row.item,
+				};
 				expanded.push(m);
 			}
 			output = expanded;
@@ -136,6 +137,21 @@ impl Server {
 		pattern: &tg::tag::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<Match>> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct TagRow {
+			id: u64,
+			component: String,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
+			item: Option<Either<tg::object::Id, tg::process::Id>>,
+		}
+
+		#[derive(db::sqlite::row::Deserialize)]
+		struct TagRowNoComponent {
+			id: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
+			item: Option<Either<tg::object::Id, tg::process::Id>>,
+		}
+
 		// If the pattern is empty, return all root-level tags.
 		if pattern.is_empty() {
 			let statement = indoc!(
@@ -156,21 +172,15 @@ impl Server {
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 			{
-				let id = row
-					.get::<_, u64>(0)
-					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-				let component = row
-					.get::<_, String>(1)
-					.map_err(|source| tg::error!(!source, "failed to get the component"))?;
-				let item = row
-					.get::<_, Option<String>>(2)
-					.map_err(|source| tg::error!(!source, "failed to get the item"))?
-					.map(|s| s.parse())
-					.transpose()
-					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+				let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 				let mut tag = tg::Tag::empty();
-				tag.push(&component);
-				let m = Match { id, tag, item };
+				tag.push(&row.component);
+				let m = Match {
+					id: row.id,
+					tag,
+					item: row.item,
+				};
 				matches.push(m);
 			}
 			return Ok(matches);
@@ -199,21 +209,17 @@ impl Server {
 						.next()
 						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 					{
-						let id = row
-							.get::<_, u64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let component = row
-							.get::<_, String>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let item = row
-							.get::<_, Option<String>>(2)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+						let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
+							.map_err(|source| {
+								tg::error!(!source, "failed to deserialize the row")
+							})?;
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
-						tag.push(&component);
-						let m = Match { id, tag, item };
+						tag.push(&row.component);
+						let m = Match {
+							id: row.id,
+							tag,
+							item: row.item,
+						};
 						new.push(Some(m));
 					}
 				} else if pattern.contains(['=', '>', '<', '^']) {
@@ -235,22 +241,18 @@ impl Server {
 						.next()
 						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 					{
-						let id = row
-							.get::<_, u64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let component = row
-							.get::<_, String>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let item = row
-							.get::<_, Option<String>>(2)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
-						if tg::tag::pattern::matches(&component, pattern) {
+						let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
+							.map_err(|source| {
+								tg::error!(!source, "failed to deserialize the row")
+							})?;
+						if tg::tag::pattern::matches(&row.component, pattern) {
 							let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
-							tag.push(&component);
-							let m = Match { id, tag, item };
+							tag.push(&row.component);
+							let m = Match {
+								id: row.id,
+								tag,
+								item: row.item,
+							};
 							new.push(Some(m));
 						}
 					}
@@ -274,18 +276,18 @@ impl Server {
 						.next()
 						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 					{
-						let id = row
-							.get::<_, u64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let item = row
-							.get::<_, Option<String>>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+						let row =
+							<TagRowNoComponent as db::sqlite::row::Deserialize>::deserialize(row)
+								.map_err(|source| {
+								tg::error!(!source, "failed to deserialize the row")
+							})?;
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
 						tag.push(pattern);
-						let m = Match { id, tag, item };
+						let m = Match {
+							id: row.id,
+							tag,
+							item: row.item,
+						};
 						new.push(Some(m));
 					}
 				}
@@ -321,21 +323,17 @@ impl Server {
 						.next()
 						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 					{
-						let id = row
-							.get::<_, u64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let component = row
-							.get::<_, String>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the component"))?;
-						let item = row
-							.get::<_, Option<String>>(2)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+						let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
+							.map_err(|source| {
+								tg::error!(!source, "failed to deserialize the row")
+							})?;
 						let mut tag = m.tag.clone();
-						tag.push(&component);
-						let child = Match { id, tag, item };
+						tag.push(&row.component);
+						let child = Match {
+							id: row.id,
+							tag,
+							item: row.item,
+						};
 						output.push(child.clone());
 						to_explore.push(child);
 					}

@@ -1,6 +1,11 @@
 use bytes::Bytes;
 
-pub use self::{deserialize::Deserialize, json::Json, serde::Serde, serialize::Serialize};
+pub use self::{
+	deserialize::{Deserialize, DeserializeAs, FromStr},
+	json::Json,
+	serde::Serde,
+	serialize::Serialize,
+};
 
 pub mod deserialize;
 pub mod json;

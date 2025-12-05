@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	serde::Deserialize as _,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
@@ -173,6 +174,5 @@ fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>
 where
 	D: serde::Deserializer<'de>,
 {
-	use serde::Deserialize as _;
 	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
 }

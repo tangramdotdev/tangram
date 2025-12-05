@@ -30,6 +30,14 @@ impl Server {
 		connection: &sqlite::Connection,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Output>> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			children_complete: bool,
+			children_commands_complete: bool,
+			children_outputs_complete: bool,
+			command_complete: bool,
+			output_complete: bool,
+		}
 		let statement = indoc!(
 			"
 				select
@@ -55,17 +63,14 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let children_complete = row.get_unwrap(0);
-		let children_commands_complete = row.get_unwrap(1);
-		let children_outputs_complete = row.get_unwrap(2);
-		let command_complete = row.get_unwrap(3);
-		let output_complete = row.get_unwrap(4);
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 		let complete = Output {
-			children: children_complete,
-			children_commands: children_commands_complete,
-			children_outputs: children_outputs_complete,
-			command: command_complete,
-			output: output_complete,
+			children: row.children_complete,
+			children_commands: row.children_commands_complete,
+			children_outputs: row.children_outputs_complete,
+			command: row.command_complete,
+			output: row.output_complete,
 		};
 		Ok(Some(complete))
 	}
@@ -98,6 +103,14 @@ impl Server {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			children_complete: bool,
+			children_commands_complete: bool,
+			children_outputs_complete: bool,
+			command_complete: bool,
+			output_complete: bool,
+		}
 		let statement = indoc!(
 			"
 				select
@@ -126,17 +139,14 @@ impl Server {
 				completes.push(None);
 				continue;
 			};
-			let children_complete = row.get_unwrap(0);
-			let children_commands_complete = row.get_unwrap(1);
-			let children_outputs_complete = row.get_unwrap(2);
-			let command_complete = row.get_unwrap(3);
-			let output_complete = row.get_unwrap(4);
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 			let complete = Output {
-				children: children_complete,
-				children_commands: children_commands_complete,
-				children_outputs: children_outputs_complete,
-				command: command_complete,
-				output: output_complete,
+				children: row.children_complete,
+				children_commands: row.children_commands_complete,
+				children_outputs: row.children_outputs_complete,
+				command: row.command_complete,
+				output: row.output_complete,
 			};
 			completes.push(Some(complete));
 		}
@@ -172,6 +182,27 @@ impl Server {
 	) -> tg::Result<Vec<Option<(Output, tg::process::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
+		}
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			children_complete: u64,
+			children_count: Option<u64>,
+			children_commands_complete: u64,
+			children_commands_count: Option<u64>,
+			children_commands_depth: Option<u64>,
+			children_commands_weight: Option<u64>,
+			children_outputs_complete: u64,
+			children_outputs_count: Option<u64>,
+			children_outputs_depth: Option<u64>,
+			children_outputs_weight: Option<u64>,
+			command_complete: u64,
+			command_count: Option<u64>,
+			command_depth: Option<u64>,
+			command_weight: Option<u64>,
+			output_complete: u64,
+			output_count: Option<u64>,
+			output_depth: Option<u64>,
+			output_weight: Option<u64>,
 		}
 		let statement = indoc!(
 			"
@@ -214,53 +245,37 @@ impl Server {
 				outputs.push(None);
 				continue;
 			};
-			let children_complete = row.get_unwrap::<_, u64>(0) != 0;
-			let children_count = row.get_unwrap(1);
-			let children_commands_complete = row.get_unwrap::<_, u64>(2) != 0;
-			let children_commands_count = row.get_unwrap(3);
-			let children_commands_depth = row.get_unwrap(4);
-			let children_commands_weight = row.get_unwrap(5);
-			let children_outputs_complete = row.get_unwrap::<_, u64>(6) != 0;
-			let children_outputs_count = row.get_unwrap(7);
-			let children_outputs_depth = row.get_unwrap(8);
-			let children_outputs_weight = row.get_unwrap(9);
-			let command_complete = row.get_unwrap::<_, u64>(10) != 0;
-			let command_count = row.get_unwrap(11);
-			let command_depth = row.get_unwrap(12);
-			let command_weight = row.get_unwrap(13);
-			let output_complete = row.get_unwrap::<_, u64>(14) != 0;
-			let output_count = row.get_unwrap(15);
-			let output_depth = row.get_unwrap(16);
-			let output_weight = row.get_unwrap(17);
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 			let complete = Output {
-				children: children_complete,
-				children_commands: children_commands_complete,
-				children_outputs: children_outputs_complete,
-				command: command_complete,
-				output: output_complete,
+				children: row.children_complete != 0,
+				children_commands: row.children_commands_complete != 0,
+				children_outputs: row.children_outputs_complete != 0,
+				command: row.command_complete != 0,
+				output: row.output_complete != 0,
 			};
 			let children = tg::process::metadata::Children {
-				count: children_count,
+				count: row.children_count,
 			};
 			let command = tg::object::Metadata {
-				count: command_count,
-				depth: command_depth,
-				weight: command_weight,
+				count: row.command_count,
+				depth: row.command_depth,
+				weight: row.command_weight,
 			};
 			let children_commands = tg::object::Metadata {
-				count: children_commands_count,
-				depth: children_commands_depth,
-				weight: children_commands_weight,
+				count: row.children_commands_count,
+				depth: row.children_commands_depth,
+				weight: row.children_commands_weight,
 			};
 			let output = tg::object::Metadata {
-				count: output_count,
-				depth: output_depth,
-				weight: output_weight,
+				count: row.output_count,
+				depth: row.output_depth,
+				weight: row.output_weight,
 			};
 			let children_outputs = tg::object::Metadata {
-				count: children_outputs_count,
-				depth: children_outputs_depth,
-				weight: children_outputs_weight,
+				count: row.children_outputs_count,
+				depth: row.children_outputs_depth,
+				weight: row.children_outputs_weight,
 			};
 			let metadata = tg::process::Metadata {
 				children,
@@ -302,6 +317,27 @@ impl Server {
 		id: &tg::process::Id,
 		touched_at: i64,
 	) -> tg::Result<Option<(Output, tg::process::Metadata)>> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			children_complete: u64,
+			children_count: Option<u64>,
+			children_commands_complete: u64,
+			children_commands_count: Option<u64>,
+			children_commands_depth: Option<u64>,
+			children_commands_weight: Option<u64>,
+			children_outputs_complete: u64,
+			children_outputs_count: Option<u64>,
+			children_outputs_depth: Option<u64>,
+			children_outputs_weight: Option<u64>,
+			command_complete: u64,
+			command_count: Option<u64>,
+			command_depth: Option<u64>,
+			command_weight: Option<u64>,
+			output_complete: u64,
+			output_count: Option<u64>,
+			output_depth: Option<u64>,
+			output_weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				update processes
@@ -341,94 +377,37 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let children_complete = row
-			.get::<_, u64>(0)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let children_count = row
-			.get::<_, Option<u64>>(1)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_commands_complete = row
-			.get::<_, u64>(2)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let children_commands_count = row
-			.get::<_, Option<u64>>(3)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_commands_depth = row
-			.get::<_, Option<u64>>(4)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_commands_weight = row
-			.get::<_, Option<u64>>(5)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_outputs_complete = row
-			.get::<_, u64>(6)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let children_outputs_count = row
-			.get::<_, Option<u64>>(7)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_outputs_depth = row
-			.get::<_, Option<u64>>(8)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_outputs_weight = row
-			.get::<_, Option<u64>>(9)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_complete = row
-			.get::<_, u64>(10)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let command_count = row
-			.get::<_, Option<u64>>(11)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_depth = row
-			.get::<_, Option<u64>>(12)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_weight = row
-			.get::<_, Option<u64>>(13)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_complete = row
-			.get::<_, u64>(14)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let output_count = row
-			.get::<_, Option<u64>>(15)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_depth = row
-			.get::<_, Option<u64>>(16)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_weight = row
-			.get::<_, Option<u64>>(17)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 		let complete = Output {
-			children: children_complete,
-			children_commands: children_commands_complete,
-			children_outputs: children_outputs_complete,
-			command: command_complete,
-			output: output_complete,
+			children: row.children_complete != 0,
+			children_commands: row.children_commands_complete != 0,
+			children_outputs: row.children_outputs_complete != 0,
+			command: row.command_complete != 0,
+			output: row.output_complete != 0,
 		};
 		let children = tg::process::metadata::Children {
-			count: children_count,
+			count: row.children_count,
 		};
 		let command = tg::object::Metadata {
-			count: command_count,
-			depth: command_depth,
-			weight: command_weight,
+			count: row.command_count,
+			depth: row.command_depth,
+			weight: row.command_weight,
 		};
 		let children_commands = tg::object::Metadata {
-			count: children_commands_count,
-			depth: children_commands_depth,
-			weight: children_commands_weight,
+			count: row.children_commands_count,
+			depth: row.children_commands_depth,
+			weight: row.children_commands_weight,
 		};
 		let output = tg::object::Metadata {
-			count: output_count,
-			depth: output_depth,
-			weight: output_weight,
+			count: row.output_count,
+			depth: row.output_depth,
+			weight: row.output_weight,
 		};
 		let children_outputs = tg::object::Metadata {
-			count: children_outputs_count,
-			depth: children_outputs_depth,
-			weight: children_outputs_weight,
+			count: row.children_outputs_count,
+			depth: row.children_outputs_depth,
+			weight: row.children_outputs_weight,
 		};
 		let metadata = tg::process::Metadata {
 			children,
@@ -474,6 +453,27 @@ impl Server {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			children_complete: u64,
+			children_count: Option<u64>,
+			children_commands_complete: u64,
+			children_commands_count: Option<u64>,
+			children_commands_depth: Option<u64>,
+			children_commands_weight: Option<u64>,
+			children_outputs_complete: u64,
+			children_outputs_count: Option<u64>,
+			children_outputs_depth: Option<u64>,
+			children_outputs_weight: Option<u64>,
+			command_complete: u64,
+			command_count: Option<u64>,
+			command_depth: Option<u64>,
+			command_weight: Option<u64>,
+			output_complete: u64,
+			output_count: Option<u64>,
+			output_depth: Option<u64>,
+			output_weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				update processes
@@ -516,53 +516,37 @@ impl Server {
 				outputs.push(None);
 				continue;
 			};
-			let children_complete = row.get_unwrap::<_, u64>(0) != 0;
-			let children_count = row.get_unwrap(1);
-			let children_commands_complete = row.get_unwrap::<_, u64>(2) != 0;
-			let children_commands_count = row.get_unwrap(3);
-			let children_commands_depth = row.get_unwrap(4);
-			let children_commands_weight = row.get_unwrap(5);
-			let children_outputs_complete = row.get_unwrap::<_, u64>(6) != 0;
-			let children_outputs_count = row.get_unwrap(7);
-			let children_outputs_depth = row.get_unwrap(8);
-			let children_outputs_weight = row.get_unwrap(9);
-			let command_complete = row.get_unwrap::<_, u64>(10) != 0;
-			let command_count = row.get_unwrap(11);
-			let command_depth = row.get_unwrap(12);
-			let command_weight = row.get_unwrap(13);
-			let output_complete = row.get_unwrap::<_, u64>(14) != 0;
-			let output_count = row.get_unwrap(15);
-			let output_depth = row.get_unwrap(16);
-			let output_weight = row.get_unwrap(17);
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 			let complete = Output {
-				children: children_complete,
-				children_commands: children_commands_complete,
-				children_outputs: children_outputs_complete,
-				command: command_complete,
-				output: output_complete,
+				children: row.children_complete != 0,
+				children_commands: row.children_commands_complete != 0,
+				children_outputs: row.children_outputs_complete != 0,
+				command: row.command_complete != 0,
+				output: row.output_complete != 0,
 			};
 			let children = tg::process::metadata::Children {
-				count: children_count,
+				count: row.children_count,
 			};
 			let command = tg::object::Metadata {
-				count: command_count,
-				depth: command_depth,
-				weight: command_weight,
+				count: row.command_count,
+				depth: row.command_depth,
+				weight: row.command_weight,
 			};
 			let children_commands = tg::object::Metadata {
-				count: children_commands_count,
-				depth: children_commands_depth,
-				weight: children_commands_weight,
+				count: row.children_commands_count,
+				depth: row.children_commands_depth,
+				weight: row.children_commands_weight,
 			};
 			let output = tg::object::Metadata {
-				count: output_count,
-				depth: output_depth,
-				weight: output_weight,
+				count: row.output_count,
+				depth: row.output_depth,
+				weight: row.output_weight,
 			};
 			let children_outputs = tg::object::Metadata {
-				count: children_outputs_count,
-				depth: children_outputs_depth,
-				weight: children_outputs_weight,
+				count: row.children_outputs_count,
+				depth: row.children_outputs_depth,
+				weight: row.children_outputs_weight,
 			};
 			let metadata = tg::process::Metadata {
 				children,

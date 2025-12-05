@@ -32,8 +32,10 @@ impl Server {
 		connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 		self.remotes.remove(name);
+
 		Ok(())
 	}
 

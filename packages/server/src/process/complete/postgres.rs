@@ -2,7 +2,7 @@ use {
 	super::Output,
 	crate::Server,
 	indoc::indoc,
-	num::ToPrimitive as _,
+	itertools::Itertools as _,
 	std::{collections::HashMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -21,7 +21,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the metadata.
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			children_complete: bool,
 			children_commands_complete: bool,
@@ -43,10 +43,9 @@ impl Server {
 		);
 		let params = db::params![id.to_bytes()];
 		let output = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0)
 			.map(|row| Output {
 				children: row.children_complete,
 				children_commands: row.children_commands_complete,
@@ -73,6 +72,16 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<Vec<u8>>>")]
+			id: Option<tg::process::Id>,
+			children_complete: bool,
+			children_commands_complete: bool,
+			children_outputs_complete: bool,
+			command_complete: bool,
+			output_complete: bool,
+		}
 		let statement = indoc!(
 			"
 				select
@@ -97,24 +106,23 @@ impl Server {
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.into_iter()
+			.iter()
 			.map(|row| {
-				row.get::<_, Option<Vec<u8>>>(0)?;
-				let children_complete = row.get::<_, bool>(1);
-				let children_commands_complete = row.get::<_, bool>(2);
-				let children_outputs_complete = row.get::<_, bool>(3);
-				let command_complete = row.get::<_, bool>(4);
-				let output_complete = row.get::<_, bool>(5);
+				<Row as db::postgres::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+			})
+			.map_ok(|row| {
+				row.id?;
 				let output = Output {
-					children: children_complete,
-					children_commands: children_commands_complete,
-					children_outputs: children_outputs_complete,
-					command: command_complete,
-					output: output_complete,
+					children: row.children_complete,
+					children_commands: row.children_commands_complete,
+					children_outputs: row.children_outputs_complete,
+					command: row.command_complete,
+					output: row.output_complete,
 				};
 				Some(output)
 			})
-			.collect();
+			.collect::<tg::Result<_>>()?;
 		Ok(outputs)
 	}
 
@@ -130,6 +138,42 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::postgres::value::TryFrom<Vec<u8>>")]
+			id: tg::process::Id,
+			children_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_count: Option<u64>,
+			children_commands_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_commands_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_commands_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_commands_weight: Option<u64>,
+			children_outputs_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_outputs_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_outputs_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_outputs_weight: Option<u64>,
+			command_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			command_weight: Option<u64>,
+			output_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			output_weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				select
@@ -167,63 +211,41 @@ impl Server {
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.into_iter()
+			.iter()
 			.map(|row| {
-				let id = row.get::<_, Vec<u8>>(0);
-				let id = tg::process::Id::from_slice(&id).unwrap();
-				let children_complete = row.get::<_, bool>(1);
-				let children_count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
-				let children_commands_complete = row.get::<_, bool>(3);
-				let children_commands_count =
-					row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
-				let children_commands_depth =
-					row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
-				let children_commands_weight =
-					row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
-				let children_outputs_complete = row.get::<_, bool>(7);
-				let children_outputs_count =
-					row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
-				let children_outputs_depth =
-					row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
-				let children_outputs_weight =
-					row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
-				let command_complete = row.get::<_, bool>(11);
-				let command_count = row.get::<_, Option<i64>>(12).map(|v| v.to_u64().unwrap());
-				let command_depth = row.get::<_, Option<i64>>(13).map(|v| v.to_u64().unwrap());
-				let command_weight = row.get::<_, Option<i64>>(14).map(|v| v.to_u64().unwrap());
-				let output_complete = row.get::<_, bool>(15);
-				let output_count = row.get::<_, Option<i64>>(16).map(|v| v.to_u64().unwrap());
-				let output_depth = row.get::<_, Option<i64>>(17).map(|v| v.to_u64().unwrap());
-				let output_weight = row.get::<_, Option<i64>>(18).map(|v| v.to_u64().unwrap());
+				<Row as db::postgres::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+			})
+			.map_ok(|row| {
 				let complete = Output {
-					children: children_complete,
-					children_commands: children_commands_complete,
-					children_outputs: children_outputs_complete,
-					command: command_complete,
-					output: output_complete,
+					children: row.children_complete,
+					children_commands: row.children_commands_complete,
+					children_outputs: row.children_outputs_complete,
+					command: row.command_complete,
+					output: row.output_complete,
 				};
 				let children = tg::process::metadata::Children {
-					count: children_count,
+					count: row.children_count,
 				};
 				let command = tg::object::Metadata {
-					count: command_count,
-					depth: command_depth,
-					weight: command_weight,
+					count: row.command_count,
+					depth: row.command_depth,
+					weight: row.command_weight,
 				};
 				let children_commands = tg::object::Metadata {
-					count: children_commands_count,
-					depth: children_commands_depth,
-					weight: children_commands_weight,
+					count: row.children_commands_count,
+					depth: row.children_commands_depth,
+					weight: row.children_commands_weight,
 				};
 				let output = tg::object::Metadata {
-					count: output_count,
-					depth: output_depth,
-					weight: output_weight,
+					count: row.output_count,
+					depth: row.output_depth,
+					weight: row.output_weight,
 				};
 				let children_outputs = tg::object::Metadata {
-					count: children_outputs_count,
-					depth: children_outputs_depth,
-					weight: children_outputs_weight,
+					count: row.children_outputs_count,
+					depth: row.children_outputs_depth,
+					weight: row.children_outputs_weight,
 				};
 				let metadata = tg::process::Metadata {
 					children,
@@ -232,9 +254,9 @@ impl Server {
 					command,
 					output,
 				};
-				(id, (complete, metadata))
+				(row.id, (complete, metadata))
 			})
-			.collect::<HashMap<_, _, tg::id::BuildHasher>>();
+			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
 		Ok(output)
 	}
@@ -251,7 +273,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			children_complete: bool,
 			children_count: Option<u64>,
@@ -300,10 +322,9 @@ impl Server {
 		);
 		let params = db::params![touched_at, id.to_bytes()];
 		let row = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0);
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -380,6 +401,42 @@ impl Server {
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::postgres::value::TryFrom<Vec<u8>>")]
+			id: tg::process::Id,
+			children_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_count: Option<u64>,
+			children_commands_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_commands_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_commands_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_commands_weight: Option<u64>,
+			children_outputs_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_outputs_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_outputs_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			children_outputs_weight: Option<u64>,
+			command_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			command_weight: Option<u64>,
+			output_complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			output_weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				with locked as (
@@ -439,63 +496,41 @@ impl Server {
 			},
 		};
 		let output = output
-			.into_iter()
+			.iter()
 			.map(|row| {
-				let id = row.get::<_, Vec<u8>>(0);
-				let id = tg::process::Id::from_slice(&id).unwrap();
-				let children_complete = row.get::<_, bool>(1);
-				let children_count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
-				let children_commands_complete = row.get::<_, bool>(3);
-				let children_commands_count =
-					row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
-				let children_commands_depth =
-					row.get::<_, Option<i64>>(5).map(|v| v.to_u64().unwrap());
-				let children_commands_weight =
-					row.get::<_, Option<i64>>(6).map(|v| v.to_u64().unwrap());
-				let children_outputs_complete = row.get::<_, bool>(7);
-				let children_outputs_count =
-					row.get::<_, Option<i64>>(8).map(|v| v.to_u64().unwrap());
-				let children_outputs_depth =
-					row.get::<_, Option<i64>>(9).map(|v| v.to_u64().unwrap());
-				let children_outputs_weight =
-					row.get::<_, Option<i64>>(10).map(|v| v.to_u64().unwrap());
-				let command_complete = row.get::<_, bool>(11);
-				let command_count = row.get::<_, Option<i64>>(12).map(|v| v.to_u64().unwrap());
-				let command_depth = row.get::<_, Option<i64>>(13).map(|v| v.to_u64().unwrap());
-				let command_weight = row.get::<_, Option<i64>>(14).map(|v| v.to_u64().unwrap());
-				let output_complete = row.get::<_, bool>(15);
-				let output_count = row.get::<_, Option<i64>>(16).map(|v| v.to_u64().unwrap());
-				let output_depth = row.get::<_, Option<i64>>(17).map(|v| v.to_u64().unwrap());
-				let output_weight = row.get::<_, Option<i64>>(18).map(|v| v.to_u64().unwrap());
+				<Row as db::postgres::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+			})
+			.map_ok(|row| {
 				let complete = Output {
-					children: children_complete,
-					children_commands: children_commands_complete,
-					children_outputs: children_outputs_complete,
-					command: command_complete,
-					output: output_complete,
+					children: row.children_complete,
+					children_commands: row.children_commands_complete,
+					children_outputs: row.children_outputs_complete,
+					command: row.command_complete,
+					output: row.output_complete,
 				};
 				let children = tg::process::metadata::Children {
-					count: children_count,
+					count: row.children_count,
 				};
 				let command = tg::object::Metadata {
-					count: command_count,
-					depth: command_depth,
-					weight: command_weight,
+					count: row.command_count,
+					depth: row.command_depth,
+					weight: row.command_weight,
 				};
 				let children_commands = tg::object::Metadata {
-					count: children_commands_count,
-					depth: children_commands_depth,
-					weight: children_commands_weight,
+					count: row.children_commands_count,
+					depth: row.children_commands_depth,
+					weight: row.children_commands_weight,
 				};
 				let output = tg::object::Metadata {
-					count: output_count,
-					depth: output_depth,
-					weight: output_weight,
+					count: row.output_count,
+					depth: row.output_depth,
+					weight: row.output_weight,
 				};
 				let children_outputs = tg::object::Metadata {
-					count: children_outputs_count,
-					depth: children_outputs_depth,
-					weight: children_outputs_weight,
+					count: row.children_outputs_count,
+					depth: row.children_outputs_depth,
+					weight: row.children_outputs_weight,
 				};
 				let metadata = tg::process::Metadata {
 					children,
@@ -504,9 +539,9 @@ impl Server {
 					command,
 					output,
 				};
-				(id, (complete, metadata))
+				(row.id, (complete, metadata))
 			})
-			.collect::<HashMap<_, _, tg::id::BuildHasher>>();
+			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
 		Ok(ControlFlow::Break(output))
 	}

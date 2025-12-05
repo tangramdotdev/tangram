@@ -116,7 +116,7 @@ impl Server {
 				&[
 					&id.to_string(),
 					&arg.data.actual_checksum.as_ref().map(ToString::to_string),
-					&i64::from(arg.data.cacheable),
+					&arg.data.cacheable,
 					&arg.data.command.to_string(),
 					&arg.data.created_at,
 					&arg.data.dequeued_at,
@@ -141,12 +141,12 @@ impl Server {
 						.map(|log| serde_json::to_string(&log).unwrap()),
 					&(!arg.data.mounts.is_empty())
 						.then(|| serde_json::to_string(&arg.data.mounts).unwrap()),
-					&i64::from(arg.data.network),
+					&arg.data.network,
 					&arg.data
 						.output
 						.as_ref()
 						.map(|error| serde_json::to_string(error).unwrap()),
-					&i64::from(arg.data.retry),
+					&arg.data.retry,
 					&arg.data.started_at,
 					&arg.data.status.to_string(),
 					&arg.data.stderr.as_ref().map(ToString::to_string),
@@ -166,10 +166,10 @@ impl Server {
 			let positions: Vec<i64> = (0..children.len().to_i64().unwrap()).collect();
 			let statement = indoc!(
 				"
-						insert into process_children (process, position, child, options)
-						select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[])
-						on conflict (process, child) do nothing;
-					"
+					insert into process_children (process, position, child, options)
+					select $1, unnest($2::int8[]), unnest($3::text[]), unnest($4::text[])
+					on conflict (process, child) do nothing;
+				"
 			);
 			transaction
 				.execute(

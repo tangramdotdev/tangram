@@ -72,6 +72,12 @@ impl Server {
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			#[derive(db::sqlite::row::Deserialize)]
+			struct Row {
+				id: u64,
+				item: Option<String>,
+			}
 			let statement = indoc!(
 				"
 					select id, item
@@ -90,12 +96,12 @@ impl Server {
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
 				.ok_or_else(|| tg::error!("expected a row"))?;
-			let id = row.get_unwrap::<_, u64>(0);
-			let item = row.get_unwrap::<_, Option<String>>(1);
-			if item.is_some() {
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+			if row.item.is_some() {
 				return Err(tg::error!(%ancestor, "found existing tag"));
 			}
-			parent = id;
+			parent = row.id;
 		}
 
 		// Ensure there is no branch for the leaf.

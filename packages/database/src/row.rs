@@ -1,10 +1,8 @@
 use {crate::Value, indexmap::IndexMap, tangram_either::Either};
 
-pub use self::{deserialize::Deserialize, serde::Serde, serialize::Serialize};
+pub use self::deserialize::Deserialize;
 
 pub mod deserialize;
-pub mod serde;
-pub mod serialize;
 
 #[derive(Clone, Debug)]
 pub struct Row {

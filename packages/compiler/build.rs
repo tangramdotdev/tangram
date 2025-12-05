@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 
@@ -11,7 +9,7 @@ fn main() {
 }
 
 mod library {
-	use super::{Path, PathBuf};
+	use std::path::{Path, PathBuf};
 
 	pub fn build() {
 		// Get the out dir path.
@@ -81,7 +79,7 @@ mod library {
 
 #[cfg(feature = "typescript")]
 mod typescript {
-	use super::{Path, PathBuf};
+	use std::path::{Path, PathBuf};
 
 	pub fn build() {
 		// Get the out dir path.

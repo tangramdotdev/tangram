@@ -51,9 +51,11 @@ impl Server {
 		let p = connection.p();
 
 		// Get processes to finish.
-		#[derive(Debug, serde::Deserialize)]
+		#[derive(Debug, db::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::process::Id,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
 			code: Option<tg::error::Code>,
 			message: String,
 		}
@@ -83,12 +85,9 @@ impl Server {
 		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
 		let params = db::params![max_depth, max_heartbeat_at, config.batch_size];
 		let rows = connection
-			.query_all_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_all_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.into_iter()
-			.map(|row| row.0)
-			.collect::<Vec<_>>();
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);

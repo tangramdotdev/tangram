@@ -1,5 +1,6 @@
 use {
 	crate::prelude::*,
+	serde::Deserialize as _,
 	std::path::PathBuf,
 	tangram_util::serde::{is_false, is_true, return_true},
 };
@@ -126,6 +127,5 @@ fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>
 where
 	D: serde::Deserializer<'de>,
 {
-	use serde::Deserialize as _;
 	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
 }

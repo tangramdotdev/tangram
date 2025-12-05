@@ -1,8 +1,5 @@
 use {
-	crate::{
-		Row, Value,
-		pool::{self, Pool},
-	},
+	crate::pool::{self, Pool},
 	futures::{Stream, TryStreamExt as _, future},
 	indexmap::IndexMap,
 	std::{borrow::Cow, collections::HashMap},
@@ -12,7 +9,9 @@ use {
 
 pub use postgres::types::Json;
 
+pub mod row;
 pub mod util;
+pub mod value;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
@@ -222,7 +221,7 @@ impl super::Query for Connection {
 	async fn execute(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
+		params: Vec<super::Value>,
 	) -> Result<u64, Self::Error> {
 		execute(&self.client, &self.cache, statement, params).await
 	}
@@ -230,8 +229,8 @@ impl super::Query for Connection {
 	async fn query(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error> {
 		query(&self.client, &self.cache, statement, params).await
 	}
 }
@@ -246,7 +245,7 @@ impl super::Query for pool::Guard<Connection> {
 	fn execute(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
+		params: Vec<super::Value>,
 	) -> impl Future<Output = Result<u64, Self::Error>> {
 		self.as_ref().execute(statement, params)
 	}
@@ -254,9 +253,10 @@ impl super::Query for pool::Guard<Connection> {
 	fn query(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
-	{
+		params: Vec<super::Value>,
+	) -> impl Future<
+		Output = Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error>,
+	> {
 		self.as_ref().query(statement, params)
 	}
 }
@@ -271,7 +271,7 @@ impl super::Query for Transaction<'_> {
 	async fn execute(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
+		params: Vec<super::Value>,
 	) -> Result<u64, Self::Error> {
 		execute(&self.transaction, self.cache, statement, params).await
 	}
@@ -279,8 +279,8 @@ impl super::Query for Transaction<'_> {
 	async fn query(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error> {
 		query(&self.transaction, self.cache, statement, params).await
 	}
 }
@@ -302,7 +302,7 @@ async fn execute(
 	client: &impl postgres::GenericClient,
 	cache: &Cache,
 	statement: Cow<'static, str>,
-	params: Vec<Value>,
+	params: Vec<super::Value>,
 ) -> Result<u64, Error> {
 	let statement = cache.get(client, statement).await?;
 	let params = &params
@@ -317,8 +317,8 @@ async fn query(
 	client: &impl postgres::GenericClient,
 	cache: &Cache,
 	statement: Cow<'static, str>,
-	params: Vec<Value>,
-) -> Result<impl Stream<Item = Result<Row, Error>> + Send, Error> {
+	params: Vec<super::Value>,
+) -> Result<impl Stream<Item = Result<super::Row, Error>> + Send, Error> {
 	let statement = cache.get(client, statement).await?;
 	let rows = client.query_raw(&statement, params).await?;
 	let rows = rows
@@ -326,17 +326,17 @@ async fn query(
 			let mut entries = IndexMap::with_capacity(row.columns().len());
 			for (i, column) in row.columns().iter().enumerate() {
 				let name = column.name().to_owned();
-				let value = row.get::<_, Value>(i);
+				let value = row.get::<_, super::Value>(i);
 				entries.insert(name, value);
 			}
-			let row = Row::with_entries(entries);
+			let row = super::Row::with_entries(entries);
 			future::ready(Ok(row))
 		})
 		.err_into();
 	Ok(rows)
 }
 
-impl postgres::types::ToSql for Value {
+impl postgres::types::ToSql for super::Value {
 	fn to_sql(
 		&self,
 		ty: &postgres::types::Type,
@@ -346,11 +346,11 @@ impl postgres::types::ToSql for Value {
 		Self: Sized,
 	{
 		match self {
-			Value::Null => Ok(postgres::types::IsNull::Yes),
-			Value::Integer(value) => value.to_sql(ty, out),
-			Value::Real(value) => value.to_sql(ty, out),
-			Value::Text(value) => value.to_sql(ty, out),
-			Value::Blob(value) => value.as_ref().to_sql(ty, out),
+			super::Value::Null => Ok(postgres::types::IsNull::Yes),
+			super::Value::Integer(value) => value.to_sql(ty, out),
+			super::Value::Real(value) => value.to_sql(ty, out),
+			super::Value::Text(value) => value.to_sql(ty, out),
+			super::Value::Blob(value) => value.as_ref().to_sql(ty, out),
 		}
 	}
 
@@ -359,7 +359,7 @@ impl postgres::types::ToSql for Value {
 	postgres::types::to_sql_checked!();
 }
 
-impl<'a> postgres::types::FromSql<'a> for Value {
+impl<'a> postgres::types::FromSql<'a> for super::Value {
 	fn from_sql(
 		ty: &postgres::types::Type,
 		raw: &'a [u8],

@@ -61,6 +61,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the object metadata.
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -71,10 +77,14 @@ impl Server {
 		);
 		let params = db::params![id.to_bytes()];
 		let output = connection
-			.query_optional_into::<db::row::Serde<tg::object::Metadata>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0);
+			.map(|row| tg::object::Metadata {
+				count: row.count,
+				depth: row.depth,
+				weight: row.weight,
+			});
 
 		// Drop the connection.
 		drop(connection);
@@ -104,6 +114,12 @@ impl Server {
 		connection: &sqlite::Connection,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				select count, depth, weight
@@ -123,19 +139,12 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let count = row
-			.get::<_, Option<u64>>(0)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let depth = row
-			.get::<_, Option<u64>>(1)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let weight = row
-			.get::<_, Option<u64>>(2)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 		let metadata = tg::object::Metadata {
-			count,
-			depth,
-			weight,
+			count: row.count,
+			depth: row.depth,
+			weight: row.weight,
 		};
 		Ok(Some(metadata))
 	}

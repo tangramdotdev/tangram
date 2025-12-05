@@ -5,6 +5,7 @@ use {
 	std::{collections::HashMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_util::iter::TryExt as _,
 };
 
 impl Server {
@@ -51,6 +52,12 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<Vec<u8>>>")]
+			id: Option<tg::object::Id>,
+			complete: bool,
+		}
 		let statement = indoc!(
 			"
 				select
@@ -71,11 +78,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| {
-				row.get::<_, Option<Vec<u8>>>(0)?;
-				let complete = row.get::<_, bool>(1);
-				Some(complete)
+				<Row as db::postgres::row::Deserialize>::deserialize(&row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
 			})
-			.collect();
+			.and_then(|row| Ok(row.id.is_some().then_some(row.complete)))
+			.collect::<tg::Result<_>>()?;
 		Ok(outputs)
 	}
 
@@ -91,6 +98,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
 		// Get the object complete flag and metadata.
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			complete: bool,
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				select complete, count, depth, weight
@@ -98,19 +112,11 @@ impl Server {
 				where id = $1;
 			",
 		);
-		#[derive(serde::Deserialize)]
-		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
-		}
 		let params = db::params![id.to_bytes()];
 		let output = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0);
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -139,6 +145,18 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			#[tangram_database(try_from = "Vec<u8>")]
+			id: tg::object::Id,
+			complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				select objects.id, complete, count, depth, weight
@@ -159,20 +177,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| {
-				let id = row.get::<_, Vec<u8>>(0);
-				let id = tg::object::Id::from_slice(&id).unwrap();
-				let complete = row.get::<_, bool>(1);
-				let count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
-				let depth = row.get::<_, Option<i64>>(3).map(|v| v.to_u64().unwrap());
-				let weight = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
+				let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 				let metadata = tg::object::Metadata {
-					count,
-					depth,
-					weight,
+					count: row.count.map(|v| v.to_u64().unwrap()),
+					depth: row.depth.map(|v| v.to_u64().unwrap()),
+					weight: row.weight.map(|v| v.to_u64().unwrap()),
 				};
-				(id, (complete, metadata))
+				Ok((row.id, (row.complete, metadata)))
 			})
-			.collect::<HashMap<_, _, tg::id::BuildHasher>>();
+			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
 		Ok(output)
 	}
@@ -189,6 +203,13 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			complete: bool,
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				update objects
@@ -197,19 +218,11 @@ impl Server {
 				returning complete, count, depth, weight;
 			",
 		);
-		#[derive(serde::Deserialize)]
-		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
-		}
 		let params = db::params![touched_at, id.to_bytes()];
 		let output = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0);
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -254,6 +267,18 @@ impl Server {
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			#[tangram_database(try_from = "Vec<u8>")]
+			id: tg::object::Id,
+			complete: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				with locked as (
@@ -296,20 +321,16 @@ impl Server {
 		let output = output
 			.into_iter()
 			.map(|row| {
-				let id = row.get::<_, Vec<u8>>(0);
-				let id = tg::object::Id::from_slice(&id).unwrap();
-				let complete = row.get::<_, bool>(1);
-				let count = row.get::<_, Option<i64>>(2).map(|v| v.to_u64().unwrap());
-				let depth = row.get::<_, Option<i64>>(3).map(|v| v.to_u64().unwrap());
-				let weight = row.get::<_, Option<i64>>(4).map(|v| v.to_u64().unwrap());
+				let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 				let metadata = tg::object::Metadata {
-					count,
-					depth,
-					weight,
+					count: row.count.map(|v| v.to_u64().unwrap()),
+					depth: row.depth.map(|v| v.to_u64().unwrap()),
+					weight: row.weight.map(|v| v.to_u64().unwrap()),
 				};
-				(id, (complete, metadata))
+				Ok((row.id, (row.complete, metadata)))
 			})
-			.collect::<HashMap<_, _, tg::id::BuildHasher>>();
+			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
 		Ok(ControlFlow::Break(output))
 	}

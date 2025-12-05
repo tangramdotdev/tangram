@@ -25,6 +25,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Clean.
+		#[allow(clippy::struct_field_names)]
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Vec<db::postgres::value::TryFrom<Vec<u8>>>")]
+			deleted_cache_entries: Vec<tg::artifact::Id>,
+			#[tangram_database(as = "Vec<db::postgres::value::TryFrom<Vec<u8>>>")]
+			deleted_objects: Vec<tg::object::Id>,
+			#[tangram_database(as = "Vec<db::postgres::value::TryFrom<Vec<u8>>>")]
+			deleted_processes: Vec<tg::process::Id>,
+		}
 		let statement = "call clean($1, $2, null, null, null);";
 		let row = transaction
 			.inner()
@@ -33,24 +43,8 @@ impl Server {
 			.map_err(|source| {
 				tg::error!(!source, "failed to call clean_cache_entries procedure")
 			})?;
-		let cache_entries = row
-			.get::<_, Vec<Vec<u8>>>(0)
-			.into_iter()
-			.map(|bytes| tg::artifact::Id::from_slice(&bytes))
-			.collect::<Result<Vec<_>, _>>()
-			.map_err(|source| tg::error!(!source, "failed to parse artifact ids"))?;
-		let objects = row
-			.get::<_, Vec<Vec<u8>>>(1)
-			.into_iter()
-			.map(|bytes| tg::object::Id::from_slice(&bytes))
-			.collect::<Result<Vec<_>, _>>()
-			.map_err(|source| tg::error!(!source, "failed to parse objects ids"))?;
-		let processes = row
-			.get::<_, Vec<Vec<u8>>>(2)
-			.into_iter()
-			.map(|bytes| tg::process::Id::from_slice(&bytes))
-			.collect::<Result<Vec<_>, _>>()
-			.map_err(|source| tg::error!(!source, "failed to parse process ids"))?;
+		let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 
 		transaction
 			.commit()
@@ -60,9 +54,9 @@ impl Server {
 		drop(connection);
 
 		let output = InnerOutput {
-			cache_entries,
-			objects,
-			processes,
+			cache_entries: row.deleted_cache_entries,
+			objects: row.deleted_objects,
+			processes: row.deleted_processes,
 		};
 
 		Ok(output)

@@ -229,6 +229,20 @@ where
 	}
 }
 
+impl<L, R> std::convert::TryFrom<String> for Either<L, R>
+where
+	L: std::convert::TryFrom<String>,
+	R: std::convert::TryFrom<String>,
+{
+	type Error = Either<L::Error, R::Error>;
+
+	fn try_from(s: String) -> Result<Self, Self::Error> {
+		L::try_from(s.clone())
+			.map(Either::Left)
+			.or_else(|_| R::try_from(s).map(Either::Right).map_err(Either::Right))
+	}
+}
+
 impl<L, R> tangram_serialize::Serialize for Either<L, R>
 where
 	L: tangram_serialize::Serialize,

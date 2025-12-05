@@ -85,6 +85,14 @@ impl std::str::FromStr for Id {
 	}
 }
 
+impl TryFrom<String> for Id {
+	type Error = tg::Error;
+
+	fn try_from(value: String) -> tg::Result<Self> {
+		value.parse()
+	}
+}
+
 impl From<Id> for crate::Id {
 	fn from(value: Id) -> Self {
 		match value {
@@ -128,5 +136,13 @@ impl TryFrom<tg::object::Id> for Id {
 			tg::object::Id::Symlink(value) => Ok(value.into()),
 			value => Err(tg::error!(%value, "expected an artifact ID")),
 		}
+	}
+}
+
+impl TryFrom<Vec<u8>> for Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Vec<u8>) -> tg::Result<Self> {
+		Self::from_slice(&value)
 	}
 }

@@ -79,7 +79,7 @@ impl vfs::Provider for Provider {
 			tracing::error!(%error, "failed to get database a connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			id: u64,
 		}
@@ -93,13 +93,12 @@ impl vfs::Provider for Provider {
 		);
 		let params = db::params![parent, name];
 		let row = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, %parent, %name, "failed to get node data from database");
 				std::io::Error::from_raw_os_error(libc::EIO)
-			})?
-			.map(|row| row.0);
+			})?;
 		drop(connection);
 		if let Some(Row { id }) = row {
 			return Ok(Some(id));
@@ -160,7 +159,7 @@ impl vfs::Provider for Provider {
 			tracing::error!(%error, "failed to get database a connection");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			parent: u64,
 		}
@@ -174,13 +173,12 @@ impl vfs::Provider for Provider {
 		);
 		let params = db::params![id];
 		let row = connection
-			.query_one_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, %id, "failed to get node parent from database");
 				std::io::Error::from_raw_os_error(libc::EIO)
-			})?
-			.0;
+			})?;
 		Ok(row.parent)
 	}
 
@@ -521,9 +519,10 @@ impl Provider {
 		})?;
 
 		// Get the node from the database.
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			parent: u64,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
 			artifact: Option<tg::artifact::Id>,
 			depth: u64,
 		}
@@ -537,13 +536,12 @@ impl Provider {
 		);
 		let params = db::params![id];
 		let row = connection
-			.query_one_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| {
 				tracing::error!(%error, %id, "failed to get the node data from the database");
 				std::io::Error::from_raw_os_error(libc::EIO)
-			})?
-			.0;
+			})?;
 
 		// Create the node.
 		let parent = row.parent;

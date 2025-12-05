@@ -22,9 +22,10 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
-			size: db::value::Json<tg::pty::Size>,
+			#[tangram_database(as = "db::value::Json<tg::pty::Size>")]
+			size: tg::pty::Size,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
@@ -36,14 +37,13 @@ impl Server {
 		);
 		let params = db::params![id.to_string()];
 		let Some(row) = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the query"))?
-			.map(|row| row.0)
 		else {
 			return Ok(None);
 		};
-		Ok(Some(row.size.0))
+		Ok(Some(row.size))
 	}
 
 	pub(crate) async fn handle_get_pty_size_request(

@@ -57,8 +57,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();
-		#[derive(Clone, serde::Deserialize)]
+		#[derive(Clone, db::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
 			child: tg::process::Id,
 			token: Option<String>,
 		}
@@ -72,12 +73,9 @@ impl Server {
 		);
 		let params = db::params![id.to_string()];
 		let children = connection
-			.query_all_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_all_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.into_iter()
-			.map(|row| row.0)
-			.collect::<Vec<_>>();
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 
 		// Cancel the children.

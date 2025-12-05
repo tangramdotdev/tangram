@@ -235,8 +235,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use indoc::indoc;
+	use {super::*, indoc::indoc};
 
 	#[test]
 	fn test() {

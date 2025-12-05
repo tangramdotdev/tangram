@@ -1,5 +1,6 @@
-use {self::batches::Batches, tangram_either::Either};
+use {self::and_then::AndThen, self::batches::Batches, tangram_either::Either};
 
+mod and_then;
 mod batches;
 
 pub trait Ext: Iterator {
@@ -35,3 +36,15 @@ pub trait Ext: Iterator {
 }
 
 impl<T> Ext for T where T: Iterator + ?Sized {}
+
+pub trait TryExt<T, E>: Iterator<Item = Result<T, E>> {
+	fn and_then<U, F>(self, f: F) -> AndThen<Self, F>
+	where
+		F: FnMut(T) -> Result<U, E>,
+		Self: Sized,
+	{
+		AndThen::new(self, f)
+	}
+}
+
+impl<I, T, E> TryExt<T, E> for I where I: Iterator<Item = Result<T, E>> {}

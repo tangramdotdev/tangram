@@ -270,6 +270,14 @@ impl std::str::FromStr for Id {
 	}
 }
 
+impl TryFrom<String> for Id {
+	type Error = tg::Error;
+
+	fn try_from(value: String) -> tg::Result<Self> {
+		value.parse()
+	}
+}
+
 impl std::fmt::Display for Kind {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let kind = match self {

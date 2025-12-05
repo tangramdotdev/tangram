@@ -114,10 +114,26 @@ impl TryFrom<crate::Id> for self::Id {
 	}
 }
 
+impl TryFrom<Vec<u8>> for Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Vec<u8>) -> tg::Result<Self> {
+		Self::from_slice(&value)
+	}
+}
+
 impl std::str::FromStr for Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		crate::Id::from_str(s)?.try_into()
+	}
+}
+
+impl TryFrom<String> for Id {
+	type Error = tg::Error;
+
+	fn try_from(value: String) -> tg::Result<Self> {
+		value.parse()
 	}
 }

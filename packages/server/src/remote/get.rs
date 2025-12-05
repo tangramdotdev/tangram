@@ -22,9 +22,10 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		#[derive(Debug, serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
+			#[tangram_database(as = "db::value::FromStr")]
 			url: Uri,
 		}
 		let p = connection.p();
@@ -37,10 +38,9 @@ impl Server {
 		);
 		let params = db::params![&name];
 		let row = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statemtent"))?
-			.map(|row| row.0);
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let output = row.map(|row| tg::remote::get::Output {
 			name: row.name,
 			url: row.url,

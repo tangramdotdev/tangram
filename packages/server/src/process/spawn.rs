@@ -233,11 +233,14 @@ impl Server {
 		let p = transaction.p();
 
 		// Attempt to get a matching process.
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::process::Id,
-			error: Option<db::value::Json<tg::Error>>,
+			#[tangram_database(as = "Option<db::value::Json<tg::Error>>")]
+			error: Option<tg::Error>,
 			exit: Option<u8>,
+			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::process::Status,
 		}
 		let params = match &transaction {
@@ -266,7 +269,7 @@ impl Server {
 				from processes, params
 				where
 					processes.command = params.command and
-					processes.cacheable = 1 and
+					processes.cacheable = true and
 					processes.expected_checksum {is} params.checksum and
 					processes.error_code {isnt} 'cancellation' and
 					processes.error_code {isnt} 'heartbeat_expiration'
@@ -284,10 +287,9 @@ impl Server {
 			exit,
 			status,
 		}) = transaction
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0)
 		else {
 			return Ok(None);
 		};
@@ -354,11 +356,14 @@ impl Server {
 		};
 
 		// Attempt to get a process.
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::process::Id,
+			#[tangram_database(as = "db::value::FromStr")]
 			actual_checksum: tg::Checksum,
-			output: Option<db::value::Json<tg::value::Data>>,
+			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
+			output: Option<tg::value::Data>,
 		}
 		let params = match &transaction {
 			database::Transaction::Sqlite(_) => {
@@ -381,7 +386,7 @@ impl Server {
 				from processes, params
 				where
 					processes.command = params.command and
-					processes.cacheable = 1 and
+					processes.cacheable = true and
 					processes.error_code {is} 'checksum_mismatch' and
 					processes.actual_checksum is not null and
 					split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1)
@@ -395,10 +400,9 @@ impl Server {
 			actual_checksum,
 			output,
 		}) = transaction
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0)
 		else {
 			return Ok(None);
 		};
@@ -541,7 +545,7 @@ impl Server {
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
-			output,
+			output.map(db::value::Json),
 			arg.retry,
 			status.to_string(),
 			0,
@@ -902,6 +906,11 @@ impl Server {
 			// Process each child to find and update its parents.
 			for child_id in &current_ids {
 				// Find parents of this child and their max child depth.
+				#[derive(db::row::Deserialize)]
+				struct Parent {
+					process: String,
+					max_child_depth: Option<i64>,
+				}
 				let statement = indoc!(
 					"
 						select process_children.process, max(processes.depth) as max_child_depth
@@ -912,20 +921,10 @@ impl Server {
 					"
 				);
 				let params = db::params![child_id.clone()];
-
-				#[derive(serde::Deserialize, Debug)]
-				struct Parent {
-					process: String,
-					max_child_depth: Option<i64>,
-				}
-
 				let parents: Vec<Parent> = transaction
-					.query_all_into::<db::row::Serde<Parent>>(statement.into(), params)
+					.query_all_into::<Parent>(statement.into(), params)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to query parent depths"))?
-					.into_iter()
-					.map(|row| row.0)
-					.collect();
+					.map_err(|source| tg::error!(!source, "failed to query parent depths"))?;
 
 				// Update each parent's depth if needed.
 				for parent in parents {

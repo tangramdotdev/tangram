@@ -53,3 +53,11 @@ impl std::str::FromStr for Id {
 		crate::Id::from_str(s)?.try_into()
 	}
 }
+
+impl TryFrom<String> for Id {
+	type Error = tg::Error;
+
+	fn try_from(value: String) -> tg::Result<Self> {
+		value.parse()
+	}
+}

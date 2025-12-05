@@ -63,7 +63,7 @@ impl Server {
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			#[derive(serde::Deserialize)]
+			#[derive(db::row::Deserialize)]
 			struct Row {
 				id: u64,
 				item: Option<String>,
@@ -77,7 +77,7 @@ impl Server {
 			);
 			let params = db::params![parent, component.to_string()];
 			let row = transaction
-				.query_one_into::<db::row::Serde<Row>>(statement.into(), params)
+				.query_one_into::<Row>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			if row.item.is_some() {

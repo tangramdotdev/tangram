@@ -1,6 +1,6 @@
 use crate::{
 	Value,
-	value::{Deserialize, Serialize},
+	value::{Deserialize, DeserializeAs, Serialize},
 };
 #[cfg(feature = "sqlite")]
 use rusqlite as sqlite;
@@ -31,7 +31,7 @@ where
 	where
 		D: serde::Deserializer<'de>,
 	{
-		let json = String::deserialize(deserializer)?;
+		let json = <String as serde::Deserialize>::deserialize(deserializer)?;
 		let value = serde_json::from_str(&json).map_err(serde::de::Error::custom)?;
 		Ok(Self(value))
 	}
@@ -57,6 +57,19 @@ where
 		let json = value.try_unwrap_text()?;
 		let value = serde_json::from_str(&json)?;
 		Ok(Self(value))
+	}
+}
+
+impl<T> DeserializeAs<T> for Json<T>
+where
+	T: serde::de::DeserializeOwned,
+{
+	fn deserialize_as(
+		value: Value,
+	) -> Result<T, Box<dyn std::error::Error + Send + Sync + 'static>> {
+		let json = value.try_unwrap_text()?;
+		let value = serde_json::from_str(&json)?;
+		Ok(value)
 	}
 }
 

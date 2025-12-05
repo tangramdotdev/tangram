@@ -62,7 +62,7 @@ impl Server {
 
 		// Get the process metadata.
 		let p = connection.p();
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			children_count: Option<u64>,
 			command_count: Option<u64>,
@@ -100,10 +100,9 @@ impl Server {
 		);
 		let params = db::params![id.to_bytes()];
 		let output = connection
-			.query_optional_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|row| row.0)
 			.map(|row| {
 				let children = tg::process::metadata::Children {
 					count: row.children_count,
@@ -165,6 +164,22 @@ impl Server {
 		connection: &sqlite::Connection,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			children_count: Option<u64>,
+			command_count: Option<u64>,
+			command_depth: Option<u64>,
+			command_weight: Option<u64>,
+			children_commands_count: Option<u64>,
+			children_commands_depth: Option<u64>,
+			children_commands_weight: Option<u64>,
+			children_outputs_count: Option<u64>,
+			children_outputs_depth: Option<u64>,
+			children_outputs_weight: Option<u64>,
+			output_count: Option<u64>,
+			output_depth: Option<u64>,
+			output_weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				select
@@ -197,67 +212,30 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let children_count = row
-			.get::<_, Option<u64>>(0)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_count = row
-			.get::<_, Option<u64>>(1)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_depth = row
-			.get::<_, Option<u64>>(2)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let command_weight = row
-			.get::<_, Option<u64>>(3)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_commands_count = row
-			.get::<_, Option<u64>>(4)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_commands_depth = row
-			.get::<_, Option<u64>>(5)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_commands_weight = row
-			.get::<_, Option<u64>>(6)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_outputs_count = row
-			.get::<_, Option<u64>>(7)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_outputs_depth = row
-			.get::<_, Option<u64>>(8)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let children_outputs_weight = row
-			.get::<_, Option<u64>>(9)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_count = row
-			.get::<_, Option<u64>>(10)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_depth = row
-			.get::<_, Option<u64>>(11)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let output_weight = row
-			.get::<_, Option<u64>>(12)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 		let children = tg::process::metadata::Children {
-			count: children_count,
+			count: row.children_count,
 		};
 		let command = tg::object::Metadata {
-			count: command_count,
-			depth: command_depth,
-			weight: command_weight,
+			count: row.command_count,
+			depth: row.command_depth,
+			weight: row.command_weight,
 		};
 		let children_commands = tg::object::Metadata {
-			count: children_commands_count,
-			depth: children_commands_depth,
-			weight: children_commands_weight,
+			count: row.children_commands_count,
+			depth: row.children_commands_depth,
+			weight: row.children_commands_weight,
 		};
 		let output = tg::object::Metadata {
-			count: output_count,
-			depth: output_depth,
-			weight: output_weight,
+			count: row.output_count,
+			depth: row.output_depth,
+			weight: row.output_weight,
 		};
 		let children_outputs = tg::object::Metadata {
-			count: children_outputs_count,
-			depth: children_outputs_depth,
-			weight: children_outputs_weight,
+			count: row.children_outputs_count,
+			depth: row.children_outputs_depth,
+			weight: row.children_outputs_weight,
 		};
 		let metadata = tg::process::Metadata {
 			children,

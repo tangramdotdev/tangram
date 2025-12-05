@@ -43,6 +43,30 @@ impl Server {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Get the process.
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			actual_checksum: Option<String>,
+			cacheable: u64,
+			command: String,
+			created_at: i64,
+			dequeued_at: Option<i64>,
+			enqueued_at: Option<i64>,
+			error: Option<String>,
+			exit: Option<u8>,
+			expected_checksum: Option<String>,
+			finished_at: Option<i64>,
+			host: String,
+			log: Option<String>,
+			output: Option<String>,
+			retry: u64,
+			mounts: Option<String>,
+			network: u64,
+			started_at: Option<i64>,
+			status: String,
+			stderr: Option<String>,
+			stdin: Option<String>,
+			stdout: Option<String>,
+		}
 		let statement = indoc!(
 			"
 				select
@@ -85,98 +109,42 @@ impl Server {
 		};
 
 		// Deserialize the row.
-		let actual_checksum = row
-			.get::<_, Option<String>>(0)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| s.parse())
-			.transpose()?;
-		let cacheable = row
-			.get::<_, u64>(1)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let command = row
-			.get::<_, String>(2)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.parse()?;
-		let created_at = row
-			.get::<_, i64>(3)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let dequeued_at = row
-			.get::<_, Option<i64>>(4)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let enqueued_at = row
-			.get::<_, Option<i64>>(5)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+		let actual_checksum = row.actual_checksum.map(|s| s.parse()).transpose()?;
+		let cacheable = row.cacheable != 0;
+		let command = row.command.parse()?;
 		let error = row
-			.get::<_, Option<String>>(6)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.error
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
-		let exit = row
-			.get::<_, Option<u8>>(7)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let expected_checksum = row
-			.get::<_, Option<String>>(8)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| s.parse())
-			.transpose()?;
-		let finished_at = row
-			.get::<_, Option<i64>>(9)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let host = row
-			.get::<_, String>(10)
-			.map_err(|source| tg::error!(!source, "expected a string"))?;
-		let log = row
-			.get::<_, Option<String>>(11)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| s.parse())
-			.transpose()?;
+		let expected_checksum = row.expected_checksum.map(|s| s.parse()).transpose()?;
+		let log = row.log.map(|s| s.parse()).transpose()?;
 		let output = row
-			.get::<_, Option<String>>(12)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.output
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
-		let retry = row
-			.get::<_, u64>(13)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
+		let retry = row.retry != 0;
 		let mounts = row
-			.get::<_, Option<String>>(14)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
+			.mounts
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?
 			.unwrap_or_default();
-		let network = row
-			.get::<_, u64>(15)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?
-			!= 0;
-		let started_at = row
-			.get::<_, Option<i64>>(16)
-			.map_err(|source| tg::error!(!source, "expected an integer"))?;
-		let status = row
-			.get::<_, String>(17)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.parse()?;
-		let stderr = row
-			.get::<_, Option<String>>(18)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| s.parse())
-			.transpose()?;
-		let stdin = row
-			.get::<_, Option<String>>(19)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| s.parse())
-			.transpose()?;
-		let stdout = row
-			.get::<_, Option<String>>(20)
-			.map_err(|source| tg::error!(!source, "expected a string"))?
-			.map(|s| s.parse())
-			.transpose()?;
+		let network = row.network != 0;
+		let status = row.status.parse()?;
+		let stderr = row.stderr.map(|s| s.parse()).transpose()?;
+		let stdin = row.stdin.map(|s| s.parse()).transpose()?;
+		let stdout = row.stdout.map(|s| s.parse()).transpose()?;
 
 		// Get the children.
+		#[derive(db::sqlite::row::Deserialize)]
+		struct ChildRow {
+			child: String,
+			options: db::value::Json<tg::referent::Options>,
+		}
 		let statement = indoc!(
 			"
 				select child, options
@@ -187,22 +155,18 @@ impl Server {
 		let mut statement = connection
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let mut rows = statement
+		let mut child_rows = statement
 			.query([id.to_string()])
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let mut children = Vec::new();
-		while let Some(row) = rows
+		while let Some(child_row) = child_rows
 			.next()
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 		{
-			let item = row
-				.get::<_, String>(0)
-				.map_err(|source| tg::error!(!source, "expected a string"))?
-				.parse()?;
-			let options = row
-				.get::<_, db::value::Json<tg::referent::Options>>(1)
-				.map_err(|source| tg::error!(!source, "expected options json"))?
-				.0;
+			let child_row = <ChildRow as db::sqlite::row::Deserialize>::deserialize(child_row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+			let item = child_row.child.parse()?;
+			let options = child_row.options.0;
 			let referent = tg::Referent { item, options };
 			children.push(referent);
 		}
@@ -212,20 +176,20 @@ impl Server {
 			cacheable,
 			children: Some(children),
 			command,
-			created_at,
-			dequeued_at,
-			enqueued_at,
+			created_at: row.created_at,
+			dequeued_at: row.dequeued_at,
+			enqueued_at: row.enqueued_at,
 			error,
-			exit,
+			exit: row.exit,
 			expected_checksum,
-			finished_at,
-			host,
+			finished_at: row.finished_at,
+			host: row.host,
 			log,
 			output,
 			retry,
 			mounts,
 			network,
-			started_at,
+			started_at: row.started_at,
 			status,
 			stderr,
 			stdin,

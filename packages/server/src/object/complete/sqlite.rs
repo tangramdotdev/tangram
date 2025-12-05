@@ -1,7 +1,7 @@
 use {
 	crate::Server,
 	indoc::indoc,
-	rusqlite::{self as sqlite, OptionalExtension},
+	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -29,7 +29,10 @@ impl Server {
 		connection: &sqlite::Connection,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<bool>> {
-		// Get the object metadata.
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			complete: bool,
+		}
 		let statement = indoc!(
 			"
 				select complete
@@ -40,13 +43,19 @@ impl Server {
 		let mut statement = connection
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let id_bytes = id.to_bytes();
-		let output = statement
-			.query_row([id_bytes.as_ref()], |row| row.get::<_, bool>(0))
-			.optional()
+		let params = sqlite::params![id.to_bytes().to_vec()];
+		let mut rows = statement
+			.query(params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		Ok(output)
+		let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+		Ok(Some(row.complete))
 	}
 
 	pub(crate) async fn try_get_object_complete_batch_sqlite(
@@ -77,6 +86,10 @@ impl Server {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			complete: bool,
+		}
 		let statement = indoc!(
 			"
 				select complete
@@ -100,8 +113,9 @@ impl Server {
 				outputs.push(None);
 				continue;
 			};
-			let complete = row.get_unwrap(0);
-			outputs.push(Some(complete));
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+			outputs.push(Some(row.complete));
 		}
 		Ok(outputs)
 	}
@@ -135,6 +149,13 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
 		// Get the object complete flag and metadata.
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			complete: bool,
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				select complete, count, depth, weight
@@ -145,28 +166,25 @@ impl Server {
 		let mut statement = connection
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let id_bytes = id.to_bytes();
-		let output = statement
-			.query_row([id_bytes.as_ref()], |row| {
-				let complete = row.get::<_, u64>(0)? != 0;
-				let count = row.get(1)?;
-				let depth = row.get(2)?;
-				let weight = row.get(3)?;
-				Ok((complete, count, depth, weight))
-			})
-			.optional()
+		let params = sqlite::params![id.to_bytes().to_vec()];
+		let mut rows = statement
+			.query(params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		let output = output.map(|(complete, count, depth, weight)| {
-			let metadata = tg::object::Metadata {
-				count,
-				depth,
-				weight,
-			};
-			(complete, metadata)
-		});
-
-		Ok(output)
+		let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+		let complete = row.complete;
+		let metadata = tg::object::Metadata {
+			count: row.count,
+			depth: row.depth,
+			weight: row.weight,
+		};
+		Ok(Some((complete, metadata)))
 	}
 
 	pub(crate) async fn try_get_object_complete_and_metadata_batch_sqlite(
@@ -199,6 +217,13 @@ impl Server {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			complete: bool,
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				select complete, count, depth, weight
@@ -222,14 +247,13 @@ impl Server {
 				outputs.push(None);
 				continue;
 			};
-			let complete = row.get_unwrap::<_, u64>(0) != 0;
-			let count = row.get_unwrap(1);
-			let depth = row.get_unwrap(2);
-			let weight = row.get_unwrap(3);
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+			let complete = row.complete;
 			let metadata = tg::object::Metadata {
-				count,
-				depth,
-				weight,
+				count: row.count,
+				depth: row.depth,
+				weight: row.weight,
 			};
 			outputs.push(Some((complete, metadata)));
 		}
@@ -264,6 +288,13 @@ impl Server {
 		id: &tg::object::Id,
 		touched_at: i64,
 	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			complete: bool,
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				update objects
@@ -285,14 +316,13 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let complete = row.get_unwrap::<_, u64>(0) != 0;
-		let count = row.get_unwrap(1);
-		let depth = row.get_unwrap(2);
-		let weight = row.get_unwrap(3);
+		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+		let complete = row.complete;
 		let metadata = tg::object::Metadata {
-			count,
-			depth,
-			weight,
+			count: row.count,
+			depth: row.depth,
+			weight: row.weight,
 		};
 		Ok(Some((complete, metadata)))
 	}
@@ -341,6 +371,13 @@ impl Server {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			complete: bool,
+			count: Option<u64>,
+			depth: Option<u64>,
+			weight: Option<u64>,
+		}
 		let statement = indoc!(
 			"
 				update objects
@@ -365,14 +402,13 @@ impl Server {
 				outputs.push(None);
 				continue;
 			};
-			let complete = row.get_unwrap::<_, u64>(0) != 0;
-			let count = row.get_unwrap(1);
-			let depth = row.get_unwrap(2);
-			let weight = row.get_unwrap(3);
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+			let complete = row.complete;
 			let metadata = tg::object::Metadata {
-				count,
-				depth,
-				weight,
+				count: row.count,
+				depth: row.depth,
+				weight: row.weight,
 			};
 			outputs.push(Some((complete, metadata)));
 		}

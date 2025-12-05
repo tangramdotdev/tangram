@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Error as _, Row, Value,
+		Error as _,
 		pool::{self, Pool},
 	},
 	bytes::Bytes,
@@ -11,6 +11,9 @@ use {
 	rusqlite as sqlite,
 	std::{borrow::Cow, path::PathBuf, sync::Arc},
 };
+
+pub mod row;
+pub mod value;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
@@ -86,25 +89,26 @@ struct TransactionCommitMessage {
 
 struct ExecuteMessage {
 	statement: Cow<'static, str>,
-	params: Vec<Value>,
+	params: Vec<super::Value>,
 	sender: tokio::sync::oneshot::Sender<Result<u64, Error>>,
 }
 
 struct QueryMessage {
 	statement: Cow<'static, str>,
-	params: Vec<Value>,
+	params: Vec<super::Value>,
 	sender: QueryMessageSender,
 }
 
 type QueryMessageSender = tokio::sync::oneshot::Sender<Result<QueryMessageRowSender, Error>>;
 
-type QueryMessageRowSender =
-	tokio::sync::mpsc::UnboundedSender<tokio::sync::oneshot::Sender<Result<Option<Row>, Error>>>;
+type QueryMessageRowSender = tokio::sync::mpsc::UnboundedSender<
+	tokio::sync::oneshot::Sender<Result<Option<super::Row>, Error>>,
+>;
 
 struct QueryAllMessage {
 	statement: Cow<'static, str>,
-	params: Vec<Value>,
-	sender: tokio::sync::oneshot::Sender<Result<Vec<Row>, Error>>,
+	params: Vec<super::Value>,
+	sender: tokio::sync::oneshot::Sender<Result<Vec<super::Row>, Error>>,
 }
 
 impl Database {
@@ -375,7 +379,7 @@ impl super::Query for Connection {
 	async fn execute(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
+		params: Vec<super::Value>,
 	) -> Result<u64, Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = ConnectionMessage::Execute(ExecuteMessage {
@@ -391,8 +395,8 @@ impl super::Query for Connection {
 	async fn query(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = ConnectionMessage::Query(QueryMessage {
 			statement,
@@ -421,16 +425,16 @@ impl super::Query for Connection {
 	async fn query_optional(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<Option<Row>, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<Option<super::Row>, Self::Error> {
 		Ok(self.query_all(statement, params).await?.into_iter().next())
 	}
 
 	async fn query_one(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<Row, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<super::Row, Self::Error> {
 		self.query_optional(statement, params)
 			.await?
 			.ok_or_else(|| Error::other("expected a row"))
@@ -439,8 +443,8 @@ impl super::Query for Connection {
 	async fn query_all(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<Vec<Row>, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<Vec<super::Row>, Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = ConnectionMessage::QueryAll(QueryAllMessage {
 			statement,
@@ -463,7 +467,7 @@ impl super::Query for pool::Guard<Connection> {
 	fn execute(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
+		params: Vec<super::Value>,
 	) -> impl Future<Output = Result<u64, Self::Error>> {
 		self.as_ref().execute(statement, params)
 	}
@@ -471,33 +475,34 @@ impl super::Query for pool::Guard<Connection> {
 	fn query(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> impl Future<Output = Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error>>
-	{
+		params: Vec<super::Value>,
+	) -> impl Future<
+		Output = Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error>,
+	> {
 		self.as_ref().query(statement, params)
 	}
 
 	fn query_optional(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> impl Future<Output = Result<Option<Row>, Self::Error>> {
+		params: Vec<super::Value>,
+	) -> impl Future<Output = Result<Option<super::Row>, Self::Error>> {
 		self.as_ref().query_optional(statement, params)
 	}
 
 	fn query_one(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> impl Future<Output = Result<Row, Self::Error>> {
+		params: Vec<super::Value>,
+	) -> impl Future<Output = Result<super::Row, Self::Error>> {
 		self.as_ref().query_one(statement, params)
 	}
 
 	fn query_all(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> impl Future<Output = Result<Vec<Row>, Self::Error>> {
+		params: Vec<super::Value>,
+	) -> impl Future<Output = Result<Vec<super::Row>, Self::Error>> {
 		self.as_ref().query_all(statement, params)
 	}
 }
@@ -512,7 +517,7 @@ impl super::Query for Transaction<'_> {
 	async fn execute(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
+		params: Vec<super::Value>,
 	) -> Result<u64, Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = TransactionMessage::Execute(ExecuteMessage {
@@ -528,8 +533,8 @@ impl super::Query for Transaction<'_> {
 	async fn query(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<impl Stream<Item = Result<Row, Self::Error>> + Send, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = TransactionMessage::Query(QueryMessage {
 			statement,
@@ -558,16 +563,16 @@ impl super::Query for Transaction<'_> {
 	async fn query_optional(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<Option<Row>, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<Option<super::Row>, Self::Error> {
 		Ok(self.query_all(statement, params).await?.into_iter().next())
 	}
 
 	async fn query_one(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<Row, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<super::Row, Self::Error> {
 		self.query_optional(statement, params)
 			.await?
 			.ok_or_else(|| Error::other("expected a row"))
@@ -576,8 +581,8 @@ impl super::Query for Transaction<'_> {
 	async fn query_all(
 		&self,
 		statement: Cow<'static, str>,
-		params: Vec<Value>,
-	) -> Result<Vec<Row>, Self::Error> {
+		params: Vec<super::Value>,
+	) -> Result<Vec<super::Row>, Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = TransactionMessage::QueryAll(QueryAllMessage {
 			statement,
@@ -673,7 +678,7 @@ fn handle_query_message(connection: &sqlite::Connection, message: QueryMessage) 
 		let mut entries = IndexMap::with_capacity(columns.len());
 		for (i, column) in columns.iter().enumerate() {
 			let name = column.to_owned();
-			let value = match row.get::<_, Value>(i) {
+			let value = match row.get::<_, super::Value>(i) {
 				Ok(value) => value,
 				Err(error) => {
 					sender.send(Err(error.into())).ok();
@@ -682,7 +687,7 @@ fn handle_query_message(connection: &sqlite::Connection, message: QueryMessage) 
 			};
 			entries.insert(name, value);
 		}
-		let row = Row::with_entries(entries);
+		let row = super::Row::with_entries(entries);
 		sender.send(Ok(Some(row))).ok();
 	}
 }
@@ -725,10 +730,10 @@ fn handle_query_all_message(connection: &sqlite::Connection, message: QueryAllMe
 			let mut entries = IndexMap::with_capacity(column_names.len());
 			for (i, column) in column_names.iter().enumerate() {
 				let name = column.to_owned();
-				let value = row.get::<_, Value>(i)?;
+				let value = row.get::<_, super::Value>(i)?;
 				entries.insert(name, value);
 			}
-			let row = Row::with_entries(entries);
+			let row = super::Row::with_entries(entries);
 			Ok::<_, sqlite::Error>(row)
 		})
 		.try_collect()
@@ -738,29 +743,29 @@ fn handle_query_all_message(connection: &sqlite::Connection, message: QueryAllMe
 	sender.send(result).ok();
 }
 
-impl sqlite::types::ToSql for Value {
+impl sqlite::types::ToSql for super::Value {
 	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
 		match self {
-			Value::Null => Ok(sqlite::types::ToSqlOutput::Borrowed(
+			super::Value::Null => Ok(sqlite::types::ToSqlOutput::Borrowed(
 				sqlite::types::ValueRef::Null,
 			)),
-			Value::Integer(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
+			super::Value::Integer(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
 				sqlite::types::ValueRef::Integer(*value),
 			)),
-			Value::Real(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
+			super::Value::Real(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
 				sqlite::types::ValueRef::Real(*value),
 			)),
-			Value::Text(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
+			super::Value::Text(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
 				sqlite::types::ValueRef::Text(value.as_bytes()),
 			)),
-			Value::Blob(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
+			super::Value::Blob(value) => Ok(sqlite::types::ToSqlOutput::Borrowed(
 				sqlite::types::ValueRef::Blob(value.as_ref()),
 			)),
 		}
 	}
 }
 
-impl sqlite::types::FromSql for Value {
+impl sqlite::types::FromSql for super::Value {
 	fn column_result(value: sqlite::types::ValueRef) -> sqlite::types::FromSqlResult<Self> {
 		match value {
 			sqlite::types::ValueRef::Null => Ok(Self::Null),

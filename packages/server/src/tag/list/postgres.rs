@@ -1,6 +1,10 @@
 use {
-	crate::Server, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
-	tangram_database::prelude::*, tangram_either::Either,
+	crate::Server,
+	indoc::indoc,
+	num::ToPrimitive as _,
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
 };
 
 #[derive(Clone, Debug)]
@@ -8,6 +12,23 @@ pub struct Match {
 	pub id: u64,
 	pub tag: tg::Tag,
 	pub item: Option<Either<tg::object::Id, tg::process::Id>>,
+}
+
+#[derive(db::postgres::row::Deserialize)]
+struct RowWithComponent {
+	#[tangram_database(as = "db::postgres::value::TryFrom<i64>")]
+	id: u64,
+	component: String,
+	#[tangram_database(as = "Option<db::postgres::value::TryFrom<String>>")]
+	item: Option<Either<tg::object::Id, tg::process::Id>>,
+}
+
+#[derive(db::postgres::row::Deserialize)]
+struct RowWithoutComponent {
+	#[tangram_database(as = "db::postgres::value::TryFrom<i64>")]
+	id: u64,
+	#[tangram_database(as = "Option<db::postgres::value::TryFrom<String>>")]
+	item: Option<Either<tg::object::Id, tg::process::Id>>,
 }
 
 impl Server {
@@ -52,29 +73,25 @@ impl Server {
 				.inner()
 				.query(statement, &[&m.id.to_i64().unwrap()])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let mut expanded = Vec::new();
-			for row in rows {
-				let id = row
-					.try_get::<_, i64>(0)
-					.map_err(|source| tg::error!(!source, "failed to get the id"))?
-					.to_u64()
-					.unwrap();
-				let component = row
-					.try_get::<_, String>(1)
-					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-				let item = row
-					.try_get::<_, Option<String>>(2)
-					.map_err(|source| tg::error!(!source, "failed to get the item"))?
-					.map(|s| s.parse())
-					.transpose()
-					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
-				let mut tag = m.tag.clone();
-				tag.push(&component);
-				let m = Match { id, tag, item };
-				expanded.push(m);
-			}
-			output = expanded;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.iter()
+				.map(|row| {
+					<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+				})
+				.collect::<tg::Result<Vec<_>>>()?;
+			output = rows
+				.into_iter()
+				.map(|row| {
+					let mut tag = m.tag.clone();
+					tag.push(&row.component);
+					Match {
+						id: row.id,
+						tag,
+						item: row.item,
+					}
+				})
+				.collect();
 		}
 
 		// Sort the matches.
@@ -122,28 +139,25 @@ impl Server {
 				.inner()
 				.query(statement, &[])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let mut matches = Vec::new();
-			for row in rows {
-				let id = row
-					.try_get::<_, i64>(0)
-					.map_err(|source| tg::error!(!source, "failed to get the id"))?
-					.to_u64()
-					.unwrap();
-				let component = row
-					.try_get::<_, String>(1)
-					.map_err(|source| tg::error!(!source, "failed to get the component"))?;
-				let item = row
-					.try_get::<_, Option<String>>(2)
-					.map_err(|source| tg::error!(!source, "failed to get the item"))?
-					.map(|s| s.parse())
-					.transpose()
-					.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
-				let mut tag = tg::Tag::empty();
-				tag.push(&component);
-				let m = Match { id, tag, item };
-				matches.push(m);
-			}
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.iter()
+				.map(|row| {
+					<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+				})
+				.collect::<tg::Result<Vec<_>>>()?;
+			let matches = rows
+				.into_iter()
+				.map(|row| {
+					let mut tag = tg::Tag::empty();
+					tag.push(&row.component);
+					Match {
+						id: row.id,
+						tag,
+						item: row.item,
+					}
+				})
+				.collect();
 			return Ok(matches);
 		}
 
@@ -166,27 +180,24 @@ impl Server {
 							&[&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())],
 						)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					for row in rows {
-						let id = row
-							.try_get::<_, i64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?
-							.to_u64()
-							.unwrap();
-						let component = row
-							.try_get::<_, String>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let item = row
-							.try_get::<_, Option<String>>(2)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+						.iter()
+						.map(|row| {
+							<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+								.map_err(|source| {
+									tg::error!(!source, "failed to deserialize the row")
+								})
+						})
+						.collect::<tg::Result<Vec<_>>>()?;
+					new.extend(rows.into_iter().map(|row| {
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
-						tag.push(&component);
-						let m = Match { id, tag, item };
-						new.push(Some(m));
-					}
+						tag.push(&row.component);
+						Some(Match {
+							id: row.id,
+							tag,
+							item: row.item,
+						})
+					}));
 				} else if pattern.contains(['=', '>', '<', '^']) {
 					let statement = indoc!(
 						"
@@ -202,29 +213,29 @@ impl Server {
 							&[&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())],
 						)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					for row in rows {
-						let id = row
-							.try_get::<_, i64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?
-							.to_u64()
-							.unwrap();
-						let component = row
-							.try_get::<_, String>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?;
-						let item = row
-							.try_get::<_, Option<String>>(2)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
-						if tg::tag::pattern::matches(&component, pattern) {
-							let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
-							tag.push(&component);
-							let m = Match { id, tag, item };
-							new.push(Some(m));
-						}
-					}
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+						.iter()
+						.map(|row| {
+							<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+								.map_err(|source| {
+									tg::error!(!source, "failed to deserialize the row")
+								})
+						})
+						.collect::<tg::Result<Vec<_>>>()?;
+					new.extend(
+						rows.into_iter()
+							.filter(|row| tg::tag::pattern::matches(&row.component, pattern))
+							.map(|row| {
+								let mut tag =
+									m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
+								tag.push(&row.component);
+								Some(Match {
+									id: row.id,
+									tag,
+									item: row.item,
+								})
+							}),
+					);
 				} else {
 					let statement = indoc!(
 						"
@@ -243,24 +254,24 @@ impl Server {
 							],
 						)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-					for row in rows {
-						let id = row
-							.try_get::<_, i64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?
-							.to_u64()
-							.unwrap();
-						let item = row
-							.try_get::<_, Option<String>>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+						.iter()
+						.map(|row| {
+							<RowWithoutComponent as db::postgres::row::Deserialize>::deserialize(
+								row,
+							)
+							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+						})
+						.collect::<tg::Result<Vec<_>>>()?;
+					new.extend(rows.into_iter().map(|row| {
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
 						tag.push(pattern);
-						let m = Match { id, tag, item };
-						new.push(Some(m));
-					}
+						Some(Match {
+							id: row.id,
+							tag,
+							item: row.item,
+						})
+					}));
 				}
 			}
 			matches = new;
@@ -286,26 +297,23 @@ impl Server {
 						.inner()
 						.query(statement, &[&m.id.to_i64().unwrap()])
 						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+						.iter()
+						.map(|row| {
+							<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+								.map_err(|source| {
+									tg::error!(!source, "failed to deserialize the row")
+								})
+						})
+						.collect::<tg::Result<Vec<_>>>()?;
 					for row in rows {
-						let id = row
-							.try_get::<_, i64>(0)
-							.map_err(|source| tg::error!(!source, "failed to get the id"))?
-							.to_u64()
-							.unwrap();
-						let component = row
-							.try_get::<_, String>(1)
-							.map_err(|source| tg::error!(!source, "failed to get the component"))?;
-						let item = row
-							.try_get::<_, Option<String>>(2)
-							.map_err(|source| tg::error!(!source, "failed to get the item"))?
-							.map(|s| s.parse())
-							.transpose()
-							.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
 						let mut tag = m.tag.clone();
-						tag.push(&component);
-						let child = Match { id, tag, item };
+						tag.push(&row.component);
+						let child = Match {
+							id: row.id,
+							tag,
+							item: row.item,
+						};
 						output.push(child.clone());
 						to_explore.push(child);
 					}

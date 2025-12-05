@@ -124,6 +124,7 @@ oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
 percent-encoding = "2"
 petgraph = "0.8"
 pin-project = "1"
+postgres-protocol = "0.6"
 pretty_assertions = "1"
 proc-macro2 = "1"
 quote = "1"
@@ -147,7 +148,7 @@ serde_yaml = { version = "0.9" }
 sha2 = "0.10"
 smallvec = "1"
 sourcemap = "9"
-syn = "2"
+syn = { version = "2", features = ["full"] }
 tempfile = "3"
 sync_wrapper = "1"
 tangram_builtin = { path = "packages/builtin" }

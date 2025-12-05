@@ -5,6 +5,7 @@ use {
 	crate::Server,
 	futures::FutureExt as _,
 	indoc::indoc,
+	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
 	std::str::FromStr as _,
@@ -526,6 +527,11 @@ impl Server {
 		messages: Vec<PutTagMessage>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			item: Vec<u8>,
+		}
+
 		let statement = indoc!(
 			"
 				select item
@@ -536,6 +542,7 @@ impl Server {
 		let mut get_old_item_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				insert or replace into tags (tag, item)
@@ -545,6 +552,7 @@ impl Server {
 		let mut insert_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update objects
@@ -555,6 +563,7 @@ impl Server {
 		let mut objects_increment_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update processes
@@ -565,6 +574,7 @@ impl Server {
 		let mut processes_increment_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update cache_entries
@@ -575,6 +585,7 @@ impl Server {
 		let mut cache_entries_increment_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update objects
@@ -585,6 +596,7 @@ impl Server {
 		let mut objects_decrement_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update processes
@@ -595,6 +607,7 @@ impl Server {
 		let mut processes_decrement_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update cache_entries
@@ -605,6 +618,7 @@ impl Server {
 		let mut cache_entries_decrement_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		for message in messages {
 			// Query for an old item that is currently tagged with this tag.
 			let params = sqlite::params![message.tag];
@@ -614,7 +628,11 @@ impl Server {
 			let old_item = rows
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-				.map(|row| row.get_unwrap::<_, Vec<u8>>(0));
+				.map(|row| {
+					<Row as db::sqlite::row::Deserialize>::deserialize(row).map(|row| row.item)
+				})
+				.transpose()
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 
 			// Insert or replace the tag.
 			let item = match &message.item {
@@ -676,6 +694,11 @@ impl Server {
 		messages: Vec<DeleteTag>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			item: Vec<u8>,
+		}
+
 		let statement = indoc!(
 			"
 				delete from tags
@@ -686,6 +709,7 @@ impl Server {
 		let mut delete_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update objects
@@ -696,6 +720,7 @@ impl Server {
 		let mut update_object_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update processes
@@ -706,6 +731,7 @@ impl Server {
 		let mut update_process_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		let statement = indoc!(
 			"
 				update cache_entries
@@ -716,6 +742,7 @@ impl Server {
 		let mut update_cache_entry_reference_count_statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
 		for message in messages {
 			let params = sqlite::params![message.tag];
 			let mut rows = delete_statement
@@ -727,7 +754,9 @@ impl Server {
 			else {
 				continue;
 			};
-			let id = row.get_unwrap::<_, Vec<u8>>(0);
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+			let id = row.item;
 			let params = sqlite::params![id];
 			update_object_reference_count_statement
 				.execute(params)
@@ -810,6 +839,13 @@ impl Server {
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Item {
+			#[tangram_database(try_from = "Vec<u8>")]
+			object: tg::object::Id,
+			transaction_id: u64,
+		}
+
 		let statement = indoc!(
 			"
 				delete from object_queue
@@ -826,37 +862,22 @@ impl Server {
 		let mut statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
-		let mut rows = statement
-			.query([n])
-			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
 
-		struct Item {
-			object: tg::object::Id,
-			transaction_id: u64,
-		}
-		let mut items = Vec::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
-		{
-			let object = row
-				.get_ref(0)
-				.map_err(|source| tg::error!(!source, "failed to get the object from the row"))?
-				.as_blob()
-				.map_err(|_| tg::error!("expected a blob"))?;
-			let object = tg::object::Id::from_slice(object)
-				.map_err(|source| tg::error!(!source, "invalid object id"))?;
-			let transaction_id = row.get(1).map_err(|source| {
-				tg::error!(!source, "failed to get the transaction id from the row")
-			})?;
-			let item = Item {
-				object,
-				transaction_id,
-			};
-			items.push(item);
-		}
+		let items = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
+			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
+			.map(|result| {
+				result.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+			})
+			.collect::<tg::Result<Vec<Item>>>()?;
 		if items.is_empty() {
 			return Ok(0);
+		}
+
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			complete: bool,
 		}
 
 		let statement = indoc!(
@@ -969,9 +990,9 @@ impl Server {
 				.next()
 				.map_err(|source| tg::error!(!source, "failed to execute the complete statement"))?
 				.ok_or_else(|| tg::error!("expected a row"))?;
-			let mut complete = row
-				.get::<_, bool>(0)
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the complete flag"))?;
+			let mut complete = row.complete;
 
 			if !complete {
 				// Update the object's complete flag.
@@ -983,9 +1004,10 @@ impl Server {
 					tg::error!(!source, "failed to execute the update complete statement")
 				})?;
 				complete = if let Some(row) = row {
-					row.get::<_, bool>(0).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the complete flag")
-					})?
+					let row = <Row as db::sqlite::row::Deserialize>::deserialize(row).map_err(
+						|source| tg::error!(!source, "failed to deserialize the complete flag"),
+					)?;
+					row.complete
 				} else {
 					false
 				};
@@ -1031,6 +1053,39 @@ impl Server {
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Item {
+			#[tangram_database(try_from = "Vec<u8>")]
+			process: tg::process::Id,
+			#[tangram_database(try_from = "u64")]
+			kind: Kind,
+			transaction_id: u64,
+		}
+
+		#[derive(derive_more::TryFrom)]
+		#[try_from(repr)]
+		#[repr(u64)]
+		enum Kind {
+			Children = 1,
+			Commands = 2,
+			Outputs = 3,
+		}
+
+		#[derive(db::sqlite::row::Deserialize)]
+		struct ChildrenCompleteRow {
+			children_complete: bool,
+		}
+
+		#[derive(db::sqlite::row::Deserialize)]
+		struct ChildrenCommandsCompleteRow {
+			children_commands_complete: bool,
+		}
+
+		#[derive(db::sqlite::row::Deserialize)]
+		struct ChildrenOutputsCompleteRow {
+			children_outputs_complete: bool,
+		}
+
 		let statement = indoc!(
 			"
 				delete from process_queue
@@ -1047,51 +1102,13 @@ impl Server {
 		let mut statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
-		let mut rows = statement
-			.query([n])
-			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
 
-		enum Kind {
-			Children = 1,
-			Commands = 2,
-			Outputs = 3,
-		}
-		struct Item {
-			process: tg::process::Id,
-			kind: Kind,
-			transaction_id: u64,
-		}
-		let mut items = Vec::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
-		{
-			let process = row
-				.get_ref(0)
-				.map_err(|source| tg::error!(!source, "failed to get the process from the row"))?
-				.as_blob()
-				.map_err(|_| tg::error!("expected a blob"))?;
-			let process = tg::process::Id::from_slice(process)
-				.map_err(|source| tg::error!(!source, "invalid process id"))?;
-			let kind = row
-				.get::<_, u64>(1)
-				.map_err(|source| tg::error!(!source, "failed to get the kind from the row"))?;
-			let kind = match kind {
-				1 => Kind::Children,
-				2 => Kind::Commands,
-				3 => Kind::Outputs,
-				_ => return Err(tg::error!("invalid kind")),
-			};
-			let transaction_id = row.get(2).map_err(|source| {
-				tg::error!(!source, "failed to get the transaction id from the row")
-			})?;
-			let item = Item {
-				process,
-				kind,
-				transaction_id,
-			};
-			items.push(item);
-		}
+		let items = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
+			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
+			.map(|row| row.map_err(|source| tg::error!(!source, "failed to deserialize the row")))
+			.collect::<tg::Result<Vec<Item>>>()?;
 		if items.is_empty() {
 			return Ok(0);
 		}
@@ -1107,6 +1124,7 @@ impl Server {
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the children complete statement")
 			})?;
+
 		let statement = indoc!(
 			"
 				select children_commands_complete
@@ -1118,6 +1136,7 @@ impl Server {
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the commands complete statement")
 			})?;
+
 		let statement = indoc!(
 			"
 				select children_outputs_complete
@@ -1380,9 +1399,15 @@ impl Server {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
 					let mut children_complete = if let Some(row) = row {
-						row.get::<_, bool>(0).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the children complete flag")
-						})?
+						let row =
+							<ChildrenCompleteRow as db::sqlite::row::Deserialize>::deserialize(row)
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to deserialize the children complete flag"
+									)
+								})?;
+						row.children_complete
 					} else {
 						false
 					};
@@ -1402,12 +1427,17 @@ impl Server {
 							tg::error!(!source, "failed to execute the update complete statement")
 						})?;
 						children_complete = if let Some(row) = row {
-							row.get::<_, bool>(0).map_err(|source| {
-								tg::error!(
-									!source,
-									"failed to deserialize the children complete flag"
+							let row =
+								<ChildrenCompleteRow as db::sqlite::row::Deserialize>::deserialize(
+									row,
 								)
-							})?
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to deserialize the children complete flag"
+									)
+								})?;
+							row.children_complete
 						} else {
 							false
 						}
@@ -1438,9 +1468,15 @@ impl Server {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
 					let mut children_commands_complete = if let Some(row) = row {
-						row.get::<_, bool>(0).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the commands complete flag")
-						})?
+						let row =
+							<ChildrenCommandsCompleteRow as db::sqlite::row::Deserialize>::deserialize(row)
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to deserialize the commands complete flag"
+									)
+								})?;
+						row.children_commands_complete
 					} else {
 						false
 					};
@@ -1459,12 +1495,17 @@ impl Server {
 							tg::error!(!source, "failed to execute the update complete statement")
 						})?;
 						children_commands_complete = if let Some(row) = row {
-							row.get::<_, bool>(0).map_err(|source| {
-								tg::error!(
-									!source,
-									"failed to deserialize the children complete flag"
+							let row =
+								<ChildrenCommandsCompleteRow as db::sqlite::row::Deserialize>::deserialize(
+									row,
 								)
-							})?
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to deserialize the children complete flag"
+									)
+								})?;
+							row.children_commands_complete
 						} else {
 							false
 						};
@@ -1506,9 +1547,15 @@ impl Server {
 						tg::error!(!source, "failed to execute the complete statement")
 					})?;
 					let mut children_outputs_complete = if let Some(row) = row {
-						row.get::<_, bool>(0).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the commands complete flag")
-						})?
+						let row =
+							<ChildrenOutputsCompleteRow as db::sqlite::row::Deserialize>::deserialize(row)
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to deserialize the outputs complete flag"
+									)
+								})?;
+						row.children_outputs_complete
 					} else {
 						false
 					};
@@ -1527,12 +1574,17 @@ impl Server {
 							tg::error!(!source, "failed to execute the update complete statement")
 						})?;
 						children_outputs_complete = if let Some(row) = row {
-							row.get::<_, bool>(0).map_err(|source| {
-								tg::error!(
-									!source,
-									"failed to deserialize the children complete flag"
+							let row =
+								<ChildrenOutputsCompleteRow as db::sqlite::row::Deserialize>::deserialize(
+									row,
 								)
-							})?
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to deserialize the children complete flag"
+									)
+								})?;
+							row.children_outputs_complete
 						} else {
 							false
 						};
@@ -1572,6 +1624,12 @@ impl Server {
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			#[tangram_database(try_from = "Vec<u8>")]
+			cache_entry: tg::artifact::Id,
+		}
+
 		let statement = indoc!(
 			"
 				delete from cache_entry_queue
@@ -1587,23 +1645,16 @@ impl Server {
 		let mut statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
-		let mut rows = statement
-			.query([n])
-			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
 
-		let mut ids = Vec::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
-		{
-			let id = row
-				.get_ref(0)
-				.map_err(|source| tg::error!(!source, "failed to get the ID from the row"))?
-				.as_blob()
-				.map_err(|_| tg::error!("expected a blob"))?;
-			let id = tg::artifact::Id::from_slice(id)?;
-			ids.push(id);
-		}
+		let ids = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
+			.and_then(<Row as db::sqlite::row::Deserialize>::deserialize)
+			.map(|result| {
+				result.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+			})
+			.map_ok(|row| row.cache_entry)
+			.collect::<tg::Result<Vec<tg::artifact::Id>>>()?;
 		if ids.is_empty() {
 			return Ok(0);
 		}
@@ -1643,6 +1694,12 @@ impl Server {
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Item {
+			#[tangram_database(try_from = "Vec<u8>")]
+			object: tg::object::Id,
+		}
+
 		let statement = indoc!(
 			"
 				delete from object_queue
@@ -1659,28 +1716,13 @@ impl Server {
 		let mut statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
-		let mut rows = statement
-			.query([n])
-			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
 
-		struct Item {
-			object: tg::object::Id,
-		}
-		let mut items = Vec::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
-		{
-			let object = row
-				.get_ref(0)
-				.map_err(|source| tg::error!(!source, "failed to get the object from the row"))?
-				.as_blob()
-				.map_err(|_| tg::error!("expected a blob"))?;
-			let object = tg::object::Id::from_slice(object)
-				.map_err(|source| tg::error!(!source, "invalid object id"))?;
-			let item = Item { object };
-			items.push(item);
-		}
+		let items = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
+			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
+			.map(|row| row.map_err(|source| tg::error!(!source, "failed to deserialize the row")))
+			.collect::<tg::Result<Vec<Item>>>()?;
 		if items.is_empty() {
 			return Ok(0);
 		}
@@ -1779,6 +1821,12 @@ impl Server {
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Item {
+			#[tangram_database(try_from = "Vec<u8>")]
+			process: tg::process::Id,
+		}
+
 		let statement = indoc!(
 			"
 				delete from process_queue
@@ -1795,28 +1843,13 @@ impl Server {
 		let mut statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
-		let mut rows = statement
-			.query([n])
-			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?;
 
-		struct Item {
-			process: tg::process::Id,
-		}
-		let mut items = Vec::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
-		{
-			let process = row
-				.get_ref(0)
-				.map_err(|source| tg::error!(!source, "failed to get the process from the row"))?
-				.as_blob()
-				.map_err(|_| tg::error!("expected a blob"))?;
-			let process = tg::process::Id::from_slice(process)
-				.map_err(|source| tg::error!(!source, "invalid process id"))?;
-			let item = Item { process };
-			items.push(item);
-		}
+		let items = statement
+			.query([n])
+			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
+			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
+			.map(|row| row.map_err(|source| tg::error!(!source, "failed to deserialize the row")))
+			.collect::<tg::Result<Vec<Item>>>()?;
 		if items.is_empty() {
 			return Ok(0);
 		}

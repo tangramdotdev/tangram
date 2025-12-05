@@ -69,6 +69,24 @@ impl Deserialize for f64 {
 	}
 }
 
+impl Deserialize for String {
+	fn deserialize(
+		value: Value,
+	) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
+		let value = value.try_unwrap_text()?;
+		Ok(value)
+	}
+}
+
+impl Deserialize for Bytes {
+	fn deserialize(
+		value: Value,
+	) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
+		let bytes = value.try_unwrap_blob()?;
+		Ok(bytes)
+	}
+}
+
 impl<T> Deserialize for Option<T>
 where
 	T: Deserialize,
@@ -84,11 +102,38 @@ where
 	}
 }
 
-impl Deserialize for Bytes {
-	fn deserialize(
+pub trait DeserializeAs<T> {
+	fn deserialize_as(
 		value: Value,
-	) -> Result<Self, Box<dyn std::error::Error + Send + Sync + 'static>> {
-		let bytes = value.try_unwrap_blob()?;
-		Ok(bytes)
+	) -> Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+}
+
+impl<T, U> DeserializeAs<Option<T>> for Option<U>
+where
+	U: DeserializeAs<T>,
+{
+	fn deserialize_as(
+		value: Value,
+	) -> Result<Option<T>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+		if matches!(value, Value::Null) {
+			Ok(None)
+		} else {
+			U::deserialize_as(value).map(Some)
+		}
+	}
+}
+
+pub struct FromStr;
+
+impl<T> DeserializeAs<T> for FromStr
+where
+	T: std::str::FromStr,
+	T::Err: std::error::Error + Send + Sync + 'static,
+{
+	fn deserialize_as(
+		value: Value,
+	) -> Result<T, Box<dyn std::error::Error + Send + Sync + 'static>> {
+		let s = value.try_unwrap_text()?;
+		s.parse().map_err(|e: T::Err| Box::new(e) as _)
 	}
 }

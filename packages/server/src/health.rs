@@ -25,7 +25,7 @@ impl Server {
 		} else {
 			None
 		};
-		#[derive(serde::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			created: u64,
 			enqueued: u64,
@@ -47,10 +47,9 @@ impl Server {
 			dequeued,
 			started,
 		} = connection
-			.query_one_into::<db::row::Serde<Row>>(statement.into(), params)
+			.query_one_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.0;
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let processes = tg::health::Processes {
 			created,
 			enqueued,
