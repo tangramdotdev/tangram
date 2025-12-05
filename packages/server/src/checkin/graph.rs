@@ -46,7 +46,7 @@ impl Graph {
 			.collect::<Vec<_>>();
 
 		let mut removed_paths = HashSet::default();
-		let mut visited = std::collections::HashSet::<usize, fnv::FnvBuildHasher>::default();
+		let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
 		while let Some(index) = queue.pop() {
 			if !visited.insert(index) {
 				continue;

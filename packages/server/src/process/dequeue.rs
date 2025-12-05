@@ -1,13 +1,13 @@
 use {
 	crate::{Context, Server},
-	futures::{future, stream, StreamExt as _},
+	futures::{StreamExt as _, future, stream},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Stop,
-	tangram_http::{request::Ext as _, Body},
+	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,
 };

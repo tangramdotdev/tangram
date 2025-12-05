@@ -1,5 +1,9 @@
 use {
-	crate::Server, futures::{stream::FuturesUnordered, TryStreamExt as _}, std::pin::pin, tangram_client::prelude::*, tangram_either::Either
+	crate::Server,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	std::pin::pin,
+	tangram_client::prelude::*,
+	tangram_either::Either,
 };
 
 impl Server {
