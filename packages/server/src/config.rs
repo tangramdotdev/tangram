@@ -115,6 +115,7 @@ pub enum Messenger {
 
 #[derive(Clone, Debug)]
 pub struct NatsMessenger {
+	pub credentials: Option<PathBuf>,
 	pub url: Uri,
 }
 
@@ -274,7 +275,10 @@ impl Default for Indexer {
 impl Default for NatsMessenger {
 	fn default() -> Self {
 		let url = "nats://localhost:4222".parse().unwrap();
-		Self { url }
+		Self {
+			credentials: None,
+			url,
+		}
 	}
 }
 

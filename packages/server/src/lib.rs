@@ -352,8 +352,18 @@ impl Server {
 				}
 				#[cfg(feature = "nats")]
 				{
-					use async_nats as nats;
-					let client = nats::connect(nats.url.to_string())
+					let mut options = async_nats::ConnectOptions::new();
+					if let Some(ref credentials) = nats.credentials {
+						options =
+							options
+								.credentials_file(credentials)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to load the NATS credentials")
+								})?;
+					}
+					let client = options
+						.connect(nats.url.to_string())
 						.await
 						.map_err(|source| {
 							tg::error!(!source, "failed to create the NATS client")

@@ -847,7 +847,10 @@ impl Cli {
 			config.messenger = match messenger {
 				self::config::Messenger::Memory => tangram_server::config::Messenger::Memory,
 				self::config::Messenger::Nats(messenger) => {
-					let mut new = tangram_server::config::NatsMessenger::default();
+					let mut new = tangram_server::config::NatsMessenger {
+						credentials: messenger.credentials,
+						..Default::default()
+					};
 					if let Some(url) = messenger.url {
 						new.url = url;
 					}

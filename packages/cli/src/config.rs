@@ -245,6 +245,9 @@ pub enum Messenger {
 #[serde(deny_unknown_fields)]
 pub struct NatsMessenger {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub credentials: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
 }
 
