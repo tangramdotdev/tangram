@@ -106,21 +106,17 @@ struct Args {
 	#[arg(env = "TANGRAM_MODE", long, short)]
 	mode: Option<Mode>,
 
-	/// Whether to show progress and other helpful information.
-	#[arg(long, short)]
-	quiet: bool,
+	/// Override the `remotes` key in the config.
+	#[arg(long, conflicts_with = "remotes")]
+	pub no_remotes: bool,
 
 	/// Override the `remotes` key in the config.
 	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
-	remotes: Option<Vec<String>>,
+	pub remotes: Option<Vec<String>>,
 
-	/// Set remotes to empty, overriding the config.
-	#[arg(long, conflicts_with = "remotes")]
-	no_remotes: bool,
-
-	/// Override the `url` key in the config.
-	#[arg(env = "TANGRAM_URL", long, short)]
-	url: Option<Uri>,
+	/// Whether to show progress and other helpful information.
+	#[arg(long, short)]
+	quiet: bool,
 
 	#[arg(env = "TANGRAM_TOKEN")]
 	token: Option<String>,
@@ -128,6 +124,10 @@ struct Args {
 	/// Override the tracing filter.
 	#[arg(env = "TANGRAM_TRACING", long)]
 	tracing: Option<String>,
+
+	/// Override the `url` key in the config.
+	#[arg(env = "TANGRAM_URL", long, short)]
+	url: Option<Uri>,
 }
 
 fn before_help() -> String {
@@ -291,7 +291,7 @@ enum Command {
 fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
-	let args = Args::from_arg_matches(&matches).unwrap();
+	let mut args = Args::from_arg_matches(&matches).unwrap();
 
 	// Handle internal commands.
 	match args.command {
@@ -311,6 +311,36 @@ fn main() -> std::process::ExitCode {
 			return Cli::command_session(args);
 		},
 		_ => (),
+	}
+
+	// Override args from the serve args.
+	if let Command::Serve(serve_args)
+	| Command::Server(self::server::Args {
+		command: self::server::Command::Run(serve_args),
+		..
+	}) = &args.command
+	{
+		if let Some(config) = serve_args.config.clone() {
+			args.config = Some(config);
+		}
+		if let Some(directory) = serve_args.directory.clone() {
+			args.directory = Some(directory);
+		}
+		if serve_args.no_remotes {
+			args.no_remotes = true;
+		}
+		if let Some(remotes) = serve_args.remotes.clone() {
+			args.remotes = Some(remotes);
+		}
+		if let Some(token) = serve_args.token.clone() {
+			args.token = Some(token);
+		}
+		if let Some(tracing) = serve_args.tracing.clone() {
+			args.tracing = Some(tracing);
+		}
+		if let Some(url) = serve_args.url.clone() {
+			args.url = Some(url);
+		}
 	}
 
 	// Read the config.

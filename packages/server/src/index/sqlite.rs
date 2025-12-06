@@ -2081,7 +2081,7 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 }
 
 async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
-	let sql = include_str!("./schema.sql");
+	let sql = include_str!("./sqlite.sql");
 	let connection = database
 		.write_connection()
 		.await

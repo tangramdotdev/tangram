@@ -3,12 +3,7 @@ use std::{path::Path, process::Command};
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-env-changed=FDB_LIB_PATH");
-	if std::env::var("CARGO_FEATURE_FOUNDATIONDB").is_ok() {
-		fdb();
-	}
-}
 
-fn fdb() {
 	if let Ok(fdb_lib_path) = std::env::var("FDB_LIB_PATH") {
 		let lib_path = Path::new(&fdb_lib_path);
 		if lib_path.exists() {
