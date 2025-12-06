@@ -54,7 +54,15 @@ enum ItemVariant {
 	SymlinkArtifact,
 }
 
-pub type Solutions = im::HashMap<tg::tag::Pattern, Solution, fnv::FnvBuildHasher>;
+#[derive(Clone, Default)]
+#[expect(clippy::struct_field_names)]
+pub struct Solutions {
+	solutions: im::HashMap<tg::tag::Pattern, Solution, fnv::FnvBuildHasher>,
+	referents:
+		im::HashMap<usize, im::HashSet<tg::tag::Pattern, fnv::FnvBuildHasher>, fnv::FnvBuildHasher>,
+	referrers:
+		im::HashMap<usize, im::HashSet<tg::tag::Pattern, fnv::FnvBuildHasher>, fnv::FnvBuildHasher>,
+}
 
 #[derive(Clone)]
 pub struct Solution {
@@ -418,12 +426,7 @@ impl Server {
 					.push(item.node);
 
 				// Add the referrer to the solution.
-				checkpoint
-					.solutions
-					.get_mut(&key)
-					.unwrap()
-					.referrers
-					.push(referrer);
+				checkpoint.solutions.add_referrer(&key, referrer);
 
 				// Enqueue the node's items.
 				Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
@@ -436,14 +439,8 @@ impl Server {
 					return Ok(());
 				}
 
-				// Get the solution
-				let Checkpoint {
-					graph, solutions, ..
-				} = checkpoint;
-				let solution = solutions.get_mut(&key).unwrap();
-
 				// Add the new referrer.
-				solution.referrers.push(referrer);
+				checkpoint.solutions.add_referrer(&key, referrer);
 
 				// If unsolved dependencies is false, then error.
 				if !state.unsolved_dependencies {
@@ -452,8 +449,9 @@ impl Server {
 				}
 
 				// Otherwise, remove the edges from the referrers and remove the solution's referent.
-				'outer: for referrer in &solution.referrers {
-					let node = graph.nodes.get_mut(&referrer.node).unwrap();
+				let referrers = checkpoint.solutions.get(&key).unwrap().referrers.clone();
+				'outer: for referrer in &referrers {
+					let node = checkpoint.graph.nodes.get_mut(&referrer.node).unwrap();
 					let Variant::File(file) = &mut node.variant else {
 						continue;
 					};
@@ -468,17 +466,12 @@ impl Server {
 						}
 					}
 				}
-				solution.referent.take();
+				checkpoint.solutions.clear_referent(&key);
 			},
 
 			TagInnerOutput::Unsolved => {
 				// Add the referrer to the solution.
-				checkpoint
-					.solutions
-					.get_mut(&key)
-					.unwrap()
-					.referrers
-					.push(referrer);
+				checkpoint.solutions.add_referrer(&key, referrer);
 			},
 		}
 		// Remove the candidates.
@@ -1129,6 +1122,129 @@ impl Server {
 				reference.push(path);
 			}
 			reference.to_string_lossy().into_owned()
+		}
+	}
+}
+
+impl Solutions {
+	pub fn is_empty(&self) -> bool {
+		self.solutions.is_empty()
+	}
+
+	pub fn get(&self, key: &tg::tag::Pattern) -> Option<&Solution> {
+		self.solutions.get(key)
+	}
+
+	pub fn contains_key(&self, key: &tg::tag::Pattern) -> bool {
+		self.solutions.contains_key(key)
+	}
+
+	pub fn insert(&mut self, key: tg::tag::Pattern, solution: Solution) {
+		if let Some(existing) = self.solutions.get(&key)
+			&& let Some(referent) = &existing.referent
+			&& let Some(patterns) = self.referents.get_mut(&referent.item)
+		{
+			patterns.remove(&key);
+			if patterns.is_empty() {
+				self.referents.remove(&referent.item);
+			}
+		}
+		if let Some(referent) = &solution.referent {
+			self.referents
+				.entry(referent.item)
+				.or_default()
+				.insert(key.clone());
+		}
+		self.solutions.insert(key, solution);
+	}
+
+	pub fn remove(&mut self, key: &tg::tag::Pattern) -> Option<Solution> {
+		let solution = self.solutions.remove(key)?;
+		if let Some(referent) = &solution.referent
+			&& let Some(patterns) = self.referents.get_mut(&referent.item)
+		{
+			patterns.remove(key);
+			if patterns.is_empty() {
+				self.referents.remove(&referent.item);
+			}
+		}
+		for referrer in &solution.referrers {
+			if let Some(patterns) = self.referrers.get_mut(&referrer.node) {
+				patterns.remove(key);
+				if patterns.is_empty() {
+					self.referrers.remove(&referrer.node);
+				}
+			}
+		}
+		Some(solution)
+	}
+
+	pub fn clear(&mut self) {
+		self.solutions.clear();
+		self.referents.clear();
+		self.referrers.clear();
+	}
+
+	pub fn remove_by_node(&mut self, node: usize) {
+		if let Some(patterns) = self.referents.remove(&node) {
+			for pattern in &patterns {
+				if let Some(solution) = self.solutions.remove(pattern) {
+					for referrer in &solution.referrers {
+						if let Some(referrer_patterns) = self.referrers.get_mut(&referrer.node) {
+							referrer_patterns.remove(pattern);
+							if referrer_patterns.is_empty() {
+								self.referrers.remove(&referrer.node);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if let Some(patterns) = self.referrers.remove(&node) {
+			let mut to_remove = Vec::new();
+			for pattern in patterns {
+				if let Some(solution) = self.solutions.get_mut(&pattern) {
+					solution.referrers.retain(|r| r.node != node);
+					if solution.referrers.is_empty() {
+						to_remove.push(pattern);
+					}
+				}
+			}
+			for pattern in to_remove {
+				if let Some(solution) = self.solutions.remove(&pattern) {
+					if let Some(referent) = &solution.referent
+						&& let Some(referent_patterns) = self.referents.get_mut(&referent.item)
+					{
+						referent_patterns.remove(&pattern);
+						if referent_patterns.is_empty() {
+							self.referents.remove(&referent.item);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	pub fn clear_referent(&mut self, key: &tg::tag::Pattern) {
+		if let Some(solution) = self.solutions.get_mut(key)
+			&& let Some(referent) = solution.referent.take()
+			&& let Some(patterns) = self.referents.get_mut(&referent.item)
+		{
+			patterns.remove(key);
+			if patterns.is_empty() {
+				self.referents.remove(&referent.item);
+			}
+		}
+	}
+
+	pub fn add_referrer(&mut self, key: &tg::tag::Pattern, referrer: Referrer) {
+		self.referrers
+			.entry(referrer.node)
+			.or_default()
+			.insert(key.clone());
+		if let Some(solution) = self.solutions.get_mut(key) {
+			solution.referrers.push(referrer);
 		}
 	}
 }

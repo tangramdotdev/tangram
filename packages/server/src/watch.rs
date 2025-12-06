@@ -131,6 +131,9 @@ impl Watch {
 								state.graph.paths.remove(path).unwrap();
 							}
 
+							// Remove solutions that reference this node.
+							state.solutions.remove_by_node(index);
+
 							// Remove the node from its children's referrers and enqueue its children with no more referrers and no path.
 							for child_index in node.children() {
 								if let Some(child) = state.graph.nodes.get_mut(&child_index) {
