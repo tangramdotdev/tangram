@@ -1,5 +1,9 @@
 {
   "count": 9,
   "depth": 5,
+  "self_solvable": false,
+  "self_solved": true,
+  "solvable": true,
+  "solved": false,
   "weight": 633,
 }

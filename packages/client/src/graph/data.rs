@@ -256,6 +256,19 @@ impl File {
 			referent.item.children(children);
 		}
 	}
+
+	#[must_use]
+	pub fn self_solvable(&self) -> bool {
+		self.dependencies.keys().any(tg::Reference::is_solvable)
+	}
+
+	#[must_use]
+	pub fn self_solved(&self) -> bool {
+		self.dependencies
+			.iter()
+			.filter(|(reference, _)| reference.is_solvable())
+			.all(|(_, referent)| referent.is_some())
+	}
 }
 
 impl Symlink {

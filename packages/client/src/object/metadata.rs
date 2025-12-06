@@ -29,6 +29,16 @@ pub struct Metadata {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub depth: Option<u64>,
+	#[tangram_serialize(id = 3)]
+	pub self_solvable: bool,
+	#[tangram_serialize(id = 4)]
+	pub self_solved: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
+	pub solvable: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 6, default, skip_serializing_if = "Option::is_none")]
+	pub solved: Option<bool>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub weight: Option<u64>,

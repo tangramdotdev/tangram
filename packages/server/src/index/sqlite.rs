@@ -137,8 +137,8 @@ impl Server {
 		// Prepare insert statement for objects.
 		let insert_statement = indoc!(
 			"
-				insert into objects (id, cache_entry, complete, count, depth, size, touched_at, transaction_id, weight)
-				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, (select id from transaction_id), ?8)
+				insert into objects (id, cache_entry, complete, count, depth, self_solvable, self_solved, solvable, solved, size, touched_at, transaction_id, weight)
+				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, (select id from transaction_id), ?12)
 				on conflict (id) do nothing;
 			"
 		);
@@ -154,8 +154,12 @@ impl Server {
 					complete = complete or ?3,
 					count = coalesce(count, ?4),
 					depth = coalesce(depth, ?5),
-					touched_at = coalesce(touched_at, ?7),
-					weight = coalesce(weight, ?8)
+					self_solvable = coalesce(self_solvable, ?6),
+					self_solved = coalesce(self_solved, ?7),
+					solvable = coalesce(solvable, ?8),
+					solved = coalesce(solved, ?9),
+					touched_at = coalesce(touched_at, ?11),
+					weight = coalesce(weight, ?12)
 				where id = ?1;
 			"
 		);
@@ -215,6 +219,10 @@ impl Server {
 				complete,
 				metadata.count,
 				metadata.depth,
+				metadata.self_solvable,
+				metadata.self_solved,
+				metadata.solvable,
+				metadata.solved,
 				size,
 				touched_at,
 				metadata.weight
@@ -232,6 +240,10 @@ impl Server {
 					complete,
 					metadata.count,
 					metadata.depth,
+					metadata.self_solvable,
+					metadata.self_solved,
+					metadata.solvable,
+					metadata.solved,
 					size,
 					touched_at,
 					metadata.weight
@@ -949,10 +961,14 @@ impl Server {
 					complete = updates.complete,
 					count = coalesce(objects.count, updates.count),
 					depth = coalesce(objects.depth, updates.depth),
+					solvable = objects.self_solvable or updates.children_solvable,
+					solved = objects.self_solved and updates.children_solved,
 					weight = coalesce(objects.weight, updates.weight)
 				from (
 					select
 						objects.id,
+						coalesce(max(coalesce(child_objects.solvable, 0)), 0) as children_solvable,
+						coalesce(min(coalesce(child_objects.solved, 1)), 1) as children_solved,
 						case
 							when count(object_children.child) = 0
 								then 1
@@ -960,9 +976,9 @@ impl Server {
 								then 1
 							else 0
 						end as complete,
-					1 + coalesce(sum(coalesce(child_objects.count, 0)), 0) as count,
-					1 + coalesce(max(coalesce(child_objects.depth, 0)), 0) as depth,
-					objects.size + coalesce(sum(coalesce(child_objects.weight, 0)), 0) as weight
+						1 + coalesce(sum(coalesce(child_objects.count, 0)), 0) as count,
+						1 + coalesce(max(coalesce(child_objects.depth, 0)), 0) as depth,
+						objects.size + coalesce(sum(coalesce(child_objects.weight, 0)), 0) as weight
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child

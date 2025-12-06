@@ -237,21 +237,25 @@ impl Server {
 							count: Some(0),
 							depth: Some(0),
 							weight: Some(0),
+							..Default::default()
 						},
 						children_outputs: tg::object::Metadata {
 							count: Some(0),
 							depth: Some(0),
 							weight: Some(0),
+							..Default::default()
 						},
 						command: tg::object::Metadata {
 							count: None,
 							depth: None,
 							weight: None,
+							..Default::default()
 						},
 						output: tg::object::Metadata {
 							count: Some(0),
 							depth: Some(0),
 							weight: Some(0),
+							..Default::default()
 						},
 					};
 
@@ -489,17 +493,27 @@ impl Server {
 				},
 
 				Node::Object(node) => {
-					if node.complete.is_some() && node.metadata.is_some() {
+					if node.complete.is_some()
+						&& node.metadata.as_ref().is_some_and(|m| m.solvable.is_some())
+					{
 						continue;
 					}
 
 					// Initialize the complete.
 					let mut complete = true;
 
-					// Initialize the metadata.
+					// Get self_solvable and self_solved from existing metadata if available.
+					let self_solvable = node.metadata.as_ref().is_some_and(|m| m.self_solvable);
+					let self_solved = node.metadata.as_ref().is_none_or(|m| m.self_solved);
+
+					// Initialize the metadata. Start solvable/solved from self_solvable/self_solved.
 					let mut metadata = tg::object::Metadata {
 						count: Some(1),
 						depth: Some(1),
+						self_solvable,
+						self_solved,
+						solvable: Some(self_solvable),
+						solved: Some(self_solved),
 						weight: node.size,
 					};
 
@@ -532,6 +546,26 @@ impl Server {
 										.and_then(|metadata| metadata.depth),
 								)
 								.map(|(a, b)| a.max(1 + b));
+							metadata.solvable = metadata
+								.solvable
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.as_ref()
+										.and_then(|metadata| metadata.solvable),
+								)
+								.map(|(a, b)| a || b);
+							metadata.solved = metadata
+								.solved
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.as_ref()
+										.and_then(|metadata| metadata.solved),
+								)
+								.map(|(a, b)| a && b);
 							metadata.weight = metadata
 								.weight
 								.zip(
@@ -651,13 +685,14 @@ impl Server {
 								.unwrap_object()
 						})
 						.collect();
+					let metadata = node.metadata.clone().unwrap();
 					let message =
 						crate::index::Message::PutObject(crate::index::message::PutObject {
 							cache_entry: None,
 							children,
 							complete: node.complete.unwrap(),
 							id,
-							metadata: node.metadata.clone().unwrap(),
+							metadata,
 							size: node.size.unwrap(),
 							touched_at,
 						});
