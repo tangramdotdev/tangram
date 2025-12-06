@@ -5,11 +5,11 @@ use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*, tangram_uri::Ur
 #[group(skip)]
 pub struct Args {
 	/// The path to the config file.
-	#[arg(env = "TANGRAM_CONFIG", long, short)]
+	#[arg(long, short)]
 	pub config: Option<PathBuf>,
 
 	/// Override the `directory` key in the config.
-	#[arg(env = "TANGRAM_DIRECTORY", long, short)]
+	#[arg(long, short)]
 	pub directory: Option<PathBuf>,
 
 	/// Override the `remotes` key in the config.
@@ -21,15 +21,14 @@ pub struct Args {
 	pub remotes: Option<Vec<String>>,
 
 	/// The token.
-	#[arg(env = "TANGRAM_TOKEN")]
 	pub token: Option<String>,
 
 	/// Override the tracing filter.
-	#[arg(env = "TANGRAM_TRACING", long)]
+	#[arg(long)]
 	pub tracing: Option<String>,
 
 	/// Override the `url` key in the config.
-	#[arg(env = "TANGRAM_URL", long, short)]
+	#[arg(long, short)]
 	pub url: Option<Uri>,
 }
 

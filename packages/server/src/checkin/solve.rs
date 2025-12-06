@@ -1212,14 +1212,13 @@ impl Solutions {
 				}
 			}
 			for pattern in to_remove {
-				if let Some(solution) = self.solutions.remove(&pattern) {
-					if let Some(referent) = &solution.referent
-						&& let Some(referent_patterns) = self.referents.get_mut(&referent.item)
-					{
-						referent_patterns.remove(&pattern);
-						if referent_patterns.is_empty() {
-							self.referents.remove(&referent.item);
-						}
+				if let Some(solution) = self.solutions.remove(&pattern)
+					&& let Some(referent) = &solution.referent
+					&& let Some(referent_patterns) = self.referents.get_mut(&referent.item)
+				{
+					referent_patterns.remove(&pattern);
+					if referent_patterns.is_empty() {
+						self.referents.remove(&referent.item);
 					}
 				}
 			}
