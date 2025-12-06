@@ -1,8 +1,7 @@
 use {
 	crate::Server,
-	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::indoc,
-	std::sync::Arc,
+	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -14,21 +13,51 @@ impl Server {
 		database: &db::sqlite::Database,
 		touched_at: i64,
 	) -> tg::Result<()> {
+		Self::put_process_batch_sqlite(&[(id, &arg.data)], database, touched_at).await
+	}
+
+	pub(crate) async fn put_process_batch_sqlite(
+		items: &[(&tg::process::Id, &tg::process::Data)],
+		database: &db::sqlite::Database,
+		touched_at: i64,
+	) -> tg::Result<()> {
+		if items.is_empty() {
+			return Ok(());
+		}
+
+		// Clone items for the closure.
+		let items: Vec<_> = items
+			.iter()
+			.map(|(id, data)| ((*id).clone(), (*data).clone()))
+			.collect();
+
 		// Get a database connection.
-		let mut connection = database
+		let connection = database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
+		connection
+			.with(move |connection| {
+				Self::put_process_batch_sqlite_sync(connection, &items, touched_at)
+			})
+			.await?;
+
+		Ok(())
+	}
+
+	pub(crate) fn put_process_batch_sqlite_sync(
+		connection: &sqlite::Connection,
+		items: &[(tg::process::Id, tg::process::Data)],
+		touched_at: i64,
+	) -> tg::Result<()> {
 		// Begin a transaction.
 		let transaction = connection
-			.transaction()
-			.await
+			.unchecked_transaction()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let transaction = Arc::new(transaction);
 
-		// Insert the process.
-		let statement = indoc!(
+		// Prepare the process insert statement.
+		let process_statement = indoc!(
 			"
 				insert into processes (
 					id,
@@ -111,84 +140,94 @@ impl Server {
 					touched_at = ?25
 			"
 		);
-		let params = db::params![
-			id.to_string(),
-			arg.data.actual_checksum.as_ref().map(ToString::to_string),
-			arg.data.cacheable,
-			arg.data.command.to_string(),
-			arg.data.created_at,
-			arg.data.dequeued_at,
-			arg.data.enqueued_at,
-			arg.data.error.as_ref().map(db::value::Json),
-			arg.data
+		let mut process_stmt = transaction
+			.prepare_cached(process_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Prepare the children insert statement.
+		let children_statement = indoc!(
+			"
+				insert into process_children (process, position, child, options)
+				values (?1, ?2, ?3, ?4)
+				on conflict (process, child) do nothing;
+			"
+		);
+		let mut children_stmt = transaction
+			.prepare_cached(children_statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+
+		// Insert all processes and their children.
+		for (id, data) in items {
+			let error_json = data
 				.error
 				.as_ref()
-				.and_then(|error| error.code.map(|code| code.to_string())),
-			arg.data.exit,
-			arg.data.expected_checksum.as_ref().map(ToString::to_string),
-			arg.data.finished_at,
-			arg.data.host,
-			arg.data.log.as_ref().map(ToString::to_string),
-			(!arg.data.mounts.is_empty()).then_some(db::value::Json(arg.data.mounts.clone())),
-			arg.data.network,
-			arg.data.output.as_ref().map(db::value::Json),
-			arg.data.retry,
-			arg.data.started_at,
-			arg.data.status.to_string(),
-			arg.data.stderr.as_ref().map(ToString::to_string),
-			arg.data.stdin.as_ref().map(ToString::to_string),
-			arg.data.stdout.as_ref().map(ToString::to_string),
-			0,
-			touched_at
-		];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map(|e| serde_json::to_string(e).unwrap());
+			let error_code = data
+				.error
+				.as_ref()
+				.and_then(|error| error.code.map(|code| code.to_string()));
+			let mounts_json =
+				(!data.mounts.is_empty()).then(|| serde_json::to_string(&data.mounts).unwrap());
+			let output_json = data
+				.output
+				.as_ref()
+				.map(|o| serde_json::to_string(o).unwrap());
 
-		// Insert the children.
-		if let Some(children) = &arg.data.children {
-			let statement = indoc!(
-				"
-					insert into process_children (process, position, child, options)
-					values (?1, ?2, ?3, ?4)
-					on conflict (process, child) do nothing;
-				"
-			);
-			children
-				.iter()
-				.enumerate()
-				.map(|(position, child)| {
-					let transaction = transaction.clone();
-					async move {
-						let params = db::params![
-							id.to_string(),
-							position,
-							child.item.to_string(),
-							serde_json::to_string(child.options()).unwrap(),
-						];
-						transaction
-							.execute(statement.into(), params)
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to execute the statement")
-							})?;
-						Ok::<_, tg::Error>(())
-					}
-				})
-				.collect::<FuturesUnordered<_>>()
-				.try_collect::<()>()
-				.await?;
+			let params = sqlite::params![
+				id.to_string(),
+				data.actual_checksum.as_ref().map(ToString::to_string),
+				data.cacheable,
+				data.command.to_string(),
+				data.created_at,
+				data.dequeued_at,
+				data.enqueued_at,
+				error_json,
+				error_code,
+				data.exit,
+				data.expected_checksum.as_ref().map(ToString::to_string),
+				data.finished_at,
+				data.host,
+				data.log.as_ref().map(ToString::to_string),
+				mounts_json,
+				data.network,
+				output_json,
+				data.retry,
+				data.started_at,
+				data.status.to_string(),
+				data.stderr.as_ref().map(ToString::to_string),
+				data.stdin.as_ref().map(ToString::to_string),
+				data.stdout.as_ref().map(ToString::to_string),
+				0,
+				touched_at
+			];
+			process_stmt
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Insert children.
+			if let Some(children) = &data.children {
+				for (position, child) in children.iter().enumerate() {
+					let params = sqlite::params![
+						id.to_string(),
+						position,
+						child.item.to_string(),
+						serde_json::to_string(child.options()).unwrap(),
+					];
+					children_stmt
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				}
+			}
 		}
-		// Commit the transaction.
-		Arc::into_inner(transaction)
-			.unwrap()
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-		// Drop the connection.
-		drop(connection);
+		// Drop the prepared statements before committing.
+		drop(process_stmt);
+		drop(children_stmt);
+
+		// Commit the transaction.
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(())
 	}

@@ -3,11 +3,13 @@ use {
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
-	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
+
+const PROCESS_BATCH_SIZE: usize = 16;
+const PROCESS_CONCURRENCY: usize = 8;
 
 pub struct ObjectItem {
 	pub id: tg::object::Id,
@@ -144,38 +146,61 @@ impl Server {
 		state: &State,
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
-		let stream = ReceiverStream::new(process_receiver);
-		let mut stream = pin!(stream);
-		while let Some(item) = stream.next().await {
-			let id = &item.id;
-			let data = serde_json::from_slice(&item.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the process data"))?;
-			let arg = tg::process::put::Arg { data };
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			match &self.database {
-				#[cfg(feature = "postgres")]
-				Database::Postgres(database) => {
-					Self::put_process_postgres(id, &arg, database, now)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
-				},
-				Database::Sqlite(database) => {
-					Self::put_process_sqlite(id, &arg, database, now)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to put the process"))?;
-				},
-			}
-			let data = serde_json::from_slice(&item.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the process"))?;
-			state.graph.lock().unwrap().update_process(
-				&item.id,
-				Some(&data),
-				None,
-				None,
-				Some(true),
-			);
+		ReceiverStream::new(process_receiver)
+			.ready_chunks(PROCESS_BATCH_SIZE)
+			.map(Ok)
+			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| async move {
+				self.sync_get_store_processes_inner(state, items).await
+			})
+			.await
+	}
+
+	async fn sync_get_store_processes_inner(
+		&self,
+		state: &State,
+		items: Vec<ProcessItem>,
+	) -> tg::Result<()> {
+		// Deserialize all processes once.
+		let batch: Vec<(tg::process::Id, tg::process::Data)> = items
+			.iter()
+			.map(|item| {
+				let data = serde_json::from_slice(&item.bytes).map_err(|source| {
+					tg::error!(!source, "failed to deserialize the process data")
+				})?;
+				Ok((item.id.clone(), data))
+			})
+			.collect::<tg::Result<_>>()?;
+
+		// Put the processes to the database.
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let batch_refs: Vec<_> = batch.iter().map(|(id, data)| (id, data)).collect();
+		match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
+				Self::put_process_batch_postgres(&batch_refs, database, now)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to put the processes"))?;
+			},
+			Database::Sqlite(database) => {
+				Self::put_process_batch_sqlite(&batch_refs, database, now)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to put the processes"))?;
+			},
+		}
+
+		// Update the graph for all processes.
+		let mut graph = state.graph.lock().unwrap();
+		for (id, data) in &batch {
+			graph.update_process(id, Some(data), None, None, Some(true));
+		}
+		drop(graph);
+
+		// Update the progress.
+		let count = items.len().to_u64().unwrap();
+		for _ in 0..count {
 			state.progress.increment_processes();
 		}
+
 		Ok(())
 	}
 }
