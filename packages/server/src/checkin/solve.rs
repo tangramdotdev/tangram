@@ -36,6 +36,7 @@ struct Checkpoint {
 pub struct Candidate {
 	node: Option<usize>,
 	object: tg::object::Id,
+	solvable: Option<bool>,
 	tag: tg::Tag,
 }
 
@@ -546,6 +547,11 @@ impl Server {
 			self.checkin_solve_add_node(checkpoint, item, &id).await?
 		};
 
+		// Update the node's solvable field from the candidate metadata.
+		if let Some(solvable) = candidate.solvable {
+			checkpoint.graph.nodes.get_mut(&node).unwrap().solvable = solvable;
+		}
+
 		// Create the referent.
 		let options = tg::referent::Options {
 			id: Some(candidate.object),
@@ -604,8 +610,17 @@ impl Server {
 			None
 		};
 		let object = referent.id().cloned()?;
+		let solvable = node.and_then(|n| {
+			let node = checkpoint.graph.nodes.get(&n)?;
+			Some(node.solvable)
+		});
 		let tag = referent.tag().cloned()?;
-		let candidate = Candidate { node, object, tag };
+		let candidate = Candidate {
+			node,
+			object,
+			solvable,
+			tag,
+		};
 		Some(candidate)
 	}
 
@@ -623,17 +638,40 @@ impl Server {
 			})
 			.await
 			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
-		let candidates = output
+
+		// Collect candidates with their object IDs.
+		let mut candidates = output
 			.data
 			.into_iter()
 			.filter_map(|output| {
 				let object = output.item?.left()?;
 				let node = None;
+				let solvable = None;
 				let tag = output.tag;
-				let candidate = Candidate { node, object, tag };
+				let candidate = Candidate {
+					node,
+					object,
+					solvable,
+					tag,
+				};
 				Some(candidate)
 			})
 			.collect::<im::Vector<_>>();
+
+		// Batch fetch solvable metadata for all candidates.
+		if !candidates.is_empty() {
+			let ids = candidates
+				.iter()
+				.map(|c| c.object.clone())
+				.collect::<Vec<_>>();
+			let metadata_results = self
+				.try_get_object_complete_and_metadata_batch(&ids)
+				.await?;
+			for (candidate, metadata) in candidates.iter_mut().zip(metadata_results) {
+				candidate.solvable = metadata.and_then(|(_, m)| m.solvable);
+			}
+		}
+
 		Ok(candidates)
 	}
 
@@ -710,6 +748,16 @@ impl Server {
 			},
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
+
+		// Fetch solvable metadata for this object.
+		let solvable = self
+			.try_get_object_complete_and_metadata(&id.clone().into())
+			.await
+			.ok()
+			.flatten()
+			.and_then(|(_, m)| m.solvable)
+			.unwrap_or(true);
+
 		let node = Node {
 			artifact: None,
 			complete: false,
@@ -720,7 +768,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: true,
+			solvable,
 			solved: false,
 			variant,
 		};
@@ -859,6 +907,16 @@ impl Server {
 			},
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
+
+		// Fetch solvable metadata for this graph.
+		let solvable = self
+			.try_get_object_complete_and_metadata(&graph_id.clone().into())
+			.await
+			.ok()
+			.flatten()
+			.and_then(|(_, m)| m.solvable)
+			.unwrap_or(true);
+
 		let node = Node {
 			artifact: None,
 			complete: false,
@@ -869,7 +927,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: true,
+			solvable,
 			solved: false,
 			variant,
 		};
@@ -933,6 +991,12 @@ impl Server {
 
 		// If the node is solved, then do not enqueue any of its items.
 		if node.solved {
+			return;
+		}
+
+		// If the node is not solvable, then it has no dependencies that need solving.
+		if !node.solvable {
+			tracing::trace!(id = ?node.id, "the node is not solvable");
 			return;
 		}
 
