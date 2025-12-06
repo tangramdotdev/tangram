@@ -161,7 +161,7 @@ impl Server {
 					unnest($15::text[]),
 					unnest($16::bool[]),
 					unnest($17::text[]),
-					unnest($18::int8[]),
+					unnest($18::bool[]),
 					unnest($19::int8[]),
 					unnest($20::text[]),
 					unnest($21::text[]),
@@ -196,7 +196,6 @@ impl Server {
 					touched_at = excluded.touched_at;
 			"
 		);
-		let retries: Vec<i64> = retries.into_iter().map(i64::from).collect();
 		transaction
 			.execute(
 				statement,
