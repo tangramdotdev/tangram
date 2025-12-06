@@ -41,23 +41,23 @@ impl Server {
 		// Collect all process data into column arrays.
 		let mut ids = Vec::with_capacity(items.len());
 		let mut actual_checksums: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut cacheables: Vec<Option<bool>> = Vec::with_capacity(items.len());
+		let mut cacheables: Vec<bool> = Vec::with_capacity(items.len());
 		let mut commands = Vec::with_capacity(items.len());
-		let mut created_ats: Vec<Option<f64>> = Vec::with_capacity(items.len());
-		let mut dequeued_ats: Vec<Option<f64>> = Vec::with_capacity(items.len());
-		let mut enqueued_ats: Vec<Option<f64>> = Vec::with_capacity(items.len());
+		let mut created_ats: Vec<i64> = Vec::with_capacity(items.len());
+		let mut dequeued_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
+		let mut enqueued_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut errors: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut error_codes: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut exits: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut expected_checksums: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut finished_ats: Vec<Option<f64>> = Vec::with_capacity(items.len());
-		let mut hosts: Vec<Option<String>> = Vec::with_capacity(items.len());
+		let mut finished_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
+		let mut hosts: Vec<String> = Vec::with_capacity(items.len());
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut mounts: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut networks: Vec<Option<bool>> = Vec::with_capacity(items.len());
+		let mut networks: Vec<bool> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut retries: Vec<Option<u64>> = Vec::with_capacity(items.len());
-		let mut started_ats: Vec<Option<f64>> = Vec::with_capacity(items.len());
+		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
+		let mut started_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut statuses = Vec::with_capacity(items.len());
 		let mut stderrs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut stdins: Vec<Option<String>> = Vec::with_capacity(items.len());
@@ -148,21 +148,21 @@ impl Server {
 					unnest($2::text[]),
 					unnest($3::bool[]),
 					unnest($4::text[]),
-					unnest($5::float8[]),
-					unnest($6::float8[]),
-					unnest($7::float8[]),
+					unnest($5::int8[]),
+					unnest($6::int8[]),
+					unnest($7::int8[]),
 					unnest($8::text[]),
 					unnest($9::text[]),
 					unnest($10::int8[]),
 					unnest($11::text[]),
-					unnest($12::float8[]),
+					unnest($12::int8[]),
 					unnest($13::text[]),
 					unnest($14::text[]),
 					unnest($15::text[]),
 					unnest($16::bool[]),
 					unnest($17::text[]),
 					unnest($18::int8[]),
-					unnest($19::float8[]),
+					unnest($19::int8[]),
 					unnest($20::text[]),
 					unnest($21::text[]),
 					unnest($22::text[]),
@@ -196,10 +196,7 @@ impl Server {
 					touched_at = excluded.touched_at;
 			"
 		);
-		let retries: Vec<Option<i64>> = retries
-			.into_iter()
-			.map(|r| r.map(|v| v.to_i64().unwrap()))
-			.collect();
+		let retries: Vec<i64> = retries.into_iter().map(i64::from).collect();
 		transaction
 			.execute(
 				statement,
