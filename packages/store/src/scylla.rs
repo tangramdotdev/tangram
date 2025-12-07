@@ -52,7 +52,7 @@ impl Store {
 			builder = builder.user(username, password);
 		}
 		let session = builder.build().boxed().await?;
-		session.use_keyspace(&config.keyspace, false).await?;
+		session.use_keyspace(&config.keyspace, true).await?;
 
 		let statement = indoc!(
 			"

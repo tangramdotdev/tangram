@@ -3,7 +3,7 @@ use ../test.nu *
 let tmp = mktemp -d
 
 # Spawn a remote and local server.
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }

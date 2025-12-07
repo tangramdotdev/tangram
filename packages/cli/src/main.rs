@@ -879,6 +879,7 @@ impl Cli {
 				self::config::Messenger::Nats(messenger) => {
 					let mut new = tangram_server::config::NatsMessenger {
 						credentials: messenger.credentials,
+						id: messenger.id,
 						..Default::default()
 					};
 					if let Some(url) = messenger.url {

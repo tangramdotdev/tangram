@@ -368,7 +368,10 @@ impl Server {
 						.map_err(|source| {
 							tg::error!(!source, "failed to create the NATS client")
 						})?;
-					Messenger::Nats(tangram_messenger::nats::Messenger::new(client))
+					Messenger::Nats(tangram_messenger::nats::Messenger::new(
+						client,
+						nats.id.clone(),
+					))
 				}
 			},
 		};

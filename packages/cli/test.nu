@@ -4,23 +4,23 @@ use std/util 'path add'
 
 export use std assert
 
-const path = path self '../../'
+const repository_path = path self '../../'
 
 def main [
-	--review (-r) # Review snapshots.
 	--jobs (-j): int # The number of concurrent tests to run.
-	--print-passing-output # Print the output of passing tests.
-	--no-capture # Do not capture stdout and stderr of each test. Sets jobs to 1.
+	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
+	--print-passing-test-output # Print the output of passing tests.
+	--review (-r) # Review snapshots.
 	--timeout: duration = 10sec # The timeout for each test.
 	filter: string = '.*' # Filter tests.
 ] {
 	# Add the debug build to the path.
-	cargo build
+	cargo build --features=nats,postgres,scylla
 	ln -sf tangram target/debug/tg
-	path add ($path | path join 'target/debug')
+	path add ($repository_path | path join 'target/debug')
 
 	# Get the matching tests.
-	let tests_path = ($path | path join 'packages/cli/tests')
+	let tests_path = ($repository_path | path join 'packages/cli/tests')
 	let tests = fd -e nu -p $filter $tests_path | lines | each { |path|
 		{
 			path: $path,
@@ -92,7 +92,18 @@ def main [
 				}
 			}
 
-			# Cleanup the temp directory.
+			# Clean up the cloud resource.
+			let ids_path = $temp_path | path join 'ids'
+			let ids = if ($ids_path | path exists) {
+				open $ids_path | lines | where { $in != '' }
+			} else {
+				[]
+			}
+			for id in $ids {
+				cleanup $id
+			}
+
+			# Clean up the temp directory.
 			chmod -R +w $temp_path
 			rm -rf $temp_path
 
@@ -141,7 +152,7 @@ def main [
 				$'(ansi red)✗(ansi reset)'
 			}
 			print -e $'($symbol) ($result.name) ($result.duration)'
-			if $print_passing_output or $result.output.exit_code != 0 {
+			if $print_passing_test_output or $result.output.exit_code != 0 {
 				print -e -n $result.output.stdout
 			}
 
@@ -315,7 +326,7 @@ export def artifact [artifact] {
 		}
 		match $artifact.kind {
 			'directory' => {
-				mkdir $path | ignore
+				try { mkdir $path }
 				for entry in ($artifact.entries | transpose name value) {
 					inner $entry.value ($path | path join $entry.name)
 				}
@@ -498,7 +509,7 @@ def --env snapshot_file [
 	let test_directory_path = $test_path | path dirname
 	let snapshot_directory_path = $test_directory_path | path join $test_name
 	if $name != null {
-		mkdir -v $snapshot_directory_path | ignore
+		try { mkdir -v $snapshot_directory_path }
 	}
 	let snapshot_path = if $name == null {
 		$test_directory_path | path join $'($test_name).snapshot'
@@ -577,15 +588,68 @@ def snapshot_path [path: string] {
 }
 
 export def --env spawn [
+	--cloud
 	--config (-c): record
 	--name (-n): string
 ] {
-	let default_config = {
+	mut default_config = {
 		advanced: {
 			disable_version_check: true
 			internal_error_locations: false
 		},
 		remotes: [],
+	}
+
+	mut id: any = null
+	if $cloud {
+		$id = random chars
+		$id ++ "\n" | save --append ($env.TMPDIR | path join 'ids')
+		print -e $id
+
+		createdb -U postgres -h localhost $'database_($id)'
+		psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join 'packages/server/src/database/postgres.sql')
+
+		createdb -U postgres -h localhost $'index_($id)'
+		for path in (ls ($repository_path | path join 'packages/server/src/index/postgres') | get name | sort) {
+			psql -U postgres -h localhost -d $'index_($id)' -f $path
+		}
+
+		nats stream create $'index_($id)' --discard new --retention work --subjects $'($id).index' --defaults
+		nats consumer create $'index_($id)' index --deliver all --max-pending 1000000 --pull --defaults
+
+		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+		cqlsh -k $'store_($id)' -f packages/store/src/scylla.cql
+
+		let config = {
+			database: {
+				kind: 'postgres',
+				url: $'postgres://postgres@localhost:5432/database_($id)',
+			},
+			index: {
+				kind: 'postgres',
+				url: $'postgres://postgres@localhost:5432/index_($id)',
+			},
+			indexer: {
+				message_batch_timeout: 1,
+			},
+			messenger: {
+				kind: 'nats',
+				id: $id,
+				url: 'nats://localhost',
+			},
+			remotes: [],
+			store: {
+				kind: 'scylla',
+				addr: 'localhost:9042',
+				keyspace: $'store_($id)',
+			},
+			watchdog: {
+				batch_size: 100,
+				interval: 1,
+				ttl: 60
+			}
+		}
+		$default_config = $default_config | merge $config
 	}
 
 	# Write the config.
@@ -638,6 +702,19 @@ export def --env spawn [
 	}
 
 	{ config: $config_path, directory: $directory_path, url: $url }
+}
+
+def cleanup [id: string] {
+	# Drop the postgres databases.
+	try { dropdb -U postgres -h localhost $'database_($id)' }
+	try { dropdb -U postgres -h localhost $'index_($id)' }
+
+	# Remove the NATS stream and consumer.
+	try { nats consumer rm -f $'($id).index' index }
+	try { nats stream rm -f $'($id).index' }
+
+	# Drop the scylla keyspace.
+	try { cqlsh -e $"drop keyspace \"store_($id)\";" }
 }
 
 export def --wrapped run [...command] {

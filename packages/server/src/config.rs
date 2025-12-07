@@ -116,6 +116,7 @@ pub enum Messenger {
 #[derive(Clone, Debug)]
 pub struct NatsMessenger {
 	pub credentials: Option<PathBuf>,
+	pub id: Option<String>,
 	pub url: Uri,
 }
 
@@ -277,6 +278,7 @@ impl Default for NatsMessenger {
 		let url = "nats://localhost:4222".parse().unwrap();
 		Self {
 			credentials: None,
+			id: None,
 			url,
 		}
 	}

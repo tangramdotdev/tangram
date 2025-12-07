@@ -13,6 +13,7 @@ use {
 pub struct Messenger {
 	client: nats::Client,
 	jetstream: nats::jetstream::Context,
+	id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -27,12 +28,17 @@ pub struct Consumer {
 
 impl Messenger {
 	#[must_use]
-	pub fn new(client: nats::Client) -> Self {
+	pub fn new(client: nats::Client, id: Option<String>) -> Self {
 		let jetstream = nats::jetstream::new(client.clone());
-		Self { client, jetstream }
+		Self {
+			client,
+			jetstream,
+			id,
+		}
 	}
 
 	fn publish(&self, subject: String, message: Bytes) -> impl Future<Output = Result<(), Error>> {
+		let subject = self.subject_name(subject);
 		self.client.publish(subject, message).map_err(Error::other)
 	}
 
@@ -41,6 +47,7 @@ impl Messenger {
 		subject: String,
 		group: Option<String>,
 	) -> impl Future<Output = Result<impl futures::Stream<Item = Message> + 'static, Error>> {
+		let subject = self.subject_name(subject);
 		match group {
 			None => self
 				.client
@@ -74,6 +81,7 @@ impl Messenger {
 	}
 
 	async fn get_stream(&self, name: String) -> Result<Stream, Error> {
+		let name = self.stream_name(name);
 		let stream = self
 			.jetstream
 			.get_stream(name)
@@ -84,6 +92,7 @@ impl Messenger {
 	}
 
 	async fn create_stream(&self, name: String, config: StreamConfig) -> Result<Stream, Error> {
+		let name = self.stream_name(name);
 		let stream_config = Self::stream_config(name, &config);
 		let stream = self
 			.jetstream
@@ -99,6 +108,7 @@ impl Messenger {
 		name: String,
 		config: StreamConfig,
 	) -> Result<Stream, Error> {
+		let name = self.stream_name(name);
 		let stream_config = Self::stream_config(name, &config);
 		let stream = self
 			.jetstream
@@ -138,6 +148,7 @@ impl Messenger {
 	}
 
 	async fn delete_stream(&self, name: String) -> Result<(), Error> {
+		let name = self.stream_name(name);
 		self.jetstream
 			.delete_stream(name)
 			.await
@@ -150,9 +161,10 @@ impl Messenger {
 		name: String,
 		payload: Bytes,
 	) -> Result<impl Future<Output = Result<u64, Error>>, Error> {
+		let name = self.stream_name(name);
 		let future = self
 			.jetstream
-			.publish(name.clone(), payload)
+			.publish(name, payload)
 			.await
 			.map_err(Error::other)?
 			.into_future()
@@ -176,6 +188,20 @@ impl Messenger {
 			.into_iter()
 			.collect::<FuturesOrdered<_>>()
 			.try_collect::<_>())
+	}
+
+	fn subject_name(&self, name: String) -> String {
+		match &self.id {
+			Some(id) => format!("{id}.{name}"),
+			None => name,
+		}
+	}
+
+	fn stream_name(&self, name: String) -> String {
+		match &self.id {
+			Some(id) => format!("{name}_{id}"),
+			None => name,
+		}
 	}
 }
 
