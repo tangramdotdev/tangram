@@ -93,18 +93,18 @@ impl Server {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			move |_| async move {
-				// Ensure the artifact is complete.
+				// Ensure the artifact is stored.
 				let result = server
-					.checkout_ensure_complete(&artifact, &progress)
+					.checkout_ensure_stored(&artifact, &progress)
 					.await
 					.map_err(
-						|source| tg::error!(!source, %artifact, "failed to ensure the artifact is complete"),
+						|source| tg::error!(!source, %artifact, "failed to ensure the artifact is stored"),
 					);
 				if let Err(error) = result {
 					tracing::warn!(?error);
 					progress.log(
 						tg::progress::Level::Warning,
-						"failed to ensure the artifact is complete".into(),
+						"failed to ensure the artifact is stored".into(),
 					);
 				}
 
@@ -167,17 +167,17 @@ impl Server {
 		Ok(stream)
 	}
 
-	pub(crate) async fn checkout_ensure_complete(
+	pub(crate) async fn checkout_ensure_stored(
 		&self,
 		artifact: &tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<()> {
-		// Check if the artifact is complete.
-		let complete = self
-			.try_get_object_complete(&artifact.clone().into())
+		// Check if the artifact's subtree is stored.
+		let stored = self
+			.try_get_object_stored(&artifact.clone().into())
 			.await?
 			.unwrap_or_default();
-		if complete {
+		if stored.subtree {
 			return Ok(());
 		}
 
@@ -188,12 +188,12 @@ impl Server {
 			progress.forward(Ok(event));
 		}
 
-		// Check if the artifact is complete.
-		let complete = self
-			.try_get_object_complete(&artifact.clone().into())
+		// Check if the artifact's subtree is stored.
+		let stored = self
+			.try_get_object_stored(&artifact.clone().into())
 			.await?
 			.unwrap_or_default();
-		if complete {
+		if stored.subtree {
 			return Ok(());
 		}
 

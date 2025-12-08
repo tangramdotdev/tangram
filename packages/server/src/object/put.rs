@@ -31,14 +31,18 @@ impl Server {
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
-		let size = arg.bytes.len().to_u64().unwrap();
+		let metadata = tg::object::Metadata {
+			node: tg::object::metadata::Node {
+				size: Some(arg.bytes.len().to_u64().unwrap()),
+			},
+			..Default::default()
+		};
 		let message = crate::index::Message::PutObject(crate::index::message::PutObject {
 			cache_entry: None,
 			children,
-			complete: false,
 			id: id.clone(),
-			metadata: tg::object::Metadata::default(),
-			size,
+			metadata,
+			stored: crate::object::stored::Output::default(),
 			touched_at: now,
 		});
 		let message = message.serialize()?;

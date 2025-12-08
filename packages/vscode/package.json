@@ -1,5 +1,10 @@
 {
-	"categories": ["Programming Languages", "Formatters", "Linters", "Other"],
+	"categories": [
+		"Programming Languages",
+		"Formatters",
+		"Linters",
+		"Other"
+	],
 	"contributes": {
 		"commands": [
 			{
@@ -17,7 +22,10 @@
 					"type": "boolean"
 				},
 				"tangram.command": {
-					"default": ["tangram", "lsp"],
+					"default": [
+						"tangram",
+						"lsp"
+					],
 					"description": "The command and arguments to start the Tangram Language Server. Example: [\"tangram\", \"lsp\", \"--log-level\", \"debug\"]",
 					"scope": "window",
 					"type": "array",
@@ -50,7 +58,9 @@
 				"scopeName": "source.tg.js"
 			},
 			{
-				"injectTo": ["source.tg.js"],
+				"injectTo": [
+					"source.tg.js"
+				],
 				"path": "./tangram-javascript-jsdoc-injection.tmLanguage.json",
 				"scopeName": "documentation.injection.tg.js"
 			},
@@ -63,24 +73,38 @@
 				"scopeName": "source.tg.ts"
 			},
 			{
-				"injectTo": ["source.tg.ts"],
+				"injectTo": [
+					"source.tg.ts"
+				],
 				"path": "./tangram-typescript-jsdoc-injection.tmLanguage.json",
 				"scopeName": "documentation.injection.tg.ts"
 			}
 		],
 		"languages": [
 			{
-				"aliases": ["Tangram JavaScript"],
+				"aliases": [
+					"Tangram JavaScript"
+				],
 				"configuration": "./tangram-javascript-language-configuration.json",
-				"filenames": ["tangram.js"],
-				"extensions": [".tg.js"],
+				"filenames": [
+					"tangram.js"
+				],
+				"extensions": [
+					".tg.js"
+				],
 				"id": "tangram-javascript"
 			},
 			{
-				"aliases": ["Tangram TypeScript"],
+				"aliases": [
+					"Tangram TypeScript"
+				],
 				"configuration": "./tangram-typescript-language-configuration.json",
-				"filenames": ["tangram.ts"],
-				"extensions": [".tg.ts"],
+				"filenames": [
+					"tangram.ts"
+				],
+				"extensions": [
+					".tg.ts"
+				],
 				"id": "tangram-typescript"
 			}
 		]

@@ -4,12 +4,12 @@ create or replace procedure handle_messages(
 
 	object_ids bytea[],
 	object_cache_entries bytea[],
-	object_sizes int8[],
+	object_node_sizes int8[],
 	object_touched_ats int8[],
-	object_counts int8[],
-	object_depths int8[],
-	object_weights int8[],
-	object_completes bool[],
+	object_subtree_counts int8[],
+	object_subtree_depths int8[],
+	object_subtree_sizes int8[],
+	object_subtree_storeds bool[],
 	object_children bytea[],
 	object_parent_indices int8[],
 
@@ -18,24 +18,24 @@ create or replace procedure handle_messages(
 
 	process_ids bytea[],
 	process_touched_ats int8[],
-	process_children_completes bool[],
-	process_children_counts int8[],
-	process_children_commands_completes bool[],
-	process_children_commands_counts int8[],
-	process_children_commands_depths int8[],
-	process_children_commands_weights int8[],
-	process_children_outputs_completes bool[],
-	process_children_outputs_counts int8[],
-	process_children_outputs_depths int8[],
-	process_children_outputs_weights int8[],
-	process_command_completes bool[],
-	process_command_counts int8[],
-	process_command_depths int8[],
-	process_command_weights int8[],
-	process_output_completes bool[],
-	process_output_counts int8[],
-	process_output_depths int8[],
-	process_output_weights int8[],
+	process_subtree_storeds bool[],
+	process_subtree_counts int8[],
+	process_subtree_command_storeds bool[],
+	process_subtree_command_counts int8[],
+	process_subtree_command_depths int8[],
+	process_subtree_command_sizes int8[],
+	process_subtree_output_storeds bool[],
+	process_subtree_output_counts int8[],
+	process_subtree_output_depths int8[],
+	process_subtree_output_sizes int8[],
+	process_node_command_storeds bool[],
+	process_node_command_counts int8[],
+	process_node_command_depths int8[],
+	process_node_command_sizes int8[],
+	process_node_output_storeds bool[],
+	process_node_output_counts int8[],
+	process_node_output_depths int8[],
+	process_node_output_sizes int8[],
 	process_children bytea[],
 	process_child_process_indices int8[],
 	process_child_positions int8[],
@@ -59,12 +59,12 @@ begin
 	call put_objects(
 		object_ids,
 		object_cache_entries,
-		object_sizes,
+		object_node_sizes,
 		object_touched_ats,
-		object_counts,
-		object_depths,
-		object_weights,
-		object_completes,
+		object_subtree_counts,
+		object_subtree_depths,
+		object_subtree_sizes,
+		object_subtree_storeds,
 		object_children,
 		object_parent_indices
 	);
@@ -74,24 +74,24 @@ begin
 	call put_processes(
 		process_ids,
 		process_touched_ats,
-		process_children_completes,
-		process_children_counts,
-		process_children_commands_completes,
-		process_children_commands_counts,
-		process_children_commands_depths,
-		process_children_commands_weights,
-		process_children_outputs_completes,
-		process_children_outputs_counts,
-		process_children_outputs_depths,
-		process_children_outputs_weights,
-		process_command_completes,
-		process_command_counts,
-		process_command_depths,
-		process_command_weights,
-		process_output_completes,
-		process_output_counts,
-		process_output_depths,
-		process_output_weights,
+		process_subtree_storeds,
+		process_subtree_counts,
+		process_subtree_command_storeds,
+		process_subtree_command_counts,
+		process_subtree_command_depths,
+		process_subtree_command_sizes,
+		process_subtree_output_storeds,
+		process_subtree_output_counts,
+		process_subtree_output_depths,
+		process_subtree_output_sizes,
+		process_node_command_storeds,
+		process_node_command_counts,
+		process_node_command_depths,
+		process_node_command_sizes,
+		process_node_output_storeds,
+		process_node_output_counts,
+		process_node_output_depths,
+		process_node_output_sizes,
 		process_children,
 		process_child_process_indices,
 		process_child_positions,
@@ -124,12 +124,12 @@ $$;
 create or replace procedure put_objects(
 	ids bytea[],
 	cache_entries bytea[],
-	sizes int8[],
+	node_sizes int8[],
 	touched_ats int8[],
-	counts int8[],
-	depths int8[],
-	weights int8[],
-	completes boolean[],
+	subtree_counts int8[],
+	subtree_depths int8[],
+	subtree_sizes int8[],
+	subtree_storeds boolean[],
 	children bytea[],
 	parent_indices int8[]
 )
@@ -137,7 +137,7 @@ language plpgsql
 as $$
 declare
 	inserted_ids bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	with locked as (
 		select objects.id
@@ -146,18 +146,18 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with upsert as (
-		insert into objects (id, cache_entry, size, touched_at, count, depth, weight, complete, transaction_id)
-		select id, cache_entry, size, touched_at, count, depth, weight, complete, (select id from transaction_id)
-		from unnest(ids, cache_entries, sizes, touched_ats, counts, depths, weights, completes)
-			as t (id, cache_entry, size, touched_at, count, depth, weight, complete)
+		insert into objects (id, cache_entry, node_size, touched_at, subtree_count, subtree_depth, subtree_size, subtree_stored, transaction_id)
+		select id, cache_entry, node_size, touched_at, subtree_count, subtree_depth, subtree_size, subtree_stored, (select id from transaction_id)
+		from unnest(ids, cache_entries, node_sizes, touched_ats, subtree_counts, subtree_depths, subtree_sizes, subtree_storeds)
+			as t (id, cache_entry, node_size, touched_at, subtree_count, subtree_depth, subtree_size, subtree_stored)
 		on conflict (id) do update set
-			complete = excluded.complete or objects.complete,
-			count = coalesce(excluded.count, objects.count),
-			depth = coalesce(excluded.depth, objects.depth),
-			weight = coalesce(excluded.weight, objects.weight),
+			subtree_count = coalesce(excluded.subtree_count, objects.subtree_count),
+			subtree_depth = coalesce(excluded.subtree_depth, objects.subtree_depth),
+			subtree_size = coalesce(excluded.subtree_size, objects.subtree_size),
+			subtree_stored = excluded.subtree_stored or objects.subtree_stored,
 			touched_at = excluded.touched_at
 		returning id, xmax = 0 as was_inserted
 	)
@@ -180,24 +180,24 @@ $$;
 create or replace procedure put_processes(
 	process_ids bytea[],
 	touched_ats int8[],
-	children_completes boolean[],
-	children_counts int8[],
-	children_commands_completes boolean[],
-	children_commands_counts int8[],
-	children_commands_depths int8[],
-	children_commands_weights int8[],
-	children_outputs_completes boolean[],
-	children_outputs_counts int8[],
-	children_outputs_depths int8[],
-	children_outputs_weights int8[],
-	command_completes boolean[],
-	command_counts int8[],
-	command_depths int8[],
-	command_weights int8[],
-	output_completes boolean[],
-	output_counts int8[],
-	output_depths int8[],
-	output_weights int8[],
+	subtree_storeds boolean[],
+	subtree_counts int8[],
+	subtree_command_storeds boolean[],
+	subtree_command_counts int8[],
+	subtree_command_depths int8[],
+	subtree_command_sizes int8[],
+	subtree_output_storeds boolean[],
+	subtree_output_counts int8[],
+	subtree_output_depths int8[],
+	subtree_output_sizes int8[],
+	node_command_storeds boolean[],
+	node_command_counts int8[],
+	node_command_depths int8[],
+	node_command_sizes int8[],
+	node_output_storeds boolean[],
+	node_output_counts int8[],
+	node_output_depths int8[],
+	node_output_sizes int8[],
 	children bytea[],
 	child_process_indices int8[],
 	child_positions int8[],
@@ -209,7 +209,7 @@ language plpgsql
 as $$
 declare
 	inserted_ids bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	with locked as (
 		select processes.id
@@ -218,31 +218,31 @@ begin
 		order by processes.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with upsert as (
-		insert into processes (id, children_complete, children_count, children_commands_complete, children_commands_count, children_commands_depth, children_commands_weight, children_outputs_complete, children_outputs_count, children_outputs_depth, children_outputs_weight, command_complete, command_count, command_depth, command_weight, output_complete, output_count, output_depth, output_weight, touched_at, transaction_id)
-		select id, children_complete, children_count, children_commands_complete, children_commands_count, children_commands_depth, children_commands_weight, children_outputs_complete, children_outputs_count, children_outputs_depth, children_outputs_weight, command_complete, command_count, command_depth, command_weight, output_complete, output_count, output_depth, output_weight, touched_at, (select id from transaction_id)
-		from unnest(process_ids, children_completes, children_counts, children_commands_completes, children_commands_counts, children_commands_depths, children_commands_weights, children_outputs_completes, children_outputs_counts, children_outputs_depths, children_outputs_weights, command_completes, command_counts, command_depths, command_weights, output_completes, output_counts, output_depths, output_weights, touched_ats) as t (id, children_complete, children_count, children_commands_complete, children_commands_count, children_commands_depth, children_commands_weight, children_outputs_complete, children_outputs_count, children_outputs_depth, children_outputs_weight, command_complete, command_count, command_depth, command_weight, output_complete, output_count, output_depth, output_weight, touched_at)
+		insert into processes (id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, transaction_id)
+		select id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, (select id from transaction_id)
+		from unnest(process_ids, subtree_storeds, subtree_counts, subtree_command_storeds, subtree_command_counts, subtree_command_depths, subtree_command_sizes, subtree_output_storeds, subtree_output_counts, subtree_output_depths, subtree_output_sizes, node_command_storeds, node_command_counts, node_command_depths, node_command_sizes, node_output_storeds, node_output_counts, node_output_depths, node_output_sizes, touched_ats) as t (id, subtree_stored, subtree_count, subtree_command_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_output_stored, subtree_output_count, subtree_output_depth, subtree_output_size, node_command_stored, node_command_count, node_command_depth, node_command_size, node_output_stored, node_output_count, node_output_depth, node_output_size, touched_at)
 		on conflict (id) do update set
-			children_complete = processes.children_complete or excluded.children_complete,
-			children_count = coalesce(processes.children_count, excluded.children_count),
-			children_commands_complete = processes.children_commands_complete or excluded.children_commands_complete,
-			children_commands_count = coalesce(processes.children_commands_count, excluded.children_commands_count),
-			children_commands_depth = coalesce(processes.children_commands_depth, excluded.children_commands_depth),
-			children_commands_weight = coalesce(processes.children_commands_weight, excluded.children_commands_weight),
-			children_outputs_complete = processes.children_outputs_complete or excluded.children_outputs_complete,
-			children_outputs_count = coalesce(processes.children_outputs_count, excluded.children_outputs_count),
-			children_outputs_depth = coalesce(processes.children_outputs_depth, excluded.children_outputs_depth),
-			children_outputs_weight = coalesce(processes.children_outputs_weight, excluded.children_outputs_weight),
-			command_complete = processes.command_complete or excluded.command_complete,
-			command_count = coalesce(processes.command_count, excluded.command_count),
-			command_depth = coalesce(processes.command_depth, excluded.command_depth),
-			command_weight = coalesce(processes.command_weight, excluded.command_weight),
-			output_complete = processes.output_complete or excluded.output_complete,
-			output_count = coalesce(processes.output_count, excluded.output_count),
-			output_depth = coalesce(processes.output_depth, excluded.output_depth),
-			output_weight = coalesce(processes.output_weight, excluded.output_weight),
+			node_command_count = coalesce(processes.node_command_count, excluded.node_command_count),
+			node_command_depth = coalesce(processes.node_command_depth, excluded.node_command_depth),
+			node_command_size = coalesce(processes.node_command_size, excluded.node_command_size),
+			node_command_stored = processes.node_command_stored or excluded.node_command_stored,
+			node_output_count = coalesce(processes.node_output_count, excluded.node_output_count),
+			node_output_depth = coalesce(processes.node_output_depth, excluded.node_output_depth),
+			node_output_size = coalesce(processes.node_output_size, excluded.node_output_size),
+			node_output_stored = processes.node_output_stored or excluded.node_output_stored,
+			subtree_command_count = coalesce(processes.subtree_command_count, excluded.subtree_command_count),
+			subtree_command_depth = coalesce(processes.subtree_command_depth, excluded.subtree_command_depth),
+			subtree_command_size = coalesce(processes.subtree_command_size, excluded.subtree_command_size),
+			subtree_command_stored = processes.subtree_command_stored or excluded.subtree_command_stored,
+			subtree_output_count = coalesce(processes.subtree_output_count, excluded.subtree_output_count),
+			subtree_output_depth = coalesce(processes.subtree_output_depth, excluded.subtree_output_depth),
+			subtree_output_size = coalesce(processes.subtree_output_size, excluded.subtree_output_size),
+			subtree_output_stored = processes.subtree_output_stored or excluded.subtree_output_stored,
+			subtree_count = coalesce(processes.subtree_count, excluded.subtree_count),
+			subtree_stored = processes.subtree_stored or excluded.subtree_stored,
 			touched_at = excluded.touched_at
 		returning id, xmax = 0 as was_inserted
 	)
@@ -275,7 +275,7 @@ language plpgsql
 as $$
 declare
 	old_items bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	with upserted as (
 		insert into tags (tag, item)
@@ -298,7 +298,7 @@ begin
 			order by objects.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		update objects
 		set reference_count = reference_count - item_counts.count
@@ -316,7 +316,7 @@ begin
 			order by processes.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		update processes
 		set reference_count = reference_count - item_counts.count
@@ -334,7 +334,7 @@ begin
 			order by cache_entries.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		update cache_entries
 		set reference_count = reference_count - item_counts.count
@@ -353,7 +353,7 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update objects
 	set reference_count = reference_count + item_counts.count
@@ -371,7 +371,7 @@ begin
 		order by processes.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update processes
 	set reference_count = reference_count + item_counts.count
@@ -389,7 +389,7 @@ begin
 		order by cache_entries.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update cache_entries
 	set reference_count = reference_count + item_counts.count
@@ -409,7 +409,7 @@ language plpgsql
 as $$
 declare
 	deleted_items bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	if array_length(tags, 1) > 0 then
 		with deleted as (
@@ -429,7 +429,7 @@ begin
 				order by processes.id
 				for update
 			)
-			select count(*) into dummy_count from locked;
+			select count(*) into locked_count from locked;
 
 			update processes
 			set reference_count = reference_count - 1
@@ -446,7 +446,7 @@ begin
 				order by objects.id
 				for update
 			)
-			select count(*) into dummy_count from locked;
+			select count(*) into locked_count from locked;
 
 			update objects
 			set reference_count = reference_count - 1
@@ -467,7 +467,7 @@ create or replace procedure touch_objects(
 language plpgsql
 as $$
 declare
-	dummy_count int8;
+	locked_count int8;
 begin
 	if array_length(object_ids, 1) > 0 then
 		with locked as (
@@ -477,7 +477,7 @@ begin
 			order by objects.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		update objects
 		set touched_at = t.touched_at
@@ -494,7 +494,7 @@ create or replace procedure touch_processes(
 language plpgsql
 as $$
 declare
-	dummy_count int8;
+	locked_count int8;
 begin
 	if array_length(process_ids, 1) > 0 then
 		with locked as (
@@ -504,7 +504,7 @@ begin
 			order by processes.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		update processes
 		set touched_at = t.touched_at

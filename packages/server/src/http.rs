@@ -163,7 +163,7 @@ impl Server {
 			});
 		}
 
-		// Wait for all tasks to complete.
+		// Wait for all tasks to finish.
 		task_tracker.close();
 		task_tracker.wait().await;
 	}

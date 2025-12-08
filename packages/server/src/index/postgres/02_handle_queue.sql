@@ -10,11 +10,11 @@ begin
 	n := batch_size;
 
 	if n > 0 then
-		call handle_queue_complete_object(n);
+		call handle_queue_stored_object(n);
 	end if;
 
 	if n > 0 then
-		call handle_queue_complete_process(n);
+		call handle_queue_stored_process(n);
 	end if;
 
 	if n > 0 then

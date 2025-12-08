@@ -125,7 +125,11 @@ impl Server {
 		for item in &items {
 			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())?;
 			let size = item.bytes.len().to_u64().unwrap();
-			graph.update_object(&item.id, Some(&data), None, None, Some(size), Some(true));
+			let metadata = tg::object::Metadata {
+				node: tg::object::metadata::Node { size: Some(size) },
+				..Default::default()
+			};
+			graph.update_object(&item.id, Some(&data), None, Some(metadata), Some(true));
 		}
 		drop(graph);
 

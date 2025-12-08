@@ -215,7 +215,7 @@ impl Server {
 				tg::symlink::Data::Node(data).into()
 			},
 		};
-		let (id, complete, metadata) = Self::checkin_create_artifact(
+		let (id, stored, metadata) = Self::checkin_create_artifact(
 			graph,
 			&data,
 			&[index],
@@ -226,7 +226,7 @@ impl Server {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&index).unwrap();
-		node.complete = complete;
+		node.stored = crate::object::stored::Output { subtree: stored };
 		node.metadata = Some(metadata);
 		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
 		node.id.replace(id.clone());
@@ -509,7 +509,7 @@ impl Server {
 				tg::symlink::Data::Reference(reference).into()
 			},
 		};
-		let (_id, complete, metadata) = Self::checkin_create_artifact(
+		let (_id, stored, metadata) = Self::checkin_create_artifact(
 			graph,
 			&data,
 			&[global],
@@ -520,7 +520,7 @@ impl Server {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&global).unwrap();
-		node.complete = complete;
+		node.stored = crate::object::stored::Output { subtree: stored };
 		node.metadata = Some(metadata);
 
 		Ok(())
@@ -545,7 +545,7 @@ impl Server {
 			if let Some(nodes) = graph.ids.get(id) {
 				if let Some(index) = nodes.first() {
 					let node = graph.nodes.get(index).unwrap();
-					(node.complete, node.metadata.clone())
+					(node.stored.subtree, node.metadata.clone())
 				} else {
 					(false, None)
 				}
@@ -556,18 +556,13 @@ impl Server {
 						let file = node.variant.try_unwrap_file_ref().ok()?;
 						file.contents.as_ref().and_then(|contents| match contents {
 							Contents::Write(output) if &output.id == id => {
-								let metadata = tg::object::Metadata {
-									count: Some(output.count),
-									depth: Some(output.depth),
-									weight: Some(output.weight),
-								};
-								Some((true, Some(metadata)))
+								Some((true, Some(output.metadata.clone())))
 							},
 							Contents::Id {
 								id: id_,
-								complete,
+								stored,
 								metadata,
-							} if id_ == id => Some((*complete, metadata.clone())),
+							} if id_ == id => Some((stored.subtree, metadata.clone())),
 							_ => None,
 						})
 					})
@@ -576,28 +571,35 @@ impl Server {
 				(false, None)
 			}
 		});
-		let mut complete = true;
+		let mut stored = true;
 		let mut metadata = tg::object::Metadata {
-			count: Some(1),
-			depth: Some(1),
-			weight: Some(bytes.len().to_u64().unwrap()),
+			node: tg::object::metadata::Node {
+				size: Some(bytes.len().to_u64().unwrap()),
+			},
+			subtree: tg::object::metadata::Subtree {
+				count: Some(1),
+				depth: Some(1),
+				size: Some(bytes.len().to_u64().unwrap()),
+			},
 		};
-		for (child_complete, child_metadata) in children {
-			complete = complete && child_complete;
-			metadata.count = metadata
+		for (child_stored, child_metadata) in children {
+			stored = stored && child_stored;
+			metadata.subtree.count = metadata
+				.subtree
 				.count
-				.zip(child_metadata.as_ref().and_then(|metadata| metadata.count))
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.count))
 				.map(|(a, b)| a + b);
-			metadata.depth = metadata
+			metadata.subtree.depth = metadata
+				.subtree
 				.depth
-				.zip(child_metadata.as_ref().and_then(|metadata| metadata.depth))
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.depth))
 				.map(|(a, b)| a.max(1 + b));
-			metadata.weight = metadata
-				.weight
-				.zip(child_metadata.as_ref().and_then(|metadata| metadata.weight))
+			metadata.subtree.size = metadata
+				.subtree
+				.size
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.size))
 				.map(|(a, b)| a + b);
 		}
-		let size = bytes.len().to_u64().unwrap();
 
 		// Create the store arg.
 		let store_arg = crate::store::PutArg {
@@ -611,10 +613,9 @@ impl Server {
 		let index_message = crate::index::message::PutObject {
 			cache_entry: None,
 			children: children_ids,
-			complete,
 			id: id.clone(),
 			metadata: metadata.clone(),
-			size,
+			stored: crate::object::stored::Output { subtree: stored },
 			touched_at,
 		};
 
@@ -622,7 +623,7 @@ impl Server {
 		store_args.insert(id.clone(), store_arg);
 		object_messages.insert(id.clone(), index_message);
 
-		Ok((id, complete, metadata))
+		Ok((id, stored, metadata))
 	}
 
 	#[expect(clippy::too_many_arguments)]

@@ -27,14 +27,11 @@ const MAX_LEAF_SIZE: u32 = 131_072;
 pub struct Output {
 	pub bytes: Option<Bytes>,
 	pub children: Vec<Output>,
-	pub count: u64,
 	pub data: Option<tg::blob::Data>,
-	pub depth: u64,
 	pub id: tg::blob::Id,
 	pub length: u64,
+	pub metadata: tg::object::Metadata,
 	pub position: u64,
-	pub size: u64,
-	pub weight: u64,
 }
 
 pub enum Destination {
@@ -271,14 +268,18 @@ impl Server {
 		let id = tg::blob::Id::new(&bytes);
 		Output {
 			bytes: None,
-			count: 1,
-			depth: 1,
-			weight: 1,
 			children: Vec::new(),
 			data: None,
-			size: 1,
 			id,
 			length: 0,
+			metadata: tg::object::Metadata {
+				node: tg::object::metadata::Node { size: Some(1) },
+				subtree: tg::object::metadata::Subtree {
+					count: Some(1),
+					depth: Some(1),
+					size: Some(1),
+				},
+			},
 			position: 0,
 		}
 	}
@@ -295,20 +296,21 @@ impl Server {
 		let mut data_ = vec![0];
 		data_.extend_from_slice(data);
 		let id = tg::blob::Id::new(&data_);
-		let count = 1;
-		let depth = 1;
-		let weight = size;
 		Output {
 			bytes: None,
 			children: Vec::new(),
-			count,
 			data: None,
-			size,
-			depth,
 			id,
-			position: *position,
 			length,
-			weight,
+			metadata: tg::object::Metadata {
+				node: tg::object::metadata::Node { size: Some(size) },
+				subtree: tg::object::metadata::Subtree {
+					count: Some(1),
+					depth: Some(1),
+					size: Some(size),
+				},
+			},
+			position: *position,
 		}
 	}
 
@@ -326,14 +328,33 @@ impl Server {
 		let bytes = data.serialize()?;
 		let size = bytes.len().to_u64().unwrap();
 		let id = tg::blob::Id::new(&bytes);
-		let (count, depth, weight) = children.iter().unique_by(|blob| &blob.id).fold(
-			(1, 1, size),
-			|(count, depth, weight), child| {
-				(
-					count + child.count,
-					depth.max(1 + child.depth),
-					weight + child.weight,
-				)
+		let metadata = children.iter().unique_by(|blob| &blob.id).fold(
+			tg::object::Metadata {
+				node: tg::object::metadata::Node { size: Some(size) },
+				subtree: tg::object::metadata::Subtree {
+					count: Some(1),
+					depth: Some(1),
+					size: Some(size),
+				},
+			},
+			|mut metadata, child| {
+				let child_subtree = &child.metadata.subtree;
+				metadata.subtree.count = metadata
+					.subtree
+					.count
+					.zip(child_subtree.count)
+					.map(|(a, b)| a + b);
+				metadata.subtree.depth = metadata
+					.subtree
+					.depth
+					.zip(child_subtree.depth)
+					.map(|(a, b)| a.max(1 + b));
+				metadata.subtree.size = metadata
+					.subtree
+					.size
+					.zip(child_subtree.size)
+					.map(|(a, b)| a + b);
+				metadata
 			},
 		);
 		let position = children.first().unwrap().position;
@@ -341,14 +362,11 @@ impl Server {
 		let output = Output {
 			bytes: Some(bytes),
 			children,
-			count,
 			data: Some(data),
-			size,
-			depth,
 			id,
-			position,
 			length,
-			weight,
+			metadata,
+			position,
 		};
 		Ok(output)
 	}
@@ -440,19 +458,12 @@ impl Server {
 				data.children(&mut children);
 			}
 			let id = blob.id.clone().into();
-			let metadata = tg::object::Metadata {
-				count: Some(blob.count),
-				depth: Some(blob.depth),
-				weight: Some(blob.weight),
-			};
-			let size = blob.size;
 			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
 				cache_entry,
 				children,
-				complete: true,
 				id,
-				metadata,
-				size,
+				metadata: blob.metadata.clone(),
+				stored: crate::object::stored::Output { subtree: true },
 				touched_at,
 			});
 			messages.push(message);

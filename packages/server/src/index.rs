@@ -69,7 +69,7 @@ impl Server {
 	}
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
-		// Wait for outstanding tasks to complete.
+		// Wait for outstanding tasks to finish.
 		progress.spinner("tasks", "waiting for tasks");
 		self.tasks.wait().await;
 		progress.finish("tasks");

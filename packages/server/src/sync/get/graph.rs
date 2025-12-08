@@ -45,21 +45,20 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
-	pub complete: Option<crate::process::complete::Output>,
+	pub marked: bool,
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, crate::index::message::ProcessObjectKind)>>,
 	pub parents: SmallVec<[usize; 1]>,
-	pub stored: bool,
+	pub stored: Option<crate::process::stored::Output>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
-	pub complete: Option<bool>,
+	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[usize; 1]>,
-	pub size: Option<u64>,
-	pub stored: bool,
+	pub stored: Option<crate::object::stored::Output>,
 }
 
 impl Graph {
@@ -71,9 +70,9 @@ impl Graph {
 		&mut self,
 		id: &tg::process::Id,
 		data: Option<&tg::process::Data>,
-		complete: Option<crate::process::complete::Output>,
+		stored: Option<crate::process::stored::Output>,
 		metadata: Option<tg::process::Metadata>,
-		stored: Option<bool>,
+		marked: Option<bool>,
 	) -> bool {
 		let entry = self.nodes.entry(id.clone().into());
 		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
@@ -141,8 +140,8 @@ impl Graph {
 		if let Some(children) = children {
 			node.children = Some(children);
 		}
-		if let Some(complete) = complete {
-			node.complete = Some(complete);
+		if let Some(stored) = stored {
+			node.stored = Some(stored);
 		}
 		if let Some(metadata) = metadata {
 			node.metadata = Some(metadata);
@@ -150,30 +149,29 @@ impl Graph {
 		if let Some(objects) = objects {
 			node.objects = Some(objects);
 		}
-		if let Some(stored) = stored {
-			node.stored = stored;
+		if let Some(marked) = marked {
+			node.marked = marked;
 		}
 
 		inserted
 	}
 
-	pub fn get_process_complete(
+	pub fn get_process_stored(
 		&self,
 		id: &tg::process::Id,
-	) -> Option<&crate::process::complete::Output> {
+	) -> Option<&crate::process::stored::Output> {
 		self.nodes
 			.get(&Id::Process(id.clone()))
-			.and_then(|node| node.unwrap_process_ref().complete.as_ref())
+			.and_then(|node| node.unwrap_process_ref().stored.as_ref())
 	}
 
 	pub fn update_object(
 		&mut self,
 		id: &tg::object::Id,
 		data: Option<&tg::object::Data>,
-		complete: Option<bool>,
+		stored: Option<crate::object::stored::Output>,
 		metadata: Option<tg::object::Metadata>,
-		size: Option<u64>,
-		stored: Option<bool>,
+		marked: Option<bool>,
 	) -> bool {
 		let entry = self.nodes.entry(id.clone().into());
 		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
@@ -208,17 +206,29 @@ impl Graph {
 		if let Some(children) = children {
 			node.children = Some(children);
 		}
-		if let Some(complete) = complete {
-			node.complete = Some(complete);
-		}
-		if let Some(metadata) = metadata {
-			node.metadata = Some(metadata);
-		}
-		if let Some(size) = size {
-			node.size = Some(size);
-		}
 		if let Some(stored) = stored {
-			node.stored = stored;
+			node.stored = Some(stored);
+		}
+		if let Some(new_metadata) = metadata {
+			if let Some(existing) = &mut node.metadata {
+				if new_metadata.node.size.is_some() {
+					existing.node.size = new_metadata.node.size;
+				}
+				if new_metadata.subtree.count.is_some() {
+					existing.subtree.count = new_metadata.subtree.count;
+				}
+				if new_metadata.subtree.depth.is_some() {
+					existing.subtree.depth = new_metadata.subtree.depth;
+				}
+				if new_metadata.subtree.size.is_some() {
+					existing.subtree.size = new_metadata.subtree.size;
+				}
+			} else {
+				node.metadata = Some(new_metadata);
+			}
+		}
+		if let Some(marked) = marked {
+			node.marked = marked;
 		}
 
 		inserted
@@ -233,10 +243,10 @@ impl Node {
 		}
 	}
 
-	pub fn stored(&self) -> bool {
+	pub fn marked(&self) -> bool {
 		match self {
-			Node::Process(node) => node.stored,
-			Node::Object(node) => node.stored,
+			Node::Process(node) => node.marked,
+			Node::Object(node) => node.marked,
 		}
 	}
 }

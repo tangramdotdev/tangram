@@ -150,7 +150,7 @@ impl Server {
 			}
 		});
 
-		// Spawn the index task after the get completes, even if it is interrupted.
+		// Spawn the index task after the get finishes, even if it is interrupted.
 		scopeguard::defer! {
 			self.tasks.spawn({
 				let server = self.clone();

@@ -9,27 +9,27 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn try_get_object_complete_postgres(
+	pub(crate) async fn try_get_object_stored_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<Option<super::Output>> {
 		// Get an index connection.
 		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
-		// Get the object metadata.
+		// Get the object subtree stored flag.
 		let statement = indoc!(
 			"
-				select complete
+				select subtree_stored
 				from objects
 				where id = $1;
 			",
 		);
 		let params = db::params![id.to_bytes()];
-		let output = connection
+		let output: Option<bool> = connection
 			.query_optional_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -37,14 +37,14 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		Ok(output)
+		Ok(output.map(|subtree| super::Output { subtree }))
 	}
 
-	pub(crate) async fn try_get_object_complete_batch_postgres(
+	pub(crate) async fn try_get_object_stored_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<bool>>> {
+	) -> tg::Result<Vec<Option<super::Output>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
@@ -56,13 +56,13 @@ impl Server {
 		struct Row {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<Vec<u8>>>")]
 			id: Option<tg::object::Id>,
-			complete: bool,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
 				select
 					objects.id,
-					complete
+					subtree_stored
 				from unnest($1::bytea[]) as ids (id)
 				left join objects on objects.id = ids.id;
 			",
@@ -81,33 +81,38 @@ impl Server {
 				<Row as db::postgres::row::Deserialize>::deserialize(&row)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
 			})
-			.and_then(|row| Ok(row.id.is_some().then_some(row.complete)))
+			.and_then(|row| {
+				Ok(row.id.is_some().then_some(super::Output {
+					subtree: row.subtree_stored,
+				}))
+			})
 			.collect::<tg::Result<_>>()?;
 		Ok(outputs)
 	}
 
-	pub(crate) async fn try_get_object_complete_and_metadata_postgres(
+	pub(crate) async fn try_get_object_stored_and_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		// Get an index connection.
 		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
 
-		// Get the object complete flag and metadata.
+		// Get the object subtree stored flag and metadata.
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select complete, count, depth, weight
+				select node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
 				from objects
 				where id = $1;
 			",
@@ -122,22 +127,30 @@ impl Server {
 		drop(connection);
 
 		let output = output.map(|output| {
-			let metadata = tg::object::Metadata {
-				count: output.count,
-				depth: output.depth,
-				weight: output.weight,
+			let stored = super::Output {
+				subtree: output.subtree_stored,
 			};
-			(output.complete, metadata)
+			let metadata = tg::object::Metadata {
+				node: tg::object::metadata::Node {
+					size: output.node_size,
+				},
+				subtree: tg::object::metadata::Subtree {
+					count: output.subtree_count,
+					depth: output.subtree_depth,
+					size: output.subtree_size,
+				},
+			};
+			(stored, metadata)
 		});
 
 		Ok(output)
 	}
 
-	pub(crate) async fn try_get_object_complete_and_metadata_batch_postgres(
+	pub(crate) async fn try_get_object_stored_and_metadata_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
@@ -149,17 +162,15 @@ impl Server {
 		struct Row {
 			#[tangram_database(try_from = "Vec<u8>")]
 			id: tg::object::Id,
-			complete: bool,
-			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			count: Option<u64>,
-			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			depth: Option<u64>,
-			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			weight: Option<u64>,
+			node_size: Option<i64>,
+			subtree_count: Option<i64>,
+			subtree_depth: Option<i64>,
+			subtree_size: Option<i64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select objects.id, complete, count, depth, weight
+				select objects.id, node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
 				from unnest($1::bytea[]) as ids (id)
 				left join objects on objects.id = ids.id;
 			",
@@ -179,24 +190,32 @@ impl Server {
 			.map(|row| {
 				let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-				let metadata = tg::object::Metadata {
-					count: row.count.map(|v| v.to_u64().unwrap()),
-					depth: row.depth.map(|v| v.to_u64().unwrap()),
-					weight: row.weight.map(|v| v.to_u64().unwrap()),
+				let stored = super::Output {
+					subtree: row.subtree_stored,
 				};
-				Ok((row.id, (row.complete, metadata)))
+				let metadata = tg::object::Metadata {
+					node: tg::object::metadata::Node {
+						size: row.node_size.map(|v| v.to_u64().unwrap()),
+					},
+					subtree: tg::object::metadata::Subtree {
+						count: row.subtree_count.map(|v| v.to_u64().unwrap()),
+						depth: row.subtree_depth.map(|v| v.to_u64().unwrap()),
+						size: row.subtree_size.map(|v| v.to_u64().unwrap()),
+					},
+				};
+				Ok((row.id, (stored, metadata)))
 			})
 			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
 		Ok(output)
 	}
 
-	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_postgres(
+	pub(crate) async fn try_touch_object_and_get_stored_and_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::object::Id,
 		touched_at: i64,
-	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		// Get an index connection.
 		let connection = database
 			.write_connection()
@@ -205,17 +224,18 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
 				update objects
 				set touched_at = greatest($1::int8, touched_at)
 				where id = $2
-				returning complete, count, depth, weight;
+				returning node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
 			",
 		);
 		let params = db::params![touched_at, id.to_bytes()];
@@ -228,38 +248,46 @@ impl Server {
 		drop(connection);
 
 		let output = output.map(|output| {
-			let metadata = tg::object::Metadata {
-				count: output.count,
-				depth: output.depth,
-				weight: output.weight,
+			let stored = super::Output {
+				subtree: output.subtree_stored,
 			};
-			(output.complete, metadata)
+			let metadata = tg::object::Metadata {
+				node: tg::object::metadata::Node {
+					size: output.node_size,
+				},
+				subtree: tg::object::metadata::Subtree {
+					count: output.subtree_count,
+					depth: output.subtree_depth,
+					size: output.subtree_size,
+				},
+			};
+			(stored, metadata)
 		});
 
 		Ok(output)
 	}
 
-	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_batch_postgres(
+	pub(crate) async fn try_touch_object_and_get_stored_and_metadata_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::object::Id],
 		touched_at: i64,
-	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
 		let options = tangram_futures::retry::Options::default();
 		tangram_futures::retry(&options, || {
-			self.try_touch_object_and_get_complete_and_metadata_batch_postgres_attempt(
+			self.try_touch_object_and_get_stored_and_metadata_batch_postgres_attempt(
 				database, ids, touched_at,
 			)
 		})
 		.await
 	}
 
-	async fn try_touch_object_and_get_complete_and_metadata_batch_postgres_attempt(
+	async fn try_touch_object_and_get_stored_and_metadata_batch_postgres_attempt(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::object::Id],
 		touched_at: i64,
-	) -> tg::Result<ControlFlow<Vec<Option<(bool, tg::object::Metadata)>>, tg::Error>> {
+	) -> tg::Result<ControlFlow<Vec<Option<(super::Output, tg::object::Metadata)>>, tg::Error>> {
 		if ids.is_empty() {
 			return Ok(ControlFlow::Break(vec![]));
 		}
@@ -271,13 +299,11 @@ impl Server {
 		struct Row {
 			#[tangram_database(try_from = "Vec<u8>")]
 			id: tg::object::Id,
-			complete: bool,
-			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			count: Option<u64>,
-			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			depth: Option<u64>,
-			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			weight: Option<u64>,
+			node_size: Option<i64>,
+			subtree_count: Option<i64>,
+			subtree_depth: Option<i64>,
+			subtree_size: Option<i64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
@@ -292,7 +318,7 @@ impl Server {
 				set touched_at = greatest($1::int8, touched_at)
 				from locked
 				where objects.id = locked.id
-				returning objects.id, complete, count, depth, weight;
+				returning objects.id, node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
 			",
 		);
 		let result = connection
@@ -323,12 +349,20 @@ impl Server {
 			.map(|row| {
 				let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-				let metadata = tg::object::Metadata {
-					count: row.count.map(|v| v.to_u64().unwrap()),
-					depth: row.depth.map(|v| v.to_u64().unwrap()),
-					weight: row.weight.map(|v| v.to_u64().unwrap()),
+				let stored = super::Output {
+					subtree: row.subtree_stored,
 				};
-				Ok((row.id, (row.complete, metadata)))
+				let metadata = tg::object::Metadata {
+					node: tg::object::metadata::Node {
+						size: row.node_size.map(|v| v.to_u64().unwrap()),
+					},
+					subtree: tg::object::metadata::Subtree {
+						count: row.subtree_count.map(|v| v.to_u64().unwrap()),
+						depth: row.subtree_depth.map(|v| v.to_u64().unwrap()),
+						size: row.subtree_size.map(|v| v.to_u64().unwrap()),
+					},
+				};
+				Ok((row.id, (stored, metadata)))
 			})
 			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();

@@ -60,16 +60,14 @@ impl Server {
 	) -> tg::Result<()> {
 		state.queue.decrement(items.len());
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
-		let outputs = self
-			.try_get_object_complete_and_metadata_batch(&ids)
-			.await?;
+		let outputs = self.try_get_object_stored_and_metadata_batch(&ids).await?;
 		for output in outputs {
 			let Some((_, metadata)) = output else {
 				continue;
 			};
 			let processes = 0;
-			let objects = metadata.count.unwrap_or_default();
-			let bytes = metadata.weight.unwrap_or_default();
+			let objects = metadata.subtree.count.unwrap_or_default();
+			let bytes = metadata.subtree.size.unwrap_or_default();
 			state.progress.increment(processes, objects, bytes);
 		}
 		Ok(())
@@ -82,49 +80,47 @@ impl Server {
 	) -> tg::Result<()> {
 		state.queue.decrement(items.len());
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
-		let outputs = self
-			.try_get_process_complete_and_metadata_batch(&ids)
-			.await?;
+		let outputs = self.try_get_process_stored_and_metadata_batch(&ids).await?;
 		for output in outputs {
-			let Some((_complete, metadata)) = output else {
+			let Some((_stored, metadata)) = output else {
 				continue;
 			};
 			let mut message = tg::sync::ProgressMessage::default();
 			if state.arg.recursive {
-				if let Some(children_count) = metadata.children.count {
-					message.processes += children_count;
+				if let Some(process_count) = metadata.subtree.process_count {
+					message.processes += process_count;
 				}
 				if state.arg.commands {
-					if let Some(commands_count) = metadata.children_commands.count {
+					if let Some(commands_count) = metadata.subtree.command.count {
 						message.objects += commands_count;
 					}
-					if let Some(commands_weight) = metadata.children_commands.weight {
-						message.bytes += commands_weight;
+					if let Some(commands_size) = metadata.subtree.command.size {
+						message.bytes += commands_size;
 					}
 				}
 				if state.arg.outputs {
-					if let Some(outputs_count) = metadata.children_outputs.count {
+					if let Some(outputs_count) = metadata.subtree.output.count {
 						message.objects += outputs_count;
 					}
-					if let Some(outputs_weight) = metadata.children_outputs.weight {
-						message.bytes += outputs_weight;
+					if let Some(outputs_size) = metadata.subtree.output.size {
+						message.bytes += outputs_size;
 					}
 				}
 			} else {
 				if state.arg.commands {
-					if let Some(command_count) = metadata.command.count {
+					if let Some(command_count) = metadata.node.command.count {
 						message.objects += command_count;
 					}
-					if let Some(command_weight) = metadata.command.weight {
-						message.bytes += command_weight;
+					if let Some(command_size) = metadata.node.command.size {
+						message.bytes += command_size;
 					}
 				}
 				if state.arg.outputs {
-					if let Some(output_count) = metadata.output.count {
+					if let Some(output_count) = metadata.node.output.count {
 						message.objects += output_count;
 					}
-					if let Some(output_weight) = metadata.output.weight {
-						message.bytes += output_weight;
+					if let Some(output_size) = metadata.node.output.size {
+						message.bytes += output_size;
 					}
 				}
 			}

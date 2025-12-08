@@ -9,7 +9,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn try_get_process_complete_postgres(
+	pub(crate) async fn try_get_process_stored_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::process::Id,
@@ -23,20 +23,20 @@ impl Server {
 		// Get the metadata.
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			children_complete: bool,
-			children_commands_complete: bool,
-			children_outputs_complete: bool,
-			command_complete: bool,
-			output_complete: bool,
+			node_command_stored: bool,
+			node_output_stored: bool,
+			subtree_command_stored: bool,
+			subtree_output_stored: bool,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
 				select
-					children_complete,
-					children_commands_complete,
-					children_outputs_complete,
-					command_complete,
-					output_complete
+					node_command_stored,
+					node_output_stored,
+					subtree_command_stored,
+					subtree_output_stored,
+					subtree_stored
 				from processes
 				where id = $1;
 			",
@@ -47,11 +47,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| Output {
-				children: row.children_complete,
-				children_commands: row.children_commands_complete,
-				children_outputs: row.children_outputs_complete,
-				command: row.command_complete,
-				output: row.output_complete,
+				node_command: row.node_command_stored,
+				node_output: row.node_output_stored,
+				subtree_command: row.subtree_command_stored,
+				subtree_output: row.subtree_output_stored,
+				subtree: row.subtree_stored,
 			});
 
 		// Drop the connection.
@@ -60,7 +60,7 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn try_get_process_complete_batch_postgres(
+	pub(crate) async fn try_get_process_stored_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::process::Id],
@@ -76,21 +76,21 @@ impl Server {
 		struct Row {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<Vec<u8>>>")]
 			id: Option<tg::process::Id>,
-			children_complete: bool,
-			children_commands_complete: bool,
-			children_outputs_complete: bool,
-			command_complete: bool,
-			output_complete: bool,
+			node_command_stored: bool,
+			node_output_stored: bool,
+			subtree_command_stored: bool,
+			subtree_output_stored: bool,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
 				select
 					processes.id,
-					children_complete,
-					children_commands_complete,
-					children_outputs_complete,
-					command_complete,
-					output_complete
+					node_command_stored,
+					node_output_stored,
+					subtree_command_stored,
+					subtree_output_stored,
+					subtree_stored
 				from unnest($1::bytea[]) as ids (id)
 				left join processes on processes.id = ids.id;
 			",
@@ -114,11 +114,11 @@ impl Server {
 			.map_ok(|row| {
 				row.id?;
 				let output = Output {
-					children: row.children_complete,
-					children_commands: row.children_commands_complete,
-					children_outputs: row.children_outputs_complete,
-					command: row.command_complete,
-					output: row.output_complete,
+					node_command: row.node_command_stored,
+					node_output: row.node_output_stored,
+					subtree_command: row.subtree_command_stored,
+					subtree_output: row.subtree_output_stored,
+					subtree: row.subtree_stored,
 				};
 				Some(output)
 			})
@@ -126,7 +126,7 @@ impl Server {
 		Ok(outputs)
 	}
 
-	pub(crate) async fn try_get_process_complete_and_metadata_batch_postgres(
+	pub(crate) async fn try_get_process_stored_and_metadata_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::process::Id],
@@ -142,60 +142,60 @@ impl Server {
 		struct Row {
 			#[tangram_database(as = "db::postgres::value::TryFrom<Vec<u8>>")]
 			id: tg::process::Id,
-			children_complete: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_count: Option<u64>,
-			children_commands_complete: bool,
+			node_command_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_commands_count: Option<u64>,
+			node_command_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_commands_depth: Option<u64>,
+			node_command_size: Option<u64>,
+			node_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_commands_weight: Option<u64>,
-			children_outputs_complete: bool,
+			node_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_outputs_count: Option<u64>,
+			node_output_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_outputs_depth: Option<u64>,
+			node_output_size: Option<u64>,
+			node_output_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_outputs_weight: Option<u64>,
-			command_complete: bool,
+			subtree_command_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			command_count: Option<u64>,
+			subtree_command_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			command_depth: Option<u64>,
+			subtree_command_size: Option<u64>,
+			subtree_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			command_weight: Option<u64>,
-			output_complete: bool,
+			subtree_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			output_count: Option<u64>,
+			subtree_output_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			output_depth: Option<u64>,
+			subtree_output_size: Option<u64>,
+			subtree_output_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			output_weight: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
 				select
 					processes.id,
-					children_complete,
-					children_count,
-					children_commands_complete,
-					children_commands_count,
-					children_commands_depth,
-					children_commands_weight,
-					children_outputs_complete,
-					children_outputs_count,
-					children_outputs_depth,
-					children_outputs_weight,
-					command_complete,
-					command_count,
-					command_depth,
-					command_weight,
-					output_complete,
-					output_count,
-					output_depth,
-					output_weight
+					node_command_count,
+					node_command_depth,
+					node_command_size,
+					node_command_stored,
+					node_output_count,
+					node_output_depth,
+					node_output_size,
+					node_output_stored,
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_command_stored,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_output_stored,
+					subtree_count,
+					subtree_stored
 				from unnest($1::bytea[]) as ids (id)
 				left join processes on processes.id = ids.id;
 			",
@@ -217,51 +217,47 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
 			})
 			.map_ok(|row| {
-				let complete = Output {
-					children: row.children_complete,
-					children_commands: row.children_commands_complete,
-					children_outputs: row.children_outputs_complete,
-					command: row.command_complete,
-					output: row.output_complete,
+				let stored = Output {
+					node_command: row.node_command_stored,
+					node_output: row.node_output_stored,
+					subtree_command: row.subtree_command_stored,
+					subtree_output: row.subtree_output_stored,
+					subtree: row.subtree_stored,
 				};
-				let children = tg::process::metadata::Children {
-					count: row.children_count,
+				let node = tg::process::metadata::Node {
+					command: tg::object::metadata::Subtree {
+						count: row.node_command_count,
+						depth: row.node_command_depth,
+						size: row.node_command_size,
+					},
+					output: tg::object::metadata::Subtree {
+						count: row.node_output_count,
+						depth: row.node_output_depth,
+						size: row.node_output_size,
+					},
 				};
-				let command = tg::object::Metadata {
-					count: row.command_count,
-					depth: row.command_depth,
-					weight: row.command_weight,
+				let subtree = tg::process::metadata::Subtree {
+					command: tg::object::metadata::Subtree {
+						count: row.subtree_command_count,
+						depth: row.subtree_command_depth,
+						size: row.subtree_command_size,
+					},
+					output: tg::object::metadata::Subtree {
+						count: row.subtree_output_count,
+						depth: row.subtree_output_depth,
+						size: row.subtree_output_size,
+					},
+					process_count: row.subtree_count,
 				};
-				let children_commands = tg::object::Metadata {
-					count: row.children_commands_count,
-					depth: row.children_commands_depth,
-					weight: row.children_commands_weight,
-				};
-				let output = tg::object::Metadata {
-					count: row.output_count,
-					depth: row.output_depth,
-					weight: row.output_weight,
-				};
-				let children_outputs = tg::object::Metadata {
-					count: row.children_outputs_count,
-					depth: row.children_outputs_depth,
-					weight: row.children_outputs_weight,
-				};
-				let metadata = tg::process::Metadata {
-					children,
-					children_commands,
-					children_outputs,
-					command,
-					output,
-				};
-				(row.id, (complete, metadata))
+				let metadata = tg::process::Metadata { node, subtree };
+				(row.id, (stored, metadata))
 			})
 			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();
 		Ok(output)
 	}
 
-	pub(crate) async fn try_touch_process_and_get_complete_and_metadata_postgres(
+	pub(crate) async fn try_touch_process_and_get_stored_and_metadata_postgres(
 		&self,
 		database: &db::postgres::Database,
 		id: &tg::process::Id,
@@ -275,24 +271,24 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			children_complete: bool,
-			children_count: Option<u64>,
-			children_commands_complete: bool,
-			children_commands_count: Option<u64>,
-			children_commands_depth: Option<u64>,
-			children_commands_weight: Option<u64>,
-			children_outputs_complete: bool,
-			children_outputs_count: Option<u64>,
-			children_outputs_depth: Option<u64>,
-			children_outputs_weight: Option<u64>,
-			command_complete: bool,
-			command_count: Option<u64>,
-			command_depth: Option<u64>,
-			command_weight: Option<u64>,
-			output_complete: bool,
-			output_count: Option<u64>,
-			output_depth: Option<u64>,
-			output_weight: Option<u64>,
+			node_command_count: Option<u64>,
+			node_command_depth: Option<u64>,
+			node_command_size: Option<u64>,
+			node_command_stored: bool,
+			node_output_count: Option<u64>,
+			node_output_depth: Option<u64>,
+			node_output_size: Option<u64>,
+			node_output_stored: bool,
+			subtree_command_count: Option<u64>,
+			subtree_command_depth: Option<u64>,
+			subtree_command_size: Option<u64>,
+			subtree_command_stored: bool,
+			subtree_output_count: Option<u64>,
+			subtree_output_depth: Option<u64>,
+			subtree_output_size: Option<u64>,
+			subtree_output_stored: bool,
+			subtree_count: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
@@ -300,24 +296,24 @@ impl Server {
 				set touched_at = greatest($1::int8, touched_at)
 				where id = $2
 				returning
-					children_complete,
-					children_count,
-					children_commands_complete,
-					children_commands_count,
-					children_commands_depth,
-					children_commands_weight,
-					children_outputs_complete,
-					children_outputs_count,
-					children_outputs_depth,
-					children_outputs_weight,
-					command_complete,
-					command_count,
-					command_depth,
-					command_weight,
-					output_complete,
-					output_count,
-					output_depth,
-					output_weight;
+					node_command_count,
+					node_command_depth,
+					node_command_size,
+					node_command_stored,
+					node_output_count,
+					node_output_depth,
+					node_output_size,
+					node_output_stored,
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_command_stored,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_output_stored,
+					subtree_count,
+					subtree_stored;
 			",
 		);
 		let params = db::params![touched_at, id.to_bytes()];
@@ -330,50 +326,46 @@ impl Server {
 		drop(connection);
 
 		let output = row.map(|row| {
-			let complete = Output {
-				children: row.children_complete,
-				children_commands: row.children_commands_complete,
-				children_outputs: row.children_outputs_complete,
-				command: row.command_complete,
-				output: row.output_complete,
+			let stored = Output {
+				node_command: row.node_command_stored,
+				node_output: row.node_output_stored,
+				subtree_command: row.subtree_command_stored,
+				subtree_output: row.subtree_output_stored,
+				subtree: row.subtree_stored,
 			};
-			let children = tg::process::metadata::Children {
-				count: row.children_count,
+			let node = tg::process::metadata::Node {
+				command: tg::object::metadata::Subtree {
+					count: row.node_command_count,
+					depth: row.node_command_depth,
+					size: row.node_command_size,
+				},
+				output: tg::object::metadata::Subtree {
+					count: row.node_output_count,
+					depth: row.node_output_depth,
+					size: row.node_output_size,
+				},
 			};
-			let command = tg::object::Metadata {
-				count: row.command_count,
-				depth: row.command_depth,
-				weight: row.command_weight,
+			let subtree = tg::process::metadata::Subtree {
+				command: tg::object::metadata::Subtree {
+					count: row.subtree_command_count,
+					depth: row.subtree_command_depth,
+					size: row.subtree_command_size,
+				},
+				output: tg::object::metadata::Subtree {
+					count: row.subtree_output_count,
+					depth: row.subtree_output_depth,
+					size: row.subtree_output_size,
+				},
+				process_count: row.subtree_count,
 			};
-			let children_commands = tg::object::Metadata {
-				count: row.children_commands_count,
-				depth: row.children_commands_depth,
-				weight: row.children_commands_weight,
-			};
-			let output = tg::object::Metadata {
-				count: row.output_count,
-				depth: row.output_depth,
-				weight: row.output_weight,
-			};
-			let children_outputs = tg::object::Metadata {
-				count: row.children_outputs_count,
-				depth: row.children_outputs_depth,
-				weight: row.children_outputs_weight,
-			};
-			let metadata = tg::process::Metadata {
-				children,
-				children_commands,
-				children_outputs,
-				command,
-				output,
-			};
-			(complete, metadata)
+			let metadata = tg::process::Metadata { node, subtree };
+			(stored, metadata)
 		});
 
 		Ok(output)
 	}
 
-	pub(crate) async fn try_touch_process_and_get_complete_and_metadata_batch_postgres(
+	pub(crate) async fn try_touch_process_and_get_stored_and_metadata_batch_postgres(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::process::Id],
@@ -381,14 +373,14 @@ impl Server {
 	) -> tg::Result<Vec<Option<(Output, tg::process::Metadata)>>> {
 		let options = tangram_futures::retry::Options::default();
 		tangram_futures::retry(&options, || {
-			self.try_touch_process_and_get_complete_and_metadata_batch_postgres_attempt(
+			self.try_touch_process_and_get_stored_and_metadata_batch_postgres_attempt(
 				database, ids, touched_at,
 			)
 		})
 		.await
 	}
 
-	async fn try_touch_process_and_get_complete_and_metadata_batch_postgres_attempt(
+	async fn try_touch_process_and_get_stored_and_metadata_batch_postgres_attempt(
 		&self,
 		database: &db::postgres::Database,
 		ids: &[tg::process::Id],
@@ -405,37 +397,37 @@ impl Server {
 		struct Row {
 			#[tangram_database(as = "db::postgres::value::TryFrom<Vec<u8>>")]
 			id: tg::process::Id,
-			children_complete: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_count: Option<u64>,
-			children_commands_complete: bool,
+			node_command_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_commands_count: Option<u64>,
+			node_command_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_commands_depth: Option<u64>,
+			node_command_size: Option<u64>,
+			node_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_commands_weight: Option<u64>,
-			children_outputs_complete: bool,
+			node_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_outputs_count: Option<u64>,
+			node_output_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_outputs_depth: Option<u64>,
+			node_output_size: Option<u64>,
+			node_output_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			children_outputs_weight: Option<u64>,
-			command_complete: bool,
+			subtree_command_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			command_count: Option<u64>,
+			subtree_command_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			command_depth: Option<u64>,
+			subtree_command_size: Option<u64>,
+			subtree_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			command_weight: Option<u64>,
-			output_complete: bool,
+			subtree_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			output_count: Option<u64>,
+			subtree_output_depth: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			output_depth: Option<u64>,
+			subtree_output_size: Option<u64>,
+			subtree_output_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
-			output_weight: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
@@ -452,24 +444,24 @@ impl Server {
 				where processes.id = locked.id
 				returning
 					processes.id,
-					children_complete,
-					children_count,
-					children_commands_complete,
-					children_commands_count,
-					children_commands_depth,
-					children_commands_weight,
-					children_outputs_complete,
-					children_outputs_count,
-					children_outputs_depth,
-					children_outputs_weight,
-					command_complete,
-					command_count,
-					command_depth,
-					command_weight,
-					output_complete,
-					output_count,
-					output_depth,
-					output_weight;
+					node_command_count,
+					node_command_depth,
+					node_command_size,
+					node_command_stored,
+					node_output_count,
+					node_output_depth,
+					node_output_size,
+					node_output_stored,
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_command_stored,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_output_stored,
+					subtree_count,
+					subtree_stored;
 			",
 		);
 		let result = connection
@@ -502,44 +494,40 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
 			})
 			.map_ok(|row| {
-				let complete = Output {
-					children: row.children_complete,
-					children_commands: row.children_commands_complete,
-					children_outputs: row.children_outputs_complete,
-					command: row.command_complete,
-					output: row.output_complete,
+				let stored = Output {
+					node_command: row.node_command_stored,
+					node_output: row.node_output_stored,
+					subtree_command: row.subtree_command_stored,
+					subtree_output: row.subtree_output_stored,
+					subtree: row.subtree_stored,
 				};
-				let children = tg::process::metadata::Children {
-					count: row.children_count,
+				let node = tg::process::metadata::Node {
+					command: tg::object::metadata::Subtree {
+						count: row.node_command_count,
+						depth: row.node_command_depth,
+						size: row.node_command_size,
+					},
+					output: tg::object::metadata::Subtree {
+						count: row.node_output_count,
+						depth: row.node_output_depth,
+						size: row.node_output_size,
+					},
 				};
-				let command = tg::object::Metadata {
-					count: row.command_count,
-					depth: row.command_depth,
-					weight: row.command_weight,
+				let subtree = tg::process::metadata::Subtree {
+					command: tg::object::metadata::Subtree {
+						count: row.subtree_command_count,
+						depth: row.subtree_command_depth,
+						size: row.subtree_command_size,
+					},
+					output: tg::object::metadata::Subtree {
+						count: row.subtree_output_count,
+						depth: row.subtree_output_depth,
+						size: row.subtree_output_size,
+					},
+					process_count: row.subtree_count,
 				};
-				let children_commands = tg::object::Metadata {
-					count: row.children_commands_count,
-					depth: row.children_commands_depth,
-					weight: row.children_commands_weight,
-				};
-				let output = tg::object::Metadata {
-					count: row.output_count,
-					depth: row.output_depth,
-					weight: row.output_weight,
-				};
-				let children_outputs = tg::object::Metadata {
-					count: row.children_outputs_count,
-					depth: row.children_outputs_depth,
-					weight: row.children_outputs_weight,
-				};
-				let metadata = tg::process::Metadata {
-					children,
-					children_commands,
-					children_outputs,
-					command,
-					output,
-				};
-				(row.id, (complete, metadata))
+				let metadata = tg::process::Metadata { node, subtree };
+				(row.id, (stored, metadata))
 			})
 			.collect::<tg::Result<HashMap<_, _, tg::id::BuildHasher>>>()?;
 		let output = ids.iter().map(|id| output.get(id).cloned()).collect();

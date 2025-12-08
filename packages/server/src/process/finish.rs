@@ -238,7 +238,7 @@ impl Server {
 		let children = children.into_iter().map(|row| row.child).collect();
 		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
 			children,
-			complete: crate::process::complete::Output::default(),
+			stored: crate::process::stored::Output::default(),
 			id: id.clone(),
 			metadata: tg::process::Metadata::default(),
 			objects,

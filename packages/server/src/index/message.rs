@@ -1,10 +1,6 @@
 use {
-	byteorder::ReadBytesExt as _,
-	bytes::Bytes,
-	std::collections::BTreeSet,
-	tangram_client::prelude::*,
-	tangram_either::Either,
-	tangram_util::serde::{is_default, is_false},
+	byteorder::ReadBytesExt as _, bytes::Bytes, std::collections::BTreeSet,
+	tangram_client::prelude::*, tangram_either::Either, tangram_util::serde::is_default,
 };
 
 #[derive(
@@ -95,19 +91,16 @@ pub struct PutObject {
 	#[tangram_serialize(id = 1)]
 	pub children: BTreeSet<tg::object::Id>,
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
-	pub complete: bool,
-
-	#[tangram_serialize(id = 3)]
+	#[tangram_serialize(id = 2)]
 	pub id: tg::object::Id,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
 	pub metadata: tg::object::Metadata,
 
-	#[tangram_serialize(id = 5)]
-	pub size: u64,
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_default")]
+	pub stored: crate::object::stored::Output,
 
 	#[tangram_serialize(id = 6)]
 	pub touched_at: i64,
@@ -142,20 +135,20 @@ pub struct PutProcess {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Vec::is_empty")]
 	pub children: Vec<tg::process::Id>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub complete: crate::process::complete::Output,
-
-	#[tangram_serialize(id = 2)]
+	#[tangram_serialize(id = 1)]
 	pub id: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
 	pub metadata: tg::process::Metadata,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Vec::is_empty")]
 	pub objects: Vec<(tg::object::Id, ProcessObjectKind)>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
+	pub stored: crate::process::stored::Output,
 
 	#[tangram_serialize(id = 5)]
 	pub touched_at: i64,

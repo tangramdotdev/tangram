@@ -21,7 +21,6 @@ pub struct Graph {
 #[derive(Clone, Debug)]
 pub struct Node {
 	pub artifact: Option<tg::artifact::Id>,
-	pub complete: bool,
 	pub edge: Option<tg::graph::data::Edge<tg::object::Id>>,
 	pub id: Option<tg::object::Id>,
 	pub lock_node: Option<usize>,
@@ -31,6 +30,7 @@ pub struct Node {
 	pub referrers: SmallVec<[usize; 1]>,
 	pub solvable: bool,
 	pub solved: bool,
+	pub stored: crate::object::stored::Output,
 	pub variant: Variant,
 }
 
@@ -196,7 +196,7 @@ pub enum Contents {
 	Write(Box<crate::write::Output>),
 	Id {
 		id: tg::blob::Id,
-		complete: bool,
+		stored: crate::object::stored::Output,
 		metadata: Option<tg::object::Metadata>,
 	},
 }

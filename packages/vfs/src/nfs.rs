@@ -285,7 +285,7 @@ where
 		// Drop the message sender to avoid deadlocking the writer task.
 		drop(message_sender);
 
-		// Wait for all tasks to complete.
+		// Wait for all tasks to finish.
 		task_tracker.close();
 		task_tracker.wait().await;
 

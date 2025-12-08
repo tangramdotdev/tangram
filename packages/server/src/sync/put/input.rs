@@ -40,30 +40,31 @@ impl Server {
 					state.queue.enqueue_process(item);
 				},
 
-				tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Object(message)) => {
-					tracing::trace!(id = %message.id, "received complete object");
-					state
-						.graph
-						.lock()
-						.unwrap()
-						.update_object(&message.id, None, None, Some(true));
+				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(message)) => {
+					tracing::trace!(id = %message.id, "received stored object");
+					state.graph.lock().unwrap().update_object(
+						&message.id,
+						None,
+						None,
+						Some(crate::object::stored::Output { subtree: true }),
+					);
 				},
 
-				tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Process(message)) => {
-					tracing::trace!(id = %message.id, "received complete process");
+				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(message)) => {
+					tracing::trace!(id = %message.id, "received stored process");
 					let id = message.id;
-					let complete = crate::process::complete::Output {
-						children: message.children_complete,
-						children_commands: message.children_commands_complete,
-						children_outputs: message.children_outputs_complete,
-						command: message.command_complete,
-						output: message.output_complete,
+					let stored = crate::process::stored::Output {
+						subtree: message.subtree_stored,
+						subtree_command: message.subtree_command_stored,
+						subtree_output: message.subtree_output_stored,
+						node_command: message.node_command_stored,
+						node_output: message.node_output_stored,
 					};
 					state
 						.graph
 						.lock()
 						.unwrap()
-						.update_process(&id, None, Some(&complete));
+						.update_process(&id, None, Some(&stored));
 				},
 
 				tg::sync::GetMessage::Progress(_) => (),

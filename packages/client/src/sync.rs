@@ -71,12 +71,12 @@ pub enum GetMessage {
 	Item(GetItemMessage),
 
 	#[tangram_serialize(id = 1)]
-	Complete(GetCompleteMessage),
+	Stored(GetStoredMessage),
 
-	#[tangram_serialize(id = 3)]
+	#[tangram_serialize(id = 2)]
 	Progress(ProgressMessage),
 
-	#[tangram_serialize(id = 4)]
+	#[tangram_serialize(id = 3)]
 	End,
 }
 
@@ -108,39 +108,39 @@ pub struct GetItemProcessMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum GetCompleteMessage {
+pub enum GetStoredMessage {
 	#[tangram_serialize(id = 0)]
-	Object(GetCompleteObjectMessage),
+	Object(GetStoredObjectMessage),
 
 	#[tangram_serialize(id = 1)]
-	Process(GetCompleteProcessMessage),
+	Process(GetStoredProcessMessage),
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetCompleteObjectMessage {
+pub struct GetStoredObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetCompleteProcessMessage {
+pub struct GetStoredProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
-	pub children_complete: bool,
+	pub node_command_stored: bool,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
-	pub command_complete: bool,
+	pub node_output_stored: bool,
 
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
-	pub children_commands_complete: bool,
+	pub subtree_stored: bool,
 
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
-	pub output_complete: bool,
+	pub subtree_command_stored: bool,
 
 	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
-	pub children_outputs_complete: bool,
+	pub subtree_output_stored: bool,
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -151,10 +151,10 @@ pub enum PutMessage {
 	#[tangram_serialize(id = 1)]
 	Missing(PutMissingMessage),
 
-	#[tangram_serialize(id = 3)]
+	#[tangram_serialize(id = 2)]
 	Progress(ProgressMessage),
 
-	#[tangram_serialize(id = 4)]
+	#[tangram_serialize(id = 3)]
 	End,
 }
 

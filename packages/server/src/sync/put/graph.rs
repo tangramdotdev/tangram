@@ -38,15 +38,15 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
-	pub complete: Option<crate::process::complete::Output>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub stored: Option<crate::process::stored::Output>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
-	pub complete: Option<bool>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub stored: Option<crate::object::stored::Output>,
 }
 
 impl Node {
@@ -89,21 +89,21 @@ impl Graph {
 		&mut self,
 		id: &tg::process::Id,
 		parent: Option<Id>,
-		complete: Option<&crate::process::complete::Output>,
-	) -> (bool, Option<crate::process::complete::Output>) {
+		stored: Option<&crate::process::stored::Output>,
+	) -> (bool, Option<crate::process::stored::Output>) {
 		let entry = self.nodes.entry(id.clone().into());
 		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Process(ProcessNode::default()));
 
-		if let Some(complete) = complete {
+		if let Some(stored) = stored {
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.complete = Some(complete.clone());
+			node.stored = Some(stored.clone());
 		}
 		if let Some(parent) = parent {
 			// Get the parent index and node.
@@ -123,75 +123,70 @@ impl Graph {
 			}
 		}
 
-		if let Some(path) = self.find_complete_process_ancestor(index, |complete| complete.children)
-		{
+		if let Some(path) = self.find_process_ancestor(index, |stored| stored.subtree) {
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.complete.get_or_insert_default().children = true;
-			self.propagate_process_field(&path, |complete| complete.children = true);
+			node.stored.get_or_insert_default().subtree = true;
+			self.propagate_process_field(&path, |stored| stored.subtree = true);
 		}
 
-		if let Some(path) =
-			self.find_complete_process_ancestor(index, |complete| complete.children_commands)
-		{
+		if let Some(path) = self.find_process_ancestor(index, |stored| stored.subtree_command) {
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.complete.get_or_insert_default().children_commands = true;
-			self.propagate_process_field(&path, |complete| complete.children_commands = true);
+			node.stored.get_or_insert_default().subtree_command = true;
+			self.propagate_process_field(&path, |stored| stored.subtree_command = true);
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.complete.get_or_insert_default().command = true;
-			self.propagate_process_field(&path, |complete| complete.command = true);
+			node.stored.get_or_insert_default().node_command = true;
+			self.propagate_process_field(&path, |stored| stored.node_command = true);
 		}
 
-		if let Some(path) =
-			self.find_complete_process_ancestor(index, |complete| complete.children_outputs)
-		{
+		if let Some(path) = self.find_process_ancestor(index, |stored| stored.subtree_output) {
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.complete.get_or_insert_default().children_outputs = true;
-			self.propagate_process_field(&path, |complete| complete.children_outputs = true);
+			node.stored.get_or_insert_default().subtree_output = true;
+			self.propagate_process_field(&path, |stored| stored.subtree_output = true);
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.complete.get_or_insert_default().output = true;
-			self.propagate_process_field(&path, |complete| complete.output = true);
+			node.stored.get_or_insert_default().node_output = true;
+			self.propagate_process_field(&path, |stored| stored.node_output = true);
 		}
 
-		let complete = self
+		let stored = self
 			.nodes
 			.get_index(index)
 			.unwrap()
 			.1
 			.unwrap_process_ref()
-			.complete
+			.stored
 			.clone();
 
-		(inserted, complete)
+		(inserted, stored)
 	}
 
-	fn find_complete_process_ancestor<F>(&self, index: usize, f: F) -> Option<Vec<usize>>
+	fn find_process_ancestor<F>(&self, index: usize, f: F) -> Option<Vec<usize>>
 	where
-		F: Fn(&crate::process::complete::Output) -> bool,
+		F: Fn(&crate::process::stored::Output) -> bool,
 	{
 		let mut stack = vec![vec![index]];
 		loop {
@@ -200,8 +195,8 @@ impl Graph {
 			};
 			let index = *path.last().unwrap();
 			let node = self.nodes.get_index(index).unwrap().1.unwrap_process_ref();
-			let complete = node.complete.as_ref().is_some_and(&f);
-			if complete {
+			let stored = node.stored.as_ref().is_some_and(&f);
+			if stored {
 				break Some(path);
 			}
 			for parent in &node.parents {
@@ -215,13 +210,13 @@ impl Graph {
 
 	fn propagate_process_field<F>(&mut self, path: &[usize], f: F)
 	where
-		F: Fn(&mut crate::process::complete::Output),
+		F: Fn(&mut crate::process::stored::Output),
 	{
 		for &index in path {
 			let (_, node) = self.nodes.get_index_mut(index).unwrap();
 			if let Node::Process(process) = node {
-				let complete = process.complete.get_or_insert_with(Default::default);
-				f(complete);
+				let stored = process.stored.get_or_insert_with(Default::default);
+				f(stored);
 			}
 		}
 	}
@@ -231,21 +226,21 @@ impl Graph {
 		id: &tg::object::Id,
 		parent: Option<Id>,
 		kind: Option<crate::sync::queue::ObjectKind>,
-		complete: Option<bool>,
-	) -> (bool, Option<bool>) {
+		stored: Option<crate::object::stored::Output>,
+	) -> (bool, Option<crate::object::stored::Output>) {
 		let entry = self.nodes.entry(id.clone().into());
 		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 
-		if let Some(complete) = complete {
+		if let Some(stored) = stored {
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_object_mut();
-			node.complete = Some(complete);
+			node.stored = Some(stored);
 		}
 
 		if let Some(parent) = parent {
@@ -266,50 +261,51 @@ impl Graph {
 			}
 		}
 
-		// Search for a complete ancestor and propagate completeness.
-		let path = self.find_complete_object_ancestor(index, kind);
+		// Search for a stored ancestor and propagate stored.
+		let path = self.find_object_ancestor(index, kind);
 		if let Some(path) = path {
 			for index in path {
 				let (_, node) = self.nodes.get_index_mut(index).unwrap();
 				match node {
 					Node::Process(process) => {
-						let complete = process.complete.get_or_insert_with(Default::default);
+						let stored = process.stored.get_or_insert_with(Default::default);
 						match kind {
 							Some(crate::sync::queue::ObjectKind::Command) => {
-								complete.children_commands = true;
-								complete.command = true;
+								stored.subtree_command = true;
+								stored.node_command = true;
 							},
 							Some(crate::sync::queue::ObjectKind::Output) => {
-								complete.children_outputs = true;
-								complete.output = true;
+								stored.subtree_output = true;
+								stored.node_output = true;
 							},
 							None => {
-								complete.children_commands = true;
-								complete.children_outputs = true;
-								complete.command = true;
-								complete.output = true;
+								stored.subtree_command = true;
+								stored.subtree_output = true;
+								stored.node_command = true;
+								stored.node_output = true;
 							},
 						}
 					},
 					Node::Object(object) => {
-						object.complete = Some(true);
+						object.stored = Some(crate::object::stored::Output { subtree: true });
 					},
 				}
 			}
 		}
 
-		let complete = self
+		let stored = self
 			.nodes
 			.get_index(index)
 			.unwrap()
 			.1
 			.unwrap_object_ref()
-			.complete;
+			.stored
+			.clone();
 
-		(inserted, complete)
+		(inserted, stored)
 	}
 
-	fn find_complete_object_ancestor(
+	fn find_object_ancestor(
 		&self,
 		index: usize,
 		kind: Option<crate::sync::queue::ObjectKind>,
@@ -321,24 +317,21 @@ impl Graph {
 			};
 			let index = *path.last().unwrap();
 			let node = self.nodes.get_index(index).unwrap().1;
-			let complete = match node {
+			let stored = match node {
 				Node::Process(process) => {
-					process
-						.complete
-						.as_ref()
-						.is_some_and(|complete| match kind {
-							Some(crate::sync::queue::ObjectKind::Command) => {
-								complete.children_commands || (path.len() == 2 && complete.command)
-							},
-							Some(crate::sync::queue::ObjectKind::Output) => {
-								complete.children_outputs || (path.len() == 2 && complete.output)
-							},
-							None => complete.children_commands && complete.children_outputs,
-						})
+					process.stored.as_ref().is_some_and(|stored| match kind {
+						Some(crate::sync::queue::ObjectKind::Command) => {
+							stored.subtree_command || (path.len() == 2 && stored.node_command)
+						},
+						Some(crate::sync::queue::ObjectKind::Output) => {
+							stored.subtree_output || (path.len() == 2 && stored.node_output)
+						},
+						None => stored.subtree_command && stored.subtree_output,
+					})
 				},
-				Node::Object(object) => object.complete.is_some_and(|complete| complete),
+				Node::Object(object) => object.stored.as_ref().is_some_and(|stored| stored.subtree),
 			};
-			if complete {
+			if stored {
 				break Some(path);
 			}
 			for parent in node.parents() {
