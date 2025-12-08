@@ -29,8 +29,10 @@ export function command(...args: any): any {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
 		let template = tg.template(strings, ...placeholders);
+		let executable = tg.process.env.SHELL ?? "sh";
+		tg.assert(tg.Command.Arg.Executable.is(executable));
 		let arg = {
-			executable: "/bin/sh",
+			executable,
 			args: ["-c", template],
 		};
 		return new CommandBuilder(arg);
@@ -288,6 +290,28 @@ export namespace Command {
 
 			export type Path = {
 				path: string;
+			};
+
+			export let is = (value: unknown): value is Executable => {
+				return (
+					tg.Artifact.is(value) ||
+					typeof value === "string" ||
+					(typeof value === "object" &&
+						value !== null &&
+						"artifact" in value &&
+						tg.Artifact.is(value.artifact)) ||
+					(typeof value === "object" &&
+						value !== null &&
+						"module" in value &&
+						typeof value.module === "object" &&
+						value.module !== null &&
+						"kind" in value.module &&
+						"referent" in value.module) ||
+					(typeof value === "object" &&
+						value !== null &&
+						"path" in value &&
+						typeof value.path === "string")
+				);
 			};
 		}
 	}

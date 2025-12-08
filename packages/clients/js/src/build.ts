@@ -27,8 +27,10 @@ export function build(...args: any): any {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
 		let template = tg.template(strings, ...placeholders);
+		let executable = tg.process.env.SHELL ?? "sh";
+		tg.assert(tg.Command.Arg.Executable.is(executable));
 		let arg = {
-			executable: "/bin/sh",
+			executable,
 			args: ["-c", template],
 		};
 		return new BuildBuilder(arg);
@@ -182,9 +184,10 @@ async function arg_(
 				arg instanceof tg.Template
 			) {
 				let host = tg.process.env.TANGRAM_HOST;
+				let executable = tg.process.env.SHELL ?? "sh";
 				return {
 					args: ["-c", arg],
-					executable: "/bin/sh",
+					executable,
 					host,
 				};
 			} else if (arg instanceof tg.Command) {

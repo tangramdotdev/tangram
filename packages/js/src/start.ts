@@ -40,7 +40,7 @@ export let start = async (arg: Arg): Promise<tg.Value.Data> => {
 	// Call the export.
 	let output: tg.Value;
 	if (!(arg.executable.export in namespace)) {
-		throw new Error("failed to find the export");
+		throw new Error(`failed to find the export named ${arg.executable.export}`);
 	}
 	let value = await namespace[arg.executable.export];
 	if (tg.Value.is(value)) {
