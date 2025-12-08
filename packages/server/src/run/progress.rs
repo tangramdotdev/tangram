@@ -209,53 +209,7 @@ impl State {
 				title_length = title_length.unwrap(),
 			)
 			.unwrap();
-			const LENGTH: u64 = 20;
-			if let (Some(current), Some(total)) = (indicator.current, indicator.total) {
-				write!(line, " [").unwrap();
-				let n = if total > 0 {
-					(current * LENGTH / total).min(LENGTH)
-				} else {
-					LENGTH
-				};
-				for _ in 0..n {
-					write!(line, "=").unwrap();
-				}
-				if current < total {
-					write!(line, ">").unwrap();
-				} else {
-					write!(line, "=").unwrap();
-				}
-				for _ in n..LENGTH {
-					write!(line, " ").unwrap();
-				}
-				write!(line, "]").unwrap();
-			}
-			if let Some(current) = indicator.current {
-				match indicator.format {
-					tg::progress::IndicatorFormat::Normal => {
-						write!(line, " {current}").unwrap();
-					},
-					tg::progress::IndicatorFormat::Bytes => {
-						let current = byte_unit::Byte::from_u64(current)
-							.get_appropriate_unit(byte_unit::UnitType::Decimal);
-						write!(line, " {current:#.1}").unwrap();
-					},
-				}
-				if let Some(total) = indicator.total {
-					match indicator.format {
-						tg::progress::IndicatorFormat::Normal => {
-							write!(line, " of {total}").unwrap();
-						},
-						tg::progress::IndicatorFormat::Bytes => {
-							let total = byte_unit::Byte::from_u64(total)
-								.get_appropriate_unit(byte_unit::UnitType::Decimal);
-							write!(line, " of {total:#.1}").unwrap();
-						},
-					}
-					let percent = 100.0 * current.to_f64().unwrap() / total.to_f64().unwrap();
-					write!(line, " {percent:.2}%").unwrap();
-				}
-			}
+			write!(line, " {indicator}").unwrap();
 			buffer.extend_from_slice(clip(&line, size.0.into()).as_bytes());
 			buffer.extend_from_slice(b"\r\n");
 		}

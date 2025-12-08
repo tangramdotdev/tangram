@@ -67,11 +67,14 @@ impl<T> Event<T> {
 impl std::fmt::Display for Indicator {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		const LENGTH: u64 = 20;
-		write!(f, "{}", self.title)?;
 		if let (Some(current), Some(total)) = (self.current, self.total) {
-			write!(f, " [")?;
-			let last = current * LENGTH / total;
-			for _ in 0..last {
+			write!(f, "[")?;
+			let n = if total > 0 {
+				(current * LENGTH / total).min(LENGTH)
+			} else {
+				LENGTH
+			};
+			for _ in 0..n {
 				write!(f, "=")?;
 			}
 			if current < total {
@@ -79,7 +82,7 @@ impl std::fmt::Display for Indicator {
 			} else {
 				write!(f, "=")?;
 			}
-			for _ in last..LENGTH {
+			for _ in n..LENGTH {
 				write!(f, " ")?;
 			}
 			write!(f, "]")?;
@@ -95,7 +98,9 @@ impl std::fmt::Display for Indicator {
 					write!(f, " {current:#.1}")?;
 				},
 			}
-			if let Some(total) = self.total {
+			if let Some(total) = self.total
+				&& total > 0
+			{
 				match self.format {
 					tg::progress::IndicatorFormat::Normal => {
 						write!(f, " of {total}")?;
@@ -110,6 +115,7 @@ impl std::fmt::Display for Indicator {
 				write!(f, " {percent:.2}%")?;
 			}
 		}
+
 		Ok(())
 	}
 }
