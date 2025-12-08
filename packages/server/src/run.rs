@@ -1,6 +1,6 @@
 use {
 	crate::{ProcessPermit, Server},
-	futures::{FutureExt as _, TryFutureExt as _, future},
+	futures::{FutureExt as _, StreamExt, TryFutureExt as _, future, stream::FuturesUnordered},
 	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -29,6 +29,15 @@ pub struct Output {
 
 impl Server {
 	pub(crate) async fn runner_task(&self) {
+		// If this is a single daemon, kill any running processes.
+		if self.config().advanced.shared_process {
+			self.cancel_unfinished_processes()
+				.await
+				.inspect_err(|error| {
+					tracing::error!(?error, "failed to cancel unfinished processes");
+				})
+				.ok();
+		}
 		loop {
 			// Wait for a permit.
 			let permit = self
@@ -277,5 +286,43 @@ impl Server {
 				"cannot checksum a value that is not a blob or an artifact"
 			))
 		}
+	}
+
+	async fn cancel_unfinished_processes(&self) -> tg::Result<()> {
+		let output = self
+			.list_processes(tg::process::list::Arg::default())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list processes"))?;
+		output
+			.data
+			.into_iter()
+			.filter_map(|output| {
+				if matches!(output.data.status, tg::process::Status::Finished) {
+					return None;
+				}
+				let server = self.clone();
+				Some(async move {
+					let error = tg::Error {
+						code: Some(tg::error::Code::Cancellation),
+						message: Some("the process was canceled".into()),
+						..tg::Error::default()
+					};
+					let error = Some(error.to_data());
+					let arg = tg::process::finish::Arg {
+						checksum: None,
+						error,
+						exit: 1,
+						output: None,
+						remote: None,
+					};
+					if let Err(error) = server.finish_process(&output.id, arg).await {
+						tracing::error!(process = %output.id, ?error, "failed to cancel process");
+					}
+				})
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<()>()
+			.await;
+		Ok(())
 	}
 }
