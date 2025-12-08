@@ -732,7 +732,7 @@ export def --env spawn [
 				tg.assert(kv, `unknown host: ${host_}`);
 				const { url, checksum } = kv[1];
 				const dir = tg.download(url, checksum, { mode: "extract" }).then(tg.Directory.expect);
-				return { PATH: tg.Mutation.suffix(tg`${dir}/bin`, ":") };
+				return { PATH: tg.Mutation.suffix(tg`/bin:${dir}/bin`, ":") };
 			};
 
 			export default env;
