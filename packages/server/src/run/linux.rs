@@ -127,8 +127,18 @@ impl Server {
 				tg::command::data::Executable::Module(_) => {
 					return Err(tg::error!("invalid executable"));
 				},
-				tg::command::data::Executable::Path(executable) => {
+				tg::command::data::Executable::Path(executable) if root_mounted => {
 					which(&executable.path, &env).await?
+				},
+				tg::command::data::Executable::Path(executable) => {
+					let host_artifacts_path = self.artifacts_path();
+					let env = render_env(&command.env, &host_artifacts_path, &output_path)?;
+					let executable = which(&executable.path, &env).await?;
+					if let Ok(subpath) = executable.strip_prefix(&host_artifacts_path) {
+						artifacts_path.join(subpath)
+					} else {
+						executable
+					}
 				},
 			},
 		};
