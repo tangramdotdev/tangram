@@ -216,7 +216,7 @@ impl<T> State<T> {
 						write!(line, " {current:#.1}").unwrap();
 					},
 				}
-				if let Some(total) = indicator.total {
+				if let Some(total) = indicator.total && total > 0 {
 					match indicator.format {
 						tg::progress::IndicatorFormat::Normal => {
 							write!(line, " of {total}").unwrap();
