@@ -693,11 +693,16 @@ export def --env spawn [
 		}
 	}
 
+	loop {
+		let output = tg health | complete
+		if $output.exit_code == 0 {
+			break;
+		}
+		sleep 10ms
+	}
+
 	# Tag busybox if requested.
 	if $busybox {
-		# Tiny sleep to wait for the server to start up.
-		sleep 0.1sec
-
 		# Create a temp for busybox
 		let busybox_path = mktemp -d
 		let busybox_source = '
@@ -736,14 +741,6 @@ export def --env spawn [
 		run tangram check $busybox_path
 		run tangram -c ($config_path) tag 'busybox' $busybox_path
 		run rm -rf $busybox_path
-	}
-
-	loop {
-		let output = tg health | complete
-		if $output.exit_code == 0 {
-			break;
-		}
-		sleep 10ms
 	}
 
 	{ config: $config_path, directory: $directory_path, url: $url }
