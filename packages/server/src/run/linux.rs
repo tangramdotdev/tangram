@@ -131,7 +131,6 @@ impl Server {
 					which(&executable.path, &env).await?
 				},
 				tg::command::data::Executable::Path(executable) => {
-					// Render the env relative to the host. Note: we have not constructed the Paths context yet, so we do the path replacement directly.
 					let host_artifacts_path = self.artifacts_path();
 					let env = render_env(&command.env, &host_artifacts_path, &output_path)?;
 					let executable = which(&executable.path, &env).await?;

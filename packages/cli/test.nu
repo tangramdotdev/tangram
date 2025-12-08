@@ -703,9 +703,8 @@ export def --env spawn [
 
 	# Tag busybox if requested.
 	if $busybox {
-		# Create a temp for busybox
-		let busybox_path = mktemp -d
-		let busybox_source = '
+		let path = mktemp -d
+		let source = '
 			const SOURCES: Record<string, { url: string, checksum: tg.Checksum }> = {
 				"aarch64-darwin": {
 					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2024.10.03/utils_universal_darwin.tar.zst",
@@ -737,10 +736,10 @@ export def --env spawn [
 
 			export default env;
 		';
-		$busybox_source | save ($busybox_path | path join 'tangram.ts')
-		run tangram check $busybox_path
-		run tangram -c ($config_path) tag 'busybox' $busybox_path
-		run rm -rf $busybox_path
+		$source | save ($path | path join 'tangram.ts')
+		run tangram check $path
+		run tangram -c ($config_path) tag 'busybox' $path
+		run rm -rf $path
 	}
 
 	{ config: $config_path, directory: $directory_path, url: $url }
