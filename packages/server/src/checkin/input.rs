@@ -263,7 +263,6 @@ impl Server {
 		// Create the node.
 		let node = Node {
 			artifact: None,
-			complete: false,
 			edge: None,
 			id: None,
 			lock_node,
@@ -273,6 +272,7 @@ impl Server {
 			referrers: SmallVec::new(),
 			solvable: false,
 			solved: true,
+			stored: crate::object::stored::Output::default(),
 			variant,
 		};
 		state.graph.nodes.insert(index, Box::new(node));

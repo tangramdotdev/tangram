@@ -26,7 +26,7 @@ export def test [path: string, ...args] {
 	# Parse the process ID.
 	let process_id = $output.process
 
-	# Wait for the process to complete.
+	# Wait for the process to finish.
 	tg wait $process_id
 
 	let output = tg get $process_id | from json
@@ -65,11 +65,11 @@ export def test [path: string, ...args] {
 
 	# Confirm that all expected fields are present in the top-level metadata.
 	let remote_metadata = run tg -u $remote_server.url metadata $process_id | from json
-	assert ($remote_metadata.children? != null) "the metadata should contain the children field"
-	assert ($remote_metadata.children_commands? != null) "the metadata should contain the children_commands field"
-	assert ($remote_metadata.children_outputs? != null) "the metadata should contain the children_outputs field"
-	assert ($remote_metadata.command? != null) "the metadata should contain the command field"
-	assert ($remote_metadata.output? != null) "the metadata should contain the output field"
+	assert ($remote_metadata.subtree?.process_count? != null) "the metadata should contain the subtree.process_count field"
+	assert ($remote_metadata.subtree?.command? != null) "the metadata should contain the subtree.command field"
+	assert ($remote_metadata.subtree?.output? != null) "the metadata should contain the subtree.output field"
+	assert ($remote_metadata.node?.command? != null) "the metadata should contain the node.command field"
+	assert ($remote_metadata.node?.output? != null) "the metadata should contain the node.output field"
 
 	# For each of the commands, confirm that they are present.
 	for command in $commands {

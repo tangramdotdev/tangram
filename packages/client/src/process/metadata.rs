@@ -24,23 +24,11 @@ pub struct Arg {
 pub struct Metadata {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
-	pub children: Children,
-
-	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
-	pub children_commands: tg::object::Metadata,
-
-	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
-	pub children_outputs: tg::object::Metadata,
+	pub node: Node,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub command: tg::object::Metadata,
-
-	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
-	pub output: tg::object::Metadata,
+	pub subtree: Subtree,
 }
 
 #[derive(
@@ -54,10 +42,39 @@ pub struct Metadata {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Children {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
-	pub count: Option<u64>,
+pub struct Node {
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	pub command: tg::object::metadata::Subtree,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	pub output: tg::object::metadata::Subtree,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Subtree {
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	pub command: tg::object::metadata::Subtree,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	pub output: tg::object::metadata::Subtree,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
+	pub process_count: Option<u64>,
 }
 
 impl tg::Client {

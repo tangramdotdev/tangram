@@ -67,10 +67,10 @@ impl Server {
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
-		// Touch the objects and get complete and metadata.
+		// Touch the objects and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
-			.try_touch_object_and_get_complete_and_metadata_batch(&ids, touched_at)
+			.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
 			.await?;
 
 		// Handle each item and output.
@@ -79,9 +79,8 @@ impl Server {
 			let inserted = state.graph.lock().unwrap().update_object(
 				&item.id,
 				None,
-				output.as_ref().map(|(complete, _)| *complete),
+				output.as_ref().map(|(stored, _)| stored.clone()),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
-				None,
 				None,
 			);
 
@@ -108,29 +107,29 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to send the message"))?;
 				},
 
-				// If the object is present but not complete, then enqueue the children.
-				Some((false, _)) => {
-					let bytes = self
-						.try_get_object_local(&item.id)
-						.await?
-						.ok_or_else(|| tg::error!("expected the object to exist"))?
-						.bytes;
-					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
-					Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
-				},
-
-				// If the object is complete, then send a complete message.
-				Some((true, _)) => {
-					let message = tg::sync::GetMessage::Complete(
-						tg::sync::GetCompleteMessage::Object(tg::sync::GetCompleteObjectMessage {
-							id: item.id.clone(),
-						}),
-					);
-					state
-						.sender
-						.send(Ok(message))
-						.await
-						.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+				Some((stored, _)) => {
+					if stored.subtree {
+						// If the object is stored, then send a stored message.
+						let message = tg::sync::GetMessage::Stored(
+							tg::sync::GetStoredMessage::Object(tg::sync::GetStoredObjectMessage {
+								id: item.id.clone(),
+							}),
+						);
+						state
+							.sender
+							.send(Ok(message))
+							.await
+							.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+					} else {
+						// If the object is stored but its subtree is not stored, then enqueue the children.
+						let bytes = self
+							.try_get_object_local(&item.id)
+							.await?
+							.ok_or_else(|| tg::error!("expected the object to exist"))?
+							.bytes;
+						let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+						Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
+					}
 				},
 			}
 		}
@@ -151,10 +150,10 @@ impl Server {
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
-		// Touch the processes and get complete and metadata.
+		// Touch the processes and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
-			.try_touch_process_and_get_complete_and_metadata_batch(&ids, touched_at)
+			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
 			.await?;
 
 		// Handle each item and output.
@@ -163,7 +162,7 @@ impl Server {
 			let inserted = state.graph.lock().unwrap().update_process(
 				&item.id,
 				None,
-				output.as_ref().map(|(complete, _)| complete.clone()),
+				output.as_ref().map(|(stored, _)| stored.clone()),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
 				None,
 			);
@@ -193,8 +192,8 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to send the message"))?;
 				},
 
-				// If the process is present, then enqueue children and objects as necessary, and send a complete if necessary.
-				Some((complete, _)) => {
+				// If the process is present, then enqueue children and objects as necessary, and send a stored message if necessary.
+				Some((stored, _)) => {
 					// Get the process.
 					let data = self
 						.try_get_process_local(&item.id)
@@ -203,24 +202,23 @@ impl Server {
 						.data;
 
 					// Enqueue the children as necessary.
-					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(complete));
+					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored));
 
-					// Send a complete message if necessary.
-					if complete.children || complete.children_commands || complete.children_outputs
-					{
+					// Send a stored message if necessary.
+					if stored.subtree || stored.subtree_command || stored.subtree_output {
 						let message =
-							tg::sync::GetMessage::Complete(tg::sync::GetCompleteMessage::Process(
-								tg::sync::GetCompleteProcessMessage {
-									command_complete: complete.command,
-									children_commands_complete: complete.children_commands,
-									children_complete: complete.children,
+							tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
+								tg::sync::GetStoredProcessMessage {
+									node_command_stored: stored.node_command,
+									subtree_command_stored: stored.subtree_command,
+									subtree_stored: stored.subtree,
 									id: item.id.clone(),
-									output_complete: complete.output,
-									children_outputs_complete: complete.children_outputs,
+									node_output_stored: stored.node_output,
+									subtree_output_stored: stored.subtree_output,
 								},
 							));
 						state.sender.send(Ok(message)).await.map_err(|source| {
-							tg::error!(!source, "failed to send the complete message")
+							tg::error!(!source, "failed to send the stored message")
 						})?;
 					}
 				},
@@ -255,15 +253,13 @@ impl Server {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		complete: Option<&crate::process::complete::Output>,
+		stored: Option<&crate::process::stored::Output>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.recursive
-			&& (!complete.is_some_and(|complete| complete.children)
-				|| (state.arg.commands
-					&& !complete.is_some_and(|complete| complete.children_commands))
-				|| (state.arg.outputs
-					&& !complete.is_some_and(|complete| complete.children_outputs)))
+			&& (!stored.is_some_and(|stored| stored.subtree)
+				|| (state.arg.commands && !stored.is_some_and(|stored| stored.subtree_command))
+				|| (state.arg.outputs && !stored.is_some_and(|stored| stored.subtree_output)))
 			&& let Some(children) = &data.children
 		{
 			for referent in children {
@@ -276,7 +272,7 @@ impl Server {
 		}
 
 		// Enqueue the command if necessary.
-		if state.arg.commands && !complete.is_some_and(|complete| complete.command) {
+		if state.arg.commands && !stored.is_some_and(|stored| stored.node_command) {
 			let item = ObjectItem {
 				parent: Some(Either::Right(id.clone())),
 				id: data.command.clone().into(),
@@ -287,7 +283,7 @@ impl Server {
 		}
 
 		// Enqueue the output if necessary.
-		if (state.arg.outputs && !complete.is_some_and(|complete| complete.output))
+		if (state.arg.outputs && !stored.is_some_and(|stored| stored.node_output))
 			&& let Some(output) = &data.output
 		{
 			let mut children = BTreeSet::new();

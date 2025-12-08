@@ -308,14 +308,14 @@ impl Compiler {
 			self.handle_message(message, &tasks).await;
 		}
 
-		// Wait for all tasks to complete.
+		// Wait for all tasks to finish.
 		tasks.close();
 		tasks.wait().await;
 
 		// Drop the outgoing message sender.
 		self.sender.write().unwrap().take().unwrap();
 
-		// Wait for the outgoing message task to complete.
+		// Wait for the outgoing message task to finish.
 		outgoing_message_task
 			.await
 			.unwrap()

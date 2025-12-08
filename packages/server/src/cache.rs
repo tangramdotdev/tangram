@@ -48,22 +48,22 @@ impl Server {
 			let server = self.clone();
 			let progress = progress.clone();
 			|_| async move {
-				// Ensure the artifact is complete.
+				// Ensure the artifact is stored.
 				let result = server
-					.cache_ensure_complete(&artifacts, &progress)
+					.cache_ensure_stored(&artifacts, &progress)
 					.await
 					.map_err(|source| {
 						tg::error!(
 							!source,
 							?artifacts,
-							"failed to ensure the artifacts are complete"
+							"failed to ensure the artifacts are stored"
 						)
 					});
 				if let Err(error) = result {
 					tracing::warn!(?error);
 					progress.log(
 						tg::progress::Level::Warning,
-						"failed to ensure the artifacts are complete".into(),
+						"failed to ensure the artifacts are stored".into(),
 					);
 				}
 
@@ -121,26 +121,26 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn cache_ensure_complete(
+	async fn cache_ensure_stored(
 		&self,
 		artifacts: &[tg::artifact::Id],
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
-		// Check if the artifacts are complete.
-		let complete = future::try_join_all(artifacts.iter().map(|artifact| {
+		// Check if the artifacts subtrees are stored.
+		let stored = future::try_join_all(artifacts.iter().map(|artifact| {
 			let server = self.clone();
 			let artifact = artifact.clone();
 			async move {
 				server
-					.try_get_object_complete(&artifact.into())
+					.try_get_object_stored(&artifact.into())
 					.await
 					.map(Option::unwrap_or_default)
 			}
 		}))
 		.await?
 		.iter()
-		.all(|complete| *complete);
-		if complete {
+		.all(|stored| stored.subtree);
+		if stored {
 			return Ok(());
 		}
 
@@ -151,21 +151,21 @@ impl Server {
 			progress.forward(Ok(event));
 		}
 
-		// Check if the artifacts are complete.
-		let complete = future::try_join_all(artifacts.iter().map(|artifact| {
+		// Check if the artifacts subtrees are stored.
+		let stored = future::try_join_all(artifacts.iter().map(|artifact| {
 			let server = self.clone();
 			let artifact = artifact.clone();
 			async move {
 				server
-					.try_get_object_complete(&artifact.into())
+					.try_get_object_stored(&artifact.into())
 					.await
 					.map(Option::unwrap_or_default)
 			}
 		}))
 		.await?
 		.iter()
-		.all(|complete| *complete);
-		if complete {
+		.all(|stored| stored.subtree);
+		if stored {
 			return Ok(());
 		}
 

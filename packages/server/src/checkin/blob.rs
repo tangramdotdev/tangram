@@ -80,12 +80,7 @@ impl Server {
 			let mut stack = vec![output];
 			while let Some(output) = stack.pop() {
 				let id: tg::object::Id = output.id.clone().into();
-				let metadata = tg::object::Metadata {
-					count: Some(output.count),
-					depth: Some(output.depth),
-					weight: Some(output.weight),
-				};
-				let size = output.size;
+				let metadata = output.metadata.clone();
 				let bytes = output.bytes.clone();
 
 				// Extract children from the blob data.
@@ -107,10 +102,9 @@ impl Server {
 				let index_message = crate::index::message::PutObject {
 					cache_entry: None,
 					children,
-					complete: true,
 					id: id.clone(),
 					metadata,
-					size,
+					stored: crate::object::stored::Output { subtree: true },
 					touched_at,
 				};
 

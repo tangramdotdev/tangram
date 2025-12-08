@@ -5,7 +5,7 @@ language plpgsql
 as $$
 declare
 	cache_entry_ids bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	with dequeued as (
 		delete from cache_entry_queue
@@ -28,7 +28,7 @@ begin
 		order by cache_entries.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update cache_entries
 	set
@@ -53,7 +53,7 @@ language plpgsql
 as $$
 declare
 	dequeued_objects bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	with dequeued as (
 		delete from object_queue
@@ -77,7 +77,7 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update objects
 	set
@@ -126,7 +126,7 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with valid_increments as (
 		select
@@ -160,7 +160,7 @@ begin
 		order by cache_entries.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with valid_increments as (
 		select
@@ -190,7 +190,7 @@ language plpgsql
 as $$
 declare
 	dequeued_processes bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	with dequeued as (
 		delete from process_queue
@@ -214,7 +214,7 @@ begin
 		order by processes.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update processes
 	set
@@ -256,7 +256,7 @@ begin
 		order by processes.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with valid_increments as (
 			select
@@ -290,7 +290,7 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with valid_increments as (
 			select

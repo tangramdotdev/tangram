@@ -97,13 +97,13 @@ impl Server {
 				Either::Left(id) => super::graph::Id::Object(id),
 				Either::Right(id) => super::graph::Id::Process(id),
 			});
-			let (inserted, complete) = state
+			let (inserted, stored) = state
 				.graph
 				.lock()
 				.unwrap()
 				.update_object(&item.id, parent, item.kind, None);
-			let complete = complete.is_some_and(|complete| complete);
-			if !inserted || complete {
+			let stored = stored.is_some_and(|stored| stored.subtree);
+			if !inserted || stored {
 				let item = super::index::ObjectItem { id: item.id };
 				index_object_sender
 					.send(item)
@@ -133,22 +133,22 @@ impl Server {
 	) -> tg::Result<()> {
 		for item in items {
 			let parent = item.parent.clone().map(super::graph::Id::Process);
-			let (inserted, complete) = state
+			let (inserted, stored) = state
 				.graph
 				.lock()
 				.unwrap()
 				.update_process(&item.id, parent, None);
-			let complete = complete.is_some_and(|complete| {
+			let stored = stored.is_some_and(|stored| {
 				if state.arg.recursive {
-					complete.children
-						&& (!state.arg.commands || complete.children_commands)
-						&& (!state.arg.outputs || complete.children_outputs)
+					stored.subtree
+						&& (!state.arg.commands || stored.subtree_command)
+						&& (!state.arg.outputs || stored.subtree_output)
 				} else {
-					(!state.arg.commands || complete.command)
-						&& (!state.arg.outputs || complete.output)
+					(!state.arg.commands || stored.node_command)
+						&& (!state.arg.outputs || stored.node_output)
 				}
 			});
-			if !inserted || complete {
+			if !inserted || stored {
 				let item = super::index::ProcessItem { id: item.id };
 				index_process_sender
 					.send(item)

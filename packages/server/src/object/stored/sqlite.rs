@@ -7,11 +7,11 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn try_get_object_complete_sqlite(
+	pub(crate) async fn try_get_object_stored_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<Option<super::Output>> {
 		let connection = database
 			.connection()
 			.await
@@ -19,23 +19,23 @@ impl Server {
 		let output = connection
 			.with({
 				let id = id.to_owned();
-				move |connection| Self::try_get_object_complete_sqlite_sync(connection, &id)
+				move |connection| Self::try_get_object_stored_sqlite_sync(connection, &id)
 			})
 			.await?;
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_object_complete_sqlite_sync(
+	pub(crate) fn try_get_object_stored_sqlite_sync(
 		connection: &sqlite::Connection,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<Option<super::Output>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			complete: bool,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select complete
+				select subtree_stored
 				from objects
 				where id = ?1;
 			",
@@ -55,14 +55,17 @@ impl Server {
 		};
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-		Ok(Some(row.complete))
+		let stored = super::Output {
+			subtree: row.subtree_stored,
+		};
+		Ok(Some(stored))
 	}
 
-	pub(crate) async fn try_get_object_complete_batch_sqlite(
+	pub(crate) async fn try_get_object_stored_batch_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<bool>>> {
+	) -> tg::Result<Vec<Option<super::Output>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
@@ -73,26 +76,26 @@ impl Server {
 		let output = connection
 			.with({
 				let ids = ids.to_owned();
-				move |connection| Self::try_get_object_complete_batch_sqlite_sync(connection, &ids)
+				move |connection| Self::try_get_object_stored_batch_sqlite_sync(connection, &ids)
 			})
 			.await?;
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_object_complete_batch_sqlite_sync(
+	pub(crate) fn try_get_object_stored_batch_sqlite_sync(
 		connection: &sqlite::Connection,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<bool>>> {
+	) -> tg::Result<Vec<Option<super::Output>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			complete: bool,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select complete
+				select subtree_stored
 				from objects
 				where id = ?1;
 			"
@@ -115,50 +118,49 @@ impl Server {
 			};
 			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-			outputs.push(Some(row.complete));
+			let stored = super::Output {
+				subtree: row.subtree_stored,
+			};
+			outputs.push(Some(stored));
 		}
 		Ok(outputs)
 	}
 
-	pub(crate) async fn try_get_object_complete_and_metadata_sqlite(
+	pub(crate) async fn try_get_object_stored_and_metadata_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
-		// Get an index connection.
+	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		let connection = database
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a connection"))?;
-
-		// Get the object complete flag and metadata.
 		let output = connection
 			.with({
 				let id = id.to_owned();
 				move |connection| {
-					Self::try_get_object_complete_and_metadata_sqlite_sync(connection, &id)
+					Self::try_get_object_stored_and_metadata_sqlite_sync(connection, &id)
 				}
 			})
 			.await?;
-
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_object_complete_and_metadata_sqlite_sync(
+	pub(crate) fn try_get_object_stored_and_metadata_sqlite_sync(
 		connection: &sqlite::Connection,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
-		// Get the object complete flag and metadata.
+	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select complete, count, depth, weight
+				select node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
 				from objects
 				where id = ?1;
 			",
@@ -178,20 +180,27 @@ impl Server {
 		};
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-		let complete = row.complete;
+		let stored = super::Output {
+			subtree: row.subtree_stored,
+		};
 		let metadata = tg::object::Metadata {
-			count: row.count,
-			depth: row.depth,
-			weight: row.weight,
+			node: tg::object::metadata::Node {
+				size: row.node_size,
+			},
+			subtree: tg::object::metadata::Subtree {
+				count: row.subtree_count,
+				depth: row.subtree_depth,
+				size: row.subtree_size,
+			},
 		};
-		Ok(Some((complete, metadata)))
+		Ok(Some((stored, metadata)))
 	}
 
-	pub(crate) async fn try_get_object_complete_and_metadata_batch_sqlite(
+	pub(crate) async fn try_get_object_stored_and_metadata_batch_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
@@ -203,30 +212,31 @@ impl Server {
 			.with({
 				let ids = ids.to_owned();
 				move |connection| {
-					Self::try_get_object_complete_and_metadata_batch_sqlite_sync(connection, &ids)
+					Self::try_get_object_stored_and_metadata_batch_sqlite_sync(connection, &ids)
 				}
 			})
 			.await?;
 		Ok(output)
 	}
 
-	pub(crate) fn try_get_object_complete_and_metadata_batch_sqlite_sync(
+	pub(crate) fn try_get_object_stored_and_metadata_batch_sqlite_sync(
 		connection: &sqlite::Connection,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select complete, count, depth, weight
+				select node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
 				from objects
 				where id = ?1;
 			"
@@ -249,23 +259,30 @@ impl Server {
 			};
 			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-			let complete = row.complete;
-			let metadata = tg::object::Metadata {
-				count: row.count,
-				depth: row.depth,
-				weight: row.weight,
+			let stored = super::Output {
+				subtree: row.subtree_stored,
 			};
-			outputs.push(Some((complete, metadata)));
+			let metadata = tg::object::Metadata {
+				node: tg::object::metadata::Node {
+					size: row.node_size,
+				},
+				subtree: tg::object::metadata::Subtree {
+					count: row.subtree_count,
+					depth: row.subtree_depth,
+					size: row.subtree_size,
+				},
+			};
+			outputs.push(Some((stored, metadata)));
 		}
 		Ok(outputs)
 	}
 
-	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_sqlite(
+	pub(crate) async fn try_touch_object_and_get_stored_and_metadata_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		id: &tg::object::Id,
 		touched_at: i64,
-	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		let connection = database
 			.write_connection()
 			.await
@@ -274,7 +291,7 @@ impl Server {
 			.with({
 				let id = id.to_owned();
 				move |connection| {
-					Self::try_touch_object_and_get_complete_and_metadata_sqlite_sync(
+					Self::try_touch_object_and_get_stored_and_metadata_sqlite_sync(
 						connection, &id, touched_at,
 					)
 				}
@@ -283,24 +300,25 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn try_touch_object_and_get_complete_and_metadata_sqlite_sync(
+	pub(crate) fn try_touch_object_and_get_stored_and_metadata_sqlite_sync(
 		connection: &sqlite::Connection,
 		id: &tg::object::Id,
 		touched_at: i64,
-	) -> tg::Result<Option<(bool, tg::object::Metadata)>> {
+	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
 				update objects
 				set touched_at = max(?1, touched_at)
 				where id = ?2
-				returning complete, count, depth, weight;
+				returning node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
 			"
 		);
 		let mut statement = connection
@@ -318,21 +336,28 @@ impl Server {
 		};
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-		let complete = row.complete;
-		let metadata = tg::object::Metadata {
-			count: row.count,
-			depth: row.depth,
-			weight: row.weight,
+		let stored = super::Output {
+			subtree: row.subtree_stored,
 		};
-		Ok(Some((complete, metadata)))
+		let metadata = tg::object::Metadata {
+			node: tg::object::metadata::Node {
+				size: row.node_size,
+			},
+			subtree: tg::object::metadata::Subtree {
+				count: row.subtree_count,
+				depth: row.subtree_depth,
+				size: row.subtree_size,
+			},
+		};
+		Ok(Some((stored, metadata)))
 	}
 
-	pub(crate) async fn try_touch_object_and_get_complete_and_metadata_batch_sqlite(
+	pub(crate) async fn try_touch_object_and_get_stored_and_metadata_batch_sqlite(
 		&self,
 		database: &db::sqlite::Database,
 		ids: &[tg::object::Id],
 		touched_at: i64,
-	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
@@ -348,7 +373,7 @@ impl Server {
 						.transaction()
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 					let output =
-						Self::try_touch_object_and_get_complete_and_metadata_batch_sqlite_sync(
+						Self::try_touch_object_and_get_stored_and_metadata_batch_sqlite_sync(
 							&transaction,
 							&ids,
 							touched_at,
@@ -363,27 +388,28 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) fn try_touch_object_and_get_complete_and_metadata_batch_sqlite_sync(
+	pub(crate) fn try_touch_object_and_get_stored_and_metadata_batch_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		ids: &[tg::object::Id],
 		touched_at: i64,
-	) -> tg::Result<Vec<Option<(bool, tg::object::Metadata)>>> {
+	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			complete: bool,
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
+			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
 				update objects
 				set touched_at = max(?1, touched_at)
 				where id = ?2
-				returning complete, count, depth, weight;
+				returning node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
 			"
 		);
 		let mut statement = transaction
@@ -404,13 +430,20 @@ impl Server {
 			};
 			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-			let complete = row.complete;
-			let metadata = tg::object::Metadata {
-				count: row.count,
-				depth: row.depth,
-				weight: row.weight,
+			let stored = super::Output {
+				subtree: row.subtree_stored,
 			};
-			outputs.push(Some((complete, metadata)));
+			let metadata = tg::object::Metadata {
+				node: tg::object::metadata::Node {
+					size: row.node_size,
+				},
+				subtree: tg::object::metadata::Subtree {
+					count: row.subtree_count,
+					depth: row.subtree_depth,
+					size: row.subtree_size,
+				},
+			};
+			outputs.push(Some((stored, metadata)));
 		}
 		Ok(outputs)
 	}

@@ -670,15 +670,18 @@ impl Server {
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = if let Some(id) = file.contents {
-					let (complete, metadata) = self
-						.try_get_object_complete_and_metadata(&id.clone().into())
+					let (stored, metadata) = self
+						.try_get_object_stored_and_metadata(&id.clone().into())
 						.await
 						.ok()
 						.flatten()
-						.unwrap_or((false, tg::object::Metadata::default()));
+						.unwrap_or((
+							crate::object::stored::Output::default(),
+							tg::object::Metadata::default(),
+						));
 					Some(Contents::Id {
 						id,
-						complete,
+						stored: stored.clone(),
 						metadata: Some(metadata),
 					})
 				} else {
@@ -712,7 +715,6 @@ impl Server {
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
 			artifact: None,
-			complete: false,
 			edge: None,
 			id: None,
 			lock_node,
@@ -722,6 +724,7 @@ impl Server {
 			referrers: SmallVec::new(),
 			solvable: true,
 			solved: false,
+			stored: crate::object::stored::Output::default(),
 			variant,
 		};
 
@@ -790,15 +793,18 @@ impl Server {
 
 			tg::graph::data::Node::File(file) => {
 				let contents = if let Some(id) = file.contents.clone() {
-					let (complete, metadata) = self
-						.try_get_object_complete_and_metadata(&id.clone().into())
+					let (stored, metadata) = self
+						.try_get_object_stored_and_metadata(&id.clone().into())
 						.await
 						.ok()
 						.flatten()
-						.unwrap_or((false, tg::object::Metadata::default()));
+						.unwrap_or((
+							crate::object::stored::Output::default(),
+							tg::object::Metadata::default(),
+						));
 					Some(Contents::Id {
 						id,
-						complete,
+						stored: stored.clone(),
 						metadata: Some(metadata),
 					})
 				} else {
@@ -861,7 +867,6 @@ impl Server {
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
 		let node = Node {
 			artifact: None,
-			complete: false,
 			edge: None,
 			id: None,
 			lock_node,
@@ -871,6 +876,7 @@ impl Server {
 			referrers: SmallVec::new(),
 			solvable: true,
 			solved: false,
+			stored: crate::object::stored::Output::default(),
 			variant,
 		};
 

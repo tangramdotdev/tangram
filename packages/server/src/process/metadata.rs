@@ -64,36 +64,36 @@ impl Server {
 		let p = connection.p();
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			children_count: Option<u64>,
-			command_count: Option<u64>,
-			command_depth: Option<u64>,
-			command_weight: Option<u64>,
-			children_commands_count: Option<u64>,
-			children_commands_depth: Option<u64>,
-			children_commands_weight: Option<u64>,
-			children_outputs_count: Option<u64>,
-			children_outputs_depth: Option<u64>,
-			children_outputs_weight: Option<u64>,
-			output_count: Option<u64>,
-			output_depth: Option<u64>,
-			output_weight: Option<u64>,
+			node_command_count: Option<u64>,
+			node_command_depth: Option<u64>,
+			node_command_size: Option<u64>,
+			node_output_count: Option<u64>,
+			node_output_depth: Option<u64>,
+			node_output_size: Option<u64>,
+			subtree_command_count: Option<u64>,
+			subtree_command_depth: Option<u64>,
+			subtree_command_size: Option<u64>,
+			subtree_output_count: Option<u64>,
+			subtree_output_depth: Option<u64>,
+			subtree_output_size: Option<u64>,
+			subtree_count: Option<u64>,
 		}
 		let statement = formatdoc!(
 			"
 				select
-					children_count,
-					command_count,
-					command_depth,
-					command_weight,
-					children_commands_count,
-					children_commands_depth,
-					children_commands_weight,
-					children_outputs_count,
-					children_outputs_depth,
-					children_outputs_weight,
-					output_count,
-					output_depth,
-					output_weight
+					node_command_count,
+					node_command_depth,
+					node_command_size,
+					node_output_count,
+					node_output_depth,
+					node_output_size,
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_count
 				from processes
 				where processes.id = {p}1;
 			"
@@ -104,36 +104,32 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| {
-				let children = tg::process::metadata::Children {
-					count: row.children_count,
+				let node = tg::process::metadata::Node {
+					command: tg::object::metadata::Subtree {
+						count: row.node_command_count,
+						depth: row.node_command_depth,
+						size: row.node_command_size,
+					},
+					output: tg::object::metadata::Subtree {
+						count: row.node_output_count,
+						depth: row.node_output_depth,
+						size: row.node_output_size,
+					},
 				};
-				let command = tg::object::Metadata {
-					count: row.command_count,
-					depth: row.command_depth,
-					weight: row.command_weight,
+				let subtree = tg::process::metadata::Subtree {
+					command: tg::object::metadata::Subtree {
+						count: row.subtree_command_count,
+						depth: row.subtree_command_depth,
+						size: row.subtree_command_size,
+					},
+					output: tg::object::metadata::Subtree {
+						count: row.subtree_output_count,
+						depth: row.subtree_output_depth,
+						size: row.subtree_output_size,
+					},
+					process_count: row.subtree_count,
 				};
-				let children_commands = tg::object::Metadata {
-					count: row.children_commands_count,
-					depth: row.children_commands_depth,
-					weight: row.children_commands_weight,
-				};
-				let output = tg::object::Metadata {
-					count: row.output_count,
-					depth: row.output_depth,
-					weight: row.output_weight,
-				};
-				let children_outputs = tg::object::Metadata {
-					count: row.children_outputs_count,
-					depth: row.children_outputs_depth,
-					weight: row.children_outputs_weight,
-				};
-				tg::process::Metadata {
-					children,
-					children_commands,
-					children_outputs,
-					command,
-					output,
-				}
+				tg::process::Metadata { node, subtree }
 			});
 
 		// Drop the index connection.
@@ -166,36 +162,36 @@ impl Server {
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			children_count: Option<u64>,
-			command_count: Option<u64>,
-			command_depth: Option<u64>,
-			command_weight: Option<u64>,
-			children_commands_count: Option<u64>,
-			children_commands_depth: Option<u64>,
-			children_commands_weight: Option<u64>,
-			children_outputs_count: Option<u64>,
-			children_outputs_depth: Option<u64>,
-			children_outputs_weight: Option<u64>,
-			output_count: Option<u64>,
-			output_depth: Option<u64>,
-			output_weight: Option<u64>,
+			node_command_count: Option<u64>,
+			node_command_depth: Option<u64>,
+			node_command_size: Option<u64>,
+			node_output_count: Option<u64>,
+			node_output_depth: Option<u64>,
+			node_output_size: Option<u64>,
+			subtree_command_count: Option<u64>,
+			subtree_command_depth: Option<u64>,
+			subtree_command_size: Option<u64>,
+			subtree_output_count: Option<u64>,
+			subtree_output_depth: Option<u64>,
+			subtree_output_size: Option<u64>,
+			subtree_count: Option<u64>,
 		}
 		let statement = indoc!(
 			"
 				select
-					children_count,
-					command_count,
-					command_depth,
-					command_weight,
-					children_commands_count,
-					children_commands_depth,
-					children_commands_weight,
-					children_outputs_count,
-					children_outputs_depth,
-					children_outputs_weight,
-					output_count,
-					output_depth,
-					output_weight
+					node_command_count,
+					node_command_depth,
+					node_command_size,
+					node_output_count,
+					node_output_depth,
+					node_output_size,
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_count
 				from processes
 				where processes.id = ?1;
 			"
@@ -214,36 +210,32 @@ impl Server {
 		};
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-		let children = tg::process::metadata::Children {
-			count: row.children_count,
+		let node = tg::process::metadata::Node {
+			command: tg::object::metadata::Subtree {
+				count: row.node_command_count,
+				depth: row.node_command_depth,
+				size: row.node_command_size,
+			},
+			output: tg::object::metadata::Subtree {
+				count: row.node_output_count,
+				depth: row.node_output_depth,
+				size: row.node_output_size,
+			},
 		};
-		let command = tg::object::Metadata {
-			count: row.command_count,
-			depth: row.command_depth,
-			weight: row.command_weight,
+		let subtree = tg::process::metadata::Subtree {
+			command: tg::object::metadata::Subtree {
+				count: row.subtree_command_count,
+				depth: row.subtree_command_depth,
+				size: row.subtree_command_size,
+			},
+			output: tg::object::metadata::Subtree {
+				count: row.subtree_output_count,
+				depth: row.subtree_output_depth,
+				size: row.subtree_output_size,
+			},
+			process_count: row.subtree_count,
 		};
-		let children_commands = tg::object::Metadata {
-			count: row.children_commands_count,
-			depth: row.children_commands_depth,
-			weight: row.children_commands_weight,
-		};
-		let output = tg::object::Metadata {
-			count: row.output_count,
-			depth: row.output_depth,
-			weight: row.output_weight,
-		};
-		let children_outputs = tg::object::Metadata {
-			count: row.children_outputs_count,
-			depth: row.children_outputs_depth,
-			weight: row.children_outputs_weight,
-		};
-		let metadata = tg::process::Metadata {
-			children,
-			children_commands,
-			children_outputs,
-			command,
-			output,
-		};
+		let metadata = tg::process::Metadata { node, subtree };
 		Ok(Some(metadata))
 	}
 

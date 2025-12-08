@@ -1,5 +1,10 @@
 {
-  "count": 9,
-  "depth": 5,
-  "weight": 453,
+  "node": {
+    "size": 99,
+  },
+  "subtree": {
+    "count": 9,
+    "depth": 5,
+    "size": 453,
+  },
 }

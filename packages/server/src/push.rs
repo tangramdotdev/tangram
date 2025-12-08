@@ -133,7 +133,9 @@ impl Server {
 									.try_get_object_metadata(object, metadata_arg)
 									.await?
 									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-								if metadata.count.is_some() && metadata.weight.is_some() {
+								if metadata.subtree.count.is_some()
+									&& metadata.subtree.size.is_some()
+								{
 									break Ok::<_, tg::Error>(Either::Left(metadata));
 								}
 							},
@@ -148,32 +150,32 @@ impl Server {
 								else {
 									return Err(tg::error!("failed to get the process"));
 								};
-								let mut complete = true;
+								let mut stored = true;
 								if arg.recursive {
-									complete = complete && metadata.children.count.is_some();
+									stored = stored && metadata.subtree.process_count.is_some();
 									if arg.commands {
-										complete = complete
-											&& metadata.children_commands.count.is_some()
-											&& metadata.children_commands.weight.is_some();
+										stored = stored
+											&& metadata.subtree.command.count.is_some()
+											&& metadata.subtree.command.size.is_some();
 									}
 									if arg.outputs {
-										complete = complete
-											&& metadata.children_outputs.count.is_some()
-											&& metadata.children_outputs.weight.is_some();
+										stored = stored
+											&& metadata.subtree.output.count.is_some()
+											&& metadata.subtree.output.size.is_some();
 									}
 								} else {
 									if arg.commands {
-										complete = complete
-											&& metadata.command.count.is_some()
-											&& metadata.command.weight.is_some();
+										stored = stored
+											&& metadata.node.command.count.is_some()
+											&& metadata.node.command.size.is_some();
 									}
 									if arg.outputs {
-										complete = complete
-											&& metadata.output.count.is_some()
-											&& metadata.output.weight.is_some();
+										stored = stored
+											&& metadata.node.output.count.is_some()
+											&& metadata.node.output.size.is_some();
 									}
 								}
-								if complete {
+								if stored {
 									break Ok::<_, tg::Error>(Either::Right(metadata));
 								}
 							},
@@ -189,49 +191,49 @@ impl Server {
 		while let Some(Ok(metadata)) = metadata_futures.next().await {
 			match metadata {
 				Either::Left(metadata) => {
-					if let Some(count) = metadata.count {
+					if let Some(count) = metadata.subtree.count {
 						*objects.get_or_insert(0) += count;
 					}
-					if let Some(weight) = metadata.weight {
-						*bytes.get_or_insert(0) += weight;
+					if let Some(size) = metadata.subtree.size {
+						*bytes.get_or_insert(0) += size;
 					}
 				},
 				Either::Right(metadata) => {
 					if arg.recursive {
-						if let Some(children_count) = metadata.children.count {
-							*processes.get_or_insert(0) += children_count;
+						if let Some(process_count) = metadata.subtree.process_count {
+							*processes.get_or_insert(0) += process_count;
 						}
 						if arg.commands {
-							if let Some(commands_count) = metadata.children_commands.count {
+							if let Some(commands_count) = metadata.subtree.command.count {
 								*objects.get_or_insert(0) += commands_count;
 							}
-							if let Some(commands_weight) = metadata.children_commands.weight {
-								*bytes.get_or_insert(0) += commands_weight;
+							if let Some(commands_size) = metadata.subtree.command.size {
+								*bytes.get_or_insert(0) += commands_size;
 							}
 						}
 						if arg.outputs {
-							if let Some(outputs_count) = metadata.children_outputs.count {
+							if let Some(outputs_count) = metadata.subtree.output.count {
 								*objects.get_or_insert(0) += outputs_count;
 							}
-							if let Some(outputs_weight) = metadata.children_outputs.weight {
-								*bytes.get_or_insert(0) += outputs_weight;
+							if let Some(outputs_size) = metadata.subtree.output.size {
+								*bytes.get_or_insert(0) += outputs_size;
 							}
 						}
 					} else {
 						if arg.commands {
-							if let Some(command_count) = metadata.command.count {
+							if let Some(command_count) = metadata.node.command.count {
 								*objects.get_or_insert(0) += command_count;
 							}
-							if let Some(command_weight) = metadata.command.weight {
-								*bytes.get_or_insert(0) += command_weight;
+							if let Some(command_size) = metadata.node.command.size {
+								*bytes.get_or_insert(0) += command_size;
 							}
 						}
 						if arg.outputs {
-							if let Some(output_count) = metadata.output.count {
+							if let Some(output_count) = metadata.node.output.count {
 								*objects.get_or_insert(0) += output_count;
 							}
-							if let Some(output_weight) = metadata.output.weight {
-								*bytes.get_or_insert(0) += output_weight;
+							if let Some(output_size) = metadata.node.output.size {
+								*bytes.get_or_insert(0) += output_size;
 							}
 						}
 					}

@@ -29,7 +29,7 @@ language plpgsql
 as $$
 declare
 	inserted_ids bytea[];
-	dummy_count int8;
+	locked_count int8;
 begin
 	if array_length(cache_entry_ids, 1) > 0 then
 		with locked as (
@@ -39,7 +39,7 @@ begin
 			order by cache_entries.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		with upsert as (
 			insert into cache_entries (id, touched_at)
@@ -62,15 +62,15 @@ $$;
 create table objects (
 	id bytea primary key,
 	cache_entry bytea,
-	complete boolean not null default false,
-	count int8,
-	depth int8,
-	transaction_id int8 not null,
+	node_size int8 not null,
 	reference_count int8,
 	reference_count_transaction_id int8,
-	size int8 not null,
+	subtree_count int8,
+	subtree_depth int8,
+	subtree_size int8,
+	subtree_stored boolean not null default false,
 	touched_at int8,
-	weight int8
+	transaction_id int8 not null
 );
 
 create index objects_reference_count_zero_index on objects (touched_at) where reference_count = 0;
@@ -99,26 +99,26 @@ create index object_queue_kind_index on object_queue (kind, id);
 
 create table processes (
 	id bytea primary key,
-	children_complete boolean not null default false,
-	children_count int8,
-	children_commands_complete boolean not null default false,
-	children_commands_count int8,
-	children_commands_depth int8,
-	children_commands_weight int8,
-	children_outputs_complete boolean not null default false,
-	children_outputs_count int8,
-	children_outputs_depth int8,
-	children_outputs_weight int8,
-	command_complete boolean not null default false,
-	command_count int8,
-	command_depth int8,
-	command_weight int8,
-	output_complete boolean not null default false,
-	output_count int8,
-	output_depth int8,
-	output_weight int8,
+	node_command_count int8,
+	node_command_depth int8,
+	node_command_size int8,
+	node_command_stored boolean not null default false,
+	node_output_count int8,
+	node_output_depth int8,
+	node_output_size int8,
+	node_output_stored boolean not null default false,
 	reference_count int8,
 	reference_count_transaction_id int8,
+	subtree_command_count int8,
+	subtree_command_depth int8,
+	subtree_command_size int8,
+	subtree_command_stored boolean not null default false,
+	subtree_output_count int8,
+	subtree_output_depth int8,
+	subtree_output_size int8,
+	subtree_output_stored boolean not null default false,
+	subtree_count int8,
+	subtree_stored boolean not null default false,
 	touched_at int8,
 	transaction_id int8 not null
 );

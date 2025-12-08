@@ -63,14 +63,15 @@ impl Server {
 		// Get the object metadata.
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select count, depth, weight
+				select node_size, subtree_count, subtree_depth, subtree_size
 				from objects
 				where id = {p}1;
 			",
@@ -81,9 +82,14 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| tg::object::Metadata {
-				count: row.count,
-				depth: row.depth,
-				weight: row.weight,
+				node: tg::object::metadata::Node {
+					size: row.node_size,
+				},
+				subtree: tg::object::metadata::Subtree {
+					count: row.subtree_count,
+					depth: row.subtree_depth,
+					size: row.subtree_size,
+				},
 			});
 
 		// Drop the connection.
@@ -116,13 +122,14 @@ impl Server {
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			count: Option<u64>,
-			depth: Option<u64>,
-			weight: Option<u64>,
+			node_size: Option<u64>,
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
 		}
 		let statement = indoc!(
 			"
-				select count, depth, weight
+				select node_size, subtree_count, subtree_depth, subtree_size
 				from objects
 				where id = ?1;
 			"
@@ -142,9 +149,14 @@ impl Server {
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
 		let metadata = tg::object::Metadata {
-			count: row.count,
-			depth: row.depth,
-			weight: row.weight,
+			node: tg::object::metadata::Node {
+				size: row.node_size,
+			},
+			subtree: tg::object::metadata::Subtree {
+				count: row.subtree_count,
+				depth: row.subtree_depth,
+				size: row.subtree_size,
+			},
 		};
 		Ok(Some(metadata))
 	}

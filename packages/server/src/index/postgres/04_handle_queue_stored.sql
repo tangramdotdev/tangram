@@ -1,12 +1,12 @@
-create or replace procedure handle_queue_complete_object(
+create or replace procedure handle_queue_stored_object(
 	inout n int8
 )
 language plpgsql
 as $$
 declare
 	dequeued_objects bytea[];
-	complete_objects bytea[];
-	dummy_count int8;
+	stored_objects bytea[];
+	locked_count int8;
 begin
 	with dequeued as (
 		delete from object_queue
@@ -30,80 +30,80 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
-	with already_complete as (
+	with already_stored as (
 		select objects.id
 		from objects
 		where objects.id = any(dequeued_objects)
-		and objects.complete = true
+		and objects.subtree_stored = true
 	),
-	updated_to_complete as (
+	updated_to_stored as (
 		update objects
 		set
-			complete = updates.complete,
-			count = coalesce(objects.count, updates.count),
-			depth = coalesce(objects.depth, updates.depth),
-			weight = coalesce(objects.weight, updates.weight)
+			subtree_stored = updates.subtree_stored,
+			subtree_count = coalesce(objects.subtree_count, updates.subtree_count),
+			subtree_depth = coalesce(objects.subtree_depth, updates.subtree_depth),
+			subtree_size = coalesce(objects.subtree_size, updates.subtree_size)
 		from (
 			select
 				objects.id,
 				case
 					when count(object_children.child) = 0
 						then true
-					when bool_and(coalesce(child_objects.complete, false))
+					when bool_and(coalesce(child_objects.subtree_stored, false))
 						then true
 					else false
-		    end as complete,
-				1 + coalesce(sum(coalesce(child_objects.count, 0)), 0) as count,
-				1 + coalesce(max(coalesce(child_objects.depth, 0)), 0) as depth,
-				objects.size + coalesce(sum(coalesce(child_objects.weight, 0)), 0) as weight
+		    end as subtree_stored,
+				1 + coalesce(sum(coalesce(child_objects.subtree_count, 0)), 0) as subtree_count,
+				1 + coalesce(max(coalesce(child_objects.subtree_depth, 0)), 0) as subtree_depth,
+				objects.node_size + coalesce(sum(coalesce(child_objects.subtree_size, 0)), 0) as subtree_size
 			from objects
 			left join object_children on object_children.object = objects.id
 			left join objects as child_objects on child_objects.id = object_children.child
 			where objects.id = any(dequeued_objects)
-			and objects.complete = false
-			group by objects.id, objects.size
+			and objects.subtree_stored = false
+			group by objects.id, objects.node_size
 		) as updates
 		where objects.id = updates.id
-		and updates.complete = true
+		and updates.subtree_stored = true
 		returning objects.id
 	)
-	select array_agg(distinct id) into complete_objects
+	select array_agg(distinct id) into stored_objects
 	from (
-		select id from already_complete
+		select id from already_stored
 		union all
-		select id from updated_to_complete
-	) all_complete;
+		select id from updated_to_stored
+	) all_stored;
 
-	if complete_objects is not null and array_length(complete_objects, 1) > 0 then
+	if stored_objects is not null and array_length(stored_objects, 1) > 0 then
 		insert into object_queue (object, kind, transaction_id)
 		select distinct object_children.object, 1, (select id from transaction_id)
 		from object_children
 		join objects on objects.id = object_children.object
-		where object_children.child = any(complete_objects)
-		and objects.complete = false;
+		where object_children.child = any(stored_objects)
+		and objects.subtree_stored = false;
 
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_objects.process, 2, (select id from transaction_id)
 		from process_objects
 		join processes on processes.id = process_objects.process
-		where process_objects.object = any(complete_objects)
-		and processes.children_commands_complete = false;
+		where process_objects.object = any(stored_objects)
+		and processes.subtree_command_stored = false;
 
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_objects.process, 3, (select id from transaction_id)
 		from process_objects
 		join processes on processes.id = process_objects.process
-		where process_objects.object = any(complete_objects)
-		and processes.children_outputs_complete = false;
+		where process_objects.object = any(stored_objects)
+		and processes.subtree_output_stored = false;
 	end if;
 
 	n := n - coalesce(array_length(dequeued_objects, 1), 0);
 end;
 $$;
 
-create or replace procedure handle_queue_complete_process(
+create or replace procedure handle_queue_stored_process(
 	inout n int8
 )
 language plpgsql
@@ -113,10 +113,10 @@ declare
 	children_processes bytea[];
 	commands_processes bytea[];
 	outputs_processes bytea[];
-	children_complete_processes bytea[];
-	children_commands_complete_processes bytea[];
-	children_outputs_complete_processes bytea[];
-	dummy_count int8;
+	subtree_stored_processes bytea[];
+	subtree_command_stored_processes bytea[];
+	subtree_output_stored_processes bytea[];
+	locked_count int8;
 begin
 	with dequeued as (
 		delete from process_queue
@@ -145,49 +145,49 @@ begin
 			order by processes.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
-		with already_complete as (
+		with already_stored as (
 			select id
 			from processes
 			where id = any(children_processes)
-			and children_complete = true
+			and subtree_stored = true
 		),
-		updated_to_complete as (
+		updated_to_stored as (
 			update processes
 			set
-				children_complete = updates.children_complete,
-				children_count = updates.children_count
+				subtree_stored = updates.subtree_stored,
+				subtree_count = updates.subtree_count
 			from (
 				select
 					processes.id,
 					case
 						when count(process_children.child) = 0
 							then true
-						when bool_and(coalesce(child_processes.children_complete, false))
+						when bool_and(coalesce(child_processes.subtree_stored, false))
 							then true
 						else false
-					end as children_complete,
-					1 + sum(child_processes.children_count) as children_count
+					end as subtree_stored,
+					1 + sum(child_processes.subtree_count) as subtree_count
 				from processes
 				left join process_children on process_children.process = processes.id
 				left join processes as child_processes on child_processes.id = process_children.child
 				where processes.id = any(children_processes)
-				and processes.children_complete = false
+				and processes.subtree_stored = false
 				group by processes.id
 			) as updates
 			where processes.id = updates.id
-			and updates.children_complete = true
+			and updates.subtree_stored = true
 			returning processes.id
 		)
-		select array_agg(distinct id) into children_complete_processes
+		select array_agg(distinct id) into subtree_stored_processes
 		from (
-			select id from already_complete
+			select id from already_stored
 			union all
-			select id from updated_to_complete
-		) all_complete;
+			select id from updated_to_stored
+		) all_stored;
 	else
-		children_complete_processes := array[]::bytea[];
+		subtree_stored_processes := array[]::bytea[];
 	end if;
 
 	if array_length(commands_processes, 1) > 0 then
@@ -198,60 +198,60 @@ begin
 			order by processes.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
-		with already_complete as (
+		with already_stored as (
 			select id
 			from processes
 			where id = any(commands_processes)
-			and children_commands_complete = true
+			and subtree_command_stored = true
 		),
-		updated_to_complete as (
+		updated_to_stored as (
 			update processes
 			set
-				children_commands_complete = updates.children_commands_complete,
-				children_commands_count = updates.children_commands_count,
-				children_commands_depth = updates.children_commands_depth,
-				children_commands_weight = updates.children_commands_weight
+				subtree_command_stored = updates.subtree_command_stored,
+				subtree_command_count = updates.subtree_command_count,
+				subtree_command_depth = updates.subtree_command_depth,
+				subtree_command_size = updates.subtree_command_size
 			from (
 				select
 					processes.id,
 					case
 						when count(process_children.child) = 0
-						and bool_and(coalesce(objects.complete, false))
+						and bool_and(coalesce(objects.subtree_stored, false))
 							then true
-						when bool_and(coalesce(objects.complete, false))
-						and bool_and(coalesce(child_processes.children_commands_complete, false))
+						when bool_and(coalesce(objects.subtree_stored, false))
+						and bool_and(coalesce(child_processes.subtree_command_stored, false))
 							then true
 						else false
-					end as children_commands_complete,
-					coalesce(sum(coalesce(objects.count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.children_commands_count, 0)), 0) as children_commands_count,
+					end as subtree_command_stored,
+					coalesce(sum(coalesce(objects.subtree_count, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_command_count, 0)), 0) as subtree_command_count,
 					greatest(
-					coalesce(max(coalesce(objects.depth, 0)), 0),
-					coalesce(max(coalesce(child_processes.children_commands_depth, 0)), 0)
-					) as children_commands_depth,
-					coalesce(sum(coalesce(objects.weight, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.children_commands_weight, 0)), 0) as children_commands_weight
+					coalesce(max(coalesce(objects.subtree_depth, 0)), 0),
+					coalesce(max(coalesce(child_processes.subtree_command_depth, 0)), 0)
+					) as subtree_command_depth,
+					coalesce(sum(coalesce(objects.subtree_size, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_command_size, 0)), 0) as subtree_command_size
 				from processes
 				left join process_objects on process_objects.process = processes.id and process_objects.kind = 0
 				left join objects on objects.id = process_objects.object
 				left join process_children on process_children.process = processes.id
 				left join processes child_processes on child_processes.id = process_children.child
 				where processes.id = any(commands_processes)
-				and processes.children_commands_complete = false
+				and processes.subtree_command_stored = false
 				group by processes.id
 			) as updates
 			where processes.id = updates.id
-			and updates.children_commands_complete = true
+			and updates.subtree_command_stored = true
 			returning processes.id
 		)
-		select array_agg(distinct id) into children_commands_complete_processes
+		select array_agg(distinct id) into subtree_command_stored_processes
 		from (
-			select id from already_complete
+			select id from already_stored
 			union all
-			select id from updated_to_complete
-		) all_complete;
+			select id from updated_to_stored
+		) all_stored;
 
 		with locked as (
 			select processes.id
@@ -260,33 +260,33 @@ begin
 			order by processes.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		update processes
 		set
-			command_complete = updates.command_complete,
-			command_count = updates.command_count,
-			command_depth = updates.command_depth,
-			command_weight = updates.command_weight
+			node_command_stored = updates.node_command_stored,
+			node_command_count = updates.node_command_count,
+			node_command_depth = updates.node_command_depth,
+			node_command_size = updates.node_command_size
 		from (
 			select
 				processes.id,
-				bool_and(coalesce(objects.complete, false)) as command_complete,
-				coalesce(sum(coalesce(objects.count, 0)), 0) as command_count,
-				coalesce(max(coalesce(objects.depth, 0)), 0) as command_depth,
-				coalesce(sum(coalesce(objects.weight, 0)), 0) as command_weight
+				bool_and(coalesce(objects.subtree_stored, false)) as node_command_stored,
+				coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_command_count,
+				coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_command_depth,
+				coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_command_size
 			from processes
 			left join process_objects on process_objects.process = processes.id and process_objects.kind = 0
 			left join objects on objects.id = process_objects.object
 			where processes.id = any(commands_processes)
-			and processes.command_complete = false
+			and processes.node_command_stored = false
 			group by processes.id
 		) as updates
 		where processes.id = updates.id
-		and updates.command_complete = true;
+		and updates.node_command_stored = true;
 
 	else
-		children_commands_complete_processes := array[]::bytea[];
+		subtree_command_stored_processes := array[]::bytea[];
 	end if;
 
 	if array_length(outputs_processes, 1) > 0 then
@@ -297,60 +297,60 @@ begin
 			order by processes.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
-		with already_complete as (
+		with already_stored as (
 			select id
 			from processes
 			where id = any(outputs_processes)
-			and children_outputs_complete = true
+			and subtree_output_stored = true
 		),
-		updated_to_complete as (
+		updated_to_stored as (
 			update processes
 			set
-				children_outputs_complete = updates.children_outputs_complete,
-				children_outputs_count = updates.children_outputs_count,
-				children_outputs_depth = updates.children_outputs_depth,
-				children_outputs_weight = updates.children_outputs_weight
+				subtree_output_stored = updates.subtree_output_stored,
+				subtree_output_count = updates.subtree_output_count,
+				subtree_output_depth = updates.subtree_output_depth,
+				subtree_output_size = updates.subtree_output_size
 			from (
 				select
 					processes.id,
 					case
 						when count(process_children.child) = 0
-						and bool_and(coalesce(objects.complete, false))
+						and bool_and(coalesce(objects.subtree_stored, false))
 							then true
-						when bool_and(coalesce(objects.complete, false))
-						and bool_and(coalesce(child_processes.children_outputs_complete, false))
+						when bool_and(coalesce(objects.subtree_stored, false))
+						and bool_and(coalesce(child_processes.subtree_output_stored, false))
 							then true
 						else false
-					end as children_outputs_complete,
-					coalesce(sum(coalesce(objects.count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.children_outputs_count, 0)), 0) as children_outputs_count,
+					end as subtree_output_stored,
+					coalesce(sum(coalesce(objects.subtree_count, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_output_count, 0)), 0) as subtree_output_count,
 					greatest(
-					coalesce(max(coalesce(objects.depth, 0)), 0),
-					coalesce(max(coalesce(child_processes.children_outputs_depth, 0)), 0)
-					) as children_outputs_depth,
-					coalesce(sum(coalesce(objects.weight, 0)), 0)
-					  + coalesce(sum(coalesce(child_processes.children_outputs_weight, 0)), 0) as children_outputs_weight
+					coalesce(max(coalesce(objects.subtree_depth, 0)), 0),
+					coalesce(max(coalesce(child_processes.subtree_output_depth, 0)), 0)
+					) as subtree_output_depth,
+					coalesce(sum(coalesce(objects.subtree_size, 0)), 0)
+					  + coalesce(sum(coalesce(child_processes.subtree_output_size, 0)), 0) as subtree_output_size
 				from processes
 				left join process_objects on process_objects.process = processes.id and process_objects.kind = 3
 				left join objects on objects.id = process_objects.object
 				left join process_children on process_children.process = processes.id
 				left join processes child_processes on child_processes.id = process_children.child
 				where processes.id = any(outputs_processes)
-				and processes.children_outputs_complete = false
+				and processes.subtree_output_stored = false
 				group by processes.id
 			) as updates
 			where processes.id = updates.id
-			and updates.children_outputs_complete = true
+			and updates.subtree_output_stored = true
 			returning processes.id
 		)
-		select array_agg(distinct id) into children_outputs_complete_processes
+		select array_agg(distinct id) into subtree_output_stored_processes
 		from (
-			select id from already_complete
+			select id from already_stored
 			union all
-			select id from updated_to_complete
-		) all_complete;
+			select id from updated_to_stored
+		) all_stored;
 
 		with locked as (
 			select processes.id
@@ -359,66 +359,66 @@ begin
 			order by processes.id
 			for update
 		)
-		select count(*) into dummy_count from locked;
+		select count(*) into locked_count from locked;
 
 		update processes
 		set
-			output_complete = updates.output_complete,
-			output_count = updates.output_count,
-			output_depth = updates.output_depth,
-			output_weight = updates.output_weight
+			node_output_stored = updates.node_output_stored,
+			node_output_count = updates.node_output_count,
+			node_output_depth = updates.node_output_depth,
+			node_output_size = updates.node_output_size
 		from (
 			select
 				processes.id,
 				case
 					when count(process_objects.object) = 0
 						then true
-					when bool_and(coalesce(objects.complete, false))
+					when bool_and(coalesce(objects.subtree_stored, false))
 						then true
 					else false
-				end as output_complete,
-				coalesce(sum(coalesce(objects.count, 0)), 0) as output_count,
-				coalesce(max(coalesce(objects.depth, 0)), 0) as output_depth,
-				coalesce(sum(coalesce(objects.weight, 0)), 0) as output_weight
+				end as node_output_stored,
+				coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_output_count,
+				coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_output_depth,
+				coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_output_size
 			from processes
 			left join process_objects on process_objects.process = processes.id and process_objects.kind = 3
 			left join objects on objects.id = process_objects.object
 			where processes.id = any(outputs_processes)
-			and processes.output_complete = false
+			and processes.node_output_stored = false
 			group by processes.id
 		) as updates
 		where processes.id = updates.id
-		and updates.output_complete = true;
+		and updates.node_output_stored = true;
 
 	else
-		children_outputs_complete_processes := array[]::bytea[];
+		subtree_output_stored_processes := array[]::bytea[];
 	end if;
 
-	if children_complete_processes is not null and array_length(children_complete_processes, 1) > 0 then
+	if subtree_stored_processes is not null and array_length(subtree_stored_processes, 1) > 0 then
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 1, (select id from transaction_id)
 		from process_children
 		join processes on processes.id = process_children.process
-		where process_children.child = any(children_complete_processes)
-		and processes.children_complete = false;
+		where process_children.child = any(subtree_stored_processes)
+		and processes.subtree_stored = false;
 	end if;
 
-	if children_commands_complete_processes is not null and array_length(children_commands_complete_processes, 1) > 0 then
+	if subtree_command_stored_processes is not null and array_length(subtree_command_stored_processes, 1) > 0 then
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 2, (select id from transaction_id)
 		from process_children
 		join processes on processes.id = process_children.process
-		where process_children.child = any(children_commands_complete_processes)
-		and processes.children_commands_complete = false;
+		where process_children.child = any(subtree_command_stored_processes)
+		and processes.subtree_command_stored = false;
 	end if;
 
-	if children_outputs_complete_processes is not null and array_length(children_outputs_complete_processes, 1) > 0 then
+	if subtree_output_stored_processes is not null and array_length(subtree_output_stored_processes, 1) > 0 then
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 3, (select id from transaction_id)
 		from process_children
 		join processes on processes.id = process_children.process
-		where process_children.child = any(children_outputs_complete_processes)
-		and processes.children_outputs_complete = false;
+		where process_children.child = any(subtree_output_stored_processes)
+		and processes.subtree_output_stored = false;
 	end if;
 
 	n := n

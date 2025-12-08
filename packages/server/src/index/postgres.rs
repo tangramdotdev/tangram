@@ -81,34 +81,47 @@ impl Server {
 			.filter_map(|message| message.cache_entry.as_ref())
 			.map(|entry| entry.to_bytes().to_vec())
 			.collect::<Vec<_>>();
-		let object_sizes = put_object_messages
+		let object_node_sizes = put_object_messages
 			.values()
-			.map(|message| message.size.to_i64().unwrap())
+			.map(|message| message.metadata.node.size.unwrap().to_i64().unwrap())
 			.collect::<Vec<_>>();
 		let object_touched_ats = put_object_messages
 			.values()
 			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
-		let object_counts = put_object_messages
-			.values()
-			.map(|message| message.metadata.count.map(|count| count.to_i64().unwrap()))
-			.collect::<Vec<_>>();
-		let object_depths = put_object_messages
-			.values()
-			.map(|message| message.metadata.depth.map(|depth| depth.to_i64().unwrap()))
-			.collect::<Vec<_>>();
-		let object_weights = put_object_messages
+		let object_subtree_counts = put_object_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.weight
-					.map(|weight| weight.to_i64().unwrap())
+					.subtree
+					.count
+					.map(|count| count.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let object_completes = put_object_messages
+		let object_subtree_depths = put_object_messages
 			.values()
-			.map(|message| message.complete)
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.depth
+					.map(|depth| depth.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let object_subtree_sizes = put_object_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.size
+					.map(|size| size.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let object_subtree_storeds = put_object_messages
+			.values()
+			.map(|message| message.stored.subtree)
 			.collect::<Vec<_>>();
 		let object_children = put_object_messages
 			.values()
@@ -166,153 +179,165 @@ impl Server {
 			.values()
 			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
-		let process_children_completes = put_process_messages
+		let process_subtree_storeds = put_process_messages
 			.values()
-			.map(|message| message.complete.children)
+			.map(|message| message.stored.subtree)
 			.collect::<Vec<_>>();
-		let process_children_counts = put_process_messages
+		let process_subtree_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.children
-					.count
+					.subtree
+					.process_count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_command_completes = put_process_messages
+		let process_node_command_storeds = put_process_messages
 			.values()
-			.map(|message| message.complete.command)
+			.map(|message| message.stored.node_command)
 			.collect::<Vec<_>>();
-		let process_command_counts = put_process_messages
+		let process_node_command_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
+					.node
 					.command
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_command_depths = put_process_messages
+		let process_node_command_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
+					.node
 					.command
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_command_weights = put_process_messages
+		let process_node_command_sizes = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
+					.node
 					.command
-					.weight
+					.size
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_children_commands_completes = put_process_messages
+		let process_subtree_command_storeds = put_process_messages
 			.values()
-			.map(|message| message.complete.children_commands)
+			.map(|message| message.stored.subtree_command)
 			.collect::<Vec<_>>();
-		let process_children_commands_counts = put_process_messages
+		let process_subtree_command_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.children_commands
+					.subtree
+					.command
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_children_commands_depths = put_process_messages
+		let process_subtree_command_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.children_commands
+					.subtree
+					.command
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_children_commands_weights = put_process_messages
+		let process_subtree_command_sizes = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.children_commands
-					.weight
+					.subtree
+					.command
+					.size
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_output_completes = put_process_messages
+		let process_node_output_storeds = put_process_messages
 			.values()
-			.map(|message| message.complete.output)
+			.map(|message| message.stored.node_output)
 			.collect::<Vec<_>>();
-		let process_output_counts = put_process_messages
+		let process_node_output_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
+					.node
 					.output
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_output_depths = put_process_messages
+		let process_node_output_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
+					.node
 					.output
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_output_weights = put_process_messages
+		let process_node_output_sizes = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
+					.node
 					.output
-					.weight
+					.size
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_children_outputs_completes = put_process_messages
+		let process_subtree_output_storeds = put_process_messages
 			.values()
-			.map(|message| message.complete.children_outputs)
+			.map(|message| message.stored.subtree_output)
 			.collect::<Vec<_>>();
-		let process_children_outputs_counts = put_process_messages
+		let process_subtree_output_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.children_outputs
+					.subtree
+					.output
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_children_outputs_depths = put_process_messages
+		let process_subtree_output_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.children_outputs
+					.subtree
+					.output
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_children_outputs_weights = put_process_messages
+		let process_subtree_output_sizes = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.children_outputs
-					.weight
+					.subtree
+					.output
+					.size
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
@@ -470,36 +495,36 @@ impl Server {
 					&cache_entry_touched_ats.as_slice(),
 					&object_ids.as_slice(),
 					&object_cache_entries.as_slice(),
-					&object_sizes.as_slice(),
+					&object_node_sizes.as_slice(),
 					&object_touched_ats.as_slice(),
-					&object_counts.as_slice(),
-					&object_depths.as_slice(),
-					&object_weights.as_slice(),
-					&object_completes.as_slice(),
+					&object_subtree_counts.as_slice(),
+					&object_subtree_depths.as_slice(),
+					&object_subtree_sizes.as_slice(),
+					&object_subtree_storeds.as_slice(),
 					&object_children.as_slice(),
 					&object_parent_indices.as_slice(),
 					&touch_object_touched_ats.as_slice(),
 					&touch_object_ids.as_slice(),
 					&process_ids.as_slice(),
 					&process_touched_ats.as_slice(),
-					&process_children_completes.as_slice(),
-					&process_children_counts.as_slice(),
-					&process_children_commands_completes.as_slice(),
-					&process_children_commands_counts.as_slice(),
-					&process_children_commands_depths.as_slice(),
-					&process_children_commands_weights.as_slice(),
-					&process_children_outputs_completes.as_slice(),
-					&process_children_outputs_counts.as_slice(),
-					&process_children_outputs_depths.as_slice(),
-					&process_children_outputs_weights.as_slice(),
-					&process_command_completes.as_slice(),
-					&process_command_counts.as_slice(),
-					&process_command_depths.as_slice(),
-					&process_command_weights.as_slice(),
-					&process_output_completes.as_slice(),
-					&process_output_counts.as_slice(),
-					&process_output_depths.as_slice(),
-					&process_output_weights.as_slice(),
+					&process_subtree_storeds.as_slice(),
+					&process_subtree_counts.as_slice(),
+					&process_subtree_command_storeds.as_slice(),
+					&process_subtree_command_counts.as_slice(),
+					&process_subtree_command_depths.as_slice(),
+					&process_subtree_command_sizes.as_slice(),
+					&process_subtree_output_storeds.as_slice(),
+					&process_subtree_output_counts.as_slice(),
+					&process_subtree_output_depths.as_slice(),
+					&process_subtree_output_sizes.as_slice(),
+					&process_node_command_storeds.as_slice(),
+					&process_node_command_counts.as_slice(),
+					&process_node_command_depths.as_slice(),
+					&process_node_command_sizes.as_slice(),
+					&process_node_output_storeds.as_slice(),
+					&process_node_output_counts.as_slice(),
+					&process_node_output_depths.as_slice(),
+					&process_node_output_sizes.as_slice(),
 					&process_children.as_slice(),
 					&process_child_process_indices.as_slice(),
 					&process_child_positions.as_slice(),

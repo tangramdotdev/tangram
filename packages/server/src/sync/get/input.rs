@@ -83,13 +83,8 @@ impl Server {
 							tg::error!(!source, "failed to deserialize the process")
 						})?;
 						let graph = state.graph.lock().unwrap();
-						let complete = graph.get_process_complete(&message.id);
-						Self::sync_get_enqueue_process_children(
-							state,
-							&message.id,
-							&data,
-							complete,
-						);
+						let stored = graph.get_process_stored(&message.id);
+						Self::sync_get_enqueue_process_children(state, &message.id, &data, stored);
 
 						// Decrement the queue counter.
 						state.queue.decrement(1);

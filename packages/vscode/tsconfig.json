@@ -3,9 +3,7 @@
 		"allowImportingTsExtensions": true,
 		"exactOptionalPropertyTypes": true,
 		"isolatedModules": true,
-		"lib": [
-			"esnext"
-		],
+		"lib": ["esnext"],
 		"module": "commonjs",
 		"noEmit": true,
 		"noUncheckedIndexedAccess": true,
@@ -14,9 +12,6 @@
 		"sourceMap": true,
 		"strict": true,
 		"target": "esnext",
-		"types": [
-			"node",
-			"vscode"
-		]
+		"types": ["node", "vscode"]
 	}
 }

@@ -137,8 +137,8 @@ impl Server {
 		// Prepare insert statement for objects.
 		let insert_statement = indoc!(
 			"
-				insert into objects (id, cache_entry, complete, count, depth, size, touched_at, transaction_id, weight)
-				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, (select id from transaction_id), ?8)
+				insert into objects (id, cache_entry, node_size, subtree_count, subtree_depth, subtree_size, subtree_stored, touched_at, transaction_id)
+				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (select id from transaction_id))
 				on conflict (id) do nothing;
 			"
 		);
@@ -151,11 +151,11 @@ impl Server {
 			"
 				update objects
 				set
-					complete = complete or ?3,
-					count = coalesce(count, ?4),
-					depth = coalesce(depth, ?5),
-					touched_at = coalesce(touched_at, ?7),
-					weight = coalesce(weight, ?8)
+					subtree_count = coalesce(subtree_count, ?4),
+					subtree_depth = coalesce(subtree_depth, ?5),
+					subtree_size = coalesce(subtree_size, ?6),
+					subtree_stored = subtree_stored or ?7,
+					touched_at = coalesce(touched_at, ?8)
 				where id = ?1;
 			"
 		);
@@ -194,9 +194,9 @@ impl Server {
 				.as_ref()
 				.map(|entry| entry.to_bytes().to_vec());
 			let children = message.children;
-			let complete = message.complete;
+			let stored = message.stored;
 			let metadata = message.metadata;
-			let size = message.size;
+			let node_size = metadata.node.size.unwrap();
 			let touched_at = message.touched_at;
 
 			// Insert the children.
@@ -212,12 +212,12 @@ impl Server {
 			let params = sqlite::params![
 				&id.to_bytes().to_vec(),
 				cache_entry,
-				complete,
-				metadata.count,
-				metadata.depth,
-				size,
+				node_size,
+				metadata.subtree.count,
+				metadata.subtree.depth,
+				metadata.subtree.size,
+				stored.subtree,
 				touched_at,
-				metadata.weight
 			];
 			let rows = insert_statement
 				.execute(params)
@@ -229,12 +229,12 @@ impl Server {
 				let params = sqlite::params![
 					&id.to_bytes().to_vec(),
 					cache_entry,
-					complete,
-					metadata.count,
-					metadata.depth,
-					size,
+					node_size,
+					metadata.subtree.count,
+					metadata.subtree.depth,
+					metadata.subtree.size,
+					stored.subtree,
 					touched_at,
-					metadata.weight
 				];
 				update_statement
 					.execute(params)
@@ -288,24 +288,24 @@ impl Server {
 			"
 				insert into processes (
 					id,
-					children_complete,
-					children_count,
-					children_commands_complete,
-					children_commands_count,
-					children_commands_depth,
-					children_commands_weight,
-					children_outputs_complete,
-					children_outputs_count,
-					children_outputs_depth,
-					children_outputs_weight,
-					command_complete,
-					command_count,
-					command_depth,
-					command_weight,
-					output_complete,
-					output_count,
-					output_depth,
-					output_weight,
+					node_command_count,
+					node_command_depth,
+					node_command_size,
+					node_command_stored,
+					node_output_count,
+					node_output_depth,
+					node_output_size,
+					node_output_stored,
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_command_stored,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_output_stored,
+					subtree_count,
+					subtree_stored,
 					touched_at,
 					transaction_id
 				)
@@ -344,24 +344,24 @@ impl Server {
 			"
 				update processes
 				set
-					children_complete = children_complete or ?2,
-					children_count = coalesce(children_count, ?3),
-					children_commands_complete = children_commands_complete or ?4,
-					children_commands_count = coalesce(children_commands_count, ?5),
-					children_commands_depth = coalesce(children_commands_depth, ?6),
-					children_commands_weight = coalesce(children_commands_weight, ?7),
-					children_outputs_complete = children_outputs_complete or ?8,
-					children_outputs_count = coalesce(children_outputs_count, ?9),
-					children_outputs_depth = coalesce(children_outputs_depth, ?10),
-					children_outputs_weight = coalesce(children_outputs_weight, ?11),
-					command_complete = command_complete or ?12,
-					command_count = coalesce(command_count, ?13),
-					command_depth = coalesce(command_depth, ?14),
-					command_weight = coalesce(command_weight, ?15),
-					output_complete = output_complete or ?16,
-					output_count = coalesce(output_count, ?17),
-					output_depth = coalesce(output_depth, ?18),
-					output_weight = coalesce(output_weight, ?19),
+					node_command_count = coalesce(node_command_count, ?2),
+					node_command_depth = coalesce(node_command_depth, ?3),
+					node_command_size = coalesce(node_command_size, ?4),
+					node_command_stored = node_command_stored or ?5,
+					node_output_count = coalesce(node_output_count, ?6),
+					node_output_depth = coalesce(node_output_depth, ?7),
+					node_output_size = coalesce(node_output_size, ?8),
+					node_output_stored = node_output_stored or ?9,
+					subtree_command_count = coalesce(subtree_command_count, ?10),
+					subtree_command_depth = coalesce(subtree_command_depth, ?11),
+					subtree_command_size = coalesce(subtree_command_size, ?12),
+					subtree_command_stored = subtree_command_stored or ?13,
+					subtree_output_count = coalesce(subtree_output_count, ?14),
+					subtree_output_depth = coalesce(subtree_output_depth, ?15),
+					subtree_output_size = coalesce(subtree_output_size, ?16),
+					subtree_output_stored = subtree_output_stored or ?17,
+					subtree_count = coalesce(subtree_count, ?18),
+					subtree_stored = subtree_stored or ?19,
 					touched_at = ?20
 				where id = ?1;
 			"
@@ -407,25 +407,25 @@ impl Server {
 			// Try to insert the process.
 			let params = sqlite::params![
 				message.id.to_bytes().to_vec(),
-				message.complete.children,
-				message.metadata.children.count,
-				message.complete.children_commands,
-				message.metadata.children_commands.count,
-				message.metadata.children_commands.depth,
-				message.metadata.children_commands.weight,
-				message.complete.children_outputs,
-				message.metadata.children_outputs.count,
-				message.metadata.children_outputs.depth,
-				message.metadata.children_outputs.weight,
-				message.complete.command,
-				message.metadata.command.count,
-				message.metadata.command.depth,
-				message.metadata.command.weight,
-				message.complete.output,
-				message.metadata.output.count,
-				message.metadata.output.depth,
-				message.metadata.output.weight,
-				message.touched_at
+				message.metadata.node.command.count,
+				message.metadata.node.command.depth,
+				message.metadata.node.command.size,
+				message.stored.node_command,
+				message.metadata.node.output.count,
+				message.metadata.node.output.depth,
+				message.metadata.node.output.size,
+				message.stored.node_output,
+				message.metadata.subtree.command.count,
+				message.metadata.subtree.command.depth,
+				message.metadata.subtree.command.size,
+				message.stored.subtree_command,
+				message.metadata.subtree.output.count,
+				message.metadata.subtree.output.depth,
+				message.metadata.subtree.output.size,
+				message.stored.subtree_output,
+				message.metadata.subtree.process_count,
+				message.stored.subtree,
+				message.touched_at,
 			];
 			let rows = insert_statement
 				.execute(params)
@@ -436,25 +436,25 @@ impl Server {
 			if !inserted {
 				let params = sqlite::params![
 					message.id.to_bytes().to_vec(),
-					message.complete.children,
-					message.metadata.children.count,
-					message.complete.children_commands,
-					message.metadata.children_commands.count,
-					message.metadata.children_commands.depth,
-					message.metadata.children_commands.weight,
-					message.complete.children_outputs,
-					message.metadata.children_outputs.count,
-					message.metadata.children_outputs.depth,
-					message.metadata.children_outputs.weight,
-					message.complete.command,
-					message.metadata.command.count,
-					message.metadata.command.depth,
-					message.metadata.command.weight,
-					message.complete.output,
-					message.metadata.output.count,
-					message.metadata.output.depth,
-					message.metadata.output.weight,
-					message.touched_at
+					message.metadata.node.command.count,
+					message.metadata.node.command.depth,
+					message.metadata.node.command.size,
+					message.stored.node_command,
+					message.metadata.node.output.count,
+					message.metadata.node.output.depth,
+					message.metadata.node.output.size,
+					message.stored.node_output,
+					message.metadata.subtree.command.count,
+					message.metadata.subtree.command.depth,
+					message.metadata.subtree.command.size,
+					message.stored.subtree_command,
+					message.metadata.subtree.output.count,
+					message.metadata.subtree.output.depth,
+					message.metadata.subtree.output.size,
+					message.stored.subtree_output,
+					message.metadata.subtree.process_count,
+					message.stored.subtree,
+					message.touched_at,
 				];
 				update_statement
 					.execute(params)
@@ -813,8 +813,8 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 				let mut n = batch_size;
-				n -= Self::indexer_handle_complete_object_sqlite(&transaction, n)?;
-				n -= Self::indexer_handle_complete_process_sqlite(&transaction, n)?;
+				n -= Self::indexer_handle_stored_object_sqlite(&transaction, n)?;
+				n -= Self::indexer_handle_stored_process_sqlite(&transaction, n)?;
 				n -= Self::indexer_handle_reference_count_cache_entry_sqlite(&transaction, n)?;
 				n -= Self::indexer_handle_reference_count_object_sqlite(&transaction, n)?;
 				n -= Self::indexer_handle_reference_count_process_sqlite(&transaction, n)?;
@@ -835,7 +835,7 @@ impl Server {
 		Ok(n)
 	}
 
-	fn indexer_handle_complete_object_sqlite(
+	fn indexer_handle_stored_object_sqlite(
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
@@ -877,19 +877,19 @@ impl Server {
 
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			complete: bool,
+			subtree_stored: bool,
 		}
 
 		let statement = indoc!(
 			"
-				select complete
+				select subtree_stored
 				from objects
 				where id = ?1;
 			"
 		);
-		let mut complete_statement = transaction
+		let mut subtree_stored_statement = transaction
 			.prepare_cached(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the complete statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to prepare the stored statement"))?;
 
 		let statement = indoc!(
 			"
@@ -897,15 +897,12 @@ impl Server {
 				select object, 1, ?2
 				from object_children
 				join objects on objects.id = object_children.object
-				where object_children.child = ?1 and objects.complete = 0;
+				where object_children.child = ?1 and objects.subtree_stored = 0;
 			"
 		);
-		let mut enqueue_incomplete_parents_statement =
+		let mut enqueue_parents_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to prepare the enqueue incomplete parents statement"
-				)
+				tg::error!(!source, "failed to prepare the enqueue parents statement")
 			})?;
 
 		let statement = indoc!(
@@ -914,15 +911,12 @@ impl Server {
 				select process, 2, ?2
 				from process_objects
 				join processes on processes.id = process_objects.process
-				where process_objects.object = ?1 and processes.children_commands_complete = 0;
+				where process_objects.object = ?1 and processes.subtree_command_stored = 0;
 			"
 		);
-		let mut enqueue_incomplete_commands_processes_statement =
+		let mut enqueue_commands_processes_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to prepare the enqueue incomplete processes statement"
-				)
+				tg::error!(!source, "failed to prepare the enqueue processes statement")
 			})?;
 
 		let statement = indoc!(
@@ -931,117 +925,122 @@ impl Server {
 				select process, 3, ?2
 				from process_objects
 				join processes on processes.id = process_objects.process
-				where process_objects.object = ?1 and processes.children_outputs_complete = 0;
+				where process_objects.object = ?1 and processes.subtree_output_stored = 0;
 			"
 		);
-		let mut enqueue_incomplete_outputs_processes_statement =
+		let mut enqueue_outputs_processes_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to prepare the enqueue incomplete processes statement"
-				)
+				tg::error!(!source, "failed to prepare the enqueue processes statement")
 			})?;
 
 		let statement = indoc!(
 			"
 				update objects
 				set
-					complete = updates.complete,
-					count = coalesce(objects.count, updates.count),
-					depth = coalesce(objects.depth, updates.depth),
-					weight = coalesce(objects.weight, updates.weight)
+					subtree_stored = updates.subtree_stored,
+					subtree_count = coalesce(objects.subtree_count, updates.subtree_count),
+					subtree_depth = coalesce(objects.subtree_depth, updates.subtree_depth),
+					subtree_size = coalesce(objects.subtree_size, updates.subtree_size)
 				from (
 					select
 						objects.id,
 						case
 							when count(object_children.child) = 0
 								then 1
-							when min(coalesce(child_objects.complete, 0))
+							when min(coalesce(child_objects.subtree_stored, 0))
 								then 1
 							else 0
-						end as complete,
-					1 + coalesce(sum(coalesce(child_objects.count, 0)), 0) as count,
-					1 + coalesce(max(coalesce(child_objects.depth, 0)), 0) as depth,
-					objects.size + coalesce(sum(coalesce(child_objects.weight, 0)), 0) as weight
+						end as subtree_stored,
+					1 + coalesce(sum(coalesce(child_objects.subtree_count, 0)), 0) as subtree_count,
+					1 + coalesce(max(coalesce(child_objects.subtree_depth, 0)), 0) as subtree_depth,
+					objects.node_size + coalesce(sum(coalesce(child_objects.subtree_size, 0)), 0) as subtree_size
 					from objects
 					left join object_children on object_children.object = objects.id
 					left join objects as child_objects on child_objects.id = object_children.child
 					where objects.id = ?1
-					and objects.complete = 0
-					group by objects.id, objects.size
+					and objects.subtree_stored = 0
+					group by objects.id, objects.node_size
 				) as updates
 				where objects.id = updates.id
-				and updates.complete = 1
-				returning objects.complete;
+				and updates.subtree_stored = 1
+				returning objects.subtree_stored;
 			"
 		);
-		let mut update_complete_statement =
+		let mut update_subtree_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update complete statement")
+				tg::error!(
+					!source,
+					"failed to prepare the update subtree stored statement"
+				)
 			})?;
 
 		for item in &items {
-			// Get the object's complete flag.
+			// Get the object's subtree_stored flag.
 			let params = [item.object.to_bytes().to_vec()];
-			let mut rows = complete_statement.query(params).map_err(|source| {
-				tg::error!(!source, "failed to execute the complete statement")
+			let mut rows = subtree_stored_statement.query(params).map_err(|source| {
+				tg::error!(!source, "failed to execute the subtree stored statement")
 			})?;
 			let row = rows
 				.next()
-				.map_err(|source| tg::error!(!source, "failed to execute the complete statement"))?
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute the subtree stored statement")
+				})?
 				.ok_or_else(|| tg::error!("expected a row"))?;
-			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the complete flag"))?;
-			let mut complete = row.complete;
+			let row =
+				<Row as db::sqlite::row::Deserialize>::deserialize(row).map_err(|source| {
+					tg::error!(!source, "failed to deserialize the subtree stored flag")
+				})?;
+			let mut subtree_stored = row.subtree_stored;
 
-			if !complete {
-				// Update the object's complete flag.
+			if !subtree_stored {
+				// Update the object's subtree_stored flag.
 				let params = [item.object.to_bytes().to_vec()];
-				let mut rows = update_complete_statement.query(params).map_err(|source| {
-					tg::error!(!source, "failed to execute the update complete statement")
-				})?;
+				let mut rows = update_subtree_stored_statement
+					.query(params)
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to execute the update subtree stored statement"
+						)
+					})?;
 				let row = rows.next().map_err(|source| {
-					tg::error!(!source, "failed to execute the update complete statement")
+					tg::error!(
+						!source,
+						"failed to execute the update subtree stored statement"
+					)
 				})?;
-				complete = if let Some(row) = row {
+				subtree_stored = if let Some(row) = row {
 					let row = <Row as db::sqlite::row::Deserialize>::deserialize(row).map_err(
-						|source| tg::error!(!source, "failed to deserialize the complete flag"),
+						|source| {
+							tg::error!(!source, "failed to deserialize the subtree stored flag")
+						},
 					)?;
-					row.complete
+					row.subtree_stored
 				} else {
 					false
 				};
 			}
 
-			// If the object is complete, then enqueue incomplete parents and processes.
-			if complete {
+			// If the object's subtree is stored, then enqueue parents and processes.
+			if subtree_stored {
 				let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
-				enqueue_incomplete_parents_statement
+				enqueue_parents_statement
 					.execute(params)
 					.map_err(|source| {
-						tg::error!(
-							!source,
-							"failed to execute the enqueue incomplete parents statement"
-						)
+						tg::error!(!source, "failed to execute the enqueue parents statement")
 					})?;
 
 				let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
-				enqueue_incomplete_commands_processes_statement
+				enqueue_commands_processes_statement
 					.execute(params)
 					.map_err(|source| {
-						tg::error!(
-							!source,
-							"failed to execute the enqueue incomplete processes statement"
-						)
+						tg::error!(!source, "failed to execute the enqueue processes statement")
 					})?;
 				let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
-				enqueue_incomplete_outputs_processes_statement
+				enqueue_outputs_processes_statement
 					.execute(params)
 					.map_err(|source| {
-						tg::error!(
-							!source,
-							"failed to execute the enqueue incomplete processes statement"
-						)
+						tg::error!(!source, "failed to execute the enqueue processes statement")
 					})?;
 			}
 		}
@@ -1049,7 +1048,7 @@ impl Server {
 		Ok(items.len())
 	}
 
-	fn indexer_handle_complete_process_sqlite(
+	fn indexer_handle_stored_process_sqlite(
 		transaction: &sqlite::Transaction<'_>,
 		n: usize,
 	) -> tg::Result<usize> {
@@ -1072,18 +1071,18 @@ impl Server {
 		}
 
 		#[derive(db::sqlite::row::Deserialize)]
-		struct ChildrenCompleteRow {
-			children_complete: bool,
+		struct SubtreeStoredRow {
+			subtree_stored: bool,
 		}
 
 		#[derive(db::sqlite::row::Deserialize)]
-		struct ChildrenCommandsCompleteRow {
-			children_commands_complete: bool,
+		struct SubtreeCommandStoredRow {
+			subtree_command_stored: bool,
 		}
 
 		#[derive(db::sqlite::row::Deserialize)]
-		struct ChildrenOutputsCompleteRow {
-			children_outputs_complete: bool,
+		struct SubtreeOutputStoredRow {
+			subtree_output_stored: bool,
 		}
 
 		let statement = indoc!(
@@ -1115,38 +1114,44 @@ impl Server {
 
 		let statement = indoc!(
 			"
-				select children_complete
+				select subtree_stored
 				from processes
 				where id = ?1;
 			"
 		);
-		let mut children_complete_statement =
+		let mut subtree_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the children complete statement")
+				tg::error!(!source, "failed to prepare the subtree stored statement")
 			})?;
 
 		let statement = indoc!(
 			"
-				select children_commands_complete
+				select subtree_command_stored
 				from processes
 				where id = ?1;
 			"
 		);
-		let mut children_commands_complete_statement =
+		let mut subtree_command_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the commands complete statement")
+				tg::error!(
+					!source,
+					"failed to prepare the subtree command stored statement"
+				)
 			})?;
 
 		let statement = indoc!(
 			"
-				select children_outputs_complete
+				select subtree_output_stored
 				from processes
 				where id = ?1;
 			"
 		);
-		let mut children_outputs_complete_statement =
+		let mut subtree_output_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the outputs complete statement")
+				tg::error!(
+					!source,
+					"failed to prepare the subtree output stored statement"
+				)
 			})?;
 
 		let statement = indoc!(
@@ -1157,14 +1162,14 @@ impl Server {
 				join processes on processes.id = process_children.process
 				where
 					process_children.child = ?1
-					and processes.children_complete = 0;
+					and processes.subtree_stored = 0;
 			"
 		);
-		let mut enqueue_incomplete_children_parents_statement =
+		let mut enqueue_parents_process_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(
 					!source,
-					"failed to prepare the enqueue incomplete parents statement"
+					"failed to prepare the enqueue parents process statement"
 				)
 			})?;
 
@@ -1176,14 +1181,15 @@ impl Server {
 				join processes on processes.id = process_children.process
 				where
 					process_children.child = ?1
-					and processes.children_commands_complete = 0;
+					and processes.subtree_command_stored = 0;
 			"
 		);
-		let mut enqueue_incomplete_commands_parents_statement =
+		let mut enqueue_parents_command_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(
 					!source,
-					"failed to prepare the enqueue incomplete parents statement"
+					"failed to prepare the enqueue parents command
+				 statement"
 				)
 			})?;
 
@@ -1195,14 +1201,14 @@ impl Server {
 				join processes on processes.id = process_children.process
 				where
 					process_children.child = ?1
-					and processes.children_outputs_complete = 0;
+					and processes.subtree_output_stored = 0;
 			"
 		);
-		let mut enqueue_incomplete_outputs_parents_statement =
+		let mut enqueue_parents_output_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(
 					!source,
-					"failed to prepare the enqueue incomplete parents statement"
+					"failed to prepare the enqueue parents output statement"
 				)
 			})?;
 
@@ -1210,248 +1216,246 @@ impl Server {
 			"
 				update processes
 				set
-					children_complete = updates.children_complete,
-					children_count = updates.children_count
+					subtree_stored = updates.subtree_stored,
+					subtree_count = updates.subtree_count
 				from (
 					select
 						processes.id,
 					case
 						when count(process_children.child) = 0
 							then 1
-						when min(coalesce(child_processes.children_complete, 0)) = 1
+						when min(coalesce(child_processes.subtree_stored, 0)) = 1
 							then 1
 						else 0
-					end as children_complete,
-					1 + coalesce(sum(coalesce(child_processes.children_count, 0)), 0) as children_count
+					end as subtree_stored,
+					1 + coalesce(sum(coalesce(child_processes.subtree_count, 0)), 0) as subtree_count
 					from processes
 					left join process_children on process_children.process = processes.id
 					left join processes as child_processes on child_processes.id = process_children.child
 					where processes.id = ?1
-					and processes.children_complete = 0
+					and processes.subtree_stored = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.children_complete = 1
-				returning children_complete;
+				and updates.subtree_stored = 1
+				returning subtree_stored;
 			"
 		);
-		let mut update_children_complete_statement =
+		let mut update_subtree_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update complete statement")
+				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
 		let statement = indoc!(
 			"
 				update processes
 					set
-						children_commands_complete = updates.children_commands_complete,
-						children_commands_count = updates.children_commands_count,
-						children_commands_depth = updates.children_commands_depth,
-						children_commands_weight = updates.children_commands_weight
+						subtree_command_stored = updates.subtree_command_stored,
+						subtree_command_count = updates.subtree_command_count,
+						subtree_command_depth = updates.subtree_command_depth,
+						subtree_command_size = updates.subtree_command_size
 				from (
 					select
 						processes.id,
 						case
 							when
-								min(coalesce(command_objects.complete, 0))
+								min(coalesce(command_objects.subtree_stored, 0))
 								and (count(process_children_commands.child) = 0
-								or min(coalesce(child_processes.children_commands_complete, 0)))
+								or min(coalesce(child_processes.subtree_command_stored, 0)))
 								then 1
 							else 0
-						end as children_commands_complete,
-					coalesce(sum(coalesce(command_objects.count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.children_commands_count, 0)), 0) as children_commands_count,
-					max(coalesce(command_objects.depth, 0),
-					coalesce(child_processes.children_commands_depth, 0)) as children_commands_depth,
-					coalesce(sum(coalesce(command_objects.weight, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.children_commands_weight, 0)), 0) as children_commands_weight
+						end as subtree_command_stored,
+					coalesce(sum(coalesce(command_objects.subtree_count, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_command_count, 0)), 0) as subtree_command_count,
+					max(coalesce(command_objects.subtree_depth, 0),
+					coalesce(child_processes.subtree_command_depth, 0)) as subtree_command_depth,
+					coalesce(sum(coalesce(command_objects.subtree_size, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_command_size, 0)), 0) as subtree_command_size
 					from processes
 					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 0
 					left join objects command_objects on command_objects.id = process_objects_commands.object
 					left join process_children process_children_commands on process_children_commands.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_commands.child
 					where processes.id = ?1
-					and processes.children_commands_complete = 0
+					and processes.subtree_command_stored = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.children_commands_complete = 1
-				returning children_commands_complete;
+				and updates.subtree_command_stored = 1
+				returning subtree_command_stored;
 			"
 		);
-		let mut update_children_commands_complete_statement =
+		let mut update_subtree_command_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update complete statement")
+				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
 		let statement = indoc!(
 			"
 				update processes
 				set
-					command_complete = objects.complete,
-					command_count = objects.count,
-					command_depth = objects.depth,
-					command_weight = objects.weight
+					node_command_stored = objects.subtree_stored,
+					node_command_count = objects.subtree_count,
+					node_command_depth = objects.subtree_depth,
+					node_command_size = objects.subtree_size
 				from process_objects
 				left join objects on process_objects.object = objects.id
 				where processes.id = process_objects.process
 					and process_objects.kind = 0
 					and process_objects.process = ?1
-					and objects.complete = 1
-					and processes.command_complete = 0;
+					and objects.subtree_stored = 1
+					and processes.node_command_stored = 0;
 			"
 		);
-		let mut update_command_complete_statement =
+		let mut update_node_command_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update complete statement")
+				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
 		let statement = indoc!(
 			"
 				update processes
 				set
-					children_outputs_complete = updates.children_outputs_complete,
-					children_outputs_count = updates.children_outputs_count,
-					children_outputs_depth = updates.children_outputs_depth,
-					children_outputs_weight = updates.children_outputs_weight
+					subtree_output_stored = updates.subtree_output_stored,
+					subtree_output_count = updates.subtree_output_count,
+					subtree_output_depth = updates.subtree_output_depth,
+					subtree_output_size = updates.subtree_output_size
 				from (
 					select
 						processes.id,
 						case
 							when
-								min(coalesce(output_objects.complete, 0))
+								min(coalesce(output_objects.subtree_stored, 0))
 								and (count(process_children_outputs.child) = 0
-								or min(coalesce(child_processes.children_outputs_complete, 0)))
+								or min(coalesce(child_processes.subtree_output_stored, 0)))
 								then 1
 							else 0
-						end as children_outputs_complete,
-					coalesce(sum(coalesce(output_objects.count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.children_outputs_count, 0)), 0) as children_outputs_count,
-					max(coalesce(output_objects.depth, 0),
-					coalesce(child_processes.children_outputs_depth, 0)) as children_outputs_depth,
-					coalesce(sum(coalesce(output_objects.weight, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.children_outputs_weight, 0)), 0) as children_outputs_weight
+						end as subtree_output_stored,
+					coalesce(sum(coalesce(output_objects.subtree_count, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_output_count, 0)), 0) as subtree_output_count,
+					max(coalesce(output_objects.subtree_depth, 0),
+					coalesce(child_processes.subtree_output_depth, 0)) as subtree_output_depth,
+					coalesce(sum(coalesce(output_objects.subtree_size, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_output_size, 0)), 0) as subtree_output_size
 					from processes
 					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 3
 					left join objects output_objects on output_objects.id = process_objects_outputs.object
 					left join process_children process_children_outputs on process_children_outputs.process = processes.id
 					left join processes child_processes on child_processes.id = process_children_outputs.child
 					where processes.id = ?1
-					and processes.children_outputs_complete = 0
+					and processes.subtree_output_stored = 0
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
-				and updates.children_outputs_complete = 1
-				returning children_outputs_complete;
+				and updates.subtree_output_stored = 1
+				returning subtree_output_stored;
 			"
 		);
-		let mut update_children_outputs_complete_statement =
+		let mut update_subtree_output_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update complete statement")
+				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
 		let statement = indoc!(
 			"
 				update processes
 				set
-					output_complete = updates.output_complete,
-					output_count = updates.output_count,
-					output_depth = updates.output_depth,
-					output_weight = updates.output_weight
+					node_output_stored = updates.node_output_stored,
+					node_output_count = updates.node_output_count,
+					node_output_depth = updates.node_output_depth,
+					node_output_size = updates.node_output_size
 				from (
 					select
 						process_objects.process as id,
 						case
 							when count(process_objects.object) = 0 then 1
-							when min(coalesce(objects.complete, 0)) = 1 then 1
+							when min(coalesce(objects.subtree_stored, 0)) = 1 then 1
 							else 0
-						end as output_complete,
-						coalesce(sum(objects.count), 0) as output_count,
-						coalesce(max(objects.depth), 0) as output_depth,
-						coalesce(sum(objects.weight), 0) as output_weight
+						end as node_output_stored,
+						coalesce(sum(objects.subtree_count), 0) as node_output_count,
+						coalesce(max(objects.subtree_depth), 0) as node_output_depth,
+						coalesce(sum(objects.subtree_size), 0) as node_output_size
 					from processes
 					join process_objects on processes.id = process_objects.process
 					left join objects on process_objects.object = objects.id
 					where process_objects.kind = 3
 					and process_objects.process = ?1
-					and processes.output_complete = 0
+					and processes.node_output_stored = 0
 					group by process_objects.process
 				) updates
 				where processes.id = updates.id
-				and updates.output_complete = 1;
+				and updates.node_output_stored = 1;
 			"
 		);
-		let mut update_output_complete_statement =
+		let mut update_node_output_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update complete statement")
+				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
 		for item in &items {
 			match item.kind {
 				Kind::Children => {
 					let params = [item.process.to_bytes().to_vec()];
-					let mut rows = children_complete_statement
-						.query(params)
-						.map_err(|source| {
-							tg::error!(!source, "failed to execute the complete statement")
-						})?;
-					let row = rows.next().map_err(|source| {
-						tg::error!(!source, "failed to execute the complete statement")
+					let mut rows = subtree_stored_statement.query(params).map_err(|source| {
+						tg::error!(!source, "failed to execute the stored statement")
 					})?;
-					let mut children_complete = if let Some(row) = row {
+					let row = rows.next().map_err(|source| {
+						tg::error!(!source, "failed to execute the stored statement")
+					})?;
+					let mut subtree_stored = if let Some(row) = row {
 						let row =
-							<ChildrenCompleteRow as db::sqlite::row::Deserialize>::deserialize(row)
+							<SubtreeStoredRow as db::sqlite::row::Deserialize>::deserialize(row)
 								.map_err(|source| {
 									tg::error!(
 										!source,
-										"failed to deserialize the children complete flag"
+										"failed to deserialize the subtree stored flag"
 									)
 								})?;
-						row.children_complete
+						row.subtree_stored
 					} else {
 						false
 					};
 
-					if !children_complete {
+					if !subtree_stored {
 						let params = [item.process.to_bytes().to_vec()];
 						let mut rows =
-							update_children_complete_statement
+							update_subtree_stored_statement
 								.query(params)
 								.map_err(|source| {
 									tg::error!(
 										!source,
-										"failed to execute the update complete statement"
+										"failed to execute the update stored statement"
 									)
 								})?;
 						let row = rows.next().map_err(|source| {
-							tg::error!(!source, "failed to execute the update complete statement")
+							tg::error!(!source, "failed to execute the update stored statement")
 						})?;
-						children_complete = if let Some(row) = row {
+						subtree_stored = if let Some(row) = row {
 							let row =
-								<ChildrenCompleteRow as db::sqlite::row::Deserialize>::deserialize(
+								<SubtreeStoredRow as db::sqlite::row::Deserialize>::deserialize(
 									row,
 								)
 								.map_err(|source| {
 									tg::error!(
 										!source,
-										"failed to deserialize the children complete flag"
+										"failed to deserialize the subtree stored flag"
 									)
 								})?;
-							row.children_complete
+							row.subtree_stored
 						} else {
 							false
 						}
 					}
 
-					if children_complete {
+					if subtree_stored {
 						let params =
 							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
-						enqueue_incomplete_children_parents_statement
+						enqueue_parents_process_statement
 							.execute(params)
 							.map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the enqueue incomplete parents statement"
+									"failed to execute the enqueue parents statement"
 								)
 							})?;
 					}
@@ -1459,78 +1463,76 @@ impl Server {
 				Kind::Commands => {
 					let params = [item.process.to_bytes().to_vec()];
 					let mut rows =
-						children_commands_complete_statement
+						subtree_command_stored_statement
 							.query(params)
 							.map_err(|source| {
-								tg::error!(!source, "failed to execute the complete statement")
+								tg::error!(!source, "failed to execute the stored statement")
 							})?;
 					let row = rows.next().map_err(|source| {
-						tg::error!(!source, "failed to execute the complete statement")
+						tg::error!(!source, "failed to execute the stored statement")
 					})?;
-					let mut children_commands_complete = if let Some(row) = row {
-						let row =
-							<ChildrenCommandsCompleteRow as db::sqlite::row::Deserialize>::deserialize(row)
+					let mut subtree_command_stored =
+						if let Some(row) = row {
+							let row =
+							<SubtreeCommandStoredRow as db::sqlite::row::Deserialize>::deserialize(row)
 								.map_err(|source| {
 									tg::error!(
 										!source,
-										"failed to deserialize the commands complete flag"
+										"failed to deserialize the commands stored flag"
 									)
 								})?;
-						row.children_commands_complete
-					} else {
-						false
-					};
+							row.subtree_command_stored
+						} else {
+							false
+						};
 
-					if !children_commands_complete {
+					if !subtree_command_stored {
 						let params = [item.process.to_bytes().to_vec()];
-						let mut rows = update_children_commands_complete_statement
+						let mut rows = update_subtree_command_stored_statement
 							.query(params)
 							.map_err(|source| {
-								tg::error!(
-									!source,
-									"failed to execute the update complete statement"
-								)
+								tg::error!(!source, "failed to execute the update stored statement")
 							})?;
 						let row = rows.next().map_err(|source| {
-							tg::error!(!source, "failed to execute the update complete statement")
+							tg::error!(!source, "failed to execute the update stored statement")
 						})?;
-						children_commands_complete = if let Some(row) = row {
+						subtree_command_stored = if let Some(row) = row {
 							let row =
-								<ChildrenCommandsCompleteRow as db::sqlite::row::Deserialize>::deserialize(
+								<SubtreeCommandStoredRow as db::sqlite::row::Deserialize>::deserialize(
 									row,
 								)
 								.map_err(|source| {
 									tg::error!(
 										!source,
-										"failed to deserialize the children complete flag"
+										"failed to deserialize the subtree command stored flag"
 									)
 								})?;
-							row.children_commands_complete
+							row.subtree_command_stored
 						} else {
 							false
 						};
 
-						// Update command complete.
+						// Update command stored.
 						let params = [item.process.to_bytes().to_vec()];
-						update_command_complete_statement
+						update_node_command_stored_statement
 							.execute(params)
 							.map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the update command complete statement"
+									"failed to execute the update command stored statement"
 								)
 							})?;
 					}
 
-					if children_commands_complete {
+					if subtree_command_stored {
 						let params =
 							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
-						enqueue_incomplete_commands_parents_statement
+						enqueue_parents_command_statement
 							.execute(params)
 							.map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the enqueue incomplete parents statement"
+									"failed to execute the enqueue parents statement"
 								)
 							})?;
 					}
@@ -1538,78 +1540,74 @@ impl Server {
 				Kind::Outputs => {
 					let params = [item.process.to_bytes().to_vec()];
 					let mut rows =
-						children_outputs_complete_statement
+						subtree_output_stored_statement
 							.query(params)
 							.map_err(|source| {
-								tg::error!(!source, "failed to execute the complete statement")
+								tg::error!(!source, "failed to execute the stored statement")
 							})?;
 					let row = rows.next().map_err(|source| {
-						tg::error!(!source, "failed to execute the complete statement")
+						tg::error!(!source, "failed to execute the stored statement")
 					})?;
-					let mut children_outputs_complete = if let Some(row) = row {
+					let mut subtree_output_stored = if let Some(row) = row {
 						let row =
-							<ChildrenOutputsCompleteRow as db::sqlite::row::Deserialize>::deserialize(row)
-								.map_err(|source| {
-									tg::error!(
-										!source,
-										"failed to deserialize the outputs complete flag"
-									)
-								})?;
-						row.children_outputs_complete
+							<SubtreeOutputStoredRow as db::sqlite::row::Deserialize>::deserialize(
+								row,
+							)
+							.map_err(|source| {
+								tg::error!(!source, "failed to deserialize the outputs stored flag")
+							})?;
+						row.subtree_output_stored
 					} else {
 						false
 					};
 
-					if !children_outputs_complete {
+					if !subtree_output_stored {
 						let params = [item.process.to_bytes().to_vec()];
-						let mut rows = update_children_outputs_complete_statement
+						let mut rows = update_subtree_output_stored_statement
 							.query(params)
 							.map_err(|source| {
-								tg::error!(
-									!source,
-									"failed to execute the update complete statement"
-								)
+								tg::error!(!source, "failed to execute the update stored statement")
 							})?;
 						let row = rows.next().map_err(|source| {
-							tg::error!(!source, "failed to execute the update complete statement")
+							tg::error!(!source, "failed to execute the update stored statement")
 						})?;
-						children_outputs_complete = if let Some(row) = row {
+						subtree_output_stored = if let Some(row) = row {
 							let row =
-								<ChildrenOutputsCompleteRow as db::sqlite::row::Deserialize>::deserialize(
+								<SubtreeOutputStoredRow as db::sqlite::row::Deserialize>::deserialize(
 									row,
 								)
 								.map_err(|source| {
 									tg::error!(
 										!source,
-										"failed to deserialize the children complete flag"
+										"failed to deserialize the subtree output stored flag"
 									)
 								})?;
-							row.children_outputs_complete
+							row.subtree_output_stored
 						} else {
 							false
 						};
 
-						// Update output complete.
+						// Update output stored.
 						let params = [item.process.to_bytes().to_vec()];
-						update_output_complete_statement
+						update_node_output_stored_statement
 							.execute(params)
 							.map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the update output complete statement"
+									"failed to execute the update output stored statement"
 								)
 							})?;
 					}
 
-					if children_outputs_complete {
+					if subtree_output_stored {
 						let params =
 							sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
-						enqueue_incomplete_outputs_parents_statement
+						enqueue_parents_output_statement
 							.execute(params)
 							.map_err(|source| {
 								tg::error!(
 									!source,
-									"failed to execute the enqueue incomplete parents statement"
+									"failed to execute the enqueue parents statement"
 								)
 							})?;
 					}

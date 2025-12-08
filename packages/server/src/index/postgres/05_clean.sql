@@ -39,7 +39,7 @@ create or replace procedure clean_cache_entries(
 language plpgsql
 as $$
 declare
-	dummy_count int8;
+	locked_count int8;
 begin
 	with candidates as (
 		select id from cache_entries
@@ -56,7 +56,7 @@ begin
 		order by cache_entries.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with updated as (
 		update cache_entries
@@ -83,7 +83,7 @@ create or replace procedure clean_objects(
 language plpgsql
 as $$
 declare
-	dummy_count int8;
+	locked_count int8;
 begin
 	with candidates as (
 		select id from objects
@@ -100,7 +100,7 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with updated as (
 		update objects
@@ -128,7 +128,7 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update objects
 	set reference_count = reference_count - 1
@@ -151,7 +151,7 @@ begin
 		order by cache_entries.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update cache_entries
 	set reference_count = reference_count - 1
@@ -176,7 +176,7 @@ create or replace procedure clean_processes(
 language plpgsql
 as $$
 declare
-	dummy_count int8;
+	locked_count int8;
 begin
 	with candidates as (
 		select id from processes
@@ -193,7 +193,7 @@ begin
 		order by processes.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	with updated as (
 		update processes
@@ -220,7 +220,7 @@ begin
 		order by processes.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update processes
 	set reference_count = reference_count - 1
@@ -242,7 +242,7 @@ begin
 		order by objects.id
 		for update
 	)
-	select count(*) into dummy_count from locked;
+	select count(*) into locked_count from locked;
 
 	update objects
 	set reference_count = reference_count - 1
