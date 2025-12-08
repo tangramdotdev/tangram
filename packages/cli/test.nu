@@ -588,6 +588,7 @@ def snapshot_path [path: string] {
 }
 
 export def --env spawn [
+	--busybox
 	--cloud
 	--config (-c): record
 	--name (-n): string
@@ -692,6 +693,50 @@ export def --env spawn [
 		}
 	}
 
+	# Tag busybox if requested.
+	if $busybox {
+		# Tiny sleep to wait for the server to start up.
+		sleep 0.1sec
+
+		# Create a temp for busybox
+		let busybox_path = mktemp -d
+		let busybox_source = '
+			const SOURCES: Record<string, { url: string, checksum: tg.Checksum }> = {
+				"aarch64-darwin": {
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2024.10.03/utils_universal_darwin.tar.zst",
+					checksum: "sha256:7bd26e53a370d66eb05436c0a128d183a66dd2aba3c2524d94b916bd4515be40",
+				},
+				"x86_64-darwin": {
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2024.10.03/utils_universal_darwin.tar.zst",
+					checksum: "sha256:7bd26e53a370d66eb05436c0a128d183a66dd2aba3c2524d94b916bd4515be40",
+				},
+				"aarch64-linux": {
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2024.10.03/utils_aarch64_linux.tar.zst",
+					checksum: "sha256:486ef386ca587e5a3366df556da6140e9fd633462580a53c63942af411c9f40f",
+				},
+				"x86_64-linux": {
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2024.10.03/utils_x86_64_linux.tar.zst",
+					checksum: "sha256:dcbc2b66a046a66216f4c54d79f2a434c086346799f28b7f405bd6a2dc0e8543",
+				},
+			};
+
+			export const env = (host?: string) => {
+				const host_ = host ?? tg.process.env.TANGRAM_HOST;
+				tg.assert(typeof host_ === "string");
+				const kv = Object.entries(SOURCES).find(([k, _]) => k === host_);
+				tg.assert(kv, `unknown host: ${host_}`);
+				const { url, checksum } = kv[1];
+				const dir = tg.download(url, checksum, { mode: "extract" }).then(tg.Directory.expect);
+				return { PATH: tg.Mutation.suffix(tg`${dir}/bin`, ":") };
+			};
+
+			export default env;
+		';
+		$busybox_source | save ($busybox_path | path join 'tangram.ts')
+		run tangram check $busybox_path
+		run tangram -c ($config_path) tag 'busybox' $busybox_path
+		run rm -rf $busybox_path
+	}
 
 	loop {
 		let output = tg health | complete

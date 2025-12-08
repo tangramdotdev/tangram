@@ -1,13 +1,14 @@
 use ../../test.nu *
 
-let server = spawn
+let server = spawn --busybox
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
-			return await tg.run`echo "Hello, World!"`;
-		};
+		import busybox from "busybox";
+		export default () => tg.run`echo "Hello, World!" > ${tg.output}`.env(tg.build(busybox));
 	'
 }
 
-run tg build $path
+let id = run tg build $path
+let object = run tg object get --blobs --depth=inf --pretty $id
+snapshot $object
