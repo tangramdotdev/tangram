@@ -84,6 +84,7 @@ pub struct Advanced {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_dequeue_timeout: Duration,
 	pub shared_directory: bool,
+	pub shared_process: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -460,6 +461,7 @@ impl Default for Advanced {
 			process_dequeue_timeout: Duration::from_secs(3600),
 			preserve_temp_directories: false,
 			shared_directory: true,
+			shared_process: true,
 		}
 	}
 }
