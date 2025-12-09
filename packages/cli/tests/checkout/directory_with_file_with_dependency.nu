@@ -25,10 +25,10 @@ let artifact = artifact {
 		}
 	'
 }
-let id = run tg build $artifact
+let id = tg build $artifact
 
 let path = $tmp | path join "checkout"
-run tg checkout $id $path
+tg checkout $id $path
 snapshot --path $path
 
 let lockfile = open ($path | path join 'tangram.lock')

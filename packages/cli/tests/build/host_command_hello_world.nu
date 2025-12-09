@@ -9,6 +9,6 @@ let path = artifact {
 	'
 }
 
-let id = run tg build $path
-let object = run tg object get --blobs --depth=inf --pretty $id
+let id = tg build $path
+let object = tg object get --blobs --depth=inf --pretty $id
 snapshot $object

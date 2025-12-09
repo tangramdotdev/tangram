@@ -7,5 +7,5 @@ let path = artifact {
 }
 
 # Run tree command.
-let output = run tg tree $path
+let output = tg tree $path
 snapshot $output

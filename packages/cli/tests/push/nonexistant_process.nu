@@ -8,7 +8,7 @@ export def test_push [...args] {
 	let local_server = spawn -n local
 
 	# Add the remote.
-	run tg remote put default $remote_server.url
+	tg remote put default $remote_server.url
 
 	# Try to push a nonexistent process.
 	let fake_process_id = "pcs_0000000000000000000000000000"
@@ -24,7 +24,7 @@ export def test_pull [...args] {
 	let local_server = spawn -n local
 
 	# Add the remote.
-	run tg remote put default $remote_server.url
+	tg remote put default $remote_server.url
 
 	# Try to pull a nonexistent process from the remote.
 	let fake_process_id = "pcs_0000000000000000000000000000"

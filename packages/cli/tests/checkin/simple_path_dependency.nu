@@ -11,13 +11,13 @@ let path = artifact {
 	}
 }
 
-let id = run tg checkin ($path | path join 'foo')
-run tg index
+let id = tg checkin ($path | path join 'foo')
+tg index
 
-let object = run tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --pretty $id
 snapshot -n object $object
 
-let metadata = run tg object metadata --pretty $id
+let metadata = tg object metadata --pretty $id
 snapshot -n metadata $metadata
 
 # This should not create a lockfile since it only has a local path dependency.

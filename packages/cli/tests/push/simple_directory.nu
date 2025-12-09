@@ -25,15 +25,15 @@ let path = artifact {
 }
 
 # Build the module.
-let id = run tg build $path
+let id = tg build $path
 
 # Push with optional flags.
 let output = (tg push $id --eager) | complete
 success $output
 
 # Confirm object is identical locally and remotely.
-let local_object = run tg get $id --blobs --depth=inf --pretty
-let remote_object = run tg --url $remote_server.url get $id --blobs --depth=inf --pretty
+let local_object = tg get $id --blobs --depth=inf --pretty
+let remote_object = tg --url $remote_server.url get $id --blobs --depth=inf --pretty
 
 assert equal $local_object $remote_object
 
@@ -42,6 +42,6 @@ success (tg --url $local_server.url index | complete)
 success (tg --url $remote_server.url index | complete)
 
 # Confirm metadata matches.
-let local_metadata  = run tg --url $local_server.url object metadata $id --pretty
-let remote_metadata = run tg --url $remote_server.url object metadata $id --pretty
+let local_metadata  = tg --url $local_server.url object metadata $id --pretty
+let remote_metadata = tg --url $remote_server.url object metadata $id --pretty
 assert equal $local_metadata $remote_metadata

@@ -10,5 +10,7 @@ let path = artifact {
 	'
 }
 
-let output = run tg run $path
-snapshot $output
+let output = tg run $path
+snapshot $output '
+	Hello, World!
+'

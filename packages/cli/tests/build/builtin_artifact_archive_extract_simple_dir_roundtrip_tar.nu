@@ -16,4 +16,4 @@ let path = artifact {
 	'
 }
 
-run tg build $path
+tg build $path

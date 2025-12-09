@@ -34,7 +34,7 @@ let path = artifact {
 }
 
 # Build the module.
-let id = run tg build $path
+let id = tg build $path
 
 # Checkout the artifact.
 let temp_dir = mktemp -d

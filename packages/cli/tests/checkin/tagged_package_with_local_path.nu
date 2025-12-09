@@ -8,7 +8,7 @@ let a_path = artifact {
 		export default () => "a";
 	'
 }
-run tg tag a $a_path
+tg tag a $a_path
 
 let path = artifact {
 	tangram.ts: '
@@ -24,13 +24,13 @@ let path = artifact {
 	}
 }
 
-let id = run tg checkin --no-local-dependencies $path
-run tg index
+let id = tg checkin --no-local-dependencies $path
+tg index
 
-let object = run tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --pretty $id
 snapshot -n object $object
 
-let metadata = run tg object metadata --pretty $id
+let metadata = tg object metadata --pretty $id
 snapshot -n metadata $metadata
 
 # This should create a lockfile since it has a tagged dependency.

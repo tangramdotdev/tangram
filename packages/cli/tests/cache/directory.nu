@@ -8,10 +8,10 @@ let artifact = '
 		"hello.txt": "Hello, World!"
 	})
 '
-let id = run tg put $artifact
+let id = tg put $artifact
 
 # Cache.
-let output = run tg cache $id
+let output = tg cache $id
 
 # Snapshot.
 snapshot --path ($server.directory | path join "artifacts")

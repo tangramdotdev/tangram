@@ -6,7 +6,7 @@ let server = spawn
 let foo_path = artifact {
 	tangram.ts: 'export default () => tg.file("foo");'
 }
-run tg tag foo/1.0.0 $foo_path
+tg tag foo/1.0.0 $foo_path
 
 # Create and build the main artifact.
 let artifact = artifact {
@@ -15,16 +15,16 @@ let artifact = artifact {
 		export default () => tg.directory({ foo: foo() });
 	'
 }
-let id = run tg build $artifact
+let id = tg build $artifact
 
 let tmp = mktemp -d
 let path = $tmp | path join "checkout"
-run tg checkout --dependencies=true $id $path
+tg checkout --dependencies=true $id $path
 
 # Clean.
-run tg tag delete foo/1.0.0
-run tg clean
+tg tag delete foo/1.0.0
+tg clean
 
-let left = run tg checkin $path
+let left = tg checkin $path
 
 assert equal $left $id

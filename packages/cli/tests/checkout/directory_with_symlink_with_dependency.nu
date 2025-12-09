@@ -13,8 +13,8 @@ let artifact = artifact {
 		}
 	'
 }
-let id = run tg build $artifact
+let id = tg build $artifact
 
 let path = $tmp | path join "checkout"
-run tg checkout --dependencies=true $id $path
+tg checkout --dependencies=true $id $path
 snapshot --path $path

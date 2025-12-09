@@ -12,5 +12,5 @@ let path = artifact {
 	bar.txt: 'bar'
 }
 
-let output = run tg build $path
+let output = tg build $path
 snapshot $output

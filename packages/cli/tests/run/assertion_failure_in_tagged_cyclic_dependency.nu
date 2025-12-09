@@ -17,7 +17,7 @@ let foo = artifact {
 		'
 	}
 }
-run tg tag foo ($foo | path join 'foo')
+tg tag foo ($foo | path join 'foo')
 
 let path = artifact {
 	tangram.ts: '

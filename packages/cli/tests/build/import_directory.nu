@@ -16,5 +16,5 @@ let path = artifact {
 	}
 }
 
-let output = run tg build $path
+let output = tg build $path
 snapshot $output

@@ -29,10 +29,10 @@ let artifact = artifact {
 		}
 	'
 }
-let id = run tg build $artifact
+let id = tg build $artifact
 
 # Cache.
-run tg cache $id
+tg cache $id
 
 # Snapshot.
 snapshot --path ($server.directory | path join "artifacts")

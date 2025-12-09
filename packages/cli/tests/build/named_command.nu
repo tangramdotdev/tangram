@@ -9,5 +9,5 @@ let path = artifact {
 	'
 }
 
-let output = run tg build ($path + '#five')
+let output = tg build ($path + '#five')
 snapshot $output

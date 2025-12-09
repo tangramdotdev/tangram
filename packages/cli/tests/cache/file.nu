@@ -6,10 +6,10 @@ let server = spawn
 let artifact = '
 	tg.file("Hello, World!")
 '
-let id = run tg put $artifact
+let id = tg put $artifact
 
 # Cache.
-run tg cache $id
+tg cache $id
 
 # Snapshot.
 snapshot --path ($server.directory | path join "artifacts")

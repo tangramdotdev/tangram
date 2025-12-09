@@ -10,5 +10,5 @@ let path = artifact {
 	bar.tg.ts: 'export default () => "Hello from bar"'
 }
 
-let output = run tg build $path
+let output = tg build $path
 snapshot $output

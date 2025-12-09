@@ -14,5 +14,5 @@ let path = artifact {
 	hello.txt: 'Hello, World!'
 }
 
-let output = run tg build $path
+let output = tg build $path
 snapshot $output

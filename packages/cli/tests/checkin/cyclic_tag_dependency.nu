@@ -4,7 +4,7 @@ let server = spawn
 
 # Tag b with an empty package.
 let empty_b = artifact {}
-run tg tag b $empty_b
+tg tag b $empty_b
 
 # Create a and b with cyclic dependencies.
 let path = artifact {
@@ -21,9 +21,9 @@ let path = artifact {
 }
 
 # Tag a with local dependencies.
-run tg tag a ($path | path join 'a')
+tg tag a ($path | path join 'a')
 
 # Tag b again without local dependencies (this should succeed despite the cycle).
-run tg tag --no-local-dependencies b ($path | path join 'b')
+tg tag --no-local-dependencies b ($path | path join 'b')
 
 # The test passes if both tag commands succeed.

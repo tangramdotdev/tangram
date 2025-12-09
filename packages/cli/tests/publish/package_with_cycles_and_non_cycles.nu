@@ -126,29 +126,29 @@ for package in $packages {
 	let id = $package.id
 
 	# Verify tag on local.
-	let local_tag = run tg tag get $tag | from json | get item
+	let local_tag = tg tag get $tag | from json | get item
 	assert equal $local_tag $id $"Local tag for ($tag) does not match expected ID."
 
 	# Verify tag on remote.
-	let remote_tag = run tg --url $remote.url tag get $tag | from json | get item
+	let remote_tag = tg --url $remote.url tag get $tag | from json | get item
 	assert equal $remote_tag $id $"Remote tag for ($tag) does not match expected ID."
 
 	# Verify object synced.
-	let local_obj = run tg object get $id
-	let remote_obj = run tg --url $remote.url object get $id
+	let local_obj = tg object get $id
+	let remote_obj = tg --url $remote.url object get $id
 	assert equal $local_obj $remote_obj $"Object for ($tag) not synced between local and remote."
 }
 
 # Index servers.
-run tg --url $remote.url index
-run tg index
+tg --url $remote.url index
+tg index
 
 # Verify metadata is synced for all packages.
 for package in $packages {
 	let tag = $package.tag
 	let id = $package.id
 
-	let local_metadata = run tg object metadata $id | from json
-	let remote_metadata = run tg --url $remote.url object metadata $id | from json
+	let local_metadata = tg object metadata $id | from json
+	let remote_metadata = tg --url $remote.url object metadata $id | from json
 	assert equal $local_metadata $remote_metadata $"Metadata for ($tag) not synced between local and remote."
 }

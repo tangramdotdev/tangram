@@ -6,7 +6,7 @@ let server = spawn
 let path = artifact 'Hello, World!'
 
 # Check in.
-let id = run tg checkin $path
+let id = tg checkin $path
 
 # Tag the objects.
 let tags = [
@@ -23,49 +23,49 @@ let tags = [
 ]
 
 for tag in $tags {
-	run tg tag put $tag $id
+	tg tag put $tag $id
 }
 
 # List empty pattern.
-let output = run tg tag list ""
+let output = tg tag list ""
 snapshot -n "list_empty" $output
 
 # List test.
-let output = run tg tag list "test"
+let output = tg tag list "test"
 snapshot -n "list_test" $output
 
 # List test/*/*
-let output = run tg tag list "test/*/*"
+let output = tg tag list "test/*/*"
 snapshot -n "list_test_star_star" $output
 
 # List test/*
-let output = run tg tag list "test/*"
+let output = tg tag list "test/*"
 snapshot -n "list_test_star" $output
 
 # List test/=0.0.1/*
-let output = run tg tag list "test/=0.0.1/*"
+let output = tg tag list "test/=0.0.1/*"
 snapshot -n "list_test_exact_star" $output
 
 # List test/=0.0.1
-let output = run tg tag list "test/=0.0.1"
+let output = tg tag list "test/=0.0.1"
 snapshot -n "list_test_exact" $output
 
 # List test/* recursive.
-let output = run tg tag list --recursive "test/*"
+let output = tg tag list --recursive "test/*"
 snapshot -n "list_test_star_recursive" $output
 
 # List test recursive.
-let output = run tg tag list --recursive "test"
+let output = tg tag list --recursive "test"
 snapshot -n "list_test_recursive" $output
 
 # Get test.
-let output = run tg tag get "test"
+let output = tg tag get "test"
 snapshot -n "get_test" $output
 
 # Get test/^1
-let output = run tg tag get "test/^1"
+let output = tg tag get "test/^1"
 snapshot -n "get_test_caret1" $output
 
 # Get test/^10
-let output = run tg tag get "test/^10"
+let output = tg tag get "test/^10"
 snapshot -n "get_test_caret10" $output

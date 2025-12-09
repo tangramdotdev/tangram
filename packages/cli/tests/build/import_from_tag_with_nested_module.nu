@@ -19,7 +19,7 @@ let a_path = artifact {
 		'
 	}
 }
-run tg tag a $a_path
+tg tag a $a_path
 
 # Create package b that imports a.
 let b_path = artifact {
@@ -31,7 +31,7 @@ let b_path = artifact {
 	'
 }
 
-run tg build $b_path
+tg build $b_path
 
 # Mutate b to call a.baz() instead.
 let new_tangram = '
@@ -43,4 +43,4 @@ let new_tangram = '
 $new_tangram | save -f ($b_path | path join 'tangram.ts')
 
 # Rebuild.
-run tg build $b_path
+tg build $b_path

@@ -10,10 +10,10 @@ let path = artifact {
 }
 
 # Check in with --unsolved-dependencies. The dependency should be unsolved.
-let id1 = run tg checkin --watch --unsolved-dependencies $path
-run tg index
+let id1 = tg checkin --watch --unsolved-dependencies $path
+tg index
 
-let object1 = run tg object get --blobs --depth=inf --pretty $id1
+let object1 = tg object get --blobs --depth=inf --pretty $id1
 snapshot -n object_before $object1
 
 # Now create the tag.
@@ -23,10 +23,10 @@ let a = artifact {
 tg tag a/1.0.0 $a
 
 # Check in again without --unsolved-dependencies. The dependency should now be resolved.
-let id2 = run tg checkin --watch $path
-run tg index
+let id2 = tg checkin --watch $path
+tg index
 
-let object2 = run tg object get --blobs --depth=inf --pretty $id2
+let object2 = tg object get --blobs --depth=inf --pretty $id2
 snapshot -n object_after $object2
 
 let lockfile_path = $path | path join 'tangram.lock'

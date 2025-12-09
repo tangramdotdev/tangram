@@ -15,25 +15,25 @@ let path = artifact {
 	'
 }
 
-let id = run tg checkin $path
-run tg publish $path
+let id = tg checkin $path
+tg publish $path
 
 # Verify tag on local.
-let local_tag = run tg tag get test-pkg/1.0.0 | from json | get item
+let local_tag = tg tag get test-pkg/1.0.0 | from json | get item
 assert equal $local_tag $id "Local tag does not match expected ID."
 
 # Verify tag on remote.
-let remote_tag = run tg --url $remote.url tag get test-pkg/1.0.0 | from json | get item
+let remote_tag = tg --url $remote.url tag get test-pkg/1.0.0 | from json | get item
 assert equal $remote_tag $id "Remote tag does not match expected ID."
 
 # Verify object synced.
-let local_object = run tg object get $id
-let remote_object = run tg --url $remote.url object get $id
+let local_object = tg object get $id
+let remote_object = tg --url $remote.url object get $id
 assert equal $local_object $remote_object "Object not synced between local and remote."
 
 # Index servers.
-run tg --url $remote.url index
-run tg index
+tg --url $remote.url index
+tg index
 
 # Verify metadata synced.
 let local_metadata_result = tg object metadata $id | complete

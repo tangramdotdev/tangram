@@ -63,16 +63,13 @@ def main [
 				TANGRAM_MODE: client,
 				TMPDIR: $temp_path,
 			} {
-				let startup = '
-					$env.config.display_errors.exit_code = true
-				'
 				if $no_capture {
 					try {
-						open /dev/null | timeout $timeout nu -e $startup $test.path o+e> /dev/tty
+						open /dev/null | timeout $timeout nu -c $'$env.config.display_errors.exit_code = true; source ($test.path)' o+e> /dev/tty
 					}
 					{ exit_code: $env.LAST_EXIT_CODE, stdout: '', stderr: '' }
 				} else {
-					open /dev/null | timeout $timeout nu -e $startup $test.path o+e>| complete
+					open /dev/null | timeout $timeout nu -c $'$env.config.display_errors.exit_code = true; source ($test.path)' o+e>| complete
 				}
 			}
 			let end = date now
@@ -737,9 +734,9 @@ export def --env spawn [
 			export default env;
 		';
 		$source | save ($path | path join 'tangram.ts')
-		run tangram check $path
-		run tangram -c ($config_path) tag 'busybox' $path
-		run rm -rf $path
+		tg check $path
+		tg -c ($config_path) tag 'busybox' $path
+		rm -rf $path
 	}
 
 	{ config: $config_path, directory: $directory_path, url: $url }
@@ -756,21 +753,6 @@ def cleanup [id: string] {
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }
-}
-
-export def --wrapped run [...command] {
-	let output = ^$command.0 ...($command | skip 1) | complete
-	if $output.exit_code != 0 {
-		error make {
-			msg: 'the process failed',
-			label: {
-				span: (metadata $command).span,
-				text: 'the command',
-			},
-			help: $output.stderr,
-		}
-	}
-	$output.stdout
 }
 
 def diff [old: string, new: string, --path] {

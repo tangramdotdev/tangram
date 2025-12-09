@@ -7,17 +7,17 @@ let path = artifact {
 }
 
 # Build the export.
-let a_id = run tg build ($path + '#a')
+let a_id = tg build ($path + '#a')
 
 # Tag a with the same tag twice.
-run tg tag mytag $a_id
-run tg tag mytag $a_id
+tg tag mytag $a_id
+tg tag mytag $a_id
 
 # Delete the tag.
-run tg tag delete mytag
+tg tag delete mytag
 
 # Clean.
-run tg clean
+tg clean
 
 # Verify a was cleaned (no longer tagged).
 let a_get = tg object get $a_id | complete

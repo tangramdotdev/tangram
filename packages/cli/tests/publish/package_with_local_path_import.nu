@@ -34,11 +34,11 @@ let main_path = $shared_path | path join main
 
 # Checkin the dep package to get its ID, but do not create a tag.
 cd $dep_path
-run tg checkin .
+tg checkin .
 
 # Checkin the main package to get its ID, but do not create a tag.
 cd $main_path
-run tg checkin .
+tg checkin .
 
 # Publish the main package without having created tags beforehand.
 # This should discover the local dep, create its tag, publish it, then publish main.
@@ -64,39 +64,39 @@ let published_dep_id = do $extract_published_id "test-dep/1.0.0"
 let published_main_id = do $extract_published_id "test-main/1.0.0"
 
 # Verify both packages are tagged on local with the published IDs.
-let local_dep_tag = run tg tag get test-dep/1.0.0 | from json | get item
-let local_main_tag = run tg tag get test-main/1.0.0 | from json | get item
+let local_dep_tag = tg tag get test-dep/1.0.0 | from json | get item
+let local_main_tag = tg tag get test-main/1.0.0 | from json | get item
 assert equal $local_dep_tag $published_dep_id "Local dependency tag does not match published ID."
 assert equal $local_main_tag $published_main_id "Local main tag does not match published ID."
 
 # Verify both packages are tagged on remote with the published IDs.
-let remote_dep_tag = run tg --url $remote.url tag get test-dep/1.0.0 | from json | get item
-let remote_main_tag = run tg --url $remote.url tag get test-main/1.0.0 | from json | get item
+let remote_dep_tag = tg --url $remote.url tag get test-dep/1.0.0 | from json | get item
+let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item
 assert equal $remote_dep_tag $published_dep_id "Remote dependency tag does not match published ID."
 assert equal $remote_main_tag $published_main_id "Remote main tag does not match published ID."
 
 # Verify both packages are synced using the published IDs.
-let local_dep_obj = run tg object get $published_dep_id
-let remote_dep_obj = run tg --url $remote.url object get $published_dep_id
-let local_main_obj = run tg object get $published_main_id
-let remote_main_obj = run tg --url $remote.url object get $published_main_id
+let local_dep_obj = tg object get $published_dep_id
+let remote_dep_obj = tg --url $remote.url object get $published_dep_id
+let local_main_obj = tg object get $published_main_id
+let remote_main_obj = tg --url $remote.url object get $published_main_id
 assert equal $local_dep_obj $remote_dep_obj "Dependency object not synced between local and remote."
 assert equal $local_main_obj $remote_main_obj "Main object not synced between local and remote."
 
 # Index servers.
-run tg --url $remote.url index
-run tg index
+tg --url $remote.url index
+tg index
 
 # Verify metadata synced.
-let local_dep_metadata = run tg object metadata $published_dep_id | from json
-let remote_dep_metadata = run tg --url $remote.url object metadata $published_dep_id | from json
-let local_main_metadata = run tg object metadata $published_main_id | from json
-let remote_main_metadata = run tg --url $remote.url object metadata $published_main_id | from json
+let local_dep_metadata = tg object metadata $published_dep_id | from json
+let remote_dep_metadata = tg --url $remote.url object metadata $published_dep_id | from json
+let local_main_metadata = tg object metadata $published_main_id | from json
+let remote_main_metadata = tg --url $remote.url object metadata $published_main_id | from json
 assert equal $local_dep_metadata $remote_dep_metadata "Dependency metadata not synced between local and remote."
 assert equal $local_main_metadata $remote_main_metadata "Main metadata not synced between local and remote."
 
 # Verify that main package has dependency on dep by tag, not by local path.
-let main_object = run tg get $published_main_id --blobs --depth=inf
+let main_object = tg get $published_main_id --blobs --depth=inf
 
 # The referent should have the "tag" key and NOT the "path" key.
 assert ($main_object | str contains '"tag"') "Main package's dependency referent should have a 'tag' field."

@@ -27,28 +27,28 @@ let path = artifact {
 }
 
 # Build all exports and get their object IDs.
-let a_id = run tg build ($path + '#a')
+let a_id = tg build ($path + '#a')
 
-let b_id = run tg build ($path + '#b')
+let b_id = tg build ($path + '#b')
 
-let c_id = run tg build ($path + '#c')
+let c_id = tg build ($path + '#c')
 
-let d_id = run tg build ($path + '#d')
+let d_id = tg build ($path + '#d')
 
-let e_id = run tg build ($path + '#e')
+let e_id = tg build ($path + '#e')
 
-let f_id = run tg build ($path + '#f')
+let f_id = tg build ($path + '#f')
 
-let g_id = run tg build ($path + '#g')
+let g_id = tg build ($path + '#g')
 
-let h_id = run tg build ($path + '#h')
+let h_id = tg build ($path + '#h')
 
 # Tag c and h.
-run tg tag c $c_id
-run tg tag h $h_id
+tg tag c $c_id
+tg tag h $h_id
 
 # Clean.
-run tg clean
+tg clean
 
 # Verify which objects were cleaned.
 let a_get = tg object get $a_id | complete
@@ -57,7 +57,7 @@ failure $a_get
 let b_get = tg object get $b_id | complete
 failure $b_get
 
-run tg object get $c_id
+tg object get $c_id
 
 let d_get = tg object get $d_id | complete
 failure $d_get
@@ -68,6 +68,6 @@ failure $e_get
 let f_get = tg object get $f_id | complete
 failure $f_get
 
-run tg object get $g_id
+tg object get $g_id
 
-run tg object get $h_id
+tg object get $h_id

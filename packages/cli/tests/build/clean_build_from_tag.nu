@@ -21,15 +21,15 @@ let path = artifact {
 }
 
 # Build.
-let id = run tg checkin $path
-let output_id = run tg build $id
+let id = tg checkin $path
+let output_id = tg build $id
 
 # Push the tag.
-run tg tag test-pkg/1.0.0 $id
-run tg push test-pkg/1.0.0
+tg tag test-pkg/1.0.0 $id
+tg push test-pkg/1.0.0
 
 # Build from the tag. This should pull the artifact from the remote.
-let output_two_id = run tg -u $local_two.url build test-pkg/1.0.0
+let output_two_id = tg -u $local_two.url build test-pkg/1.0.0
 
 # Verify the objects are the same.
 assert equal $output_id $output_two_id "objects should be the same"

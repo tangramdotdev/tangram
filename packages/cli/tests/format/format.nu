@@ -19,7 +19,7 @@ let path = artifact {
 }
 
 # Format the package.
-run tg format $path
+tg format $path
 
 # Snapshot the package.
 snapshot --path $path
