@@ -152,15 +152,28 @@ impl Server {
 	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			node_size: Option<u64>,
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
 			subtree_count: Option<u64>,
 			subtree_depth: Option<u64>,
 			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
+				select
+					node_size,
+					node_solvable,
+					node_solved,
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solvable,
+					subtree_solved,
+					subtree_stored
 				from objects
 				where id = ?1;
 			",
@@ -186,11 +199,15 @@ impl Server {
 		let metadata = tg::object::Metadata {
 			node: tg::object::metadata::Node {
 				size: row.node_size,
+				solvable: row.node_solvable,
+				solved: row.node_solved,
 			},
 			subtree: tg::object::metadata::Subtree {
 				count: row.subtree_count,
 				depth: row.subtree_depth,
 				size: row.subtree_size,
+				solvable: row.subtree_solvable,
+				solved: row.subtree_solved,
 			},
 		};
 		Ok(Some((stored, metadata)))
@@ -228,15 +245,28 @@ impl Server {
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			node_size: Option<u64>,
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
 			subtree_count: Option<u64>,
 			subtree_depth: Option<u64>,
 			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
+				select
+					node_size,
+					node_solvable,
+					node_solved,
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solvable,
+					subtree_solved,
+					subtree_stored
 				from objects
 				where id = ?1;
 			"
@@ -265,11 +295,15 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				node: tg::object::metadata::Node {
 					size: row.node_size,
+					solvable: row.node_solvable,
+					solved: row.node_solved,
 				},
 				subtree: tg::object::metadata::Subtree {
 					count: row.subtree_count,
 					depth: row.subtree_depth,
 					size: row.subtree_size,
+					solvable: row.subtree_solvable,
+					solved: row.subtree_solved,
 				},
 			};
 			outputs.push(Some((stored, metadata)));
@@ -307,10 +341,14 @@ impl Server {
 	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			node_size: Option<u64>,
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
 			subtree_count: Option<u64>,
 			subtree_depth: Option<u64>,
 			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
@@ -318,7 +356,16 @@ impl Server {
 				update objects
 				set touched_at = max(?1, touched_at)
 				where id = ?2
-				returning node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
+				returning
+					node_size,
+					node_solvable,
+					node_solved,
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solvable,
+					subtree_solved,
+					subtree_stored;
 			"
 		);
 		let mut statement = connection
@@ -342,11 +389,15 @@ impl Server {
 		let metadata = tg::object::Metadata {
 			node: tg::object::metadata::Node {
 				size: row.node_size,
+				solvable: row.node_solvable,
+				solved: row.node_solved,
 			},
 			subtree: tg::object::metadata::Subtree {
 				count: row.subtree_count,
 				depth: row.subtree_depth,
 				size: row.subtree_size,
+				solvable: row.subtree_solvable,
+				solved: row.subtree_solved,
 			},
 		};
 		Ok(Some((stored, metadata)))
@@ -398,10 +449,14 @@ impl Server {
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
-			node_size: Option<u64>,
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
 			subtree_count: Option<u64>,
 			subtree_depth: Option<u64>,
 			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
@@ -409,7 +464,16 @@ impl Server {
 				update objects
 				set touched_at = max(?1, touched_at)
 				where id = ?2
-				returning node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
+				returning
+					node_size,
+					node_solvable,
+					node_solved,
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solvable,
+					subtree_solved,
+					subtree_stored;
 			"
 		);
 		let mut statement = transaction
@@ -436,11 +500,15 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				node: tg::object::metadata::Node {
 					size: row.node_size,
+					solvable: row.node_solvable,
+					solved: row.node_solved,
 				},
 				subtree: tg::object::metadata::Subtree {
 					count: row.subtree_count,
 					depth: row.subtree_depth,
 					size: row.subtree_size,
+					solvable: row.subtree_solvable,
+					solved: row.subtree_solved,
 				},
 			};
 			outputs.push(Some((stored, metadata)));

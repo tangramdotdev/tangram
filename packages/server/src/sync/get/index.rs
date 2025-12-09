@@ -231,18 +231,26 @@ impl Server {
 					if node.stored.is_some() && node.metadata.is_some() {
 						continue;
 					}
+					let Some(metadata) = &node.metadata else {
+						continue;
+					};
 
 					// Initialize the stored output.
 					let mut stored = true;
 
-					// Initialize the metadata.
-					let node_size = node.metadata.as_ref().and_then(|m| m.node.size);
+					// Initialize the metadata from existing node metadata.
 					let mut metadata = tg::object::Metadata {
-						node: tg::object::metadata::Node { size: node_size },
+						node: tg::object::metadata::Node {
+							size: metadata.node.size,
+							solvable: metadata.node.solvable,
+							solved: metadata.node.solved,
+						},
 						subtree: tg::object::metadata::Subtree {
 							count: Some(1),
 							depth: Some(1),
-							size: node_size,
+							size: Some(metadata.node.size),
+							solvable: Some(metadata.node.solvable),
+							solved: Some(metadata.node.solved),
 						},
 					};
 
@@ -286,6 +294,26 @@ impl Server {
 										.and_then(|metadata| metadata.subtree.size),
 								)
 								.map(|(a, b)| a + b);
+							metadata.subtree.solvable = metadata
+								.subtree
+								.solvable
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.subtree.solvable),
+								)
+								.map(|(a, b)| a || b);
+							metadata.subtree.solved = metadata
+								.subtree
+								.solved
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.subtree.solved),
+								)
+								.map(|(a, b)| a && b);
 						}
 					} else {
 						stored = false;
@@ -316,16 +344,20 @@ impl Server {
 					// Initialize the metadata.
 					let mut metadata = tg::process::Metadata {
 						subtree: tg::process::metadata::Subtree {
-							process_count: Some(1),
+							count: Some(1),
 							command: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
 								size: Some(0),
+								solvable: None,
+								solved: None,
 							},
 							output: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
 								size: Some(0),
+								solvable: None,
+								solved: None,
 							},
 						},
 						node: tg::process::metadata::Node {
@@ -333,11 +365,15 @@ impl Server {
 								count: None,
 								depth: None,
 								size: None,
+								solvable: None,
+								solved: None,
 							},
 							output: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
 								size: Some(0),
+								solvable: None,
+								solved: None,
 							},
 						},
 					};
@@ -355,15 +391,10 @@ impl Server {
 									.stored
 									.as_ref()
 									.is_some_and(|stored| stored.subtree);
-							metadata.subtree.process_count = metadata
+							metadata.subtree.count = metadata
 								.subtree
-								.process_count
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|m| m.subtree.process_count),
-								)
+								.count
+								.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
 								.map(|(a, b)| a + b);
 							stored.subtree_command = stored.subtree_command
 								&& child_node

@@ -94,8 +94,8 @@ impl Server {
 			};
 			let mut message = tg::sync::ProgressMessage::default();
 			if state.arg.recursive {
-				if let Some(process_count) = metadata.subtree.process_count {
-					message.processes += process_count;
+				if let Some(count) = metadata.subtree.count {
+					message.processes += count;
 				}
 				if state.arg.commands {
 					if let Some(commands_count) = metadata.subtree.command.count {

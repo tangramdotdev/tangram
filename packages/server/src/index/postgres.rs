@@ -83,7 +83,15 @@ impl Server {
 			.collect::<Vec<_>>();
 		let object_node_sizes = put_object_messages
 			.values()
-			.map(|message| message.metadata.node.size.unwrap().to_i64().unwrap())
+			.map(|message| message.metadata.node.size.to_i64().unwrap())
+			.collect::<Vec<_>>();
+		let object_node_solvables = put_object_messages
+			.values()
+			.map(|message| message.metadata.node.solvable)
+			.collect::<Vec<_>>();
+		let object_node_solveds = put_object_messages
+			.values()
+			.map(|message| message.metadata.node.solved)
 			.collect::<Vec<_>>();
 		let object_touched_ats = put_object_messages
 			.values()
@@ -118,6 +126,14 @@ impl Server {
 					.size
 					.map(|size| size.to_i64().unwrap())
 			})
+			.collect::<Vec<_>>();
+		let object_subtree_solvables = put_object_messages
+			.values()
+			.map(|message| message.metadata.subtree.solvable)
+			.collect::<Vec<_>>();
+		let object_subtree_solveds = put_object_messages
+			.values()
+			.map(|message| message.metadata.subtree.solved)
 			.collect::<Vec<_>>();
 		let object_subtree_storeds = put_object_messages
 			.values()
@@ -189,7 +205,7 @@ impl Server {
 				message
 					.metadata
 					.subtree
-					.process_count
+					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
@@ -443,22 +459,22 @@ impl Server {
 					$3::bytea[],
 					$4::bytea[],
 					$5::int8[],
-					$6::int8[],
-					$7::int8[],
+					$6::bool[],
+					$7::bool[],
 					$8::int8[],
 					$9::int8[],
-					$10::bool[],
-					$11::bytea[],
-					$12::int8[],
-					$13::int8[],
-					$14::bytea[],
+					$10::int8[],
+					$11::int8[],
+					$12::bool[],
+					$13::bool[],
+					$14::bool[],
 					$15::bytea[],
 					$16::int8[],
-					$17::bool[],
-					$18::int8[],
-					$19::bool[],
+					$17::int8[],
+					$18::bytea[],
+					$19::bytea[],
 					$20::int8[],
-					$21::int8[],
+					$21::bool[],
 					$22::int8[],
 					$23::bool[],
 					$24::int8[],
@@ -472,17 +488,21 @@ impl Server {
 					$32::int8[],
 					$33::int8[],
 					$34::int8[],
-					$35::bytea[],
+					$35::bool[],
 					$36::int8[],
 					$37::int8[],
-					$38::bytea[],
-					$39::int8[],
+					$38::int8[],
+					$39::bytea[],
 					$40::int8[],
 					$41::int8[],
 					$42::bytea[],
-					$43::text[],
-					$44::bytea[],
-					$45::text[]
+					$43::int8[],
+					$44::int8[],
+					$45::int8[],
+					$46::bytea[],
+					$47::text[],
+					$48::bytea[],
+					$49::text[]
 				);
 			"
 		);
@@ -496,10 +516,14 @@ impl Server {
 					&object_ids.as_slice(),
 					&object_cache_entries.as_slice(),
 					&object_node_sizes.as_slice(),
+					&object_node_solvables.as_slice(),
+					&object_node_solveds.as_slice(),
 					&object_touched_ats.as_slice(),
 					&object_subtree_counts.as_slice(),
 					&object_subtree_depths.as_slice(),
 					&object_subtree_sizes.as_slice(),
+					&object_subtree_solvables.as_slice(),
+					&object_subtree_solveds.as_slice(),
 					&object_subtree_storeds.as_slice(),
 					&object_children.as_slice(),
 					&object_parent_indices.as_slice(),

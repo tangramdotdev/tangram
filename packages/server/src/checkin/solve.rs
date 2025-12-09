@@ -623,6 +623,7 @@ impl Server {
 			})
 			.await
 			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+
 		let candidates = output
 			.data
 			.into_iter()
@@ -634,6 +635,7 @@ impl Server {
 				Some(candidate)
 			})
 			.collect::<im::Vector<_>>();
+
 		Ok(candidates)
 	}
 
@@ -650,6 +652,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+
+		// Get the object's metadata.
+		let metadata = self
+			.try_get_object_metadata(&id.clone().into(), tg::object::metadata::Arg::default())
+			.await?;
 
 		// Create the checkin graph node.
 		let variant = match data {
@@ -713,6 +720,7 @@ impl Server {
 			},
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
+
 		let node = Node {
 			artifact: None,
 			edge: None,
@@ -722,7 +730,10 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: true,
+			solvable: metadata
+				.as_ref()
+				.and_then(|metadata| metadata.subtree.solvable)
+				.unwrap_or(true),
 			solved: false,
 			stored: crate::object::stored::Output::default(),
 			variant,
@@ -767,6 +778,14 @@ impl Server {
 			.nodes
 			.get(node_index)
 			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
+
+		// Get the graph's metadata.
+		let metadata = self
+			.try_get_object_metadata(
+				&graph_id.clone().into(),
+				tg::object::metadata::Arg::default(),
+			)
+			.await?;
 
 		// Create the checkin graph node.
 		let variant = match graph_node {
@@ -865,6 +884,7 @@ impl Server {
 			},
 		};
 		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
+
 		let node = Node {
 			artifact: None,
 			edge: None,
@@ -874,7 +894,10 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: true,
+			solvable: metadata
+				.as_ref()
+				.and_then(|metadata| metadata.subtree.solvable)
+				.unwrap_or(true),
 			solved: false,
 			stored: crate::object::stored::Output::default(),
 			variant,
@@ -937,8 +960,8 @@ impl Server {
 		// Get the node.
 		let node = checkpoint.graph.nodes.get(&index).unwrap();
 
-		// If the node is solved, then do not enqueue any of its items.
-		if node.solved {
+		// If the node is not solvable or is solved, then do not enqueue any of its items.
+		if !node.solvable || node.solved {
 			return;
 		}
 

@@ -5,10 +5,14 @@ create or replace procedure handle_messages(
 	object_ids bytea[],
 	object_cache_entries bytea[],
 	object_node_sizes int8[],
+	object_node_solvables bool[],
+	object_node_solveds bool[],
 	object_touched_ats int8[],
 	object_subtree_counts int8[],
 	object_subtree_depths int8[],
 	object_subtree_sizes int8[],
+	object_subtree_solvables bool[],
+	object_subtree_solveds bool[],
 	object_subtree_storeds bool[],
 	object_children bytea[],
 	object_parent_indices int8[],
@@ -60,10 +64,14 @@ begin
 		object_ids,
 		object_cache_entries,
 		object_node_sizes,
+		object_node_solvables,
+		object_node_solveds,
 		object_touched_ats,
 		object_subtree_counts,
 		object_subtree_depths,
 		object_subtree_sizes,
+		object_subtree_solvables,
+		object_subtree_solveds,
 		object_subtree_storeds,
 		object_children,
 		object_parent_indices
@@ -125,10 +133,14 @@ create or replace procedure put_objects(
 	ids bytea[],
 	cache_entries bytea[],
 	node_sizes int8[],
+	node_solvables boolean[],
+	node_solveds boolean[],
 	touched_ats int8[],
 	subtree_counts int8[],
 	subtree_depths int8[],
 	subtree_sizes int8[],
+	subtree_solvables boolean[],
+	subtree_solveds boolean[],
 	subtree_storeds boolean[],
 	children bytea[],
 	parent_indices int8[]
@@ -149,14 +161,16 @@ begin
 	select count(*) into locked_count from locked;
 
 	with upsert as (
-		insert into objects (id, cache_entry, node_size, touched_at, subtree_count, subtree_depth, subtree_size, subtree_stored, transaction_id)
-		select id, cache_entry, node_size, touched_at, subtree_count, subtree_depth, subtree_size, subtree_stored, (select id from transaction_id)
-		from unnest(ids, cache_entries, node_sizes, touched_ats, subtree_counts, subtree_depths, subtree_sizes, subtree_storeds)
-			as t (id, cache_entry, node_size, touched_at, subtree_count, subtree_depth, subtree_size, subtree_stored)
+		insert into objects (id, cache_entry, node_size, node_solvable, node_solved, touched_at, subtree_count, subtree_depth, subtree_size, subtree_solvable, subtree_solved, subtree_stored, transaction_id)
+		select id, cache_entry, node_size, node_solvable, node_solved, touched_at, subtree_count, subtree_depth, subtree_size, subtree_solvable, subtree_solved, subtree_stored, (select id from transaction_id)
+		from unnest(ids, cache_entries, node_sizes, node_solvables, node_solveds, touched_ats, subtree_counts, subtree_depths, subtree_sizes, subtree_solvables, subtree_solveds, subtree_storeds)
+			as t (id, cache_entry, node_size, node_solvable, node_solved, touched_at, subtree_count, subtree_depth, subtree_size, subtree_solvable, subtree_solved, subtree_stored)
 		on conflict (id) do update set
 			subtree_count = coalesce(excluded.subtree_count, objects.subtree_count),
 			subtree_depth = coalesce(excluded.subtree_depth, objects.subtree_depth),
 			subtree_size = coalesce(excluded.subtree_size, objects.subtree_size),
+			subtree_solvable = coalesce(excluded.subtree_solvable, objects.subtree_solvable),
+			subtree_solved = coalesce(excluded.subtree_solved, objects.subtree_solved),
 			subtree_stored = excluded.subtree_stored or objects.subtree_stored,
 			touched_at = excluded.touched_at
 		returning id, xmax = 0 as was_inserted

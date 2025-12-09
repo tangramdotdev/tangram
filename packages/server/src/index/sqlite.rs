@@ -137,8 +137,8 @@ impl Server {
 		// Prepare insert statement for objects.
 		let insert_statement = indoc!(
 			"
-				insert into objects (id, cache_entry, node_size, subtree_count, subtree_depth, subtree_size, subtree_stored, touched_at, transaction_id)
-				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (select id from transaction_id))
+				insert into objects (id, cache_entry, node_size, node_solvable, node_solved, subtree_count, subtree_depth, subtree_size, subtree_solvable, subtree_solved, subtree_stored, touched_at, transaction_id)
+				values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, (select id from transaction_id))
 				on conflict (id) do nothing;
 			"
 		);
@@ -151,11 +151,13 @@ impl Server {
 			"
 				update objects
 				set
-					subtree_count = coalesce(subtree_count, ?4),
-					subtree_depth = coalesce(subtree_depth, ?5),
-					subtree_size = coalesce(subtree_size, ?6),
-					subtree_stored = subtree_stored or ?7,
-					touched_at = coalesce(touched_at, ?8)
+					subtree_count = coalesce(subtree_count, ?6),
+					subtree_depth = coalesce(subtree_depth, ?7),
+					subtree_size = coalesce(subtree_size, ?8),
+					subtree_solvable = coalesce(subtree_solvable, ?9),
+					subtree_solved = coalesce(subtree_solved, ?10),
+					subtree_stored = subtree_stored or ?11,
+					touched_at = coalesce(touched_at, ?12)
 				where id = ?1;
 			"
 		);
@@ -196,7 +198,7 @@ impl Server {
 			let children = message.children;
 			let stored = message.stored;
 			let metadata = message.metadata;
-			let node_size = metadata.node.size.unwrap();
+			let node_size = metadata.node.size;
 			let touched_at = message.touched_at;
 
 			// Insert the children.
@@ -213,9 +215,13 @@ impl Server {
 				&id.to_bytes().to_vec(),
 				cache_entry,
 				node_size,
+				metadata.node.solvable,
+				metadata.node.solved,
 				metadata.subtree.count,
 				metadata.subtree.depth,
 				metadata.subtree.size,
+				metadata.subtree.solvable,
+				metadata.subtree.solved,
 				stored.subtree,
 				touched_at,
 			];
@@ -230,9 +236,13 @@ impl Server {
 					&id.to_bytes().to_vec(),
 					cache_entry,
 					node_size,
+					metadata.node.solvable,
+					metadata.node.solved,
 					metadata.subtree.count,
 					metadata.subtree.depth,
 					metadata.subtree.size,
+					metadata.subtree.solvable,
+					metadata.subtree.solved,
 					stored.subtree,
 					touched_at,
 				];
@@ -423,7 +433,7 @@ impl Server {
 				message.metadata.subtree.output.depth,
 				message.metadata.subtree.output.size,
 				message.stored.subtree_output,
-				message.metadata.subtree.process_count,
+				message.metadata.subtree.count,
 				message.stored.subtree,
 				message.touched_at,
 			];
@@ -452,7 +462,7 @@ impl Server {
 					message.metadata.subtree.output.depth,
 					message.metadata.subtree.output.size,
 					message.stored.subtree_output,
-					message.metadata.subtree.process_count,
+					message.metadata.subtree.count,
 					message.stored.subtree,
 					message.touched_at,
 				];
@@ -940,10 +950,14 @@ impl Server {
 					subtree_stored = updates.subtree_stored,
 					subtree_count = coalesce(objects.subtree_count, updates.subtree_count),
 					subtree_depth = coalesce(objects.subtree_depth, updates.subtree_depth),
-					subtree_size = coalesce(objects.subtree_size, updates.subtree_size)
+					subtree_size = coalesce(objects.subtree_size, updates.subtree_size),
+					subtree_solvable = objects.node_solvable or updates.children_solvable,
+					subtree_solved = objects.node_solved and updates.children_solved
 				from (
 					select
 						objects.id,
+						coalesce(max(coalesce(child_objects.subtree_solvable, 0)), 0) as children_solvable,
+						coalesce(min(coalesce(child_objects.subtree_solved, 1)), 1) as children_solved,
 						case
 							when count(object_children.child) = 0
 								then 1

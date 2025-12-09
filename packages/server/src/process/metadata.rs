@@ -109,11 +109,15 @@ impl Server {
 						count: row.node_command_count,
 						depth: row.node_command_depth,
 						size: row.node_command_size,
+						solvable: None,
+						solved: None,
 					},
 					output: tg::object::metadata::Subtree {
 						count: row.node_output_count,
 						depth: row.node_output_depth,
 						size: row.node_output_size,
+						solvable: None,
+						solved: None,
 					},
 				};
 				let subtree = tg::process::metadata::Subtree {
@@ -121,13 +125,17 @@ impl Server {
 						count: row.subtree_command_count,
 						depth: row.subtree_command_depth,
 						size: row.subtree_command_size,
+						solvable: None,
+						solved: None,
 					},
 					output: tg::object::metadata::Subtree {
 						count: row.subtree_output_count,
 						depth: row.subtree_output_depth,
 						size: row.subtree_output_size,
+						solvable: None,
+						solved: None,
 					},
-					process_count: row.subtree_count,
+					count: row.subtree_count,
 				};
 				tg::process::Metadata { node, subtree }
 			});
@@ -215,11 +223,15 @@ impl Server {
 				count: row.node_command_count,
 				depth: row.node_command_depth,
 				size: row.node_command_size,
+				solvable: None,
+				solved: None,
 			},
 			output: tg::object::metadata::Subtree {
 				count: row.node_output_count,
 				depth: row.node_output_depth,
 				size: row.node_output_size,
+				solvable: None,
+				solved: None,
 			},
 		};
 		let subtree = tg::process::metadata::Subtree {
@@ -227,13 +239,17 @@ impl Server {
 				count: row.subtree_command_count,
 				depth: row.subtree_command_depth,
 				size: row.subtree_command_size,
+				solvable: None,
+				solved: None,
 			},
 			output: tg::object::metadata::Subtree {
 				count: row.subtree_output_count,
 				depth: row.subtree_output_depth,
 				size: row.subtree_output_size,
+				solvable: None,
+				solved: None,
 			},
-			process_count: row.subtree_count,
+			count: row.subtree_count,
 		};
 		let metadata = tg::process::Metadata { node, subtree };
 		Ok(Some(metadata))

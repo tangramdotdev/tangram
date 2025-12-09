@@ -1,7 +1,6 @@
 use {
 	crate::Server,
 	indoc::indoc,
-	num::ToPrimitive as _,
 	std::{collections::HashMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -104,15 +103,28 @@ impl Server {
 		// Get the object subtree stored flag and metadata.
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			node_size: Option<u64>,
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
 			subtree_count: Option<u64>,
 			subtree_depth: Option<u64>,
 			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
+				select
+					node_size,
+					node_solvable,
+					node_solved,
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solvable,
+					subtree_solved,
+					subtree_stored
 				from objects
 				where id = $1;
 			",
@@ -133,11 +145,15 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				node: tg::object::metadata::Node {
 					size: output.node_size,
+					solvable: output.node_solvable,
+					solved: output.node_solved,
 				},
 				subtree: tg::object::metadata::Subtree {
 					count: output.subtree_count,
 					depth: output.subtree_depth,
 					size: output.subtree_size,
+					solvable: output.subtree_solvable,
+					solved: output.subtree_solved,
 				},
 			};
 			(stored, metadata)
@@ -162,15 +178,23 @@ impl Server {
 		struct Row {
 			#[tangram_database(try_from = "Vec<u8>")]
 			id: tg::object::Id,
-			node_size: Option<i64>,
-			subtree_count: Option<i64>,
-			subtree_depth: Option<i64>,
-			subtree_size: Option<i64>,
+			#[tangram_database(try_from = "i64")]
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
 			"
-				select objects.id, node_size, subtree_count, subtree_depth, subtree_size, subtree_stored
+				select objects.id, node_size, node_solvable, node_solved, subtree_count, subtree_depth, subtree_size, subtree_solvable, subtree_solved, subtree_stored
 				from unnest($1::bytea[]) as ids (id)
 				left join objects on objects.id = ids.id;
 			",
@@ -195,12 +219,16 @@ impl Server {
 				};
 				let metadata = tg::object::Metadata {
 					node: tg::object::metadata::Node {
-						size: row.node_size.map(|v| v.to_u64().unwrap()),
+						size: row.node_size,
+						solvable: row.node_solvable,
+						solved: row.node_solved,
 					},
 					subtree: tg::object::metadata::Subtree {
-						count: row.subtree_count.map(|v| v.to_u64().unwrap()),
-						depth: row.subtree_depth.map(|v| v.to_u64().unwrap()),
-						size: row.subtree_size.map(|v| v.to_u64().unwrap()),
+						count: row.subtree_count,
+						depth: row.subtree_depth,
+						size: row.subtree_size,
+						solvable: row.subtree_solvable,
+						solved: row.subtree_solved,
 					},
 				};
 				Ok((row.id, (stored, metadata)))
@@ -224,10 +252,14 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			node_size: Option<u64>,
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
 			subtree_count: Option<u64>,
 			subtree_depth: Option<u64>,
 			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
@@ -235,7 +267,16 @@ impl Server {
 				update objects
 				set touched_at = greatest($1::int8, touched_at)
 				where id = $2
-				returning node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
+				returning
+					node_size,
+					node_solvable,
+					node_solved,
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solvable,
+					subtree_solved,
+					subtree_stored;
 			",
 		);
 		let params = db::params![touched_at, id.to_bytes()];
@@ -254,11 +295,15 @@ impl Server {
 			let metadata = tg::object::Metadata {
 				node: tg::object::metadata::Node {
 					size: output.node_size,
+					solvable: output.node_solvable,
+					solved: output.node_solved,
 				},
 				subtree: tg::object::metadata::Subtree {
 					count: output.subtree_count,
 					depth: output.subtree_depth,
 					size: output.subtree_size,
+					solvable: output.subtree_solvable,
+					solved: output.subtree_solved,
 				},
 			};
 			(stored, metadata)
@@ -299,10 +344,18 @@ impl Server {
 		struct Row {
 			#[tangram_database(try_from = "Vec<u8>")]
 			id: tg::object::Id,
-			node_size: Option<i64>,
-			subtree_count: Option<i64>,
-			subtree_depth: Option<i64>,
-			subtree_size: Option<i64>,
+			#[tangram_database(try_from = "i64")]
+			node_size: u64,
+			node_solvable: bool,
+			node_solved: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_size: Option<u64>,
+			subtree_solvable: Option<bool>,
+			subtree_solved: Option<bool>,
 			subtree_stored: bool,
 		}
 		let statement = indoc!(
@@ -318,7 +371,17 @@ impl Server {
 				set touched_at = greatest($1::int8, touched_at)
 				from locked
 				where objects.id = locked.id
-				returning objects.id, node_size, subtree_count, subtree_depth, subtree_size, subtree_stored;
+				returning
+					objects.id,
+					node_size,
+					node_solvable,
+					node_solved,
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solvable,
+					subtree_solved,
+					subtree_stored;
 			",
 		);
 		let result = connection
@@ -354,12 +417,16 @@ impl Server {
 				};
 				let metadata = tg::object::Metadata {
 					node: tg::object::metadata::Node {
-						size: row.node_size.map(|v| v.to_u64().unwrap()),
+						size: row.node_size,
+						solvable: row.node_solvable,
+						solved: row.node_solved,
 					},
 					subtree: tg::object::metadata::Subtree {
-						count: row.subtree_count.map(|v| v.to_u64().unwrap()),
-						depth: row.subtree_depth.map(|v| v.to_u64().unwrap()),
-						size: row.subtree_size.map(|v| v.to_u64().unwrap()),
+						count: row.subtree_count,
+						depth: row.subtree_depth,
+						size: row.subtree_size,
+						solvable: row.subtree_solvable,
+						solved: row.subtree_solved,
 					},
 				};
 				Ok((row.id, (stored, metadata)))

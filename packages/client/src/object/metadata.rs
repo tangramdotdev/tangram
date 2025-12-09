@@ -47,9 +47,14 @@ pub struct Metadata {
 	tangram_serialize::Serialize,
 )]
 pub struct Node {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
-	pub size: Option<u64>,
+	#[tangram_serialize(id = 0)]
+	pub size: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub solvable: bool,
+
+	#[tangram_serialize(id = 2)]
+	pub solved: bool,
 }
 
 #[derive(
@@ -77,6 +82,14 @@ pub struct Subtree {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	pub solvable: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
+	pub solved: Option<bool>,
 }
 
 impl tg::Client {

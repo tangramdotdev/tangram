@@ -112,9 +112,7 @@ impl Graph {
 		}
 		if let Some(new_metadata) = metadata {
 			if let Some(existing) = &mut node.metadata {
-				if new_metadata.node.size.is_some() {
-					existing.node.size = new_metadata.node.size;
-				}
+				existing.node.size = new_metadata.node.size;
 				if new_metadata.subtree.count.is_some() {
 					existing.subtree.count = new_metadata.subtree.count;
 				}

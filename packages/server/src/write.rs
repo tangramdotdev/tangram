@@ -271,11 +271,17 @@ impl Server {
 			id,
 			length: 0,
 			metadata: tg::object::Metadata {
-				node: tg::object::metadata::Node { size: Some(1) },
+				node: tg::object::metadata::Node {
+					size: 1,
+					solvable: false,
+					solved: true,
+				},
 				subtree: tg::object::metadata::Subtree {
 					count: Some(1),
 					depth: Some(1),
 					size: Some(1),
+					solvable: Some(false),
+					solved: Some(true),
 				},
 			},
 			position: 0,
@@ -301,11 +307,17 @@ impl Server {
 			id,
 			length,
 			metadata: tg::object::Metadata {
-				node: tg::object::metadata::Node { size: Some(size) },
+				node: tg::object::metadata::Node {
+					size,
+					solvable: false,
+					solved: true,
+				},
 				subtree: tg::object::metadata::Subtree {
 					count: Some(1),
 					depth: Some(1),
 					size: Some(size),
+					solvable: Some(false),
+					solved: Some(true),
 				},
 			},
 			position: *position,
@@ -328,11 +340,17 @@ impl Server {
 		let id = tg::blob::Id::new(&bytes);
 		let metadata = children.iter().unique_by(|blob| &blob.id).fold(
 			tg::object::Metadata {
-				node: tg::object::metadata::Node { size: Some(size) },
+				node: tg::object::metadata::Node {
+					size,
+					solvable: false,
+					solved: true,
+				},
 				subtree: tg::object::metadata::Subtree {
 					count: Some(1),
 					depth: Some(1),
 					size: Some(size),
+					solvable: Some(false),
+					solved: Some(true),
 				},
 			},
 			|mut metadata, child| {
