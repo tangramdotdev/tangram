@@ -125,8 +125,33 @@ impl Server {
 		for item in &items {
 			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())?;
 			let size = item.bytes.len().to_u64().unwrap();
+
+			let (node_solvable, node_solved) = match &data {
+				tg::object::Data::File(file) => match file {
+					tg::file::Data::Reference(_) => (false, true),
+					tg::file::Data::Node(node) => (node.solvable(), node.solved()),
+				},
+				tg::object::Data::Graph(graph) => {
+					graph
+						.nodes
+						.iter()
+						.fold((false, true), |(solvable, solved), node| {
+							if let tg::graph::data::Node::File(file) = node {
+								(solvable || file.solvable(), solved && file.solved())
+							} else {
+								(solvable, solved)
+							}
+						})
+				},
+				_ => (false, true),
+			};
+
 			let metadata = tg::object::Metadata {
-				node: tg::object::metadata::Node { size: Some(size) },
+				node: tg::object::metadata::Node {
+					size,
+					solvable: node_solvable,
+					solved: node_solved,
+				},
 				..Default::default()
 			};
 			graph.update_object(&item.id, Some(&data), None, Some(metadata), Some(true));

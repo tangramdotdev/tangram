@@ -572,18 +572,57 @@ impl Server {
 			}
 		});
 		let mut stored = true;
+		let (node_solvable, node_solved) = if matches!(
+			data,
+			tg::object::Data::Directory(tg::directory::Data::Reference(_))
+				| tg::object::Data::File(tg::file::Data::Reference(_))
+				| tg::object::Data::Symlink(tg::symlink::Data::Reference(_))
+		) {
+			(false, true)
+		} else {
+			scc.iter()
+				.fold((false, true), |(solvable, solved), &index| {
+					let node = graph.nodes.get(&index).unwrap();
+					if let Variant::File(file) = &node.variant {
+						let file_solvable =
+							file.dependencies.keys().any(tg::Reference::is_solvable);
+						let file_solved = file
+							.dependencies
+							.iter()
+							.filter(|(reference, _)| reference.is_solvable())
+							.all(|(_, referent)| referent.is_some());
+						(solvable || file_solvable, solved && file_solved)
+					} else {
+						(solvable, solved)
+					}
+				})
+		};
 		let mut metadata = tg::object::Metadata {
 			node: tg::object::metadata::Node {
-				size: Some(bytes.len().to_u64().unwrap()),
+				size: bytes.len().to_u64().unwrap(),
+				solvable: node_solvable,
+				solved: node_solved,
 			},
 			subtree: tg::object::metadata::Subtree {
 				count: Some(1),
 				depth: Some(1),
 				size: Some(bytes.len().to_u64().unwrap()),
+				solvable: Some(node_solvable),
+				solved: Some(node_solved),
 			},
 		};
 		for (child_stored, child_metadata) in children {
 			stored = stored && child_stored;
+			metadata.subtree.solvable = metadata
+				.subtree
+				.solvable
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.solvable))
+				.map(|(a, b)| a || b);
+			metadata.subtree.solved = metadata
+				.subtree
+				.solved
+				.zip(child_metadata.as_ref().and_then(|m| m.subtree.solved))
+				.map(|(a, b)| a && b);
 			metadata.subtree.count = metadata
 				.subtree
 				.count

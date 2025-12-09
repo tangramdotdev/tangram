@@ -31,9 +31,32 @@ impl Server {
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
+
+		let (node_solvable, node_solved) = match data {
+			tg::object::Data::File(file) => match file {
+				tg::file::Data::Reference(_) => (false, true),
+				tg::file::Data::Node(node) => (node.solvable(), node.solved()),
+			},
+			tg::object::Data::Graph(graph) => {
+				graph
+					.nodes
+					.iter()
+					.fold((false, true), |(solvable, solved), node| {
+						if let tg::graph::data::Node::File(file) = node {
+							(solvable || file.solvable(), solved && file.solved())
+						} else {
+							(solvable, solved)
+						}
+					})
+			},
+			_ => (false, true),
+		};
+
 		let metadata = tg::object::Metadata {
 			node: tg::object::metadata::Node {
-				size: Some(arg.bytes.len().to_u64().unwrap()),
+				size: arg.bytes.len().to_u64().unwrap(),
+				solvable: node_solvable,
+				solved: node_solved,
 			},
 			..Default::default()
 		};

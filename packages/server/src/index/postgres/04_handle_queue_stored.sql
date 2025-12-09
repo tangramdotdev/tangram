@@ -44,10 +44,14 @@ begin
 			subtree_stored = updates.subtree_stored,
 			subtree_count = coalesce(objects.subtree_count, updates.subtree_count),
 			subtree_depth = coalesce(objects.subtree_depth, updates.subtree_depth),
-			subtree_size = coalesce(objects.subtree_size, updates.subtree_size)
+			subtree_size = coalesce(objects.subtree_size, updates.subtree_size),
+			subtree_solvable = objects.node_solvable or updates.children_solvable,
+			subtree_solved = objects.node_solved and updates.children_solved
 		from (
 			select
 				objects.id,
+				coalesce(bool_or(coalesce(child_objects.subtree_solvable, false)), false) as children_solvable,
+				coalesce(bool_and(coalesce(child_objects.subtree_solved, true)), true) as children_solved,
 				case
 					when count(object_children.child) = 0
 						then true

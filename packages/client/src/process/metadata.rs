@@ -66,15 +66,15 @@ pub struct Node {
 pub struct Subtree {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
-	pub command: tg::object::metadata::Subtree,
+	pub count: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub output: tg::object::metadata::Subtree,
+	pub command: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
-	pub process_count: Option<u64>,
+	pub output: tg::object::metadata::Subtree,
 }
 
 impl tg::Client {

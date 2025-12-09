@@ -152,7 +152,7 @@ impl Server {
 								};
 								let mut stored = true;
 								if arg.recursive {
-									stored = stored && metadata.subtree.process_count.is_some();
+									stored = stored && metadata.subtree.count.is_some();
 									if arg.commands {
 										stored = stored
 											&& metadata.subtree.command.count.is_some()
@@ -200,8 +200,8 @@ impl Server {
 				},
 				Either::Right(metadata) => {
 					if arg.recursive {
-						if let Some(process_count) = metadata.subtree.process_count {
-							*processes.get_or_insert(0) += process_count;
+						if let Some(count) = metadata.subtree.count {
+							*processes.get_or_insert(0) += count;
 						}
 						if arg.commands {
 							if let Some(commands_count) = metadata.subtree.command.count {
