@@ -62,12 +62,12 @@ impl Server {
 		drop(connection);
 
 		let available_connections = match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 			Database::Sqlite(database) => {
 				database.read_pool().available().to_u64().unwrap()
 					+ database.write_pool().available().to_u64().unwrap()
 			},
-			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 		};
 		let database = tg::health::Database {
 			available_connections,

@@ -244,23 +244,23 @@ impl Server {
 			status: tg::process::Status,
 		}
 		let params = match &transaction {
-			database::Transaction::Sqlite(_) => {
-				"with params as (select ?1 as command, ?2 as checksum)"
-			},
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => {
 				"with params as (select $1::text as command, $2::text as checksum)"
 			},
+			database::Transaction::Sqlite(_) => {
+				"with params as (select ?1 as command, ?2 as checksum)"
+			},
 		};
 		let is = match &transaction {
-			database::Transaction::Sqlite(_) => "is",
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is not distinct from",
+			database::Transaction::Sqlite(_) => "is",
 		};
 		let isnt = match &transaction {
-			database::Transaction::Sqlite(_) => "is not",
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is distinct from",
+			database::Transaction::Sqlite(_) => "is not",
 		};
 		let statement = formatdoc!(
 			"
@@ -366,18 +366,18 @@ impl Server {
 			output: Option<tg::value::Data>,
 		}
 		let params = match &transaction {
-			database::Transaction::Sqlite(_) => {
-				"with params as (select ?1 as command, ?2 as checksum)"
-			},
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => {
 				"with params as (select $1::text as command, $2::text as checksum)"
 			},
+			database::Transaction::Sqlite(_) => {
+				"with params as (select ?1 as command, ?2 as checksum)"
+			},
 		};
 		let is = match &transaction {
-			database::Transaction::Sqlite(_) => "is",
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is not distinct from",
+			database::Transaction::Sqlite(_) => "is",
 		};
 		let statement = formatdoc!(
 			"

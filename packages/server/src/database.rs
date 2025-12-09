@@ -86,9 +86,9 @@ impl From<db::sqlite::Error> for Error {
 impl db::Error for Error {
 	fn is_retry(&self) -> bool {
 		match self {
-			Self::Sqlite(e) => e.is_retry(),
 			#[cfg(feature = "postgres")]
 			Self::Postgres(e) => e.is_retry(),
+			Self::Sqlite(e) => e.is_retry(),
 			Self::Other(_) => false,
 		}
 	}
@@ -180,9 +180,9 @@ impl db::Query for Connection {
 
 	fn p(&self) -> &'static str {
 		match self {
-			Self::Sqlite(s) => s.p(),
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.p(),
+			Self::Sqlite(s) => s.p(),
 		}
 	}
 
@@ -222,9 +222,9 @@ impl db::Query for Transaction<'_> {
 
 	fn p(&self) -> &'static str {
 		match self {
-			Self::Sqlite(s) => s.p(),
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.p(),
+			Self::Sqlite(s) => s.p(),
 		}
 	}
 

@@ -3,9 +3,7 @@
 		"allowImportingTsExtensions": true,
 		"exactOptionalPropertyTypes": true,
 		"isolatedModules": true,
-		"lib": [
-			"esnext"
-		],
+		"lib": ["esnext"],
 		"module": "esnext",
 		"moduleDetection": "force",
 		"moduleResolution": "bundler",
@@ -17,7 +15,5 @@
 		"types": [],
 		"verbatimModuleSyntax": true
 	},
-	"exclude": [
-		"./src/tangram.d.ts"
-	]
+	"exclude": ["./src/tangram.d.ts"]
 }

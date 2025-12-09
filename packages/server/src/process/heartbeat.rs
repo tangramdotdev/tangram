@@ -34,17 +34,6 @@ impl Server {
 
 		// Update the heartbeat.
 		let statement = match &connection {
-			database::Connection::Sqlite(_) => indoc!(
-				"
-					update processes
-					set heartbeat_at = case
-						when status = 'started' then ?1
-						else null
-					end
-					where id = ?2
-					returning status;
-				"
-			),
 			#[cfg(feature = "postgres")]
 			database::Connection::Postgres(_) => indoc!(
 				"
@@ -56,6 +45,17 @@ impl Server {
 					end
 					from params
 					where id = params.process
+					returning status;
+				"
+			),
+			database::Connection::Sqlite(_) => indoc!(
+				"
+					update processes
+					set heartbeat_at = case
+						when status = 'started' then ?1
+						else null
+					end
+					where id = ?2
 					returning status;
 				"
 			),
