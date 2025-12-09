@@ -1,4 +1,4 @@
-use {bytes::Bytes, tangram_client::prelude::*, tangram_store as store};
+use {bytes::Bytes, std::path::Path, tangram_client::prelude::*, tangram_store as store};
 
 pub use store::{CacheReference, DeleteArg, PutArg};
 
@@ -29,17 +29,17 @@ pub enum Error {
 
 impl Store {
 	#[cfg(feature = "foundationdb")]
-	pub fn new_fdb(config: &crate::config::FdbStore) -> Result<Self, Error> {
+	pub fn new_fdb(directory: &Path, config: &crate::config::FdbStore) -> Result<Self, Error> {
 		let config = store::fdb::Config {
-			path: config.path.clone(),
+			path: config.path.as_ref().map(|p| directory.join(p)),
 		};
 		let fdb = store::fdb::Store::new(&config)?;
 		Ok(Self::Fdb(fdb))
 	}
 
-	pub fn new_lmdb(config: &crate::config::LmdbStore) -> Result<Self, Error> {
+	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbStore) -> Result<Self, Error> {
 		let config = store::lmdb::Config {
-			path: config.path.clone(),
+			path: directory.join(&config.path),
 		};
 		let lmdb = store::lmdb::Store::new(&config)?;
 		Ok(Self::Lmdb(lmdb))

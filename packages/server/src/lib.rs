@@ -139,8 +139,13 @@ impl Owned {
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
+		// Get or create the directory.
+		let directory = config.directory.clone().unwrap_or_else(|| {
+			let id = uuid::Uuid::now_v7();
+			std::env::temp_dir().join(format!("tangram-{id}"))
+		});
+
 		// Ensure the directory exists.
-		let directory = config.directory.clone();
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
@@ -282,7 +287,7 @@ impl Server {
 				let options = db::sqlite::DatabaseOptions {
 					connections: config.connections,
 					initialize,
-					path: config.path.clone(),
+					path: path.join(&config.path),
 				};
 				let database = db::sqlite::Database::new(options)
 					.await
@@ -421,11 +426,11 @@ impl Server {
 				}
 				#[cfg(feature = "foundationdb")]
 				{
-					Store::new_fdb(fdb)
+					Store::new_fdb(&path, fdb)
 						.map_err(|error| tg::error!(!error, "failed to create the store"))?
 				}
 			},
-			config::Store::Lmdb(lmdb) => Store::new_lmdb(lmdb)
+			config::Store::Lmdb(lmdb) => Store::new_lmdb(&path, lmdb)
 				.map_err(|error| tg::error!(!error, "failed to create the store"))?,
 			config::Store::S3(s3) => Store::new_s3(s3),
 			config::Store::Scylla(scylla) => {

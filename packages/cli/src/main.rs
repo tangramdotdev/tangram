@@ -623,59 +623,27 @@ impl Cli {
 		// Create the default config.
 		let directory = self.directory_path();
 		let parallelism = std::thread::available_parallelism().unwrap().into();
-		let advanced = tangram_server::config::Advanced::default();
-		let authentication = None;
-		let authorization = false;
-		let checkin = tangram_server::config::Checkin::default();
-		let cleaner = None;
-		let database =
-			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
-				connections: parallelism,
-				path: directory.join("database"),
-			});
-		let index = tangram_server::config::Index::Sqlite(tangram_server::config::SqliteIndex {
-			connections: parallelism,
-			path: directory.join("index"),
-		});
-		let http = Some(tangram_server::config::Http {
-			url: self.args.url.clone(),
-		});
-		let indexer = Some(tangram_server::config::Indexer::default());
-		let messenger = tangram_server::config::Messenger::default();
-		let remotes = None;
-		let runner = Some(tangram_server::config::Runner {
-			concurrency: parallelism,
-			heartbeat_interval: Duration::from_secs(1),
-			remotes: Vec::new(),
-		});
-		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
-			path: directory.join("store"),
-		});
-		let sync = tangram_server::config::Sync::default();
-		let version = Some(version());
-		let vfs = None;
-		let watchdog = Some(tangram_server::config::Watchdog::default());
-		let write = tangram_server::config::Write::default();
 		let mut config = tangram_server::Config {
-			advanced,
-			authentication,
-			authorization,
-			checkin,
-			cleaner,
-			database,
-			http,
-			index,
-			indexer,
-			messenger,
-			directory,
-			remotes,
-			runner,
-			store,
-			sync,
-			version,
-			vfs,
-			watchdog,
-			write,
+			directory: Some(directory.clone()),
+			database: tangram_server::config::Database::Sqlite(
+				tangram_server::config::SqliteDatabase {
+					connections: parallelism,
+					..Default::default()
+				},
+			),
+			index: tangram_server::config::Index::Sqlite(tangram_server::config::SqliteIndex {
+				connections: parallelism,
+				..Default::default()
+			}),
+			http: Some(tangram_server::config::Http {
+				url: self.args.url.clone(),
+			}),
+			runner: Some(tangram_server::config::Runner {
+				concurrency: parallelism,
+				..Default::default()
+			}),
+			version: Some(version()),
+			..Default::default()
 		};
 
 		// Set the advanced options.
@@ -801,7 +769,7 @@ impl Cli {
 				self::config::Database::Sqlite(database) => {
 					let mut new = tangram_server::config::SqliteDatabase {
 						connections: parallelism,
-						path: config.directory.clone(),
+						path: directory.clone(),
 					};
 					if let Some(connections) = database.connections {
 						new.connections = connections;
@@ -851,7 +819,7 @@ impl Cli {
 				self::config::Index::Sqlite(index) => {
 					let mut new = tangram_server::config::SqliteIndex {
 						connections: parallelism,
-						path: config.directory.clone(),
+						path: directory.clone(),
 					};
 					if let Some(connections) = index.connections {
 						new.connections = connections;
@@ -990,7 +958,7 @@ impl Cli {
 				},
 				config::Store::Lmdb(lmdb) => {
 					tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
-						path: lmdb.path.unwrap_or_else(|| config.directory.join("store")),
+						path: lmdb.path.unwrap_or_else(|| directory.join("store")),
 					})
 				},
 				config::Store::Memory => tangram_server::config::Store::Memory,

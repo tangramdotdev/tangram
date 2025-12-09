@@ -11,7 +11,7 @@ pub struct Config {
 	pub checkin: Checkin,
 	pub cleaner: Option<Cleaner>,
 	pub database: Database,
-	pub directory: PathBuf,
+	pub directory: Option<PathBuf>,
 	pub http: Option<Http>,
 	pub index: Index,
 	pub indexer: Option<Indexer>,
@@ -328,7 +328,7 @@ impl Config {
 			checkin,
 			cleaner,
 			database,
-			directory,
+			directory: Some(directory),
 			http,
 			index,
 			indexer,
@@ -341,6 +341,32 @@ impl Config {
 			vfs,
 			watchdog,
 			write,
+		}
+	}
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			advanced: Advanced::default(),
+			authentication: None,
+			authorization: false,
+			checkin: Checkin::default(),
+			cleaner: None,
+			database: Database::default(),
+			directory: None,
+			http: Some(Http::default()),
+			index: Index::default(),
+			indexer: Some(Indexer::default()),
+			messenger: Messenger::default(),
+			remotes: None,
+			runner: Some(Runner::default()),
+			store: Store::default(),
+			sync: Sync::default(),
+			version: None,
+			vfs: None,
+			watchdog: Some(Watchdog::default()),
+			write: Write::default(),
 		}
 	}
 }
@@ -387,6 +413,50 @@ impl Default for PostgresDatabase {
 			connections: 1,
 			url: "postgres://localhost:5432".parse().unwrap(),
 		}
+	}
+}
+
+impl Default for SqliteDatabase {
+	fn default() -> Self {
+		Self {
+			connections: 1,
+			path: PathBuf::from("database"),
+		}
+	}
+}
+
+impl Default for Database {
+	fn default() -> Self {
+		Self::Sqlite(SqliteDatabase::default())
+	}
+}
+
+impl Default for SqliteIndex {
+	fn default() -> Self {
+		Self {
+			connections: 1,
+			path: PathBuf::from("index"),
+		}
+	}
+}
+
+impl Default for Index {
+	fn default() -> Self {
+		Self::Sqlite(SqliteIndex::default())
+	}
+}
+
+impl Default for LmdbStore {
+	fn default() -> Self {
+		Self {
+			path: PathBuf::from("store"),
+		}
+	}
+}
+
+impl Default for Store {
+	fn default() -> Self {
+		Self::Lmdb(LmdbStore::default())
 	}
 }
 
