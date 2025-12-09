@@ -29,15 +29,13 @@ pub struct Output {
 
 impl Server {
 	pub(crate) async fn runner_task(&self) {
-		// If this is a single daemon, kill any running processes.
 		if self.config().advanced.shared_process {
-			self.cancel_unfinished_processes()
-				.await
-				.inspect_err(|error| {
-					tracing::error!(?error, "failed to cancel unfinished processes");
-				})
-				.ok();
+			let result = self.expire_unfinished_processes().await;
+			if let Err(error) = result {
+				tracing::error!(?error, "failed to expire unfinished processes");
+			}
 		}
+
 		loop {
 			// Wait for a permit.
 			let permit = self
@@ -288,7 +286,7 @@ impl Server {
 		}
 	}
 
-	async fn cancel_unfinished_processes(&self) -> tg::Result<()> {
+	async fn expire_unfinished_processes(&self) -> tg::Result<()> {
 		let output = self
 			.list_processes(tg::process::list::Arg::default())
 			.await
@@ -303,8 +301,8 @@ impl Server {
 				let server = self.clone();
 				Some(async move {
 					let error = tg::Error {
-						code: Some(tg::error::Code::Cancellation),
-						message: Some("the process was canceled".into()),
+						code: Some(tg::error::Code::HeartbeatExpiration),
+						message: Some("heartbeat expired".into()),
 						..tg::Error::default()
 					};
 					let error = Some(error.to_data());
@@ -316,7 +314,7 @@ impl Server {
 						remote: None,
 					};
 					if let Err(error) = server.finish_process(&output.id, arg).await {
-						tracing::error!(process = %output.id, ?error, "failed to cancel process");
+						tracing::error!(process = %output.id, ?error, "failed to finish the process");
 					}
 				})
 			})
