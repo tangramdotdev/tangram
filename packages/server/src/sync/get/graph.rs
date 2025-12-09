@@ -30,16 +30,25 @@ pub struct Graph {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Id {
-	Process(tg::process::Id),
 	Object(tg::object::Id),
+	Process(tg::process::Id),
 }
 
 #[derive(Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
 pub enum Node {
-	Process(ProcessNode),
 	Object(ObjectNode),
+	Process(ProcessNode),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ObjectNode {
+	pub children: Option<Vec<usize>>,
+	pub marked: bool,
+	pub metadata: Option<tg::object::Metadata>,
+	pub parents: SmallVec<[usize; 1]>,
+	pub stored: Option<crate::object::stored::Output>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -52,18 +61,78 @@ pub struct ProcessNode {
 	pub stored: Option<crate::process::stored::Output>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct ObjectNode {
-	pub children: Option<Vec<usize>>,
-	pub marked: bool,
-	pub metadata: Option<tg::object::Metadata>,
-	pub parents: SmallVec<[usize; 1]>,
-	pub stored: Option<crate::object::stored::Output>,
-}
-
 impl Graph {
 	pub fn new() -> Self {
 		Self::default()
+	}
+
+	pub fn update_object(
+		&mut self,
+		id: &tg::object::Id,
+		data: Option<&tg::object::Data>,
+		stored: Option<crate::object::stored::Output>,
+		metadata: Option<tg::object::Metadata>,
+		marked: Option<bool>,
+	) -> bool {
+		let entry = self.nodes.entry(id.clone().into());
+		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
+		let index = entry.index();
+		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+
+		let children = if let Some(data) = data {
+			let mut children = BTreeSet::new();
+			data.children(&mut children);
+			let children = children
+				.into_iter()
+				.map(|child| {
+					let child_entry = self.nodes.entry(child.into());
+					let child_index = child_entry.index();
+					let child_node =
+						child_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+					child_node.unwrap_object_mut().parents.push(index);
+					child_index
+				})
+				.collect();
+			Some(children)
+		} else {
+			None
+		};
+
+		let node = self
+			.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.unwrap_object_mut();
+		if let Some(children) = children {
+			node.children = Some(children);
+		}
+		if let Some(stored) = stored {
+			node.stored = Some(stored);
+		}
+		if let Some(new_metadata) = metadata {
+			if let Some(existing) = &mut node.metadata {
+				if new_metadata.node.size.is_some() {
+					existing.node.size = new_metadata.node.size;
+				}
+				if new_metadata.subtree.count.is_some() {
+					existing.subtree.count = new_metadata.subtree.count;
+				}
+				if new_metadata.subtree.depth.is_some() {
+					existing.subtree.depth = new_metadata.subtree.depth;
+				}
+				if new_metadata.subtree.size.is_some() {
+					existing.subtree.size = new_metadata.subtree.size;
+				}
+			} else {
+				node.metadata = Some(new_metadata);
+			}
+		}
+		if let Some(marked) = marked {
+			node.marked = marked;
+		}
+
+		inserted
 	}
 
 	pub fn update_process(
@@ -164,89 +233,20 @@ impl Graph {
 			.get(&Id::Process(id.clone()))
 			.and_then(|node| node.unwrap_process_ref().stored.as_ref())
 	}
-
-	pub fn update_object(
-		&mut self,
-		id: &tg::object::Id,
-		data: Option<&tg::object::Data>,
-		stored: Option<crate::object::stored::Output>,
-		metadata: Option<tg::object::Metadata>,
-		marked: Option<bool>,
-	) -> bool {
-		let entry = self.nodes.entry(id.clone().into());
-		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
-		let index = entry.index();
-		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
-
-		let children = if let Some(data) = data {
-			let mut children = BTreeSet::new();
-			data.children(&mut children);
-			let children = children
-				.into_iter()
-				.map(|child| {
-					let child_entry = self.nodes.entry(child.into());
-					let child_index = child_entry.index();
-					let child_node =
-						child_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
-					child_node.unwrap_object_mut().parents.push(index);
-					child_index
-				})
-				.collect();
-			Some(children)
-		} else {
-			None
-		};
-
-		let node = self
-			.nodes
-			.get_index_mut(index)
-			.unwrap()
-			.1
-			.unwrap_object_mut();
-		if let Some(children) = children {
-			node.children = Some(children);
-		}
-		if let Some(stored) = stored {
-			node.stored = Some(stored);
-		}
-		if let Some(new_metadata) = metadata {
-			if let Some(existing) = &mut node.metadata {
-				if new_metadata.node.size.is_some() {
-					existing.node.size = new_metadata.node.size;
-				}
-				if new_metadata.subtree.count.is_some() {
-					existing.subtree.count = new_metadata.subtree.count;
-				}
-				if new_metadata.subtree.depth.is_some() {
-					existing.subtree.depth = new_metadata.subtree.depth;
-				}
-				if new_metadata.subtree.size.is_some() {
-					existing.subtree.size = new_metadata.subtree.size;
-				}
-			} else {
-				node.metadata = Some(new_metadata);
-			}
-		}
-		if let Some(marked) = marked {
-			node.marked = marked;
-		}
-
-		inserted
-	}
 }
 
 impl Node {
 	pub fn parents(&self) -> &SmallVec<[usize; 1]> {
 		match self {
-			Node::Process(node) => &node.parents,
 			Node::Object(node) => &node.parents,
+			Node::Process(node) => &node.parents,
 		}
 	}
 
 	pub fn marked(&self) -> bool {
 		match self {
-			Node::Process(node) => node.marked,
 			Node::Object(node) => node.marked,
+			Node::Process(node) => node.marked,
 		}
 	}
 }
@@ -285,12 +285,12 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
 		let (_, node) = self.nodes.get_index(id).unwrap();
 		match &node {
+			Node::Object(node) => node.children.iter().flatten().copied().boxed(),
 			Node::Process(node) => std::iter::empty()
 				.chain(node.children.iter().flatten())
 				.chain(node.objects.iter().flatten().map(|(id, _)| id))
 				.copied()
 				.boxed(),
-			Node::Object(node) => node.children.iter().flatten().copied().boxed(),
 		}
 	}
 }
@@ -308,8 +308,8 @@ impl<'a> petgraph::visit::IntoNeighborsDirected for &'a Graph {
 			petgraph::Direction::Incoming => {
 				let (_, node) = self.nodes.get_index(id).unwrap();
 				match node {
-					Node::Process(node) => node.parents.iter().copied().boxed(),
 					Node::Object(node) => node.parents.iter().copied().boxed(),
+					Node::Process(node) => node.parents.iter().copied().boxed(),
 				}
 			},
 		}

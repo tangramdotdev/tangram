@@ -215,6 +215,78 @@ impl Server {
 		for index in toposort.into_iter().rev() {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
+				Node::Object(node) => {
+					if node.stored.is_some() && node.metadata.is_some() {
+						continue;
+					}
+
+					// Initialize the stored output.
+					let mut stored = true;
+
+					// Initialize the metadata.
+					let node_size = node.metadata.as_ref().and_then(|m| m.node.size);
+					let mut metadata = tg::object::Metadata {
+						node: tg::object::metadata::Node { size: node_size },
+						subtree: tg::object::metadata::Subtree {
+							count: Some(1),
+							depth: Some(1),
+							size: node_size,
+						},
+					};
+
+					// Handle each child.
+					if let Some(children) = &node.children {
+						for child_index in children {
+							let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
+							let child_node = child_node
+								.try_unwrap_object_ref()
+								.ok()
+								.ok_or_else(|| tg::error!("expected an object"))?;
+							stored =
+								stored && child_node.stored.clone().unwrap_or_default().subtree;
+							metadata.subtree.count = metadata
+								.subtree
+								.count
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.subtree.count),
+								)
+								.map(|(a, b)| a + b);
+							metadata.subtree.depth = metadata
+								.subtree
+								.depth
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.subtree.depth),
+								)
+								.map(|(a, b)| a.max(1 + b));
+							metadata.subtree.size = metadata
+								.subtree
+								.size
+								.zip(
+									child_node
+										.metadata
+										.as_ref()
+										.and_then(|metadata| metadata.subtree.size),
+								)
+								.map(|(a, b)| a + b);
+						}
+					} else {
+						stored = false;
+						metadata = tg::object::Metadata::default();
+					}
+
+					// Update the node.
+					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
+					let node = node.unwrap_object_mut();
+					node.stored = Some(crate::object::stored::Output { subtree: stored });
+					node.metadata = Some(metadata);
+				},
+
 				Node::Process(node) => {
 					if node.stored.is_some() && node.metadata.is_some() {
 						continue;
@@ -445,78 +517,6 @@ impl Server {
 					node_inner.stored = Some(stored);
 					node_inner.metadata = Some(metadata);
 				},
-
-				Node::Object(node) => {
-					if node.stored.is_some() && node.metadata.is_some() {
-						continue;
-					}
-
-					// Initialize the stored output.
-					let mut stored = true;
-
-					// Initialize the metadata.
-					let node_size = node.metadata.as_ref().and_then(|m| m.node.size);
-					let mut metadata = tg::object::Metadata {
-						node: tg::object::metadata::Node { size: node_size },
-						subtree: tg::object::metadata::Subtree {
-							count: Some(1),
-							depth: Some(1),
-							size: node_size,
-						},
-					};
-
-					// Handle each child.
-					if let Some(children) = &node.children {
-						for child_index in children {
-							let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-							let child_node = child_node
-								.try_unwrap_object_ref()
-								.ok()
-								.ok_or_else(|| tg::error!("expected an object"))?;
-							stored =
-								stored && child_node.stored.clone().unwrap_or_default().subtree;
-							metadata.subtree.count = metadata
-								.subtree
-								.count
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.count),
-								)
-								.map(|(a, b)| a + b);
-							metadata.subtree.depth = metadata
-								.subtree
-								.depth
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.depth),
-								)
-								.map(|(a, b)| a.max(1 + b));
-							metadata.subtree.size = metadata
-								.subtree
-								.size
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.size),
-								)
-								.map(|(a, b)| a + b);
-						}
-					} else {
-						stored = false;
-						metadata = tg::object::Metadata::default();
-					}
-
-					// Update the node.
-					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
-					let node = node.unwrap_object_mut();
-					node.stored = Some(crate::object::stored::Output { subtree: stored });
-					node.metadata = Some(metadata);
-				},
 			}
 		}
 
@@ -536,6 +536,41 @@ impl Server {
 				continue;
 			}
 			match node {
+				Node::Object(node) => {
+					let id = id.unwrap_object_ref().clone();
+					let children = node
+						.children
+						.as_ref()
+						.unwrap()
+						.iter()
+						.map(|index| {
+							graph
+								.nodes
+								.get_index(*index)
+								.unwrap()
+								.0
+								.clone()
+								.unwrap_object()
+						})
+						.collect();
+					let message =
+						crate::index::Message::PutObject(crate::index::message::PutObject {
+							cache_entry: None,
+							children,
+							id,
+							metadata: node.metadata.clone().unwrap(),
+							stored: node.stored.clone().unwrap(),
+							touched_at,
+						});
+					messages.entry(level).or_insert(Vec::new()).push(message);
+					stack.extend(
+						node.children
+							.as_ref()
+							.unwrap()
+							.iter()
+							.map(|index| (*index, level + 1)),
+					);
+				},
 				Node::Process(node) => {
 					let id = id.unwrap_process_ref().clone();
 					let children = node
@@ -595,41 +630,6 @@ impl Server {
 							.unwrap()
 							.iter()
 							.map(|(index, _)| (*index, level + 1)),
-					);
-				},
-				Node::Object(node) => {
-					let id = id.unwrap_object_ref().clone();
-					let children = node
-						.children
-						.as_ref()
-						.unwrap()
-						.iter()
-						.map(|index| {
-							graph
-								.nodes
-								.get_index(*index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_object()
-						})
-						.collect();
-					let message =
-						crate::index::Message::PutObject(crate::index::message::PutObject {
-							cache_entry: None,
-							children,
-							id,
-							metadata: node.metadata.clone().unwrap(),
-							stored: node.stored.clone().unwrap(),
-							touched_at,
-						});
-					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(
-						node.children
-							.as_ref()
-							.unwrap()
-							.iter()
-							.map(|index| (*index, level + 1)),
 					);
 				},
 			}
