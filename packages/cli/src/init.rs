@@ -34,16 +34,7 @@ impl Cli {
 		}
 
 		// Determine the reference to use for the autobuild package.
-		let autobuild_reference = if let Some(autobuild_reference) = self
-			.config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.and_then(|advanced| advanced.init_autobuild_reference.as_ref())
-		{
-			autobuild_reference.to_string()
-		} else {
-			"autobuild".to_owned()
-		};
+		let autobuild_reference = "autobuild".to_owned();
 
 		// Define the files to generate.
 		let mut files = Vec::new();

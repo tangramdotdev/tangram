@@ -178,6 +178,32 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromNumberOr
 	}
 }
 
+pub struct BoolOptionDefault;
+
+impl<'de, T: serde::Deserialize<'de> + Default> serde_with::DeserializeAs<'de, Option<T>>
+	for BoolOptionDefault
+{
+	fn deserialize_as<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<T>, D::Error> {
+		serde_untagged::UntaggedEnumVisitor::new()
+			.expecting("bool or map")
+			.bool(|value| Ok(if value { Some(T::default()) } else { None }))
+			.map(|map| T::deserialize(serde::de::value::MapAccessDeserializer::new(map)).map(Some))
+			.deserialize(deserializer)
+	}
+}
+
+impl<T: serde::Serialize> serde_with::SerializeAs<Option<T>> for BoolOptionDefault {
+	fn serialize_as<S: serde::Serializer>(
+		value: &Option<T>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error> {
+		match value {
+			None => serializer.serialize_bool(false),
+			Some(value) => value.serialize(serializer),
+		}
+	}
+}
+
 #[must_use]
 pub fn return_false() -> bool {
 	false

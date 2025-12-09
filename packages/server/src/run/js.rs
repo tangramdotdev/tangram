@@ -42,11 +42,12 @@ impl Server {
 
 		// Spawn the task.
 		let local_pool_handle = self.local_pool_handle.get_or_init(|| {
-			let concurrency = self
-				.config
-				.runner
-				.as_ref()
-				.map_or(1, |config| config.concurrency);
+			let parallelism = std::thread::available_parallelism()
+				.map(std::num::NonZeroUsize::get)
+				.unwrap_or(1);
+			let concurrency = self.config.runner.as_ref().map_or(parallelism, |config| {
+				config.concurrency.unwrap_or(parallelism)
+			});
 			tokio_util::task::LocalPoolHandle::new(concurrency)
 		});
 		let task = AbortOnDropHandle::new(local_pool_handle.spawn_pinned({

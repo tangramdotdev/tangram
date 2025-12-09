@@ -225,6 +225,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the tags directory"))?;
 
+		// Get the available parallelism.
+		let parallelism = std::thread::available_parallelism()
+			.map(std::num::NonZeroUsize::get)
+			.unwrap_or(1);
+
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
@@ -254,7 +259,7 @@ impl Server {
 		let permits = config
 			.runner
 			.as_ref()
-			.map_or(0, |process| process.concurrency);
+			.map_or(0, |runner| runner.concurrency.unwrap_or(parallelism));
 		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the process tasks.
@@ -273,7 +278,7 @@ impl Server {
 				#[cfg(feature = "postgres")]
 				{
 					let options = db::postgres::DatabaseOptions {
-						connections: options.connections,
+						connections: options.connections.unwrap_or(parallelism),
 						url: options.url.clone(),
 					};
 					let database = db::postgres::Database::new(options)
@@ -285,7 +290,7 @@ impl Server {
 			self::config::Database::Sqlite(config) => {
 				let initialize = Arc::new(self::database::sqlite::initialize);
 				let options = db::sqlite::DatabaseOptions {
-					connections: config.connections,
+					connections: config.connections.unwrap_or(parallelism),
 					initialize,
 					path: path.join(&config.path),
 				};
@@ -313,7 +318,7 @@ impl Server {
 				{
 					let options = db::postgres::DatabaseOptions {
 						url: options.url.clone(),
-						connections: options.connections,
+						connections: options.connections.unwrap_or(parallelism),
 					};
 					let database = db::postgres::Database::new(options)
 						.await
@@ -325,7 +330,7 @@ impl Server {
 				let initialize = Arc::new(self::index::sqlite::initialize);
 				let path = path.join("index");
 				let options = db::sqlite::DatabaseOptions {
-					connections: options.connections,
+					connections: options.connections.unwrap_or(parallelism),
 					initialize,
 					path,
 				};

@@ -108,11 +108,11 @@ struct Args {
 
 	/// Override the `remotes` key in the config.
 	#[arg(long, conflicts_with = "remotes")]
-	pub no_remotes: bool,
+	no_remotes: bool,
 
 	/// Override the `remotes` key in the config.
 	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
-	pub remotes: Option<Vec<String>>,
+	remotes: Option<Vec<String>>,
 
 	/// Whether to show progress and other helpful information.
 	#[arg(long, short)]
@@ -498,8 +498,7 @@ impl Cli {
 			.or(self
 				.config
 				.as_ref()
-				.and_then(|config| config.http.as_ref())
-				.and_then(|config| config.as_ref().right())
+				.and_then(|config| config.server.http.as_ref())
 				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
 				let path = self.directory_path().join("socket");
@@ -590,8 +589,7 @@ impl Cli {
 			.or(self
 				.config
 				.as_ref()
-				.and_then(|config| config.http.as_ref())
-				.and_then(|config| config.as_ref().right())
+				.and_then(|config| config.server.http.as_ref())
 				.and_then(|config| config.url.clone()))
 			.unwrap_or_else(|| {
 				let path = self.directory_path().join("socket");
@@ -620,272 +618,28 @@ impl Cli {
 	}
 
 	async fn server(&self) -> tg::Result<Server> {
-		// Create the default config.
+		// Get the server config.
+		let mut config = self
+			.config
+			.as_ref()
+			.map(|config| config.server.clone())
+			.unwrap_or_default();
+
+		// Get the directory.
 		let directory = self.directory_path();
-		let parallelism = std::thread::available_parallelism().unwrap().into();
-		let mut config = tangram_server::Config {
-			directory: Some(directory.clone()),
-			database: tangram_server::config::Database::Sqlite(
-				tangram_server::config::SqliteDatabase {
-					connections: parallelism,
-					..Default::default()
-				},
-			),
-			index: tangram_server::config::Index::Sqlite(tangram_server::config::SqliteIndex {
-				connections: parallelism,
-				..Default::default()
-			}),
-			http: Some(tangram_server::config::Http {
-				url: self.args.url.clone(),
-			}),
-			runner: Some(tangram_server::config::Runner {
-				concurrency: parallelism,
-				..Default::default()
-			}),
-			version: Some(version()),
-			..Default::default()
-		};
 
-		// Set the advanced options.
-		if let Some(advanced) = self
-			.config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-		{
-			config.advanced.disable_version_check = advanced.disable_version_check;
-			config.advanced.internal_error_locations = advanced.internal_error_locations;
-			if let Some(process_dequeue_timeout) = advanced.process_dequeue_timeout {
-				config.advanced.process_dequeue_timeout = process_dequeue_timeout;
-			}
-			if let Some(preserve_temp_directories) = advanced.preserve_temp_directories {
-				config.advanced.preserve_temp_directories = preserve_temp_directories;
-			}
-			if let Some(shared_directory) = advanced.shared_directory {
-				config.advanced.shared_directory = shared_directory;
-			}
+		// Set the directory and version.
+		config.directory = Some(directory.clone());
+		config.version = Some(version());
+
+		// Set the URL.
+		if let Some(url) = &self.args.url {
+			config.http = Some(tangram_server::config::Http {
+				url: Some(url.clone()),
+			});
 		}
 
-		// Set the authentication config.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.authentication.as_ref())
-		{
-			None => (),
-			Some(Either::Left(false)) => {
-				config.authentication = None;
-			},
-			Some(Either::Left(true)) => {
-				config.authentication = Some(tangram_server::config::Authentication::default());
-			},
-			Some(Either::Right(authentication)) => {
-				let mut authentication_ = config.authentication.unwrap_or_default();
-				if let Some(providers) = authentication.providers.as_ref()
-					&& let Some(github) = providers.github.as_ref()
-				{
-					authentication_.providers.github = Some(tangram_server::config::Oauth {
-						auth_url: github.auth_url.clone(),
-						client_id: github.client_id.clone(),
-						client_secret: github.client_secret.clone(),
-						redirect_url: github.redirect_url.clone(),
-						token_url: github.token_url.clone(),
-					});
-				}
-				config.authentication = Some(authentication_);
-			},
-		}
-
-		// Set the authorization config.
-		if let Some(authorization) = self.config.as_ref().and_then(|config| config.authorization) {
-			config.authorization = authorization;
-		}
-
-		// Set the checkin config.
-		if let Some(checkin) = self
-			.config
-			.as_ref()
-			.and_then(|config| config.checkin.as_ref())
-		{
-			if let Some(blob) = checkin.blob.as_ref()
-				&& let Some(concurrency) = blob.concurrency
-			{
-				config.checkin.blob.concurrency = concurrency;
-			}
-			if let Some(cache) = checkin.cache.as_ref() {
-				if let Some(batch_size) = cache.batch_size {
-					config.checkin.cache.batch_size = batch_size;
-				}
-				if let Some(concurrency) = cache.concurrency {
-					config.checkin.cache.concurrency = concurrency;
-				}
-			}
-		}
-
-		// Set the cleaner config.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.cleaner.clone())
-		{
-			None => (),
-			Some(Either::Left(false)) => {
-				config.cleaner = None;
-			},
-			Some(Either::Left(true)) => {
-				config.cleaner = Some(tangram_server::config::Cleaner::default());
-			},
-			Some(Either::Right(cleaner)) => {
-				let mut cleaner_ = config.cleaner.unwrap_or_default();
-				if let Some(batch_size) = cleaner.batch_size {
-					cleaner_.batch_size = batch_size;
-				}
-				if let Some(ttl) = cleaner.ttl {
-					cleaner_.ttl = ttl;
-				}
-				config.cleaner = Some(cleaner_);
-			},
-		}
-
-		// Set the database config.
-		if let Some(database) = self
-			.config
-			.as_ref()
-			.and_then(|config| config.database.clone())
-		{
-			config.database = match database {
-				self::config::Database::Postgres(database) => {
-					let mut new = tangram_server::config::PostgresDatabase {
-						connections: parallelism,
-						url: "postgres://localhost:5432".parse().unwrap(),
-					};
-					if let Some(connections) = database.connections {
-						new.connections = connections;
-					}
-					if let Some(url) = database.url {
-						new.url = url;
-					}
-					tangram_server::config::Database::Postgres(new)
-				},
-				self::config::Database::Sqlite(database) => {
-					let mut new = tangram_server::config::SqliteDatabase {
-						connections: parallelism,
-						path: directory.clone(),
-					};
-					if let Some(connections) = database.connections {
-						new.connections = connections;
-					}
-					if let Some(path) = database.path {
-						new.path = path;
-					}
-					tangram_server::config::Database::Sqlite(new)
-				},
-			};
-		}
-
-		// Set the http config.
-		match self.config.as_ref().and_then(|config| config.http.as_ref()) {
-			None => (),
-			Some(Either::Left(false)) => {
-				config.http = None;
-			},
-			Some(Either::Left(true)) => {
-				config.http = Some(tangram_server::config::Http::default());
-			},
-			Some(Either::Right(http)) => {
-				let mut new = config.http.unwrap_or_default();
-				if let Some(url) = http.url.clone() {
-					new.url = Some(url);
-				}
-				config.http = Some(new);
-			},
-		}
-
-		// Set the index config.
-		if let Some(index) = self.config.as_ref().and_then(|config| config.index.clone()) {
-			config.index = match index {
-				self::config::Index::Postgres(index) => {
-					let mut new = tangram_server::config::PostgresIndex {
-						connections: parallelism,
-						url: "postgres://localhost:5432".parse().unwrap(),
-					};
-					if let Some(connections) = index.connections {
-						new.connections = connections;
-					}
-					if let Some(url) = index.url {
-						new.url = url;
-					}
-					tangram_server::config::Index::Postgres(new)
-				},
-				self::config::Index::Sqlite(index) => {
-					let mut new = tangram_server::config::SqliteIndex {
-						connections: parallelism,
-						path: directory.clone(),
-					};
-					if let Some(connections) = index.connections {
-						new.connections = connections;
-					}
-					if let Some(path) = index.path {
-						new.path = path;
-					}
-					tangram_server::config::Index::Sqlite(new)
-				},
-			};
-		}
-
-		// Set the indexer config.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.indexer.clone())
-		{
-			None => (),
-			Some(Either::Left(false)) => {
-				config.indexer = None;
-			},
-			Some(Either::Left(true)) => {
-				config.indexer = Some(tangram_server::config::Indexer::default());
-			},
-			Some(Either::Right(indexer)) => {
-				let mut new = config.indexer.unwrap_or_default();
-				if let Some(insert_batch_size) = indexer.insert_batch_size {
-					new.insert_batch_size = insert_batch_size;
-				}
-				if let Some(message_batch_size) = indexer.message_batch_size {
-					new.message_batch_size = message_batch_size;
-				}
-				if let Some(message_batch_timeout) = indexer.message_batch_timeout {
-					new.message_batch_timeout = message_batch_timeout;
-				}
-				if let Some(queue_batch_size) = indexer.queue_batch_size {
-					new.queue_batch_size = queue_batch_size;
-				}
-				config.indexer = Some(new);
-			},
-		}
-
-		// Set the messenger config.
-		if let Some(messenger) = self
-			.config
-			.as_ref()
-			.and_then(|config| config.messenger.clone())
-		{
-			config.messenger = match messenger {
-				self::config::Messenger::Memory => tangram_server::config::Messenger::Memory,
-				self::config::Messenger::Nats(messenger) => {
-					let mut new = tangram_server::config::NatsMessenger {
-						credentials: messenger.credentials,
-						id: messenger.id,
-						..Default::default()
-					};
-					if let Some(url) = messenger.url {
-						new.url = url;
-					}
-					tangram_server::config::Messenger::Nats(new)
-				},
-			}
-		}
-
-		// Set the remotes config.
+		// Set the remotes.
 		if self.args.no_remotes {
 			config.remotes = Some(vec![]);
 		} else if let Some(remotes) = &self.args.remotes {
@@ -903,302 +657,6 @@ impl Cli {
 					})
 					.collect(),
 			);
-		} else if let Some(remotes) = self
-			.config
-			.as_ref()
-			.and_then(|config| config.remotes.as_ref())
-		{
-			config.remotes = Some(
-				remotes
-					.iter()
-					.map(|remote| tangram_server::config::Remote {
-						name: remote.name.clone(),
-						url: remote.url.clone(),
-						token: remote.token.clone(),
-					})
-					.collect(),
-			);
-		}
-
-		// Set the runner config.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.runner.clone())
-		{
-			None => (),
-			Some(Either::Left(false)) => {
-				config.runner = None;
-			},
-			Some(Either::Left(true)) => {
-				config.runner = Some(tangram_server::config::Runner::default());
-			},
-			Some(Either::Right(runner)) => {
-				let mut new = config.runner.unwrap_or_default();
-				if let Some(concurrency) = runner.concurrency {
-					new.concurrency = concurrency;
-				}
-				if let Some(heartbeat_interval) = runner.heartbeat_interval {
-					new.heartbeat_interval = heartbeat_interval;
-				}
-				if let Some(remotes) = runner.remotes.clone() {
-					new.remotes = remotes;
-				}
-				config.runner = Some(new);
-			},
-		}
-
-		// Set the store config.
-		if let Some(store) = self.config.as_ref().and_then(|config| config.store.clone()) {
-			config.store = match store {
-				config::Store::Fdb(fdb) => {
-					tangram_server::config::Store::Fdb(tangram_server::config::FdbStore {
-						path: fdb.path,
-					})
-				},
-				config::Store::Lmdb(lmdb) => {
-					tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
-						path: lmdb.path.unwrap_or_else(|| directory.join("store")),
-					})
-				},
-				config::Store::Memory => tangram_server::config::Store::Memory,
-				config::Store::S3(s3) => {
-					tangram_server::config::Store::S3(tangram_server::config::S3Store {
-						access_key: s3.access_key,
-						bucket: s3.bucket,
-						region: s3.region,
-						secret_key: s3.secret_key,
-						url: s3.url,
-					})
-				},
-				config::Store::Scylla(scylla) => {
-					tangram_server::config::Store::Scylla(tangram_server::config::ScyllaStore {
-						addr: scylla.addr,
-						keyspace: scylla.keyspace,
-						password: scylla.password,
-						username: scylla.username,
-					})
-				},
-			};
-		}
-
-		// Set the sync config.
-		if let Some(sync) = self.config.as_ref().and_then(|config| config.sync.as_ref()) {
-			if let Some(get) = sync.get.as_ref() {
-				if let Some(index) = get.index.as_ref() {
-					if let Some(v) = index.message_max_bytes {
-						config.sync.get.index.message_max_bytes = v;
-					}
-					if let Some(v) = index.object_batch_size {
-						config.sync.get.index.object_batch_size = v;
-					}
-					if let Some(v) = index.object_concurrency {
-						config.sync.get.index.object_concurrency = v;
-					}
-					if let Some(v) = index.process_batch_size {
-						config.sync.get.index.process_batch_size = v;
-					}
-					if let Some(v) = index.process_concurrency {
-						config.sync.get.index.process_concurrency = v;
-					}
-				}
-				if let Some(queue) = get.queue.as_ref() {
-					if let Some(v) = queue.object_batch_size {
-						config.sync.get.queue.object_batch_size = v;
-					}
-					if let Some(v) = queue.object_concurrency {
-						config.sync.get.queue.object_concurrency = v;
-					}
-					if let Some(v) = queue.process_batch_size {
-						config.sync.get.queue.process_batch_size = v;
-					}
-					if let Some(v) = queue.process_concurrency {
-						config.sync.get.queue.process_concurrency = v;
-					}
-				}
-				if let Some(store) = get.store.as_ref() {
-					if let Some(v) = store.process_batch_size {
-						config.sync.get.store.process_batch_size = v;
-					}
-					if let Some(v) = store.process_concurrency {
-						config.sync.get.store.process_concurrency = v;
-					}
-					if let Some(fdb) = store.fdb.as_ref() {
-						if let Some(v) = fdb.object_concurrency {
-							config.sync.get.store.fdb.object_concurrency = v;
-						}
-						if let Some(v) = fdb.object_max_batch {
-							config.sync.get.store.fdb.object_max_batch = v;
-						}
-						if let Some(v) = fdb.object_max_bytes {
-							config.sync.get.store.fdb.object_max_bytes = v;
-						}
-					}
-					if let Some(lmdb) = store.lmdb.as_ref() {
-						if let Some(v) = lmdb.object_concurrency {
-							config.sync.get.store.lmdb.object_concurrency = v;
-						}
-						if let Some(v) = lmdb.object_max_batch {
-							config.sync.get.store.lmdb.object_max_batch = v;
-						}
-						if let Some(v) = lmdb.object_max_bytes {
-							config.sync.get.store.lmdb.object_max_bytes = v;
-						}
-					}
-					if let Some(memory) = store.memory.as_ref() {
-						if let Some(v) = memory.object_concurrency {
-							config.sync.get.store.memory.object_concurrency = v;
-						}
-						if let Some(v) = memory.object_max_batch {
-							config.sync.get.store.memory.object_max_batch = v;
-						}
-						if let Some(v) = memory.object_max_bytes {
-							config.sync.get.store.memory.object_max_bytes = v;
-						}
-					}
-					if let Some(s3) = store.s3.as_ref() {
-						if let Some(v) = s3.object_concurrency {
-							config.sync.get.store.s3.object_concurrency = v;
-						}
-						if let Some(v) = s3.object_max_batch {
-							config.sync.get.store.s3.object_max_batch = v;
-						}
-						if let Some(v) = s3.object_max_bytes {
-							config.sync.get.store.s3.object_max_bytes = v;
-						}
-					}
-					if let Some(scylla) = store.scylla.as_ref() {
-						if let Some(v) = scylla.object_concurrency {
-							config.sync.get.store.scylla.object_concurrency = v;
-						}
-						if let Some(v) = scylla.object_max_batch {
-							config.sync.get.store.scylla.object_max_batch = v;
-						}
-						if let Some(v) = scylla.object_max_bytes {
-							config.sync.get.store.scylla.object_max_bytes = v;
-						}
-					}
-				}
-			}
-			if let Some(put) = sync.put.as_ref() {
-				if let Some(index) = put.index.as_ref() {
-					if let Some(v) = index.object_batch_size {
-						config.sync.put.index.object_batch_size = v;
-					}
-					if let Some(v) = index.object_concurrency {
-						config.sync.put.index.object_concurrency = v;
-					}
-					if let Some(v) = index.process_batch_size {
-						config.sync.put.index.process_batch_size = v;
-					}
-					if let Some(v) = index.process_concurrency {
-						config.sync.put.index.process_concurrency = v;
-					}
-				}
-				if let Some(queue) = put.queue.as_ref() {
-					if let Some(v) = queue.object_batch_size {
-						config.sync.put.queue.object_batch_size = v;
-					}
-					if let Some(v) = queue.object_concurrency {
-						config.sync.put.queue.object_concurrency = v;
-					}
-					if let Some(v) = queue.process_batch_size {
-						config.sync.put.queue.process_batch_size = v;
-					}
-					if let Some(v) = queue.process_concurrency {
-						config.sync.put.queue.process_concurrency = v;
-					}
-				}
-				if let Some(store) = put.store.as_ref() {
-					if let Some(v) = store.object_batch_size {
-						config.sync.put.store.object_batch_size = v;
-					}
-					if let Some(v) = store.object_concurrency {
-						config.sync.put.store.object_concurrency = v;
-					}
-					if let Some(v) = store.process_batch_size {
-						config.sync.put.store.process_batch_size = v;
-					}
-					if let Some(v) = store.process_concurrency {
-						config.sync.put.store.process_concurrency = v;
-					}
-				}
-			}
-		}
-
-		// Set the vfs config.
-		match self.config.as_ref().and_then(|config| config.vfs.clone()) {
-			None => (),
-			Some(Either::Left(false)) => {
-				config.vfs = None;
-			},
-			Some(Either::Left(true)) => {
-				config.vfs = Some(tangram_server::config::Vfs::default());
-			},
-			Some(Either::Right(vfs)) => {
-				let mut new = config.vfs.unwrap_or_default();
-				if let Some(cache_ttl) = vfs.cache_ttl {
-					new.cache_ttl = cache_ttl;
-				}
-				if let Some(cache_size) = vfs.cache_size {
-					new.cache_size = cache_size;
-				}
-				if let Some(database_connections) = vfs.database_connections {
-					new.database_connections = database_connections;
-				}
-				config.vfs = Some(new);
-			},
-		}
-
-		// Set the watchdog config.
-		match self
-			.config
-			.as_ref()
-			.and_then(|config| config.watchdog.clone())
-		{
-			None => (),
-			Some(Either::Left(false)) => {
-				config.watchdog = None;
-			},
-			Some(Either::Left(true)) => {
-				config.watchdog = Some(tangram_server::config::Watchdog::default());
-			},
-			Some(Either::Right(watchdog)) => {
-				let mut new = config.watchdog.unwrap_or_default();
-				if let Some(batch_size) = watchdog.batch_size {
-					new.batch_size = batch_size;
-				}
-				if let Some(interval) = watchdog.interval {
-					new.interval = interval;
-				}
-				if let Some(max_depth) = watchdog.max_depth {
-					new.max_depth = max_depth;
-				}
-				if let Some(ttl) = watchdog.ttl {
-					new.ttl = ttl;
-				}
-				config.watchdog = Some(new);
-			},
-		}
-
-		// Set the write config.
-		if let Some(write) = self
-			.config
-			.as_ref()
-			.and_then(|config| config.write.as_ref())
-		{
-			if let Some(v) = write.avg_leaf_size {
-				config.write.avg_leaf_size = v;
-			}
-			if let Some(v) = write.max_branch_children {
-				config.write.max_branch_children = v;
-			}
-			if let Some(v) = write.max_leaf_size {
-				config.write.max_leaf_size = v;
-			}
-			if let Some(v) = write.min_leaf_size {
-				config.write.min_leaf_size = v;
-			}
 		}
 
 		// Start the server.
@@ -1431,7 +889,7 @@ impl Cli {
 			.or(self
 				.config
 				.as_ref()
-				.and_then(|config| config.directory.clone()))
+				.and_then(|config| config.server.directory.clone()))
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
 	}
 
@@ -1638,34 +1096,14 @@ impl Cli {
 
 	/// Initialize tracing.
 	fn initialize_tracing(config: Option<&Config>, tracing_filter: Option<&String>) {
-		let console_layer = if config
-			.as_ref()
-			.and_then(|config| config.advanced.as_ref())
-			.is_some_and(|advanced| advanced.tokio_console)
-		{
+		let console_layer = if config.is_some_and(|config| config.tokio_console) {
 			Some(console_subscriber::spawn())
 		} else {
 			None
 		};
-		let default = crate::config::Tracing {
-			filter: [
-				"tangram=info",
-				"tangram_client=info",
-				"tangram_compiler=info",
-				"tangram_database=info",
-				"tangram_js=info",
-				"tangram_messenger=info",
-				"tangram_server=info",
-				"tangram_store=info",
-				"tangram_vfs=info",
-			]
-			.join(","),
-			format: Some(crate::config::TracingFormat::Pretty),
-		};
 		let output_layer = config
 			.as_ref()
 			.and_then(|config| config.tracing.as_ref())
-			.or(Some(&default))
 			.map(|tracing| {
 				// Prioritize CLI argument over config file.
 				let filter_string = tracing_filter.unwrap_or(&tracing.filter);
