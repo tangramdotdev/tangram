@@ -1,7 +1,7 @@
 use {
 	super::{Builder, Data, Id, Object},
 	crate::prelude::*,
-	futures::{TryStreamExt, stream::FuturesUnordered},
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	std::{collections::BTreeMap, sync::Arc},
 	tokio::io::AsyncBufRead,
 };

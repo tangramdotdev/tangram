@@ -28,27 +28,35 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the objects future.
 		let object_batch_size = self.config.sync.put.store.object_batch_size;
+		let object_batch_timeout = self.config.sync.put.store.object_batch_timeout;
 		let object_concurrency = self.config.sync.put.store.object_concurrency;
-		let objects_future = ReceiverStream::new(object_receiver)
-			.ready_chunks(object_batch_size)
-			.map(Ok)
-			.try_for_each_concurrent(object_concurrency, |items| {
-				let server = self.clone();
-				let state = state.clone();
-				async move { server.sync_put_store_object_batch(&state, items).await }
-			});
+		let objects_future = tokio_stream::StreamExt::chunks_timeout(
+			ReceiverStream::new(object_receiver),
+			object_batch_size,
+			object_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(object_concurrency, |items| {
+			let server = self.clone();
+			let state = state.clone();
+			async move { server.sync_put_store_object_batch(&state, items).await }
+		});
 
 		// Create the processes future.
 		let process_batch_size = self.config.sync.put.store.process_batch_size;
+		let process_batch_timeout = self.config.sync.put.store.process_batch_timeout;
 		let process_concurrency = self.config.sync.put.store.process_concurrency;
-		let processes_future = ReceiverStream::new(process_receiver)
-			.ready_chunks(process_batch_size)
-			.map(Ok)
-			.try_for_each_concurrent(process_concurrency, |items| {
-				let server = self.clone();
-				let state = state.clone();
-				async move { server.sync_put_store_process_batch(&state, items).await }
-			});
+		let processes_future = tokio_stream::StreamExt::chunks_timeout(
+			ReceiverStream::new(process_receiver),
+			process_batch_size,
+			process_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(process_concurrency, |items| {
+			let server = self.clone();
+			let state = state.clone();
+			async move { server.sync_put_store_process_batch(&state, items).await }
+		});
 
 		// Join the objects and processes futures.
 		futures::try_join!(objects_future, processes_future)?;

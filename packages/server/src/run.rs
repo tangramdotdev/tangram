@@ -1,6 +1,8 @@
 use {
 	crate::{ProcessPermit, Server},
-	futures::{FutureExt as _, StreamExt, TryFutureExt as _, future, stream::FuturesUnordered},
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered,
+	},
 	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_either::Either,

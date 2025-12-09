@@ -27,49 +27,57 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the objects future.
 		let object_batch_size = self.config.sync.put.queue.object_batch_size;
+		let object_batch_timeout = self.config.sync.put.queue.object_batch_timeout;
 		let object_concurrency = self.config.sync.put.queue.object_concurrency;
-		let objects_future = queue_object_receiver
-			.ready_chunks(object_batch_size)
-			.map(Ok)
-			.try_for_each_concurrent(object_concurrency, |items| {
-				let server = self.clone();
-				let state = state.clone();
-				let index_object_sender = index_object_sender.clone();
-				let store_object_sender = store_object_sender.clone();
-				async move {
-					server
-						.sync_put_queue_object_batch(
-							&state,
-							items,
-							index_object_sender,
-							store_object_sender,
-						)
-						.await
-				}
-			});
+		let objects_future = tokio_stream::StreamExt::chunks_timeout(
+			queue_object_receiver,
+			object_batch_size,
+			object_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(object_concurrency, |items| {
+			let server = self.clone();
+			let state = state.clone();
+			let index_object_sender = index_object_sender.clone();
+			let store_object_sender = store_object_sender.clone();
+			async move {
+				server
+					.sync_put_queue_object_batch(
+						&state,
+						items,
+						index_object_sender,
+						store_object_sender,
+					)
+					.await
+			}
+		});
 
 		// Create the processes future.
 		let process_batch_size = self.config.sync.put.queue.process_batch_size;
+		let process_batch_timeout = self.config.sync.put.queue.process_batch_timeout;
 		let process_concurrency = self.config.sync.put.queue.process_concurrency;
-		let processes_future = queue_process_receiver
-			.ready_chunks(process_batch_size)
-			.map(Ok)
-			.try_for_each_concurrent(process_concurrency, |items| {
-				let server = self.clone();
-				let state = state.clone();
-				let index_process_sender = index_process_sender.clone();
-				let store_process_sender = store_process_sender.clone();
-				async move {
-					server
-						.sync_put_queue_process_batch(
-							&state,
-							items,
-							index_process_sender,
-							store_process_sender,
-						)
-						.await
-				}
-			});
+		let processes_future = tokio_stream::StreamExt::chunks_timeout(
+			queue_process_receiver,
+			process_batch_size,
+			process_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(process_concurrency, |items| {
+			let server = self.clone();
+			let state = state.clone();
+			let index_process_sender = index_process_sender.clone();
+			let store_process_sender = store_process_sender.clone();
+			async move {
+				server
+					.sync_put_queue_process_batch(
+						&state,
+						items,
+						index_process_sender,
+						store_process_sender,
+					)
+					.await
+			}
+		});
 
 		// Join the objects and processes futures.
 		futures::try_join!(objects_future, processes_future)?;

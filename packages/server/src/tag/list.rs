@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Database, Server},
-	futures::{TryStreamExt, stream::FuturesUnordered},
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };

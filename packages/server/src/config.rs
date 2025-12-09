@@ -312,25 +312,36 @@ pub struct SyncGet {
 	pub store: SyncGetStore,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetIndex {
 	pub message_max_bytes: usize,
 	pub object_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub object_batch_timeout: Duration,
 	pub object_concurrency: usize,
 	pub process_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_batch_timeout: Duration,
 	pub process_concurrency: usize,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetQueue {
 	pub object_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub object_batch_timeout: Duration,
 	pub object_concurrency: usize,
 	pub process_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_batch_timeout: Duration,
 	pub process_concurrency: usize,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetStore {
@@ -338,6 +349,8 @@ pub struct SyncGetStore {
 	pub lmdb: SyncGetStoreObject,
 	pub memory: SyncGetStoreObject,
 	pub process_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_batch_timeout: Duration,
 	pub process_concurrency: usize,
 	pub s3: SyncGetStoreObject,
 	pub scylla: SyncGetStoreObject,
@@ -359,30 +372,45 @@ pub struct SyncPut {
 	pub store: SyncPutStore,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncPutIndex {
 	pub object_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub object_batch_timeout: Duration,
 	pub object_concurrency: usize,
 	pub process_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_batch_timeout: Duration,
 	pub process_concurrency: usize,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncPutQueue {
 	pub object_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub object_batch_timeout: Duration,
 	pub object_concurrency: usize,
 	pub process_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_batch_timeout: Duration,
 	pub process_concurrency: usize,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncPutStore {
 	pub object_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub object_batch_timeout: Duration,
 	pub object_concurrency: usize,
 	pub process_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_batch_timeout: Duration,
 	pub process_concurrency: usize,
 }
 
@@ -589,8 +617,10 @@ impl Default for SyncGetIndex {
 		Self {
 			message_max_bytes: 1_000_000,
 			object_batch_size: 16,
+			object_batch_timeout: Duration::ZERO,
 			object_concurrency: 8,
 			process_batch_size: 16,
+			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
 		}
 	}
@@ -600,8 +630,10 @@ impl Default for SyncGetQueue {
 	fn default() -> Self {
 		Self {
 			object_batch_size: 16,
+			object_batch_timeout: Duration::ZERO,
 			object_concurrency: 8,
 			process_batch_size: 16,
+			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
 		}
 	}
@@ -626,6 +658,7 @@ impl Default for SyncGetStore {
 				object_max_bytes: u64::MAX,
 			},
 			process_batch_size: 16,
+			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
 			s3: SyncGetStoreObject {
 				object_concurrency: 256,
@@ -645,8 +678,10 @@ impl Default for SyncPutIndex {
 	fn default() -> Self {
 		Self {
 			object_batch_size: 16,
+			object_batch_timeout: Duration::ZERO,
 			object_concurrency: 8,
 			process_batch_size: 16,
+			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
 		}
 	}
@@ -656,8 +691,10 @@ impl Default for SyncPutQueue {
 	fn default() -> Self {
 		Self {
 			object_batch_size: 16,
+			object_batch_timeout: Duration::ZERO,
 			object_concurrency: 8,
 			process_batch_size: 16,
+			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
 		}
 	}
@@ -667,8 +704,10 @@ impl Default for SyncPutStore {
 	fn default() -> Self {
 		Self {
 			object_batch_size: 16,
+			object_batch_timeout: Duration::ZERO,
 			object_concurrency: 8,
 			process_batch_size: 16,
+			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
 		}
 	}

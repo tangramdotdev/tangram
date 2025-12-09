@@ -151,14 +151,18 @@ impl Server {
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
 		let process_batch_size = self.config.sync.get.store.process_batch_size;
+		let process_batch_timeout = self.config.sync.get.store.process_batch_timeout;
 		let process_concurrency = self.config.sync.get.store.process_concurrency;
-		ReceiverStream::new(process_receiver)
-			.ready_chunks(process_batch_size)
-			.map(Ok)
-			.try_for_each_concurrent(process_concurrency, |items| async move {
-				self.sync_get_store_processes_inner(state, items).await
-			})
-			.await
+		tokio_stream::StreamExt::chunks_timeout(
+			ReceiverStream::new(process_receiver),
+			process_batch_size,
+			process_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(process_concurrency, |items| async move {
+			self.sync_get_store_processes_inner(state, items).await
+		})
+		.await
 	}
 
 	async fn sync_get_store_processes_inner(
