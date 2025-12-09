@@ -4,7 +4,7 @@ use {
 	},
 	async_broadcast as broadcast,
 	bytes::Bytes,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{
 		collections::{BTreeMap, HashMap},
@@ -157,7 +157,8 @@ impl Messenger {
 			.ok_or(Error::NotFound)?
 			.clone();
 		let future = tokio::spawn(async move { stream.publish(payload).await })
-			.map(|result| result.unwrap());
+			.map_err(Error::other)
+			.and_then(future::ready);
 		Ok(future)
 	}
 
@@ -175,7 +176,8 @@ impl Messenger {
 			.ok_or(Error::NotFound)?
 			.clone();
 		let future = tokio::spawn(async move { stream.batch_publish(payloads).await })
-			.map(|result| result.unwrap());
+			.map_err(Error::other)
+			.and_then(future::ready);
 		Ok(future)
 	}
 }

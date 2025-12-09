@@ -263,7 +263,9 @@ impl Value {
 				});
 			}
 			if let Some(result) = join_set.join_next().await {
-				let (children, depth): (Vec<Self>, Option<u64>) = result.unwrap()?;
+				let (children, depth): (Vec<Self>, Option<u64>) = result
+					.map_err(|source| tg::error!(!source, "the load task panicked"))
+					.and_then(|result| result)?;
 				for child in children {
 					queue.push_back((child, depth));
 				}

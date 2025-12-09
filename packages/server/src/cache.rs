@@ -126,7 +126,7 @@ impl Server {
 		artifacts: &[tg::artifact::Id],
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
-		// Check if the artifacts subtrees are stored.
+		// Check if the artifacts' subtrees are stored.
 		let stored = future::try_join_all(artifacts.iter().map(|artifact| {
 			let server = self.clone();
 			let artifact = artifact.clone();
@@ -151,7 +151,7 @@ impl Server {
 			progress.forward(Ok(event));
 		}
 
-		// Check if the artifacts subtrees are stored.
+		// Check if the artifacts' subtrees are stored.
 		let stored = future::try_join_all(artifacts.iter().map(|artifact| {
 			let server = self.clone();
 			let artifact = artifact.clone();
@@ -274,7 +274,9 @@ impl Server {
 					}
 				}
 				result = task_future => {
-					result.unwrap()?;
+					result
+						.map_err(|source| tg::error!(!source, "the dependency task panicked"))
+						.and_then(|result| result)?;
 					break;
 				}
 			}
