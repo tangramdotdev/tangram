@@ -8,8 +8,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const CONCURRENCY: usize = 8;
-
 impl Server {
 	pub(super) async fn checkin_create_blobs(
 		&self,
@@ -44,9 +42,11 @@ impl Server {
 			Some(total),
 		);
 
+		let write_config = self.config.write.clone();
 		let blobs = stream::iter(nodes)
 			.map(|(index, path, size)| {
 				let progress = progress.clone();
+				let write_config = write_config.clone();
 				async move {
 					let blob = tokio::task::spawn_blocking({
 						let path = path.clone();
@@ -54,7 +54,7 @@ impl Server {
 							let file = std::fs::File::open(&path).map_err(
 								|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 							)?;
-							Self::write_inner_sync(file, None).map_err(
+							Self::write_inner_sync(file, None, &write_config).map_err(
 								|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
 							)
 						}
@@ -67,7 +67,7 @@ impl Server {
 					Ok::<_, tg::Error>((index, blob))
 				}
 			})
-			.buffer_unordered(CONCURRENCY)
+			.buffer_unordered(self.config.checkin.blob.concurrency)
 			.try_collect::<Vec<_>>()
 			.await?;
 

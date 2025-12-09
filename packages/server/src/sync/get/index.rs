@@ -10,13 +10,6 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-const OBJECT_BATCH_SIZE: usize = 16;
-const OBJECT_CONCURRENCY: usize = 8;
-const PROCESS_BATCH_SIZE: usize = 16;
-const PROCESS_CONCURRENCY: usize = 8;
-
-const INDEX_MESSAGE_MAX_BYTES: usize = 1_000_000;
-
 pub struct ObjectItem {
 	pub id: tg::object::Id,
 	pub missing: bool,
@@ -35,20 +28,24 @@ impl Server {
 		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
 		// Create the objects future.
+		let object_batch_size = self.config.sync.get.index.object_batch_size;
+		let object_concurrency = self.config.sync.get.index.object_concurrency;
 		let objects_future = ReceiverStream::new(index_object_receiver)
-			.ready_chunks(OBJECT_BATCH_SIZE)
+			.ready_chunks(object_batch_size)
 			.map(Ok)
-			.try_for_each_concurrent(OBJECT_CONCURRENCY, |items| {
+			.try_for_each_concurrent(object_concurrency, |items| {
 				let server = self.clone();
 				let state = state.clone();
 				async move { server.sync_get_index_object_batch(&state, items).await }
 			});
 
 		// Create the processes future.
+		let process_batch_size = self.config.sync.get.index.process_batch_size;
+		let process_concurrency = self.config.sync.get.index.process_concurrency;
 		let processes_future = ReceiverStream::new(index_process_receiver)
-			.ready_chunks(PROCESS_BATCH_SIZE)
+			.ready_chunks(process_batch_size)
 			.map(Ok)
-			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
+			.try_for_each_concurrent(process_concurrency, |items| {
 				let server = self.clone();
 				let state = state.clone();
 				async move { server.sync_get_index_process_batch(&state, items).await }
@@ -191,7 +188,11 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
 		// Create the messages.
-		let messages = Self::sync_get_index_create_messages(&mut state.graph.lock().unwrap())?;
+		let message_max_bytes = self.config.sync.get.index.message_max_bytes;
+		let messages = Self::sync_get_index_create_messages(
+			&mut state.graph.lock().unwrap(),
+			message_max_bytes,
+		)?;
 
 		// Publish the messages.
 		for messages in messages {
@@ -206,7 +207,10 @@ impl Server {
 		Ok(())
 	}
 
-	fn sync_get_index_create_messages(graph: &mut Graph) -> tg::Result<Vec<Vec<Bytes>>> {
+	fn sync_get_index_create_messages(
+		graph: &mut Graph,
+		message_max_bytes: usize,
+	) -> tg::Result<Vec<Vec<Bytes>>> {
 		// Get a topological ordering.
 		let toposort = petgraph::algo::toposort(&*graph, None)
 			.map_err(|_| tg::error!("failed to toposort the graph"))?;
@@ -645,7 +649,7 @@ impl Server {
 				let mut batch = message.to_vec();
 				while let Some(message) = messages.peek() {
 					let message = message.serialize()?;
-					if batch.len() + message.len() <= INDEX_MESSAGE_MAX_BYTES {
+					if batch.len() + message.len() <= message_max_bytes {
 						messages.next().unwrap();
 						batch.extend_from_slice(&message);
 					} else {

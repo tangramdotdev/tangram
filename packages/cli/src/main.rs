@@ -626,6 +626,7 @@ impl Cli {
 		let advanced = tangram_server::config::Advanced::default();
 		let authentication = None;
 		let authorization = false;
+		let checkin = tangram_server::config::Checkin::default();
 		let cleaner = None;
 		let database =
 			tangram_server::config::Database::Sqlite(tangram_server::config::SqliteDatabase {
@@ -650,13 +651,16 @@ impl Cli {
 		let store = tangram_server::config::Store::Lmdb(tangram_server::config::LmdbStore {
 			path: directory.join("store"),
 		});
+		let sync = tangram_server::config::Sync::default();
 		let version = Some(version());
 		let vfs = None;
 		let watchdog = Some(tangram_server::config::Watchdog::default());
+		let write = tangram_server::config::Write::default();
 		let mut config = tangram_server::Config {
 			advanced,
 			authentication,
 			authorization,
+			checkin,
 			cleaner,
 			database,
 			http,
@@ -667,9 +671,11 @@ impl Cli {
 			remotes,
 			runner,
 			store,
+			sync,
 			version,
 			vfs,
 			watchdog,
+			write,
 		};
 
 		// Set the advanced options.
@@ -724,6 +730,27 @@ impl Cli {
 		// Set the authorization config.
 		if let Some(authorization) = self.config.as_ref().and_then(|config| config.authorization) {
 			config.authorization = authorization;
+		}
+
+		// Set the checkin config.
+		if let Some(checkin) = self
+			.config
+			.as_ref()
+			.and_then(|config| config.checkin.as_ref())
+		{
+			if let Some(blob) = checkin.blob.as_ref()
+				&& let Some(concurrency) = blob.concurrency
+			{
+				config.checkin.blob.concurrency = concurrency;
+			}
+			if let Some(cache) = checkin.cache.as_ref() {
+				if let Some(batch_size) = cache.batch_size {
+					config.checkin.cache.batch_size = batch_size;
+				}
+				if let Some(concurrency) = cache.concurrency {
+					config.checkin.cache.concurrency = concurrency;
+				}
+			}
 		}
 
 		// Set the cleaner config.
@@ -987,6 +1014,150 @@ impl Cli {
 			};
 		}
 
+		// Set the sync config.
+		if let Some(sync) = self.config.as_ref().and_then(|config| config.sync.as_ref()) {
+			if let Some(get) = sync.get.as_ref() {
+				if let Some(index) = get.index.as_ref() {
+					if let Some(v) = index.message_max_bytes {
+						config.sync.get.index.message_max_bytes = v;
+					}
+					if let Some(v) = index.object_batch_size {
+						config.sync.get.index.object_batch_size = v;
+					}
+					if let Some(v) = index.object_concurrency {
+						config.sync.get.index.object_concurrency = v;
+					}
+					if let Some(v) = index.process_batch_size {
+						config.sync.get.index.process_batch_size = v;
+					}
+					if let Some(v) = index.process_concurrency {
+						config.sync.get.index.process_concurrency = v;
+					}
+				}
+				if let Some(queue) = get.queue.as_ref() {
+					if let Some(v) = queue.object_batch_size {
+						config.sync.get.queue.object_batch_size = v;
+					}
+					if let Some(v) = queue.object_concurrency {
+						config.sync.get.queue.object_concurrency = v;
+					}
+					if let Some(v) = queue.process_batch_size {
+						config.sync.get.queue.process_batch_size = v;
+					}
+					if let Some(v) = queue.process_concurrency {
+						config.sync.get.queue.process_concurrency = v;
+					}
+				}
+				if let Some(store) = get.store.as_ref() {
+					if let Some(v) = store.process_batch_size {
+						config.sync.get.store.process_batch_size = v;
+					}
+					if let Some(v) = store.process_concurrency {
+						config.sync.get.store.process_concurrency = v;
+					}
+					if let Some(fdb) = store.fdb.as_ref() {
+						if let Some(v) = fdb.object_concurrency {
+							config.sync.get.store.fdb.object_concurrency = v;
+						}
+						if let Some(v) = fdb.object_max_batch {
+							config.sync.get.store.fdb.object_max_batch = v;
+						}
+						if let Some(v) = fdb.object_max_bytes {
+							config.sync.get.store.fdb.object_max_bytes = v;
+						}
+					}
+					if let Some(lmdb) = store.lmdb.as_ref() {
+						if let Some(v) = lmdb.object_concurrency {
+							config.sync.get.store.lmdb.object_concurrency = v;
+						}
+						if let Some(v) = lmdb.object_max_batch {
+							config.sync.get.store.lmdb.object_max_batch = v;
+						}
+						if let Some(v) = lmdb.object_max_bytes {
+							config.sync.get.store.lmdb.object_max_bytes = v;
+						}
+					}
+					if let Some(memory) = store.memory.as_ref() {
+						if let Some(v) = memory.object_concurrency {
+							config.sync.get.store.memory.object_concurrency = v;
+						}
+						if let Some(v) = memory.object_max_batch {
+							config.sync.get.store.memory.object_max_batch = v;
+						}
+						if let Some(v) = memory.object_max_bytes {
+							config.sync.get.store.memory.object_max_bytes = v;
+						}
+					}
+					if let Some(s3) = store.s3.as_ref() {
+						if let Some(v) = s3.object_concurrency {
+							config.sync.get.store.s3.object_concurrency = v;
+						}
+						if let Some(v) = s3.object_max_batch {
+							config.sync.get.store.s3.object_max_batch = v;
+						}
+						if let Some(v) = s3.object_max_bytes {
+							config.sync.get.store.s3.object_max_bytes = v;
+						}
+					}
+					if let Some(scylla) = store.scylla.as_ref() {
+						if let Some(v) = scylla.object_concurrency {
+							config.sync.get.store.scylla.object_concurrency = v;
+						}
+						if let Some(v) = scylla.object_max_batch {
+							config.sync.get.store.scylla.object_max_batch = v;
+						}
+						if let Some(v) = scylla.object_max_bytes {
+							config.sync.get.store.scylla.object_max_bytes = v;
+						}
+					}
+				}
+			}
+			if let Some(put) = sync.put.as_ref() {
+				if let Some(index) = put.index.as_ref() {
+					if let Some(v) = index.object_batch_size {
+						config.sync.put.index.object_batch_size = v;
+					}
+					if let Some(v) = index.object_concurrency {
+						config.sync.put.index.object_concurrency = v;
+					}
+					if let Some(v) = index.process_batch_size {
+						config.sync.put.index.process_batch_size = v;
+					}
+					if let Some(v) = index.process_concurrency {
+						config.sync.put.index.process_concurrency = v;
+					}
+				}
+				if let Some(queue) = put.queue.as_ref() {
+					if let Some(v) = queue.object_batch_size {
+						config.sync.put.queue.object_batch_size = v;
+					}
+					if let Some(v) = queue.object_concurrency {
+						config.sync.put.queue.object_concurrency = v;
+					}
+					if let Some(v) = queue.process_batch_size {
+						config.sync.put.queue.process_batch_size = v;
+					}
+					if let Some(v) = queue.process_concurrency {
+						config.sync.put.queue.process_concurrency = v;
+					}
+				}
+				if let Some(store) = put.store.as_ref() {
+					if let Some(v) = store.object_batch_size {
+						config.sync.put.store.object_batch_size = v;
+					}
+					if let Some(v) = store.object_concurrency {
+						config.sync.put.store.object_concurrency = v;
+					}
+					if let Some(v) = store.process_batch_size {
+						config.sync.put.store.process_batch_size = v;
+					}
+					if let Some(v) = store.process_concurrency {
+						config.sync.put.store.process_concurrency = v;
+					}
+				}
+			}
+		}
+
 		// Set the vfs config.
 		match self.config.as_ref().and_then(|config| config.vfs.clone()) {
 			None => (),
@@ -1040,6 +1211,26 @@ impl Cli {
 				}
 				config.watchdog = Some(new);
 			},
+		}
+
+		// Set the write config.
+		if let Some(write) = self
+			.config
+			.as_ref()
+			.and_then(|config| config.write.as_ref())
+		{
+			if let Some(v) = write.avg_leaf_size {
+				config.write.avg_leaf_size = v;
+			}
+			if let Some(v) = write.max_branch_children {
+				config.write.max_branch_children = v;
+			}
+			if let Some(v) = write.max_leaf_size {
+				config.write.max_leaf_size = v;
+			}
+			if let Some(v) = write.min_leaf_size {
+				config.write.min_leaf_size = v;
+			}
 		}
 
 		// Start the server.

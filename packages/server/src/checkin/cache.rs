@@ -9,9 +9,6 @@ use {
 	tangram_util::iter::Ext as _,
 };
 
-const BATCH_SIZE: usize = 128;
-const CONCURRENCY: usize = 8;
-
 impl Server {
 	pub(super) async fn checkin_cache(
 		&self,
@@ -54,7 +51,7 @@ impl Server {
 
 			let batches = files
 				.into_iter()
-				.batches(BATCH_SIZE)
+				.batches(self.config.checkin.cache.batch_size)
 				.map(|batch| {
 					let server = self.clone();
 					let batch_bytes: u64 = batch.iter().map(|(_, _, _, size)| size).sum();
@@ -75,7 +72,7 @@ impl Server {
 				.collect::<Vec<_>>();
 
 			stream::iter(batches)
-				.buffer_unordered(CONCURRENCY)
+				.buffer_unordered(self.config.checkin.cache.concurrency)
 				.try_collect::<()>()
 				.await
 				.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;

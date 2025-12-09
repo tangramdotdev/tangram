@@ -12,11 +12,6 @@ use {
 	tangram_either::Either,
 };
 
-const OBJECT_BATCH_SIZE: usize = 16;
-const OBJECT_CONCURRENCY: usize = 8;
-const PROCESS_BATCH_SIZE: usize = 16;
-const PROCESS_CONCURRENCY: usize = 8;
-
 impl Server {
 	pub(super) async fn sync_get_queue(
 		&self,
@@ -25,20 +20,24 @@ impl Server {
 		queue_process_receiver: async_channel::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
 		// Create the objects future.
+		let object_batch_size = self.config.sync.get.queue.object_batch_size;
+		let object_concurrency = self.config.sync.get.queue.object_concurrency;
 		let objects_future = queue_object_receiver
-			.ready_chunks(OBJECT_BATCH_SIZE)
+			.ready_chunks(object_batch_size)
 			.map(Ok)
-			.try_for_each_concurrent(OBJECT_CONCURRENCY, |items| {
+			.try_for_each_concurrent(object_concurrency, |items| {
 				let server = self.clone();
 				let state = state.clone();
 				async move { server.sync_get_queue_object_batch(&state, items).await }
 			});
 
 		// Create the processes future.
+		let process_batch_size = self.config.sync.get.queue.process_batch_size;
+		let process_concurrency = self.config.sync.get.queue.process_concurrency;
 		let processes_future = queue_process_receiver
-			.ready_chunks(PROCESS_BATCH_SIZE)
+			.ready_chunks(process_batch_size)
 			.map(Ok)
-			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| {
+			.try_for_each_concurrent(process_concurrency, |items| {
 				let server = self.clone();
 				let state = state.clone();
 				async move { server.sync_get_queue_process_batch(&state, items).await }

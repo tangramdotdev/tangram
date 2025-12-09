@@ -22,6 +22,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub authorization: Option<bool>,
 
+	/// Configure checkin.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkin: Option<Checkin>,
+
 	/// Configure the cleaner task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cleaner: Option<Either<bool, Cleaner>>,
@@ -62,6 +66,10 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub store: Option<Store>,
 
+	/// Configure sync.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<Sync>,
+
 	/// Configure tracing.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tracing: Option<Tracing>,
@@ -73,6 +81,10 @@ pub struct Config {
 	/// Configure the watchdog task.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub watchdog: Option<Either<bool, Watchdog>>,
+
+	/// Configure write.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write: Option<Write>,
 }
 
 #[serde_as]
@@ -131,6 +143,33 @@ pub struct Oauth {
 	pub client_secret: String,
 	pub redirect_url: String,
 	pub token_url: String,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Checkin {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub blob: Option<CheckinBlob>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<CheckinCache>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckinBlob {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckinCache {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
 }
 
 #[serde_as]
@@ -328,6 +367,163 @@ pub struct ScyllaStore {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct Sync {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub get: Option<SyncGet>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub put: Option<SyncPut>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGet {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<SyncGetIndex>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue: Option<SyncGetQueue>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<SyncGetStore>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_max_bytes: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetQueue {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fdb: Option<SyncGetStoreObject>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lmdb: Option<SyncGetStoreObject>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory: Option<SyncGetStoreObject>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub s3: Option<SyncGetStoreObject>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scylla: Option<SyncGetStoreObject>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetStoreObject {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_max_batch: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_max_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPut {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<SyncPutIndex>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue: Option<SyncPutQueue>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<SyncPutStore>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPutIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPutQueue {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPutStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Tracing {
 	#[serde(default, skip_serializing_if = "String::is_empty")]
 	pub filter: String,
@@ -390,4 +586,20 @@ pub struct Watchdog {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Write {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub avg_leaf_size: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_branch_children: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_leaf_size: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min_leaf_size: Option<u32>,
 }

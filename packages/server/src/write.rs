@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, temp::Temp},
+	crate::{Context, Server, config::Write as WriteConfig, temp::Temp},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	itertools::Itertools,
@@ -17,11 +17,6 @@ use {
 	tangram_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
-
-const MAX_BRANCH_CHILDREN: usize = 1_024;
-const MIN_LEAF_SIZE: u32 = 4_096;
-const AVG_LEAF_SIZE: u32 = 65_536;
-const MAX_LEAF_SIZE: u32 = 131_072;
 
 #[derive(Clone, Debug)]
 pub struct Output {
@@ -103,9 +98,9 @@ impl Server {
 		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
-			MIN_LEAF_SIZE,
-			AVG_LEAF_SIZE,
-			MAX_LEAF_SIZE,
+			self.config.write.min_leaf_size,
+			self.config.write.avg_leaf_size,
+			self.config.write.max_leaf_size,
 		);
 		let stream = reader.as_stream();
 		let mut stream = pin!(stream);
@@ -167,11 +162,12 @@ impl Server {
 		}
 
 		// Create the tree.
-		while blobs.len() > MAX_BRANCH_CHILDREN {
+		let max_branch_children = self.config.write.max_branch_children;
+		while blobs.len() > max_branch_children {
 			blobs = blobs
-				.chunks(MAX_BRANCH_CHILDREN)
+				.chunks(max_branch_children)
 				.flat_map(|chunk| {
-					if chunk.len() == MAX_BRANCH_CHILDREN {
+					if chunk.len() == max_branch_children {
 						vec![Self::write_inner_branch(chunk.to_vec())]
 					} else {
 						chunk.iter().cloned().map(Ok).collect()
@@ -193,13 +189,14 @@ impl Server {
 	pub(crate) fn write_inner_sync(
 		mut reader: impl Read,
 		destination: Option<&Destination>,
+		config: &WriteConfig,
 	) -> tg::Result<Output> {
 		// Create the chunker.
 		let mut chunker = fastcdc::v2020::StreamCDC::new(
 			&mut reader,
-			MIN_LEAF_SIZE,
-			AVG_LEAF_SIZE,
-			MAX_LEAF_SIZE,
+			config.min_leaf_size,
+			config.avg_leaf_size,
+			config.max_leaf_size,
 		);
 
 		// Open the destination file if necessary.
@@ -240,11 +237,12 @@ impl Server {
 		}
 
 		// Create the tree.
-		while blobs.len() > MAX_BRANCH_CHILDREN {
+		let max_branch_children = config.max_branch_children;
+		while blobs.len() > max_branch_children {
 			blobs = blobs
-				.chunks(MAX_BRANCH_CHILDREN)
+				.chunks(max_branch_children)
 				.flat_map(|chunk| {
-					if chunk.len() == MAX_BRANCH_CHILDREN {
+					if chunk.len() == max_branch_children {
 						vec![Self::write_inner_branch(chunk.to_vec())]
 					} else {
 						chunk.iter().cloned().map(Ok).collect()

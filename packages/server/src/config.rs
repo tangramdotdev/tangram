@@ -8,6 +8,7 @@ pub struct Config {
 	pub advanced: Advanced,
 	pub authentication: Option<Authentication>,
 	pub authorization: bool,
+	pub checkin: Checkin,
 	pub cleaner: Option<Cleaner>,
 	pub database: Database,
 	pub directory: PathBuf,
@@ -18,9 +19,11 @@ pub struct Config {
 	pub remotes: Option<Vec<Remote>>,
 	pub runner: Option<Runner>,
 	pub store: Store,
+	pub sync: Sync,
 	pub version: Option<String>,
 	pub vfs: Option<Vfs>,
 	pub watchdog: Option<Watchdog>,
+	pub write: Write,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +52,23 @@ pub struct Oauth {
 	pub client_secret: String,
 	pub redirect_url: String,
 	pub token_url: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Checkin {
+	pub blob: CheckinBlob,
+	pub cache: CheckinCache,
+}
+
+#[derive(Clone, Debug)]
+pub struct CheckinBlob {
+	pub concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct CheckinCache {
+	pub batch_size: usize,
+	pub concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -170,6 +190,85 @@ pub struct ScyllaStore {
 	pub username: Option<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Sync {
+	pub get: SyncGet,
+	pub put: SyncPut,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SyncGet {
+	pub index: SyncGetIndex,
+	pub queue: SyncGetQueue,
+	pub store: SyncGetStore,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncGetIndex {
+	pub message_max_bytes: usize,
+	pub object_batch_size: usize,
+	pub object_concurrency: usize,
+	pub process_batch_size: usize,
+	pub process_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncGetQueue {
+	pub object_batch_size: usize,
+	pub object_concurrency: usize,
+	pub process_batch_size: usize,
+	pub process_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncGetStore {
+	pub fdb: SyncGetStoreObject,
+	pub lmdb: SyncGetStoreObject,
+	pub memory: SyncGetStoreObject,
+	pub process_batch_size: usize,
+	pub process_concurrency: usize,
+	pub s3: SyncGetStoreObject,
+	pub scylla: SyncGetStoreObject,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncGetStoreObject {
+	pub object_concurrency: usize,
+	pub object_max_batch: usize,
+	pub object_max_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SyncPut {
+	pub index: SyncPutIndex,
+	pub queue: SyncPutQueue,
+	pub store: SyncPutStore,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncPutIndex {
+	pub object_batch_size: usize,
+	pub object_concurrency: usize,
+	pub process_batch_size: usize,
+	pub process_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncPutQueue {
+	pub object_batch_size: usize,
+	pub object_concurrency: usize,
+	pub process_batch_size: usize,
+	pub process_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncPutStore {
+	pub object_batch_size: usize,
+	pub object_concurrency: usize,
+	pub process_batch_size: usize,
+	pub process_concurrency: usize,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Vfs {
 	pub cache_size: usize,
@@ -185,12 +284,21 @@ pub struct Watchdog {
 	pub ttl: Duration,
 }
 
+#[derive(Clone, Debug)]
+pub struct Write {
+	pub avg_leaf_size: u32,
+	pub max_branch_children: usize,
+	pub max_leaf_size: u32,
+	pub min_leaf_size: u32,
+}
+
 impl Config {
 	#[must_use]
 	pub fn with_directory(directory: PathBuf) -> Self {
 		let advanced = Advanced::default();
 		let authentication = None;
 		let authorization = false;
+		let checkin = Checkin::default();
 		let cleaner = None;
 		let database = Database::Sqlite(SqliteDatabase {
 			connections: 1,
@@ -207,14 +315,17 @@ impl Config {
 		let store = Store::Lmdb(LmdbStore {
 			path: directory.join("store"),
 		});
+		let sync = Sync::default();
 		let http = Some(Http::default());
 		let version = None;
 		let vfs = None;
 		let watchdog = Some(Watchdog::default());
+		let write = Write::default();
 		Self {
 			advanced,
 			authentication,
 			authorization,
+			checkin,
 			cleaner,
 			database,
 			directory,
@@ -225,9 +336,11 @@ impl Config {
 			remotes,
 			runner,
 			store,
+			sync,
 			version,
 			vfs,
 			watchdog,
+			write,
 		}
 	}
 }
@@ -240,6 +353,21 @@ impl Default for Advanced {
 			process_dequeue_timeout: Duration::from_secs(3600),
 			preserve_temp_directories: false,
 			shared_directory: true,
+		}
+	}
+}
+
+impl Default for CheckinBlob {
+	fn default() -> Self {
+		Self { concurrency: 8 }
+	}
+}
+
+impl Default for CheckinCache {
+	fn default() -> Self {
+		Self {
+			batch_size: 128,
+			concurrency: 8,
 		}
 	}
 }
@@ -294,6 +422,96 @@ impl Default for Runner {
 	}
 }
 
+impl Default for SyncGetIndex {
+	fn default() -> Self {
+		Self {
+			message_max_bytes: 1_000_000,
+			object_batch_size: 16,
+			object_concurrency: 8,
+			process_batch_size: 16,
+			process_concurrency: 8,
+		}
+	}
+}
+
+impl Default for SyncGetQueue {
+	fn default() -> Self {
+		Self {
+			object_batch_size: 16,
+			object_concurrency: 8,
+			process_batch_size: 16,
+			process_concurrency: 8,
+		}
+	}
+}
+
+impl Default for SyncGetStore {
+	fn default() -> Self {
+		Self {
+			fdb: SyncGetStoreObject {
+				object_concurrency: 64,
+				object_max_batch: 1_000,
+				object_max_bytes: 1_000_000,
+			},
+			lmdb: SyncGetStoreObject {
+				object_concurrency: 1,
+				object_max_batch: 1_000,
+				object_max_bytes: 1_000_000,
+			},
+			memory: SyncGetStoreObject {
+				object_concurrency: 1,
+				object_max_batch: 1,
+				object_max_bytes: u64::MAX,
+			},
+			process_batch_size: 16,
+			process_concurrency: 8,
+			s3: SyncGetStoreObject {
+				object_concurrency: 256,
+				object_max_batch: 1,
+				object_max_bytes: u64::MAX,
+			},
+			scylla: SyncGetStoreObject {
+				object_concurrency: 64,
+				object_max_batch: 1_000,
+				object_max_bytes: 65_536,
+			},
+		}
+	}
+}
+
+impl Default for SyncPutIndex {
+	fn default() -> Self {
+		Self {
+			object_batch_size: 16,
+			object_concurrency: 8,
+			process_batch_size: 16,
+			process_concurrency: 8,
+		}
+	}
+}
+
+impl Default for SyncPutQueue {
+	fn default() -> Self {
+		Self {
+			object_batch_size: 16,
+			object_concurrency: 8,
+			process_batch_size: 16,
+			process_concurrency: 8,
+		}
+	}
+}
+
+impl Default for SyncPutStore {
+	fn default() -> Self {
+		Self {
+			object_batch_size: 16,
+			object_concurrency: 8,
+			process_batch_size: 16,
+			process_concurrency: 8,
+		}
+	}
+}
+
 impl Default for Vfs {
 	fn default() -> Self {
 		Self {
@@ -311,6 +529,17 @@ impl Default for Watchdog {
 			interval: Duration::from_secs(1),
 			max_depth: 1024,
 			ttl: Duration::from_secs(60),
+		}
+	}
+}
+
+impl Default for Write {
+	fn default() -> Self {
+		Self {
+			avg_leaf_size: 65_536,
+			max_branch_children: 1_024,
+			max_leaf_size: 131_072,
+			min_leaf_size: 4_096,
 		}
 	}
 }

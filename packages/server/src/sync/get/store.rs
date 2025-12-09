@@ -8,9 +8,6 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-const PROCESS_BATCH_SIZE: usize = 16;
-const PROCESS_CONCURRENCY: usize = 8;
-
 pub struct ObjectItem {
 	pub id: tg::object::Id,
 	pub bytes: Bytes,
@@ -41,15 +38,18 @@ impl Server {
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
-		let (concurrency, max_objects_per_batch, max_bytes_per_batch) = match &self.store {
+		let store_config = match &self.store {
 			#[cfg(feature = "foundationdb")]
-			Store::Fdb(_) => (64, 1_000, 1_000_000),
-			Store::Lmdb(_) => (1, 1_000, 1_000_000),
-			Store::Memory(_) => (1, 1, u64::MAX),
-			Store::S3(_) => (256, 1, u64::MAX),
+			Store::Fdb(_) => &self.config.sync.get.store.fdb,
+			Store::Lmdb(_) => &self.config.sync.get.store.lmdb,
+			Store::Memory(_) => &self.config.sync.get.store.memory,
+			Store::S3(_) => &self.config.sync.get.store.s3,
 			#[cfg(feature = "scylla")]
-			Store::Scylla(_) => (64, 1_000, 65_536),
+			Store::Scylla(_) => &self.config.sync.get.store.scylla,
 		};
+		let concurrency = store_config.object_concurrency;
+		let max_objects_per_batch = store_config.object_max_batch;
+		let max_bytes_per_batch = store_config.object_max_bytes;
 
 		// Create a stream of batches.
 		struct State_ {
@@ -150,10 +150,12 @@ impl Server {
 		state: &State,
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
+		let process_batch_size = self.config.sync.get.store.process_batch_size;
+		let process_concurrency = self.config.sync.get.store.process_concurrency;
 		ReceiverStream::new(process_receiver)
-			.ready_chunks(PROCESS_BATCH_SIZE)
+			.ready_chunks(process_batch_size)
 			.map(Ok)
-			.try_for_each_concurrent(PROCESS_CONCURRENCY, |items| async move {
+			.try_for_each_concurrent(process_concurrency, |items| async move {
 				self.sync_get_store_processes_inner(state, items).await
 			})
 			.await
