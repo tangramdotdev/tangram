@@ -267,7 +267,7 @@ impl Cli {
 
 		// Print the output.
 		if !output.is_null() {
-			self.print(&output, options.print).await?;
+			self.print_value(&output, options.print).await?;
 		}
 
 		Ok(())

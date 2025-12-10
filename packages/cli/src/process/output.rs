@@ -22,7 +22,7 @@ impl Cli {
 		let output = process.output(&handle).await?;
 
 		// Print the output.
-		self.print(&output, args.print).await?;
+		self.print_value(&output, args.print).await?;
 
 		Ok(())
 	}

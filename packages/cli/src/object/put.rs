@@ -76,9 +76,8 @@ impl Cli {
 			object.id()
 		};
 
-		// Print the result.
-		let value = tg::Value::Object(tg::Object::with_id(id));
-		self.print(&value, args.print).await?;
+		// Print the id.
+		Self::print_id(&id);
 
 		Ok(())
 	}

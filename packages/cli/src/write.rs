@@ -21,8 +21,7 @@ impl Cli {
 			let reader = crate::util::stdio::stdin();
 			handle.write(reader).await?
 		};
-		let output = tg::Blob::with_id(output.blob).into();
-		self.print(&output, args.print).await?;
+		Self::print_id(&output.blob);
 		Ok(())
 	}
 }

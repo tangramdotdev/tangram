@@ -224,10 +224,8 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
 		let output = self.render_progress_stream(stream).await?;
 
-		let output = tg::Artifact::with_id(output.artifact.item).into();
-
 		// Print.
-		self.print(&output, args.print).await?;
+		Self::print_id(&output.artifact.item);
 
 		Ok(())
 	}

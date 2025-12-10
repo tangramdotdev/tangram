@@ -41,7 +41,7 @@ impl Cli {
 		args.print
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
-		self.print(&value, args.print).await?;
+		self.print_value(&value, args.print).await?;
 		Ok(())
 	}
 }

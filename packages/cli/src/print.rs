@@ -38,48 +38,13 @@ impl Cli {
 		println!("{value}");
 	}
 
-	pub(crate) async fn print(&mut self, value: &tg::Value, options: Options) -> tg::Result<()> {
-		let handle = self.handle().await?;
-		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let depth = match options.depth.unwrap_or(Depth::Finite(0)) {
-			Depth::Finite(depth) => Some(depth),
-			Depth::Infinite => None,
-		};
-		let blobs = options.blobs;
-		value.load(&handle, depth, blobs).await?;
-		let pretty = options.pretty || stdout.get_ref().is_tty();
-		let style = if pretty {
-			tg::value::print::Style::Pretty { indentation: "  " }
-		} else {
-			tg::value::print::Style::Compact
-		};
-		let options = tg::value::print::Options {
-			depth,
-			style,
-			blobs,
-		};
-		let mut output = value.print(options);
-		if style.is_pretty() {
-			output.push('\n');
-		}
-		stdout
-			.write_all(output.as_bytes())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-		stdout
-			.flush()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
-		Ok(())
-	}
-
 	pub(crate) async fn print_serde<T>(&mut self, value: T, options: Options) -> tg::Result<()>
 	where
 		T: serde::Serialize,
 	{
 		let value = serde_json::to_value(&value)
 			.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
-		self.print(&value.into(), options).await?;
+		self.print_value(&value.into(), options).await?;
 		Ok(())
 	}
 
@@ -130,6 +95,49 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 		}
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+		Ok(())
+	}
+
+	pub(crate) fn print_id(id: &tg::Id) {
+		println!("{id}");
+	}
+
+	pub(crate) async fn print_value(
+		&mut self,
+		value: &tg::Value,
+		options: Options,
+	) -> tg::Result<()> {
+		let handle = self.handle().await?;
+		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+		let depth = match options.depth.unwrap_or(Depth::Finite(0)) {
+			Depth::Finite(depth) => Some(depth),
+			Depth::Infinite => None,
+		};
+		let blobs = options.blobs;
+		value.load(&handle, depth, blobs).await?;
+		let pretty = options.pretty || stdout.get_ref().is_tty();
+		let style = if pretty {
+			tg::value::print::Style::Pretty { indentation: "  " }
+		} else {
+			tg::value::print::Style::Compact
+		};
+		let options = tg::value::print::Options {
+			depth,
+			style,
+			blobs,
+		};
+		let mut output = value.print(options);
+		if style.is_pretty() {
+			output.push('\n');
+		}
+		stdout
+			.write_all(output.as_bytes())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
 		stdout
 			.flush()
 			.await
