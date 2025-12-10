@@ -87,6 +87,7 @@ impl Server {
 				output.as_ref().map(|(stored, _)| stored.clone()),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
 				None,
+				None,
 			);
 
 			// If the object is stored, then send a stored message.
@@ -147,6 +148,7 @@ impl Server {
 				None,
 				output.as_ref().map(|(stored, _)| stored.clone()),
 				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				None,
 				None,
 			);
 

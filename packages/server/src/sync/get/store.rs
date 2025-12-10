@@ -154,7 +154,14 @@ impl Server {
 				},
 				..Default::default()
 			};
-			graph.update_object(&item.id, Some(&data), None, Some(metadata), Some(true));
+			graph.update_object(
+				&item.id,
+				Some(&data),
+				None,
+				Some(metadata),
+				Some(true),
+				None,
+			);
 		}
 		drop(graph);
 
@@ -226,7 +233,7 @@ impl Server {
 		// Update the graph for all processes.
 		let mut graph = state.graph.lock().unwrap();
 		for (id, data) in &batch {
-			graph.update_process(id, Some(data), None, None, Some(true));
+			graph.update_process(id, Some(data), None, None, Some(true), None);
 		}
 		drop(graph);
 

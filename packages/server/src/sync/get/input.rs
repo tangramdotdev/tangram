@@ -2,7 +2,6 @@ use {
 	crate::{Server, sync::get::State},
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -19,13 +18,12 @@ impl Server {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
-					tracing::trace!(id = %message.id, "received object");
-
-					// Remove the get.
 					let eager = state
-						.gets
-						.remove(&Either::Left(message.id.clone()))
-						.is_none_or(|(_, eager)| eager);
+						.graph
+						.lock()
+						.unwrap()
+						.get_object_eager(&message.id)
+						.unwrap_or(true);
 
 					if eager {
 						// Send to the index task.
@@ -60,13 +58,12 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(message)) => {
-					tracing::trace!(id = %message.id, "received process");
-
-					// Remove the get.
 					let eager = state
-						.gets
-						.remove(&Either::Right(message.id.clone()))
-						.is_none_or(|(_, eager)| eager);
+						.graph
+						.lock()
+						.unwrap()
+						.get_process_eager(&message.id)
+						.unwrap_or(true);
 
 					if eager {
 						// Send to the index task.
@@ -82,9 +79,18 @@ impl Server {
 						let data = serde_json::from_slice(&message.bytes).map_err(|source| {
 							tg::error!(!source, "failed to deserialize the process")
 						})?;
-						let graph = state.graph.lock().unwrap();
-						let stored = graph.get_process_stored(&message.id);
-						Self::sync_get_enqueue_process_children(state, &message.id, &data, stored);
+						let stored = state
+							.graph
+							.lock()
+							.unwrap()
+							.get_process_stored(&message.id)
+							.cloned();
+						Self::sync_get_enqueue_process_children(
+							state,
+							&message.id,
+							&data,
+							stored.as_ref(),
+						);
 
 						// Decrement the queue counter.
 						state.queue.decrement(1);
@@ -104,11 +110,12 @@ impl Server {
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(message)) => {
 					tracing::trace!(id = %message.id, "received missing object");
 
-					// Remove the get.
 					let eager = state
-						.gets
-						.remove(&Either::Left(message.id.clone()))
-						.is_none_or(|(_, eager)| eager);
+						.graph
+						.lock()
+						.unwrap()
+						.get_object_eager(&message.id)
+						.unwrap_or(true);
 
 					if eager {
 						// Send to the index task.
@@ -127,11 +134,12 @@ impl Server {
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(message)) => {
 					tracing::trace!(id = %message.id, "received missing process");
 
-					// Remove the get.
 					let eager = state
-						.gets
-						.remove(&Either::Right(message.id.clone()))
-						.is_none_or(|(_, eager)| eager);
+						.graph
+						.lock()
+						.unwrap()
+						.get_process_eager(&message.id)
+						.unwrap_or(true);
 
 					if eager {
 						// Send to the index task.

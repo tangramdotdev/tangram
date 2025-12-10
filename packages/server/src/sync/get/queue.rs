@@ -82,19 +82,21 @@ impl Server {
 
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
-			// Update the graph.
-			let inserted = state.graph.lock().unwrap().update_object(
-				&item.id,
-				None,
-				output.as_ref().map(|(stored, _)| stored.clone()),
-				output.as_ref().map(|(_, metadata)| metadata.clone()),
-				None,
-			);
-
 			match output {
 				// If the object is absent, then send a get item message.
 				None => {
-					if !inserted {
+					// Atomically check if we've already requested this object and set eager if not.
+					let already_requested = {
+						let mut graph = state.graph.lock().unwrap();
+						let eager = graph.get_object_eager(&item.id);
+						if eager.is_some() {
+							true
+						} else {
+							graph.update_object(&item.id, None, None, None, None, Some(item.eager));
+							false
+						}
+					};
+					if already_requested {
 						continue;
 					}
 					if !item.eager {
@@ -106,7 +108,6 @@ impl Server {
 							eager: state.arg.eager,
 						},
 					));
-					state.gets.insert(Either::Left(item.id.clone()), item.eager);
 					state
 						.sender
 						.send(Ok(message))
@@ -114,7 +115,16 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to send the message"))?;
 				},
 
-				Some((stored, _)) => {
+				Some((stored, metadata)) => {
+					// Update the graph with stored and metadata.
+					state.graph.lock().unwrap().update_object(
+						&item.id,
+						None,
+						Some(stored.clone()),
+						Some(metadata.clone()),
+						None,
+						None,
+					);
 					if stored.subtree {
 						// If the object is stored, then send a stored message.
 						let message = tg::sync::GetMessage::Stored(
@@ -165,19 +175,28 @@ impl Server {
 
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
-			// Update the graph.
-			let inserted = state.graph.lock().unwrap().update_process(
-				&item.id,
-				None,
-				output.as_ref().map(|(stored, _)| stored.clone()),
-				output.as_ref().map(|(_, metadata)| metadata.clone()),
-				None,
-			);
-
 			match &output {
 				// If the process is absent, then send a get item message.
 				None => {
-					if !inserted {
+					// Atomically check if we've already requested this process and set eager if not.
+					let already_requested = {
+						let mut graph = state.graph.lock().unwrap();
+						let eager = graph.get_process_eager(&item.id);
+						if eager.is_some() {
+							true
+						} else {
+							graph.update_process(
+								&item.id,
+								None,
+								None,
+								None,
+								None,
+								Some(item.eager),
+							);
+							false
+						}
+					};
+					if already_requested {
 						continue;
 					}
 					if !item.eager {
@@ -190,9 +209,6 @@ impl Server {
 						},
 					));
 					state
-						.gets
-						.insert(Either::Right(item.id.clone()), item.eager);
-					state
 						.sender
 						.send(Ok(message))
 						.await
@@ -200,7 +216,16 @@ impl Server {
 				},
 
 				// If the process is present, then enqueue children and objects as necessary, and send a stored message if necessary.
-				Some((stored, _)) => {
+				Some((stored, metadata)) => {
+					// Update the graph with stored and metadata.
+					state.graph.lock().unwrap().update_process(
+						&item.id,
+						None,
+						Some(stored.clone()),
+						Some(metadata.clone()),
+						None,
+						None,
+					);
 					// Get the process.
 					let data = self
 						.try_get_process_local(&item.id)
