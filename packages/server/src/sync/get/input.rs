@@ -22,8 +22,8 @@ impl Server {
 						.graph
 						.lock()
 						.unwrap()
-						.get_object_eager(&message.id)
-						.unwrap_or(true);
+						.get_object_requested(&message.id)
+						.is_none_or(|requested| requested.eager);
 
 					if eager {
 						// Send to the index task.
@@ -62,8 +62,8 @@ impl Server {
 						.graph
 						.lock()
 						.unwrap()
-						.get_process_eager(&message.id)
-						.unwrap_or(true);
+						.get_process_requested(&message.id)
+						.is_none_or(|requested| requested.eager);
 
 					if eager {
 						// Send to the index task.
@@ -114,8 +114,8 @@ impl Server {
 						.graph
 						.lock()
 						.unwrap()
-						.get_object_eager(&message.id)
-						.unwrap_or(true);
+						.get_object_requested(&message.id)
+						.is_none_or(|requested| requested.eager);
 
 					if eager {
 						// Send to the index task.
@@ -138,8 +138,8 @@ impl Server {
 						.graph
 						.lock()
 						.unwrap()
-						.get_process_eager(&message.id)
-						.unwrap_or(true);
+						.get_process_requested(&message.id)
+						.is_none_or(|requested| requested.eager);
 
 					if eager {
 						// Send to the index task.

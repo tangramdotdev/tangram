@@ -45,22 +45,27 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
-	pub eager: Option<bool>,
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub requested: Option<Requested>,
 	pub stored: Option<crate::object::stored::Output>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
-	pub eager: Option<bool>,
 	pub marked: bool,
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, crate::index::message::ProcessObjectKind)>>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub requested: Option<Requested>,
 	pub stored: Option<crate::process::stored::Output>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Requested {
+	pub eager: bool,
 }
 
 impl Graph {
@@ -75,7 +80,7 @@ impl Graph {
 		stored: Option<crate::object::stored::Output>,
 		metadata: Option<tg::object::Metadata>,
 		marked: Option<bool>,
-		eager: Option<bool>,
+		requested: Option<Requested>,
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
@@ -131,8 +136,8 @@ impl Graph {
 		if let Some(marked) = marked {
 			node.marked = marked;
 		}
-		if let Some(eager) = eager {
-			node.eager = Some(eager);
+		if let Some(requested) = requested {
+			node.requested = Some(requested);
 		}
 	}
 
@@ -143,7 +148,7 @@ impl Graph {
 		stored: Option<crate::process::stored::Output>,
 		metadata: Option<tg::process::Metadata>,
 		marked: Option<bool>,
-		eager: Option<bool>,
+		requested: Option<Requested>,
 	) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
@@ -222,8 +227,8 @@ impl Graph {
 		if let Some(marked) = marked {
 			node.marked = marked;
 		}
-		if let Some(eager) = eager {
-			node.eager = Some(eager);
+		if let Some(requested) = requested {
+			node.requested = Some(requested);
 		}
 	}
 
@@ -236,16 +241,16 @@ impl Graph {
 			.and_then(|node| node.unwrap_process_ref().stored.as_ref())
 	}
 
-	pub fn get_object_eager(&self, id: &tg::object::Id) -> Option<bool> {
+	pub fn get_object_requested(&self, id: &tg::object::Id) -> Option<Requested> {
 		self.nodes
 			.get(&Id::Object(id.clone()))
-			.and_then(|node| node.unwrap_object_ref().eager)
+			.and_then(|node| node.unwrap_object_ref().requested.clone())
 	}
 
-	pub fn get_process_eager(&self, id: &tg::process::Id) -> Option<bool> {
+	pub fn get_process_requested(&self, id: &tg::process::Id) -> Option<Requested> {
 		self.nodes
 			.get(&Id::Process(id.clone()))
-			.and_then(|node| node.unwrap_process_ref().eager)
+			.and_then(|node| node.unwrap_process_ref().requested.clone())
 	}
 }
 

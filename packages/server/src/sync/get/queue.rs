@@ -2,7 +2,7 @@ use {
 	crate::{
 		Server,
 		sync::{
-			get::State,
+			get::{State, graph::Requested},
 			queue::{ObjectItem, ProcessItem},
 		},
 	},
@@ -85,18 +85,19 @@ impl Server {
 			match output {
 				// If the object is absent, then send a get item message.
 				None => {
-					// Atomically check if we've already requested this object and set eager if not.
-					let already_requested = {
+					// Determine if the object has been requested.
+					let requested = {
 						let mut graph = state.graph.lock().unwrap();
-						let eager = graph.get_object_eager(&item.id);
-						if eager.is_some() {
+						let requested = graph.get_object_requested(&item.id);
+						if requested.is_some() {
 							true
 						} else {
-							graph.update_object(&item.id, None, None, None, None, Some(item.eager));
+							let requested = Requested { eager: item.eager };
+							graph.update_object(&item.id, None, None, None, None, Some(requested));
 							false
 						}
 					};
-					if already_requested {
+					if requested {
 						continue;
 					}
 					if !item.eager {
@@ -178,25 +179,19 @@ impl Server {
 			match &output {
 				// If the process is absent, then send a get item message.
 				None => {
-					// Atomically check if we've already requested this process and set eager if not.
-					let already_requested = {
+					// Determine if the object has been requested.
+					let requested = {
 						let mut graph = state.graph.lock().unwrap();
-						let eager = graph.get_process_eager(&item.id);
-						if eager.is_some() {
+						let requested = graph.get_process_requested(&item.id);
+						if requested.is_some() {
 							true
 						} else {
-							graph.update_process(
-								&item.id,
-								None,
-								None,
-								None,
-								None,
-								Some(item.eager),
-							);
+							let requested = Requested { eager: item.eager };
+							graph.update_process(&item.id, None, None, None, None, Some(requested));
 							false
 						}
 					};
-					if already_requested {
+					if requested {
 						continue;
 					}
 					if !item.eager {
