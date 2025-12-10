@@ -2,7 +2,6 @@ use {
 	self::graph::Graph,
 	super::{progress::Progress, queue::Queue},
 	crate::Server,
-	dashmap::DashMap,
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
@@ -19,7 +18,6 @@ mod store;
 
 struct State {
 	arg: tg::sync::Arg,
-	gets: DashMap<Either<tg::object::Id, tg::process::Id>, bool, tg::id::BuildHasher>,
 	graph: Mutex<Graph>,
 	progress: Progress,
 	queue: Queue,
@@ -33,9 +31,6 @@ impl Server {
 		stream: BoxStream<'static, tg::sync::PutMessage>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
 	) -> tg::Result<()> {
-		// Create the gets.
-		let gets = DashMap::default();
-
 		// Create the graph.
 		let graph = Mutex::new(Graph::new());
 
@@ -52,7 +47,6 @@ impl Server {
 		// Create the state.
 		let state = Arc::new(State {
 			arg,
-			gets,
 			graph,
 			progress,
 			queue,
