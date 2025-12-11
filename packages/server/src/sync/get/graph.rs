@@ -129,6 +129,12 @@ impl Graph {
 				if new_metadata.subtree.size.is_some() {
 					existing.subtree.size = new_metadata.subtree.size;
 				}
+				if new_metadata.subtree.solvable.is_some() {
+					existing.subtree.solvable = new_metadata.subtree.solvable;
+				}
+				if new_metadata.subtree.solved.is_some() {
+					existing.subtree.solved = new_metadata.subtree.solved;
+				}
 			} else {
 				node.metadata = Some(new_metadata);
 			}

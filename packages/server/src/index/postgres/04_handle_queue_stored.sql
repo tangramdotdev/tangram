@@ -45,13 +45,11 @@ begin
 			subtree_count = coalesce(objects.subtree_count, updates.subtree_count),
 			subtree_depth = coalesce(objects.subtree_depth, updates.subtree_depth),
 			subtree_size = coalesce(objects.subtree_size, updates.subtree_size),
-			subtree_solvable = objects.node_solvable or updates.children_solvable,
-			subtree_solved = objects.node_solved and updates.children_solved
+			subtree_solvable = coalesce(objects.subtree_solvable, updates.subtree_solvable),
+			subtree_solved = coalesce(objects.subtree_solved, updates.subtree_solved)
 		from (
 			select
 				objects.id,
-				coalesce(bool_or(coalesce(child_objects.subtree_solvable, false)), false) as children_solvable,
-				coalesce(bool_and(coalesce(child_objects.subtree_solved, true)), true) as children_solved,
 				case
 					when count(object_children.child) = 0
 						then true
@@ -61,13 +59,15 @@ begin
 		    end as subtree_stored,
 				1 + coalesce(sum(coalesce(child_objects.subtree_count, 0)), 0) as subtree_count,
 				1 + coalesce(max(coalesce(child_objects.subtree_depth, 0)), 0) as subtree_depth,
-				objects.node_size + coalesce(sum(coalesce(child_objects.subtree_size, 0)), 0) as subtree_size
+				objects.node_size + coalesce(sum(coalesce(child_objects.subtree_size, 0)), 0) as subtree_size,
+				objects.node_solvable or coalesce(bool_or(coalesce(child_objects.subtree_solvable, false)), false) as subtree_solvable,
+				objects.node_solved and coalesce(bool_and(coalesce(child_objects.subtree_solved, true)), true) as subtree_solved
 			from objects
 			left join object_children on object_children.object = objects.id
 			left join objects as child_objects on child_objects.id = object_children.child
 			where objects.id = any(dequeued_objects)
 			and objects.subtree_stored = false
-			group by objects.id, objects.node_size
+			group by objects.id, objects.node_size, objects.node_solvable, objects.node_solved
 		) as updates
 		where objects.id = updates.id
 		and updates.subtree_stored = true
