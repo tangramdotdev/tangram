@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{StreamExt as _, stream},
+	futures::{FutureExt as _, StreamExt as _, future, stream},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::TryExt as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
@@ -17,20 +17,49 @@ impl Server {
 			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
 		>,
 	> {
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(future) = self.try_wait_process_local(id).await?
+		{
+			return Ok(Some(future.left_future()));
+		}
+
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(future) = self.try_wait_process_remote(id, &remotes).await? {
+			return Ok(Some(future.right_future()));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_wait_process_local(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
+		>,
+	> {
 		let server = self.clone();
 		let id = id.clone();
-		let status_arg = tg::process::status::Arg {
-			local: arg.local,
-			remotes: arg.remotes,
-		};
 		let Some(stream) = server
-			.try_get_process_status(&id, status_arg)
+			.try_get_process_status_stream_local(&id)
 			.await?
 			.map(futures::StreamExt::boxed)
 		else {
 			return Ok(None);
 		};
 		let future = async move {
+			let stream = stream
+				.take_while(|event| {
+					future::ready(!matches!(event, Ok(tg::process::status::Event::End)))
+				})
+				.map(|event| match event {
+					Ok(tg::process::status::Event::Status(status)) => Ok(status),
+					Err(error) => Err(error),
+					_ => unreachable!(),
+				});
 			let status = stream
 				.try_last()
 				.await?
@@ -38,7 +67,10 @@ impl Server {
 			if !status.is_finished() {
 				return Err(tg::error!("expected the process to be finished"));
 			}
-			let output = server.get_process(&id).await?;
+			let output = server
+				.try_get_process_local(&id)
+				.await?
+				.ok_or_else(|| tg::error!("failed to get the process"))?;
 			let exit = output
 				.data
 				.exit
@@ -51,6 +83,39 @@ impl Server {
 			Ok(Some(output))
 		};
 		Ok(Some(future))
+	}
+
+	async fn try_wait_process_remote(
+		&self,
+		id: &tg::process::Id,
+		remotes: &[String],
+	) -> tg::Result<
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
+		>,
+	> {
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let id = id.clone();
+		let arg = tg::process::wait::Arg {
+			local: None,
+			remotes: None,
+		};
+		let futures = remotes.iter().map(|remote| {
+			let id = id.clone();
+			let arg = arg.clone();
+			async move {
+				let client = self.get_remote_client(remote.clone()).await?;
+				let output = client.wait_process(&id, arg).await?;
+				Ok::<_, tg::Error>(output)
+			}
+			.boxed()
+		});
+		let Ok((output, _)) = future::select_ok(futures).await else {
+			return Ok(None);
+		};
+		Ok(Some(async move { Ok(Some(output)) }))
 	}
 
 	pub(crate) async fn handle_post_process_wait_request(
