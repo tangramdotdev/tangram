@@ -3,7 +3,7 @@ use {
 	bytes::Bytes,
 	futures::{
 		FutureExt as _, future,
-		stream::{FuturesUnordered, TryStreamExt as _},
+		stream::{FuturesOrdered, TryStreamExt as _},
 	},
 	num::ToPrimitive as _,
 	std::{
@@ -115,7 +115,7 @@ impl Server {
 				let output = self.try_get_object_remote(id, &remotes).await?;
 				Ok::<_, tg::Error>(output)
 			})
-			.collect::<FuturesUnordered<_>>()
+			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 		Ok(outputs)
