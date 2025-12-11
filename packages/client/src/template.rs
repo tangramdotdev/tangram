@@ -314,10 +314,9 @@ mod tests {
 			.unwrap_artifact_ref()
 			.unwrap_directory_ref()
 			.state()
-			.read()
+			.try_get_id()
 			.unwrap()
-			.id
-			.clone()
+			.try_unwrap_directory()
 			.unwrap();
 		let right = id;
 		assert_eq!(left, right);

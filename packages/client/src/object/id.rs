@@ -1,5 +1,4 @@
-use crate as tg;
-use {super::Kind, bytes::Bytes, std::ops::Deref};
+use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 
 #[derive(
 	Clone,
@@ -32,8 +31,10 @@ pub struct Id(tg::Id);
 	derive_more::IsVariant,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
+	derive_more::Unwrap,
 )]
 #[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Variant {
 	Blob(tg::blob::Id),
 	Directory(tg::directory::Id),

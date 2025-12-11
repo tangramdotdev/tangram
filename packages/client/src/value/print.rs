@@ -190,17 +190,14 @@ where
 	}
 
 	pub fn blob(&mut self, value: &tg::Blob) -> Result {
-		let state = value.state().read().unwrap();
+		let state = value.state();
 		let recurse = self.options.blobs && self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
-		match (&state.id, &state.object, recurse) {
-			(Some(id), None, _) | (Some(id), Some(_), false) => {
-				write!(self.writer, "{id}")?;
-			},
-			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.blob_object(object)?;
-			},
-			(None, None, _) => unreachable!(),
+		if let (Some(object), true) = (state.object(), recurse) {
+			let object = object.unwrap_blob_ref();
+			self.blob_object(object)?;
+		} else {
+			write!(self.writer, "{}", state.id())?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -228,17 +225,14 @@ where
 	}
 
 	pub fn directory(&mut self, value: &tg::Directory) -> Result {
-		let state = value.state().read().unwrap();
+		let state = value.state();
 		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
-		match (&state.id, &state.object, recurse) {
-			(Some(id), None, _) | (Some(id), Some(_), false) => {
-				write!(self.writer, "{id}")?;
-			},
-			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.directory_object(object)?;
-			},
-			(None, None, _) => unreachable!(),
+		if let (Some(object), true) = (state.object(), recurse) {
+			let object = object.unwrap_directory_ref();
+			self.directory_object(object)?;
+		} else {
+			write!(self.writer, "{}", state.id())?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -283,17 +277,14 @@ where
 	}
 
 	pub fn file(&mut self, value: &tg::File) -> Result {
-		let state = value.state().read().unwrap();
+		let state = value.state();
 		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
-		match (&state.id, &state.object, recurse) {
-			(Some(id), None, _) | (Some(id), Some(_), false) => {
-				write!(self.writer, "{id}")?;
-			},
-			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.file_object(object)?;
-			},
-			(None, None, _) => unreachable!(),
+		if let (Some(object), true) = (state.object(), recurse) {
+			let object = object.unwrap_file_ref();
+			self.file_object(object)?;
+		} else {
+			write!(self.writer, "{}", state.id())?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -360,17 +351,14 @@ where
 	}
 
 	pub fn symlink(&mut self, value: &tg::Symlink) -> Result {
-		let state = value.state().read().unwrap();
+		let state = value.state();
 		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
-		match (&state.id, &state.object, recurse) {
-			(Some(id), None, _) | (Some(id), Some(_), false) => {
-				write!(self.writer, "{id}")?;
-			},
-			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.symlink_object(object)?;
-			},
-			(None, None, _) => unreachable!(),
+		if let (Some(object), true) = (state.object(), recurse) {
+			let object = object.unwrap_symlink_ref();
+			self.symlink_object(object)?;
+		} else {
+			write!(self.writer, "{}", state.id())?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -405,17 +393,14 @@ where
 	}
 
 	pub fn graph(&mut self, value: &tg::Graph) -> Result {
-		let state = value.state().read().unwrap();
+		let state = value.state();
 		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
-		match (&state.id, &state.object, recurse) {
-			(Some(id), None, _) | (Some(id), Some(_), false) => {
-				write!(self.writer, "{id}")?;
-			},
-			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.graph_object(object)?;
-			},
-			(None, None, _) => unreachable!(),
+		if let (Some(object), true) = (state.object(), recurse) {
+			let object = object.unwrap_graph_ref();
+			self.graph_object(object)?;
+		} else {
+			write!(self.writer, "{}", state.id())?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -479,17 +464,14 @@ where
 	}
 
 	pub fn command(&mut self, value: &tg::Command) -> Result {
-		let state = value.state().read().unwrap();
+		let state = value.state();
 		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
 		self.depth += 1;
-		match (&state.id, &state.object, recurse) {
-			(Some(id), None, _) | (Some(id), Some(_), false) => {
-				write!(self.writer, "{id}")?;
-			},
-			(None, Some(object), _) | (Some(_), Some(object), true) => {
-				self.command_object(object)?;
-			},
-			(None, None, _) => unreachable!(),
+		if let (Some(object), true) = (state.object(), recurse) {
+			let object = object.unwrap_command_ref();
+			self.command_object(object)?;
+		} else {
+			write!(self.writer, "{}", state.id())?;
 		}
 		self.depth -= 1;
 		Ok(())

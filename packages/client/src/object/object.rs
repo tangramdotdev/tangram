@@ -1,7 +1,15 @@
 use {super::Data, crate::prelude::*, std::sync::Arc};
 
-#[derive(Clone, Debug, derive_more::From, derive_more::TryInto, derive_more::TryUnwrap)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
 #[try_unwrap(ref)]
+#[unwrap(ref)]
 pub enum Object {
 	Blob(Arc<tg::blob::Object>),
 	Directory(Arc<tg::directory::Object>),
@@ -62,6 +70,18 @@ impl Object {
 			Self::Symlink(symlink) => symlink.children(),
 			Self::Graph(graph) => graph.children(),
 			Self::Command(command) => command.children(),
+		}
+	}
+
+	#[must_use]
+	pub fn kind(&self) -> tg::object::Kind {
+		match self {
+			Self::Blob(_) => tg::object::Kind::Blob,
+			Self::Directory(_) => tg::object::Kind::Directory,
+			Self::File(_) => tg::object::Kind::File,
+			Self::Symlink(_) => tg::object::Kind::Symlink,
+			Self::Graph(_) => tg::object::Kind::Graph,
+			Self::Command(_) => tg::object::Kind::Command,
 		}
 	}
 

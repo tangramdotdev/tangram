@@ -6,10 +6,8 @@ use {
 
 #[derive(Clone, Debug)]
 pub struct Graph {
-	state: Arc<std::sync::RwLock<State>>,
+	state: tg::object::State,
 }
-
-pub type State = tg::object::State<Id, Object>;
 
 impl Graph {
 	#[must_use]
@@ -19,41 +17,28 @@ impl Graph {
 	}
 
 	#[must_use]
-	pub fn with_state(state: State) -> Self {
-		let state = Arc::new(std::sync::RwLock::new(state));
+	pub fn with_state(state: tg::object::State) -> Self {
 		Self { state }
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &Arc<std::sync::RwLock<State>> {
+	pub fn state(&self) -> &tg::object::State {
 		&self.state
 	}
 
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
-		let state = State::with_id(id);
-		let state = Arc::new(std::sync::RwLock::new(state));
-		Self { state }
+		Self::with_state(tg::object::State::with_id(id))
 	}
 
 	#[must_use]
 	pub fn with_object(object: impl Into<Arc<Object>>) -> Self {
-		let state = State::with_object(object);
-		let state = Arc::new(std::sync::RwLock::new(state));
-		Self { state }
+		Self::with_state(tg::object::State::with_object(object.into()))
 	}
 
 	#[must_use]
 	pub fn id(&self) -> Id {
-		if let Some(id) = self.state.read().unwrap().id.clone() {
-			return id;
-		}
-		let object = self.state.read().unwrap().object.clone().unwrap();
-		let data = object.to_data();
-		let bytes = data.serialize().unwrap();
-		let id = Id::new(&bytes);
-		self.state.write().unwrap().id.replace(id.clone());
-		id
+		self.state.id().try_into().unwrap()
 	}
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
@@ -67,7 +52,16 @@ impl Graph {
 	where
 		H: tg::Handle,
 	{
-		self.load_with_arg(handle, tg::object::get::Arg::default())
+		self.try_load(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to load the object"))
+	}
+
+	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
+		self.try_load_with_arg(handle, tg::object::get::Arg::default())
 			.await
 	}
 
@@ -84,14 +78,6 @@ impl Graph {
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
-	where
-		H: tg::Handle,
-	{
-		self.try_load_with_arg(handle, tg::object::get::Arg::default())
-			.await
-	}
-
 	pub async fn try_load_with_arg<H>(
 		&self,
 		handle: &H,
@@ -100,26 +86,16 @@ impl Graph {
 	where
 		H: tg::Handle,
 	{
-		if let Some(object) = self.state.read().unwrap().object.clone() {
-			return Ok(Some(object));
-		}
-		let id = self.state.read().unwrap().id.clone().unwrap();
-		let Some(output) = handle.try_get_object(&id.into(), arg).await? else {
+		let object = self.state.try_load_with_arg(handle, arg).await?;
+		let Some(object) = object else {
 			return Ok(None);
 		};
-		let data = Data::deserialize(output.bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
-		let object = Object::try_from_data(data)?;
-		let object = Arc::new(object);
-		self.state.write().unwrap().object.replace(object.clone());
+		let object = object.unwrap_graph_ref().clone();
 		Ok(Some(object))
 	}
 
 	pub fn unload(&self) {
-		let mut state = self.state.write().unwrap();
-		if state.stored {
-			state.object.take();
-		}
+		self.state.unload();
 	}
 
 	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
@@ -142,8 +118,7 @@ impl Graph {
 	where
 		H: tg::Handle,
 	{
-		let object = self.load(handle).await?;
-		Ok(object.children())
+		self.state.children(handle).await
 	}
 
 	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>

@@ -1,9 +1,5 @@
 pub use self::{
-	builder::Builder,
-	data::File as Data,
-	handle::{File as Handle, State},
-	id::Id,
-	object::File as Object,
+	builder::Builder, data::File as Data, handle::File as Handle, id::Id, object::File as Object,
 };
 
 pub mod builder;

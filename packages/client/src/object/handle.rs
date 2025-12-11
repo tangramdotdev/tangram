@@ -2,7 +2,6 @@ use {
 	super::{Data, Id, Object as Object_},
 	crate::prelude::*,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	std::sync::{Arc, RwLock},
 };
 
 #[derive(
@@ -23,25 +22,6 @@ pub enum Object {
 	Symlink(tg::Symlink),
 	Graph(tg::Graph),
 	Command(tg::Command),
-}
-
-#[derive(
-	Debug,
-	derive_more::From,
-	derive_more::IsVariant,
-	derive_more::TryInto,
-	derive_more::TryUnwrap,
-	derive_more::Unwrap,
-)]
-#[try_unwrap(ref)]
-#[unwrap(ref)]
-pub enum State {
-	Blob(Arc<RwLock<tg::blob::State>>),
-	Directory(Arc<RwLock<tg::directory::State>>),
-	File(Arc<RwLock<tg::file::State>>),
-	Symlink(Arc<RwLock<tg::symlink::State>>),
-	Graph(Arc<RwLock<tg::graph::State>>),
-	Command(Arc<RwLock<tg::command::State>>),
 }
 
 impl Object {
@@ -70,14 +50,14 @@ impl Object {
 	}
 
 	#[must_use]
-	pub fn state(&self) -> State {
+	pub fn state(&self) -> tg::object::State {
 		match self {
-			Self::Blob(blob) => blob.state().clone().into(),
-			Self::Directory(directory) => directory.state().clone().into(),
-			Self::File(file) => file.state().clone().into(),
-			Self::Symlink(symlink) => symlink.state().clone().into(),
-			Self::Graph(graph) => graph.state().clone().into(),
-			Self::Command(command) => command.state().clone().into(),
+			Self::Blob(blob) => blob.state().clone(),
+			Self::Directory(directory) => directory.state().clone(),
+			Self::File(file) => file.state().clone(),
+			Self::Symlink(symlink) => symlink.state().clone(),
+			Self::Graph(graph) => graph.state().clone(),
+			Self::Command(command) => command.state().clone(),
 		}
 	}
 
@@ -215,91 +195,6 @@ impl Object {
 	#[must_use]
 	pub fn is_artifact(&self) -> bool {
 		matches!(self, Self::Directory(_) | Self::File(_) | Self::Symlink(_))
-	}
-}
-
-impl State {
-	#[must_use]
-	pub fn id(&self) -> Option<tg::object::Id> {
-		match self {
-			Self::Blob(state) => state.read().unwrap().id.clone().map(Into::into),
-			Self::Directory(state) => state.read().unwrap().id.clone().map(Into::into),
-			Self::File(state) => state.read().unwrap().id.clone().map(Into::into),
-			Self::Symlink(state) => state.read().unwrap().id.clone().map(Into::into),
-			Self::Graph(state) => state.read().unwrap().id.clone().map(Into::into),
-			Self::Command(state) => state.read().unwrap().id.clone().map(Into::into),
-		}
-	}
-
-	#[must_use]
-	pub fn object(&self) -> Option<tg::object::Object> {
-		match self {
-			Self::Blob(state) => state.read().unwrap().object.clone().map(Into::into),
-			Self::Directory(state) => state.read().unwrap().object.clone().map(Into::into),
-			Self::File(state) => state.read().unwrap().object.clone().map(Into::into),
-			Self::Symlink(state) => state.read().unwrap().object.clone().map(Into::into),
-			Self::Graph(state) => state.read().unwrap().object.clone().map(Into::into),
-			Self::Command(state) => state.read().unwrap().object.clone().map(Into::into),
-		}
-	}
-
-	#[must_use]
-	pub fn stored(&self) -> bool {
-		match self {
-			Self::Blob(state) => state.read().unwrap().stored,
-			Self::Directory(state) => state.read().unwrap().stored,
-			Self::File(state) => state.read().unwrap().stored,
-			Self::Symlink(state) => state.read().unwrap().stored,
-			Self::Graph(state) => state.read().unwrap().stored,
-			Self::Command(state) => state.read().unwrap().stored,
-		}
-	}
-
-	pub fn set_id(&self, id: tg::object::Id) {
-		match (self, id.variant()) {
-			(Self::Blob(state), tg::object::id::Variant::Blob(id)) => {
-				state.write().unwrap().id.replace(id);
-			},
-			(Self::Directory(state), tg::object::id::Variant::Directory(id)) => {
-				state.write().unwrap().id.replace(id);
-			},
-			(Self::File(state), tg::object::id::Variant::File(id)) => {
-				state.write().unwrap().id.replace(id);
-			},
-			(Self::Symlink(state), tg::object::id::Variant::Symlink(id)) => {
-				state.write().unwrap().id.replace(id);
-			},
-			(Self::Graph(state), tg::object::id::Variant::Graph(id)) => {
-				state.write().unwrap().id.replace(id);
-			},
-			(Self::Command(state), tg::object::id::Variant::Command(id)) => {
-				state.write().unwrap().id.replace(id);
-			},
-			_ => panic!("ID kind mismatch"),
-		}
-	}
-
-	pub fn set_stored(&self, stored: bool) {
-		match self {
-			Self::Blob(state) => {
-				state.write().unwrap().stored = stored;
-			},
-			Self::Directory(state) => {
-				state.write().unwrap().stored = stored;
-			},
-			Self::File(state) => {
-				state.write().unwrap().stored = stored;
-			},
-			Self::Symlink(state) => {
-				state.write().unwrap().stored = stored;
-			},
-			Self::Graph(state) => {
-				state.write().unwrap().stored = stored;
-			},
-			Self::Command(state) => {
-				state.write().unwrap().stored = stored;
-			},
-		}
 	}
 }
 

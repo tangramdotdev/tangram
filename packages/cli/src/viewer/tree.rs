@@ -1553,50 +1553,10 @@ where
 	}
 
 	fn object_id(object: &tg::Object) -> String {
-		match object {
-			tg::Object::Blob(blob) => blob
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Directory(directory) => directory
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::File(file) => file
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Symlink(symlink) => symlink
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Graph(graph) => graph
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-			tg::Object::Command(command) => command
-				.state()
-				.read()
-				.unwrap()
-				.id
-				.as_ref()
-				.map_or_else(|| "object".to_owned(), ToString::to_string),
-		}
+		object
+			.state()
+			.try_get_id()
+			.map_or_else(|| "object".to_owned(), |id| id.to_string())
 	}
 
 	fn pop(&mut self) {

@@ -832,21 +832,18 @@ async fn poll_read_inner(
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
 	'a: loop {
-		let (id, object) = {
-			let state = current_blob.state().read().unwrap();
-			let id = state.id.clone();
-			let object = state.object.clone();
-			(id, object)
-		};
+		let state = current_blob.state();
+		let id = state.try_get_id();
+		let object = state.object().map(|o| o.unwrap_blob_ref().clone());
 		let object = if let Some(object) = object {
 			object
 		} else {
-			let bytes = server.get_object(&id.unwrap().into()).await?.bytes;
+			let bytes = server.get_object(&id.unwrap()).await?.bytes;
 			let data = tg::blob::Data::deserialize(bytes)?;
 			let object = tg::blob::Object::try_from_data(data)?;
 			let object = Arc::new(object);
 			if object.is_branch() {
-				current_blob.state().write().unwrap().object = Some(object.clone());
+				state.set_object(object.clone());
 			}
 			object
 		};
@@ -882,23 +879,20 @@ fn read_inner_sync(
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
 	'a: loop {
-		let (id, object) = {
-			let state = current_blob.state().read().unwrap();
-			let id = state.id.clone();
-			let object = state.object.clone();
-			(id, object)
-		};
+		let state = current_blob.state();
+		let id = state.try_get_id();
+		let object = state.object().map(|o| o.unwrap_blob_ref().clone());
 		let object = if let Some(object) = object {
 			object
 		} else {
-			let Some(output) = server.try_get_object_sync(&id.unwrap().into(), file)? else {
+			let Some(output) = server.try_get_object_sync(&id.unwrap(), file)? else {
 				return Err(tg::error!("failed to get the blob object"));
 			};
 			let data = tg::blob::Data::deserialize(output.bytes)?;
 			let object = tg::blob::Object::try_from_data(data)?;
 			let object = Arc::new(object);
 			if object.is_branch() {
-				current_blob.state().write().unwrap().object = Some(object.clone());
+				state.set_object(object.clone());
 			}
 			object
 		};
