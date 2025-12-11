@@ -9,136 +9,71 @@ use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 	PartialEq,
 	PartialOrd,
 	derive_more::Debug,
-	derive_more::Display,
-	derive_more::Into,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[debug("tg::artifact::Id(\"{_0}\")")]
-#[serde(into = "tg::Id", try_from = "tg::Id")]
-#[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
-pub struct Id(tg::object::Id);
-
-#[derive(
-	Clone,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
 	derive_more::From,
 	derive_more::IsVariant,
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
+#[serde(into = "crate::Id", try_from = "crate::Id")]
+#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
-pub enum Variant {
+pub enum Id {
+	#[debug("tg::artifact::Id(\"{_0}\")")]
 	Directory(tg::directory::Id),
+	#[debug("tg::artifact::Id(\"{_0}\")")]
 	File(tg::file::Id),
+	#[debug("tg::artifact::Id(\"{_0}\")")]
 	Symlink(tg::symlink::Id),
-}
-
-pub enum VariantRef<'a> {
-	Directory(&'a tg::directory::Id),
-	File(&'a tg::file::Id),
-	Symlink(&'a tg::symlink::Id),
 }
 
 impl Id {
 	pub fn new(kind: Kind, bytes: &Bytes) -> Self {
-		let id = match kind {
-			Kind::Directory => tg::Id::new_blake3(tg::id::Kind::Directory, bytes),
-			Kind::File => tg::Id::new_blake3(tg::id::Kind::File, bytes),
-			Kind::Symlink => tg::Id::new_blake3(tg::id::Kind::Symlink, bytes),
-		};
-		Self(tg::object::Id::try_from(id).unwrap())
+		match kind {
+			Kind::Directory => tg::directory::Id::new(bytes).into(),
+			Kind::File => tg::file::Id::new(bytes).into(),
+			Kind::Symlink => tg::symlink::Id::new(bytes).into(),
+		}
 	}
 
 	#[must_use]
 	pub fn kind(&self) -> Kind {
-		match self.0.kind() {
-			tg::object::Kind::Directory => Kind::Directory,
-			tg::object::Kind::File => Kind::File,
-			tg::object::Kind::Symlink => Kind::Symlink,
-			_ => unreachable!(),
+		match self {
+			Self::Directory(_) => Kind::Directory,
+			Self::File(_) => Kind::File,
+			Self::Symlink(_) => Kind::Symlink,
 		}
 	}
 
 	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
 		tg::Id::from_reader(bytes)?.try_into()
 	}
+}
 
-	#[must_use]
-	pub fn is_directory(&self) -> bool {
-		self.0.is_directory()
-	}
+impl Deref for Id {
+	type Target = crate::Id;
 
-	#[must_use]
-	pub fn is_file(&self) -> bool {
-		self.0.is_file()
-	}
-
-	#[must_use]
-	pub fn is_symlink(&self) -> bool {
-		self.0.is_symlink()
-	}
-
-	pub fn try_unwrap_directory(self) -> tg::Result<tg::directory::Id> {
-		self.0.try_unwrap_directory()
-	}
-
-	pub fn try_unwrap_file(self) -> tg::Result<tg::file::Id> {
-		self.0.try_unwrap_file()
-	}
-
-	pub fn try_unwrap_symlink(self) -> tg::Result<tg::symlink::Id> {
-		self.0.try_unwrap_symlink()
-	}
-
-	pub fn try_unwrap_directory_ref(&self) -> tg::Result<&tg::directory::Id> {
-		self.0.try_unwrap_directory_ref()
-	}
-
-	pub fn try_unwrap_file_ref(&self) -> tg::Result<&tg::file::Id> {
-		self.0.try_unwrap_file_ref()
-	}
-
-	pub fn try_unwrap_symlink_ref(&self) -> tg::Result<&tg::symlink::Id> {
-		self.0.try_unwrap_symlink_ref()
-	}
-
-	#[must_use]
-	pub fn variant(self) -> Variant {
-		match self.kind() {
-			Kind::Directory => Variant::Directory(self.0.try_unwrap_directory().unwrap()),
-			Kind::File => Variant::File(self.0.try_unwrap_file().unwrap()),
-			Kind::Symlink => Variant::Symlink(self.0.try_unwrap_symlink().unwrap()),
-		}
-	}
-
-	#[must_use]
-	pub fn variant_ref(&self) -> VariantRef<'_> {
-		match self.kind() {
-			Kind::Directory => {
-				VariantRef::Directory(unsafe { &*(&raw const self.0).cast::<tg::directory::Id>() })
-			},
-			Kind::File => VariantRef::File(unsafe { &*(&raw const self.0).cast::<tg::file::Id>() }),
-			Kind::Symlink => {
-				VariantRef::Symlink(unsafe { &*(&raw const self.0).cast::<tg::symlink::Id>() })
-			},
+	fn deref(&self) -> &Self::Target {
+		match self {
+			Self::Directory(id) => id,
+			Self::File(id) => id,
+			Self::Symlink(id) => id,
 		}
 	}
 }
 
-impl Deref for Id {
-	type Target = tg::object::Id;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
+impl std::fmt::Display for Id {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Directory(id) => write!(f, "{id}"),
+			Self::File(id) => write!(f, "{id}"),
+			Self::Symlink(id) => write!(f, "{id}"),
+		}
 	}
 }
 
@@ -146,7 +81,7 @@ impl std::str::FromStr for Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		tg::Id::from_str(s)?.try_into()
+		crate::Id::from_str(s)?.try_into()
 	}
 }
 
@@ -158,15 +93,35 @@ impl TryFrom<String> for Id {
 	}
 }
 
-impl TryFrom<tg::Id> for Id {
+impl From<Id> for crate::Id {
+	fn from(value: Id) -> Self {
+		match value {
+			Id::Directory(id) => id.into(),
+			Id::File(id) => id.into(),
+			Id::Symlink(id) => id.into(),
+		}
+	}
+}
+
+impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
-	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
-			tg::id::Kind::Directory | tg::id::Kind::File | tg::id::Kind::Symlink => {
-				Ok(Self(tg::object::Id::try_from(value)?))
-			},
+			tg::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
+			tg::id::Kind::File => Ok(Self::File(value.try_into()?)),
+			tg::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
 			kind => Err(tg::error!(%kind, %value, "expected an artifact ID")),
+		}
+	}
+}
+
+impl From<Id> for tg::object::Id {
+	fn from(value: Id) -> Self {
+		match value {
+			Id::Directory(id) => id.into(),
+			Id::File(id) => id.into(),
+			Id::Symlink(id) => id.into(),
 		}
 	}
 }
@@ -175,10 +130,11 @@ impl TryFrom<tg::object::Id> for Id {
 	type Error = tg::Error;
 
 	fn try_from(value: tg::object::Id) -> tg::Result<Self, Self::Error> {
-		if value.is_directory() || value.is_file() || value.is_symlink() {
-			Ok(Self(value))
-		} else {
-			Err(tg::error!("expected an artifact ID"))
+		match value {
+			tg::object::Id::Directory(value) => Ok(value.into()),
+			tg::object::Id::File(value) => Ok(value.into()),
+			tg::object::Id::Symlink(value) => Ok(value.into()),
+			value => Err(tg::error!(%value, "expected an artifact ID")),
 		}
 	}
 }
@@ -188,35 +144,5 @@ impl TryFrom<Vec<u8>> for Id {
 
 	fn try_from(value: Vec<u8>) -> tg::Result<Self> {
 		Self::from_slice(&value)
-	}
-}
-
-impl TryFrom<Id> for tg::directory::Id {
-	type Error = tg::Error;
-
-	fn try_from(value: Id) -> tg::Result<Self> {
-		value.try_unwrap_directory()
-	}
-}
-
-impl TryFrom<Id> for tg::file::Id {
-	type Error = tg::Error;
-
-	fn try_from(value: Id) -> tg::Result<Self> {
-		value.try_unwrap_file()
-	}
-}
-
-impl TryFrom<Id> for tg::symlink::Id {
-	type Error = tg::Error;
-
-	fn try_from(value: Id) -> tg::Result<Self> {
-		value.try_unwrap_symlink()
-	}
-}
-
-impl From<Id> for tg::Id {
-	fn from(value: Id) -> Self {
-		value.0.into()
 	}
 }

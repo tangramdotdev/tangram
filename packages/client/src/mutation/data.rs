@@ -100,19 +100,14 @@ impl Data {
 			) => {
 				let second = match value {
 					tg::value::Data::Template(template) => template.clone(),
-					tg::value::Data::Object(object_id) => match object_id.clone().variant() {
-						tg::object::id::Variant::Directory(directory) => {
-							tg::template::Data::with_components([directory.into()])
-						},
-						tg::object::id::Variant::File(file) => {
-							tg::template::Data::with_components([file.into()])
-						},
-						tg::object::id::Variant::Symlink(symlink) => {
-							tg::template::Data::with_components([symlink.into()])
-						},
-						_ => {
-							return Err(tg::error!("expected an artifact, string, or template"));
-						},
+					tg::value::Data::Object(tg::object::Id::Directory(directory)) => {
+						tg::template::Data::with_components([directory.clone().into()])
+					},
+					tg::value::Data::Object(tg::object::Id::File(file)) => {
+						tg::template::Data::with_components([file.clone().into()])
+					},
+					tg::value::Data::Object(tg::object::Id::Symlink(symlink)) => {
+						tg::template::Data::with_components([symlink.clone().into()])
 					},
 					tg::value::Data::String(string) => {
 						tg::template::Data::with_components([string.clone().into()])
@@ -151,19 +146,14 @@ impl Data {
 			) => {
 				let first = match value {
 					tg::value::Data::Template(template) => template.clone(),
-					tg::value::Data::Object(object_id) => match object_id.clone().variant() {
-						tg::object::id::Variant::Directory(directory) => {
-							tg::template::Data::with_components([directory.into()])
-						},
-						tg::object::id::Variant::File(file) => {
-							tg::template::Data::with_components([file.into()])
-						},
-						tg::object::id::Variant::Symlink(symlink) => {
-							tg::template::Data::with_components([symlink.into()])
-						},
-						_ => {
-							return Err(tg::error!("expected an artifact, string, or template"));
-						},
+					tg::value::Data::Object(tg::object::Id::Directory(directory)) => {
+						tg::template::Data::with_components([directory.clone().into()])
+					},
+					tg::value::Data::Object(tg::object::Id::File(file)) => {
+						tg::template::Data::with_components([file.clone().into()])
+					},
+					tg::value::Data::Object(tg::object::Id::Symlink(symlink)) => {
+						tg::template::Data::with_components([symlink.clone().into()])
 					},
 					tg::value::Data::String(string) => {
 						tg::template::Data::with_components([string.clone().into()])

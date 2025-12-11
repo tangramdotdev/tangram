@@ -37,10 +37,10 @@ pub enum Artifact {
 impl Artifact {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
-		match id.variant() {
-			tg::artifact::id::Variant::Directory(id) => Self::Directory(tg::Directory::with_id(id)),
-			tg::artifact::id::Variant::File(id) => Self::File(tg::File::with_id(id)),
-			tg::artifact::id::Variant::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
+		match id {
+			Id::Directory(id) => Self::Directory(tg::Directory::with_id(id)),
+			Id::File(id) => Self::File(tg::File::with_id(id)),
+			Id::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
 		}
 	}
 

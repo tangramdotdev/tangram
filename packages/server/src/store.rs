@@ -111,8 +111,12 @@ impl Store {
 	) -> tg::Result<Option<CacheReference>> {
 		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
-			crate::store::Store::Lmdb(lmdb) => lmdb.try_get_cache_reference_sync(id),
-			crate::store::Store::Memory(memory) => Ok(memory.try_get_cache_reference(id)),
+			crate::store::Store::Lmdb(lmdb) => {
+				lmdb.try_get_cache_reference_sync(&id.clone().into())
+			},
+			crate::store::Store::Memory(memory) => {
+				Ok(memory.try_get_cache_reference(&id.clone().into()))
+			},
 			_ => Err(tg::error!("invalid store")),
 		}
 	}

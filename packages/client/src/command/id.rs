@@ -9,40 +9,40 @@ use {crate as tg, std::ops::Deref};
 	PartialOrd,
 	derive_more::Debug,
 	derive_more::Display,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 #[debug("tg::command::Id(\"{_0}\")")]
-#[serde(into = "tg::Id", try_from = "tg::Id")]
-#[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
-pub struct Id(tg::object::Id);
+#[serde(into = "crate::Id", try_from = "crate::Id")]
+#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
+pub struct Id(crate::Id);
 
 impl Id {
 	#[must_use]
 	pub fn new(bytes: &[u8]) -> Self {
-		let id = tg::Id::new_blake3(tg::id::Kind::Command, bytes);
-		Self(tg::object::Id::try_from(id).unwrap())
+		Self(crate::Id::new_blake3(tg::id::Kind::Command, bytes))
 	}
 }
 
 impl Deref for Id {
-	type Target = tg::object::Id;
+	type Target = crate::Id;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }
 
-impl TryFrom<tg::Id> for Id {
+impl TryFrom<crate::Id> for Id {
 	type Error = tg::Error;
 
-	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
 		if value.kind() != tg::id::Kind::Command {
-			return Err(tg::error!(%value, "expected a command ID"));
+			return Err(tg::error!(%value, "invalid kind"));
 		}
-		Ok(Self(tg::object::Id::try_from(value)?))
+		Ok(Self(value))
 	}
 }
 
@@ -50,7 +50,7 @@ impl std::str::FromStr for Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		tg::Id::from_str(s)?.try_into()
+		crate::Id::from_str(s)?.try_into()
 	}
 }
 
@@ -59,17 +59,5 @@ impl TryFrom<String> for Id {
 
 	fn try_from(value: String) -> tg::Result<Self> {
 		value.parse()
-	}
-}
-
-impl From<Id> for tg::Id {
-	fn from(value: Id) -> Self {
-		value.0.into()
-	}
-}
-
-impl From<Id> for tg::object::Id {
-	fn from(value: Id) -> Self {
-		value.0
 	}
 }
