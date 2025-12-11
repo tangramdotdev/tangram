@@ -53,7 +53,8 @@ where
 						.boxed();
 					async {
 						let arg = tg::pipe::write::Arg {
-							remote: remote.clone(),
+							local: None,
+							remotes: remote.clone().map(|r| vec![r]),
 						};
 						handle.write_pipe(id, arg, stream).await?;
 						Ok::<_, tg::Error>(())
@@ -79,8 +80,9 @@ where
 
 					async {
 						let arg = tg::pty::write::Arg {
+							local: None,
 							master: true,
-							remote: remote.clone(),
+							remotes: remote.clone().map(|r| vec![r]),
 						};
 						handle.write_pty(id, arg, stream).await?;
 						Ok::<_, tg::Error>(())
@@ -100,14 +102,16 @@ where
 			match &stdin {
 				tg::process::Stdio::Pipe(id) => {
 					let arg = tg::pipe::close::Arg {
-						remote: remote.clone(),
+						local: None,
+						remotes: remote.clone().map(|r| vec![r]),
 					};
 					handle.close_pipe(id, arg).await?;
 				},
 				tg::process::Stdio::Pty(id) => {
 					let arg = tg::pty::close::Arg {
+						local: None,
 						master: true,
-						remote: remote.clone(),
+						remotes: remote.clone().map(|r| vec![r]),
 					};
 					handle.close_pty(id, arg).await?;
 				},
@@ -168,7 +172,10 @@ where
 {
 	let stream = match stdio {
 		tg::process::Stdio::Pipe(id) => {
-			let arg = tg::pipe::read::Arg { remote };
+			let arg = tg::pipe::read::Arg {
+				local: None,
+				remotes: remote.map(|r| vec![r]),
+			};
 			handle
 				.read_pipe(id, arg)
 				.await?
@@ -256,7 +263,8 @@ impl Stdio {
 			let tty = Tty::new()?;
 			let size = tty.get_size()?;
 			let arg = tg::pty::create::Arg {
-				remote: remote.clone(),
+				local: None,
+				remotes: remote.clone().map(|r| vec![r]),
 				size,
 			};
 			let output = handle
@@ -267,7 +275,8 @@ impl Stdio {
 			(Some(Arc::new(tty)), Some(stdin))
 		} else {
 			let arg = tg::pipe::create::Arg {
-				remote: remote.clone(),
+				local: None,
+				remotes: remote.clone().map(|r| vec![r]),
 			};
 			let output = handle
 				.create_pipe(arg)
@@ -282,7 +291,8 @@ impl Stdio {
 			stdin.clone()
 		} else {
 			let arg = tg::pipe::create::Arg {
-				remote: remote.clone(),
+				local: None,
+				remotes: remote.clone().map(|r| vec![r]),
 			};
 			let output = handle
 				.create_pipe(arg)
@@ -297,7 +307,8 @@ impl Stdio {
 			stdin.clone()
 		} else {
 			let arg = tg::pipe::create::Arg {
-				remote: remote.clone(),
+				local: None,
+				remotes: remote.clone().map(|r| vec![r]),
 			};
 			let output = handle
 				.create_pipe(arg)
@@ -324,14 +335,16 @@ impl Stdio {
 			match stdout {
 				tg::process::Stdio::Pipe(pipe) => {
 					let arg = tg::pipe::close::Arg {
-						remote: self.remote.clone(),
+						local: None,
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.close_pipe(pipe, arg).await?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::close::Arg {
+						local: None,
 						master: false,
-						remote: self.remote.clone(),
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.close_pty(pty, arg).await?;
 				},
@@ -341,14 +354,16 @@ impl Stdio {
 			match stderr {
 				tg::process::Stdio::Pipe(pipe) => {
 					let arg = tg::pipe::close::Arg {
-						remote: self.remote.clone(),
+						local: None,
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.close_pipe(pipe, arg).await?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::close::Arg {
+						local: None,
 						master: false,
-						remote: self.remote.clone(),
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.close_pty(pty, arg).await?;
 				},
@@ -366,13 +381,15 @@ impl Stdio {
 			match stdout {
 				tg::process::Stdio::Pipe(pipe) => {
 					let arg = tg::pipe::delete::Arg {
-						remote: self.remote.clone(),
+						local: None,
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.delete_pipe(pipe, arg).await?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::delete::Arg {
-						remote: self.remote.clone(),
+						local: None,
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.delete_pty(pty, arg).await?;
 				},
@@ -382,13 +399,15 @@ impl Stdio {
 			match stderr {
 				tg::process::Stdio::Pipe(pipe) => {
 					let arg = tg::pipe::delete::Arg {
-						remote: self.remote.clone(),
+						local: None,
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.delete_pipe(pipe, arg).await?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::delete::Arg {
-						remote: self.remote.clone(),
+						local: None,
+						remotes: self.remote.clone().map(|r| vec![r]),
 					};
 					handle.delete_pty(pty, arg).await?;
 				},

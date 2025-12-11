@@ -11,13 +11,16 @@ impl Server {
 		&self,
 		context: &Context,
 		id: &tg::process::Id,
-		mut arg: tg::process::heartbeat::Arg,
+		arg: tg::process::heartbeat::Arg,
 	) -> tg::Result<tg::process::heartbeat::Output> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote.clone()).await?;
-			let arg = tg::process::heartbeat::Arg { remote: None };
-			let output = remote.heartbeat_process(id, arg).await?;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::process::heartbeat::Arg {
+				local: None,
+				remotes: None,
+			};
+			let output = client.heartbeat_process(id, arg).await?;
 			return Ok(output);
 		}
 

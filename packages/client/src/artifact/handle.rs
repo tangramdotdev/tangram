@@ -81,10 +81,24 @@ impl Artifact {
 	where
 		H: tg::Handle,
 	{
+		self.load_with_arg(handle, tg::object::get::Arg::default())
+			.await
+	}
+
+	pub async fn load_with_arg<H>(
+		&self,
+		handle: &H,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Object>
+	where
+		H: tg::Handle,
+	{
 		match self {
-			Self::Directory(directory) => directory.load(handle).await.map(Into::into),
-			Self::File(file) => file.load(handle).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.load(handle).await.map(Into::into),
+			Self::Directory(directory) => {
+				directory.load_with_arg(handle, arg).await.map(Into::into)
+			},
+			Self::File(file) => file.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.load_with_arg(handle, arg).await.map(Into::into),
 		}
 	}
 

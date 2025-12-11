@@ -29,7 +29,8 @@ impl Server {
 						let arg = tg::tag::put::Arg {
 							force: *force,
 							item: item.clone(),
-							remote: None,
+							local: None,
+							remotes: None,
 						};
 						Self::put_tag_sqlite_sync(&transaction, tag, &arg)
 							.map_err(|source| tg::error!(!source, %tag, "failed to put tag"))?;

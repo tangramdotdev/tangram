@@ -457,6 +457,7 @@ where
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
@@ -464,11 +465,11 @@ where
 	> {
 		match self {
 			Either::Left(s) => s
-				.try_get_process_status_stream(id)
+				.try_get_process_status_stream(id, arg.clone())
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			Either::Right(s) => s
-				.try_get_process_status_stream(id)
+				.try_get_process_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -574,6 +575,7 @@ where
 	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
@@ -583,11 +585,11 @@ where
 	> {
 		match self {
 			Either::Left(s) => s
-				.try_wait_process_future(id)
+				.try_wait_process_future(id, arg.clone())
 				.map_ok(|option| option.map(futures::FutureExt::left_future))
 				.left_future(),
 			Either::Right(s) => s
-				.try_wait_process_future(id)
+				.try_wait_process_future(id, arg)
 				.map_ok(|option| option.map(futures::FutureExt::right_future))
 				.right_future(),
 		}
@@ -803,10 +805,11 @@ where
 	fn try_get_tag(
 		&self,
 		pattern: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
 		match self {
-			Either::Left(s) => s.try_get_tag(pattern).left_future(),
-			Either::Right(s) => s.try_get_tag(pattern).right_future(),
+			Either::Left(s) => s.try_get_tag(pattern, arg.clone()).left_future(),
+			Either::Right(s) => s.try_get_tag(pattern, arg).right_future(),
 		}
 	}
 

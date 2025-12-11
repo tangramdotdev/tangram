@@ -10,12 +10,17 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
-		mut arg: tg::process::signal::post::Arg,
+		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<()> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			return remote.post_process_signal(id, arg).await;
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::process::signal::post::Arg {
+				local: None,
+				remotes: None,
+				signal: arg.signal,
+			};
+			return client.post_process_signal(id, arg).await;
 		}
 
 		// Check if the process is cacheable.

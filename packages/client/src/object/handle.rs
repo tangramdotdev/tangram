@@ -111,13 +111,27 @@ impl Object {
 	where
 		H: tg::Handle,
 	{
+		self.load_with_arg(handle, tg::object::get::Arg::default())
+			.await
+	}
+
+	pub async fn load_with_arg<H>(
+		&self,
+		handle: &H,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Object_>
+	where
+		H: tg::Handle,
+	{
 		match self {
-			Self::Blob(blob) => blob.load(handle).await.map(Into::into),
-			Self::Directory(directory) => directory.load(handle).await.map(Into::into),
-			Self::File(file) => file.load(handle).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.load(handle).await.map(Into::into),
-			Self::Graph(graph) => graph.load(handle).await.map(Into::into),
-			Self::Command(command) => command.load(handle).await.map(Into::into),
+			Self::Blob(blob) => blob.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Directory(directory) => {
+				directory.load_with_arg(handle, arg).await.map(Into::into)
+			},
+			Self::File(file) => file.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Graph(graph) => graph.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Command(command) => command.load_with_arg(handle, arg).await.map(Into::into),
 		}
 	}
 

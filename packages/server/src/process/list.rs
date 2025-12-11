@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server, database::Database},
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
@@ -12,13 +13,44 @@ impl Server {
 	pub(crate) async fn list_processes_with_context(
 		&self,
 		context: &Context,
-		_arg: tg::process::list::Arg,
+		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		let data = self.list_processes_local().await?;
-		Ok(tg::process::list::Output { data })
+
+		let mut output = tg::process::list::Output { data: Vec::new() };
+
+		// List the local processes if requested.
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			let local_data = self.list_processes_local().await?;
+			output.data.extend(local_data);
+		}
+
+		// List the remote processes if requested.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remote_outputs = remotes
+			.into_iter()
+			.map(|remote| {
+				let arg = tg::process::list::Arg {
+					local: None,
+					remotes: None,
+				};
+				async move {
+					let client = self.get_remote_client(remote.clone()).await?;
+					let output = client.list_processes(arg).await?;
+					Ok::<_, tg::Error>(output)
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+
+		output
+			.data
+			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
+
+		Ok(output)
 	}
 
 	async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {

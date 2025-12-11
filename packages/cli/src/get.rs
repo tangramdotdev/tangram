@@ -9,14 +9,16 @@ pub struct Args {
 	pub bytes: bool,
 
 	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
-	/// The remote to get from.
-	#[arg(long)]
-	pub remote: Option<String>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -31,17 +33,19 @@ impl Cli {
 			Either::Left(object) => {
 				let args = crate::object::get::Args {
 					bytes: args.bytes,
+					local: args.local,
 					object,
 					print: args.print,
-					remote: args.remote,
+					remotes: args.remotes,
 				};
 				self.command_object_get(args).await?;
 			},
 			Either::Right(process) => {
 				let args = crate::process::get::Args {
+					local: args.local,
 					print: args.print,
 					process,
-					remote: args.remote,
+					remotes: args.remotes,
 				};
 				self.command_process_get(args).await?;
 			},

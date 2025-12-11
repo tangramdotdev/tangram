@@ -81,7 +81,8 @@ impl Server {
 
 			// Attempt to start the process.
 			let arg = tg::process::start::Arg {
-				remote: process.remote().cloned(),
+				local: None,
+				remotes: process.remote().cloned().map(|r| vec![r]),
 			};
 			let result = self.start_process(process.id(), arg.clone()).await;
 			if let Err(error) = result {
@@ -160,8 +161,9 @@ impl Server {
 			checksum: wait.checksum,
 			error: wait.error.as_ref().map(tg::Error::to_data),
 			exit: wait.exit,
+			local: None,
 			output,
-			remote: process.remote().cloned(),
+			remotes: process.remote().cloned().map(|r| vec![r]),
 		};
 		self.finish_process(process.id(), arg).await?;
 
@@ -172,7 +174,8 @@ impl Server {
 		let config = self.config.runner.clone().unwrap_or_default();
 		loop {
 			let arg = tg::process::heartbeat::Arg {
-				remote: process.remote().cloned(),
+				local: None,
+				remotes: process.remote().cloned().map(|r| vec![r]),
 			};
 			let result = self.heartbeat_process(process.id(), arg).await;
 			if let Ok(output) = result
@@ -314,8 +317,9 @@ impl Server {
 						checksum: None,
 						error,
 						exit: 1,
+						local: None,
 						output: None,
-						remote: None,
+						remotes: None,
 					};
 					if let Err(error) = server.finish_process(&output.id, arg).await {
 						tracing::error!(process = %output.id, ?error, "failed to finish the process");

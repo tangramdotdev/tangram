@@ -12,13 +12,16 @@ impl Server {
 		&self,
 		context: &Context,
 		id: &tg::process::Id,
-		mut arg: tg::process::start::Arg,
+		arg: tg::process::start::Arg,
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote.clone()).await?;
-			let arg = tg::process::start::Arg { remote: None };
-			remote.start_process(id, arg).await?;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::process::start::Arg {
+				local: None,
+				remotes: None,
+			};
+			client.start_process(id, arg).await?;
 			return Ok(());
 		}
 

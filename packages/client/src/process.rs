@@ -172,7 +172,10 @@ impl Process {
 	where
 		H: tg::Handle,
 	{
-		handle.wait_process(&self.id).await?.try_into()
+		handle
+			.wait_process(&self.id, tg::process::wait::Arg::default())
+			.await?
+			.try_into()
 	}
 
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>

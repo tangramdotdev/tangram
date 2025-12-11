@@ -10,12 +10,16 @@ impl Server {
 		&self,
 		context: &Context,
 		id: &tg::pipe::Id,
-		mut arg: tg::pipe::close::Arg,
+		arg: tg::pipe::close::Arg,
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			remote.close_pipe(id, arg).await?;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::pipe::close::Arg {
+				local: None,
+				remotes: None,
+			};
+			client.close_pipe(id, arg).await?;
 			return Ok(());
 		}
 

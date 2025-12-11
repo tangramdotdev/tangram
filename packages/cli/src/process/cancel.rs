@@ -4,12 +4,14 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 
-	#[expect(clippy::option_option)]
-	#[arg(long, require_equals = true, short)]
-	pub remote: Option<Option<String>>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 
 	#[arg(index = 2)]
 	pub token: String,
@@ -19,15 +21,14 @@ impl Cli {
 	pub async fn command_process_cancel(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the remote.
-		let remote = args
-			.remote
-			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
-
 		// Cancel the process.
-		let process = tg::Process::new(args.process, None, remote, None, Some(args.token));
-		process
-			.cancel(&handle)
+		let arg = tg::process::cancel::Arg {
+			local: args.local.local,
+			remotes: args.remotes.remotes,
+			token: args.token,
+		};
+		handle
+			.cancel_process(&args.process, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cancel the process"))?;
 

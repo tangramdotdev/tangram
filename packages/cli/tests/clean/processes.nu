@@ -32,6 +32,12 @@ let d_process = tg process spawn --sandbox ($path + '#d') | from json | get proc
 
 let e_process = tg process spawn --sandbox ($path + '#e') | from json | get process
 
+tg wait $a_process
+tg wait $b_process
+tg wait $c_process
+tg wait $d_process
+tg wait $e_process
+
 # Tag b and d.
 tg tag b $b_process
 tg tag d $d_process

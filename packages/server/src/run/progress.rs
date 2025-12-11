@@ -55,8 +55,9 @@ impl Server {
 			let message = format!("{indicator}\n");
 			let arg = tg::process::log::post::Arg {
 				bytes: message.into(),
+				local: None,
+				remotes: process.remote().cloned().map(|r| vec![r]),
 				stream: tg::process::log::Stream::Stderr,
-				remote: process.remote().cloned(),
 			};
 			self.post_process_log(process.id(), arg).await?;
 		}
@@ -109,8 +110,9 @@ impl Server {
 		});
 		let stream = receiver.attach(task);
 		let arg = tg::pty::write::Arg {
+			local: None,
 			master: false,
-			remote,
+			remotes: remote.map(|r| vec![r]),
 		};
 		self.write_pty(pty, arg, Box::pin(stream)).await?;
 		Ok(())

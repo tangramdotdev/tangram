@@ -15,6 +15,18 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::object::put::Arg {
+				bytes: arg.bytes,
+				local: None,
+				remotes: None,
+			};
+			client.put_object(id, arg).await?;
+			return Ok(());
+		}
+
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		let put_arg = crate::store::PutArg {
@@ -85,6 +97,8 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse::<tg::object::Id>()?;
+		let query_arg: tg::object::put::Arg =
+			request.query_params().transpose()?.unwrap_or_default();
 		let bytes = request.bytes().await?;
 
 		let actual = tg::object::Id::new(id.kind(), &bytes);
@@ -97,7 +111,11 @@ impl Server {
 			return Ok(response);
 		}
 
-		let arg = tg::object::put::Arg { bytes };
+		let arg = tg::object::put::Arg {
+			bytes,
+			local: query_arg.local,
+			remotes: query_arg.remotes,
+		};
 		self.put_object_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)

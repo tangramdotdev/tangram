@@ -13,37 +13,32 @@ impl Server {
 	pub(crate) async fn list_tags_with_context(
 		&self,
 		context: &Context,
-		mut arg: tg::tag::list::Arg,
+		arg: tg::tag::list::Arg,
 	) -> tg::Result<tg::tag::list::Output> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let client = self.get_remote_client(remote.clone()).await?;
-			let arg = tg::tag::list::Arg {
-				remote: None,
-				..arg
-			};
-			let mut output = client.list_tags(arg).await?;
-			for output in &mut output.data {
-				output.remote = Some(remote.clone());
-			}
-			return Ok(output);
-		}
-
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
-		// List the local tags.
-		let mut output = self.list_tags_local(arg.clone()).await?;
+		let mut output = tg::tag::list::Output { data: Vec::new() };
 
-		// List the remote tags.
-		let remote = self
-			.get_remote_clients()
-			.await?
+		// List the local tags if requested.
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			let local_output = self.list_tags_local(arg.clone()).await?;
+			output.data.extend(local_output.data);
+		}
+
+		// List the remote tags if requested.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remote_outputs = remotes
 			.into_iter()
-			.map(|(remote, client)| {
-				let arg = arg.clone();
+			.map(|remote| {
+				let arg = tg::tag::list::Arg {
+					local: None,
+					remotes: None,
+					..arg.clone()
+				};
 				async move {
+					let client = self.get_remote_client(remote.clone()).await?;
 					let mut output = client.list_tags(arg).await?;
 					for output in &mut output.data {
 						output.remote = Some(remote.clone());
@@ -57,7 +52,7 @@ impl Server {
 
 		output
 			.data
-			.extend(remote.into_iter().flat_map(|output| output.data));
+			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
 
 		Ok(output)
 	}

@@ -184,12 +184,13 @@ impl tg::handle::Process for Owned {
 	async fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
 			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
 		>,
 	> {
-		self.0.try_wait_process_future(id).await
+		self.0.try_wait_process_future(id, arg).await
 	}
 
 	async fn try_get_process_metadata(
@@ -270,10 +271,11 @@ impl tg::handle::Process for Owned {
 	async fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
-		self.0.try_get_process_status_stream(id).await
+		self.0.try_get_process_status_stream(id, arg).await
 	}
 
 	async fn try_get_process_children_stream(
@@ -423,8 +425,9 @@ impl tg::handle::Tag for Owned {
 	async fn try_get_tag(
 		&self,
 		pattern: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.0.try_get_tag(pattern).await
+		self.0.try_get_tag(pattern, arg).await
 	}
 
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
@@ -647,12 +650,13 @@ impl tg::handle::Process for Server {
 	async fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
 			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
 		>,
 	> {
-		self.try_wait_process_future_with_context(&Context::default(), id)
+		self.try_wait_process_future_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -741,10 +745,11 @@ impl tg::handle::Process for Server {
 	async fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
-		self.try_get_process_status_stream_with_context(&Context::default(), id)
+		self.try_get_process_status_stream_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -914,8 +919,9 @@ impl tg::handle::Tag for Server {
 	async fn try_get_tag(
 		&self,
 		pattern: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.try_get_tag_with_context(&Context::default(), pattern)
+		self.try_get_tag_with_context(&Context::default(), pattern, arg)
 			.await
 	}
 
@@ -1137,13 +1143,14 @@ impl tg::handle::Process for ServerWithContext {
 	async fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
 			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
 		>,
 	> {
 		self.0
-			.try_wait_process_future_with_context(&self.1, id)
+			.try_wait_process_future_with_context(&self.1, id, arg)
 			.await
 	}
 
@@ -1231,11 +1238,12 @@ impl tg::handle::Process for ServerWithContext {
 	async fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
 		self.0
-			.try_get_process_status_stream_with_context(&self.1, id)
+			.try_get_process_status_stream_with_context(&self.1, id, arg)
 			.await
 	}
 
@@ -1394,8 +1402,9 @@ impl tg::handle::Tag for ServerWithContext {
 	async fn try_get_tag(
 		&self,
 		pattern: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.0.try_get_tag_with_context(&self.1, pattern).await
+		self.0.try_get_tag_with_context(&self.1, pattern, arg).await
 	}
 
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {

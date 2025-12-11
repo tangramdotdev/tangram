@@ -5,10 +5,16 @@ use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
+
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -23,17 +29,19 @@ impl Cli {
 		match item {
 			Either::Left(object) => {
 				let args = crate::object::metadata::Args {
+					local: args.local,
 					object,
 					print: args.print,
-					remote: None,
+					remotes: args.remotes,
 				};
 				self.command_object_metadata(args).await?;
 			},
 			Either::Right(process) => {
 				let args = crate::process::metadata::Args {
-					process,
+					local: args.local,
 					print: args.print,
-					remote: None,
+					process,
+					remotes: args.remotes,
 				};
 				self.command_process_metadata(args).await?;
 			},

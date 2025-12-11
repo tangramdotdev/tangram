@@ -950,6 +950,38 @@ impl Server {
 	pub fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
 	}
+
+	#[must_use]
+	pub fn local(local: Option<bool>, remotes: Option<&Vec<String>>) -> bool {
+		match (local, &remotes) {
+			(None, None) => true,
+			(Some(local), _) => local,
+			(None, Some(_)) => false,
+		}
+	}
+
+	pub fn remote(
+		local: Option<bool>,
+		remotes: Option<&Vec<String>>,
+	) -> tg::Result<Option<String>> {
+		let remotes = remotes.map_or([].as_slice(), Vec::as_slice);
+		let local = local.unwrap_or(remotes.is_empty());
+		match (local, remotes) {
+			(true, []) => Ok(None),
+			(true, _) => Err(tg::error!("cannot specify both local and a remote")),
+			(false, []) => Err(tg::error!("a remote is required when local is false")),
+			(false, [remote]) => Ok(Some(remote.clone())),
+			(false, _) => Err(tg::error!("only one remote is allowed")),
+		}
+	}
+
+	pub async fn remotes(&self, remotes: Option<Vec<String>>) -> tg::Result<Vec<String>> {
+		if let Some(remotes) = remotes {
+			return Ok(remotes);
+		}
+		let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
+		Ok(output.data.into_iter().map(|r| r.name).collect())
+	}
 }
 
 impl Deref for Owned {

@@ -8,6 +8,9 @@ pub struct Args {
 	#[arg(long)]
 	pub bytes: bool,
 
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
 	/// The object to print.
 	#[arg(index = 1)]
 	pub object: tg::object::Id,
@@ -15,9 +18,8 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	/// The remote to get the object from.
-	#[arg(long)]
-	pub remote: Option<String>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -25,7 +27,8 @@ impl Cli {
 		let handle = self.handle().await?;
 		if args.bytes {
 			let arg = tg::object::get::Arg {
-				remote: args.remote.clone(),
+				local: args.local.local,
+				remotes: args.remotes.remotes.clone(),
 			};
 			let tg::object::get::Output { bytes } = handle
 				.try_get_object(&args.object, arg)
@@ -41,7 +44,11 @@ impl Cli {
 		args.print
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
-		self.print_value(&value, args.print).await?;
+		let arg = tg::object::get::Arg {
+			local: args.local.local,
+			remotes: args.remotes.remotes.clone(),
+		};
+		self.print_value(&value, args.print, arg).await?;
 		Ok(())
 	}
 }

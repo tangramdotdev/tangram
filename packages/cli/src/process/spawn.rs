@@ -96,6 +96,9 @@ pub struct Options {
 	)]
 	pub mounts: Vec<Either<tg::process::Mount, tg::command::Mount>>,
 
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
 	/// Enable network access.
 	#[arg(
 		default_missing_value = "true",
@@ -105,10 +108,8 @@ pub struct Options {
 	)]
 	pub network: Option<bool>,
 
-	/// The remote to use.
-	#[expect(clippy::option_option)]
-	#[arg(long, require_equals = true, short)]
-	pub remote: Option<Option<String>>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 
 	/// Whether to retry failed processes.
 	#[arg(long)]
@@ -221,18 +222,14 @@ impl Cli {
 	) -> tg::Result<Output> {
 		let handle = self.handle().await?;
 
-		// Get the remote.
-		let remote = options
-			.remote
-			.clone()
-			.map(|remote| remote.unwrap_or_else(|| "default".to_owned()));
-
 		// Determine if the process is sandboxed.
-		let sandbox = options.sandbox.get().unwrap_or_default() || remote.is_some();
+		let sandbox =
+			options.sandbox.get().unwrap_or_default() || options.remotes.remotes.is_some();
 
 		// Get the reference.
 		let arg = tg::get::Arg {
 			checkin: options.checkin.to_options(),
+			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&reference, arg).await?;
 		let item = referent
@@ -448,19 +445,21 @@ impl Cli {
 		// Determine the retry.
 		let retry = options.retry;
 
-		// If the remote is set, then push the command.
-		if let Some(remote) = remote.clone() {
-			let id = command.id();
-			let arg = tg::push::Arg {
-				commands: true,
-				items: vec![Either::Left(id.into())],
-				remote: Some(remote),
-				..Default::default()
-			};
-			let stream = handle.push(arg).await?;
-			self.render_progress_stream(stream)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+		// If remotes are set, then push the command.
+		if let Some(remotes) = options.remotes.remotes.as_ref() {
+			for remote in remotes {
+				let id = command.id();
+				let arg = tg::push::Arg {
+					commands: true,
+					items: vec![Either::Left(id.into())],
+					remote: Some(remote.clone()),
+					..Default::default()
+				};
+				let stream = handle.push(arg).await?;
+				self.render_progress_stream(stream)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+			}
 		}
 
 		// Get the mounts.
@@ -490,10 +489,11 @@ impl Cli {
 			cached: options.cached,
 			checksum: options.checksum,
 			command: tg::Referent::with_item(command.id()),
+			local: options.local.local,
 			mounts,
 			network,
 			parent: None,
-			remote: remote.clone(),
+			remotes: options.remotes.remotes.clone(),
 			retry,
 			stderr,
 			stdin,
@@ -507,7 +507,8 @@ impl Cli {
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,
-				remote: remote.clone(),
+				local: options.local.local,
+				remotes: options.remotes.remotes.clone(),
 			};
 			handle.put_tag(&tag, arg).await?;
 		}

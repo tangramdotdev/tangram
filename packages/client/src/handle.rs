@@ -242,6 +242,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
@@ -303,6 +304,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
@@ -415,6 +417,7 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_tag(
 		&self,
 		pattern: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> + Send;
 
 	fn put_tag(
@@ -664,6 +667,7 @@ impl tg::handle::Process for tg::Client {
 	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
@@ -671,7 +675,7 @@ impl tg::handle::Process for tg::Client {
 			>,
 		>,
 	> {
-		self.try_wait_process_future(id)
+		self.try_wait_process_future(id, arg)
 	}
 
 	fn try_get_process_metadata(
@@ -754,12 +758,13 @@ impl tg::handle::Process for tg::Client {
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_get_process_status_stream(id)
+		self.try_get_process_status_stream(id, arg)
 	}
 
 	fn try_get_process_children_stream(
@@ -946,8 +951,9 @@ impl tg::handle::Tag for tg::Client {
 	fn try_get_tag(
 		&self,
 		pattern: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		self.try_get_tag(pattern)
+		self.try_get_tag(pattern, arg)
 	}
 
 	fn put_tag(

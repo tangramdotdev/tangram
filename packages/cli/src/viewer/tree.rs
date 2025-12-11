@@ -967,10 +967,11 @@ where
 		// List the tag.
 		let output = handle
 			.list_tags(tg::tag::list::Arg {
-				pattern: tg::tag::Pattern::new(pattern.to_string()),
 				length: None,
+				local: None,
+				pattern: tg::tag::Pattern::new(pattern.to_string()),
 				recursive: false,
-				remote: None,
+				remotes: None,
 				reverse: false,
 			})
 			.await

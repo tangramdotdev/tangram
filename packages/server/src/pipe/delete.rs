@@ -9,11 +9,15 @@ impl Server {
 		&self,
 		context: &Context,
 		id: &tg::pipe::Id,
-		mut arg: tg::pipe::delete::Arg,
+		arg: tg::pipe::delete::Arg,
 	) -> tg::Result<()> {
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			remote.delete_pipe(id, arg).await?;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::pipe::delete::Arg {
+				local: None,
+				remotes: None,
+			};
+			client.delete_pipe(id, arg).await?;
 			return Ok(());
 		}
 

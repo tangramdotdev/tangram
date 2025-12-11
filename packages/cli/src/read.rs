@@ -7,8 +7,14 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
 	#[arg(index = 1)]
 	pub references: Vec<tg::Reference>,
+
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -17,8 +23,14 @@ impl Cli {
 
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
+		let arg = tg::get::Arg {
+			local: args.local.local,
+			remotes: args.remotes.remotes,
+			..Default::default()
+		};
+
 		for reference in &args.references {
-			let referent = self.get_reference(reference).await?;
+			let referent = self.get_reference_with_arg(reference, arg.clone()).await?;
 			let Either::Left(object) = referent.item() else {
 				return Err(tg::error!("expected an object"));
 			};

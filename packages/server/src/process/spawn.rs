@@ -26,25 +26,28 @@ impl Server {
 		context: &Context,
 		mut arg: tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		// If the remote arg is set, then forward the request.
-		if let Some(name) = arg.remote.as_ref() {
+		// Forward to remote if requested.
+		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
 			let remote = self.get_remote_client(name.clone()).await?;
 			let arg = tg::process::spawn::Arg {
-				remote: None,
+				local: None,
+				remotes: None,
 				..arg
 			};
 			let output = remote.try_spawn_process(arg).await?;
 			let output = output.map(|mut output| {
-				output.remote.replace(name.to_owned());
+				output.remote.replace(name.clone());
 				output
 			});
 			return Ok(output);
 		}
 
-		// If the process context is set, update the parent, remote, and retry.
+		// If the process context is set, update the parent, remotes, and retry.
 		if let Some(process) = &context.process {
 			arg.parent = Some(process.id.clone());
-			arg.remote = process.remote.clone();
+			if let Some(remote) = &process.remote {
+				arg.remotes = Some(vec![remote.clone()]);
+			}
 			arg.retry = process.retry;
 		}
 
@@ -135,7 +138,8 @@ impl Server {
 					return Ok::<_, tg::Error>(Some(()));
 				}
 				if let Some(id) = id {
-					self.wait_process(&id).await?;
+					self.wait_process(&id, tg::process::wait::Arg::default())
+						.await?;
 					Ok(Some(()))
 				} else {
 					Ok(None)
@@ -186,7 +190,8 @@ impl Server {
 							let server = self.clone();
 							async move {
 								let arg = tg::process::cancel::Arg {
-									remote: None,
+									local: Some(true),
+									remotes: None,
 									token,
 								};
 								server.cancel_process(&output.id, arg).boxed().await.ok();
@@ -752,8 +757,9 @@ impl Server {
 				Box::pin(async move {
 					let arg = tg::process::spawn::Arg {
 						cached: Some(true),
+						local: None,
 						parent: None,
-						remote: None,
+						remotes: None,
 						..arg.clone()
 					};
 					let mut output = client.spawn_process(arg).await?;
@@ -1022,7 +1028,8 @@ impl Server {
 
 				// Attempt to start the process.
 				let arg = tg::process::start::Arg {
-					remote: process.remote().cloned(),
+					local: None,
+					remotes: process.remote().cloned().map(|r| vec![r]),
 				};
 				let result = server.start_process(process.id(), arg.clone()).await;
 				if let Err(error) = result {

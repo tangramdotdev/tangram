@@ -8,12 +8,17 @@ impl Server {
 	pub(crate) async fn create_pty_with_context(
 		&self,
 		context: &Context,
-		mut arg: tg::pty::create::Arg,
+		arg: tg::pty::create::Arg,
 	) -> tg::Result<tg::pty::create::Output> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			return remote.create_pty(arg).await;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::pty::create::Arg {
+				local: None,
+				remotes: None,
+				size: arg.size,
+			};
+			return client.create_pty(arg).await;
 		}
 
 		if context.process.is_some() {

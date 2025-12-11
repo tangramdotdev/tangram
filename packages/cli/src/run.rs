@@ -75,7 +75,8 @@ impl Cli {
 			// Spawn the process.
 			let spawn = crate::process::spawn::Options {
 				sandbox: crate::process::spawn::Sandbox::new(Some(true)),
-				remote: options.spawn.remote.clone(),
+				local: options.spawn.local.clone(),
+				remotes: options.spawn.remotes.clone(),
 				..Default::default()
 			};
 			let crate::process::spawn::Output { process, .. } = self
@@ -253,14 +254,18 @@ impl Cli {
 		// Get the remote.
 		let remote = options
 			.spawn
-			.remote
+			.remotes
+			.remotes
 			.clone()
-			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
+			.and_then(|remotes| remotes.into_iter().next());
 
 		// Create the stdio.
 		let stdio = stdio::Stdio::new(&handle, remote.clone(), &options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
+
+		let local = options.spawn.local.local;
+		let remotes = options.spawn.remotes.remotes.clone();
 
 		// Spawn the process.
 		let crate::process::spawn::Output { process, output } = self
@@ -299,7 +304,7 @@ impl Cli {
 		let stdio_task = Task::spawn({
 			let handle = handle.clone();
 			let stdio = stdio.clone();
-			|stop| async move { self::stdio::task(&handle, stop, stdio).await }
+			|stop| async move { self::stdio::task(&handle, stop, stdio).boxed().await }
 		});
 
 		// Spawn signal task.
@@ -406,7 +411,8 @@ impl Cli {
 
 		// Print the output.
 		if !output.is_null() {
-			self.print_value(&output, options.print).await?;
+			let arg = tg::object::get::Arg { local, remotes };
+			self.print_value(&output, options.print, arg).await?;
 		}
 
 		Ok(())

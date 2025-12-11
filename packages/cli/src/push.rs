@@ -25,8 +25,8 @@ pub struct Args {
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
 
-	#[arg(long, short)]
-	pub remote: Option<String>,
+	#[arg(long, short, default_value = "default")]
+	pub remote: String,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -89,9 +89,6 @@ impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the remote.
-		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
-
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
 		let items = referents
@@ -112,7 +109,7 @@ impl Cli {
 			logs: args.logs,
 			outputs: args.outputs.get(),
 			recursive: args.recursive,
-			remote: Some(remote.clone()),
+			remote: Some(args.remote.clone()),
 		};
 		let stream = handle.push(arg).await?;
 		let output = self.render_progress_stream(stream).await?;
@@ -131,7 +128,8 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
 						item: item.clone(),
-						remote: Some(remote.clone()),
+						local: None,
+						remotes: Some(vec![args.remote.clone()]),
 					};
 					handle.put_tag(&tag, arg).await?;
 				}

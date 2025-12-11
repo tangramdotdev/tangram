@@ -71,7 +71,12 @@ impl Server {
 			},
 
 			tg::reference::Item::Tag(tag) => {
-				let Some(tg::tag::get::Output { item, tag, .. }) = self.try_get_tag(tag).await?
+				let tag_arg = tg::tag::get::Arg {
+					local: arg.local,
+					remotes: arg.remotes.clone(),
+				};
+				let Some(tg::tag::get::Output { item, tag, .. }) =
+					self.try_get_tag(tag, tag_arg).await?
 				else {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());

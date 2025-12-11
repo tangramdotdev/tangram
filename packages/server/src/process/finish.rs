@@ -15,11 +15,19 @@ impl Server {
 		&self,
 		context: &Context,
 		id: &tg::process::Id,
-		mut arg: tg::process::finish::Arg,
+		arg: tg::process::finish::Arg,
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let client = self.get_remote_client(remote.clone()).await?;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::process::finish::Arg {
+				checksum: arg.checksum,
+				error: arg.error,
+				exit: arg.exit,
+				local: None,
+				output: arg.output,
+				remotes: None,
+			};
 			client.finish_process(id, arg).await?;
 			return Ok(());
 		}
@@ -88,8 +96,9 @@ impl Server {
 				async move {
 					if let Some(token) = token {
 						let arg = tg::process::cancel::Arg {
+							local: Some(true),
+							remotes: None,
 							token,
-							remote: None,
 						};
 						self.cancel_process(&id, arg).await.ok();
 					}

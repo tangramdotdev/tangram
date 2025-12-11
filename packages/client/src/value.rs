@@ -201,10 +201,22 @@ impl Value {
 	where
 		H: tg::Handle,
 	{
+		self.children_with_arg(handle, tg::object::get::Arg::default())
+			.await
+	}
+
+	pub async fn children_with_arg<H>(
+		&self,
+		handle: &H,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Vec<Self>>
+	where
+		H: tg::Handle,
+	{
 		let mut children = Vec::new();
 		match self {
 			Self::Object(object) => {
-				let object = object.load(handle).await?;
+				let object = object.load_with_arg(handle, arg).await?;
 				for child in object.children() {
 					children.push(tg::Value::Object(child));
 				}
@@ -234,7 +246,13 @@ impl Value {
 		Ok(children)
 	}
 
-	pub async fn load<H>(&self, handle: &H, depth: Option<u64>, blobs: bool) -> tg::Result<()>
+	pub async fn load<H>(
+		&self,
+		handle: &H,
+		arg: tg::object::get::Arg,
+		depth: Option<u64>,
+		blobs: bool,
+	) -> tg::Result<()>
 	where
 		H: tg::Handle + Clone + Send + Sync + 'static,
 	{
@@ -256,9 +274,10 @@ impl Value {
 				}
 				let permit = semaphore.clone().acquire_owned().await.unwrap();
 				let handle = handle.clone();
+				let arg = arg.clone();
 				join_set.spawn(async move {
 					let _permit = permit;
-					let children = value.children(&handle).await?;
+					let children = value.children_with_arg(&handle, arg).await?;
 					Ok((children, depth))
 				});
 			}

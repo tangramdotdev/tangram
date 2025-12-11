@@ -13,12 +13,18 @@ impl Server {
 	pub(crate) async fn delete_tag_with_context(
 		&self,
 		context: &Context,
-		mut arg: tg::tag::delete::Arg,
+		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			let output = remote.delete_tag(arg).await?;
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::tag::delete::Arg {
+				local: None,
+				pattern: arg.pattern,
+				recursive: arg.recursive,
+				remotes: None,
+			};
+			let output = client.delete_tag(arg).await?;
 			return Ok(output);
 		}
 

@@ -141,7 +141,8 @@ impl Cli {
 					tg::tag::put::Arg {
 						force: true,
 						item: Either::Left(item.referent.item().clone()),
-						remote: None,
+						local: None,
+						remotes: None,
 					},
 				)
 				.await
@@ -396,7 +397,10 @@ impl State {
 				for item in &items {
 					// If the tag already exists skip checking it back in.
 					if handle
-						.try_get_tag(&tg::tag::Pattern::new(item.tag.to_string()))
+						.try_get_tag(
+							&tg::tag::Pattern::new(item.tag.to_string()),
+							tg::tag::get::Arg::default(),
+						)
 						.await
 						.map(|t| t.is_some())
 						.unwrap_or(false)

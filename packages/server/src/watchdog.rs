@@ -108,8 +108,9 @@ impl Server {
 						checksum: None,
 						error,
 						exit: 1,
+						local: None,
 						output: None,
-						remote: None,
+						remotes: None,
 					};
 					server
 						.finish_process(&row.id, arg)

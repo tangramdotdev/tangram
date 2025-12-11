@@ -5,10 +5,16 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
+
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -16,13 +22,29 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the process.
-		let process = tg::Process::new(args.process, None, None, None, None);
+		let arg = tg::process::get::Arg {
+			local: args.local.local,
+			remotes: args.remotes.remotes.clone(),
+		};
+		let output = handle
+			.try_get_process(&args.process, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the process"))?;
 
 		// Get the output.
-		let output = process.output(&handle).await?;
+		let output = output
+			.data
+			.output
+			.map(TryInto::try_into)
+			.transpose()?
+			.unwrap_or(tg::Value::Null);
 
 		// Print the output.
-		self.print_value(&output, args.print).await?;
+		let arg = tg::object::get::Arg {
+			local: args.local.local,
+			remotes: args.remotes.remotes,
+		};
+		self.print_value(&output, args.print, arg).await?;
 
 		Ok(())
 	}

@@ -26,13 +26,23 @@ impl Server {
 			impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static + use<>,
 		>,
 	> {
-		if let Some(stream) = self.try_get_process_log_local(id, arg.clone()).await? {
-			Ok(Some(stream.left_stream()))
-		} else if let Some(stream) = self.try_get_process_log_remote(id, arg.clone()).await? {
-			Ok(Some(stream.right_stream()))
-		} else {
-			Ok(None)
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(stream) = self.try_get_process_log_local(id, arg.clone()).await?
+		{
+			return Ok(Some(stream.left_stream()));
 		}
+
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(stream) = self
+			.try_get_process_log_remote(id, arg.clone(), &remotes)
+			.await?
+		{
+			return Ok(Some(stream.right_stream()));
+		}
+
+		Ok(None)
 	}
 
 	async fn try_get_process_log_local(
@@ -231,33 +241,31 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::log::get::Arg,
+		remotes: &[String],
 	) -> tg::Result<
 		Option<
 			impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static + use<>,
 		>,
 	> {
-		let futures = self
-			.get_remote_clients()
-			.await?
-			.values()
-			.map(|client| {
-				{
-					let client = client.clone();
-					let id = id.clone();
-					let arg = arg.clone();
-					async move {
-						client
-							.get_process_log(&id, arg)
-							.await
-							.map(futures::StreamExt::boxed)
-					}
-				}
-				.boxed()
-			})
-			.collect::<Vec<_>>();
-		if futures.is_empty() {
+		// Attempt to get the process log from the remotes.
+		if remotes.is_empty() {
 			return Ok(None);
 		}
+		let arg = tg::process::log::get::Arg {
+			local: None,
+			remotes: None,
+			..arg
+		};
+		let futures = remotes.iter().map(|remote| {
+			async {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client
+					.get_process_log(id, arg.clone())
+					.await
+					.map(futures::StreamExt::boxed)
+			}
+			.boxed()
+		});
 		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};

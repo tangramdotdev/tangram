@@ -55,7 +55,8 @@ pub async fn log(
 	} else {
 		let arg = tg::process::log::post::Arg {
 			bytes: message.into(),
-			remote: process.remote().cloned(),
+			local: None,
+			remotes: process.remote().cloned().map(|r| vec![r]),
 			stream,
 		};
 		server.post_process_log(process.id(), arg).await?;
@@ -74,7 +75,8 @@ async fn log_inner(
 			let bytes = Bytes::from(message);
 			let stream = stream::once(future::ok(tg::pipe::Event::Chunk(bytes)));
 			let arg = tg::pipe::write::Arg {
-				remote: remote.cloned(),
+				local: None,
+				remotes: remote.cloned().map(|r| vec![r]),
 			};
 			server.write_pipe(id, arg, Box::pin(stream)).await?;
 		},
@@ -82,8 +84,9 @@ async fn log_inner(
 			let bytes = Bytes::from(message.replace('\n', "\r\n"));
 			let stream = stream::once(future::ok(tg::pty::Event::Chunk(bytes)));
 			let arg = tg::pty::write::Arg {
+				local: None,
 				master: false,
-				remote: remote.cloned(),
+				remotes: remote.cloned().map(|r| vec![r]),
 			};
 			server.write_pty(id, arg, Box::pin(stream)).await?;
 		},

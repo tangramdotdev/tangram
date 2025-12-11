@@ -41,7 +41,9 @@ pub async fn wait(
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let output = handle.wait_process(&id).await?;
+			let output = handle
+				.wait_process(&id, tg::process::wait::Arg::default())
+				.await?;
 			Ok::<_, tg::Error>(output)
 		})
 		.await

@@ -4,6 +4,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
 	#[arg(index = 1)]
 	pub pattern: tg::tag::Pattern,
 
@@ -13,21 +16,18 @@ pub struct Args {
 	#[arg(long)]
 	pub recursive: bool,
 
-	#[expect(clippy::option_option)]
-	#[arg(long, require_equals = true, short)]
-	pub remote: Option<Option<String>>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_tag_delete(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let remote = args
-			.remote
-			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::tag::delete::Arg {
+			local: args.local.local,
 			pattern: args.pattern,
 			recursive: args.recursive,
-			remote,
+			remotes: args.remotes.remotes,
 		};
 		let output = handle.delete_tag(arg).await?;
 		self.print_serde(output, args.print).await?;
