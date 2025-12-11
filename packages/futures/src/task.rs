@@ -8,7 +8,7 @@ pub mod shared;
 pub mod stop;
 
 pub struct Task<T, C = ()> {
-	abort_on_drop: bool,
+	attached: bool,
 	context: C,
 	handle: Option<tokio::task::JoinHandle<T>>,
 	stop: Stop,
@@ -27,7 +27,7 @@ where
 		let stop = Stop::new();
 		let handle = tokio::spawn(f(stop.clone()));
 		Self {
-			abort_on_drop: true,
+			attached: true,
 			context,
 			stop,
 			handle: Some(handle),
@@ -43,7 +43,7 @@ where
 		let stop = Stop::new();
 		let handle = tokio::task::spawn_local(f(stop.clone()));
 		Self {
-			abort_on_drop: true,
+			attached: true,
 			context,
 			stop,
 			handle: Some(handle),
@@ -60,7 +60,7 @@ where
 			move || f(stop)
 		});
 		Self {
-			abort_on_drop: true,
+			attached: true,
 			context,
 			stop,
 			handle: Some(handle),
@@ -72,12 +72,26 @@ where
 		&self.context
 	}
 
+	#[must_use]
+	pub fn id(&self) -> tokio::task::Id {
+		self.handle.as_ref().unwrap().id()
+	}
+
 	pub fn abort(&self) {
 		self.handle.as_ref().unwrap().abort();
 	}
 
+	#[must_use]
+	pub fn attached(&self) -> bool {
+		self.attached
+	}
+
+	pub fn attach(&mut self) {
+		self.attached = true;
+	}
+
 	pub fn detach(&mut self) {
-		self.abort_on_drop = false;
+		self.attached = false;
 	}
 
 	pub fn stop(&self) {
@@ -86,7 +100,7 @@ where
 
 	pub fn wait(mut self) -> impl Future<Output = Result<T, tokio::task::JoinError>> {
 		let handle = self.handle.take().unwrap();
-		if self.abort_on_drop {
+		if self.attached {
 			AbortOnDropHandle::new(handle).left_future()
 		} else {
 			handle.right_future()
@@ -125,7 +139,7 @@ where
 
 impl<T, C> Drop for Task<T, C> {
 	fn drop(&mut self) {
-		if self.abort_on_drop
+		if self.attached
 			&& let Some(handle) = self.handle.take()
 		{
 			handle.abort();

@@ -434,7 +434,7 @@ pub trait Ext: tg::Handle {
 		let arg = tg::object::metadata::Arg::default();
 		self.try_get_object_metadata(id, arg).map(move |result| {
 			result.and_then(|option| {
-				option.ok_or_else(|| tg::error!(?id, "failed to get the object metadata"))
+				option.ok_or_else(|| tg::error!(%id, "failed to get the object metadata"))
 			})
 		})
 	}
@@ -445,7 +445,9 @@ pub trait Ext: tg::Handle {
 	) -> impl Future<Output = tg::Result<tg::object::get::Output>> + Send {
 		let arg = tg::object::get::Arg::default();
 		self.try_get_object(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the object")))
+			result.and_then(|option| {
+				option.ok_or_else(|| tg::error!(%id, "expected the object to exist"))
+			})
 		})
 	}
 

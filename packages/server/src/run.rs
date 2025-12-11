@@ -96,15 +96,17 @@ impl Server {
 
 	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
 		// Spawn the process task.
-		self.process_tasks.spawn(process.id().clone(), |_| {
-			let server = self.clone();
-			let process = process.clone();
-			async move { server.process_task(&process, permit).await }
-				.inspect_err(|error| {
-					tracing::error!(?error, "the process task failed");
-				})
-				.map(|_| ())
-		});
+		self.process_tasks
+			.spawn(process.id().clone(), |_| {
+				let server = self.clone();
+				let process = process.clone();
+				async move { server.process_task(&process, permit).await }
+					.inspect_err(|error| {
+						tracing::error!(?error, "the process task failed");
+					})
+					.map(|_| ())
+			})
+			.detach();
 
 		// Spawn the heartbeat task.
 		tokio::spawn({

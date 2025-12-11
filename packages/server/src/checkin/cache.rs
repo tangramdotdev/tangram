@@ -16,7 +16,7 @@ impl Server {
 		graph: &Graph,
 		next: usize,
 		root: &Path,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
+		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		if arg.options.destructive {
 			progress.spinner("copying", "copying");

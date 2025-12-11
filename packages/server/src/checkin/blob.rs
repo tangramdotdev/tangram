@@ -16,7 +16,7 @@ impl Server {
 		store_args: &mut StoreArgs,
 		object_messages: &mut IndexObjectMessages,
 		touched_at: i64,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
+		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		let nodes = graph
 			.nodes

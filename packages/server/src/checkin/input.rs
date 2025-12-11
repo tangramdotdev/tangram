@@ -18,7 +18,7 @@ struct State<'a> {
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
 	lock: Option<&'a tg::graph::Data>,
-	progress: crate::progress::Handle<tg::checkin::Output>,
+	progress: crate::progress::Handle<super::TaskOutput>,
 	root: &'a Path,
 }
 
@@ -49,7 +49,7 @@ impl Server {
 		ignorer: Option<ignore::Ignorer>,
 		lock: Option<&tg::graph::Data>,
 		next: usize,
-		progress: crate::progress::Handle<tg::checkin::Output>,
+		progress: crate::progress::Handle<super::TaskOutput>,
 		root: &Path,
 	) -> tg::Result<()> {
 		// Start the progress indicators.

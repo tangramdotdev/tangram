@@ -29,6 +29,12 @@ mod store;
 
 pub(crate) use self::{graph::Graph, solve::Solutions};
 
+#[derive(Clone)]
+pub struct TaskOutput {
+	pub graph: Graph,
+	pub path: PathBuf,
+}
+
 type IndexObjectMessages =
 	IndexMap<tg::object::Id, crate::index::message::PutObject, tg::id::BuildHasher>;
 
@@ -45,18 +51,48 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
+		// Handle host path conversion.
 		if let Some(process) = &context.process {
 			arg.path = process.host_path_for_guest_path(arg.path.clone());
 		}
-		let progress = crate::progress::Handle::new();
-		let task = Task::spawn({
-			let server = self.clone();
-			let progress = progress.clone();
-			|_| {
+
+		// Validate and canonicalize the path.
+		if !arg.path.is_absolute() {
+			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));
+		}
+		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
+			.await
+			.map_err(|source| tg::error!(!source, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
+
+		// Handle paths in the cache directory.
+		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
+			let progress = crate::progress::Handle::new();
+			let output = self.checkin_cache_path(path).await?;
+			progress.output(output);
+			return Ok(progress.stream().left_stream());
+		}
+
+		// Create the ignorer and find the root.
+		let ignorer = arg
+			.options
+			.ignore
+			.then(Self::checkin_create_ignorer)
+			.transpose()?;
+		let (root, ignorer) = self.checkin_find_root_path(&arg.path, ignorer).await?;
+
+		// Get or spawn the checkin task for the root.
+		let root_task = self.checkin_tasks.get_or_spawn_with_context(
+			root.clone(),
+			crate::progress::Handle::new,
+			|progress, _stop| {
+				let server = self.clone();
+				let arg = arg.clone();
+				let root = root.clone();
 				async move {
-					let result = AssertUnwindSafe(server.checkin_task(arg, &progress))
-						.catch_unwind()
-						.await;
+					let result =
+						AssertUnwindSafe(server.checkin_task(arg, &root, ignorer, &progress))
+							.catch_unwind()
+							.await;
 					match result {
 						Ok(Ok(output)) => {
 							progress.output(output);
@@ -69,77 +105,129 @@ impl Server {
 								.downcast_ref::<String>()
 								.map(String::as_str)
 								.or(payload.downcast_ref::<&str>().copied());
-							progress.error(tg::error!(?message, "the task panicked"));
+							let error = tg::error!(?message, "the task panicked");
+							progress.error(error);
 						},
 					}
 				}
 				.instrument(tracing::Span::current())
+			},
+		);
+
+		// Get the root task's progress handle.
+		let root_progress = root_task.context().clone();
+
+		// Create the progress.
+		let progress = crate::progress::Handle::new();
+
+		// Spawn the task.
+		let path = arg.path.clone();
+		let task = Task::spawn({
+			let server = self.clone();
+			let progress = progress.clone();
+			move |_| async move {
+				// Forward events from the root progress stream.
+				let mut output = None;
+				let mut stream = std::pin::pin!(root_progress.stream());
+				while let Some(event) = stream.next().await {
+					if let Some(Ok(tg::progress::Event::Output(output_))) = progress.forward(event)
+					{
+						output = Some(output_);
+					}
+				}
+				let Some(output) = output else {
+					progress.error(tg::error!("failed to get the output"));
+					return;
+				};
+
+				// Look up the path in the graph.
+				let Some(index) = output.graph.paths.get(&path).copied() else {
+					progress.error(tg::error!("failed to get the item"));
+					return;
+				};
+
+				// Get the node.
+				let node = output.graph.nodes.get(&index).unwrap();
+
+				// Determine the id.
+				let id = if path != output.path
+					&& let tg::graph::data::Edge::Reference(reference) = node.edge.as_ref().unwrap()
+				{
+					// If the path differs from the output path and the edge is a reference, then store and index a reference artifact for the path.
+					let result = server
+						.checkin_store_and_index_reference_artifact(node, reference)
+						.await;
+					match result {
+						Ok(id) => id,
+						Err(error) => {
+							progress.error(error);
+							return;
+						},
+					}
+				} else {
+					node.id.as_ref().unwrap().clone().try_into().unwrap()
+				};
+
+				// Create and send the output.
+				let options = tg::referent::Options::with_path(path);
+				let referent = tg::Referent { item: id, options };
+				let output = tg::checkin::Output { artifact: referent };
+				progress.output(output);
 			}
 		});
-		let stream = progress.stream().attach(task);
+
+		let stream = progress
+			.stream()
+			.attach(task)
+			.attach(root_task)
+			.right_stream();
+
 		Ok(stream)
+	}
+
+	async fn checkin_cache_path(&self, path: &Path) -> tg::Result<tg::checkin::Output> {
+		let id = path
+			.components()
+			.next()
+			.map(|component| {
+				let std::path::Component::Normal(name) = component else {
+					return Err(tg::error!("invalid path"));
+				};
+				name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
+			})
+			.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
+			.parse()?;
+		if path.components().count() == 1 {
+			let output = tg::checkin::Output {
+				artifact: tg::Referent::with_item(id),
+			};
+			return Ok(output);
+		}
+		let subpath = path.components().skip(1).collect::<PathBuf>();
+		let artifact = tg::Artifact::with_id(id);
+		let directory = artifact
+			.try_unwrap_directory()
+			.ok()
+			.ok_or_else(|| tg::error!("invalid path"))?;
+		let artifact = directory.get(self, subpath).await?;
+		let id = artifact.id();
+		let referent = tg::Referent::with_item(id);
+		let output = tg::checkin::Output { artifact: referent };
+		Ok(output)
 	}
 
 	// Check in the artifact.
 	async fn checkin_task(
 		&self,
-		mut arg: tg::checkin::Arg,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
-	) -> tg::Result<tg::checkin::Output> {
+		arg: tg::checkin::Arg,
+		root: &Path,
+		ignorer: Option<ignore::Ignorer>,
+		progress: &crate::progress::Handle<TaskOutput>,
+	) -> tg::Result<TaskOutput> {
 		// Validate the arg.
 		if arg.options.destructive && arg.options.ignore {
 			return Err(tg::error!("ignore is forbidden for destructive checkins"));
 		}
-
-		// Canonicalize the path's parent.
-		if !arg.path.is_absolute() {
-			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));
-		}
-		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
-			.await
-			.map_err(|source| tg::error!(!source, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
-
-		// If this is a checkin of a path in the cache directory, then retrieve the corresponding artifact.
-		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
-			let id = path
-				.components()
-				.next()
-				.map(|component| {
-					let std::path::Component::Normal(name) = component else {
-						return Err(tg::error!("invalid path"));
-					};
-					name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
-				})
-				.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
-				.parse()?;
-			if path.components().count() == 1 {
-				let output = tg::checkin::Output {
-					artifact: tg::Referent::with_item(id),
-				};
-				return Ok(output);
-			}
-			let path = path.components().skip(1).collect::<PathBuf>();
-			let artifact = tg::Artifact::with_id(id);
-			let directory = artifact
-				.try_unwrap_directory()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid path"))?;
-			let artifact = directory.get(self, path).await?;
-			let id = artifact.id();
-			let referent = tg::Referent::with_item(id);
-			let output = tg::checkin::Output { artifact: referent };
-			return Ok(output);
-		}
-
-		// Create the ignorer.
-		let ignorer = arg
-			.options
-			.ignore
-			.then(Self::checkin_create_ignorer)
-			.transpose()?;
-
-		// Find the root.
-		let (root, ignorer) = self.checkin_find_root_path(&arg.path, ignorer).await?;
 
 		// Try to find the artifacts path.
 		let artifacts_path = root.join(".tangram/artifacts");
@@ -154,7 +242,7 @@ impl Server {
 
 		// Attempt to get the graph, lock, and solutions from a watcher.
 		let (mut graph, lock, mut solutions, version) = if arg.options.watch
-			&& let Some(watch) = self.watches.get(&root)
+			&& let Some(watch) = self.watches.get(root)
 			&& watch.value().options() == &arg.options
 		{
 			let snapshot = watch.value().get();
@@ -175,7 +263,7 @@ impl Server {
 		let lock = if let Some(lock) = lock {
 			Some(lock)
 		} else {
-			Self::checkin_try_read_lock(&root)
+			Self::checkin_try_read_lock(root)
 				.map_err(|source| tg::error!(!source, "failed to read the lock"))?
 				.map(Arc::new)
 		};
@@ -205,7 +293,7 @@ impl Server {
 			let artifacts_path = artifacts_path.clone();
 			let lock = lock.clone();
 			let progress = progress.clone();
-			let root = root.clone();
+			let root = root.to_owned();
 			move || {
 				server.checkin_input(
 					&arg,
@@ -234,10 +322,11 @@ impl Server {
 				next,
 				lock.clone(),
 				&mut solutions,
-				&root,
+				root,
 				progress,
 			)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to solve dependencies"))?;
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
@@ -271,7 +360,7 @@ impl Server {
 			&mut store_args,
 			&mut object_messages,
 			&mut cache_entry_messages,
-			&root,
+			root,
 			touched_at,
 		)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
@@ -281,7 +370,7 @@ impl Server {
 			task.await?;
 		}
 		let start = Instant::now();
-		self.checkin_cache(&arg, &graph, next, &root, progress)
+		self.checkin_cache(&arg, &graph, next, root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "cache");
@@ -295,7 +384,7 @@ impl Server {
 
 		// Write the lock.
 		let start = Instant::now();
-		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), &root, progress)
+		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
@@ -303,7 +392,7 @@ impl Server {
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if arg.options.watch {
 			// Create or update the watcher.
-			let entry = self.watches.entry(root.clone());
+			let entry = self.watches.entry(root.to_owned());
 			match entry {
 				dashmap::Entry::Occupied(entry) => {
 					// Verify the version.
@@ -319,7 +408,7 @@ impl Server {
 				},
 				dashmap::Entry::Vacant(entry) => {
 					let watch = Watch::new(
-						&root,
+						root,
 						graph.clone(),
 						lock,
 						arg.options.clone(),
@@ -334,7 +423,7 @@ impl Server {
 			// Spawn a task to clean nodes with no referrers.
 			tokio::task::spawn_blocking({
 				let server = self.clone();
-				let root = root.clone();
+				let root = root.to_owned();
 				let next = graph.next;
 				move || {
 					if let Some(watch) = server.watches.get(&root) {
@@ -345,55 +434,38 @@ impl Server {
 		}
 
 		// Spawn the index task.
-		self.tasks.spawn({
-			let server = self.clone();
-			let arg = arg.clone();
-			let graph = graph.clone();
-			let root = root.clone();
-			move |_| {
-				async move {
-					server
-						.checkin_index(
-							&arg,
-							&graph,
-							object_messages,
-							cache_entry_messages,
-							&root,
-							touched_at,
-						)
-						.await
-				}
-				.map(|result| {
-					if let Err(error) = result {
-						tracing::error!(?error, "the index task failed");
+		self.tasks
+			.spawn({
+				let server = self.clone();
+				let arg = arg.clone();
+				let graph = graph.clone();
+				let root = root.to_owned();
+				move |_| {
+					async move {
+						server
+							.checkin_index(
+								&arg,
+								&graph,
+								object_messages,
+								cache_entry_messages,
+								&root,
+								touched_at,
+							)
+							.await
 					}
-				})
-			}
-		});
+					.map(|result| {
+						if let Err(error) = result {
+							tracing::error!(?error, "the index task failed");
+						}
+					})
+				}
+			})
+			.detach();
 
-		// Find the item.
-		let node = graph
-			.paths
-			.get(&arg.path)
-			.copied()
-			.ok_or_else(|| tg::error!("failed to get the item"))?;
-
-		// Create the referent.
-		let item = graph
-			.nodes
-			.get(&node)
-			.unwrap()
-			.id
-			.as_ref()
-			.unwrap()
-			.clone()
-			.try_into()
-			.unwrap();
-		let options = tg::referent::Options::with_path(arg.path.clone());
-		let referent = tg::Referent { item, options };
-
-		// Create the output.
-		let output = tg::checkin::Output { artifact: referent };
+		let output = TaskOutput {
+			graph,
+			path: arg.path,
+		};
 
 		Ok(output)
 	}

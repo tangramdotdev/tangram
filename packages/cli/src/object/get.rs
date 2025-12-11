@@ -30,7 +30,7 @@ impl Cli {
 			let tg::object::get::Output { bytes } = handle
 				.try_get_object(&args.object, arg)
 				.await?
-				.ok_or_else(|| tg::error!("failed to get the object"))?;
+				.ok_or_else(|| tg::error!(id = %args.object, "failed to get the object"))?;
 			tokio::io::stdout()
 				.write_all(&bytes)
 				.await

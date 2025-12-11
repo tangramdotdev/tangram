@@ -56,9 +56,6 @@ pub struct State {
 	/// The cache path.
 	cache_path: PathBuf,
 
-	/// The checkin tasks.
-	checkin_tasks: tangram_futures::task::Map<PathBuf, (), (), fnv::FnvBuildHasher>,
-
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
@@ -154,7 +151,6 @@ impl Compiler {
 		main_runtime_handle: tokio::runtime::Handle,
 		version: String,
 	) -> Handle {
-		let checkin_tasks = tangram_futures::task::Map::default();
 		let documents = DashMap::default();
 		let requests = DashMap::new();
 		let request_id = AtomicI32::new(1);
@@ -167,7 +163,6 @@ impl Compiler {
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
 			cache_path,
-			checkin_tasks,
 			documents,
 			handle,
 			library_path,

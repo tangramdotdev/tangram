@@ -155,7 +155,7 @@ impl Server {
 					}
 				}
 				.instrument(tracing::Span::current())
-			});
+			}).detach();
 		}
 
 		// Await the futures.

@@ -1,11 +1,4 @@
-use {
-	super::{Compiler, jsonrpc},
-	lsp::notification::Notification as _,
-	lsp_types as lsp,
-	std::{path::Path, pin::pin},
-	tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _,
-};
+use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
 pub struct Request {
@@ -154,11 +147,6 @@ impl Compiler {
 		let text = params.text_document.text;
 		self.open_document(&module, version, text).await?;
 
-		// Check in the module in the background if necessary.
-		if let Ok(path) = module.referent.item().try_unwrap_path_ref() {
-			self.spawn_checkin_task(path);
-		}
-
 		Ok(())
 	}
 
@@ -228,88 +216,17 @@ impl Compiler {
 		// Save the module.
 		self.save_document(&module).await?;
 
-		// Check in the module in the background if necessary.
-		if let Ok(path) = module.referent.item().try_unwrap_path_ref() {
-			self.spawn_checkin_task(path);
-		}
-
-		Ok(())
-	}
-
-	fn spawn_checkin_task(&self, path: &Path) {
-		let handle = self.handle.clone();
-		let sender = self.sender.read().unwrap().clone();
+		// Request a diagnostics refresh.
 		let compiler = self.clone();
-		self.checkin_tasks.spawn(path.to_owned(), |_| {
-			let path = path.to_owned();
-			async move {
-				// Wait 100ms before running checkin.
-				tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-				// Check in the path.
-				let arg = tg::checkin::Arg {
-					options: tg::checkin::Options {
-						unsolved_dependencies: true,
-						watch: true,
-						..Default::default()
-					},
-					path: path.clone(),
-					updates: Vec::new(),
-				};
-				let result = async {
-					let stream = handle.checkin(arg).await?;
-					let stream = pin!(stream);
-					let output = stream
-						.try_last()
-						.await?
-						.ok_or_else(|| tg::error!("expected an event"))?
-						.try_unwrap_output()
-						.ok()
-						.ok_or_else(|| tg::error!("expected the end event"))?;
-					Ok::<_, tg::Error>(output)
-				}
+		tokio::spawn(async move {
+			let result = compiler
+				.send_request::<lsp::request::WorkspaceDiagnosticRefresh>(())
 				.await;
-
-				// Send a message if the checkin failed.
-				let Some(sender) = sender.as_ref() else {
-					return;
-				};
-				if let Err(error) = result {
-					let params = lsp::ShowMessageParams {
-						typ: lsp::MessageType::ERROR,
-						message: format!("checkin failed {error}"),
-					};
-					let message = jsonrpc::Message::Notification(jsonrpc::Notification {
-						jsonrpc: jsonrpc::VERSION.to_owned(),
-						method: lsp::notification::ShowMessage::METHOD.to_owned(),
-						params: Some(serde_json::to_value(params).unwrap()),
-					});
-					sender.send(message).ok();
-					return;
-				}
-
-				// Send a log message if the checkin succeeded.
-				let params = lsp::LogMessageParams {
-					typ: lsp::MessageType::INFO,
-					message: format!("checked in {}", path.display()),
-				};
-				let message = jsonrpc::Message::Notification(jsonrpc::Notification {
-					jsonrpc: jsonrpc::VERSION.to_owned(),
-					method: lsp::notification::LogMessage::METHOD.to_owned(),
-					params: Some(serde_json::to_value(params).unwrap()),
-				});
-				sender.send(message).ok();
-
-				// Request to refresh diagnostics.
-				tokio::spawn(async move {
-					let result = compiler
-						.send_request::<lsp::request::WorkspaceDiagnosticRefresh>(())
-						.await;
-					if let Err(error) = result {
-						tracing::warn!(?error, "failed to refresh diagnostics");
-					}
-				});
+			if let Err(error) = result {
+				tracing::warn!(?error, "failed to refresh diagnostics");
 			}
 		});
+
+		Ok(())
 	}
 }

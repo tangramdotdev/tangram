@@ -5,7 +5,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
-	tangram_messenger::Messenger as _,
+	tangram_messenger::prelude::*,
 };
 
 impl Server {

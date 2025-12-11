@@ -11,7 +11,7 @@ use {
 		task::{Stop, Task},
 	},
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::Messenger as _,
+	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
 };
 

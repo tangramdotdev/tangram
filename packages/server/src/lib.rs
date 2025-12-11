@@ -78,6 +78,7 @@ pub struct Server(Arc<State>);
 
 pub struct State {
 	cache_tasks: CacheTasks,
+	checkin_tasks: CheckinTasks,
 	config: Config,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
@@ -123,6 +124,13 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
+
+type CheckinTasks = tangram_futures::task::Map<
+	PathBuf,
+	(),
+	crate::progress::Handle<crate::checkin::TaskOutput>,
+	fnv::FnvBuildHasher,
+>;
 
 impl Owned {
 	pub fn stop(&self) {
@@ -236,6 +244,9 @@ impl Server {
 
 		// Create the cache tasks.
 		let cache_tasks = tangram_futures::task::Map::default();
+
+		// Create the checkin tasks.
+		let checkin_tasks = tangram_futures::task::Map::default();
 
 		// Create the HTTP configuration.
 		let http = config.http.as_ref().map(|config| {
@@ -476,6 +487,7 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(State {
 			cache_tasks,
+			checkin_tasks,
 			config,
 			database,
 			diagnostics,
@@ -799,6 +811,18 @@ impl Server {
 				// Remove the watches.
 				server.watches.clear();
 
+				// Abort the checkin tasks.
+				server.checkin_tasks.abort_all();
+				let results = server.checkin_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a checkin task panicked");
+					}
+				}
+				tracing::trace!("checkin tasks");
+
 				// Abort the cache tasks.
 				server.cache_tasks.abort_all();
 				let results = server.cache_tasks.wait().await;
@@ -806,7 +830,7 @@ impl Server {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "an cache task panicked");
+						tracing::error!(?error, "a cache task panicked");
 					}
 				}
 				tracing::trace!("cache tasks");
