@@ -7,13 +7,25 @@ export let graph = async (
 };
 
 export class Graph {
-	#state: tg.Graph.State;
+	#state: tg.Object.State;
 
-	constructor(state: tg.Graph.State) {
-		this.#state = state;
+	constructor(arg: {
+		id?: tg.Graph.Id;
+		object?: tg.Graph.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "graph" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
 	}
 
-	get state(): tg.Graph.State {
+	get state(): tg.Object.State {
 		return this.#state;
 	}
 
@@ -213,35 +225,25 @@ export class Graph {
 	}
 
 	get id(): tg.Graph.Id {
-		if (this.#state.id! !== undefined) {
-			return this.#state.id;
-		}
-		let object = this.#state.object!;
-		let data = tg.Graph.Object.toData(object);
-		let id = tg.handle.objectId({ kind: "graph", value: data });
-		this.#state.id = id;
+		let id = this.#state.id;
+		tg.assert(tg.Object.Id.kind(id) === "graph");
 		return id;
 	}
 
 	async object(): Promise<tg.Graph.Object> {
-		await this.load();
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "graph");
+		return object.value;
 	}
 
 	async load(): Promise<tg.Graph.Object> {
-		if (this.#state.object === undefined) {
-			let data = await tg.handle.getObject(this.#state.id!);
-			tg.assert(data.kind === "graph");
-			let object = tg.Graph.Object.fromData(data.value);
-			this.#state.object = object;
-		}
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "graph");
+		return object.value;
 	}
 
 	unload(): void {
-		if (this.#state.stored) {
-			this.#state.object = undefined;
-		}
+		this.#state.unload();
 	}
 
 	async store(): Promise<tg.Graph.Id> {
@@ -250,8 +252,7 @@ export class Graph {
 	}
 
 	async children(): Promise<Array<tg.Object>> {
-		let object = await this.load();
-		return tg.Graph.Object.children(object);
+		return this.#state.children();
 	}
 
 	async nodes(): Promise<Array<tg.Graph.Node>> {
@@ -286,8 +287,6 @@ export class Graph {
 
 export namespace Graph {
 	export type Id = string;
-
-	export type State = tg.Object.State<tg.Graph.Id, tg.Graph.Object>;
 
 	export type Arg = tg.Graph | tg.Graph.Arg.Object;
 

@@ -44,13 +44,25 @@ async function inner(
 }
 
 export class File {
-	#state: File.State;
+	#state: tg.Object.State;
 
-	constructor(state: File.State) {
-		this.#state = state;
+	constructor(arg: {
+		id?: tg.File.Id;
+		object?: tg.File.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "file" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
 	}
 
-	get state(): File.State {
+	get state(): tg.Object.State {
 		return this.#state;
 	}
 
@@ -142,35 +154,25 @@ export class File {
 	}
 
 	get id(): tg.File.Id {
-		if (this.#state.id! !== undefined) {
-			return this.#state.id;
-		}
-		let object = this.#state.object!;
-		let data = File.Object.toData(object);
-		let id = tg.handle.objectId({ kind: "file", value: data });
-		this.#state.id = id;
+		let id = this.#state.id;
+		tg.assert(tg.Object.Id.kind(id) === "file");
 		return id;
 	}
 
 	async object(): Promise<File.Object> {
-		await this.load();
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "file");
+		return object.value;
 	}
 
 	async load(): Promise<tg.File.Object> {
-		if (this.#state.object === undefined) {
-			let data = await tg.handle.getObject(this.#state.id!);
-			tg.assert(data.kind === "file");
-			let object = File.Object.fromData(data.value);
-			this.#state.object = object;
-		}
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "file");
+		return object.value;
 	}
 
 	unload(): void {
-		if (this.#state.stored) {
-			this.#state.object = undefined;
-		}
+		this.#state.unload();
 	}
 
 	async store(): Promise<tg.File.Id> {
@@ -179,8 +181,7 @@ export class File {
 	}
 
 	async children(): Promise<Array<tg.Object>> {
-		let object = await this.load();
-		return tg.File.Object.children(object);
+		return this.#state.children();
 	}
 
 	async contents(): Promise<tg.Blob> {
@@ -311,8 +312,6 @@ export class File {
 
 export namespace File {
 	export type Id = string;
-
-	export type State = tg.Object.State<File.Id, File.Object>;
 
 	export type Arg =
 		| undefined

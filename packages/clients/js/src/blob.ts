@@ -44,13 +44,25 @@ async function inner(
 }
 
 export class Blob {
-	#state: tg.Blob.State;
+	#state: tg.Object.State;
 
-	constructor(state: tg.Blob.State) {
-		this.#state = state;
+	constructor(arg: {
+		id?: tg.Blob.Id;
+		object?: tg.Blob.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "blob" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
 	}
 
-	get state(): tg.Blob.State {
+	get state(): tg.Object.State {
 		return this.#state;
 	}
 
@@ -157,35 +169,25 @@ export class Blob {
 	}
 
 	get id(): tg.Blob.Id {
-		if (this.#state.id! !== undefined) {
-			return this.#state.id;
-		}
-		let object = this.#state.object!;
-		let data = tg.Blob.Object.toData(object);
-		let id = tg.handle.objectId({ kind: "blob", value: data });
-		this.#state.id = id;
+		let id = this.#state.id;
+		tg.assert(tg.Object.Id.kind(id) === "blob");
 		return id;
 	}
 
 	async object(): Promise<tg.Blob.Object> {
-		await this.load();
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "blob");
+		return object.value;
 	}
 
 	async load(): Promise<tg.Blob.Object> {
-		if (this.#state.object === undefined) {
-			let data = await tg.handle.getObject(this.#state.id!);
-			tg.assert(data.kind === "blob");
-			let object = tg.Blob.Object.fromData(data.value);
-			this.#state.object = object;
-		}
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "blob");
+		return object.value;
 	}
 
 	unload(): void {
-		if (this.#state.stored) {
-			this.#state.object = undefined;
-		}
+		this.#state.unload();
 	}
 
 	async store(): Promise<tg.Blob.Id> {
@@ -194,8 +196,7 @@ export class Blob {
 	}
 
 	async children(): Promise<Array<tg.Object>> {
-		let object = await this.object();
-		return tg.Blob.Object.children(object);
+		return this.#state.children();
 	}
 
 	async length(): Promise<number> {
@@ -226,8 +227,6 @@ export class Blob {
 
 export namespace Blob {
 	export type Id = string;
-
-	export type State = tg.Object.State<tg.Blob.Id, tg.Blob.Object>;
 
 	export type Arg =
 		| undefined

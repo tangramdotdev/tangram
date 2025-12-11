@@ -5,13 +5,25 @@ export let symlink = async (arg: tg.Symlink.Arg): Promise<tg.Symlink> => {
 };
 
 export class Symlink {
-	#state: tg.Symlink.State;
+	#state: tg.Object.State;
 
-	constructor(state: tg.Symlink.State) {
-		this.#state = state;
+	constructor(arg: {
+		id?: tg.Symlink.Id;
+		object?: tg.Symlink.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "symlink" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
 	}
 
-	get state(): tg.Symlink.State {
+	get state(): tg.Object.State {
 		return this.#state;
 	}
 
@@ -91,35 +103,25 @@ export class Symlink {
 	}
 
 	get id(): tg.Symlink.Id {
-		if (this.#state.id! !== undefined) {
-			return this.#state.id;
-		}
-		let object = this.#state.object!;
-		let data = Symlink.Object.toData(object);
-		let id = tg.handle.objectId({ kind: "symlink", value: data });
-		this.#state.id = id;
+		let id = this.#state.id;
+		tg.assert(tg.Object.Id.kind(id) === "symlink");
 		return id;
 	}
 
 	async object(): Promise<tg.Symlink.Object> {
-		await this.load();
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "symlink");
+		return object.value;
 	}
 
 	async load(): Promise<tg.Symlink.Object> {
-		if (this.#state.object === undefined) {
-			let data = await tg.handle.getObject(this.#state.id!);
-			tg.assert(data.kind === "symlink");
-			let object = tg.Symlink.Object.fromData(data.value);
-			this.#state.object = object;
-		}
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "symlink");
+		return object.value;
 	}
 
 	unload(): void {
-		if (this.#state.stored) {
-			this.#state.object = undefined;
-		}
+		this.#state.unload();
 	}
 
 	async store(): Promise<tg.Symlink.Id> {
@@ -128,8 +130,7 @@ export class Symlink {
 	}
 
 	async children(): Promise<Array<tg.Object>> {
-		let object = await this.load();
-		return tg.Symlink.Object.children(object);
+		return this.#state.children();
 	}
 
 	async artifact(): Promise<tg.Artifact | undefined> {
@@ -194,8 +195,6 @@ export class Symlink {
 
 export namespace Symlink {
 	export type Id = string;
-
-	export type State = tg.Object.State<Symlink.Id, Symlink.Object>;
 
 	export type Arg =
 		| string

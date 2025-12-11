@@ -7,13 +7,25 @@ export let directory = async (
 };
 
 export class Directory {
-	#state: tg.Directory.State;
+	#state: tg.Object.State;
 
-	constructor(state: tg.Directory.State) {
-		this.#state = state;
+	constructor(arg: {
+		id?: tg.Directory.Id;
+		object?: tg.Directory.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "directory" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
 	}
 
-	get state(): tg.Directory.State {
+	get state(): tg.Object.State {
 		return this.#state;
 	}
 
@@ -146,35 +158,25 @@ export class Directory {
 	}
 
 	get id(): Directory.Id {
-		if (this.#state.id! !== undefined) {
-			return this.#state.id;
-		}
-		let object = this.#state.object!;
-		let data = Directory.Object.toData(object);
-		let id = tg.handle.objectId({ kind: "directory", value: data });
-		this.#state.id = id;
+		let id = this.#state.id;
+		tg.assert(tg.Object.Id.kind(id) === "directory");
 		return id;
 	}
 
 	async object(): Promise<Directory.Object> {
-		await this.load();
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "directory");
+		return object.value;
 	}
 
 	async load(): Promise<tg.Directory.Object> {
-		if (this.#state.object === undefined) {
-			let data = await tg.handle.getObject(this.#state.id!);
-			tg.assert(data.kind === "directory");
-			let object = Directory.Object.fromData(data.value);
-			this.#state.object = object;
-		}
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "directory");
+		return object.value;
 	}
 
 	unload(): void {
-		if (this.#state.stored) {
-			this.#state.object = undefined;
-		}
+		this.#state.unload();
 	}
 
 	async store(): Promise<tg.Directory.Id> {
@@ -183,8 +185,7 @@ export class Directory {
 	}
 
 	async children(): Promise<Array<tg.Object>> {
-		let object = await this.load();
-		return tg.Directory.Object.children(object);
+		return this.#state.children();
 	}
 
 	async get(arg: string): Promise<tg.Artifact> {
@@ -314,8 +315,6 @@ export class Directory {
 
 export namespace Directory {
 	export type Id = string;
-
-	export type State = tg.Object.State<tg.Directory.Id, tg.Directory.Object>;
 
 	export type Arg = undefined | tg.Directory | tg.Directory.Arg.Object;
 

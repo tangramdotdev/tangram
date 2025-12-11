@@ -45,13 +45,25 @@ export class Command<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > {
-	#state: tg.Command.State;
+	#state: tg.Object.State;
 
-	constructor(state: tg.Command.State) {
-		this.#state = state;
+	constructor(arg: {
+		id?: tg.Command.Id;
+		object?: tg.Command.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "command" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
 	}
 
-	get state(): tg.Command.State {
+	get state(): tg.Object.State {
 		return this.#state;
 	}
 
@@ -163,35 +175,25 @@ export class Command<
 	}
 
 	get id(): tg.Command.Id {
-		if (this.#state.id! !== undefined) {
-			return this.#state.id;
-		}
-		let object = this.#state.object!;
-		let data = tg.Command.Object.toData(object);
-		let id = tg.handle.objectId({ kind: "command", value: data });
-		this.#state.id = id;
+		let id = this.#state.id;
+		tg.assert(tg.Object.Id.kind(id) === "command");
 		return id;
 	}
 
 	async object(): Promise<tg.Command.Object> {
-		await this.load();
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "command");
+		return object.value;
 	}
 
 	async load(): Promise<tg.Command.Object> {
-		if (this.#state.object === undefined) {
-			let data = await tg.handle.getObject(this.#state.id!);
-			tg.assert(data.kind === "command");
-			let object = tg.Command.Object.fromData(data.value);
-			this.#state.object = object;
-		}
-		return this.#state.object!;
+		let object = await this.#state.load();
+		tg.assert(object.kind === "command");
+		return object.value;
 	}
 
 	unload(): void {
-		if (this.#state.stored) {
-			this.#state.object = undefined;
-		}
+		this.#state.unload();
 	}
 
 	async store(): Promise<tg.Command.Id> {
@@ -200,8 +202,7 @@ export class Command<
 	}
 
 	async children(): Promise<Array<tg.Object>> {
-		let object = await this.object();
-		return tg.Command.Object.children(object);
+		return this.#state.children();
 	}
 
 	async args(): Promise<Array<tg.Value>> {
@@ -247,8 +248,6 @@ export class Command<
 
 export namespace Command {
 	export type Id = string;
-
-	export type State = tg.Object.State<tg.Command.Id, tg.Command.Object>;
 
 	export type Arg =
 		| undefined

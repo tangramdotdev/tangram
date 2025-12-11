@@ -25,11 +25,97 @@ export namespace Object {
 		| tg.Graph.Id
 		| tg.Command.Id;
 
-	export type State<I, O> = {
-		id?: I | undefined;
-		object?: O | undefined;
-		stored: boolean;
-	};
+	export namespace Id {
+		export let kind = (id: tg.Object.Id): tg.Object.Kind => {
+			let prefix = id.substring(0, 3);
+			if (prefix === "blb") {
+				return "blob";
+			} else if (prefix === "dir") {
+				return "directory";
+			} else if (prefix === "fil") {
+				return "file";
+			} else if (prefix === "sym") {
+				return "symlink";
+			} else if (prefix === "gph") {
+				return "graph";
+			} else if (prefix === "cmd") {
+				return "command";
+			} else {
+				throw new Error(`invalid object id: ${id}`);
+			}
+		};
+	}
+
+	export class State {
+		#id: tg.Object.Id | undefined;
+		#object: tg.Object.Object | undefined;
+		#stored: boolean;
+
+		constructor(arg: {
+			id?: tg.Object.Id | undefined;
+			object?: tg.Object.Object | undefined;
+			stored: boolean;
+		}) {
+			this.#id = arg.id;
+			this.#object = arg.object;
+			this.#stored = arg.stored;
+		}
+
+		get id(): tg.Object.Id {
+			if (this.#id !== undefined) {
+				return this.#id;
+			}
+			let data = tg.Object.Object.toData(this.#object!);
+			this.#id = tg.handle.objectId(data);
+			return this.#id;
+		}
+
+		set id(id: tg.Object.Id) {
+			this.#id = id;
+		}
+
+		get object(): tg.Object.Object | undefined {
+			return this.#object;
+		}
+
+		set object(object: tg.Object.Object | undefined) {
+			this.#object = object;
+		}
+
+		get stored(): boolean {
+			return this.#stored;
+		}
+
+		set stored(stored: boolean) {
+			this.#stored = stored;
+		}
+
+		get kind(): tg.Object.Kind {
+			if (this.#object !== undefined) {
+				return this.#object.kind;
+			}
+			return tg.Object.Id.kind(this.#id!);
+		}
+
+		async load(): Promise<tg.Object.Object> {
+			if (this.#object === undefined) {
+				let data = await tg.handle.getObject(this.#id!);
+				this.#object = tg.Object.Object.fromData(data);
+			}
+			return this.#object;
+		}
+
+		unload(): void {
+			if (this.#stored) {
+				this.#object = undefined;
+			}
+		}
+
+		async children(): Promise<Array<tg.Object>> {
+			await this.load();
+			return tg.Object.Object.children(this.#object!);
+		}
+	}
 
 	export type Object =
 		| { kind: "blob"; value: tg.Blob.Object }

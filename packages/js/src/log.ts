@@ -66,17 +66,17 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 	} else if (value instanceof Promise) {
 		output = "(promise)";
 	} else if (value instanceof tg.Blob) {
-		output = stringifyState("blob", value.state, visited);
+		output = stringifyState(value.state, visited);
 	} else if (value instanceof tg.Directory) {
-		output = stringifyState("directory", value.state, visited);
+		output = stringifyState(value.state, visited);
 	} else if (value instanceof tg.File) {
-		output = stringifyState("file", value.state, visited);
+		output = stringifyState(value.state, visited);
 	} else if (value instanceof tg.Symlink) {
-		output = stringifyState("symlink", value.state, visited);
+		output = stringifyState(value.state, visited);
 	} else if (value instanceof tg.Graph) {
-		output = stringifyState("graph", value.state, visited);
+		output = stringifyState(value.state, visited);
 	} else if (value instanceof tg.Command) {
-		output = stringifyState("commmand", value.state, visited);
+		output = stringifyState(value.state, visited);
 	} else if (value instanceof Uint8Array) {
 		let bytes = tg.encoding.hex.encode(value);
 		output = `tg.bytes(${bytes})`;
@@ -123,16 +123,12 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 };
 
 let stringifyState = (
-	kind: string,
-	state: tg.Object.State<string, object>,
+	state: tg.Object.State,
 	visited: WeakSet<object>,
 ): string => {
-	let { id, object } = state;
-	if (id !== undefined) {
-		return id;
-	} else if (object !== undefined) {
-		return `tg.${kind}(${stringifyObject(object, visited)})`;
-	} else {
-		return tg.unreachable();
+	let object = state.object;
+	if (object === undefined) {
+		return state.id;
 	}
+	return `tg.${object.kind}(${stringifyObject(object.value, visited)})`;
 };

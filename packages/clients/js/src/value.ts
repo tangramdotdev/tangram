@@ -155,11 +155,7 @@ export namespace Value {
 			if (object.state.object === undefined) {
 				continue;
 			}
-			let kind = tg.Object.kind(object);
-			let children = tg.Object.Object.children({
-				kind,
-				value: object.state.object!,
-			} as tg.Object.Object);
+			let children = tg.Object.Object.children(object.state.object);
 			stack.push(...children.filter((object) => !object.state.stored));
 		}
 		unstored.reverse();
@@ -173,11 +169,7 @@ export namespace Value {
 			if (object.state.object === undefined) {
 				continue;
 			}
-			let kind = tg.Object.kind(object);
-			let data = tg.Object.Object.toData({
-				kind,
-				value: object.state.object,
-			} as tg.Object.Object);
+			let data = tg.Object.Object.toData(object.state.object);
 			let id = tg.handle.objectId(data);
 			object.state.id = id;
 			items.push({ id, data });
