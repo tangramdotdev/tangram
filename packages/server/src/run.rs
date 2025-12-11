@@ -294,19 +294,16 @@ impl Server {
 	}
 
 	async fn expire_unfinished_processes(&self) -> tg::Result<()> {
-		let output = self
-			.list_processes(tg::process::list::Arg::default())
+		let outputs = self
+			.list_processes_local()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list processes"))?;
-		output
-			.data
+		outputs
 			.into_iter()
-			.filter_map(|output| {
-				if matches!(output.data.status, tg::process::Status::Finished) {
-					return None;
-				}
+			.filter(|output| !matches!(output.data.status, tg::process::Status::Finished))
+			.map(|output| {
 				let server = self.clone();
-				Some(async move {
+				async move {
 					let error = tg::Error {
 						code: Some(tg::error::Code::HeartbeatExpiration),
 						message: Some("heartbeat expired".into()),
@@ -324,7 +321,7 @@ impl Server {
 					if let Err(error) = server.finish_process(&output.id, arg).await {
 						tracing::error!(process = %output.id, ?error, "failed to finish the process");
 					}
-				})
+				}
 			})
 			.collect::<FuturesUnordered<_>>()
 			.collect::<()>()

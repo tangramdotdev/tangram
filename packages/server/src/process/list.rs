@@ -53,7 +53,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
+	pub(crate) async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => self.list_processes_postgres(database).await,
