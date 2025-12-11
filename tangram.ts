@@ -1,11 +1,11 @@
-import bun from "bun" with { local: "../packages/packages/bun" };
+import bun from "bun" with { local: "../packages/packages/bun.tg.ts" };
 import foundationdb from "foundationdb" with {
-	local: "../packages/packages/foundationdb",
+	local: "../packages/packages/foundationdb.tg.ts",
 };
 import { libclang } from "llvm" with { local: "../packages/packages/llvm" };
 import { cargo } from "rust" with { local: "../packages/packages/rust" };
-import xz from "xz" with { local: "../packages/packages/xz" };
-import zlib from "zlib" with { local: "../packages/packages/zlib" };
+import xz from "xz" with { local: "../packages/packages/xz.tg.ts" };
+import zlib from "zlib" with { local: "../packages/packages/zlib.tg.ts" };
 import * as std from "std" with { local: "../packages/packages/std" };
 import { $ } from "std" with { local: "../packages/packages/std" };
 
@@ -31,7 +31,7 @@ export const build = async (arg?: Arg) => {
 		sdk,
 		scylla = false,
 	} = arg ?? {};
-	const host = host_ ?? (await std.triple.host());
+	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
 	const cargoLock = await source.get("Cargo.lock").then(tg.File.expect);
 
@@ -135,7 +135,7 @@ export type CloudArg = {
 };
 
 export const cloud = async (arg?: CloudArg) => {
-	const host_ = arg?.host ?? (await std.triple.host());
+	const host_ = arg?.host ?? std.triple.host();
 	const build_ = arg?.build ?? host_;
 	const sdk = arg?.sdk;
 	if (std.triple.os(host_) !== "linux") {
@@ -155,7 +155,7 @@ export const cloud = async (arg?: CloudArg) => {
 };
 
 export const nodeModules = async (hostArg?: string) => {
-	const host = hostArg ?? (await std.triple.host());
+	const host = hostArg ?? std.triple.host();
 	const hostOs = std.triple.os(host);
 
 	// Create subset of source relevant for bun install.
@@ -209,8 +209,8 @@ export const nodeModules = async (hostArg?: string) => {
 };
 
 const bunEnvArg = async (hostArg?: string) => {
-	const host = hostArg ?? (await std.triple.host());
-	const bunArtifact = await bun({ host });
+	const host = hostArg ?? std.triple.host();
+	const bunArtifact = bun({ host });
 	return std.env.arg(
 		bunArtifact,
 		tg.directory({ ["bin/node"]: tg.symlink(tg`${bunArtifact}/bin/bun`) }),
@@ -221,7 +221,7 @@ export const librustyv8 = async (
 	lockfile: tg.File,
 	...hosts: Array<string>
 ) => {
-	const hostList = hosts.length > 0 ? hosts : [await std.triple.host()];
+	const hostList = hosts.length > 0 ? hosts : [std.triple.host()];
 	const version = await getRustyV8Version(lockfile);
 
 	const downloads = await Promise.all(
