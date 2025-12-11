@@ -5,9 +5,10 @@ use {
 	std::{path::PathBuf, pin::pin},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{is_false, is_true, return_false, return_true},
+	tangram_util::serde::{CommaSeparatedString, is_false, is_true, return_false, return_true},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(flatten)]
@@ -15,6 +16,7 @@ pub struct Arg {
 
 	pub path: PathBuf,
 
+	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub updates: Vec<tg::tag::Pattern>,
 }

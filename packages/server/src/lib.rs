@@ -111,6 +111,13 @@ type CacheTasks = tangram_futures::task::Map<
 	tg::id::BuildHasher,
 >;
 
+type CheckinTasks = tangram_futures::task::Map<
+	crate::checkin::TaskKey,
+	(),
+	crate::progress::Handle<crate::checkin::TaskOutput>,
+	fnv::FnvBuildHasher,
+>;
+
 struct Http {
 	url: Uri,
 }
@@ -124,13 +131,6 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
-
-type CheckinTasks = tangram_futures::task::Map<
-	PathBuf,
-	(),
-	crate::progress::Handle<crate::checkin::TaskOutput>,
-	fnv::FnvBuildHasher,
->;
 
 impl Owned {
 	pub fn stop(&self) {

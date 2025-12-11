@@ -29,6 +29,13 @@ mod store;
 
 pub(crate) use self::{graph::Graph, solve::Solutions};
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TaskKey {
+	pub options: tg::checkin::Options,
+	pub root: PathBuf,
+	pub updates: Vec<tg::tag::Pattern>,
+}
+
 #[derive(Clone)]
 pub struct TaskOutput {
 	pub graph: Graph,
@@ -81,8 +88,13 @@ impl Server {
 		let (root, ignorer) = self.checkin_find_root_path(&arg.path, ignorer).await?;
 
 		// Get or spawn the checkin task for the root.
+		let key = TaskKey {
+			options: arg.options.clone(),
+			root: root.clone(),
+			updates: arg.updates.clone(),
+		};
 		let root_task = self.checkin_tasks.get_or_spawn_with_context(
-			root.clone(),
+			key,
 			crate::progress::Handle::new,
 			|progress, _stop| {
 				let server = self.clone();
