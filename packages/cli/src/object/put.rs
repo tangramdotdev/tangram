@@ -18,7 +18,13 @@ pub struct Args {
 	pub kind: Option<tg::object::Kind>,
 
 	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -51,7 +57,11 @@ impl Cli {
 			};
 
 			// Put the object.
-			let arg = tg::object::put::Arg { bytes };
+			let arg = tg::object::put::Arg {
+				bytes,
+				local: args.local.local,
+				remotes: args.remotes.remotes.clone(),
+			};
 			handle.put_object(&id, arg).await?;
 
 			id

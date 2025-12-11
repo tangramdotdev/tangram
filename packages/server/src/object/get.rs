@@ -28,22 +28,22 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::object::Id,
-		mut arg: tg::object::get::Arg,
+		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			let output = remote.try_get_object(id, arg).await?;
-			return Ok(output);
+		// Attempt locally if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(output) = self.try_get_object_local(id).await?
+		{
+			return Ok(Some(output));
 		}
 
-		if let Some(output) = self.try_get_object_local(id).await? {
-			Ok(Some(output))
-		} else if let Some(output) = self.try_get_object_remote(id).await? {
-			Ok(Some(output))
-		} else {
-			Ok(None)
+		// Attempt remotely if requested.
+		let remotes = self.remotes(arg.remotes).await?;
+		if let Some(output) = self.try_get_object_remote(id, &remotes).await? {
+			return Ok(Some(output));
 		}
+
+		Ok(None)
 	}
 
 	pub async fn try_get_object_local(
@@ -106,12 +106,13 @@ impl Server {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
 		let outputs = self.try_get_object_batch_local(ids).await?;
+		let remotes = self.remotes(None).await?;
 		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| async move {
+			.map(|(id, output)| async {
 				if let Some(output) = output {
 					return Ok(Some(output));
 				}
-				let output = self.try_get_object_remote(id).await?;
+				let output = self.try_get_object_remote(id, &remotes).await?;
 				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -152,17 +153,19 @@ impl Server {
 	async fn try_get_object_remote(
 		&self,
 		id: &tg::object::Id,
+		remotes: &[String],
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Attempt to get the object from the remotes.
-		let futures = self
-			.get_remote_clients()
-			.await?
-			.into_values()
-			.map(|client| async move { client.get_object(id).await }.boxed())
-			.collect::<Vec<_>>();
-		if futures.is_empty() {
+		if remotes.is_empty() {
 			return Ok(None);
 		}
+		let futures = remotes.iter().map(|remote| {
+			async {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client.get_object(id).await
+			}
+			.boxed()
+		});
 		let Ok((output, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
@@ -180,6 +183,8 @@ impl Server {
 			async move {
 				let arg = tg::object::put::Arg {
 					bytes: output.bytes.clone(),
+					local: None,
+					remotes: None,
 				};
 				server.put_object(&id, arg).await?;
 				Ok::<_, tg::Error>(())

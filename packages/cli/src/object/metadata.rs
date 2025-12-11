@@ -8,18 +8,21 @@ pub struct Args {
 	pub object: tg::object::Id,
 
 	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	/// The remote to get the metadata from.
-	#[arg(long)]
-	pub remote: Option<String>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_object_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::object::metadata::Arg {
-			remote: args.remote,
+			local: args.local.local,
+			remotes: args.remotes.remotes,
 		};
 		let output = handle
 			.try_get_object_metadata(&args.object, arg)

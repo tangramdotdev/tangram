@@ -11,6 +11,7 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
 			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
@@ -18,8 +19,12 @@ impl Server {
 	> {
 		let server = self.clone();
 		let id = id.clone();
+		let status_arg = tg::process::status::Arg {
+			local: arg.local,
+			remotes: arg.remotes,
+		};
 		let Some(stream) = server
-			.try_get_process_status(&id)
+			.try_get_process_status(&id, status_arg)
 			.await?
 			.map(futures::StreamExt::boxed)
 		else {
@@ -57,12 +62,15 @@ impl Server {
 		// Parse the ID.
 		let id = id.parse::<tg::process::Id>()?;
 
+		// Parse the arg.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the future.
 		let Some(future) = self
-			.try_wait_process_future_with_context(context, &id)
+			.try_wait_process_future_with_context(context, &id, arg)
 			.await?
 		else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());

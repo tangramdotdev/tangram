@@ -61,7 +61,19 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		self.try_load(handle).await?.ok_or_else(|| {
+		self.load_with_arg(handle, tg::object::get::Arg::default())
+			.await
+	}
+
+	pub async fn load_with_arg<H>(
+		&self,
+		handle: &H,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
+		self.try_load_with_arg(handle, arg).await?.ok_or_else(|| {
 			tg::error!(
 				"failed to load the object {}",
 				self.state.read().unwrap().id.as_ref().unwrap()
@@ -73,11 +85,22 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
+		self.try_load_with_arg(handle, tg::object::get::Arg::default())
+			.await
+	}
+
+	pub async fn try_load_with_arg<H>(
+		&self,
+		handle: &H,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Option<Arc<Object>>>
+	where
+		H: tg::Handle,
+	{
 		if let Some(object) = self.state.read().unwrap().object.clone() {
 			return Ok(Some(object));
 		}
 		let id = self.state.read().unwrap().id.clone().unwrap();
-		let arg = tg::object::get::Arg::default();
 		let Some(output) = Box::pin(handle.try_get_object(&id.into(), arg)).await? else {
 			return Ok(None);
 		};

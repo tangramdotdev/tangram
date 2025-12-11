@@ -176,7 +176,6 @@ impl Server {
 					.iter()
 					.map(|artifact| Either::Left(artifact.clone().into()))
 					.collect(),
-				remote: Some("default".to_owned()),
 				..Default::default()
 			})
 			.await?;

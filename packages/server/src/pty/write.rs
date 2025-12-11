@@ -16,13 +16,18 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::pty::Id,
-		mut arg: tg::pty::write::Arg,
+		arg: tg::pty::write::Arg,
 		stream: impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static,
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote.clone()).await?;
-			return remote.write_pty(id, arg, stream.boxed()).await;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::pty::write::Arg {
+				local: None,
+				master: arg.master,
+				remotes: None,
+			};
+			return client.write_pty(id, arg, stream.boxed()).await;
 		}
 
 		let pty = self

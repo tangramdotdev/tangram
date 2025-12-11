@@ -6,9 +6,6 @@ impl Cli {
 	pub async fn command_pull(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the remote.
-		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
-
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
 		let items = referents
@@ -29,7 +26,7 @@ impl Cli {
 			logs: args.logs,
 			outputs: args.outputs.get(),
 			recursive: args.recursive,
-			remote: Some(remote.clone()),
+			remote: Some(args.remote),
 		};
 		let stream = handle.pull(arg).await?;
 		let output = self.render_progress_stream(stream).await?;
@@ -48,7 +45,8 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
 						item: item.clone(),
-						remote: None,
+						local: None,
+						remotes: None,
 					};
 					handle.put_tag(&tag, arg).await?;
 				}

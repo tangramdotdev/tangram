@@ -8,12 +8,16 @@ impl Server {
 	pub(crate) async fn create_pipe_with_context(
 		&self,
 		context: &Context,
-		mut arg: tg::pipe::create::Arg,
+		arg: tg::pipe::create::Arg,
 	) -> tg::Result<tg::pipe::create::Output> {
 		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			return remote.create_pipe(arg).await;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::pipe::create::Arg {
+				local: None,
+				remotes: None,
+			};
+			return client.create_pipe(arg).await;
 		}
 
 		if context.process.is_some() {

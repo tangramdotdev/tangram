@@ -17,22 +17,22 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
-		mut arg: tg::process::get::Arg,
+		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			let output = remote.try_get_process(id, arg).await?;
-			return Ok(output);
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(output) = self.try_get_process_local(id).await?
+		{
+			return Ok(Some(output));
 		}
 
-		if let Some(output) = self.try_get_process_local(id).await? {
-			Ok(Some(output))
-		} else if let Some(output) = self.try_get_process_remote(id).await? {
-			Ok(Some(output))
-		} else {
-			Ok(None)
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(output) = self.try_get_process_remote(id, &remotes).await? {
+			return Ok(Some(output));
 		}
+
+		Ok(None)
 	}
 
 	pub(crate) async fn try_get_process_local(
@@ -49,13 +49,17 @@ impl Server {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let outputs = self.try_get_process_batch_local(ids).await?;
+		let remotes = self.remotes(None).await?;
 		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| async move {
-				if let Some(output) = output {
-					return Ok(Some(output));
+			.map(|(id, output)| {
+				let remotes = remotes.clone();
+				async move {
+					if let Some(output) = output {
+						return Ok(Some(output));
+					}
+					let output = self.try_get_process_remote(id, &remotes).await?;
+					Ok::<_, tg::Error>(output)
 				}
-				let output = self.try_get_process_remote(id).await?;
-				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
@@ -77,17 +81,19 @@ impl Server {
 	async fn try_get_process_remote(
 		&self,
 		id: &tg::process::Id,
+		remotes: &[String],
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Attempt to get the process from the remotes.
-		let futures = self
-			.get_remote_clients()
-			.await?
-			.into_values()
-			.map(|client| async move { client.get_process(id).await }.boxed())
-			.collect::<Vec<_>>();
-		if futures.is_empty() {
+		if remotes.is_empty() {
 			return Ok(None);
 		}
+		let futures = remotes.iter().map(|remote| {
+			async move {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client.get_process(id).await
+			}
+			.boxed()
+		});
 		let Ok((output, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
@@ -109,7 +115,11 @@ impl Server {
 						.try_collect()
 						.await?;
 					data.children = Some(children);
-					let arg = tg::process::put::Arg { data };
+					let arg = tg::process::put::Arg {
+						data,
+						local: None,
+						remotes: None,
+					};
 					server.put_process(&id, arg).await?;
 					Ok::<_, tg::Error>(())
 				}

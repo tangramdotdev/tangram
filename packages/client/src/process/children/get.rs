@@ -3,7 +3,7 @@ use {
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::SeekFromNumberOrString,
+	tangram_util::serde::{CommaSeparatedString, SeekFromNumberOrString},
 };
 
 #[serde_as]
@@ -13,11 +13,15 @@ pub struct Arg {
 	pub length: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,

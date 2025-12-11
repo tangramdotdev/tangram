@@ -1,13 +1,20 @@
 use {
 	crate::prelude::*,
 	bytes::Bytes,
+	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::CommaSeparatedString,
 };
 
+#[serde_as]
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	pub local: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug)]

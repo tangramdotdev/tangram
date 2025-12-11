@@ -13,11 +13,15 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::pipe::Id,
-		mut arg: tg::pipe::read::Arg,
+		arg: tg::pipe::read::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>> {
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			let stream = remote.read_pipe(id, arg).await?;
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::pipe::read::Arg {
+				local: None,
+				remotes: None,
+			};
+			let stream = client.read_pipe(id, arg).await?;
 			return Ok(stream.left_stream());
 		}
 

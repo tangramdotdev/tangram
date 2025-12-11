@@ -4,18 +4,31 @@ use {crate::Cli, std::collections::BTreeSet, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
 	#[arg(index = 1)]
 	pub object: tg::object::Id,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_object_children(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let object = tg::Object::with_id(args.object);
-		let data = object.data(&handle).await?;
+		let arg = tg::object::get::Arg {
+			local: args.local.local,
+			remotes: args.remotes.remotes,
+		};
+		let output = handle
+			.try_get_object(&args.object, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the object"))?;
+		let data = tg::object::Data::deserialize(args.object.kind(), output.bytes)?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let output = children.into_iter().collect::<Vec<_>>();

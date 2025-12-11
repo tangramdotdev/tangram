@@ -15,22 +15,22 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
-		mut arg: tg::process::metadata::Arg,
+		arg: tg::process::metadata::Arg,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			let output = remote.try_get_process_metadata(id, arg).await?;
-			return Ok(output);
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(metadata) = self.try_get_process_metadata_local(id).await?
+		{
+			return Ok(Some(metadata));
 		}
 
-		if let Some(metadata) = self.try_get_process_metadata_local(id).await? {
-			Ok(Some(metadata))
-		} else if let Some(metadata) = self.try_get_process_metadata_remote(id).await? {
-			Ok(Some(metadata))
-		} else {
-			Ok(None)
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(metadata) = self.try_get_process_metadata_remote(id, &remotes).await? {
+			return Ok(Some(metadata));
 		}
+
+		Ok(None)
 	}
 
 	pub(crate) async fn try_get_process_metadata_local(
@@ -258,16 +258,18 @@ impl Server {
 	async fn try_get_process_metadata_remote(
 		&self,
 		id: &tg::process::Id,
+		remotes: &[String],
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let futures = self
-			.get_remote_clients()
-			.await?
-			.into_values()
-			.map(|client| async move { client.get_process_metadata(id).await }.boxed())
-			.collect::<Vec<_>>();
-		if futures.is_empty() {
+		if remotes.is_empty() {
 			return Ok(None);
 		}
+		let futures = remotes.iter().map(|remote| {
+			async move {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client.get_process_metadata(id).await
+			}
+			.boxed()
+		});
 		let Ok((metadata, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};

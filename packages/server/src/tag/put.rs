@@ -14,12 +14,18 @@ impl Server {
 		&self,
 		context: &Context,
 		tag: &tg::Tag,
-		mut arg: tg::tag::put::Arg,
+		arg: tg::tag::put::Arg,
 	) -> tg::Result<()> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			remote.put_tag(tag, arg).await?;
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::tag::put::Arg {
+				force: arg.force,
+				item: arg.item,
+				local: None,
+				remotes: None,
+			};
+			client.put_tag(tag, arg).await?;
 			return Ok(());
 		}
 

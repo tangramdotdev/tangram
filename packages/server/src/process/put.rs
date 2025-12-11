@@ -17,6 +17,18 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::process::put::Arg {
+				data: arg.data,
+				local: None,
+				remotes: None,
+			};
+			client.put_process(id, arg).await?;
+			return Ok(());
+		}
+
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}

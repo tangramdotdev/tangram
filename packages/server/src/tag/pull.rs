@@ -15,9 +15,10 @@ impl Server {
 		let list = self
 			.list_tags(tg::tag::list::Arg {
 				length: None,
+				local: None,
 				pattern,
 				recursive: false,
-				remote: remote.clone(),
+				remotes: remote.clone().map(|r| vec![r]),
 				reverse: false,
 			})
 			.await?

@@ -18,7 +18,13 @@ pub struct Args {
 	pub kind: Option<tg::object::Kind>,
 
 	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -30,7 +36,9 @@ impl Cli {
 					id: id.map(Either::unwrap_left),
 					input: args.input,
 					kind,
+					local: args.local,
 					print: args.print,
+					remotes: args.remotes,
 				};
 				self.command_object_put(args).await?;
 			},
@@ -38,6 +46,8 @@ impl Cli {
 				let args = crate::process::put::Args {
 					bytes: args.input,
 					id,
+					local: args.local,
+					remotes: args.remotes,
 				};
 				self.command_process_put(args).await?;
 			},

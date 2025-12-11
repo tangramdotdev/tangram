@@ -309,6 +309,7 @@ impl tg::handle::Process for Handle {
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
@@ -316,7 +317,7 @@ impl tg::handle::Process for Handle {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_process_status_stream(id),
+				self.0.try_get_process_status_stream(id, arg),
 			)
 		}
 	}
@@ -394,6 +395,7 @@ impl tg::handle::Process for Handle {
 	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
@@ -403,7 +405,7 @@ impl tg::handle::Process for Handle {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxFuture<_>>>>>(
-				self.0.try_wait_process_future(id),
+				self.0.try_wait_process_future(id, arg),
 			)
 		}
 	}
@@ -550,8 +552,9 @@ impl tg::handle::Tag for Handle {
 	fn try_get_tag(
 		&self,
 		pattern: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(pattern)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(pattern, arg)) }
 	}
 
 	fn put_tag(

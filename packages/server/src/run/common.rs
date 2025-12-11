@@ -664,8 +664,9 @@ async fn stdio_task_inner(
 	while let Some(bytes) = stream_.try_next().await? {
 		let arg = tg::process::log::post::Arg {
 			bytes,
+			local: None,
+			remotes: remote.cloned().map(|r| vec![r]),
 			stream,
-			remote: remote.cloned(),
 		};
 		server.post_process_log(id, arg).await?;
 	}

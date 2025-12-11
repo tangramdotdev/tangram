@@ -44,7 +44,8 @@ impl Cli {
 	{
 		let value = serde_json::to_value(&value)
 			.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
-		self.print_value(&value.into(), options).await?;
+		self.print_value(&value.into(), options, tg::object::get::Arg::default())
+			.await?;
 		Ok(())
 	}
 
@@ -110,6 +111,7 @@ impl Cli {
 		&mut self,
 		value: &tg::Value,
 		options: Options,
+		arg: tg::object::get::Arg,
 	) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
@@ -118,7 +120,7 @@ impl Cli {
 			Depth::Infinite => None,
 		};
 		let blobs = options.blobs;
-		value.load(&handle, depth, blobs).await?;
+		value.load(&handle, arg, depth, blobs).await?;
 		let pretty = options.pretty || stdout.get_ref().is_tty();
 		let style = if pretty {
 			tg::value::print::Style::Pretty { indentation: "  " }

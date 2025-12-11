@@ -126,10 +126,11 @@ pub trait Ext: tg::Handle {
 	fn get_process_status(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>,
 	> + Send {
-		self.try_get_process_status(id).map(|result| {
+		self.try_get_process_status(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
@@ -137,6 +138,7 @@ pub trait Ext: tg::Handle {
 	fn try_get_process_status(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>,
@@ -145,7 +147,10 @@ pub trait Ext: tg::Handle {
 		async move {
 			let handle = self.clone();
 			let id = id.clone();
-			let Some(stream) = handle.try_get_process_status_stream(&id).await? else {
+			let Some(stream) = handle
+				.try_get_process_status_stream(&id, arg.clone())
+				.await?
+			else {
 				return Ok(None);
 			};
 			let stream = stream.boxed();
@@ -160,6 +165,7 @@ pub trait Ext: tg::Handle {
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
 				let id = id.clone();
+				let arg = arg.clone();
 				async move {
 					if state.lock().unwrap().end {
 						return Ok(None);
@@ -169,7 +175,7 @@ pub trait Ext: tg::Handle {
 						stream
 					} else {
 						handle
-							.try_get_process_status_stream(&id)
+							.try_get_process_status_stream(&id, arg)
 							.await?
 							.unwrap()
 							.boxed()
@@ -402,12 +408,13 @@ pub trait Ext: tg::Handle {
 	fn wait_process_future(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
 		>,
 	> + Send {
-		self.try_wait_process_future(id).map(|result| {
+		self.try_wait_process_future(id, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
 		})
 	}
@@ -415,14 +422,15 @@ pub trait Ext: tg::Handle {
 	fn wait_process(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> + Send {
 		async move {
-			let mut future = self.wait_process_future(id).await?;
+			let mut future = self.wait_process_future(id, arg.clone()).await?;
 			loop {
 				if let Some(output) = future.await? {
 					return Ok(output);
 				}
-				future = self.wait_process_future(id).await?;
+				future = self.wait_process_future(id, arg.clone()).await?;
 			}
 		}
 	}
@@ -511,8 +519,9 @@ pub trait Ext: tg::Handle {
 	fn get_tag(
 		&self,
 		tag: &tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::get::Output>> + Send {
-		self.try_get_tag(tag).map(|result| {
+		self.try_get_tag(tag, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the tag")))
 		})
 	}

@@ -59,7 +59,8 @@ where
 			_ => break,
 		};
 		let arg = tg::process::signal::post::Arg {
-			remote: remote.clone(),
+			local: None,
+			remotes: remote.clone().map(|r| vec![r]),
 			signal,
 		};
 		handle

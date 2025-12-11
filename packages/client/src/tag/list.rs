@@ -1,13 +1,18 @@
 use {
 	crate::prelude::*,
+	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
+	tangram_util::serde::{CommaSeparatedString, is_false},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "tg::tag::Pattern::is_empty")]
 	pub pattern: tg::tag::Pattern,
@@ -16,7 +21,8 @@ pub struct Arg {
 	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub reverse: bool,

@@ -5,17 +5,22 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	#[expect(clippy::option_option)]
-	#[arg(long, require_equals = true, short)]
-	pub remote: Option<Option<String>>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_process_list(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let arg = tg::process::list::Arg::default();
+		let arg = tg::process::list::Arg {
+			local: args.local.local,
+			remotes: args.remotes.remotes,
+		};
 		let output = handle
 			.list_processes(arg)
 			.await

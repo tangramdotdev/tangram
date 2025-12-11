@@ -16,17 +16,24 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
-		if let Some(status) = self.try_get_process_status_stream_local(id).await? {
-			Ok(Some(status.left_stream()))
-		} else if let Some(status) = self.try_get_process_status_remote(id).await? {
-			let status = status.right_stream();
-			Ok(Some(status))
-		} else {
-			Ok(None)
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(status) = self.try_get_process_status_stream_local(id).await?
+		{
+			return Ok(Some(status.left_stream()));
 		}
+
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(status) = self.try_get_process_status_remote(id, &remotes).await? {
+			return Ok(Some(status.right_stream()));
+		}
+
+		Ok(None)
 	}
 
 	pub(crate) async fn try_get_process_status_stream_local(
@@ -141,30 +148,28 @@ impl Server {
 	async fn try_get_process_status_remote(
 		&self,
 		id: &tg::process::Id,
+		remotes: &[String],
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
-		let futures = self
-			.get_remote_clients()
-			.await?
-			.into_values()
-			.map(|client| {
-				{
-					let client = client.clone();
-					let id = id.clone();
-					async move {
-						client
-							.get_process_status(&id)
-							.await
-							.map(futures::StreamExt::boxed)
-					}
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let futures = remotes
+			.iter()
+			.map(|remote| {
+				let remote = remote.clone();
+				let id = id.clone();
+				async move {
+					let client = self.get_remote_client(remote).await?;
+					client
+						.get_process_status(&id, tg::process::status::Arg::default())
+						.await
+						.map(futures::StreamExt::boxed)
 				}
 				.boxed()
 			})
 			.collect::<Vec<_>>();
-		if futures.is_empty() {
-			return Ok(None);
-		}
 		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
@@ -183,12 +188,15 @@ impl Server {
 		// Parse the ID.
 		let id = id.parse()?;
 
+		// Parse the arg.
+		let arg = request.query_params().transpose()?.unwrap_or_default();
+
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Get the stream.
 		let Some(stream) = self
-			.try_get_process_status_stream_with_context(context, &id)
+			.try_get_process_status_stream_with_context(context, &id, arg)
 			.await?
 		else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());

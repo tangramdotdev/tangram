@@ -71,6 +71,8 @@ impl Cli {
 		// Spawn the process.
 		let sandbox =
 			crate::process::spawn::Sandbox::new(options.spawn.sandbox.get().or(Some(true)));
+		let local = options.spawn.local.local;
+		let remotes = options.spawn.remotes.remotes.clone();
 		let spawn = crate::process::spawn::Options {
 			sandbox,
 			..options.spawn
@@ -267,7 +269,8 @@ impl Cli {
 
 		// Print the output.
 		if !output.is_null() {
-			self.print_value(&output, options.print).await?;
+			let arg = tg::object::get::Arg { local, remotes };
+			self.print_value(&output, options.print, arg).await?;
 		}
 
 		Ok(())

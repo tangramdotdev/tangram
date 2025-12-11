@@ -616,9 +616,10 @@ impl Server {
 		let output = self
 			.list_tags(tg::tag::list::Arg {
 				length: None,
+				local: None,
 				pattern: pattern.clone(),
 				recursive: false,
-				remote: None,
+				remotes: None,
 				reverse: false,
 			})
 			.await

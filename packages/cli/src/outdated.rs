@@ -79,9 +79,10 @@ where
 			let compatible = handle
 				.list_tags(tg::tag::list::Arg {
 					length: Some(1),
+					local: None,
 					pattern: pattern.clone(),
 					recursive: false,
-					remote: None,
+					remotes: None,
 					reverse: true,
 				})
 				.await?
@@ -97,9 +98,10 @@ where
 			let latest = handle
 				.list_tags(tg::tag::list::Arg {
 					length: Some(1),
+					local: None,
 					pattern: pattern.clone(),
 					recursive: false,
-					remote: None,
+					remotes: None,
 					reverse: true,
 				})
 				.await?

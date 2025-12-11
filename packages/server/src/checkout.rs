@@ -201,7 +201,6 @@ impl Server {
 		let stream = self
 			.pull(tg::pull::Arg {
 				items: vec![Either::Left(artifact.clone().into())],
-				remote: Some("default".to_owned()),
 				..Default::default()
 			})
 			.await?;

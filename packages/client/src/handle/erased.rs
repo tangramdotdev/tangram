@@ -187,6 +187,7 @@ pub trait Process: Send + Sync + 'static {
 	fn try_get_process_status_stream<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>>>;
 
 	fn cancel_process<'a>(
@@ -244,6 +245,7 @@ pub trait Process: Send + Sync + 'static {
 	fn try_wait_process_future<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> BoxFuture<
 		'a,
 		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>>,
@@ -349,6 +351,7 @@ pub trait Tag: Send + Sync + 'static {
 	fn try_get_tag<'a>(
 		&'a self,
 		pattern: &'a tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>>;
 
 	fn put_tag<'a>(
@@ -641,9 +644,10 @@ where
 	fn try_get_process_status_stream<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
+		arg: tg::process::status::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>>>
 	{
-		self.try_get_process_status_stream(id)
+		self.try_get_process_status_stream(id, arg)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}
@@ -721,11 +725,12 @@ where
 	fn try_wait_process_future<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
+		arg: tg::process::wait::Arg,
 	) -> BoxFuture<
 		'a,
 		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>>,
 	> {
-		self.try_wait_process_future(id)
+		self.try_wait_process_future(id, arg)
 			.map_ok(|option| option.map(futures::FutureExt::boxed))
 			.boxed()
 	}
@@ -878,8 +883,9 @@ where
 	fn try_get_tag<'a>(
 		&'a self,
 		pattern: &'a tg::tag::Pattern,
+		arg: tg::tag::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>> {
-		self.try_get_tag(pattern).boxed()
+		self.try_get_tag(pattern, arg).boxed()
 	}
 
 	fn put_tag<'a>(

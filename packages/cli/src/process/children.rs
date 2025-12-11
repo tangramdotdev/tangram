@@ -4,21 +4,23 @@ use {crate::Cli, futures::StreamExt as _, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub length: Option<u64>,
+
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
+	#[arg(long)]
+	pub position: Option<u64>,
+
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 
-	#[arg(long)]
-	pub length: Option<u64>,
-
-	#[arg(long)]
-	pub position: Option<u64>,
-
-	#[expect(clippy::option_option)]
-	#[arg(long, require_equals = true, short)]
-	pub remote: Option<Option<String>>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -27,13 +29,11 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let remote = args
-			.remote
-			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
 		let arg = tg::process::children::get::Arg {
-			position: args.position.map(std::io::SeekFrom::Start),
 			length: args.length,
-			remote,
+			local: args.local.local,
+			position: args.position.map(std::io::SeekFrom::Start),
+			remotes: args.remotes.remotes,
 			size: args.size,
 		};
 		let stream = handle.get_process_children(&args.process, arg).await?;

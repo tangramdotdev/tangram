@@ -13,11 +13,7 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
 	> {
-		let remote = arg
-			.remote
-			.as_ref()
-			.ok_or_else(|| tg::error!("expected the remote to be set"))?
-			.clone();
+		let remote = arg.remote.clone().unwrap_or_else(|| "default".to_owned());
 		let remote = self.get_remote_client(remote).await?;
 		Self::push_or_pull(&remote, self, &arg).await
 	}

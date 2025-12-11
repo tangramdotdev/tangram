@@ -1,13 +1,20 @@
 use {
 	crate::prelude::*,
 	futures::{StreamExt as _, stream::BoxStream},
+	serde_with::serde_as,
 	tangram_http::{Body, response::Ext as _},
+	tangram_util::serde::CommaSeparatedString,
 };
 
+#[serde_as]
 #[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	pub local: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
 }
 
 impl tg::Client {
