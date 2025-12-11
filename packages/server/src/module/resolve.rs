@@ -1,8 +1,9 @@
 use {
 	crate::{Server, context::Context},
-	std::path::Path,
+	std::{path::Path, pin::pin},
 	tangram_client::prelude::*,
 	tangram_either::Either,
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -247,6 +248,22 @@ impl Server {
 			let referent = tg::Referent::with_item(item);
 			Ok(referent)
 		} else {
+			// Perform a checkin to ensure the watch is available.
+			let arg = tg::checkin::Arg {
+				options: tg::checkin::Options {
+					unsolved_dependencies: true,
+					watch: true,
+					..Default::default()
+				},
+				path: referrer.item().to_path_buf(),
+				updates: Vec::new(),
+			};
+			let context = Context::default();
+			let stream = self.checkin_with_context(&context, arg).await?;
+			let stream = pin!(stream);
+			stream.try_last().await?;
+
+			// Get the watch and retrieve the edge from the graph.
 			let entry = self
 				.watches
 				.iter()
@@ -260,10 +277,13 @@ impl Server {
 			let node = graph.nodes.get(index).unwrap();
 			let edge = node.edge.as_ref().unwrap().clone();
 			drop(entry);
+
+			// Resolve.
 			let referrer = referrer.clone().map(|_| &edge);
 			let referent = self
 				.resolve_module_with_edge_referrer(&referrer, import)
 				.await?;
+
 			Ok(referent)
 		}
 	}

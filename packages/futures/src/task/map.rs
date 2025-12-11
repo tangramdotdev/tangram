@@ -5,6 +5,7 @@ use {
 	std::{
 		collections::hash_map::RandomState,
 		hash::{BuildHasher, Hash},
+		panic::AssertUnwindSafe,
 		sync::Arc,
 	},
 };
@@ -26,22 +27,7 @@ where
 		F: FnOnce(C, Stop) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		let map = self.map.clone();
-		let context = context();
-		let value = Shared::spawn_with_context(context.clone(), {
-			let key = key.clone();
-			move |stop| {
-				let future = f(context, stop);
-				async move {
-					let result = future.await;
-					let id = tokio::task::id();
-					map.remove_if(&key, |_, task| task.id() == id);
-					result
-				}
-			}
-		});
-		self.map.insert(key, value.clone());
-		value
+		self.spawn_inner(key, context, f, false)
 	}
 
 	pub fn get_or_spawn_with_context<G, F, Fut>(&self, key: K, context: G, f: F) -> Shared<T, C>
@@ -50,42 +36,56 @@ where
 		F: FnOnce(C, Stop) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		let map = self.map.clone();
-		self.map
-			.entry(key.clone())
-			.or_insert_with(move || {
-				let context = context();
-				Shared::spawn_with_context(context.clone(), move |stop| {
-					let future = f(context, stop);
-					async move {
-						let result = future.await;
-						let id = tokio::task::id();
-						map.remove_if(&key, |_, task| task.id() == id);
-						result
-					}
-				})
-			})
-			.value()
-			.clone()
+		self.spawn_inner(key, context, f, true)
 	}
 
-	pub fn get_or_spawn_blocking_with_context<F>(&self, key: K, context: C, f: F) -> Shared<T, C>
+	fn spawn_inner<G, F, Fut>(&self, key: K, context: G, f: F, get: bool) -> Shared<T, C>
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		G: FnOnce() -> C,
+		F: FnOnce(C, Stop) -> Fut,
+		Fut: Future<Output = T> + Send + 'static,
 	{
 		let map = self.map.clone();
-		self.map
-			.entry(key.clone())
-			.or_insert_with(move || {
-				Shared::spawn_blocking_with_context(context, move |stop| {
-					let result = f(stop);
-					let id = tokio::task::id();
-					map.remove_if(&key, |_, task| task.id() == id);
-					result
-				})
-			})
-			.value()
-			.clone()
+		let spawn = {
+			let key = key.clone();
+			move || {
+				let context = context();
+				let mut task = Shared::spawn_with_context(context.clone(), {
+					let key = key.clone();
+					let map = map.clone();
+					move |stop| {
+						let future = f(context, stop);
+						async move {
+							let result = AssertUnwindSafe(future).catch_unwind().await;
+							let id = tokio::task::id();
+							map.remove_if(&key, |_, task| task.id() == id);
+							match result {
+								Ok(value) => value,
+								Err(payload) => std::panic::resume_unwind(payload),
+							}
+						}
+					}
+				});
+				task.set_on_drop({
+					let id = task.id();
+					let key = key.clone();
+					move || {
+						map.remove_if(&key, |_, task| task.id() == id);
+					}
+				});
+				task.detach();
+				task
+			}
+		};
+		let mut task = if get {
+			self.map.entry(key).or_insert_with(spawn).value().clone()
+		} else {
+			let task = spawn();
+			self.map.insert(key, task.clone());
+			task
+		};
+		task.attach();
+		task
 	}
 
 	pub fn get_task_id(&self, key: &K) -> Option<tokio::task::Id> {
@@ -151,13 +151,6 @@ where
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		self.get_or_spawn_with_context(key, || (), |(), stop| f(stop))
-	}
-
-	pub fn get_or_spawn_blocking<F>(&self, key: K, f: F) -> Shared<T, ()>
-	where
-		F: FnOnce(Stop) -> T + Send + 'static,
-	{
-		self.get_or_spawn_blocking_with_context(key, (), f)
 	}
 }
 

@@ -4,7 +4,7 @@ impl Server {
 	pub(super) async fn checkin_store(
 		&self,
 		args: Vec<crate::store::PutArg>,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
+		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		progress.spinner("storing", "storing");
 		self.store

@@ -6,7 +6,7 @@ use {
 	bytes::Bytes,
 	std::path::Path,
 	tangram_client::prelude::*,
-	tangram_messenger::Messenger as _,
+	tangram_messenger::prelude::*,
 };
 
 impl Server {

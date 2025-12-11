@@ -63,7 +63,7 @@ impl Server {
 		next: usize,
 		lock: Option<&tg::graph::Data>,
 		root: &Path,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
+		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		progress.spinner("locking", "locking");
 

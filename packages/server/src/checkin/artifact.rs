@@ -1,15 +1,16 @@
 use {
-	super::graph::Variant,
 	crate::{
 		Server,
 		checkin::{
 			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs,
-			graph::{Contents, Petgraph},
+			graph::{Contents, Node, Petgraph, Variant},
 		},
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, path::Path},
 	tangram_client::prelude::*,
+	tangram_messenger::prelude::*,
+	tangram_store::prelude::*,
 };
 
 impl Server {
@@ -741,5 +742,61 @@ impl Server {
 				}
 			}
 		}
+	}
+
+	pub(super) async fn checkin_store_and_index_reference_artifact(
+		&self,
+		node: &Node,
+		reference: &tg::graph::data::Reference,
+	) -> tg::Result<tg::artifact::Id> {
+		// Create the reference artifact data.
+		let data: tg::object::Data = match &node.variant {
+			Variant::Directory(_) => tg::directory::Data::Reference(reference.clone()).into(),
+			Variant::File(_) => tg::file::Data::Reference(reference.clone()).into(),
+			Variant::Symlink(_) => tg::symlink::Data::Reference(reference.clone()).into(),
+		};
+
+		// Serialize and compute the ID.
+		let bytes = data
+			.serialize()
+			.map_err(|source| tg::error!(!source, "failed to serialize the reference artifact"))?;
+		let id = tg::object::Id::new(data.kind(), &bytes);
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+
+		// Store the object.
+		let store_arg = crate::store::PutArg {
+			bytes: Some(bytes),
+			cache_reference: None,
+			id: id.clone(),
+			touched_at,
+		};
+		self.store
+			.put(store_arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the reference artifact"))?;
+
+		// Index the object.
+		let mut children = std::collections::BTreeSet::new();
+		data.children(&mut children);
+		let index_message = crate::index::message::PutObject {
+			cache_entry: None,
+			children,
+			id: id.clone(),
+			metadata: node.metadata.clone().unwrap_or_default(),
+			stored: node.stored.clone(),
+			touched_at,
+		};
+		let message = crate::index::Message::PutObject(index_message);
+		let message = message.serialize()?;
+		self.messenger
+			.stream_batch_publish("index".to_owned(), vec![message])
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the index message"))?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the index message"))?;
+
+		let id = id.try_into().unwrap();
+
+		Ok(id)
 	}
 }

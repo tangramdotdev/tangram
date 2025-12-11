@@ -55,7 +55,7 @@ impl Server {
 			.store
 			.try_get(id)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		if bytes.is_none()

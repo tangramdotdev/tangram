@@ -29,14 +29,6 @@ where
 		self.map.spawn(id, f)
 	}
 
-	pub fn spawn_blocking<F>(&self, f: F) -> Shared<T, ()>
-	where
-		F: FnOnce(Stop) -> T + Send + 'static,
-	{
-		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-		self.map.get_or_spawn_blocking(id, f)
-	}
-
 	pub fn abort_all(&self) {
 		self.map.abort_all();
 	}

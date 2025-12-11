@@ -92,7 +92,7 @@ impl Server {
 		lock: Option<Arc<tg::graph::Data>>,
 		solutions: &mut Solutions,
 		root: &Path,
-		progress: &crate::progress::Handle<tg::checkin::Output>,
+		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		progress.spinner("solving", "solving");
 		if solutions.is_empty() {
@@ -649,7 +649,7 @@ impl Server {
 		let output = self
 			.get_object(&id.clone().into())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
 
