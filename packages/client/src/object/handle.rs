@@ -47,13 +47,13 @@ pub enum State {
 impl Object {
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
-		match id {
-			Id::Blob(id) => Self::Blob(tg::Blob::with_id(id)),
-			Id::Directory(id) => Self::Directory(tg::Directory::with_id(id)),
-			Id::File(id) => Self::File(tg::File::with_id(id)),
-			Id::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
-			Id::Graph(id) => Self::Graph(tg::Graph::with_id(id)),
-			Id::Command(id) => Self::Command(tg::Command::with_id(id)),
+		match id.variant() {
+			tg::object::id::Variant::Blob(id) => Self::Blob(tg::Blob::with_id(id)),
+			tg::object::id::Variant::Directory(id) => Self::Directory(tg::Directory::with_id(id)),
+			tg::object::id::Variant::File(id) => Self::File(tg::File::with_id(id)),
+			tg::object::id::Variant::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
+			tg::object::id::Variant::Graph(id) => Self::Graph(tg::Graph::with_id(id)),
+			tg::object::id::Variant::Command(id) => Self::Command(tg::Command::with_id(id)),
 		}
 	}
 
@@ -84,12 +84,12 @@ impl Object {
 	#[must_use]
 	pub fn id(&self) -> Id {
 		match self {
-			Self::Blob(object) => Id::Blob(object.id()),
-			Self::Directory(object) => Id::Directory(object.id()),
-			Self::File(object) => Id::File(object.id()),
-			Self::Symlink(object) => Id::Symlink(object.id()),
-			Self::Graph(object) => Id::Graph(object.id()),
-			Self::Command(object) => Id::Command(object.id()),
+			Self::Blob(object) => object.id().into(),
+			Self::Directory(object) => object.id().into(),
+			Self::File(object) => object.id().into(),
+			Self::Symlink(object) => object.id().into(),
+			Self::Graph(object) => object.id().into(),
+			Self::Command(object) => object.id().into(),
 		}
 	}
 
@@ -256,25 +256,26 @@ impl State {
 	}
 
 	pub fn set_id(&self, id: tg::object::Id) {
-		match self {
-			Self::Blob(state) => {
-				state.write().unwrap().id.replace(id.try_into().unwrap());
+		match (self, id.variant()) {
+			(Self::Blob(state), tg::object::id::Variant::Blob(id)) => {
+				state.write().unwrap().id.replace(id);
 			},
-			Self::Directory(state) => {
-				state.write().unwrap().id.replace(id.try_into().unwrap());
+			(Self::Directory(state), tg::object::id::Variant::Directory(id)) => {
+				state.write().unwrap().id.replace(id);
 			},
-			Self::File(state) => {
-				state.write().unwrap().id.replace(id.try_into().unwrap());
+			(Self::File(state), tg::object::id::Variant::File(id)) => {
+				state.write().unwrap().id.replace(id);
 			},
-			Self::Symlink(state) => {
-				state.write().unwrap().id.replace(id.try_into().unwrap());
+			(Self::Symlink(state), tg::object::id::Variant::Symlink(id)) => {
+				state.write().unwrap().id.replace(id);
 			},
-			Self::Graph(state) => {
-				state.write().unwrap().id.replace(id.try_into().unwrap());
+			(Self::Graph(state), tg::object::id::Variant::Graph(id)) => {
+				state.write().unwrap().id.replace(id);
 			},
-			Self::Command(state) => {
-				state.write().unwrap().id.replace(id.try_into().unwrap());
+			(Self::Command(state), tg::object::id::Variant::Command(id)) => {
+				state.write().unwrap().id.replace(id);
 			},
+			_ => panic!("ID kind mismatch"),
 		}
 	}
 

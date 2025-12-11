@@ -648,7 +648,7 @@ impl Server {
 	) -> tg::Result<usize> {
 		// Load the object and deserialize it.
 		let output = self
-			.get_object(&id.clone().into())
+			.get_object(id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
@@ -656,7 +656,7 @@ impl Server {
 
 		// Get the object's metadata.
 		let metadata = self
-			.try_get_object_metadata(&id.clone().into(), tg::object::metadata::Arg::default())
+			.try_get_object_metadata(id, tg::object::metadata::Arg::default())
 			.await?;
 
 		// Create the checkin graph node.
@@ -679,7 +679,7 @@ impl Server {
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = if let Some(id) = file.contents {
 					let (stored, metadata) = self
-						.try_get_object_stored_and_metadata(&id.clone().into())
+						.try_get_object_stored_and_metadata(&id)
 						.await
 						.ok()
 						.flatten()
@@ -782,10 +782,7 @@ impl Server {
 
 		// Get the graph's metadata.
 		let metadata = self
-			.try_get_object_metadata(
-				&graph_id.clone().into(),
-				tg::object::metadata::Arg::default(),
-			)
+			.try_get_object_metadata(graph_id, tg::object::metadata::Arg::default())
 			.await?;
 
 		// Create the checkin graph node.
@@ -814,7 +811,7 @@ impl Server {
 			tg::graph::data::Node::File(file) => {
 				let contents = if let Some(id) = file.contents.clone() {
 					let (stored, metadata) = self
-						.try_get_object_stored_and_metadata(&id.clone().into())
+						.try_get_object_stored_and_metadata(&id)
 						.await
 						.ok()
 						.flatten()

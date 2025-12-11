@@ -197,7 +197,7 @@ impl Server {
 	async fn try_read_blob_from_cache(&self, id: &tg::blob::Id) -> tg::Result<Option<Bytes>> {
 		let cache_reference = self
 			.store
-			.try_get_cache_reference(&id.clone().into())
+			.try_get_cache_reference(id)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the cache reference"))?;
 		let Some(cache_reference) = cache_reference else {

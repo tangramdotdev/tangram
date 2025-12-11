@@ -174,7 +174,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Check if the artifact's subtree is stored.
 		let stored = self
-			.try_get_object_stored(&artifact.clone().into())
+			.try_get_object_stored(artifact)
 			.await?
 			.unwrap_or_default();
 		if stored.subtree {
@@ -190,7 +190,7 @@ impl Server {
 
 		// Check if the artifact's subtree is stored.
 		let stored = self
-			.try_get_object_stored(&artifact.clone().into())
+			.try_get_object_stored(artifact)
 			.await?
 			.unwrap_or_default();
 		if stored.subtree {
@@ -601,7 +601,7 @@ impl Server {
 				if !graphs.contains_key(graph) {
 					let (_size, data) = self
 						.store
-						.try_get_object_data_sync(&graph.clone().into())?
+						.try_get_object_data_sync(graph)?
 						.ok_or_else(|| tg::error!("failed to load the graph"))?;
 					let data = data
 						.try_into()
@@ -641,7 +641,7 @@ impl Server {
 				// Load the object.
 				let (_size, data) = self
 					.store
-					.try_get_object_data_sync(&id.clone().into())?
+					.try_get_object_data_sync(id)?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
 					.try_into()
@@ -663,7 +663,7 @@ impl Server {
 						if !graphs.contains_key(graph) {
 							let (_size, data) = self
 								.store
-								.try_get_object_data_sync(&graph.clone().into())?
+								.try_get_object_data_sync(graph)?
 								.ok_or_else(|| tg::error!("failed to load the graph"))?;
 							let data = data
 								.try_into()

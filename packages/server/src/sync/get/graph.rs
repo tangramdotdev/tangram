@@ -175,8 +175,7 @@ impl Graph {
 		let objects = if let Some(data) = data {
 			let mut objects = Vec::new();
 
-			let command_id: tg::object::Id = data.command.clone().into();
-			let command_entry = self.nodes.entry(command_id.into());
+			let command_entry = self.nodes.entry(Id::Object(data.command.clone().into()));
 			let command_index = command_entry.index();
 			let command_node = command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 			command_node.unwrap_object_mut().parents.push(index);

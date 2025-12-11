@@ -1,4 +1,5 @@
-use {super::Kind, crate::prelude::*, bytes::Bytes, std::ops::Deref};
+use crate as tg;
+use {super::Kind, bytes::Bytes, std::ops::Deref};
 
 #[derive(
 	Clone,
@@ -9,54 +10,72 @@ use {super::Kind, crate::prelude::*, bytes::Bytes, std::ops::Deref};
 	PartialOrd,
 	derive_more::Debug,
 	derive_more::Display,
-	derive_more::From,
-	derive_more::IsVariant,
-	derive_more::TryInto,
-	derive_more::TryUnwrap,
+	derive_more::Into,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(into = "crate::Id", try_from = "crate::Id")]
-#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
+#[debug("tg::object::Id(\"{_0}\")")]
+#[serde(into = "tg::Id", try_from = "tg::Id")]
+#[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
+pub struct Id(tg::Id);
+
+#[derive(
+	Clone,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::From,
+	derive_more::IsVariant,
+	derive_more::TryInto,
+	derive_more::TryUnwrap,
+)]
 #[try_unwrap(ref)]
-pub enum Id {
-	#[debug("tg::object::Id(\"{_0}\")")]
+pub enum Variant {
 	Blob(tg::blob::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
 	Directory(tg::directory::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
 	File(tg::file::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
 	Symlink(tg::symlink::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
 	Graph(tg::graph::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
 	Command(tg::command::Id),
 }
 
+pub enum VariantRef<'a> {
+	Blob(&'a tg::blob::Id),
+	Directory(&'a tg::directory::Id),
+	File(&'a tg::file::Id),
+	Symlink(&'a tg::symlink::Id),
+	Graph(&'a tg::graph::Id),
+	Command(&'a tg::command::Id),
+}
+
 impl Id {
+	#[must_use]
 	pub fn new(kind: Kind, bytes: &Bytes) -> Self {
-		match kind {
-			Kind::Blob => tg::blob::Id::new(bytes).into(),
-			Kind::Directory => tg::directory::Id::new(bytes).into(),
-			Kind::File => tg::file::Id::new(bytes).into(),
-			Kind::Symlink => tg::symlink::Id::new(bytes).into(),
-			Kind::Graph => tg::graph::Id::new(bytes).into(),
-			Kind::Command => tg::command::Id::new(bytes).into(),
-		}
+		let id = match kind {
+			Kind::Blob => tg::Id::new_blake3(tg::id::Kind::Blob, bytes),
+			Kind::Directory => tg::Id::new_blake3(tg::id::Kind::Directory, bytes),
+			Kind::File => tg::Id::new_blake3(tg::id::Kind::File, bytes),
+			Kind::Symlink => tg::Id::new_blake3(tg::id::Kind::Symlink, bytes),
+			Kind::Graph => tg::Id::new_blake3(tg::id::Kind::Graph, bytes),
+			Kind::Command => tg::Id::new_blake3(tg::id::Kind::Command, bytes),
+		};
+		Self(id)
 	}
 
 	#[must_use]
 	pub fn kind(&self) -> Kind {
-		match self {
-			Self::Blob(_) => Kind::Blob,
-			Self::Directory(_) => Kind::Directory,
-			Self::File(_) => Kind::File,
-			Self::Symlink(_) => Kind::Symlink,
-			Self::Graph(_) => Kind::Graph,
-			Self::Command(_) => Kind::Command,
+		match self.0.kind() {
+			tg::id::Kind::Blob => Kind::Blob,
+			tg::id::Kind::Directory => Kind::Directory,
+			tg::id::Kind::File => Kind::File,
+			tg::id::Kind::Symlink => Kind::Symlink,
+			tg::id::Kind::Graph => Kind::Graph,
+			tg::id::Kind::Command => Kind::Command,
+			_ => unreachable!(),
 		}
 	}
 
@@ -66,49 +85,166 @@ impl Id {
 
 	#[must_use]
 	pub fn is_artifact(&self) -> bool {
-		matches!(self, Self::Directory(_) | Self::File(_) | Self::Symlink(_))
+		matches!(
+			self.0.kind(),
+			tg::id::Kind::Directory | tg::id::Kind::File | tg::id::Kind::Symlink
+		)
+	}
+
+	#[must_use]
+	pub fn is_blob(&self) -> bool {
+		self.0.kind() == tg::id::Kind::Blob
+	}
+
+	#[must_use]
+	pub fn is_directory(&self) -> bool {
+		self.0.kind() == tg::id::Kind::Directory
+	}
+
+	#[must_use]
+	pub fn is_file(&self) -> bool {
+		self.0.kind() == tg::id::Kind::File
+	}
+
+	#[must_use]
+	pub fn is_symlink(&self) -> bool {
+		self.0.kind() == tg::id::Kind::Symlink
+	}
+
+	#[must_use]
+	pub fn is_graph(&self) -> bool {
+		self.0.kind() == tg::id::Kind::Graph
+	}
+
+	#[must_use]
+	pub fn is_command(&self) -> bool {
+		self.0.kind() == tg::id::Kind::Command
+	}
+
+	pub fn try_unwrap_blob(self) -> tg::Result<tg::blob::Id> {
+		tg::blob::Id::try_from(self.0)
+	}
+
+	pub fn try_unwrap_directory(self) -> tg::Result<tg::directory::Id> {
+		tg::directory::Id::try_from(self.0)
+	}
+
+	pub fn try_unwrap_file(self) -> tg::Result<tg::file::Id> {
+		tg::file::Id::try_from(self.0)
+	}
+
+	pub fn try_unwrap_symlink(self) -> tg::Result<tg::symlink::Id> {
+		tg::symlink::Id::try_from(self.0)
+	}
+
+	pub fn try_unwrap_graph(self) -> tg::Result<tg::graph::Id> {
+		tg::graph::Id::try_from(self.0)
+	}
+
+	pub fn try_unwrap_command(self) -> tg::Result<tg::command::Id> {
+		tg::command::Id::try_from(self.0)
+	}
+
+	pub fn try_unwrap_blob_ref(&self) -> tg::Result<&tg::blob::Id> {
+		if self.is_blob() {
+			Ok(unsafe { &*(&raw const self.0).cast::<tg::blob::Id>() })
+		} else {
+			Err(tg::error!("expected a blob ID"))
+		}
+	}
+
+	pub fn try_unwrap_directory_ref(&self) -> tg::Result<&tg::directory::Id> {
+		if self.is_directory() {
+			Ok(unsafe { &*(&raw const self.0).cast::<tg::directory::Id>() })
+		} else {
+			Err(tg::error!("expected a directory ID"))
+		}
+	}
+
+	pub fn try_unwrap_file_ref(&self) -> tg::Result<&tg::file::Id> {
+		if self.is_file() {
+			Ok(unsafe { &*(&raw const self.0).cast::<tg::file::Id>() })
+		} else {
+			Err(tg::error!("expected a file ID"))
+		}
+	}
+
+	pub fn try_unwrap_symlink_ref(&self) -> tg::Result<&tg::symlink::Id> {
+		if self.is_symlink() {
+			Ok(unsafe { &*(&raw const self.0).cast::<tg::symlink::Id>() })
+		} else {
+			Err(tg::error!("expected a symlink ID"))
+		}
+	}
+
+	pub fn try_unwrap_graph_ref(&self) -> tg::Result<&tg::graph::Id> {
+		if self.is_graph() {
+			Ok(unsafe { &*(&raw const self.0).cast::<tg::graph::Id>() })
+		} else {
+			Err(tg::error!("expected a graph ID"))
+		}
+	}
+
+	pub fn try_unwrap_command_ref(&self) -> tg::Result<&tg::command::Id> {
+		if self.is_command() {
+			Ok(unsafe { &*(&raw const self.0).cast::<tg::command::Id>() })
+		} else {
+			Err(tg::error!("expected a command ID"))
+		}
+	}
+
+	#[must_use]
+	pub fn variant(self) -> Variant {
+		match self.kind() {
+			Kind::Blob => Variant::Blob(tg::blob::Id::try_from(self.0).unwrap()),
+			Kind::Directory => Variant::Directory(tg::directory::Id::try_from(self.0).unwrap()),
+			Kind::File => Variant::File(tg::file::Id::try_from(self.0).unwrap()),
+			Kind::Symlink => Variant::Symlink(tg::symlink::Id::try_from(self.0).unwrap()),
+			Kind::Graph => Variant::Graph(tg::graph::Id::try_from(self.0).unwrap()),
+			Kind::Command => Variant::Command(tg::command::Id::try_from(self.0).unwrap()),
+		}
+	}
+
+	#[must_use]
+	pub fn variant_ref(&self) -> VariantRef<'_> {
+		match self.kind() {
+			Kind::Blob => VariantRef::Blob(unsafe { &*(&raw const self.0).cast::<tg::blob::Id>() }),
+			Kind::Directory => {
+				VariantRef::Directory(unsafe { &*(&raw const self.0).cast::<tg::directory::Id>() })
+			},
+			Kind::File => VariantRef::File(unsafe { &*(&raw const self.0).cast::<tg::file::Id>() }),
+			Kind::Symlink => {
+				VariantRef::Symlink(unsafe { &*(&raw const self.0).cast::<tg::symlink::Id>() })
+			},
+			Kind::Graph => {
+				VariantRef::Graph(unsafe { &*(&raw const self.0).cast::<tg::graph::Id>() })
+			},
+			Kind::Command => {
+				VariantRef::Command(unsafe { &*(&raw const self.0).cast::<tg::command::Id>() })
+			},
+		}
 	}
 }
 
 impl Deref for Id {
-	type Target = crate::Id;
+	type Target = tg::Id;
 
 	fn deref(&self) -> &Self::Target {
-		match self {
-			Self::Blob(id) => id,
-			Self::Directory(id) => id,
-			Self::File(id) => id,
-			Self::Symlink(id) => id,
-			Self::Graph(id) => id,
-			Self::Command(id) => id,
-		}
+		&self.0
 	}
 }
 
-impl From<self::Id> for crate::Id {
-	fn from(value: self::Id) -> Self {
-		match value {
-			self::Id::Blob(id) => id.into(),
-			self::Id::Directory(id) => id.into(),
-			self::Id::File(id) => id.into(),
-			self::Id::Symlink(id) => id.into(),
-			self::Id::Graph(id) => id.into(),
-			self::Id::Command(id) => id.into(),
-		}
-	}
-}
-
-impl TryFrom<crate::Id> for self::Id {
+impl TryFrom<tg::Id> for Id {
 	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
-			crate::id::Kind::Blob => Ok(Self::Blob(value.try_into()?)),
-			crate::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
-			crate::id::Kind::File => Ok(Self::File(value.try_into()?)),
-			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
-			crate::id::Kind::Graph => Ok(Self::Graph(value.try_into()?)),
-			crate::id::Kind::Command => Ok(Self::Command(value.try_into()?)),
+			tg::id::Kind::Blob
+			| tg::id::Kind::Directory
+			| tg::id::Kind::File
+			| tg::id::Kind::Symlink
+			| tg::id::Kind::Graph
+			| tg::id::Kind::Command => Ok(Self(value)),
 			kind => Err(tg::error!(%kind, "expected an object ID")),
 		}
 	}
@@ -126,7 +262,7 @@ impl std::str::FromStr for Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		crate::Id::from_str(s)?.try_into()
+		tg::Id::from_str(s)?.try_into()
 	}
 }
 
@@ -135,5 +271,53 @@ impl TryFrom<String> for Id {
 
 	fn try_from(value: String) -> tg::Result<Self> {
 		value.parse()
+	}
+}
+
+impl TryFrom<Id> for tg::blob::Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Id) -> tg::Result<Self> {
+		value.try_unwrap_blob()
+	}
+}
+
+impl TryFrom<Id> for tg::directory::Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Id) -> tg::Result<Self> {
+		value.try_unwrap_directory()
+	}
+}
+
+impl TryFrom<Id> for tg::file::Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Id) -> tg::Result<Self> {
+		value.try_unwrap_file()
+	}
+}
+
+impl TryFrom<Id> for tg::symlink::Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Id) -> tg::Result<Self> {
+		value.try_unwrap_symlink()
+	}
+}
+
+impl TryFrom<Id> for tg::graph::Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Id) -> tg::Result<Self> {
+		value.try_unwrap_graph()
+	}
+}
+
+impl TryFrom<Id> for tg::command::Id {
+	type Error = tg::Error;
+
+	fn try_from(value: Id) -> tg::Result<Self> {
+		value.try_unwrap_command()
 	}
 }

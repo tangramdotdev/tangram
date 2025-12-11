@@ -90,7 +90,7 @@ impl Server {
 				if !state.graphs.contains_key(graph) {
 					let (_size, data) = self
 						.store
-						.try_get_object_data_sync(&graph.clone().into())?
+						.try_get_object_data_sync(graph)?
 						.ok_or_else(|| tg::error!("failed to load the graph"))?;
 					let data = data
 						.try_into()
@@ -135,7 +135,7 @@ impl Server {
 				// Load the object.
 				let (_size, data) = self
 					.store
-					.try_get_object_data_sync(&id.clone().into())?
+					.try_get_object_data_sync(id)?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
 					.try_into()

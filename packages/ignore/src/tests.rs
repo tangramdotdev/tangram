@@ -8,6 +8,7 @@ use {
 #[tokio::test]
 async fn test() {
 	let temp = tempfile::TempDir::new().unwrap();
+	let artifact_path = temp.path().join("artifact");
 	let artifact = Artifact::from(util::directory! {
 		".DS_Store" => util::file!(""),
 		".gitignore" => util::file!(indoc!("
@@ -24,7 +25,7 @@ async fn test() {
 		"bar.txt" => util::file!(""),
 		"directory" => util::directory! {},
 	});
-	artifact.to_path(temp.path()).await.unwrap();
+	artifact.to_path(&artifact_path).await.unwrap();
 	let file_names = vec![".gitignore".into()];
 	let global = indoc!(
 		"
@@ -45,7 +46,7 @@ async fn test() {
 	let mut left = Vec::new();
 	for (path, _) in &right {
 		let matches = matcher
-			.matches(None, &temp.path().join(path), None)
+			.matches(None, &artifact_path.join(path), None)
 			.unwrap();
 		left.push((*path, matches));
 	}
