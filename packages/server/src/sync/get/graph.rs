@@ -48,6 +48,7 @@ pub struct ObjectNode {
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub pending_children: Option<usize>,
 	pub requested: Option<Requested>,
 	pub stored: Option<crate::object::stored::Output>,
 }
@@ -59,6 +60,7 @@ pub struct ProcessNode {
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, crate::index::message::ProcessObjectKind)>>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub pending_children: Option<usize>,
 	pub requested: Option<Requested>,
 	pub stored: Option<crate::process::stored::Output>,
 }
@@ -257,6 +259,62 @@ impl Graph {
 		self.nodes
 			.get(&Id::Process(id.clone()))
 			.and_then(|node| node.unwrap_process_ref().requested.clone())
+	}
+
+	/// Get the parent indices for an object by ID.
+	pub fn get_object_parents(&self, id: &tg::object::Id) -> SmallVec<[usize; 1]> {
+		self.nodes
+			.get(&Id::Object(id.clone()))
+			.map(|node| node.unwrap_object_ref().parents.clone())
+			.unwrap_or_default()
+	}
+
+	/// Get the parent indices for a process by ID.
+	pub fn get_process_parents(&self, id: &tg::process::Id) -> SmallVec<[usize; 1]> {
+		self.nodes
+			.get(&Id::Process(id.clone()))
+			.map(|node| node.unwrap_process_ref().parents.clone())
+			.unwrap_or_default()
+	}
+
+	/// Set `pending_children` for an object.
+	pub fn set_object_pending_children(&mut self, id: &tg::object::Id, count: usize) {
+		if let Some(node) = self.nodes.get_mut(&Id::Object(id.clone())) {
+			node.unwrap_object_mut().pending_children = Some(count);
+		}
+	}
+
+	/// Set `pending_children` for a process.
+	pub fn set_process_pending_children(&mut self, id: &tg::process::Id, count: usize) {
+		if let Some(node) = self.nodes.get_mut(&Id::Process(id.clone())) {
+			node.unwrap_process_mut().pending_children = Some(count);
+		}
+	}
+
+	/// Decrement `pending_children` for a parent at the given index. Returns true if it reached 0.
+	pub fn decrement_pending_children(&mut self, parent_index: usize) -> bool {
+		let Some((_, node)) = self.nodes.get_index_mut(parent_index) else {
+			return false;
+		};
+		match node {
+			Node::Object(node) => {
+				if let Some(pending) = &mut node.pending_children
+					&& *pending > 0
+				{
+					*pending -= 1;
+					return *pending == 0;
+				}
+			},
+			Node::Process(node) => {
+				if let Some(pending) = &mut node.pending_children
+					&& *pending > 0
+				{
+					*pending -= 1;
+					return *pending == 0;
+				}
+			},
+		}
+		false
 	}
 }
 

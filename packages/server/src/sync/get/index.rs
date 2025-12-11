@@ -121,6 +121,23 @@ impl Server {
 					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
 					Self::sync_get_enqueue_object_children(state, &item.id, &data, None);
 				}
+
+				// Decrement parent's pending_children since this missing child has been processed.
+				let parents = state.graph.lock().unwrap().get_object_parents(&item.id);
+				let mut decrement_count = 0;
+				for parent_index in parents.iter() {
+					if state
+						.graph
+						.lock()
+						.unwrap()
+						.decrement_pending_children(*parent_index)
+					{
+						decrement_count += 1;
+					}
+				}
+				if decrement_count > 0 {
+					state.queue.decrement(decrement_count);
+				}
 			}
 		}
 
@@ -184,6 +201,23 @@ impl Server {
 					.ok_or_else(|| tg::error!("expected the process to exist"))?
 					.data;
 				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&stored));
+
+				// Decrement parent's pending_children since this missing child has been processed.
+				let parents = state.graph.lock().unwrap().get_process_parents(&item.id);
+				let mut decrement_count = 0;
+				for parent_index in parents.iter() {
+					if state
+						.graph
+						.lock()
+						.unwrap()
+						.decrement_pending_children(*parent_index)
+					{
+						decrement_count += 1;
+					}
+				}
+				if decrement_count > 0 {
+					state.queue.decrement(decrement_count);
+				}
 			}
 		}
 

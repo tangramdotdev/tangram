@@ -73,7 +73,7 @@ impl Server {
 		let n = items.len();
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
-			.try_get_object_batch(&ids)
+			.try_get_object_batch_local(&ids)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 

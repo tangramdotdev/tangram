@@ -80,6 +80,9 @@ impl Server {
 			.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
 			.await?;
 
+		// Track how many items in eager mode were requested (their decrement will happen in input.rs).
+		let mut eager_requested_count = 0;
+
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
 			match output {
@@ -102,6 +105,9 @@ impl Server {
 					}
 					if !item.eager {
 						state.queue.increment(1);
+					} else {
+						// In eager mode, don't decrement here - it will happen in input.rs when all children arrive.
+						eager_requested_count += 1;
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Object(
 						tg::sync::GetItemObjectMessage {
@@ -152,8 +158,11 @@ impl Server {
 			}
 		}
 
-		// Decrement the counter.
-		state.queue.decrement(n);
+		// Decrement the counter (excluding eager-mode requested items which will be decremented in input.rs).
+		let decrement_count = n - eager_requested_count;
+		if decrement_count > 0 {
+			state.queue.decrement(decrement_count);
+		}
 
 		Ok(())
 	}
@@ -173,6 +182,9 @@ impl Server {
 		let outputs = self
 			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
 			.await?;
+
+		// Track how many items in eager mode were requested (their decrement will happen in input.rs).
+		let mut eager_requested_count = 0;
 
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
@@ -196,6 +208,9 @@ impl Server {
 					}
 					if !item.eager {
 						state.queue.increment(1);
+					} else {
+						// In eager mode, don't decrement here - it will happen in input.rs when all children arrive.
+						eager_requested_count += 1;
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(
 						tg::sync::GetItemProcessMessage {
@@ -252,8 +267,11 @@ impl Server {
 			}
 		}
 
-		// Decrement the counter.
-		state.queue.decrement(n);
+		// Decrement the counter (excluding eager-mode requested items which will be decremented in input.rs).
+		let decrement_count = n - eager_requested_count;
+		if decrement_count > 0 {
+			state.queue.decrement(decrement_count);
+		}
 
 		Ok(())
 	}
