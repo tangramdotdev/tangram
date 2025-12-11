@@ -26,12 +26,22 @@ impl Server {
 	pub(crate) async fn sync_with_context(
 		&self,
 		_context: &Context,
-		mut arg: tg::sync::Arg,
+		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let client = self.get_remote_client(remote.clone()).await?;
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::sync::Arg {
+				commands: arg.commands,
+				eager: arg.eager,
+				get: arg.get,
+				local: None,
+				outputs: arg.outputs,
+				put: arg.put,
+				recursive: arg.recursive,
+				remotes: None,
+			};
 			let stream = client.sync(arg, stream).await?;
 			return Ok(stream.boxed());
 		}

@@ -23,8 +23,8 @@ impl Server {
 
 		// List the local processes if requested.
 		if Self::local(arg.local, arg.remotes.as_ref()) {
-			let local_data = self.list_processes_local().await?;
-			output.data.extend(local_data);
+			let local_outputs = self.list_processes_local().await?;
+			output.data.extend(local_outputs);
 		}
 
 		// List the remote processes if requested.

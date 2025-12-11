@@ -339,12 +339,12 @@ impl tg::handle::Pipe for Owned {
 		self.0.delete_pipe(id, arg).await
 	}
 
-	async fn read_pipe(
+	async fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
-		self.0.read_pipe(id, arg).await
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>> {
+		self.0.try_read_pipe(id, arg).await
 	}
 
 	async fn write_pipe(
@@ -378,12 +378,12 @@ impl tg::handle::Pty for Owned {
 		self.0.get_pty_size(id, arg).await
 	}
 
-	async fn read_pty(
+	async fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
-		self.0.read_pty(id, arg).await
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>> {
+		self.0.try_read_pty(id, arg).await
 	}
 
 	async fn write_pty(
@@ -822,12 +822,12 @@ impl tg::handle::Pipe for Server {
 			.await
 	}
 
-	async fn read_pipe(
+	async fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
-		self.read_pipe_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>> {
+		self.try_read_pipe_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -862,16 +862,16 @@ impl tg::handle::Pty for Server {
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
-		self.get_pty_size_with_context(&Context::default(), id, arg)
+		self.try_get_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 
-	async fn read_pty(
+	async fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
-		self.read_pty_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>> {
+		self.try_read_pty_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -1312,12 +1312,12 @@ impl tg::handle::Pipe for ServerWithContext {
 		self.0.delete_pipe_with_context(&self.1, id, arg).await
 	}
 
-	async fn read_pipe(
+	async fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static> {
-		self.0.read_pipe_with_context(&self.1, id, arg).await
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>> {
+		self.0.try_read_pipe_with_context(&self.1, id, arg).await
 	}
 
 	async fn write_pipe(
@@ -1350,15 +1350,15 @@ impl tg::handle::Pty for ServerWithContext {
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
-		self.0.get_pty_size_with_context(&self.1, id, arg).await
+		self.0.try_get_pty_size_with_context(&self.1, id, arg).await
 	}
 
-	async fn read_pty(
+	async fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static> {
-		self.0.read_pty_with_context(&self.1, id, arg).await
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>> {
+		self.0.try_read_pty_with_context(&self.1, id, arg).await
 	}
 
 	async fn write_pty(

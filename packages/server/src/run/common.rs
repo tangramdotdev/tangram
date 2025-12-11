@@ -681,7 +681,8 @@ async fn signal_task(
 ) -> tg::Result<()> {
 	// Get the signal stream for the process.
 	let arg = tg::process::signal::get::Arg {
-		remote: remote.cloned(),
+		local: None,
+		remotes: remote.map(|r| vec![r.clone()]),
 	};
 	let mut stream = server
 		.try_get_process_signal_stream(id, arg)

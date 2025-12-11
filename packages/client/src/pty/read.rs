@@ -1,23 +1,30 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::CommaSeparatedString,
 };
 
+#[serde_as]
 #[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local: Option<bool>,
+
 	pub master: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
 }
 
 impl tg::Client {
-	pub async fn read_pty(
+	pub async fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
@@ -34,7 +41,7 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
 			if matches!(response.status(), http::StatusCode::NOT_FOUND) {
-				return Err(tg::error!(%id, "not found"));
+				return Ok(None);
 			}
 			let error = response
 				.json()
@@ -67,7 +74,7 @@ impl tg::Client {
 					},
 				)
 			});
-		Ok(stream)
+		Ok(Some(stream))
 	}
 }
 

@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _},
+	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
@@ -12,20 +12,37 @@ impl Server {
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
-		mut arg: tg::process::signal::get::Arg,
+		arg: tg::process::signal::get::Arg,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + use<>>,
 	> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			let stream = remote
-				.try_get_process_signal_stream(id, arg)
-				.await?
-				.map(futures::StreamExt::boxed);
-			return Ok(stream);
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(stream) = self.try_get_process_signal_stream_local(id).await?
+		{
+			return Ok(Some(stream.left_stream()));
 		}
 
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(stream) = self
+			.try_get_process_signal_stream_remote(id, arg.clone(), &remotes)
+			.await?
+		{
+			return Ok(Some(stream.right_stream()));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_get_process_signal_stream_local(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<
+		Option<
+			impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static + use<>,
+		>,
+	> {
 		// Check if the process exists locally.
 		if self.try_get_process_local(id).await?.is_none() {
 			return Ok(None);
@@ -42,6 +59,39 @@ impl Server {
 			})
 			.boxed();
 
+		Ok(Some(stream))
+	}
+
+	async fn try_get_process_signal_stream_remote(
+		&self,
+		id: &tg::process::Id,
+		_arg: tg::process::signal::get::Arg,
+		remotes: &[String],
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + use<>>,
+	> {
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::process::signal::get::Arg {
+			local: None,
+			remotes: None,
+		};
+		let futures = remotes.iter().map(|remote| {
+			let arg = arg.clone();
+			async move {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client
+					.try_get_process_signal_stream(id, arg)
+					.await?
+					.ok_or_else(|| tg::error!("not found"))
+					.map(futures::StreamExt::boxed)
+			}
+			.boxed()
+		});
+		let Ok((stream, _)) = future::select_ok(futures).await else {
+			return Ok(None);
+		};
 		Ok(Some(stream))
 	}
 

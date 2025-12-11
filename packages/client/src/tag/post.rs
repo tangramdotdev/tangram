@@ -1,16 +1,22 @@
 use {
 	crate::prelude::*,
+	serde_with::serde_as,
 	tangram_either::Either,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
+	tangram_util::serde::{CommaSeparatedString, is_false},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
-	pub tags: Vec<Item>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
+
+	pub tags: Vec<Item>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

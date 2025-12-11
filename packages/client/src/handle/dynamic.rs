@@ -435,15 +435,18 @@ impl tg::handle::Pipe for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_pipe(id, arg)) }
 	}
 
-	fn read_pipe(
+	fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
-	{
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+		>,
+	> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<BoxStream<_>>>>(
-				self.0.read_pipe(id, arg),
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
+				self.0.try_read_pipe(id, arg),
 			)
 		}
 	}
@@ -490,15 +493,18 @@ impl tg::handle::Pty for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.get_pty_size(id, arg)) }
 	}
 
-	fn read_pty(
+	fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
-	{
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
+		>,
+	> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<BoxStream<_>>>>(
-				self.0.read_pty(id, arg),
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
+				self.0.try_read_pty(id, arg),
 			)
 		}
 	}

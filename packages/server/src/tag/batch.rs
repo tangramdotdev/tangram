@@ -14,12 +14,17 @@ impl Server {
 	pub(crate) async fn post_tag_batch_with_context(
 		&self,
 		context: &Context,
-		mut arg: tg::tag::post::Arg,
+		arg: tg::tag::post::Arg,
 	) -> tg::Result<()> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			remote.post_tag_batch(arg).await?;
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
+			let arg = tg::tag::post::Arg {
+				local: None,
+				remotes: None,
+				tags: arg.tags,
+			};
+			client.post_tag_batch(arg).await?;
 			return Ok(());
 		}
 

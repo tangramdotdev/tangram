@@ -633,20 +633,23 @@ where
 		}
 	}
 
-	fn read_pipe(
+	fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
-	{
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+		>,
+	> {
 		match self {
 			Either::Left(s) => s
-				.read_pipe(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
+				.try_read_pipe(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			Either::Right(s) => s
-				.read_pipe(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
+				.try_read_pipe(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
 	}
@@ -712,20 +715,23 @@ where
 		}
 	}
 
-	fn read_pty(
+	fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
-	{
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
+		>,
+	> {
 		match self {
 			Either::Left(s) => s
-				.read_pty(id, arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
+				.try_read_pty(id, arg)
+				.map(|result| result.map(|opt| opt.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			Either::Right(s) => s
-				.read_pty(id, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
+				.try_read_pty(id, arg)
+				.map(|result| result.map(|opt| opt.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
 	}

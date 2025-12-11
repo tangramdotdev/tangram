@@ -20,16 +20,17 @@ impl Server {
 	pub(crate) async fn check_with_context(
 		&self,
 		context: &Context,
-		mut arg: tg::check::Arg,
+		arg: tg::check::Arg,
 	) -> tg::Result<tg::check::Output> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
 			let arg = tg::check::Arg {
-				remote: None,
-				..arg
+				local: None,
+				module: arg.module,
+				remotes: None,
 			};
-			let output = remote.check(arg).await?;
+			let output = client.check(arg).await?;
 			return Ok(output);
 		}
 

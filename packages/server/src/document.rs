@@ -20,16 +20,17 @@ impl Server {
 	pub(crate) async fn document_with_context(
 		&self,
 		context: &Context,
-		mut arg: tg::document::Arg,
+		arg: tg::document::Arg,
 	) -> tg::Result<serde_json::Value> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote.clone()).await?;
+		// Forward to remote if requested.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self.get_remote_client(remote).await?;
 			let arg = tg::document::Arg {
-				remote: None,
-				..arg
+				local: None,
+				module: arg.module,
+				remotes: None,
 			};
-			let output = remote.document(arg).await?;
+			let output = client.document(arg).await?;
 			return Ok(output);
 		}
 

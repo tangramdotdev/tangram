@@ -19,11 +19,11 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn read_pipe(
+	pub async fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
@@ -39,7 +39,7 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
 			if matches!(response.status(), http::StatusCode::NOT_FOUND) {
-				return Err(tg::error!(%id, "not found"));
+				return Ok(None);
 			}
 			let error = response
 				.json()
@@ -78,6 +78,6 @@ impl tg::Client {
 				},
 			}
 		});
-		Ok(stream)
+		Ok(Some(stream))
 	}
 }

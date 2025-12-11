@@ -185,7 +185,8 @@ impl Cli {
 			.collect::<Vec<_>>();
 		handle
 			.post_tag_batch(tg::tag::post::Arg {
-				remote: Some(remote.clone()),
+				local: None,
+				remotes: Some(vec![remote.clone()]),
 				tags: tags.clone(),
 			})
 			.await

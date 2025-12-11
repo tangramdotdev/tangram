@@ -1,34 +1,43 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _},
+	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	std::os::fd::AsFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{Body, request::Ext as _},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tokio_util::io::ReaderStream,
 };
 
 impl Server {
-	pub async fn read_pipe_with_context(
+	pub async fn try_read_pipe_with_context(
 		&self,
 		_context: &Context,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>> {
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
-			let arg = tg::pipe::read::Arg {
-				local: None,
-				remotes: None,
-			};
-			let stream = client.read_pipe(id, arg).await?;
-			return Ok(stream.left_stream());
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>>> {
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(stream) = self.try_read_pipe_local(id).await?
+		{
+			return Ok(Some(stream.left_stream()));
 		}
 
-		let pipe = self
-			.pipes
-			.get(id)
-			.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(stream) = self.try_read_pipe_remote(id, arg.clone(), &remotes).await? {
+			return Ok(Some(stream.right_stream()));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_read_pipe_local(
+		&self,
+		id: &tg::pipe::Id,
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>>> {
+		let Some(pipe) = self.pipes.get(id) else {
+			return Ok(None);
+		};
 		let fd = pipe
 			.receiver
 			.as_fd()
@@ -37,15 +46,44 @@ impl Server {
 		let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
 			.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
 
-		let stream = ReaderStream::new(receiver)
-			.map(|result| match result {
-				Ok(bytes) if bytes.is_empty() => Ok(tg::pipe::Event::End),
-				Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
-				Err(source) => Err(tg::error!(!source, "failed to read pipe")),
-			})
-			.right_stream();
+		let stream = ReaderStream::new(receiver).map(|result| match result {
+			Ok(bytes) if bytes.is_empty() => Ok(tg::pipe::Event::End),
+			Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
+			Err(source) => Err(tg::error!(!source, "failed to read pipe")),
+		});
 
-		Ok(stream)
+		Ok(Some(stream))
+	}
+
+	async fn try_read_pipe_remote(
+		&self,
+		id: &tg::pipe::Id,
+		_arg: tg::pipe::read::Arg,
+		remotes: &[String],
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>>> {
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::pipe::read::Arg {
+			local: None,
+			remotes: None,
+		};
+		let futures = remotes.iter().map(|remote| {
+			let arg = arg.clone();
+			async move {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client
+					.try_read_pipe(id, arg)
+					.await?
+					.ok_or_else(|| tg::error!("not found"))
+					.map(futures::StreamExt::boxed)
+			}
+			.boxed()
+		});
+		let Ok((stream, _)) = future::select_ok(futures).await else {
+			return Ok(None);
+		};
+		Ok(Some(stream))
 	}
 
 	pub(crate) async fn handle_read_pipe_request(
@@ -61,7 +99,9 @@ impl Server {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the stream.
-		let stream = self.read_pipe_with_context(context, &id, arg).await?;
+		let Some(stream) = self.try_read_pipe_with_context(context, &id, arg).await? else {
+			return Ok(http::Response::builder().not_found().empty().unwrap());
+		};
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

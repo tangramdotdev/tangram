@@ -1,42 +1,55 @@
 use {
 	crate::{Context, Server},
 	bytes::Bytes,
-	futures::{Stream, StreamExt as _, future, stream},
+	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
 	num::ToPrimitive,
 	std::os::fd::AsRawFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{Body, request::Ext as _},
+	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn read_pty_with_context(
+	pub async fn try_read_pty_with_context(
 		&self,
 		_context: &Context,
 		id: &tg::pty::Id,
-		mut arg: tg::pty::read::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			let stream = remote.read_pty(id, arg).await?.left_stream();
-			return Ok(stream);
+		arg: tg::pty::read::Arg,
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>>> {
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(stream) = self.try_read_pty_local(id, arg.clone()).await?
+		{
+			return Ok(Some(stream.left_stream()));
 		}
 
-		let pty = self
-			.ptys
-			.get_mut(id)
-			.ok_or_else(|| tg::error!("failed to get the pty"))?;
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(stream) = self.try_read_pty_remote(id, arg.clone(), &remotes).await? {
+			return Ok(Some(stream.right_stream()));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_read_pty_local(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>>> {
+		let Some(pty) = self.ptys.get_mut(id) else {
+			return Ok(None);
+		};
 		let fd = if arg.master {
-			pty.master
-				.as_ref()
-				.ok_or_else(|| tg::error!("the pty master is closed"))?
-				.as_raw_fd()
+			let Some(master) = pty.master.as_ref() else {
+				return Err(tg::error!("the pty master is closed"));
+			};
+			master.as_raw_fd()
 		} else {
-			pty.slave
-				.as_ref()
-				.ok_or_else(|| tg::error!("the pty slave is closed"))?
-				.as_raw_fd()
+			let Some(slave) = pty.slave.as_ref() else {
+				return Err(tg::error!("the pty slave is closed"));
+			};
+			slave.as_raw_fd()
 		};
 		drop(pty);
 
@@ -69,10 +82,41 @@ impl Server {
 			};
 			Ok::<_, tg::Error>(Some((bytes, fd)))
 		})
-		.chain(stream::once(future::ok(tg::pty::Event::End)))
-		.right_stream();
+		.chain(stream::once(future::ok(tg::pty::Event::End)));
 
-		Ok(stream)
+		Ok(Some(stream))
+	}
+
+	async fn try_read_pty_remote(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+		remotes: &[String],
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>>> {
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::pty::read::Arg {
+			local: None,
+			remotes: None,
+			..arg
+		};
+		let futures = remotes.iter().map(|remote| {
+			let arg = arg.clone();
+			async move {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client
+					.try_read_pty(id, arg)
+					.await?
+					.ok_or_else(|| tg::error!("not found"))
+					.map(futures::StreamExt::boxed)
+			}
+			.boxed()
+		});
+		let Ok((stream, _)) = future::select_ok(futures).await else {
+			return Ok(None);
+		};
+		Ok(Some(stream))
 	}
 
 	pub(crate) async fn handle_read_pty_request(
@@ -88,7 +132,9 @@ impl Server {
 		let arg = request.query_params().transpose()?.unwrap_or_default();
 
 		// Get the stream.
-		let stream = self.read_pty_with_context(context, &id, arg).await?;
+		let Some(stream) = self.try_read_pty_with_context(context, &id, arg).await? else {
+			return Ok(http::Response::builder().not_found().empty().unwrap());
+		};
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

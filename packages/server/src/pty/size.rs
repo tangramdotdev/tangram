@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server},
+	futures::{FutureExt as _, future},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -7,16 +8,32 @@ use {
 };
 
 impl Server {
-	pub async fn get_pty_size_with_context(
+	pub async fn try_get_pty_size_with_context(
 		&self,
 		_context: &Context,
 		id: &tg::pty::Id,
-		mut arg: tg::pty::read::Arg,
+		arg: tg::pty::read::Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
-		if let Some(remote) = arg.remote.take() {
-			let remote = self.get_remote_client(remote).await?;
-			return remote.get_pty_size(id, arg).await;
+		// Try local first if requested.
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(size) = self.try_get_pty_size_local(id).await?
+		{
+			return Ok(Some(size));
 		}
+
+		// Try remotes.
+		let remotes = self.remotes(arg.remotes.clone()).await?;
+		if let Some(size) = self
+			.try_get_pty_size_remote(id, arg.clone(), &remotes)
+			.await?
+		{
+			return Ok(Some(size));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_get_pty_size_local(&self, id: &tg::pty::Id) -> tg::Result<Option<tg::pty::Size>> {
 		let connection = self
 			.database
 			.connection()
@@ -46,6 +63,34 @@ impl Server {
 		Ok(Some(row.size))
 	}
 
+	async fn try_get_pty_size_remote(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+		remotes: &[String],
+	) -> tg::Result<Option<tg::pty::Size>> {
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::pty::read::Arg {
+			local: None,
+			remotes: None,
+			..arg
+		};
+		let futures = remotes.iter().map(|remote| {
+			let arg = arg.clone();
+			async move {
+				let client = self.get_remote_client(remote.clone()).await?;
+				client.get_pty_size(id, arg).await
+			}
+			.boxed()
+		});
+		let Ok((size, _)) = future::select_ok(futures).await else {
+			return Ok(None);
+		};
+		Ok(size)
+	}
+
 	pub(crate) async fn handle_get_pty_size_request(
 		&self,
 		request: http::Request<Body>,
@@ -58,7 +103,9 @@ impl Server {
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
-		let output = self.get_pty_size_with_context(context, &id, arg).await?;
+		let output = self
+			.try_get_pty_size_with_context(context, &id, arg)
+			.await?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

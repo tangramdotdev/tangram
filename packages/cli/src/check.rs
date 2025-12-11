@@ -4,6 +4,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub local: crate::util::args::Local,
+
 	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
 	pub locked: bool,
@@ -11,9 +14,8 @@ pub struct Args {
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 
-	#[expect(clippy::option_option)]
-	#[arg(long, require_equals = true, short)]
-	pub remote: Option<Option<String>>,
+	#[command(flatten)]
+	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -24,14 +26,13 @@ impl Cli {
 		let module = self.get_module(&args.reference).await?;
 		let (referent, _) = module.referent.clone().replace(());
 
-		// Get the remote.
-		let remote = args
-			.remote
-			.map(|option| option.unwrap_or_else(|| "default".to_owned()));
-
 		// Check the module.
 		let module = module.to_data();
-		let arg = tg::check::Arg { module, remote };
+		let arg = tg::check::Arg {
+			local: args.local.local,
+			module,
+			remotes: args.remotes.remotes,
+		};
 		let output = handle.check(arg).await?;
 		let success = !output
 			.diagnostics

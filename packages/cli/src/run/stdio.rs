@@ -177,19 +177,22 @@ where
 				remotes: remote.map(|r| vec![r]),
 			};
 			handle
-				.read_pipe(id, arg)
+				.try_read_pipe(id, arg)
 				.await?
+				.ok_or_else(|| tg::error!("pipe not found"))?
 				.try_filter_map(|event| future::ok(event.try_unwrap_chunk().ok()))
 				.left_stream()
 		},
 		tg::process::Stdio::Pty(id) => {
 			let arg = tg::pty::read::Arg {
+				local: None,
 				master: true,
-				remote,
+				remotes: remote.map(|r| vec![r]),
 			};
 			handle
-				.read_pty(id, arg)
+				.try_read_pty(id, arg)
 				.await?
+				.ok_or_else(|| tg::error!("pty not found"))?
 				.try_filter_map(|event| future::ok(event.try_unwrap_chunk().ok()))
 				.right_stream()
 		},

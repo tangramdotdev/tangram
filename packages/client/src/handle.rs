@@ -332,12 +332,14 @@ pub trait Pipe: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pipe::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn read_pipe(
+	fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+		>,
 	> + Send;
 
 	fn write_pipe(
@@ -372,12 +374,14 @@ pub trait Pty: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pty::read::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> + Send;
 
-	fn read_pty(
+	fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
+		>,
 	> + Send;
 
 	fn write_pty(
@@ -842,13 +846,16 @@ impl tg::handle::Pipe for tg::Client {
 		self.delete_pipe(id, arg)
 	}
 
-	fn read_pipe(
+	fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>>
-	{
-		self.read_pipe(id, arg)
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_read_pipe(id, arg)
 	}
 
 	fn write_pipe(
@@ -893,13 +900,16 @@ impl tg::handle::Pty for tg::Client {
 		self.get_pty_size(id, arg)
 	}
 
-	fn read_pty(
+	fn try_read_pty(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
-	) -> impl Future<Output = tg::Result<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>>
-	{
-		self.read_pty(id, arg)
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
+		>,
+	> {
+		self.try_read_pty(id, arg)
 	}
 
 	fn write_pty(

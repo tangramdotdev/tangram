@@ -272,10 +272,11 @@ impl Server {
 			commands: arg.commands,
 			eager: arg.eager,
 			get: Vec::new(),
+			local: None,
 			outputs: arg.outputs,
 			put: Vec::new(),
 			recursive: arg.recursive,
-			remote: None,
+			remotes: None,
 		};
 		let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
 		let push_output_stream = src
@@ -288,10 +289,11 @@ impl Server {
 			commands: arg.commands,
 			eager: arg.eager,
 			get: arg.items.clone(),
+			local: None,
 			outputs: arg.outputs,
 			put: Vec::new(),
 			recursive: arg.recursive,
-			remote: None,
+			remotes: None,
 		};
 		let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
 		let pull_output_stream = dst
