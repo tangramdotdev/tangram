@@ -10,9 +10,6 @@ export def test [...args] {
 	# Create a dummy server.
 	let dummy_server = spawn -n local
 
-	# Add the remote to the local server.
-	tg remote put default $remote_server.url
-
 	let path = artifact {
 		tangram.ts: '
 			export default () => {
@@ -48,23 +45,34 @@ export def test [...args] {
 	let output = tg -u $local_server.url get $fil_id | complete
 	failure $output
 
+	# Index.
+	tg -u $local_server.url index
+	tg -u $remote_server.url index
+
 	# Add the remote to the local server.
 	tg -u $local_server.url remote put default $remote_server.url
 
 	# Push the directory
 	tg -u $local_server.url push $dir_id ...$args
 
+	# Remvoe the remote from the local server.
+	tg -u $local_server.url remote delete default
+
+	# Confirm the file is not on the local server.
+	let output = tg -u $local_server.url get $fil_id | complete
+	failure $output
+
 	# Confirm the object is on the remote and the same.
-	let local_object = tg -u $local_server.url get $dir_id --blobs --depth=inf --pretty
+	let dummy_object = tg -u $dummy_server.url get $dir_id --blobs --depth=inf --pretty
 	let remote_object = tg --url $remote_server.url get $dir_id --blobs --depth=inf --pretty
-	assert equal $local_object $remote_object
+	assert equal $dummy_object $remote_object
 
 	# Index.
-	tg -u $local_server.url index
+	tg -u $dummy_server.url index
 	tg -u $remote_server.url index
 
-	# Confirm metadata matches.
-	let local_metadata = tg -u $local_server.url object metadata $id --pretty
+	# Confirm the metadata matches.
+	let dummy_metadata = tg -u $dummy_server.url object metadata $id --pretty
 	let remote_metadata = tg -u $remote_server.url object metadata $id --pretty
-	assert equal $local_metadata $remote_metadata
+	assert equal $dummy_metadata $remote_metadata
 }

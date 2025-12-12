@@ -37,14 +37,32 @@ let blobs = $files | each { |fil_id|
 # Put the directory to the local server.
 tg -u $dummy_server.url get --bytes $dir_id | tg -u $local_server.url put --bytes -k dir
 
-# Put all files to the local server.
-for fil_id in $files {
-	tg -u $dummy_server.url get --bytes $fil_id | tg -u $local_server.url put --bytes -k fil
+# Put half of the files to the local server, half to the remote server (intermediate missing).
+let file_count = $files | length
+let half_files = ($file_count / 2 | math floor)
+for i in 0..<$file_count {
+	let fil_id = $files | get $i
+	if $i < $half_files {
+		# Put to local server.
+		tg -u $dummy_server.url get --bytes $fil_id | tg -u $local_server.url put --bytes -k fil
+	} else {
+		# Put to remote server (intermediate missing locally).
+		tg -u $dummy_server.url get --bytes $fil_id | tg -u $remote_server.url put --bytes -k fil
+	}
 }
 
-# Put all blobs to the remote server.
-for blb_id in $blobs {
-	tg -u $dummy_server.url get --bytes $blb_id | tg -u $remote_server.url put --bytes -k blob
+# Put half of the blobs to the local server, half to the remote server (leaf missing).
+let blob_count = $blobs | length
+let half_blobs = ($blob_count / 2 | math floor)
+for i in 0..<$blob_count {
+	let blb_id = $blobs | get $i
+	if $i < $half_blobs {
+		# Put to local server.
+		tg -u $dummy_server.url get --bytes $blb_id | tg -u $local_server.url put --bytes -k blob
+	} else {
+		# Put to remote server (leaf missing locally).
+		tg -u $dummy_server.url get --bytes $blb_id | tg -u $remote_server.url put --bytes -k blob
+	}
 }
 
 # Index.

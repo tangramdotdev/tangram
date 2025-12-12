@@ -53,9 +53,6 @@ impl Server {
 			sender,
 		});
 
-		// Initialize the counter to 1.
-		state.queue.increment(1);
-
 		// Enqueue the items.
 		for item in &state.arg.put {
 			match item {

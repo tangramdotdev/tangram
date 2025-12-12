@@ -69,8 +69,6 @@ impl Server {
 		state: &State,
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
-		let n = items.len();
-
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
@@ -100,9 +98,6 @@ impl Server {
 					if requested {
 						continue;
 					}
-					if !item.eager {
-						state.queue.increment(1);
-					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Object(
 						tg::sync::GetItemObjectMessage {
 							id: item.id.clone(),
@@ -126,6 +121,7 @@ impl Server {
 						None,
 						None,
 					);
+
 					if stored.subtree {
 						// If the object is stored, then send a stored message.
 						let message = tg::sync::GetMessage::Stored(
@@ -146,14 +142,27 @@ impl Server {
 							.ok_or_else(|| tg::error!("expected the object to exist"))?
 							.bytes;
 						let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+
+						// Update the graph with data.
+						state.graph.lock().unwrap().update_object(
+							&item.id,
+							Some(&data),
+							None,
+							None,
+							None,
+							None,
+						);
+
 						Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
 					}
 				},
 			}
 		}
 
-		// Decrement the counter.
-		state.queue.decrement(n);
+		let end = state.graph.lock().unwrap().end(&state.arg);
+		if end {
+			state.queue.close();
+		}
 
 		Ok(())
 	}
@@ -163,8 +172,6 @@ impl Server {
 		state: &State,
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
-		let n = items.len();
-
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
@@ -194,9 +201,6 @@ impl Server {
 					if requested {
 						continue;
 					}
-					if !item.eager {
-						state.queue.increment(1);
-					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(
 						tg::sync::GetItemProcessMessage {
 							id: item.id.clone(),
@@ -212,21 +216,22 @@ impl Server {
 
 				// If the process is present, then enqueue children and objects as necessary, and send a stored message if necessary.
 				Some((stored, metadata)) => {
-					// Update the graph with stored and metadata.
-					state.graph.lock().unwrap().update_process(
-						&item.id,
-						None,
-						Some(stored.clone()),
-						Some(metadata.clone()),
-						None,
-						None,
-					);
 					// Get the process.
 					let data = self
 						.try_get_process_local(&item.id)
 						.await?
 						.ok_or_else(|| tg::error!("expected the process to exist"))?
 						.data;
+
+					// Update the graph with stored and metadata and data.
+					state.graph.lock().unwrap().update_process(
+						&item.id,
+						Some(&data),
+						Some(stored.clone()),
+						Some(metadata.clone()),
+						None,
+						None,
+					);
 
 					// Enqueue the children as necessary.
 					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored));
@@ -252,8 +257,10 @@ impl Server {
 			}
 		}
 
-		// Decrement the counter.
-		state.queue.decrement(n);
+		let end = state.graph.lock().unwrap().end(&state.arg);
+		if end {
+			state.queue.close();
+		}
 
 		Ok(())
 	}

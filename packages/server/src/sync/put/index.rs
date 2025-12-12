@@ -65,7 +65,6 @@ impl Server {
 		state: &State,
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
-		state.queue.decrement(items.len());
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
 		let outputs = self.try_get_object_stored_and_metadata_batch(&ids).await?;
 		for output in outputs {
@@ -85,7 +84,6 @@ impl Server {
 		state: &State,
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
-		state.queue.decrement(items.len());
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
 		let outputs = self.try_get_process_stored_and_metadata_batch(&ids).await?;
 		for output in outputs {
