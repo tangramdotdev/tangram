@@ -8,6 +8,7 @@ declare interface ImportMeta {
 	module: tg.Module;
 }
 
+// @ts-expect-error
 declare let console: {
 	/** Write to stdout. */
 	log: (...args: Array<unknown>) => void;
