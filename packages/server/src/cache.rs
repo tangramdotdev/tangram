@@ -1,6 +1,9 @@
 use {
 	crate::{Context, Server, temp::Temp},
-	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{
+		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+		stream,
+	},
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	std::{
@@ -381,23 +384,37 @@ impl Server {
 			}
 
 			// Publish the put cache entry index message.
-			tokio::spawn({
-				let server = self.clone();
-				let id = id.clone();
-				let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-				async move {
-					let message = crate::index::Message::PutCacheEntry(
-						crate::index::message::PutCacheEntry { id, touched_at },
-					);
-					let message = message.serialize()?;
-					let _published = server
-						.messenger
-						.stream_publish("index".to_owned(), message)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
-					Ok::<_, tg::Error>(())
-				}
-			});
+			let id = id.clone();
+			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+			let message =
+				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
+					id,
+					touched_at,
+				});
+			let message = message.serialize()?;
+			self.tasks
+				.spawn(|_| {
+					let server = self.clone();
+					async move {
+						let result = server
+							.messenger
+							.stream_publish("index".to_owned(), message)
+							.map_err(|source| tg::error!(!source, "failed to publish the message"))
+							.and_then(|future| {
+								future.map_err(|source| {
+									tg::error!(!source, "failed to publish the message")
+								})
+							})
+							.await;
+						if let Err(error) = result {
+							tracing::error!(
+								?error,
+								"failed to publish the put object index message"
+							);
+						}
+					}
+				})
+				.detach();
 
 			Ok(())
 		}

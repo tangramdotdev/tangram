@@ -47,13 +47,13 @@ impl Server {
 	}
 
 	pub(crate) fn put_process_batch_sqlite_sync(
-		connection: &sqlite::Connection,
+		connection: &mut sqlite::Connection,
 		items: &[(tg::process::Id, tg::process::Data)],
 		touched_at: i64,
 	) -> tg::Result<()> {
 		// Begin a transaction.
 		let transaction = connection
-			.unchecked_transaction()
+			.transaction()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Prepare the process insert statement.

@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server, database::Database},
+	futures::TryFutureExt as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
@@ -45,7 +46,7 @@ impl Server {
 			},
 		}
 
-		// Publish the put process index message.
+		// Spawn a task to publish the put process index message.
 		let children = arg
 			.data
 			.children
@@ -75,11 +76,26 @@ impl Server {
 			touched_at: now,
 		});
 		let message = message.serialize()?;
-		let _published = self
-			.messenger
-			.stream_publish("index".to_owned(), message)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		self.tasks
+			.spawn(|_| {
+				let server = self.clone();
+				async move {
+					let result = server
+						.messenger
+						.stream_publish("index".to_owned(), message)
+						.map_err(|source| tg::error!(!source, "failed to publish the message"))
+						.and_then(|future| {
+							future.map_err(|source| {
+								tg::error!(!source, "failed to publish the message")
+							})
+						})
+						.await;
+					if let Err(error) = result {
+						tracing::error!(?error, "failed to publish the put process index message");
+					}
+				}
+			})
+			.detach();
 
 		Ok(())
 	}
