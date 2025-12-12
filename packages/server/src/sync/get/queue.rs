@@ -69,8 +69,6 @@ impl Server {
 		state: &State,
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
-		let n = items.len();
-
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
@@ -99,9 +97,6 @@ impl Server {
 					};
 					if requested {
 						continue;
-					}
-					if !item.eager {
-						state.queue.increment(1);
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Object(
 						tg::sync::GetItemObjectMessage {
@@ -152,13 +147,10 @@ impl Server {
 			}
 		}
 
-		// Decrement the counter.
-		state.queue.decrement(n);
-
 		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
 		if end {
-			dbg!("All roots complete");
 			tracing::trace!("All roots complete");
+			state.queue.close();
 		}
 
 		Ok(())
@@ -169,8 +161,6 @@ impl Server {
 		state: &State,
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
-		let n = items.len();
-
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
@@ -199,9 +189,6 @@ impl Server {
 					};
 					if requested {
 						continue;
-					}
-					if !item.eager {
-						state.queue.increment(1);
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(
 						tg::sync::GetItemProcessMessage {
@@ -258,13 +245,10 @@ impl Server {
 			}
 		}
 
-		// Decrement the counter.
-		state.queue.decrement(n);
-
 		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
 		if end {
-			dbg!("All roots complete");
 			tracing::trace!("All roots complete");
+			state.queue.close();
 		}
 
 		Ok(())

@@ -519,7 +519,7 @@ impl Graph {
 		// Iterate each root and determine if it is stored.
 		self.roots.iter().all(|root| {
 			let node = self.nodes.get(root).unwrap();
-			let stored = match node {
+			match node {
 				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
 				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| {
 					if arg.recursive {
@@ -531,8 +531,7 @@ impl Graph {
 							&& (!arg.outputs || stored.node_output)
 					}
 				}),
-			};
-			stored
+			}
 		})
 	}
 

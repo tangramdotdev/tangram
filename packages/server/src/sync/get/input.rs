@@ -41,9 +41,6 @@ impl Server {
 							message.bytes.as_ref(),
 						)?;
 						Self::sync_get_enqueue_object_children(state, &message.id, &data, None);
-
-						// Decrement the queue counter.
-						state.queue.decrement(1);
 					}
 
 					// Send to the store task.
@@ -91,9 +88,6 @@ impl Server {
 							&data,
 							stored.as_ref(),
 						);
-
-						// Decrement the queue counter.
-						state.queue.decrement(1);
 					}
 
 					// Send to the store task.

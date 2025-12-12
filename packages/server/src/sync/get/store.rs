@@ -1,7 +1,7 @@
 use {
 	crate::{Server, database::Database, store::Store, sync::get::State},
 	bytes::Bytes,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{StreamExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_store::prelude::*,
@@ -47,57 +47,21 @@ impl Server {
 			#[cfg(feature = "scylla")]
 			Store::Scylla(_) => &self.config.sync.get.store.scylla,
 		};
-		let concurrency = store_config.object_concurrency;
-		let max_objects_per_batch = store_config.object_max_batch;
-		let max_bytes_per_batch = store_config.object_max_bytes;
-
-		// Create a stream of batches.
-		struct State_ {
-			item: Option<ObjectItem>,
-			object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
-		}
-		let state_ = State_ {
-			item: None,
-			object_receiver,
-		};
-		let stream = stream::unfold(state_, |mut state| async {
-			let mut batch_bytes = state
-				.item
-				.as_ref()
-				.map(|item| item.bytes.len().to_u64().unwrap())
-				.unwrap_or_default();
-			let mut batch = state.item.take().map(|item| vec![item]).unwrap_or_default();
-			while let Some(item) = state.object_receiver.recv().await {
-				let size = item.bytes.len().to_u64().unwrap();
-				if !batch.is_empty()
-					&& (batch.len() + 1 >= max_objects_per_batch
-						|| batch_bytes + size >= max_bytes_per_batch)
-				{
-					state.item.replace(item);
-					return Some((batch, state));
-				}
-				batch_bytes += 100 + size;
-				batch.push(item);
-			}
-			if batch.is_empty() {
-				return None;
-			}
-			Some((batch, state))
-		});
+		let object_batch_size = store_config.object_max_batch;
+		let object_batch_timeout = store_config.object_batch_timeout;
+		let object_concurrency = store_config.object_concurrency;
 
 		// Store the batches.
-		stream
-			.map(Ok)
-			.try_for_each_concurrent(concurrency, move |batch| async {
-				self.sync_get_store_objects_inner(state, batch).await
-			})
-			.await?;
-
-		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
-		if end {
-			dbg!("All roots complete");
-			tracing::trace!("All roots complete");
-		}
+		tokio_stream::StreamExt::chunks_timeout(
+			ReceiverStream::new(object_receiver),
+			object_batch_size,
+			object_batch_timeout,
+		)
+		.map(Ok)
+		.try_for_each_concurrent(object_concurrency, |batch| async {
+			self.sync_get_store_objects_inner(state, batch).await
+		})
+		.await?;
 
 		Ok(())
 	}
@@ -180,6 +144,12 @@ impl Server {
 		state.progress.increment_objects(objects);
 		state.progress.increment_bytes(bytes);
 
+		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
+		if end {
+			tracing::trace!("All roots complete");
+			state.queue.close();
+		}
+
 		Ok(())
 	}
 
@@ -251,8 +221,8 @@ impl Server {
 
 		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
 		if end {
-			dbg!("All roots complete");
 			tracing::trace!("All roots complete");
+			state.queue.close();
 		}
 
 		Ok(())

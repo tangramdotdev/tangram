@@ -356,12 +356,26 @@ pub struct SyncGetStore {
 	pub scylla: SyncGetStoreObject,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetStoreObject {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub object_batch_timeout: Duration,
 	pub object_concurrency: usize,
 	pub object_max_batch: usize,
 	pub object_max_bytes: u64,
+}
+
+impl Default for SyncGetStoreObject {
+	fn default() -> Self {
+		Self {
+			object_batch_timeout: Duration::ZERO,
+			object_concurrency: 1,
+			object_max_batch: 1_000,
+			object_max_bytes: 1_000_000,
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -643,16 +657,19 @@ impl Default for SyncGetStore {
 	fn default() -> Self {
 		Self {
 			fdb: SyncGetStoreObject {
+				object_batch_timeout: Duration::ZERO,
 				object_concurrency: 64,
 				object_max_batch: 1_000,
 				object_max_bytes: 1_000_000,
 			},
 			lmdb: SyncGetStoreObject {
+				object_batch_timeout: Duration::ZERO,
 				object_concurrency: 1,
 				object_max_batch: 1_000,
 				object_max_bytes: 1_000_000,
 			},
 			memory: SyncGetStoreObject {
+				object_batch_timeout: Duration::ZERO,
 				object_concurrency: 1,
 				object_max_batch: 1,
 				object_max_bytes: u64::MAX,
@@ -661,11 +678,13 @@ impl Default for SyncGetStore {
 			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
 			s3: SyncGetStoreObject {
+				object_batch_timeout: Duration::ZERO,
 				object_concurrency: 256,
 				object_max_batch: 1,
 				object_max_bytes: u64::MAX,
 			},
 			scylla: SyncGetStoreObject {
+				object_batch_timeout: Duration::ZERO,
 				object_concurrency: 64,
 				object_max_batch: 1_000,
 				object_max_bytes: 65_536,
