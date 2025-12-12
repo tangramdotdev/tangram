@@ -93,6 +93,11 @@ impl Server {
 			})
 			.await?;
 
+		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
+		if end {
+			tracing::trace!("All roots complete");
+		}
+
 		Ok(())
 	}
 

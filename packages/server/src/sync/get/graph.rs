@@ -189,17 +189,9 @@ impl Graph {
 			.as_ref()
 			.is_some_and(|stored| stored.subtree);
 		let new_stored = node.stored.as_ref().is_some_and(|stored| stored.subtree);
-		tracing::trace!(id=?id, old_stored, new_stored, "hello");
 		// Propagate subtree stored.
 		if !old_stored && new_stored {
-			tracing::trace!(id=?id, "propagating stored for node");
-
 			// Check if this node is a root that just completed.
-			let node_id = Id::Object(id.clone());
-			if self.roots.contains(&node_id) {
-				tracing::trace!(%id, "root is now complete");
-			}
-
 			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
 			while let Some(parent_index) = stack.pop() {
 				// Get parent info, cloning what we need so we can release the borrow.
@@ -242,14 +234,6 @@ impl Graph {
 				}
 			}
 		}
-		let complete = self.roots.iter().all(|root| {
-			let node = self.nodes.get(root).unwrap();
-			match node {
-				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
-				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
-			}
-		});
-		tracing::trace!(complete, "checked if sync is complete");
 	}
 
 	pub fn update_process(
@@ -341,6 +325,26 @@ impl Graph {
 		if let Some(requested) = requested {
 			node.requested = Some(requested);
 		}
+	}
+
+	pub fn get_roots_stored(&self, arg: &tg::sync::Arg) -> bool {
+		// Iterate each root and determine if it is stored.
+		self.roots.iter().all(|root| {
+			let node = self.nodes.get(root).unwrap();
+			match node {
+				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
+				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| {
+					if arg.recursive {
+						stored.subtree
+							&& (!arg.commands || stored.subtree_command)
+							&& (!arg.outputs || stored.subtree_output)
+					} else {
+						(!arg.commands || stored.node_command)
+							&& (!arg.outputs || stored.node_output)
+					}
+				}),
+			}
+		})
 	}
 
 	pub fn get_process_stored(
