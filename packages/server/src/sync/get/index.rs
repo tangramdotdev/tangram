@@ -113,15 +113,33 @@ impl Server {
 				// If the object's subtree is not stored, then enqueue the children.
 				let stored = output.as_ref().is_some_and(|(stored, _)| stored.subtree);
 				if !stored {
+					// Get the object.
 					let bytes = self
 						.try_get_object_local(&item.id)
 						.await?
 						.ok_or_else(|| tg::error!("expected the object to exist"))?
 						.bytes;
 					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+
+					// Update the graph.
+					state.graph.lock().unwrap().update_object(
+						&item.id,
+						Some(&data),
+						None,
+						None,
+						None,
+						None,
+					);
+
+					// Enqueue the children.
 					Self::sync_get_enqueue_object_children(state, &item.id, &data, None);
 				}
 			}
+		}
+
+		let end = state.graph.lock().unwrap().end(&state.arg);
+		if end {
+			state.queue.close();
 		}
 
 		Ok(())
@@ -177,14 +195,31 @@ impl Server {
 					return Err(tg::error!(id = %item.id, "failed to find the process"));
 				};
 
-				// Enqueue the children as necessary.
+				// Get the process.
 				let data = self
 					.try_get_process_local(&item.id)
 					.await?
 					.ok_or_else(|| tg::error!("expected the process to exist"))?
 					.data;
+
+				// Update the graph.
+				state.graph.lock().unwrap().update_process(
+					&item.id,
+					Some(&data),
+					None,
+					None,
+					None,
+					None,
+				);
+
+				// Enqueue the children.
 				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&stored));
 			}
+		}
+
+		let end = state.graph.lock().unwrap().end(&state.arg);
+		if end {
+			state.queue.close();
 		}
 
 		Ok(())
@@ -230,15 +265,12 @@ impl Server {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
 				Node::Object(node) => {
-					if node.stored.is_some() && node.metadata.is_some() {
+					let Some(children) = &node.children else {
 						continue;
-					}
+					};
 					let Some(metadata) = &node.metadata else {
 						continue;
 					};
-
-					// Initialize the stored output.
-					let mut stored = true;
 
 					// Initialize the metadata from existing node metadata.
 					let mut metadata = tg::object::Metadata {
@@ -257,94 +289,96 @@ impl Server {
 					};
 
 					// Handle each child.
-					if let Some(children) = &node.children {
-						for child_index in children {
-							let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-							let child_node = child_node
-								.try_unwrap_object_ref()
-								.ok()
-								.ok_or_else(|| tg::error!("expected an object"))?;
-							stored =
-								stored && child_node.stored.clone().unwrap_or_default().subtree;
-							metadata.subtree.count = metadata
-								.subtree
-								.count
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.count),
-								)
-								.map(|(a, b)| a + b);
-							metadata.subtree.depth = metadata
-								.subtree
-								.depth
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.depth),
-								)
-								.map(|(a, b)| a.max(1 + b));
-							metadata.subtree.size = metadata
-								.subtree
-								.size
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.size),
-								)
-								.map(|(a, b)| a + b);
-							metadata.subtree.solvable = metadata
-								.subtree
-								.solvable
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.solvable),
-								)
-								.map(|(a, b)| a || b);
-							metadata.subtree.solved = metadata
-								.subtree
-								.solved
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.solved),
-								)
-								.map(|(a, b)| a && b);
-						}
-					} else {
-						stored = false;
-						metadata = tg::object::Metadata::default();
+					for child_index in children {
+						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
+						let child_node = child_node
+							.try_unwrap_object_ref()
+							.ok()
+							.ok_or_else(|| tg::error!("expected an object"))?;
+						metadata.subtree.count = metadata
+							.subtree
+							.count
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.depth = metadata
+							.subtree
+							.depth
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.depth),
+							)
+							.map(|(a, b)| a.max(1 + b));
+						metadata.subtree.size = metadata
+							.subtree
+							.size
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.size),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.solvable = metadata
+							.subtree
+							.solvable
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.solvable),
+							)
+							.map(|(a, b)| a || b);
+						metadata.subtree.solved = metadata
+							.subtree
+							.solved
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.solved),
+							)
+							.map(|(a, b)| a && b);
 					}
 
 					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
 					let node = node.unwrap_object_mut();
-					node.stored = Some(crate::object::stored::Output { subtree: stored });
 					node.metadata = Some(metadata);
 				},
 
 				Node::Process(node) => {
-					if node.stored.is_some() && node.metadata.is_some() {
+					let Some(children) = &node.children else {
 						continue;
-					}
-
-					// Initialize the stored output.
-					let mut stored = crate::process::stored::Output {
-						subtree: true,
-						subtree_command: true,
-						subtree_output: true,
-						node_command: true,
-						node_output: true,
+					};
+					let Some(objects) = &node.objects else {
+						continue;
 					};
 
 					// Initialize the metadata.
 					let mut metadata = tg::process::Metadata {
+						node: tg::process::metadata::Node {
+							command: tg::object::metadata::Subtree {
+								count: None,
+								depth: None,
+								size: None,
+								solvable: None,
+								solved: None,
+							},
+							output: tg::object::metadata::Subtree {
+								count: Some(0),
+								depth: Some(0),
+								size: Some(0),
+								solvable: None,
+								solved: None,
+							},
+						},
 						subtree: tg::process::metadata::Subtree {
 							count: Some(1),
 							command: tg::object::metadata::Subtree {
@@ -362,204 +396,224 @@ impl Server {
 								solved: None,
 							},
 						},
-						node: tg::process::metadata::Node {
-							command: tg::object::metadata::Subtree {
-								count: None,
-								depth: None,
-								size: None,
-								solvable: None,
-								solved: None,
-							},
-							output: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-						},
 					};
 
 					// Handle the children.
-					if let Some(children) = &node.children {
-						for child_index in children {
-							let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-							let child_node =
-								child_node.try_unwrap_process_ref().ok().ok_or_else(|| {
-									tg::error!("all children of processes must be processes")
-								})?;
-							stored.subtree = stored.subtree
-								&& child_node
-									.stored
+					for child_index in children {
+						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
+						let child_node =
+							child_node.try_unwrap_process_ref().ok().ok_or_else(|| {
+								tg::error!("all children of processes must be processes")
+							})?;
+						metadata.subtree.count = metadata
+							.subtree
+							.count
+							.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
+							.map(|(a, b)| a + b);
+
+						// Aggregate child process's subtree command metadata.
+						metadata.subtree.command.count = metadata
+							.subtree
+							.command
+							.count
+							.zip(
+								child_node
+									.metadata
 									.as_ref()
-									.is_some_and(|stored| stored.subtree);
-							metadata.subtree.count = metadata
-								.subtree
-								.count
-								.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
-								.map(|(a, b)| a + b);
-							stored.subtree_command = stored.subtree_command
-								&& child_node
-									.stored
+									.and_then(|m| m.subtree.command.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.command.depth = metadata
+							.subtree
+							.command
+							.depth
+							.zip(
+								child_node
+									.metadata
 									.as_ref()
-									.is_some_and(|stored| stored.subtree_command);
-							stored.subtree_output = stored.subtree_output
-								&& child_node
-									.stored
+									.and_then(|m| m.subtree.command.depth),
+							)
+							.map(|(a, b)| a.max(b));
+						metadata.subtree.command.size = metadata
+							.subtree
+							.command
+							.size
+							.zip(
+								child_node
+									.metadata
 									.as_ref()
-									.is_some_and(|stored| stored.subtree_output);
-						}
-					} else {
-						stored = crate::process::stored::Output::default();
-						metadata = tg::process::Metadata::default();
+									.and_then(|m| m.subtree.command.size),
+							)
+							.map(|(a, b)| a + b);
+
+						// Aggregate child process's subtree output metadata.
+						metadata.subtree.output.count = metadata
+							.subtree
+							.output
+							.count
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.output.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.output.depth = metadata
+							.subtree
+							.output
+							.depth
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.output.depth),
+							)
+							.map(|(a, b)| a.max(b));
+						metadata.subtree.output.size = metadata
+							.subtree
+							.output
+							.size
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.output.size),
+							)
+							.map(|(a, b)| a + b);
 					}
 
 					// Handle the objects.
-					if let Some(objects) = &node.objects {
-						for (object_index, object_kind) in objects {
-							let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
-							let object_node = object_node
-								.try_unwrap_object_ref()
-								.ok()
-								.ok_or_else(|| tg::error!("expected an object"))?;
-							match object_kind {
-								ProcessObjectKind::Command => {
-									stored.node_command =
-										object_node.stored.clone().unwrap_or_default().subtree;
-									metadata.node.command.count = object_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.count);
-									metadata.node.command.depth = object_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.depth);
-									metadata.node.command.size = object_node
-										.metadata
-										.as_ref()
-										.and_then(|metadata| metadata.subtree.size);
+					for (object_index, object_kind) in objects {
+						let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
+						let object_node = object_node
+							.try_unwrap_object_ref()
+							.ok()
+							.ok_or_else(|| tg::error!("expected an object"))?;
+						match object_kind {
+							ProcessObjectKind::Command => {
+								metadata.node.command.count = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.count);
+								metadata.node.command.depth = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.depth);
+								metadata.node.command.size = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.size);
 
-									stored.subtree_command = stored.subtree_command
-										&& object_node.stored.clone().unwrap_or_default().subtree;
-									metadata.subtree.command.count = metadata
-										.subtree
-										.command
-										.count
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.count),
-										)
-										.map(|(a, b)| a + b);
-									metadata.subtree.command.depth = metadata
-										.subtree
-										.command
-										.depth
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.depth),
-										)
-										.map(|(a, b)| a.max(b));
-									metadata.subtree.command.size = metadata
-										.subtree
-										.command
-										.size
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.size),
-										)
-										.map(|(a, b)| a + b);
-								},
-								ProcessObjectKind::Output => {
-									stored.node_output = stored.node_output
-										&& object_node.stored.clone().unwrap_or_default().subtree;
-									metadata.node.output.count = metadata
-										.node
-										.output
-										.count
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.count),
-										)
-										.map(|(a, b)| a + b);
-									metadata.node.output.depth = metadata
-										.node
-										.output
-										.depth
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.depth),
-										)
-										.map(|(a, b)| a.max(b));
-									metadata.node.output.size = metadata
-										.node
-										.output
-										.size
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.size),
-										)
-										.map(|(a, b)| a + b);
+								metadata.subtree.command.count = metadata
+									.subtree
+									.command
+									.count
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.count),
+									)
+									.map(|(a, b)| a + b);
+								metadata.subtree.command.depth = metadata
+									.subtree
+									.command
+									.depth
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.depth),
+									)
+									.map(|(a, b)| a.max(b));
+								metadata.subtree.command.size = metadata
+									.subtree
+									.command
+									.size
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.size),
+									)
+									.map(|(a, b)| a + b);
+							},
+							ProcessObjectKind::Output => {
+								metadata.node.output.count = metadata
+									.node
+									.output
+									.count
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.count),
+									)
+									.map(|(a, b)| a + b);
+								metadata.node.output.depth = metadata
+									.node
+									.output
+									.depth
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.depth),
+									)
+									.map(|(a, b)| a.max(b));
+								metadata.node.output.size = metadata
+									.node
+									.output
+									.size
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.size),
+									)
+									.map(|(a, b)| a + b);
 
-									stored.subtree_output = stored.subtree_output
-										&& object_node.stored.clone().unwrap_or_default().subtree;
-									metadata.subtree.output.count = metadata
-										.subtree
-										.output
-										.count
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.count),
-										)
-										.map(|(a, b)| a + b);
-									metadata.subtree.output.depth = metadata
-										.subtree
-										.output
-										.depth
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.depth),
-										)
-										.map(|(a, b)| a.max(b));
-									metadata.subtree.output.size = metadata
-										.subtree
-										.output
-										.size
-										.zip(
-											object_node
-												.metadata
-												.as_ref()
-												.and_then(|metadata| metadata.subtree.size),
-										)
-										.map(|(a, b)| a + b);
-								},
-								_ => (),
-							}
+								metadata.subtree.output.count = metadata
+									.subtree
+									.output
+									.count
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.count),
+									)
+									.map(|(a, b)| a + b);
+								metadata.subtree.output.depth = metadata
+									.subtree
+									.output
+									.depth
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.depth),
+									)
+									.map(|(a, b)| a.max(b));
+								metadata.subtree.output.size = metadata
+									.subtree
+									.output
+									.size
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.size),
+									)
+									.map(|(a, b)| a + b);
+							},
+							_ => (),
 						}
-					} else {
-						stored = crate::process::stored::Output::default();
-						metadata = tg::process::Metadata::default();
 					}
 
 					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
 					let node_inner = node.unwrap_process_mut();
-					node_inner.stored = Some(stored);
 					node_inner.metadata = Some(metadata);
 				},
 			}
@@ -577,105 +631,94 @@ impl Server {
 			.collect::<Vec<_>>();
 		while let Some((index, level)) = stack.pop() {
 			let (id, node) = graph.nodes.get_index(index).unwrap();
-			if !node.marked() {
-				continue;
-			}
 			match node {
 				Node::Object(node) => {
 					let id = id.unwrap_object_ref().clone();
-					let children = node
-						.children
-						.as_ref()
-						.unwrap()
-						.iter()
-						.map(|index| {
-							graph
-								.nodes
-								.get_index(*index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_object()
-						})
-						.collect();
-					let message =
-						crate::index::Message::PutObject(crate::index::message::PutObject {
-							cache_entry: None,
-							children,
-							id,
-							metadata: node.metadata.clone().unwrap(),
-							stored: node.stored.clone().unwrap(),
-							touched_at,
-						});
-					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(
-						node.children
+					if node.marked {
+						let children = node
+							.children
 							.as_ref()
 							.unwrap()
 							.iter()
-							.map(|index| (*index, level + 1)),
-					);
+							.map(|index| {
+								graph
+									.nodes
+									.get_index(*index)
+									.unwrap()
+									.0
+									.clone()
+									.unwrap_object()
+							})
+							.collect();
+						let message =
+							crate::index::Message::PutObject(crate::index::message::PutObject {
+								cache_entry: None,
+								children,
+								id,
+								metadata: node.metadata.clone().unwrap(),
+								stored: node.stored.clone().unwrap(),
+								touched_at,
+							});
+						messages.entry(level).or_insert(Vec::new()).push(message);
+					}
+					if let Some(children) = node.children.as_ref() {
+						stack.extend(children.iter().map(|index| (*index, level + 1)));
+					}
 				},
 				Node::Process(node) => {
 					let id = id.unwrap_process_ref().clone();
-					let children = node
-						.children
-						.as_ref()
-						.unwrap()
-						.iter()
-						.map(|index| {
-							graph
-								.nodes
-								.get_index(*index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_process()
-						})
-						.collect();
-					let stored = node.stored.clone().unwrap();
-					let metadata = node.metadata.clone().unwrap();
-					let objects = node
-						.objects
-						.as_ref()
-						.unwrap()
-						.iter()
-						.copied()
-						.map(|(index, kind)| {
-							let id = graph
-								.nodes
-								.get_index(index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_object();
-							(id, kind)
-						})
-						.collect();
-					let message =
-						crate::index::Message::PutProcess(crate::index::message::PutProcess {
-							children,
-							id,
-							metadata,
-							objects,
-							stored,
-							touched_at,
-						});
-					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(
-						node.children
+					if node.marked {
+						let children = node
+							.children
 							.as_ref()
 							.unwrap()
 							.iter()
-							.map(|index| (*index, level + 1)),
-					);
-					stack.extend(
-						node.objects
+							.map(|index| {
+								graph
+									.nodes
+									.get_index(*index)
+									.unwrap()
+									.0
+									.clone()
+									.unwrap_process()
+							})
+							.collect();
+						let stored = node.stored.clone().unwrap();
+						let metadata = node.metadata.clone().unwrap();
+						let objects = node
+							.objects
 							.as_ref()
 							.unwrap()
 							.iter()
-							.map(|(index, _)| (*index, level + 1)),
-					);
+							.copied()
+							.map(|(index, kind)| {
+								let id = graph
+									.nodes
+									.get_index(index)
+									.unwrap()
+									.0
+									.clone()
+									.unwrap_object();
+								(id, kind)
+							})
+							.collect();
+						let message =
+							crate::index::Message::PutProcess(crate::index::message::PutProcess {
+								children,
+								id,
+								metadata,
+								objects,
+								stored,
+								touched_at,
+							});
+						messages.entry(level).or_insert(Vec::new()).push(message);
+					}
+					if let Some(children) = node.children.as_ref() {
+						stack.extend(children.iter().map(|index| (*index, level + 1)));
+					}
+					if let Some(objects) = node.objects.as_ref() {
+						stack.extend(objects.iter().map(|(index, _)| (*index, level + 1)));
+					}
 				},
 			}
 		}

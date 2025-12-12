@@ -25,6 +25,25 @@ impl Server {
 						.get_object_requested(&message.id)
 						.is_none_or(|requested| requested.eager);
 
+					// Deserialize the object.
+					let data =
+						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
+
+					// Update the graph with data.
+					state.graph.lock().unwrap().update_object(
+						&message.id,
+						Some(&data),
+						None,
+						None,
+						None,
+						None,
+					);
+
+					// Close the queue if necessary.
+					if state.graph.lock().unwrap().end(&state.arg) {
+						state.queue.close();
+					}
+
 					if eager {
 						// Send to the index task.
 						let item = super::index::ObjectItem {
@@ -36,14 +55,7 @@ impl Server {
 						})?;
 					} else {
 						// Enqueue the children.
-						let data = tg::object::Data::deserialize(
-							message.id.kind(),
-							message.bytes.as_ref(),
-						)?;
 						Self::sync_get_enqueue_object_children(state, &message.id, &data, None);
-
-						// Decrement the queue counter.
-						state.queue.decrement(1);
 					}
 
 					// Send to the store task.
@@ -64,6 +76,23 @@ impl Server {
 						.unwrap()
 						.get_process_requested(&message.id)
 						.is_none_or(|requested| requested.eager);
+					let data = serde_json::from_slice(&message.bytes).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the process")
+					})?;
+					// Update the graph with data.
+					state.graph.lock().unwrap().update_process(
+						&message.id,
+						Some(&data),
+						None,
+						None,
+						None,
+						None,
+					);
+
+					// Check if all roots are stored and close the queue if so.
+					if state.graph.lock().unwrap().end(&state.arg) {
+						state.queue.close();
+					}
 
 					if eager {
 						// Send to the index task.
@@ -76,9 +105,6 @@ impl Server {
 						})?;
 					} else {
 						// Enqueue the children as necessary.
-						let data = serde_json::from_slice(&message.bytes).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the process")
-						})?;
 						let stored = state
 							.graph
 							.lock()
@@ -91,9 +117,6 @@ impl Server {
 							&data,
 							stored.as_ref(),
 						);
-
-						// Decrement the queue counter.
-						state.queue.decrement(1);
 					}
 
 					// Send to the store task.
@@ -108,8 +131,6 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(message)) => {
-					tracing::trace!(id = %message.id, "received missing object");
-
 					let eager = state
 						.graph
 						.lock()
@@ -132,8 +153,6 @@ impl Server {
 				},
 
 				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(message)) => {
-					tracing::trace!(id = %message.id, "received missing process");
-
 					let eager = state
 						.graph
 						.lock()

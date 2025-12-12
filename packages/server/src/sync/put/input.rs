@@ -71,7 +71,7 @@ impl Server {
 
 				tg::sync::GetMessage::End => {
 					tracing::trace!("received end");
-					state.queue.decrement(1);
+					state.queue.close();
 				},
 			}
 		}
