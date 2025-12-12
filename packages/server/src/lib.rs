@@ -106,7 +106,7 @@ pub struct State {
 
 type CacheTasks = tangram_futures::task::Map<
 	tg::artifact::Id,
-	tg::Result<()>,
+	tg::Result<Vec<crate::cache::Item>>,
 	crate::progress::Handle<()>,
 	tg::id::BuildHasher,
 >;
