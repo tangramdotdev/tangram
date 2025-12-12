@@ -128,6 +128,9 @@ declare namespace tg {
 		/** An artifact ID. */
 		export type Id = tg.Directory.Id | tg.File.Id | tg.Symlink.Id;
 
+		/** The kind of an artifact. **/
+		export type Kind = "directory" | "file" | "symlink";
+
 		/** Get an artifact with an ID. */
 		export let withId: (id: tg.Artifact.Id) => tg.Artifact;
 
@@ -485,10 +488,13 @@ declare namespace tg {
 
 			export type Edge<T> = tg.Graph.Arg.Reference | T;
 
-			export type Reference = {
-				graph?: tg.Graph | undefined;
-				node: number;
-			};
+			export type Reference =
+				| number
+				| {
+						graph?: tg.Graph | undefined;
+						index: number;
+						kind?: tg.Artifact.Kind;
+				  };
 		}
 
 		type Node =
@@ -524,6 +530,7 @@ declare namespace tg {
 		export type Reference = {
 			graph?: tg.Graph | undefined;
 			index: number;
+			kind: tg.Artifact.Kind;
 		};
 	}
 
