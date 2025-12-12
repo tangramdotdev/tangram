@@ -85,6 +85,8 @@ fn process_stored_improved(
 	improved(old.subtree, new.subtree)
 		|| improved(old.subtree_command, new.subtree_command)
 		|| improved(old.subtree_output, new.subtree_output)
+		|| improved(old.node_command, new.node_command)
+		|| improved(old.node_output, new.node_output)
 }
 
 impl Graph {
@@ -108,6 +110,8 @@ impl Graph {
 		&mut self,
 		process_index: usize,
 	) -> Option<SmallVec<[usize; 1]>> {
+		let process_id = self.nodes.get_index(process_index).map(|(id, _)| id.clone());
+		dbg!("try_propagate_process_stored", process_index, &process_id);
 		// Get process info, cloning what we need so we can release the borrow.
 		let (old_stored, children, objects, parents) =
 			self.nodes.get_index(process_index).and_then(|(_, node)| {
@@ -116,6 +120,7 @@ impl Graph {
 				let objects = node.objects.as_ref()?.clone();
 				Some((node.stored.clone(), children, objects, node.parents.clone()))
 			})?;
+		dbg!(&old_stored, &children, &objects);
 
 		// Compute the new stored status.
 		let mut new_stored = crate::process::stored::Output {
@@ -164,7 +169,9 @@ impl Graph {
 		}
 
 		// Check if the new stored status is an improvement.
-		if process_stored_improved(old_stored.as_ref(), Some(&new_stored)) {
+		let improved = process_stored_improved(old_stored.as_ref(), Some(&new_stored));
+		dbg!("try_propagate computed", &new_stored, improved);
+		if improved {
 			// Update the process's stored status.
 			if let Some((_, node)) = self.nodes.get_index_mut(process_index)
 				&& let Ok(process) = node.try_unwrap_process_mut()
@@ -186,6 +193,7 @@ impl Graph {
 		marked: Option<bool>,
 		requested: Option<Requested>,
 	) {
+		dbg!("update_object", id, data.is_some(), stored.as_ref(), marked);
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
@@ -281,8 +289,10 @@ impl Graph {
 			.as_ref()
 			.is_some_and(|stored| stored.subtree);
 		let new_stored = node.stored.as_ref().is_some_and(|stored| stored.subtree);
+		dbg!("update_object after", id, old_stored, new_stored, &node.parents);
 		// Propagate subtree stored.
 		if !old_stored && new_stored {
+			dbg!("propagating object stored", id);
 			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
 			while let Some(parent_index) = stack.pop() {
 				let Some((_, parent_node)) = self.nodes.get_index(parent_index) else {
@@ -410,6 +420,8 @@ impl Graph {
 			.unwrap_process_mut();
 		let node_old_stored = node.stored.clone();
 
+		dbg!("update_process", id, data.is_some(), stored.as_ref(), marked, &node_old_stored);
+
 		// Compute stored status based on children and objects.
 		if children.is_some() || objects.is_some() {
 			let children = children
@@ -470,6 +482,7 @@ impl Graph {
 				}
 			}
 
+			dbg!("computed new_stored", &new_stored);
 			let node = self
 				.nodes
 				.get_index_mut(index)
@@ -517,9 +530,9 @@ impl Graph {
 
 	pub fn get_roots_stored(&self, arg: &tg::sync::Arg) -> bool {
 		// Iterate each root and determine if it is stored.
-		self.roots.iter().all(|root| {
+		let result = self.roots.iter().all(|root| {
 			let node = self.nodes.get(root).unwrap();
-			match node {
+			let stored = match node {
 				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
 				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| {
 					if arg.recursive {
@@ -531,8 +544,12 @@ impl Graph {
 							&& (!arg.outputs || stored.node_output)
 					}
 				}),
-			}
-		})
+			};
+			dbg!(root, &node, arg.recursive, arg.commands, arg.outputs, stored);
+			stored
+		});
+		dbg!(result);
+		result
 	}
 
 	pub fn get_process_stored(
