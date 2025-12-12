@@ -230,9 +230,9 @@ impl Server {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
 				Node::Object(node) => {
-					if node.stored.is_some() && node.metadata.is_some() {
-						continue;
-					}
+					// if node.stored.is_some() && node.metadata.is_some() {
+					// 	continue;
+					// }
 					let Some(metadata) = &node.metadata else {
 						continue;
 					};

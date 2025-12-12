@@ -1,15 +1,17 @@
 use {
-	indexmap::IndexMap,
+	indexmap::{IndexMap, IndexSet},
 	petgraph::visit::IntoNeighbors as _,
 	smallvec::SmallVec,
 	std::collections::{BTreeSet, HashSet},
 	tangram_client::prelude::*,
+	tangram_either::Either,
 	tangram_util::iter::Ext as _,
 };
 
 #[derive(Default)]
 pub struct Graph {
 	pub nodes: IndexMap<Id, Node, fnv::FnvBuildHasher>,
+	pub roots: IndexSet<Id, fnv::FnvBuildHasher>,
 }
 
 #[derive(
@@ -69,8 +71,18 @@ pub struct Requested {
 }
 
 impl Graph {
-	pub fn new() -> Self {
-		Self::default()
+	pub fn new(roots: &[Either<tg::object::Id, tg::process::Id>]) -> Self {
+		let roots = roots
+			.iter()
+			.map(|id| match id {
+				Either::Left(id) => Id::Object(id.clone()),
+				Either::Right(id) => Id::Process(id.clone()),
+			})
+			.collect();
+		Graph {
+			nodes: IndexMap::default(),
+			roots,
+		}
 	}
 
 	pub fn update_object(
@@ -89,7 +101,7 @@ impl Graph {
 		let children = if let Some(data) = data {
 			let mut children = BTreeSet::new();
 			data.children(&mut children);
-			let children = children
+			let children: Vec<usize> = children
 				.into_iter()
 				.map(|child| {
 					let child_entry = self.nodes.entry(child.into());
@@ -111,9 +123,36 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_object_mut();
+		let node_old_stored = node.stored.clone();
 		if let Some(children) = children {
+			let subtree_stored = children.iter().all(|child| {
+				self.nodes
+					.get_index(*child)
+					.unwrap()
+					.1
+					.unwrap_object_ref()
+					.stored
+					.as_ref()
+					.is_some_and(|stored| stored.subtree)
+			});
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_object_mut();
 			node.children = Some(children);
+			node.stored = Some(crate::object::stored::Output {
+				subtree: subtree_stored,
+			});
 		}
+
+		let node = self
+			.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.unwrap_object_mut();
 		if let Some(stored) = stored {
 			node.stored = Some(stored);
 		}
@@ -145,6 +184,72 @@ impl Graph {
 		if let Some(requested) = requested {
 			node.requested = Some(requested);
 		}
+
+		let old_stored = node_old_stored
+			.as_ref()
+			.is_some_and(|stored| stored.subtree);
+		let new_stored = node.stored.as_ref().is_some_and(|stored| stored.subtree);
+		tracing::trace!(id=?id, old_stored, new_stored, "hello");
+		// Propagate subtree stored.
+		if !old_stored && new_stored {
+			tracing::trace!(id=?id, "propagating stored for node");
+
+			// Check if this node is a root that just completed.
+			let node_id = Id::Object(id.clone());
+			if self.roots.contains(&node_id) {
+				tracing::trace!(%id, "root is now complete");
+			}
+
+			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
+			while let Some(parent_index) = stack.pop() {
+				// Get parent info, cloning what we need so we can release the borrow.
+				let Some((parent_id, children, parent_parents)) =
+					self.nodes.get_index(parent_index).and_then(|(id, node)| {
+						let node = node.try_unwrap_object_ref().ok()?;
+						if node.stored.as_ref().is_some_and(|s| s.subtree) {
+							return None;
+						}
+						let children = node.children.as_ref()?.clone();
+						Some((id.clone(), children, node.parents.clone()))
+					})
+				else {
+					continue;
+				};
+
+				// Check if all children are now stored.
+				let all_children_stored = children.iter().all(|child_index| {
+					self.nodes
+						.get_index(*child_index)
+						.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
+						.is_some_and(|s| s.subtree)
+				});
+
+				if all_children_stored {
+					// Update the parent's stored status.
+					if let Some((_, node)) = self.nodes.get_index_mut(parent_index)
+						&& let Ok(obj) = node.try_unwrap_object_mut()
+					{
+						obj.stored = Some(crate::object::stored::Output { subtree: true });
+					}
+
+					// Check if this parent is a root that just completed.
+					if self.roots.contains(&parent_id) {
+						tracing::trace!(%parent_id, "root is now complete");
+					}
+
+					// Add grandparents to the stack.
+					stack.extend(parent_parents);
+				}
+			}
+		}
+		let complete = self.roots.iter().all(|root| {
+			let node = self.nodes.get(root).unwrap();
+			match node {
+				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
+				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
+			}
+		});
+		tracing::trace!(complete, "checked if sync is complete");
 	}
 
 	pub fn update_process(

@@ -88,4 +88,9 @@ impl Queue {
 			tracing::trace!("closed the queue");
 		}
 	}
+
+	pub fn close(&self) {
+		self.object_sender.close();
+		self.process_sender.close();
+	}
 }

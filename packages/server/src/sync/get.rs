@@ -32,7 +32,7 @@ impl Server {
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
 	) -> tg::Result<()> {
 		// Create the graph.
-		let graph = Mutex::new(Graph::new());
+		let graph = Mutex::new(Graph::new(&arg.get));
 
 		// Create the progress.
 		let progress = Progress::new();
