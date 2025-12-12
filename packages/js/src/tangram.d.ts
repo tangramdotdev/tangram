@@ -470,7 +470,7 @@ declare namespace tg {
 			};
 
 			type File = {
-				contents: tg.Blob.Arg;
+				contents?: tg.Blob.Arg | undefined;
 				dependencies?:
 					| {
 							[reference: string]:
