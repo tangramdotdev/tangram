@@ -70,6 +70,23 @@ pub struct Requested {
 	pub eager: bool,
 }
 
+/// Returns true if the new process stored status is an improvement over the old status.
+fn process_stored_improved(
+	old: Option<&crate::process::stored::Output>,
+	new: Option<&crate::process::stored::Output>,
+) -> bool {
+	let improved = |old: bool, new: bool| !old && new;
+	let Some(old) = old else {
+		return new.is_some();
+	};
+	let Some(new) = new else {
+		return false;
+	};
+	improved(old.subtree, new.subtree)
+		|| improved(old.subtree_command, new.subtree_command)
+		|| improved(old.subtree_output, new.subtree_output)
+}
+
 impl Graph {
 	pub fn new(roots: &[Either<tg::object::Id, tg::process::Id>]) -> Self {
 		let roots = roots
@@ -82,6 +99,81 @@ impl Graph {
 		Graph {
 			nodes: IndexMap::default(),
 			roots,
+		}
+	}
+
+	/// Tries to propagate stored status for a process at the given index.
+	/// Returns the parent indices to continue propagating if the status improved.
+	fn try_propagate_process_stored(
+		&mut self,
+		process_index: usize,
+	) -> Option<SmallVec<[usize; 1]>> {
+		// Get process info, cloning what we need so we can release the borrow.
+		let (old_stored, children, objects, parents) =
+			self.nodes.get_index(process_index).and_then(|(_, node)| {
+				let node = node.try_unwrap_process_ref().ok()?;
+				let children = node.children.clone().unwrap_or_default();
+				let objects = node.objects.as_ref()?.clone();
+				Some((node.stored.clone(), children, objects, node.parents.clone()))
+			})?;
+
+		// Compute the new stored status.
+		let mut new_stored = crate::process::stored::Output {
+			subtree: true,
+			subtree_command: true,
+			subtree_output: true,
+			node_command: true,
+			node_output: true,
+		};
+
+		// Check child processes.
+		for child_index in &children {
+			let Some(child_stored) = self
+				.nodes
+				.get_index(*child_index)
+				.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.stored.as_ref())
+			else {
+				new_stored.subtree = false;
+				new_stored.subtree_command = false;
+				new_stored.subtree_output = false;
+				break;
+			};
+			new_stored.subtree = new_stored.subtree && child_stored.subtree;
+			new_stored.subtree_command = new_stored.subtree_command && child_stored.subtree_command;
+			new_stored.subtree_output = new_stored.subtree_output && child_stored.subtree_output;
+		}
+
+		// Check objects (command and outputs).
+		for (object_index, object_kind) in &objects {
+			let object_stored = self
+				.nodes
+				.get_index(*object_index)
+				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
+				.is_some_and(|s| s.subtree);
+			match object_kind {
+				crate::index::message::ProcessObjectKind::Command => {
+					new_stored.node_command = new_stored.node_command && object_stored;
+					new_stored.subtree_command = new_stored.subtree_command && object_stored;
+				},
+				crate::index::message::ProcessObjectKind::Output => {
+					new_stored.node_output = new_stored.node_output && object_stored;
+					new_stored.subtree_output = new_stored.subtree_output && object_stored;
+				},
+				_ => {},
+			}
+		}
+
+		// Check if the new stored status is an improvement.
+		if process_stored_improved(old_stored.as_ref(), Some(&new_stored)) {
+			// Update the process's stored status.
+			if let Some((_, node)) = self.nodes.get_index_mut(process_index)
+				&& let Ok(process) = node.try_unwrap_process_mut()
+			{
+				process.stored = Some(new_stored);
+			}
+			Some(parents)
+		} else {
+			None
 		}
 	}
 
@@ -191,46 +283,55 @@ impl Graph {
 		let new_stored = node.stored.as_ref().is_some_and(|stored| stored.subtree);
 		// Propagate subtree stored.
 		if !old_stored && new_stored {
-			// Check if this node is a root that just completed.
 			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
 			while let Some(parent_index) = stack.pop() {
-				// Get parent info, cloning what we need so we can release the borrow.
-				let Some((parent_id, children, parent_parents)) =
-					self.nodes.get_index(parent_index).and_then(|(id, node)| {
-						let node = node.try_unwrap_object_ref().ok()?;
-						if node.stored.as_ref().is_some_and(|s| s.subtree) {
-							return None;
-						}
-						let children = node.children.as_ref()?.clone();
-						Some((id.clone(), children, node.parents.clone()))
-					})
-				else {
+				let Some((_, parent_node)) = self.nodes.get_index(parent_index) else {
 					continue;
 				};
 
-				// Check if all children are now stored.
-				let all_children_stored = children.iter().all(|child_index| {
-					self.nodes
-						.get_index(*child_index)
-						.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
-						.is_some_and(|s| s.subtree)
-				});
+				match parent_node {
+					Node::Object(_) => {
+						// Get parent info, cloning what we need so we can release the borrow.
+						let Some((children, parent_parents)) =
+							self.nodes.get_index(parent_index).and_then(|(_, node)| {
+								let node = node.try_unwrap_object_ref().ok()?;
+								if node.stored.as_ref().is_some_and(|s| s.subtree) {
+									return None;
+								}
+								let children = node.children.as_ref()?.clone();
+								Some((children, node.parents.clone()))
+							})
+						else {
+							continue;
+						};
 
-				if all_children_stored {
-					// Update the parent's stored status.
-					if let Some((_, node)) = self.nodes.get_index_mut(parent_index)
-						&& let Ok(obj) = node.try_unwrap_object_mut()
-					{
-						obj.stored = Some(crate::object::stored::Output { subtree: true });
-					}
+						// Check if all children are now stored.
+						let all_children_stored = children.iter().all(|child_index| {
+							self.nodes
+								.get_index(*child_index)
+								.and_then(|(_, node)| {
+									node.try_unwrap_object_ref().ok()?.stored.as_ref()
+								})
+								.is_some_and(|s| s.subtree)
+						});
 
-					// Check if this parent is a root that just completed.
-					if self.roots.contains(&parent_id) {
-						tracing::trace!(%parent_id, "root is now complete");
-					}
+						if all_children_stored {
+							// Update the parent's stored status.
+							if let Some((_, node)) = self.nodes.get_index_mut(parent_index)
+								&& let Ok(obj) = node.try_unwrap_object_mut()
+							{
+								obj.stored = Some(crate::object::stored::Output { subtree: true });
+							}
 
-					// Add grandparents to the stack.
-					stack.extend(parent_parents);
+							// Add grandparents to the stack.
+							stack.extend(parent_parents);
+						}
+					},
+					Node::Process(_) => {
+						if let Some(parents) = self.try_propagate_process_stored(parent_index) {
+							stack.extend(parents);
+						}
+					},
 				}
 			}
 		}
@@ -404,102 +505,11 @@ impl Graph {
 		}
 
 		// Propagate subtree stored.
-		let should_propagate = |old: &Option<crate::process::stored::Output>,
-		                        new: &Option<crate::process::stored::Output>|
-		 -> bool {
-			let improved = |old: bool, new: bool| !old && new;
-			let Some(old) = old else {
-				return new.is_some();
-			};
-			let Some(new) = new else {
-				return false;
-			};
-			improved(old.subtree, new.subtree)
-				|| improved(old.subtree_command, new.subtree_command)
-				|| improved(old.subtree_output, new.subtree_output)
-		};
-
-		if should_propagate(&node_old_stored, &node.stored) {
+		if process_stored_improved(node_old_stored.as_ref(), node.stored.as_ref()) {
 			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
 			while let Some(parent_index) = stack.pop() {
-				// Get parent info, cloning what we need so we can release the borrow.
-				let Some((_, parent_old_stored, children, objects, parent_parents)) =
-					self.nodes.get_index(parent_index).and_then(|(id, node)| {
-						let node = node.try_unwrap_process_ref().ok()?;
-						let children = node.children.as_ref()?.clone();
-						let objects = node.objects.as_ref()?.clone();
-						Some((
-							id.clone(),
-							node.stored.clone(),
-							children,
-							objects,
-							node.parents.clone(),
-						))
-					})
-				else {
-					continue;
-				};
-
-				// Compute the new stored status for the parent.
-				let mut new_stored = crate::process::stored::Output {
-					subtree: true,
-					subtree_command: true,
-					subtree_output: true,
-					node_command: true,
-					node_output: true,
-				};
-
-				// Check child processes.
-				for child_index in &children {
-					let Some(child_stored) = self
-						.nodes
-						.get_index(*child_index)
-						.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.stored.as_ref())
-					else {
-						new_stored.subtree = false;
-						new_stored.subtree_command = false;
-						new_stored.subtree_output = false;
-						break;
-					};
-					new_stored.subtree = new_stored.subtree && child_stored.subtree;
-					new_stored.subtree_command =
-						new_stored.subtree_command && child_stored.subtree_command;
-					new_stored.subtree_output =
-						new_stored.subtree_output && child_stored.subtree_output;
-				}
-
-				// Check objects (command and outputs).
-				for (object_index, object_kind) in &objects {
-					let object_stored = self
-						.nodes
-						.get_index(*object_index)
-						.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
-						.is_some_and(|s| s.subtree);
-					match object_kind {
-						crate::index::message::ProcessObjectKind::Command => {
-							new_stored.node_command = new_stored.node_command && object_stored;
-							new_stored.subtree_command =
-								new_stored.subtree_command && object_stored;
-						},
-						crate::index::message::ProcessObjectKind::Output => {
-							new_stored.node_output = new_stored.node_output && object_stored;
-							new_stored.subtree_output = new_stored.subtree_output && object_stored;
-						},
-						_ => {},
-					}
-				}
-
-				// Check if the new stored status is an improvement.
-				if should_propagate(&parent_old_stored, &Some(new_stored.clone())) {
-					// Update the parent's stored status.
-					if let Some((_, node)) = self.nodes.get_index_mut(parent_index)
-						&& let Ok(process) = node.try_unwrap_process_mut()
-					{
-						process.stored = Some(new_stored);
-					}
-
-					// Add grandparents to the stack.
-					stack.extend(parent_parents);
+				if let Some(parents) = self.try_propagate_process_stored(parent_index) {
+					stack.extend(parents);
 				}
 			}
 		}

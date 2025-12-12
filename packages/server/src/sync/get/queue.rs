@@ -157,6 +157,7 @@ impl Server {
 
 		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
 		if end {
+			dbg!("All roots complete");
 			tracing::trace!("All roots complete");
 		}
 
@@ -262,6 +263,7 @@ impl Server {
 
 		let end = state.graph.lock().unwrap().get_roots_stored(&state.arg);
 		if end {
+			dbg!("All roots complete");
 			tracing::trace!("All roots complete");
 		}
 
