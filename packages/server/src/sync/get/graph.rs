@@ -307,6 +307,83 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_process_mut();
+		let node_old_stored = node.stored.clone();
+
+		// Compute stored status based on children and objects.
+		if children.is_some() || objects.is_some() {
+			let children = children
+				.as_ref()
+				.or(node.children.as_ref())
+				.cloned()
+				.unwrap_or_default();
+			let objects = objects
+				.as_ref()
+				.or(node.objects.as_ref())
+				.cloned()
+				.unwrap_or_default();
+
+			let mut new_stored = crate::process::stored::Output {
+				subtree: true,
+				subtree_command: true,
+				subtree_output: true,
+				node_command: true,
+				node_output: true,
+			};
+
+			// Check child processes.
+			for child_index in &children {
+				let child_stored = self
+					.nodes
+					.get_index(*child_index)
+					.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.stored.as_ref());
+				if let Some(child_stored) = child_stored {
+					new_stored.subtree = new_stored.subtree && child_stored.subtree;
+					new_stored.subtree_command =
+						new_stored.subtree_command && child_stored.subtree_command;
+					new_stored.subtree_output =
+						new_stored.subtree_output && child_stored.subtree_output;
+				} else {
+					new_stored.subtree = false;
+					new_stored.subtree_command = false;
+					new_stored.subtree_output = false;
+				}
+			}
+
+			// Check objects (command and outputs).
+			for (object_index, object_kind) in &objects {
+				let object_stored = self
+					.nodes
+					.get_index(*object_index)
+					.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
+					.is_some_and(|s| s.subtree);
+				match object_kind {
+					crate::index::message::ProcessObjectKind::Command => {
+						new_stored.node_command = new_stored.node_command && object_stored;
+						new_stored.subtree_command = new_stored.subtree_command && object_stored;
+					},
+					crate::index::message::ProcessObjectKind::Output => {
+						new_stored.node_output = new_stored.node_output && object_stored;
+						new_stored.subtree_output = new_stored.subtree_output && object_stored;
+					},
+					_ => {},
+				}
+			}
+
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.stored = Some(new_stored);
+		}
+
+		let node = self
+			.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.unwrap_process_mut();
 		if let Some(children) = children {
 			node.children = Some(children);
 		}
@@ -325,13 +402,114 @@ impl Graph {
 		if let Some(requested) = requested {
 			node.requested = Some(requested);
 		}
+
+		// Propagate subtree stored.
+		let should_propagate = |old: &Option<crate::process::stored::Output>,
+		                        new: &Option<crate::process::stored::Output>|
+		 -> bool {
+			let improved = |old: bool, new: bool| !old && new;
+			let Some(old) = old else {
+				return new.is_some();
+			};
+			let Some(new) = new else {
+				return false;
+			};
+			improved(old.subtree, new.subtree)
+				|| improved(old.subtree_command, new.subtree_command)
+				|| improved(old.subtree_output, new.subtree_output)
+		};
+
+		if should_propagate(&node_old_stored, &node.stored) {
+			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
+			while let Some(parent_index) = stack.pop() {
+				// Get parent info, cloning what we need so we can release the borrow.
+				let Some((_, parent_old_stored, children, objects, parent_parents)) =
+					self.nodes.get_index(parent_index).and_then(|(id, node)| {
+						let node = node.try_unwrap_process_ref().ok()?;
+						let children = node.children.as_ref()?.clone();
+						let objects = node.objects.as_ref()?.clone();
+						Some((
+							id.clone(),
+							node.stored.clone(),
+							children,
+							objects,
+							node.parents.clone(),
+						))
+					})
+				else {
+					continue;
+				};
+
+				// Compute the new stored status for the parent.
+				let mut new_stored = crate::process::stored::Output {
+					subtree: true,
+					subtree_command: true,
+					subtree_output: true,
+					node_command: true,
+					node_output: true,
+				};
+
+				// Check child processes.
+				for child_index in &children {
+					let Some(child_stored) = self
+						.nodes
+						.get_index(*child_index)
+						.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.stored.as_ref())
+					else {
+						new_stored.subtree = false;
+						new_stored.subtree_command = false;
+						new_stored.subtree_output = false;
+						break;
+					};
+					new_stored.subtree = new_stored.subtree && child_stored.subtree;
+					new_stored.subtree_command =
+						new_stored.subtree_command && child_stored.subtree_command;
+					new_stored.subtree_output =
+						new_stored.subtree_output && child_stored.subtree_output;
+				}
+
+				// Check objects (command and outputs).
+				for (object_index, object_kind) in &objects {
+					let object_stored = self
+						.nodes
+						.get_index(*object_index)
+						.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
+						.is_some_and(|s| s.subtree);
+					match object_kind {
+						crate::index::message::ProcessObjectKind::Command => {
+							new_stored.node_command = new_stored.node_command && object_stored;
+							new_stored.subtree_command =
+								new_stored.subtree_command && object_stored;
+						},
+						crate::index::message::ProcessObjectKind::Output => {
+							new_stored.node_output = new_stored.node_output && object_stored;
+							new_stored.subtree_output = new_stored.subtree_output && object_stored;
+						},
+						_ => {},
+					}
+				}
+
+				// Check if the new stored status is an improvement.
+				if should_propagate(&parent_old_stored, &Some(new_stored.clone())) {
+					// Update the parent's stored status.
+					if let Some((_, node)) = self.nodes.get_index_mut(parent_index)
+						&& let Ok(process) = node.try_unwrap_process_mut()
+					{
+						process.stored = Some(new_stored);
+					}
+
+					// Add grandparents to the stack.
+					stack.extend(parent_parents);
+				}
+			}
+		}
 	}
 
 	pub fn get_roots_stored(&self, arg: &tg::sync::Arg) -> bool {
 		// Iterate each root and determine if it is stored.
 		self.roots.iter().all(|root| {
 			let node = self.nodes.get(root).unwrap();
-			match node {
+			let stored = match node {
 				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
 				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| {
 					if arg.recursive {
@@ -343,7 +521,8 @@ impl Graph {
 							&& (!arg.outputs || stored.node_output)
 					}
 				}),
-			}
+			};
+			stored
 		})
 	}
 
