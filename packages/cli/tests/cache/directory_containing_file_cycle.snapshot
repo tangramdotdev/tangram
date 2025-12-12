@@ -1,0 +1,35 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_01zyqa8p9swrckendgns7kss10ncxnc56zskdkccnjxyt9v8zahzr0": {
+      "kind": "directory",
+      "entries": {
+        "foo": {
+          "kind": "file",
+          "contents": "",
+          "xattrs": {
+            "user.tangram.dependencies": "[\"./bar.tg.ts\"]"
+          }
+        }
+      }
+    },
+    "fil_01c9hv1869wgpf6mq55r62ynf1eap3wbgepfvye819ax9t246aegn0": {
+      "kind": "file",
+      "contents": "",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"./foo.tg.ts\"]"
+      }
+    },
+    "fil_01rcw74s81fxd9kc36m7cmtcaq1pam24ffnwwha50psrr48yce29t0": {
+      "kind": "file",
+      "contents": "",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"./bar.tg.ts\"]"
+      }
+    },
+    "fil_01zzbyjdsnpq9e76ay2sjd81hbmhk1nepmasm53d87vdbs7r47w9mg": {
+      "kind": "file",
+      "contents": "export default () => {\n\tlet graph = tg.graph({\n\t\tnodes: [\n\t\t\t{ kind: \"file\", dependencies: { \"./bar.tg.ts\": 1 } },\n\t\t\t{ kind: \"file\", dependencies: { \"./foo.tg.ts\": 0 } },\n\t\t]\n\t});\n\tlet foo = tg.file({\n\t\tgraph,\n\t\tindex: 0,\n\t\tkind: \"file\",\n\t});\n\treturn tg.directory({\n\t\tfoo,\n\t});\n}"
+    }
+  }
+}
