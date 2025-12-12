@@ -29,7 +29,8 @@ let artifact = artifact {
 		}
 	'
 }
-let id = tg build $artifact
+let id = tg checkin --no-cache-references $artifact
+let id = tg build $id
 
 # Cache.
 tg cache $id

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 let server = spawn
 
-let path = artifact (file 'Hello, World!')
+let path = artifact 'Hello, World!'
 
 let id = tg checkin --no-cache-references $path
 tg index
