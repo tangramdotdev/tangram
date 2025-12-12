@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server, temp::Temp},
 	futures::{
 		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
-		stream,
+		stream::{self, FuturesUnordered},
 	},
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
@@ -26,15 +26,15 @@ struct State {
 	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	path: PathBuf,
 	progress: crate::progress::Handle<()>,
+	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 }
 
-struct GetNodeOutput {
-	id: tg::artifact::Id,
-	node: tg::graph::data::Node,
-	graph: Option<tg::graph::Id>,
+#[derive(Clone)]
+pub struct Item {
+	pub id: tg::artifact::Id,
+	pub node: tg::graph::data::Node,
+	pub graph: Option<tg::graph::Id>,
 }
-
-type Dependency = (tg::graph::data::Edge<tg::artifact::Id>, GetNodeOutput);
 
 impl Server {
 	pub(crate) async fn cache_with_context(
@@ -198,33 +198,41 @@ impl Server {
 		id: &tg::artifact::Id,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
-		// Get the node in a blocking task.
+		// Get the item in a blocking task.
 		let edge = tg::graph::data::Edge::Object(id.clone());
-		let GetNodeOutput { id, node, graph } = tokio::task::spawn_blocking({
+		let item = tokio::task::spawn_blocking({
 			let server = self.clone();
 			let edge = edge.clone();
-			move || server.cache_get_node(None, &edge)
+			move || server.cache_get_item(None, edge)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
-		// Get or spawn and await the cache task.
-		self.cache_dependency(edge, id, node, graph, progress)
-			.await?;
+		// Spawn the task for the item.
+		let mut tasks = FuturesUnordered::new();
+		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
+		visited.insert(item.id.clone());
+		tasks.push(self.cache_dependency(item, progress));
+
+		// Await the tasks and spawn dependencies.
+		while let Some(dependencies) = tasks.try_next().await? {
+			for item in dependencies {
+				if visited.insert(item.id.clone()) {
+					tasks.push(self.cache_dependency(item, progress));
+				}
+			}
+		}
 
 		Ok(())
 	}
 
 	async fn cache_dependency(
 		&self,
-		_edge: tg::graph::data::Edge<tg::artifact::Id>,
-		id: tg::artifact::Id,
-		node: tg::graph::data::Node,
-		graph: Option<tg::graph::Id>,
+		item: Item,
 		progress: &crate::progress::Handle<()>,
-	) -> tg::Result<()> {
+	) -> tg::Result<Vec<Item>> {
 		let task = self.cache_tasks.get_or_spawn_with_context(
-			id.clone(),
+			item.id.clone(),
 			|| {
 				let progress = crate::progress::Handle::new();
 				progress.start(
@@ -245,19 +253,18 @@ impl Server {
 			},
 			{
 				let server = self.clone();
-				let id = id.clone();
 				move |dependency_progress, _| {
 					let server = server.clone();
 					async move {
 						server
-							.cache_dependency_task(&id, node, graph.as_ref(), &dependency_progress)
+							.cache_dependency_task(item, &dependency_progress)
 							.await
 					}
 				}
 			},
 		);
 
-		// Forward progress events from the dependency to our progress handle.
+		// Forward progress events from the dependency to the progress handle.
 		let mut dependency_artifacts = 0u64;
 		let mut dependency_bytes = 0u64;
 		let mut stream = pin!(task.context().stream().fuse());
@@ -276,197 +283,160 @@ impl Server {
 					}
 				}
 				result = task_future => {
-					result
-						.map_err(|source| tg::error!(!source, "the dependency task panicked"))
-						.and_then(|result| result)?;
-					break;
+					return result
+						.map_err(|source| tg::error!(!source, "a cache task panicked"))
+						.and_then(|result| result);
 				}
 			}
 		}
-
-		Ok(())
 	}
 
-	fn cache_dependency_task(
+	async fn cache_dependency_task(
 		&self,
-		id: &tg::artifact::Id,
-		node: tg::graph::data::Node,
-		graph: Option<&tg::graph::Id>,
+		item: Item,
 		progress: &crate::progress::Handle<()>,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		async move {
-			// Create the path.
-			let path = self.cache_path().join(id.to_string());
+	) -> tg::Result<Vec<Item>> {
+		// Create the path.
+		let path = self.cache_path().join(item.id.to_string());
 
-			// If the path exists, then return.
-			let exists = tokio::fs::try_exists(&path)
+		// If the path exists, then return.
+		let exists = tokio::fs::try_exists(&path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
+		if exists {
+			return Ok(vec![]);
+		}
+
+		// Create the temp.
+		let temp = Temp::new(self);
+
+		// Write the artifact to the temp and collect dependencies.
+		let (id, dependencies) = tokio::task::spawn_blocking({
+			let server = self.clone();
+			let path = temp.path().to_owned();
+			let progress = progress.clone();
+			move || server.cache_dependency_write(&path, &item, &progress)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the cache task panicked"))??;
+
+		// Rename the temp to the cache path.
+		let cache_path = self.cache_path().join(id.to_string());
+		let result = tokio::fs::rename(&temp, &cache_path).await;
+		let done = match result {
+			Ok(()) => false,
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::AlreadyExists
+						| std::io::ErrorKind::DirectoryNotEmpty
+						| std::io::ErrorKind::PermissionDenied
+				) =>
+			{
+				true
+			},
+			Err(source) => {
+				let src = temp.path().display();
+				let dst = cache_path.display();
+				let error = tg::error!(!source, %src, %dst, "failed to rename to the cache path");
+				return Err(error);
+			},
+		};
+
+		// Set the permissions.
+		if !done && id.is_directory() {
+			let permissions = std::fs::Permissions::from_mode(0o555);
+			tokio::fs::set_permissions(&cache_path, permissions)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
-			if exists {
-				return Ok(());
-			}
+				.map_err(
+					|source| tg::error!(!source, path = %cache_path.display(), "failed to set permissions"),
+				)?;
+		}
 
-			// Create the temp.
-			let temp = Temp::new(self);
-
-			// Write the artifact to the temp and collect dependencies.
-			let dependencies = tokio::task::spawn_blocking({
-				let server = self.clone();
-				let path = temp.path().to_owned();
-				let id = id.clone();
-				let graph = graph.cloned();
-				let progress = progress.clone();
-				move || server.cache_dependency_write(&path, &id, node, graph.as_ref(), &progress)
+		// Set the modified time.
+		if !done {
+			tokio::task::spawn_blocking({
+				let cache_path = cache_path.clone();
+				move || {
+					let epoch =
+						filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+					filetime::set_symlink_file_times(&cache_path, epoch, epoch).map_err(
+						|source| tg::error!(!source, path = %cache_path.display(), "failed to set the modified time"),
+					)
+				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the cache task panicked"))??;
-
-			// Recursively cache all dependencies concurrently.
-			let server = self.clone();
-			future::try_join_all(dependencies.into_iter().map(|(edge, output)| {
-				let server = server.clone();
-				let progress = progress.clone();
-				async move {
-					server
-						.cache_dependency(edge, output.id, output.node, output.graph, &progress)
-						.await
-				}
-			}))
-			.await?;
-
-			// Rename the temp to the cache path.
-			let cache_path = self.cache_path().join(id.to_string());
-			let result = tokio::fs::rename(&temp, &cache_path).await;
-			let done = match result {
-				Ok(()) => false,
-				Err(error)
-					if matches!(
-						error.kind(),
-						std::io::ErrorKind::AlreadyExists
-							| std::io::ErrorKind::DirectoryNotEmpty
-							| std::io::ErrorKind::PermissionDenied
-					) =>
-				{
-					true
-				},
-				Err(source) => {
-					let src = temp.path().display();
-					let dst = cache_path.display();
-					let error =
-						tg::error!(!source, %src, %dst, "failed to rename to the cache path");
-					return Err(error);
-				},
-			};
-
-			// Set the permissions.
-			if !done && id.is_directory() {
-				let permissions = std::fs::Permissions::from_mode(0o555);
-				tokio::fs::set_permissions(&cache_path, permissions)
-					.await
-					.map_err(
-						|source| tg::error!(!source, path = %cache_path.display(), "failed to set permissions"),
-					)?;
-			}
-
-			// Set the modified time.
-			if !done {
-				tokio::task::spawn_blocking({
-						let cache_path = cache_path.clone();
-						move || {
-					let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-							filetime::set_symlink_file_times(&cache_path, epoch, epoch).map_err(
-								|source| tg::error!(!source, path = %cache_path.display(), "failed to set the modified time"),
-							)
-						}
-					})
-					.await
-					.map_err(|error| tg::error!(!error, "failed to join the task"))??;
-			}
-
-			// Publish the put cache entry index message.
-			let id = id.clone();
-			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-			let message =
-				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-					id,
-					touched_at,
-				});
-			let message = message.serialize()?;
-			self.tasks
-				.spawn(|_| {
-					let server = self.clone();
-					async move {
-						let result = server
-							.messenger
-							.stream_publish("index".to_owned(), message)
-							.map_err(|source| tg::error!(!source, "failed to publish the message"))
-							.and_then(|future| {
-								future.map_err(|source| {
-									tg::error!(!source, "failed to publish the message")
-								})
-							})
-							.await;
-						if let Err(error) = result {
-							tracing::error!(
-								?error,
-								"failed to publish the put object index message"
-							);
-						}
-					}
-				})
-				.detach();
-
-			Ok(())
+			.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 		}
+
+		// Publish the put cache entry index message.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let message = crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
+			id,
+			touched_at,
+		});
+		let message = message.serialize()?;
+		self.tasks
+			.spawn(|_| {
+				let server = self.clone();
+				async move {
+					let result = server
+						.messenger
+						.stream_publish("index".to_owned(), message)
+						.map_err(|source| tg::error!(!source, "failed to publish the message"))
+						.and_then(|future| {
+							future.map_err(|source| {
+								tg::error!(!source, "failed to publish the message")
+							})
+						})
+						.await;
+					if let Err(error) = result {
+						tracing::error!(?error, "failed to publish the put object index message");
+					}
+				}
+			})
+			.detach();
+
+		Ok(dependencies)
 	}
 
 	fn cache_dependency_write(
 		&self,
 		path: &Path,
-		id: &tg::artifact::Id,
-		node: tg::graph::data::Node,
-		graph: Option<&tg::graph::Id>,
+		item: &Item,
 		progress: &crate::progress::Handle<()>,
-	) -> tg::Result<Vec<Dependency>> {
+	) -> tg::Result<(tg::artifact::Id, Vec<Item>)> {
 		// Create the state.
 		let mut state = State {
-			artifact: id.clone(),
+			artifact: item.id.clone(),
 			graphs: HashMap::default(),
 			path: path.to_owned(),
 			progress: progress.clone(),
+			visiting: HashSet::default(),
 		};
 
 		// Cache the artifact and collect dependencies.
-		let dependencies = self.cache_artifact(&mut state, path, id, node, graph)?;
+		let dependencies = self.cache_artifact(&mut state, path, item)?;
 
 		// Set permissions on the temp directory before rename.
-		if id.is_directory() {
+		if state.artifact.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(path, permissions).map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to set permissions"),
 			)?;
 		}
 
-		Ok(dependencies)
+		Ok((state.artifact, dependencies))
 	}
 
-	fn cache_artifact(
-		&self,
-		state: &mut State,
-		path: &Path,
-		id: &tg::artifact::Id,
-		node: tg::graph::data::Node,
-		graph: Option<&tg::graph::Id>,
-	) -> tg::Result<Vec<Dependency>> {
+	fn cache_artifact(&self, state: &mut State, path: &Path, item: &Item) -> tg::Result<Vec<Item>> {
 		// Write the artifact and collect dependencies.
-		let dependencies = match node {
+		let dependencies = match &item.node {
 			tg::graph::data::Node::Directory(node) => {
-				self.cache_directory(state, path, id, graph, &node)?
+				self.cache_directory(state, path, item, node)?
 			},
-			tg::graph::data::Node::File(node) => self.cache_file(state, path, id, graph, &node)?,
-			tg::graph::data::Node::Symlink(node) => {
-				self.cache_symlink(state, path, id, graph, &node)?
-			},
+			tg::graph::data::Node::File(node) => self.cache_file(state, path, item, node)?,
+			tg::graph::data::Node::Symlink(node) => self.cache_symlink(state, path, item, node)?,
 		};
 
 		// Set the file times to the epoch.
@@ -482,10 +452,14 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		_id: &tg::artifact::Id,
-		graph: Option<&tg::graph::Id>,
+		item: &Item,
 		node: &tg::graph::data::Directory,
-	) -> tg::Result<Vec<Dependency>> {
+	) -> tg::Result<Vec<Item>> {
+		let Item { id, graph, .. } = item;
+
+		// Add to the visiting set to detect cycles.
+		state.visiting.insert(id.clone());
+
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
@@ -499,19 +473,27 @@ impl Server {
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
 				&& reference.graph.is_none()
 			{
-				reference.graph = graph.cloned();
+				reference.graph = graph.clone();
 			}
 			let path = path.join(name);
-			let GetNodeOutput { id, node, graph } =
-				self.cache_get_node(Some(&mut state.graphs), &edge)?;
-			let entry_dependencies =
-				self.cache_artifact(state, &path, &id, node, graph.as_ref())?;
-			if visited.insert(id) {
+			let item = self.cache_get_item(Some(&mut state.graphs), edge)?;
+
+			// Check for a cycle.
+			if state.visiting.contains(&item.id) {
+				return Err(tg::error!("detected a directory cycle"));
+			}
+
+			let item_id = item.id.clone();
+			let entry_dependencies = self.cache_artifact(state, &path, &item)?;
+			if visited.insert(item_id) {
 				for dependency in entry_dependencies {
 					dependencies.push(dependency);
 				}
 			}
 		}
+
+		// Remove from the visiting set.
+		state.visiting.remove(id);
 
 		// Set the permissions.
 		let permissions = std::fs::Permissions::from_mode(0o555);
@@ -529,10 +511,11 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		id: &tg::artifact::Id,
-		graph: Option<&tg::graph::Id>,
+		item: &Item,
 		node: &tg::graph::data::File,
-	) -> tg::Result<Vec<Dependency>> {
+	) -> tg::Result<Vec<Item>> {
+		let Item { id, graph, .. } = item;
+
 		let mut dependencies = Vec::new();
 		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
 		for dependency in node.dependencies.values() {
@@ -556,15 +539,15 @@ impl Server {
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
 				&& reference.graph.is_none()
 			{
-				reference.graph = graph.cloned();
+				reference.graph = graph.clone();
 			}
 
 			// Get the node.
-			let output = self.cache_get_node(Some(&mut state.graphs), &edge)?;
+			let item = self.cache_get_item(Some(&mut state.graphs), edge)?;
 
 			// Collect the dependency if it is not the root artifact.
-			if output.id != state.artifact && visited.insert(output.id.clone()) {
-				dependencies.push((edge.clone(), output));
+			if item.id != state.artifact && visited.insert(item.id.clone()) {
+				dependencies.push(item);
 			}
 		}
 
@@ -644,10 +627,11 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		_id: &tg::artifact::Id,
-		graph: Option<&tg::graph::Id>,
+		item: &Item,
 		node: &tg::graph::data::Symlink,
-	) -> tg::Result<Vec<Dependency>> {
+	) -> tg::Result<Vec<Item>> {
+		let Item { graph, .. } = item;
+
 		// Collect the dependency.
 		let mut dependencies = Vec::new();
 
@@ -659,20 +643,20 @@ impl Server {
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
 				&& reference.graph.is_none()
 			{
-				reference.graph = graph.cloned();
+				reference.graph = graph.clone();
 			}
 
 			// Get the dependency node.
-			let output = self.cache_get_node(Some(&mut state.graphs), &edge)?;
+			let item = self.cache_get_item(Some(&mut state.graphs), edge)?;
 
-			if output.id == state.artifact {
+			if item.id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
 				target.push(&state.path);
 			} else {
-				let dependency_id = output.id.clone();
+				let dependency_id = item.id.clone();
 
 				// Collect the dependency.
-				dependencies.push((edge.clone(), output));
+				dependencies.push(item);
 
 				// Update the target.
 				target.push(state.path.parent().unwrap().join(dependency_id.to_string()));
@@ -706,34 +690,35 @@ impl Server {
 		Ok(dependencies)
 	}
 
-	fn cache_get_node(
+	fn cache_get_item(
 		&self,
 		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-	) -> tg::Result<GetNodeOutput> {
+		edge: tg::graph::data::Edge<tg::artifact::Id>,
+	) -> tg::Result<Item> {
 		let mut local_graphs = HashMap::default();
 		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
 		match edge {
 			tg::graph::data::Edge::Reference(reference) => {
 				// Load the graph.
-				let graph = reference
+				let graph_id = reference
 					.graph
 					.as_ref()
-					.ok_or_else(|| tg::error!("missing graph"))?;
-				if !graphs.contains_key(graph) {
+					.ok_or_else(|| tg::error!("missing graph"))?
+					.clone();
+				if !graphs.contains_key(&graph_id) {
 					let (_size, data) = self
 						.store
-						.try_get_object_data_sync(&graph.clone().into())?
+						.try_get_object_data_sync(&graph_id.clone().into())?
 						.ok_or_else(|| tg::error!("failed to load the graph"))?;
 					let data = data
 						.try_into()
 						.map_err(|_| tg::error!("expected graph data"))?;
-					graphs.insert(graph.clone(), data);
+					graphs.insert(graph_id.clone(), data);
 				}
 
 				// Get the node.
 				let node = graphs
-					.get(graph)
+					.get(&graph_id)
 					.unwrap()
 					.nodes
 					.get(reference.index)
@@ -753,18 +738,20 @@ impl Server {
 				let bytes = data.serialize()?;
 				let id = tg::artifact::Id::new(node.kind(), &bytes);
 
-				Ok(GetNodeOutput {
+				let item = Item {
 					id,
 					node,
-					graph: Some(graph.clone()),
-				})
+					graph: Some(graph_id),
+				};
+
+				Ok(item)
 			},
 
-			tg::graph::data::Edge::Object(id) => {
+			tg::graph::data::Edge::Object(object_id) => {
 				// Load the object.
 				let (_size, data) = self
 					.store
-					.try_get_object_data_sync(&id.clone().into())?
+					.try_get_object_data_sync(&object_id.clone().into())?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
 					.try_into()
@@ -779,57 +766,63 @@ impl Server {
 						reference,
 					)) => {
 						// Load the graph.
-						let graph = reference
+						let graph_id = reference
 							.graph
 							.as_ref()
-							.ok_or_else(|| tg::error!("missing graph"))?;
-						if !graphs.contains_key(graph) {
+							.ok_or_else(|| tg::error!("missing graph"))?
+							.clone();
+						if !graphs.contains_key(&graph_id) {
 							let (_size, data) = self
 								.store
-								.try_get_object_data_sync(&graph.clone().into())?
+								.try_get_object_data_sync(&graph_id.clone().into())?
 								.ok_or_else(|| tg::error!("failed to load the graph"))?;
 							let data = data
 								.try_into()
 								.map_err(|_| tg::error!("expected graph data"))?;
-							graphs.insert(graph.clone(), data);
+							graphs.insert(graph_id.clone(), data);
 						}
 
 						// Get the node.
 						let node = graphs
-							.get(graph)
+							.get(&graph_id)
 							.unwrap()
 							.nodes
 							.get(reference.index)
 							.ok_or_else(|| tg::error!("invalid graph node"))?
 							.clone();
 
-						Ok(GetNodeOutput {
-							id: id.clone(),
+						let item = Item {
+							id: object_id,
 							node,
-							graph: Some(graph.clone()),
-						})
+							graph: Some(graph_id),
+						};
+
+						Ok(item)
 					},
 
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
-						Ok(GetNodeOutput {
-							id: id.clone(),
+						let item = Item {
+							id: object_id,
 							node: tg::graph::data::Node::Directory(node),
 							graph: None,
-						})
+						};
+						Ok(item)
 					},
 					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
-						Ok(GetNodeOutput {
-							id: id.clone(),
+						let item = Item {
+							id: object_id,
 							node: tg::graph::data::Node::File(node),
 							graph: None,
-						})
+						};
+						Ok(item)
 					},
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
-						Ok(GetNodeOutput {
-							id: id.clone(),
+						let item = Item {
+							id: object_id,
 							node: tg::graph::data::Node::Symlink(node),
 							graph: None,
-						})
+						};
+						Ok(item)
 					},
 				}
 			},

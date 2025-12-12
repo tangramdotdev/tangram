@@ -1,0 +1,21 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_01wxx1tw1qw8ywnwnkztxmrnjwpdq0bt87ahnp3q2s539s09y0bcfg": {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "kind": "file",
+          "contents": "",
+          "xattrs": {
+            "user.tangram.dependencies": "[\".\"]"
+          }
+        }
+      }
+    },
+    "fil_01g5zxmn4g219qgs65wb1xshqahhxr3p68qzb0chffr7339k126t1g": {
+      "kind": "file",
+      "contents": "export default () => {\n\treturn tg.directory({\n\t\tgraph: tg.graph({\n\t\t\tnodes: [\n\t\t\t\t{ kind: \"directory\", entries: { \"tangram.ts\": 1 } },\n\t\t\t\t{ kind: \"file\", dependencies: { \".\": 0 } },\n\t\t\t]\n\t\t}),\n\t\tindex: 0,\n\t\tkind: \"directory\",\n\t})\n}"
+    }
+  }
+}
