@@ -677,6 +677,11 @@ impl Server {
 		sccs: &[Vec<usize>],
 		touched_at: i64,
 	) {
+		// Skip if cache references are disabled.
+		if !arg.options.cache_references {
+			return;
+		}
+
 		for scc in sccs {
 			for index in scc {
 				// Get the node.

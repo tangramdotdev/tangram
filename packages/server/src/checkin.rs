@@ -353,6 +353,7 @@ impl Server {
 		// Create blobs.
 		let start = Instant::now();
 		self.checkin_create_blobs(
+			&arg,
 			&mut graph,
 			next,
 			&mut store_args,
@@ -378,14 +379,16 @@ impl Server {
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
 		// Cache.
-		if let Some(task) = fixup_task {
-			task.await?;
+		if arg.options.cache_references {
+			if let Some(task) = fixup_task {
+				task.await?;
+			}
+			let start = Instant::now();
+			self.checkin_cache(&arg, &graph, next, root, progress)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to cache"))?;
+			tracing::trace!(elapsed = ?start.elapsed(), "cache");
 		}
-		let start = Instant::now();
-		self.checkin_cache(&arg, &graph, next, root, progress)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to cache"))?;
-		tracing::trace!(elapsed = ?start.elapsed(), "cache");
 
 		// Store.
 		let start = Instant::now();

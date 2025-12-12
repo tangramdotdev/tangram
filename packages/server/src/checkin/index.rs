@@ -22,31 +22,33 @@ impl Server {
 		let mut messages: Vec<Bytes> = Vec::new();
 
 		// Create put cache entry messages.
-		if arg.options.destructive {
-			let index = graph.paths.get(root).unwrap();
-			let id = graph
-				.nodes
-				.get(index)
-				.unwrap()
-				.id
-				.as_ref()
-				.unwrap()
-				.clone()
-				.try_into()
-				.unwrap();
-			let message =
-				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-					id,
-					touched_at,
-				});
-			let message = message.serialize()?;
-			messages.push(message);
-		} else {
-			// Serialize and add cache entry messages.
-			for message in cache_entry_messages {
-				let message = crate::index::Message::PutCacheEntry(message);
+		if arg.options.cache_references {
+			if arg.options.destructive {
+				let index = graph.paths.get(root).unwrap();
+				let id = graph
+					.nodes
+					.get(index)
+					.unwrap()
+					.id
+					.as_ref()
+					.unwrap()
+					.clone()
+					.try_into()
+					.unwrap();
+				let message =
+					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
+						id,
+						touched_at,
+					});
 				let message = message.serialize()?;
 				messages.push(message);
+			} else {
+				// Serialize and add cache entry messages.
+				for message in cache_entry_messages {
+					let message = crate::index::Message::PutCacheEntry(message);
+					let message = message.serialize()?;
+					messages.push(message);
+				}
 			}
 		}
 

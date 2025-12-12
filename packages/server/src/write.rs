@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, config::Write as WriteConfig, temp::Temp},
+	crate::{Context, Server, temp::Temp},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	itertools::Itertools,
@@ -137,8 +137,10 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
 				},
 				Some(Destination::Store { touched_at }) => {
+					let mut bytes = vec![0];
+					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::store::PutArg {
-						bytes: Some(chunk.data.into()),
+						bytes: Some(bytes.into()),
 						cache_reference: None,
 						id: blob.id.clone().into(),
 						touched_at: *touched_at,
@@ -187,11 +189,12 @@ impl Server {
 	}
 
 	pub(crate) fn write_inner_sync(
+		&self,
 		mut reader: impl Read,
 		destination: Option<&Destination>,
-		config: &WriteConfig,
 	) -> tg::Result<Output> {
 		// Create the chunker.
+		let config = &self.config.write;
 		let mut chunker = fastcdc::v2020::StreamCDC::new(
 			&mut reader,
 			config.min_leaf_size,
@@ -209,7 +212,7 @@ impl Server {
 			None
 		};
 
-		// Create the leaves and write them if necessary.
+		// Create the leaves and write or store them if necessary.
 		let mut blobs = Vec::new();
 		for chunk in &mut chunker {
 			let chunk =
@@ -218,12 +221,28 @@ impl Server {
 			// Create the leaf.
 			let blob = Self::write_inner_leaf(&chunk);
 
-			// Write to the file if necessary.
-			if let Some(Destination::Temp(_)) = destination {
-				file.as_mut()
-					.unwrap()
-					.write_all(&chunk.data)
-					.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
+			// Store the leaf if necessary.
+			match destination {
+				None => (),
+				Some(Destination::Temp(_)) => {
+					file.as_mut()
+						.unwrap()
+						.write_all(&chunk.data)
+						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
+				},
+				Some(Destination::Store { touched_at }) => {
+					let mut bytes = vec![0];
+					bytes.extend_from_slice(&chunk.data);
+					let arg = crate::store::PutArg {
+						bytes: Some(bytes.into()),
+						cache_reference: None,
+						id: blob.id.clone().into(),
+						touched_at: *touched_at,
+					};
+					self.store
+						.put_sync(arg)
+						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
+				},
 			}
 
 			blobs.push(blob);

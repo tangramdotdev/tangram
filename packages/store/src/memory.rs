@@ -58,6 +58,36 @@ impl Store {
 		let data = tg::object::Data::deserialize(id.kind(), bytes.as_ref())?;
 		Ok(Some((size, data)))
 	}
+
+	pub fn put(&self, arg: PutArg) {
+		let entry = Entry {
+			bytes: arg.bytes,
+			cache_reference: arg.cache_reference,
+			touched_at: arg.touched_at,
+		};
+		self.0.insert(arg.id, entry);
+	}
+
+	pub fn put_batch(&self, args: Vec<PutArg>) {
+		for arg in args {
+			self.put(arg);
+		}
+	}
+
+	#[expect(clippy::needless_pass_by_value)]
+	pub fn delete(&self, arg: DeleteArg) {
+		self.0.remove_if(&arg.id, |_, entry| {
+			entry.touched_at >= arg.now - arg.ttl.to_i64().unwrap()
+		});
+	}
+
+	pub fn delete_batch(&self, args: Vec<DeleteArg>) {
+		for arg in args {
+			self.delete(arg);
+		}
+	}
+
+	pub fn flush(&self) {}
 }
 
 impl Default for Store {
@@ -88,37 +118,27 @@ impl crate::Store for Store {
 	}
 
 	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
-		let entry = Entry {
-			bytes: arg.bytes,
-			cache_reference: arg.cache_reference,
-			touched_at: arg.touched_at,
-		};
-		self.0.insert(arg.id, entry);
+		self.put(arg);
 		Ok(())
 	}
 
 	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
-		for arg in args {
-			self.put(arg).await?;
-		}
+		self.put_batch(args);
 		Ok(())
 	}
 
 	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
-		self.0.remove_if(&arg.id, |_, entry| {
-			entry.touched_at >= arg.now - arg.ttl.to_i64().unwrap()
-		});
+		self.delete(arg);
 		Ok(())
 	}
 
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
-		for arg in args {
-			self.delete(arg).await?;
-		}
+		self.delete_batch(args);
 		Ok(())
 	}
 
 	async fn flush(&self) -> Result<(), Self::Error> {
+		self.flush();
 		Ok(())
 	}
 }

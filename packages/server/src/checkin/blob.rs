@@ -2,6 +2,7 @@ use {
 	crate::{
 		Server,
 		checkin::{Graph, IndexObjectMessages, StoreArgs, graph::Contents},
+		write::Destination,
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	std::collections::BTreeSet,
@@ -9,8 +10,10 @@ use {
 };
 
 impl Server {
+	#[expect(clippy::too_many_arguments)]
 	pub(super) async fn checkin_create_blobs(
 		&self,
+		arg: &tg::checkin::Arg,
 		graph: &mut Graph,
 		next: usize,
 		store_args: &mut StoreArgs,
@@ -42,11 +45,11 @@ impl Server {
 			Some(total),
 		);
 
-		let write_config = self.config.write.clone();
+		let cache_references = arg.options.cache_references;
 		let blobs = stream::iter(nodes)
 			.map(|(index, path, size)| {
 				let progress = progress.clone();
-				let write_config = write_config.clone();
+				let server = self.clone();
 				async move {
 					let blob = tokio::task::spawn_blocking({
 						let path = path.clone();
@@ -54,7 +57,12 @@ impl Server {
 							let file = std::fs::File::open(&path).map_err(
 								|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 							)?;
-							Self::write_inner_sync(file, None, &write_config).map_err(
+							let destination = if cache_references {
+								None
+							} else {
+								Some(Destination::Store { touched_at })
+							};
+							server.write_inner_sync(file, destination.as_ref()).map_err(
 								|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
 							)
 						}
@@ -90,12 +98,17 @@ impl Server {
 					data.children(&mut children);
 				}
 
-				// Create store arg.
-				let store_arg = crate::store::PutArg {
-					bytes,
-					cache_reference: None,
-					id: id.clone(),
-					touched_at,
+				// Create store arg only if needed.
+				// When cache_references is false, leaf blobs (bytes: None) are already stored.
+				let store_arg = if cache_references || bytes.is_some() {
+					Some(crate::store::PutArg {
+						bytes,
+						cache_reference: None,
+						id: id.clone(),
+						touched_at,
+					})
+				} else {
+					None
 				};
 
 				// Create index message.
@@ -115,7 +128,9 @@ impl Server {
 
 		// Add the entries in reverse topological order.
 		for (id, store_arg, index_message) in entries.into_iter().rev() {
-			store_args.insert(id.clone(), store_arg);
+			if let Some(store_arg) = store_arg {
+				store_args.insert(id.clone(), store_arg);
+			}
 			object_messages.insert(id, index_message);
 		}
 
