@@ -293,6 +293,93 @@ impl Store {
 		}
 		Ok(())
 	}
+
+	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let request = Put {
+			bytes: arg.bytes,
+			cache_reference: arg.cache_reference,
+			id: arg.id,
+			touched_at: arg.touched_at,
+		};
+		Self::task_put(&self.env, &self.db, &mut transaction, request)?;
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		for arg in args {
+			let request = Put {
+				bytes: arg.bytes,
+				cache_reference: arg.cache_reference,
+				id: arg.id,
+				touched_at: arg.touched_at,
+			};
+			Self::task_put(&self.env, &self.db, &mut transaction, request)?;
+		}
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		let request = Delete {
+			id: arg.id,
+			now: arg.now,
+			ttl: arg.ttl,
+		};
+		Self::task_delete(&self.env, &self.db, &mut transaction, request)?;
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		for arg in args {
+			let request = Delete {
+				id: arg.id,
+				now: arg.now,
+				ttl: arg.ttl,
+			};
+			Self::task_delete(&self.env, &self.db, &mut transaction, request)?;
+		}
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn flush_sync(&self) -> tg::Result<()> {
+		self.env
+			.force_sync()
+			.map_err(|source| tg::error!(!source, "failed to sync"))?;
+		Ok(())
+	}
 }
 
 impl crate::Store for Store {

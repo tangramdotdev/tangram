@@ -120,6 +120,90 @@ impl Store {
 			_ => Err(tg::error!("invalid store")),
 		}
 	}
+
+	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => {
+				store.put_sync(arg)?;
+			},
+			Store::Memory(store) => {
+				store.put(arg);
+			},
+			_ => {
+				return Err(tg::error!("unimplemented"));
+			},
+		}
+		Ok(())
+	}
+
+	#[expect(dead_code)]
+	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => {
+				store.put_batch_sync(args)?;
+			},
+			Store::Memory(store) => {
+				store.put_batch(args);
+			},
+			_ => {
+				return Err(tg::error!("unimplemented"));
+			},
+		}
+		Ok(())
+	}
+
+	#[expect(dead_code)]
+	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => {
+				store.delete_sync(arg)?;
+			},
+			Store::Memory(store) => {
+				store.delete(arg);
+			},
+			_ => {
+				return Err(tg::error!("unimplemented"));
+			},
+		}
+		Ok(())
+	}
+
+	#[expect(dead_code)]
+	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => {
+				store.delete_batch_sync(args)?;
+			},
+			Store::Memory(store) => {
+				store.delete_batch(args);
+			},
+			_ => {
+				return Err(tg::error!("unimplemented"));
+			},
+		}
+		Ok(())
+	}
+
+	#[expect(dead_code)]
+	pub fn flush_sync(&self) -> tg::Result<()> {
+		#[allow(clippy::match_wildcard_for_single_variants)]
+		match self {
+			Store::Lmdb(store) => {
+				store.flush_sync()?;
+			},
+			Store::Memory(store) => {
+				store.flush();
+			},
+			_ => {
+				return Err(tg::error!("unimplemented"));
+			},
+		}
+		Ok(())
+	}
 }
 
 impl store::Store for Store {
@@ -179,7 +263,10 @@ impl store::Store for Store {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.put(arg).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.put(arg).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => memory.put(arg).await.map_err(Error::Memory),
+			Self::Memory(memory) => {
+				memory.put(arg);
+				Ok(())
+			},
 			Self::S3(s3) => s3.put(arg).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.put(arg).await.map_err(Error::Scylla),
@@ -191,7 +278,10 @@ impl store::Store for Store {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.put_batch(args).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.put_batch(args).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => memory.put_batch(args).await.map_err(Error::Memory),
+			Self::Memory(memory) => {
+				memory.put_batch(args);
+				Ok(())
+			},
 			Self::S3(s3) => s3.put_batch(args).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.put_batch(args).await.map_err(Error::Scylla),
@@ -203,7 +293,10 @@ impl store::Store for Store {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.delete(arg).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.delete(arg).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => memory.delete(arg).await.map_err(Error::Memory),
+			Self::Memory(memory) => {
+				memory.delete(arg);
+				Ok(())
+			},
 			Self::S3(s3) => s3.delete(arg).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.delete(arg).await.map_err(Error::Scylla),
@@ -215,7 +308,10 @@ impl store::Store for Store {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.delete_batch(args).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.delete_batch(args).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => memory.delete_batch(args).await.map_err(Error::Memory),
+			Self::Memory(memory) => {
+				memory.delete_batch(args);
+				Ok(())
+			},
 			Self::S3(s3) => s3.delete_batch(args).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.delete_batch(args).await.map_err(Error::Scylla),
@@ -227,7 +323,10 @@ impl store::Store for Store {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.flush().await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.flush().await.map_err(Error::Lmdb),
-			Self::Memory(memory) => memory.flush().await.map_err(Error::Memory),
+			Self::Memory(memory) => {
+				memory.flush();
+				Ok(())
+			},
 			Self::S3(s3) => s3.flush().await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.flush().await.map_err(Error::Scylla),
