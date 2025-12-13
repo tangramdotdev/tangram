@@ -141,6 +141,15 @@ impl Server {
 							.ok_or_else(|| tg::error!("expected the object to exist"))?
 							.bytes;
 						let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+						// Update the graph with data.
+						state.graph.lock().unwrap().update_object(
+							&item.id,
+							Some(&data),
+							None,
+							None,
+							None,
+							None,
+						);
 						Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
 					}
 				},
@@ -205,21 +214,22 @@ impl Server {
 
 				// If the process is present, then enqueue children and objects as necessary, and send a stored message if necessary.
 				Some((stored, metadata)) => {
-					// Update the graph with stored and metadata.
-					state.graph.lock().unwrap().update_process(
-						&item.id,
-						None,
-						Some(stored.clone()),
-						Some(metadata.clone()),
-						None,
-						None,
-					);
 					// Get the process.
 					let data = self
 						.try_get_process_local(&item.id)
 						.await?
 						.ok_or_else(|| tg::error!("expected the process to exist"))?
 						.data;
+
+					// Update the graph with stored and metadata and data.
+					state.graph.lock().unwrap().update_process(
+						&item.id,
+						Some(&data),
+						Some(stored.clone()),
+						Some(metadata.clone()),
+						None,
+						None,
+					);
 
 					// Enqueue the children as necessary.
 					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored));

@@ -249,8 +249,8 @@ impl Server {
 						continue;
 					};
 
-					// Initialize the stored output.
-					let mut stored = true;
+					// // Initialize the stored output.
+					// let mut stored = true;
 
 					// Initialize the metadata from existing node metadata.
 					let mut metadata = tg::object::Metadata {
@@ -276,8 +276,8 @@ impl Server {
 								.try_unwrap_object_ref()
 								.ok()
 								.ok_or_else(|| tg::error!("expected an object"))?;
-							stored =
-								stored && child_node.stored.clone().unwrap_or_default().subtree;
+							// stored =
+							// 	stored && child_node.stored.clone().unwrap_or_default().subtree;
 							metadata.subtree.count = metadata
 								.subtree
 								.count
@@ -330,30 +330,20 @@ impl Server {
 								.map(|(a, b)| a && b);
 						}
 					} else {
-						stored = false;
+						// stored = false;
 						metadata = tg::object::Metadata::default();
 					}
 
 					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
 					let node = node.unwrap_object_mut();
-					node.stored = Some(crate::object::stored::Output { subtree: stored });
 					node.metadata = Some(metadata);
 				},
 
 				Node::Process(node) => {
-					if node.stored.is_some() && node.metadata.is_some() {
-						continue;
-					}
-
-					// Initialize the stored output.
-					let mut stored = crate::process::stored::Output {
-						subtree: true,
-						subtree_command: true,
-						subtree_output: true,
-						node_command: true,
-						node_output: true,
-					};
+					// if node.stored.is_some() && node.metadata.is_some() {
+					// 	continue;
+					// }
 
 					// Initialize the metadata.
 					let mut metadata = tg::process::Metadata {
@@ -400,29 +390,13 @@ impl Server {
 								child_node.try_unwrap_process_ref().ok().ok_or_else(|| {
 									tg::error!("all children of processes must be processes")
 								})?;
-							stored.subtree = stored.subtree
-								&& child_node
-									.stored
-									.as_ref()
-									.is_some_and(|stored| stored.subtree);
 							metadata.subtree.count = metadata
 								.subtree
 								.count
 								.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
 								.map(|(a, b)| a + b);
-							stored.subtree_command = stored.subtree_command
-								&& child_node
-									.stored
-									.as_ref()
-									.is_some_and(|stored| stored.subtree_command);
-							stored.subtree_output = stored.subtree_output
-								&& child_node
-									.stored
-									.as_ref()
-									.is_some_and(|stored| stored.subtree_output);
 						}
 					} else {
-						stored = crate::process::stored::Output::default();
 						metadata = tg::process::Metadata::default();
 					}
 
@@ -436,8 +410,6 @@ impl Server {
 								.ok_or_else(|| tg::error!("expected an object"))?;
 							match object_kind {
 								ProcessObjectKind::Command => {
-									stored.node_command =
-										object_node.stored.clone().unwrap_or_default().subtree;
 									metadata.node.command.count = object_node
 										.metadata
 										.as_ref()
@@ -451,8 +423,6 @@ impl Server {
 										.as_ref()
 										.and_then(|metadata| metadata.subtree.size);
 
-									stored.subtree_command = stored.subtree_command
-										&& object_node.stored.clone().unwrap_or_default().subtree;
 									metadata.subtree.command.count = metadata
 										.subtree
 										.command
@@ -488,8 +458,6 @@ impl Server {
 										.map(|(a, b)| a + b);
 								},
 								ProcessObjectKind::Output => {
-									stored.node_output = stored.node_output
-										&& object_node.stored.clone().unwrap_or_default().subtree;
 									metadata.node.output.count = metadata
 										.node
 										.output
@@ -524,8 +492,6 @@ impl Server {
 										)
 										.map(|(a, b)| a + b);
 
-									stored.subtree_output = stored.subtree_output
-										&& object_node.stored.clone().unwrap_or_default().subtree;
 									metadata.subtree.output.count = metadata
 										.subtree
 										.output
@@ -564,14 +530,12 @@ impl Server {
 							}
 						}
 					} else {
-						stored = crate::process::stored::Output::default();
 						metadata = tg::process::Metadata::default();
 					}
 
 					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
 					let node_inner = node.unwrap_process_mut();
-					node_inner.stored = Some(stored);
 					node_inner.metadata = Some(metadata);
 				},
 			}
@@ -589,105 +553,94 @@ impl Server {
 			.collect::<Vec<_>>();
 		while let Some((index, level)) = stack.pop() {
 			let (id, node) = graph.nodes.get_index(index).unwrap();
-			if !node.marked() {
-				continue;
-			}
 			match node {
 				Node::Object(node) => {
 					let id = id.unwrap_object_ref().clone();
-					let children = node
-						.children
-						.as_ref()
-						.unwrap()
-						.iter()
-						.map(|index| {
-							graph
-								.nodes
-								.get_index(*index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_object()
-						})
-						.collect();
-					let message =
-						crate::index::Message::PutObject(crate::index::message::PutObject {
-							cache_entry: None,
-							children,
-							id,
-							metadata: node.metadata.clone().unwrap(),
-							stored: node.stored.clone().unwrap(),
-							touched_at,
-						});
-					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(
-						node.children
+					if node.marked {
+						let children = node
+							.children
 							.as_ref()
 							.unwrap()
 							.iter()
-							.map(|index| (*index, level + 1)),
-					);
+							.map(|index| {
+								graph
+									.nodes
+									.get_index(*index)
+									.unwrap()
+									.0
+									.clone()
+									.unwrap_object()
+							})
+							.collect();
+						let message =
+							crate::index::Message::PutObject(crate::index::message::PutObject {
+								cache_entry: None,
+								children,
+								id,
+								metadata: node.metadata.clone().unwrap(),
+								stored: node.stored.clone().unwrap(),
+								touched_at,
+							});
+						messages.entry(level).or_insert(Vec::new()).push(message);
+					}
+					if let Some(children) = node.children.as_ref() {
+						stack.extend(children.iter().map(|index| (*index, level + 1)));
+					}
 				},
 				Node::Process(node) => {
 					let id = id.unwrap_process_ref().clone();
-					let children = node
-						.children
-						.as_ref()
-						.unwrap()
-						.iter()
-						.map(|index| {
-							graph
-								.nodes
-								.get_index(*index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_process()
-						})
-						.collect();
-					let stored = node.stored.clone().unwrap();
-					let metadata = node.metadata.clone().unwrap();
-					let objects = node
-						.objects
-						.as_ref()
-						.unwrap()
-						.iter()
-						.copied()
-						.map(|(index, kind)| {
-							let id = graph
-								.nodes
-								.get_index(index)
-								.unwrap()
-								.0
-								.clone()
-								.unwrap_object();
-							(id, kind)
-						})
-						.collect();
-					let message =
-						crate::index::Message::PutProcess(crate::index::message::PutProcess {
-							children,
-							id,
-							metadata,
-							objects,
-							stored,
-							touched_at,
-						});
-					messages.entry(level).or_insert(Vec::new()).push(message);
-					stack.extend(
-						node.children
+					if node.marked {
+						let children = node
+							.children
 							.as_ref()
 							.unwrap()
 							.iter()
-							.map(|index| (*index, level + 1)),
-					);
-					stack.extend(
-						node.objects
+							.map(|index| {
+								graph
+									.nodes
+									.get_index(*index)
+									.unwrap()
+									.0
+									.clone()
+									.unwrap_process()
+							})
+							.collect();
+						let stored = node.stored.clone().unwrap();
+						let metadata = node.metadata.clone().unwrap();
+						let objects = node
+							.objects
 							.as_ref()
 							.unwrap()
 							.iter()
-							.map(|(index, _)| (*index, level + 1)),
-					);
+							.copied()
+							.map(|(index, kind)| {
+								let id = graph
+									.nodes
+									.get_index(index)
+									.unwrap()
+									.0
+									.clone()
+									.unwrap_object();
+								(id, kind)
+							})
+							.collect();
+						let message =
+							crate::index::Message::PutProcess(crate::index::message::PutProcess {
+								children,
+								id,
+								metadata,
+								objects,
+								stored,
+								touched_at,
+							});
+						messages.entry(level).or_insert(Vec::new()).push(message);
+					}
+					if let Some(children) = node.children.as_ref() {
+						stack.extend(children.iter().map(|index| (*index, level + 1)));
+					}
+					if let Some(objects) = node.objects.as_ref() {
+						stack.extend(objects.iter().map(|(index, _)| (*index, level + 1)));
+					}
 				},
 			}
 		}
