@@ -1,24 +1,12 @@
 use {
 	crate::{Context, Server},
+	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_ignore as ignore,
 };
-#[cfg(feature = "biome")]
-use {std::path::Path, tangram_ignore as ignore};
 
 impl Server {
-	#[cfg(not(feature = "biome"))]
-	pub(crate) async fn format_with_context(
-		&self,
-		_context: &Context,
-		_arg: tg::format::Arg,
-	) -> tg::Result<()> {
-		Err(tg::error!(
-			"this version of tangram was not compiled with biome support"
-		))
-	}
-
-	#[cfg(feature = "biome")]
 	pub(crate) async fn format_with_context(
 		&self,
 		context: &Context,
@@ -27,6 +15,7 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+
 		// Canonicalize the path's parent.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));
@@ -49,7 +38,6 @@ impl Server {
 		Ok(())
 	}
 
-	#[cfg(feature = "biome")]
 	fn format_inner(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
 		let metadata = std::fs::symlink_metadata(path)
 			.map_err(|source| tg::error!(!source, "failed to read the metadata"))?;
@@ -61,7 +49,6 @@ impl Server {
 		Ok(())
 	}
 
-	#[cfg(feature = "biome")]
 	fn format_directory(&self, path: &Path, ignore: &mut ignore::Ignorer) -> tg::Result<()> {
 		// Read the directory entries.
 		let mut entries = Vec::new();
@@ -101,7 +88,6 @@ impl Server {
 		Ok(())
 	}
 
-	#[cfg(feature = "biome")]
 	fn format_file(path: &Path) -> tg::Result<()> {
 		// Get the text.
 		let text = std::fs::read_to_string(path)

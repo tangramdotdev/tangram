@@ -28,6 +28,8 @@ impl Server {
 		#[allow(clippy::struct_field_names)]
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::postgres::value::TryFrom<i64>")]
+			deleted_bytes: u64,
 			#[tangram_database(as = "Vec<db::postgres::value::TryFrom<Vec<u8>>>")]
 			deleted_cache_entries: Vec<tg::artifact::Id>,
 			#[tangram_database(as = "Vec<db::postgres::value::TryFrom<Vec<u8>>>")]
@@ -35,7 +37,7 @@ impl Server {
 			#[tangram_database(as = "Vec<db::postgres::value::TryFrom<Vec<u8>>>")]
 			deleted_processes: Vec<tg::process::Id>,
 		}
-		let statement = "call clean($1, $2, null, null, null);";
+		let statement = "call clean($1, $2, null, null, null, null);";
 		let row = transaction
 			.inner()
 			.query_one(statement, &[&max_touched_at, &n.to_i64().unwrap()])
@@ -54,6 +56,7 @@ impl Server {
 		drop(connection);
 
 		let output = InnerOutput {
+			bytes: row.deleted_bytes,
 			cache_entries: row.deleted_cache_entries,
 			objects: row.deleted_objects,
 			processes: row.deleted_processes,

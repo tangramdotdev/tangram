@@ -85,21 +85,6 @@ impl Progress {
 		}
 	}
 
-	pub fn increment_processes(&self) {
-		self.processes
-			.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-	}
-
-	pub fn increment_objects(&self, objects: u64) {
-		self.objects
-			.fetch_add(objects, std::sync::atomic::Ordering::SeqCst);
-	}
-
-	pub fn increment_bytes(&self, bytes: u64) {
-		self.bytes
-			.fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
-	}
-
 	pub fn reset(&self) -> tg::sync::ProgressMessage {
 		let processes = self.processes.swap(0, std::sync::atomic::Ordering::SeqCst);
 		let objects = self.objects.swap(0, std::sync::atomic::Ordering::SeqCst);

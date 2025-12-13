@@ -30,9 +30,11 @@ impl Cli {
 		};
 		let stream = handle.pull(arg).await?;
 		let output = self.render_progress_stream(stream).await?;
+		let bytes = byte_unit::Byte::from_u64(output.bytes)
+			.get_appropriate_unit(byte_unit::UnitType::Decimal);
 		let message = format!(
-			"pulled {} processes, {} objects, {} bytes",
-			output.processes, output.objects, output.bytes,
+			"pulled {} processes, {} objects, {bytes:#.1}",
+			output.processes, output.objects,
 		);
 		Self::print_info_message(&message);
 

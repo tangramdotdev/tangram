@@ -1,7 +1,7 @@
 use {
 	pin_project::pin_project,
 	std::{
-		pin::{Pin, pin},
+		pin::Pin,
 		sync::{
 			Arc,
 			atomic::{AtomicU64, Ordering},

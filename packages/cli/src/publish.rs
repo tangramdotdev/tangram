@@ -171,7 +171,9 @@ impl Cli {
 			.render_progress_stream(stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to push items"))?;
-		let message = format!("pushed {} objects, {} bytes", output.objects, output.bytes);
+		let bytes = byte_unit::Byte::from_u64(output.bytes)
+			.get_appropriate_unit(byte_unit::UnitType::Decimal);
+		let message = format!("pushed {} objects, {bytes:#.1}", output.objects);
 		Self::print_info_message(&message);
 
 		// Put tags on the remote.

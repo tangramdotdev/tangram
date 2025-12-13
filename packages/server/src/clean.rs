@@ -20,6 +20,7 @@ mod postgres;
 mod sqlite;
 
 struct InnerOutput {
+	bytes: u64,
 	cache_entries: Vec<tg::artifact::Id>,
 	objects: Vec<tg::object::Id>,
 	processes: Vec<tg::process::Id>,
@@ -79,7 +80,8 @@ impl Server {
 			})?;
 
 		let mut output = tg::clean::Output {
-			cache: 0,
+			bytes: 0,
+			cache_entries: 0,
 			objects: 0,
 			processes: 0,
 		};
@@ -91,8 +93,8 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let ttl = Duration::from_secs(0);
 		progress.start(
-			"cache".into(),
-			"cache".into(),
+			"cache_entries".into(),
+			"cache entries".into(),
 			tangram_client::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
@@ -122,16 +124,18 @@ impl Server {
 			};
 
 			// Get the number of items cleaned.
-			let cache = inner_output.cache_entries.len().to_u64().unwrap();
+			let bytes = inner_output.bytes;
+			let cache_entries = inner_output.cache_entries.len().to_u64().unwrap();
 			let objects = inner_output.objects.len().to_u64().unwrap();
 			let processes = inner_output.processes.len().to_u64().unwrap();
-			output.cache += cache;
+			output.bytes += bytes;
+			output.cache_entries += cache_entries;
 			output.objects += objects;
 			output.processes += processes;
-			progress.increment("cache", cache);
+			progress.increment("cache_entries", cache_entries);
 			progress.increment("objects", objects);
 			progress.increment("processes", processes);
-			let n = cache + objects + processes;
+			let n = cache_entries + objects + processes;
 			if n == 0 {
 				break;
 			}

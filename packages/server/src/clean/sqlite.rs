@@ -95,6 +95,7 @@ impl Server {
 			.map(|bytes| tg::object::Id::from_slice(&bytes))
 			.collect::<tg::Result<Vec<_>>>()?;
 
+		let mut bytes = 0u64;
 		let mut objects = Vec::new();
 		for id in objects_ {
 			let statement = formatdoc!(
@@ -119,6 +120,18 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			if reference_count == 0 {
+				// Get the node size before deleting.
+				let statement = formatdoc!(
+					"
+						select node_size from objects where id = ?1;
+					"
+				);
+				let params = db::params![id.to_bytes()];
+				let size = transaction
+					.query_one_value_into::<u64>(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 				let statement = formatdoc!(
 					"
 						update objects
@@ -169,6 +182,7 @@ impl Server {
 					.execute(statement.into(), params)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				bytes += size;
 				objects.push(id);
 			}
 		}
@@ -291,6 +305,7 @@ impl Server {
 		drop(connection);
 
 		let output = InnerOutput {
+			bytes,
 			cache_entries,
 			objects,
 			processes,

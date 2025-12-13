@@ -3,7 +3,7 @@ use {
 	bytes::Bytes,
 	pin_project::pin_project,
 	std::{
-		pin::{Pin, pin},
+		pin::Pin,
 		sync::{Arc, Mutex},
 		time::Duration,
 	},

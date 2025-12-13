@@ -208,6 +208,5 @@ ignored = [
   "num-traits",
   "oauth2",
   "octocrab",
-  "tangram_fdb",
   "webbrowser",
 ]

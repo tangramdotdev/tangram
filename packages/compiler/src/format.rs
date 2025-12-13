@@ -2,8 +2,21 @@ use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 impl Compiler {
 	#[cfg(not(feature = "biome"))]
-	pub fn format(_text: &str) -> tg::Result<String> {
-		Err(tg::error!("biome is not enabled"))
+	pub fn format(text: &str) -> tg::Result<String> {
+		let allocator = oxc::allocator::Allocator::default();
+		let source_type = oxc::span::SourceType::ts();
+		let options = oxc::parser::ParseOptions {
+			preserve_parens: false,
+			..Default::default()
+		};
+		let output = oxc::parser::Parser::new(&allocator, text, source_type)
+			.with_options(options)
+			.parse();
+		let mut options = oxc_formatter::FormatOptions::default();
+		options.indent_style = oxc_formatter::IndentStyle::Tab;
+		let formatter = oxc_formatter::Formatter::new(&allocator, options);
+		let formatted = formatter.build(&output.program);
+		Ok(formatted)
 	}
 
 	#[cfg(feature = "biome")]

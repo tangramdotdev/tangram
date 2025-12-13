@@ -171,8 +171,7 @@ impl Server {
 			.iter()
 			.map(|item| item.bytes.len().to_u64().unwrap())
 			.sum();
-		state.progress.increment_objects(objects);
-		state.progress.increment_bytes(bytes);
+		state.progress.increment(0, objects, bytes);
 
 		Ok(())
 	}
@@ -238,10 +237,8 @@ impl Server {
 		drop(graph);
 
 		// Update the progress.
-		let count = items.len().to_u64().unwrap();
-		for _ in 0..count {
-			state.progress.increment_processes();
-		}
+		let processes = items.len().to_u64().unwrap();
+		state.progress.increment(processes, 0, 0);
 
 		Ok(())
 	}

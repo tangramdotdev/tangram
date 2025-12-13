@@ -27,8 +27,10 @@ impl Cli {
 		// Clean.
 		let stream = handle.clean().await?;
 		let output = self.render_progress_stream(stream).await?;
+		let bytes = byte_unit::Byte::from_u64(output.bytes)
+			.get_appropriate_unit(byte_unit::UnitType::Decimal);
 		let message = format!(
-			"cleaned {} processes, {} objects",
+			"cleaned {} processes, {} objects, {bytes:#.1}",
 			output.processes, output.objects,
 		);
 		Self::print_info_message(&message);

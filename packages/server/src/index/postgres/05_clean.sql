@@ -1,6 +1,7 @@
 create or replace procedure clean(
 	max_touched_at int8,
 	batch_size int8,
+	out deleted_bytes int8,
 	out deleted_cache_entries bytea[],
 	out deleted_objects bytea[],
 	out deleted_processes bytea[]
@@ -11,6 +12,7 @@ declare
 	n int8;
 begin
 	n := batch_size;
+	deleted_bytes := 0;
 
 	if n > 0 then
 		call clean_cache_entries(max_touched_at, n, deleted_cache_entries);
@@ -18,7 +20,7 @@ begin
 	end if;
 
 	if n > 0 then
-		call clean_objects(max_touched_at, n, deleted_objects);
+		call clean_objects(max_touched_at, n, deleted_bytes, deleted_objects);
 		n := n - coalesce(array_length(deleted_objects, 1), 0);
 	end if;
 
@@ -78,6 +80,7 @@ $$;
 create or replace procedure clean_objects(
 	max_touched_at int8,
 	n int8,
+	inout deleted_bytes int8,
 	out deleted_objects bytea[]
 )
 language plpgsql
@@ -111,9 +114,10 @@ begin
 		),
 		reference_count_transaction_id = (select id from transaction_id)
 		where id = any(deleted_objects)
-		returning id, reference_count
+		returning id, reference_count, node_size
 	)
-	select coalesce(array_agg(id), '{}') into deleted_objects
+	select coalesce(array_agg(id), '{}'), deleted_bytes + coalesce(sum(node_size), 0)
+	into deleted_objects, deleted_bytes
 	from updated
 	where reference_count = 0;
 

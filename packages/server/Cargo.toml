@@ -28,7 +28,6 @@ typescript = ["tangram_compiler/typescript"]
 [dependencies]
 async-channel = { workspace = true }
 async-nats = { workspace = true, optional = true }
-byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
 crossterm = { workspace = true }

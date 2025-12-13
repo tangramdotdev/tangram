@@ -6,7 +6,8 @@ use {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub cache: u64,
+	pub bytes: u64,
+	pub cache_entries: u64,
 	pub objects: u64,
 	pub processes: u64,
 }
