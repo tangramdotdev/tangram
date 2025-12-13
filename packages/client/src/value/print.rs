@@ -313,27 +313,29 @@ where
 		if !file.dependencies.is_empty() {
 			self.map_entry("dependencies", |s| {
 				s.start_map()?;
-				for (reference, referent) in &file.dependencies {
+				for (reference, option) in &file.dependencies {
 					s.map_entry(&reference.to_string(), |s| {
-						let Some(referent) = referent else {
+						let Some(dependency) = option else {
 							s.null()?;
 							return Ok(());
 						};
 						s.start_map()?;
-						s.map_entry("item", |s| s.graph_edge_object(referent.item()))?;
-						if let Some(artifact) = referent.artifact() {
+						if let Some(item) = dependency.0.item() {
+							s.map_entry("item", |s| s.graph_edge_object(item))?;
+						}
+						if let Some(artifact) = dependency.0.artifact() {
 							s.map_entry("artifact", |s| s.string(&artifact.to_string()))?;
 						}
-						if let Some(id) = referent.id() {
+						if let Some(id) = dependency.0.id() {
 							s.map_entry("id", |s| s.string(&id.to_string()))?;
 						}
-						if let Some(name) = referent.name() {
+						if let Some(name) = dependency.0.name() {
 							s.map_entry("name", |s| s.string(name))?;
 						}
-						if let Some(path) = referent.path() {
+						if let Some(path) = dependency.0.path() {
 							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 						}
-						if let Some(tag) = referent.tag() {
+						if let Some(tag) = dependency.0.tag() {
 							s.map_entry("tag", |s| s.string(tag.as_str()))?;
 						}
 						s.finish_map()?;

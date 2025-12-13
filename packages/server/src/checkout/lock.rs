@@ -70,7 +70,7 @@ impl Server {
 		let lock = tg::graph::Data { nodes };
 
 		// Strip the lock.
-		let lock = Self::strip_lock(lock, &state.ids);
+		let lock = Self::strip_lock(lock);
 
 		Ok(lock)
 	}
@@ -224,23 +224,25 @@ impl Server {
 		let dependencies = node
 			.dependencies
 			.into_iter()
-			.map(|(reference, referent)| {
-				let Some(referent) = referent else {
+			.map(|(reference, option)| {
+				let Some(dependency) = option else {
 					return Ok::<_, tg::Error>((reference, None));
 				};
+				let referent = dependency.0;
 				let edge = match referent.item {
-					tg::graph::data::Edge::Reference(mut reference) => {
+					Some(tg::graph::data::Edge::Reference(mut reference)) => {
 						if reference.graph.is_none() {
 							reference.graph = graph.cloned();
 						}
 						tg::graph::data::Edge::Reference(reference)
 					},
-					tg::graph::data::Edge::Object(id) => {
+					Some(tg::graph::data::Edge::Object(id)) => {
 						let id = id
 							.try_into()
 							.map_err(|_| tg::error!("expected an artifact"))?;
 						tg::graph::data::Edge::Object(id)
 					},
+					None => return Ok::<_, tg::Error>((reference, None)),
 				};
 				let kind = edge.artifact_kind();
 				let index = self.checkout_create_lock_inner(state, &edge)?;
@@ -250,17 +252,19 @@ impl Server {
 				} else {
 					None
 				};
-				let item = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-					graph: None,
-					index,
-					kind,
-				});
+				let item = Some(tg::graph::data::Edge::Reference(
+					tg::graph::data::Reference {
+						graph: None,
+						index,
+						kind,
+					},
+				));
 				let options = tg::referent::Options {
 					artifact,
 					..referent.options
 				};
 				let referent = tg::Referent::new(item, options);
-				Ok::<_, tg::Error>((reference, Some(referent)))
+				Ok::<_, tg::Error>((reference, Some(tg::graph::data::Dependency(referent))))
 			})
 			.collect::<tg::Result<_>>()?;
 		let file = tg::graph::data::File {

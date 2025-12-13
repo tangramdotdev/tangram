@@ -7,6 +7,7 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		path::PathBuf,
 	},
+	tangram_uri::Uri,
 	tangram_util::serde::is_false,
 };
 
@@ -86,8 +87,7 @@ pub struct File {
 	#[serde_as(as = "BTreeMap<_, Option<PickFirst<(_, DisplayFromStr)>>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "BTreeMap::is_empty")]
-	pub dependencies:
-		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
+	pub dependencies: BTreeMap<tg::Reference, Option<Dependency>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
@@ -186,6 +186,152 @@ pub struct Reference {
 	pub kind: tg::artifact::Kind,
 }
 
+/// A file dependency, wrapping a Referent where the item may be None.
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(transparent)]
+#[tangram_serialize(transparent)]
+pub struct Dependency(pub tg::Referent<Option<Edge<tg::object::Id>>>);
+
+impl Dependency {
+	#[must_use]
+	pub fn to_uri(&self) -> Uri {
+		let path = self
+			.0
+			.item
+			.as_ref()
+			.map_or_else(String::new, ToString::to_string);
+		let mut builder = Uri::builder().path(&path);
+		let mut query = Vec::new();
+		if let Some(artifact) = &self.0.options.artifact {
+			let artifact = artifact.to_string();
+			let artifact = tangram_uri::encode_query_value(&artifact);
+			let artifact = format!("artifact={artifact}");
+			query.push(artifact);
+		}
+		if let Some(id) = &self.0.options.id {
+			let id = id.to_string();
+			let id = tangram_uri::encode_query_value(&id);
+			let id = format!("id={id}");
+			query.push(id);
+		}
+		if let Some(name) = &self.0.options.name {
+			let name = tangram_uri::encode_query_value(name);
+			let name = format!("name={name}");
+			query.push(name);
+		}
+		if let Some(path) = &self.0.options.path {
+			let path = path.to_string_lossy();
+			let path = tangram_uri::encode_query_value(&path);
+			let path = format!("path={path}");
+			query.push(path);
+		}
+		if let Some(tag) = &self.0.options.tag {
+			let tag = tag.to_string();
+			let tag = tangram_uri::encode_query_value(&tag);
+			let tag = format!("tag={tag}");
+			query.push(tag);
+		}
+		if !query.is_empty() {
+			let query = query.join("&");
+			builder = builder.query_raw(&query);
+		}
+		builder.build().unwrap()
+	}
+
+	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
+		let item = if uri.path().is_empty() {
+			None
+		} else {
+			Some(
+				uri.path()
+					.parse()
+					.map_err(|_| tg::error!("failed to parse the item"))?,
+			)
+		};
+		let mut options = tg::referent::Options::default();
+		if let Some(query) = uri.query_raw() {
+			for param in query.split('&') {
+				if let Some((key, value)) = param.split_once('=') {
+					let value = tangram_uri::decode_query_value(value)
+						.map_err(|_| tg::error!("failed to decode the value"))?;
+					match key {
+						"artifact" => {
+							options.artifact.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the artifact"))?,
+							);
+						},
+						"id" => {
+							options.id.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the id"))?,
+							);
+						},
+						"name" => {
+							options.name.replace(value.into_owned());
+						},
+						"path" => {
+							options.path.replace(value.into_owned().into());
+						},
+						"tag" => {
+							options.tag.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the tag"))?,
+							);
+						},
+						_ => {},
+					}
+				}
+			}
+		}
+		Ok(Self(tg::Referent { item, options }))
+	}
+}
+
+impl std::fmt::Display for Dependency {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.to_uri())
+	}
+}
+
+impl std::str::FromStr for Dependency {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
+		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		Self::with_uri(&uri)
+	}
+}
+
+impl std::ops::Deref for Dependency {
+	type Target = tg::Referent<Option<Edge<tg::object::Id>>>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl std::ops::DerefMut for Dependency {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.0
+	}
+}
+
 impl Graph {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
@@ -252,8 +398,10 @@ impl File {
 		if let Some(contents) = &self.contents {
 			children.insert(contents.clone().into());
 		}
-		for referent in self.dependencies.values().flatten() {
-			referent.item.children(children);
+		for dependency in self.dependencies.values().flatten() {
+			if let Some(item) = &dependency.item {
+				item.children(children);
+			}
 		}
 	}
 
@@ -267,7 +415,7 @@ impl File {
 		self.dependencies
 			.iter()
 			.filter(|(reference, _)| reference.is_solvable())
-			.all(|(_, referent)| referent.is_some())
+			.all(|(_, option)| option.is_some())
 	}
 }
 

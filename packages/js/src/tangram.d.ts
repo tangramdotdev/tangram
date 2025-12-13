@@ -470,13 +470,15 @@ declare namespace tg {
 					| undefined;
 			};
 
+			type Dependency = tg.MaybeReferent<
+				tg.Graph.Arg.Edge<tg.Object> | undefined
+			>;
+
 			type File = {
 				contents?: tg.Blob.Arg | undefined;
 				dependencies?:
 					| {
-							[reference: string]:
-								| tg.MaybeReferent<tg.Graph.Arg.Edge<tg.Object>>
-								| undefined;
+							[reference: string]: tg.Graph.Arg.Dependency | undefined;
 					  }
 					| undefined;
 				executable?: boolean | undefined;
@@ -516,7 +518,7 @@ declare namespace tg {
 		type File = {
 			contents: tg.Blob;
 			dependencies: {
-				[reference: tg.Reference]: tg.Referent<tg.Graph.Edge<tg.Object>>;
+				[reference: tg.Reference]: tg.Graph.Dependency | undefined;
 			};
 			executable: boolean;
 		};
@@ -533,6 +535,8 @@ declare namespace tg {
 			index: number;
 			kind: tg.Artifact.Kind;
 		};
+
+		export type Dependency = tg.Referent<tg.Graph.Edge<tg.Object> | undefined>;
 	}
 
 	/** Create a command. */

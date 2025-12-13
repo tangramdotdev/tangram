@@ -145,28 +145,29 @@ impl Server {
 				let dependencies = file
 					.dependencies
 					.iter()
-					.map(|(reference, referent)| {
+					.map(|(reference, option)| {
 						let reference = reference.clone();
-						let Some(referent) = referent else {
+						let Some(dependency) = option else {
 							return Ok::<_, tg::Error>((reference, None));
 						};
-						let edge = match referent.item() {
-							tg::graph::data::Edge::Reference(reference) => {
+						let edge = match dependency.item() {
+							Some(tg::graph::data::Edge::Reference(reference)) => {
 								if reference.graph.is_none() {
 									let node = graph.nodes.get(&reference.index).unwrap();
-									node.edge.as_ref().unwrap().clone()
+									Some(node.edge.as_ref().unwrap().clone())
 								} else {
 									let reference = reference.clone();
-									tg::graph::data::Edge::Reference(reference)
+									Some(tg::graph::data::Edge::Reference(reference))
 								}
 							},
-							tg::graph::data::Edge::Object(id) => {
+							Some(tg::graph::data::Edge::Object(id)) => {
 								let id = id.clone();
-								tg::graph::data::Edge::Object(id)
+								Some(tg::graph::data::Edge::Object(id))
 							},
+							None => None,
 						};
-						let referent = referent.clone().map(|_| edge);
-						Ok::<_, tg::Error>((reference, Some(referent)))
+						let referent = dependency.0.clone().map(|_| edge);
+						Ok::<_, tg::Error>((reference, Some(tg::graph::data::Dependency(referent))))
 					})
 					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
@@ -376,43 +377,47 @@ impl Server {
 				let dependencies = file
 					.dependencies
 					.iter()
-					.map(|(reference, referent)| {
-						let Some(referent) = referent else {
+					.map(|(reference, option)| {
+						let Some(dependency) = option else {
 							return Ok::<_, tg::Error>((reference.clone(), None));
 						};
-						let edge = referent.item();
+						let edge = dependency.item();
 						let edge = match edge {
-							tg::graph::data::Edge::Reference(reference) => {
+							Some(tg::graph::data::Edge::Reference(reference)) => {
 								if reference.graph.is_none() {
 									if let Some(index) =
 										scc.iter().position(|i| i == &reference.index)
 									{
-										tg::graph::data::Edge::Reference(
+										Some(tg::graph::data::Edge::Reference(
 											tg::graph::data::Reference {
 												graph: None,
 												index,
 												kind: reference.kind,
 											},
-										)
+										))
 									} else {
 										let node = graph.nodes.get(&reference.index).unwrap();
-										node.edge.as_ref().unwrap().clone()
+										Some(node.edge.as_ref().unwrap().clone())
 									}
 								} else {
 									let reference = reference.clone();
-									tg::graph::data::Edge::Reference(reference)
+									Some(tg::graph::data::Edge::Reference(reference))
 								}
 							},
-							tg::graph::data::Edge::Object(id) => {
+							Some(tg::graph::data::Edge::Object(id)) => {
 								let id = id.clone();
-								tg::graph::data::Edge::Object(id)
+								Some(tg::graph::data::Edge::Object(id))
 							},
+							None => None,
 						};
 						let referent = tg::Referent {
 							item: edge,
-							options: referent.options.clone(),
+							options: dependency.options.clone(),
 						};
-						Ok::<_, tg::Error>((reference.clone(), Some(referent)))
+						Ok::<_, tg::Error>((
+							reference.clone(),
+							Some(tg::graph::data::Dependency(referent)),
+						))
 					})
 					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
@@ -591,7 +596,7 @@ impl Server {
 							.dependencies
 							.iter()
 							.filter(|(reference, _)| reference.is_solvable())
-							.all(|(_, referent)| referent.is_some());
+							.all(|(_, option)| option.is_some());
 						(solvable || file_solvable, solved && file_solved)
 					} else {
 						(solvable, solved)

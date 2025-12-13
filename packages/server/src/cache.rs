@@ -535,18 +535,21 @@ impl Server {
 	) -> tg::Result<Vec<Dependency>> {
 		let mut dependencies = Vec::new();
 		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
-		for referent in node.dependencies.values() {
-			let Some(referent) = referent else {
+		for dependency in node.dependencies.values() {
+			let Some(dependency) = dependency else {
 				continue;
 			};
 
 			// Get the edge.
-			let mut edge = match referent.item.clone() {
-				tg::graph::data::Edge::Reference(graph) => tg::graph::data::Edge::Reference(graph),
-				tg::graph::data::Edge::Object(id) => match id.try_into() {
+			let mut edge = match dependency.item.clone() {
+				Some(tg::graph::data::Edge::Reference(graph)) => {
+					tg::graph::data::Edge::Reference(graph)
+				},
+				Some(tg::graph::data::Edge::Object(id)) => match id.try_into() {
 					Ok(id) => tg::graph::data::Edge::Object(id),
 					Err(_) => continue,
 				},
+				None => continue,
 			};
 
 			// Update the graph if necessary.

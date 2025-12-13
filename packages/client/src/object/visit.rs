@@ -92,8 +92,13 @@ where
 				.dependencies(handle)
 				.await?
 				.into_values()
-				.filter_map(|child| {
-					let mut child = child?;
+				.filter_map(|option| {
+					let dependency = option?;
+					let item = dependency.0.item?;
+					let mut child = tg::Referent {
+						item,
+						options: dependency.0.options,
+					};
 					child.inherit(&referent);
 					Some(child)
 				})

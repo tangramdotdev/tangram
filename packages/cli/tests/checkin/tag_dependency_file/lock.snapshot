@@ -13,7 +13,7 @@
       "kind": "file",
       "dependencies": {
         "foo": {
-          "item": "fil_01xb6vpvcfg25gp2xcq9g3b8e229pkwcxew9zhz80gvq978dr3zfgg",
+          "item": null,
           "options": {
             "id": "fil_01xb6vpvcfg25gp2xcq9g3b8e229pkwcxew9zhz80gvq978dr3zfgg",
             "tag": "foo"

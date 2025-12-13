@@ -92,20 +92,23 @@ export class File {
 		let arg = await tg.File.arg(...args);
 		let contents = await tg.blob(arg.contents);
 		let dependencies = Object.fromEntries(
-			Object.entries(arg.dependencies ?? {}).map(([key, value]) => {
-				let referent: tg.Referent<tg.Graph.Edge<tg.Object>> | undefined;
+			Object.entries(arg.dependencies ?? {}).map(([reference, value]) => {
+				let dependency: tg.Graph.Dependency | undefined;
 				if (
 					typeof value === "number" ||
 					(value && "index" in value) ||
 					tg.Object.is(value)
 				) {
 					let item = tg.Graph.Edge.fromArg(value);
-					referent = { item, options: {} };
+					dependency = { item, options: {} };
 				} else if (value) {
-					let item = tg.Graph.Edge.fromArg(value.item);
-					referent = { item, options: value.options };
+					let item =
+						value.item !== undefined
+							? tg.Graph.Edge.fromArg(value.item)
+							: undefined;
+					dependency = { item, options: value.options };
 				}
-				return [key, referent];
+				return [reference, dependency];
 			}),
 		);
 		let executable = arg.executable ?? false;
@@ -214,23 +217,25 @@ export class File {
 			let dependencies = node.dependencies;
 			return Object.fromEntries(
 				await Promise.all(
-					Object.entries(dependencies).map(async ([reference, referent]) => {
-						if (!referent) {
+					Object.entries(dependencies).map(async ([reference, dependency]) => {
+						if (!dependency) {
 							return [reference, undefined];
 						}
 						let object: tg.Object | undefined;
-						if (typeof referent.item === "number") {
-							object = await graph.get(referent.item);
-						} else if ("index" in referent.item) {
-							object = await (referent.item.graph ?? graph).get(
-								referent.item.index,
+						if (dependency.item === undefined) {
+							object = undefined;
+						} else if (typeof dependency.item === "number") {
+							object = await graph.get(dependency.item);
+						} else if ("index" in dependency.item) {
+							object = await (dependency.item.graph ?? graph).get(
+								dependency.item.index,
 							);
 						} else {
-							object = referent.item;
+							object = dependency.item;
 						}
-						let value = {
+						let value: tg.Referent<tg.Object | undefined> = {
 							item: object,
-							options: referent.options,
+							options: dependency.options,
 						};
 						return [reference, value];
 					}),
@@ -240,21 +245,21 @@ export class File {
 			let dependencies = object.dependencies;
 			return Object.fromEntries(
 				await Promise.all(
-					Object.entries(dependencies).map(async ([reference, referent]) => {
-						if (!referent) {
+					Object.entries(dependencies).map(async ([reference, dependency]) => {
+						if (!dependency) {
 							return [reference, undefined];
 						}
 						let object: tg.Object | undefined;
-						tg.assert(typeof referent.item === "object");
-						if ("index" in referent.item) {
-							tg.assert(referent.item.graph !== undefined);
-							object = await referent.item.graph.get(referent.item.index);
+						tg.assert(typeof dependency.item === "object");
+						if ("index" in dependency.item) {
+							tg.assert(dependency.item.graph !== undefined);
+							object = await dependency.item.graph.get(dependency.item.index);
 						} else {
-							object = referent.item;
+							object = dependency.item;
 						}
 						let value = {
 							item: object,
-							options: referent.options,
+							options: dependency.options,
 						};
 						return [reference, value];
 					}),

@@ -623,23 +623,41 @@ where
 					.dependencies
 					.clone()
 					.into_iter()
-					.map(async |(reference, referent)| {
+					.map(async |(reference, option)| {
 						let mut map = BTreeMap::new();
-						let Some(referent) = referent else {
+						let Some(dependency) = option else {
 							return Ok::<_, tg::Error>((reference.to_string(), tg::Value::Null));
 						};
-						let item = match referent.item() {
-							tg::graph::Edge::Reference(reference) => {
-								reference.get(handle).await?.into()
-							},
-							tg::graph::Edge::Object(object) => object.clone(),
-						};
-						map.insert("item".into(), tg::Value::Object(item));
-						if let Some(path) = referent.path() {
-							let path = path.to_string_lossy().to_string();
-							map.insert("path".to_owned(), tg::Value::String(path));
+						if let Some(edge) = dependency.0.item() {
+							let item = match edge {
+								tg::graph::Edge::Reference(reference) => {
+									reference.get(handle).await?.into()
+								},
+								tg::graph::Edge::Object(object) => object.clone(),
+							};
+							map.insert("item".into(), tg::Value::Object(item));
+						} else {
+							map.insert("item".into(), tg::Value::Null);
 						}
-						if let Some(tag) = referent.tag() {
+						if let Some(artifact) = &dependency.0.options.artifact {
+							map.insert(
+								"artifact".to_owned(),
+								tg::Value::String(artifact.to_string()),
+							);
+						}
+						if let Some(id) = &dependency.0.options.id {
+							map.insert("id".to_owned(), tg::Value::String(id.to_string()));
+						}
+						if let Some(name) = &dependency.0.options.name {
+							map.insert("name".to_owned(), tg::Value::String(name.clone()));
+						}
+						if let Some(path) = &dependency.0.options.path {
+							map.insert(
+								"path".to_owned(),
+								tg::Value::String(path.to_string_lossy().to_string()),
+							);
+						}
+						if let Some(tag) = &dependency.0.options.tag {
 							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
 						}
 						Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
@@ -718,30 +736,48 @@ where
 						let dependencies: BTreeMap<String, tg::Value> = file
 							.dependencies
 							.into_iter()
-							.map(async |(reference, referent)| {
-								let Some(referent) = referent else {
+							.map(async |(reference, option)| {
+								let Some(dependency) = option else {
 									return Ok::<_, tg::Error>((
 										reference.to_string(),
 										tg::Value::Null,
 									));
 								};
 								let mut map = BTreeMap::new();
-								let item = match referent.item() {
-									tg::graph::Edge::Reference(reference) => {
-										let mut reference = reference.clone();
-										if reference.graph.is_none() {
-											reference.graph.replace(graph.clone());
-										}
-										reference.get(handle).await?.into()
-									},
-									tg::graph::Edge::Object(object) => object.clone(),
-								};
-								map.insert("item".into(), tg::Value::Object(item));
-								if let Some(path) = referent.path() {
-									let path = path.to_string_lossy().to_string();
-									map.insert("path".to_owned(), tg::Value::String(path));
+								if let Some(edge) = dependency.0.item() {
+									let item = match edge {
+										tg::graph::Edge::Reference(reference) => {
+											let mut reference = reference.clone();
+											if reference.graph.is_none() {
+												reference.graph.replace(graph.clone());
+											}
+											reference.get(handle).await?.into()
+										},
+										tg::graph::Edge::Object(object) => object.clone(),
+									};
+									map.insert("item".into(), tg::Value::Object(item));
+								} else {
+									map.insert("item".into(), tg::Value::Null);
 								}
-								if let Some(tag) = referent.tag() {
+								if let Some(artifact) = &dependency.0.options.artifact {
+									map.insert(
+										"artifact".to_owned(),
+										tg::Value::String(artifact.to_string()),
+									);
+								}
+								if let Some(id) = &dependency.0.options.id {
+									map.insert("id".to_owned(), tg::Value::String(id.to_string()));
+								}
+								if let Some(name) = &dependency.0.options.name {
+									map.insert("name".to_owned(), tg::Value::String(name.clone()));
+								}
+								if let Some(path) = &dependency.0.options.path {
+									map.insert(
+										"path".to_owned(),
+										tg::Value::String(path.to_string_lossy().to_string()),
+									);
+								}
+								if let Some(tag) = &dependency.0.options.tag {
 									map.insert(
 										"tag".to_owned(),
 										tg::Value::String(tag.to_string()),
@@ -937,8 +973,13 @@ where
 		let dependencies = visitor
 			.dependencies
 			.into_iter()
-			.map(|(reference, referent)| {
-				let item = referent.map(|r| r.map(|o| Item::Package(Package(o))));
+			.map(|(reference, option)| {
+				let item = option.and_then(|dependency| {
+					dependency.0.item.map(|o| tg::Referent {
+						item: Item::Package(Package(o)),
+						options: dependency.0.options,
+					})
+				});
 				(reference.to_string(), item)
 			})
 			.collect::<Vec<_>>();
@@ -2064,7 +2105,7 @@ impl std::fmt::Display for Display {
 }
 
 struct PackageVisitor {
-	dependencies: BTreeMap<tg::Reference, Option<tg::Referent<tg::Object>>>,
+	dependencies: BTreeMap<tg::Reference, Option<tg::file::Dependency>>,
 }
 
 impl<H> tg::object::Visitor<H> for PackageVisitor

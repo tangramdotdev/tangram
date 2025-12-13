@@ -13,7 +13,7 @@
       "kind": "file",
       "dependencies": {
         "a?local=../a": {
-          "item": "dir_01s7bx5nqy2mc2qanmg482z18vq7ddrnvvvk7sv1zwm6b6af781dd0",
+          "item": null,
           "options": {
             "id": "dir_01s7bx5nqy2mc2qanmg482z18vq7ddrnvvvk7sv1zwm6b6af781dd0",
             "tag": "a"

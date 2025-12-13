@@ -429,15 +429,15 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 						let reference = key
 							.parse::<tg::Reference>()
 							.map_err(|error| tg::error!(!error, "invalid reference key"))?;
-						let referent = if value.is_null() {
+						let option = if value.is_null() {
 							None
 						} else {
 							let value = value
 								.try_unwrap_map_ref()
-								.map_err(|_| tg::error!("expected map for referent"))?;
-							Some(parse_referent(value)?)
+								.map_err(|_| tg::error!("expected map for dependency"))?;
+							Some(parse_dependency(value)?)
 						};
-						dependencies.insert(reference, referent);
+						dependencies.insert(reference, option);
 					}
 				},
 				"executable" => {
@@ -909,7 +909,7 @@ fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Art
 	.parse_next(input)
 }
 
-fn parse_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>> {
+fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 	let mut item = None;
 	let mut artifact = None;
 	let mut id = None;
@@ -919,10 +919,12 @@ fn parse_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::graph::Ed
 	for (key, value) in map {
 		match key.as_str() {
 			"item" => {
-				let value = value
-					.try_unwrap_object_ref()
-					.map_err(|_| tg::error!("expected object for item"))?;
-				item = Some(tg::graph::Edge::Object(value.clone()));
+				if !value.is_null() {
+					let value = value
+						.try_unwrap_object_ref()
+						.map_err(|_| tg::error!("expected object for item"))?;
+					item = Some(Some(tg::graph::Edge::Object(value.clone())));
+				}
 			},
 			"artifact" => {
 				let value = value
@@ -971,7 +973,7 @@ fn parse_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::graph::Ed
 			},
 		}
 	}
-	let item = item.ok_or_else(|| tg::error!("missing item field"))?;
+	let item = item.flatten();
 	let options = tg::referent::Options {
 		artifact,
 		id,
@@ -979,7 +981,7 @@ fn parse_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::graph::Ed
 		path,
 		tag,
 	};
-	Ok(tg::Referent { item, options })
+	Ok(tg::graph::Dependency(tg::Referent { item, options }))
 }
 
 fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
@@ -1029,15 +1031,15 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 					let reference = key
 						.parse::<tg::Reference>()
 						.map_err(|error| tg::error!(!error, "failed to parse reference"))?;
-					let referent = if value.is_null() {
+					let option = if value.is_null() {
 						None
 					} else {
 						let value = value
 							.try_unwrap_map_ref()
 							.map_err(|_| tg::error!("expected map or null for dependency value"))?;
-						Some(parse_referent(value)?)
+						Some(parse_dependency(value)?)
 					};
-					dependencies.insert(reference, referent);
+					dependencies.insert(reference, option);
 				}
 			},
 			"executable" => {

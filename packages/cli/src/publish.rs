@@ -315,11 +315,11 @@ impl State {
 						.dependencies(handle)
 						.await?
 						.values()
-						.filter_map(|referent| {
-							let referent = referent.as_ref()?;
-							let package = all_packages
-								.iter()
-								.find(|r| r.item().id() == referent.item.id())?;
+						.filter_map(|option| {
+							let dependency = option.as_ref()?;
+							let item = dependency.0.item.as_ref()?;
+							let package =
+								all_packages.iter().find(|r| r.item().id() == item.id())?;
 							Some(Self::get_package_index(graph, package.clone()))
 						})
 						.collect::<Vec<_>>();
@@ -506,16 +506,23 @@ where
 			.insert(path.to_owned(), file.item.clone().into());
 
 		// Mark the packages that are locals.
-		for (reference, dependency) in file.item.dependencies(handle).await? {
-			let Some(mut dependency) = dependency else {
+		for (reference, option) in file.item.dependencies(handle).await? {
+			let Some(mut dependency) = option else {
 				continue;
 			};
 
 			// Make sure to inherit the dependency.
-			dependency.inherit(&file);
+			dependency.0.inherit(&file);
 			if reference.options().local.is_some() {
-				self.local_packages.push(dependency.clone());
-				self.add_package(&dependency);
+				let Some(item) = dependency.0.item.clone() else {
+					continue;
+				};
+				let referent = tg::Referent {
+					item,
+					options: dependency.0.options.clone(),
+				};
+				self.local_packages.push(referent.clone());
+				self.add_package(&referent);
 			}
 		}
 		Ok(true)

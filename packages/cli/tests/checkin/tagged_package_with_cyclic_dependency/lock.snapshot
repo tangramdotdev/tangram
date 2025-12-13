@@ -13,7 +13,7 @@
       "kind": "file",
       "dependencies": {
         "a": {
-          "item": "dir_01k7kmkdhgmtdgkd7pw32gneznxe31fbmt7e21668z7rgd534hc4sg",
+          "item": null,
           "options": {
             "id": "dir_01k7kmkdhgmtdgkd7pw32gneznxe31fbmt7e21668z7rgd534hc4sg",
             "tag": "a"

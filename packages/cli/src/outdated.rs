@@ -69,9 +69,9 @@ where
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
 			.into_iter()
-			.filter_map(|(reference, referent)| {
+			.filter_map(|(reference, option)| {
 				let pattern = reference.item().clone().try_unwrap_tag().ok()?;
-				let tag = referent?.options.tag.take()?;
+				let tag = option?.0.options.tag.take()?;
 				Some((pattern, tag))
 			});
 
