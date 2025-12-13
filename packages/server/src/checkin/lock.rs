@@ -375,6 +375,7 @@ impl Server {
 							.entries
 							.values()
 							.filter_map(|edge| edge.try_unwrap_reference_ref().ok())
+							.filter(|reference| reference.graph.is_none())
 							.any(|reference| marks[reference.index]),
 						tg::graph::data::Node::File(file) => {
 							file.dependencies.iter().any(|(reference, referent)| {
@@ -384,6 +385,10 @@ impl Server {
 								let Ok(item) = referent.item().try_unwrap_reference_ref() else {
 									return false;
 								};
+								if item.graph.is_some() {
+									return reference.is_solvable()
+										&& (referent.id().is_some() || referent.tag().is_some());
+								}
 								marks[item.index]
 									|| (reference.is_solvable()
 										&& (referent.id().is_some() || referent.tag().is_some()))
@@ -393,6 +398,7 @@ impl Server {
 							.artifact
 							.as_ref()
 							.and_then(|edge| edge.try_unwrap_reference_ref().ok())
+							.filter(|reference| reference.graph.is_none())
 							.is_some_and(|reference| marks[reference.index]),
 					}
 			});
@@ -419,11 +425,17 @@ impl Server {
 				tg::graph::data::Node::Directory(directory) => {
 					// Remove unmarked entries.
 					directory.entries.retain(|_name, edge| match edge {
-						tg::graph::data::Edge::Reference(reference) => marks[reference.index],
+						tg::graph::data::Edge::Reference(reference) => {
+							// Keep references to external graphs.
+							reference.graph.is_some() || marks[reference.index]
+						},
 						tg::graph::data::Edge::Object(_) => true,
 					});
+
 					for edge in directory.entries.values_mut() {
-						if let tg::graph::data::Edge::Reference(reference) = edge {
+						if let tg::graph::data::Edge::Reference(reference) = edge
+							&& reference.graph.is_none()
+						{
 							reference.index = map.get(&reference.index).copied().unwrap();
 						}
 					}
@@ -434,9 +446,17 @@ impl Server {
 						let Some(referent) = referent else {
 							return false;
 						};
+
 						let Ok(item) = referent.item().try_unwrap_reference_ref() else {
 							return false;
 						};
+
+						// Keep references to external graphs.
+						if item.graph.is_some() {
+							return reference.is_solvable()
+								&& (referent.id().is_some() || referent.tag().is_some());
+						}
+
 						marks[item.index]
 							|| (reference.is_solvable()
 								&& (referent.id().is_some() || referent.tag().is_some()))
@@ -447,9 +467,16 @@ impl Server {
 						let Some(referent) = referent else {
 							continue;
 						};
+
 						let tg::graph::data::Edge::Reference(reference) = &mut referent.item else {
 							continue;
 						};
+
+						// Skip references to external graphs.
+						if reference.graph.is_some() {
+							continue;
+						}
+
 						if marks[reference.index] {
 							reference.index = map.get(&reference.index).copied().unwrap();
 						} else {
@@ -460,6 +487,7 @@ impl Server {
 				},
 				tg::graph::data::Node::Symlink(symlink) => {
 					if let Some(tg::graph::data::Edge::Reference(reference)) = &mut symlink.artifact
+						&& reference.graph.is_none()
 					{
 						reference.index = map.get(&reference.index).copied().unwrap();
 					}
@@ -510,29 +538,26 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.entries
 				.values()
 				.filter_map(|edge| {
-					edge.try_unwrap_reference_ref()
-						.ok()
-						.map(|reference| reference.index)
+					let reference = edge.try_unwrap_reference_ref().ok()?;
+					// Only return indices for references to the current graph.
+					reference.graph.is_none().then_some(reference.index)
 				})
 				.boxed(),
 			tg::graph::data::Node::File(file) => file
 				.dependencies
 				.values()
 				.filter_map(|referent| {
-					referent
-						.as_ref()?
-						.item
-						.try_unwrap_reference_ref()
-						.ok()
-						.map(|reference| reference.index)
+					let reference = referent.as_ref()?.item.try_unwrap_reference_ref().ok()?;
+					// Only return indices for references to the current graph.
+					reference.graph.is_none().then_some(reference.index)
 				})
 				.boxed(),
 			tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, .. }) => artifact
 				.iter()
 				.filter_map(|edge| {
-					edge.try_unwrap_reference_ref()
-						.ok()
-						.map(|reference| reference.index)
+					let reference = edge.try_unwrap_reference_ref().ok()?;
+					// Only return indices for references to the current graph.
+					reference.graph.is_none().then_some(reference.index)
 				})
 				.boxed(),
 		}
