@@ -405,9 +405,10 @@ impl Server {
 					});
 					dependencies.insert(reference, None);
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
-					let referent =
-						tg::Referent::with_item(tg::graph::data::Edge::Object(id.clone()));
-					dependencies.insert(reference, Some(referent));
+					let dependency = tg::graph::data::Dependency(tg::Referent::with_item(Some(
+						tg::graph::data::Edge::Object(id.clone()),
+					)));
+					dependencies.insert(reference, Some(dependency));
 				} else {
 					dependencies.insert(reference, None);
 				}
@@ -474,9 +475,10 @@ impl Server {
 						parent: Some(parent),
 					});
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
-					let referent =
-						tg::Referent::with_item(tg::graph::data::Edge::Object(id.clone()));
-					dependencies.insert(reference, Some(referent));
+					let dependency = tg::graph::data::Dependency(tg::Referent::with_item(Some(
+						tg::graph::data::Edge::Object(id.clone()),
+					)));
+					dependencies.insert(reference, Some(dependency));
 				} else {
 					dependencies.insert(reference, None);
 				}
@@ -652,10 +654,10 @@ impl Server {
 					path
 				};
 				let options = tg::referent::Options::with_path(path);
-				let referent = tg::Referent {
-					item: edge,
+				let dependency = tg::graph::data::Dependency(tg::Referent {
+					item: Some(edge),
 					options,
-				};
+				});
 				state
 					.graph
 					.nodes
@@ -666,7 +668,7 @@ impl Server {
 					.dependencies
 					.get_mut(&reference)
 					.unwrap()
-					.replace(referent);
+					.replace(dependency);
 			},
 
 			ParentVariant::SymlinkArtifact => {
@@ -718,6 +720,7 @@ impl Server {
 					.get(reference)?
 					.as_ref()?
 					.item()
+					.as_ref()?
 					.try_unwrap_reference_ref()
 					.ok()?
 					.index,

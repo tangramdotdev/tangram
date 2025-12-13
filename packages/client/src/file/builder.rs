@@ -2,7 +2,7 @@ use {crate::prelude::*, std::collections::BTreeMap};
 
 pub struct Builder {
 	contents: tg::Blob,
-	dependencies: BTreeMap<tg::Reference, Option<tg::Referent<tg::Object>>>,
+	dependencies: BTreeMap<tg::Reference, Option<tg::file::Dependency>>,
 	executable: bool,
 }
 
@@ -25,7 +25,7 @@ impl Builder {
 	#[must_use]
 	pub fn dependencies(
 		mut self,
-		dependencies: impl IntoIterator<Item = (tg::Reference, Option<tg::Referent<tg::Object>>)>,
+		dependencies: impl IntoIterator<Item = (tg::Reference, Option<tg::file::Dependency>)>,
 	) -> Self {
 		self.dependencies = dependencies.into_iter().collect();
 		self
@@ -44,10 +44,14 @@ impl Builder {
 			dependencies: self
 				.dependencies
 				.into_iter()
-				.map(|(reference, referent)| {
+				.map(|(reference, option)| {
 					(
 						reference,
-						referent.map(|referent| referent.map(tg::graph::Edge::Object)),
+						option.map(|dependency| {
+							tg::graph::Dependency(
+								dependency.0.map(|item| item.map(tg::graph::Edge::Object)),
+							)
+						}),
 					)
 				})
 				.collect(),

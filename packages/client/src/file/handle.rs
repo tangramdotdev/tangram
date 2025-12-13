@@ -168,7 +168,7 @@ impl File {
 	pub async fn dependencies<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<BTreeMap<tg::Reference, Option<tg::Referent<tg::Object>>>>
+	) -> tg::Result<BTreeMap<tg::Reference, Option<tg::file::Dependency>>>
 	where
 		H: tg::Handle,
 	{
@@ -189,13 +189,13 @@ impl File {
 				file.dependencies
 					.clone()
 					.into_iter()
-					.map(async |(reference, referent)| {
-						let referent = 'a: {
-							let Some(referent) = &referent else {
+					.map(async |(reference, option)| {
+						let option = 'a: {
+							let Some(dependency) = &option else {
 								break 'a None;
 							};
-							let object = match referent.item.clone() {
-								tg::graph::Edge::Reference(reference) => {
+							let object = match dependency.0.item.clone() {
+								Some(tg::graph::Edge::Reference(reference)) => {
 									let graph = reference.graph.unwrap_or_else(|| graph.clone());
 									tg::Artifact::with_reference(tg::graph::Reference {
 										graph: Some(graph),
@@ -204,11 +204,18 @@ impl File {
 									})
 									.into()
 								},
-								tg::graph::Edge::Object(object) => object,
+								Some(tg::graph::Edge::Object(object)) => object,
+								None => {
+									break 'a Some(tg::file::Dependency(
+										dependency.0.clone().map(|_| None),
+									));
+								},
 							};
-							Some(referent.clone().map(|_| object))
+							Some(tg::file::Dependency(
+								dependency.0.clone().map(|_| Some(object)),
+							))
 						};
-						Ok::<_, tg::Error>((reference, referent))
+						Ok::<_, tg::Error>((reference, option))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -218,13 +225,13 @@ impl File {
 				node.dependencies
 					.clone()
 					.into_iter()
-					.map(async |(reference, referent)| {
-						let referent = 'a: {
-							let Some(referent) = &referent else {
+					.map(async |(reference, option)| {
+						let option = 'a: {
+							let Some(dependency) = &option else {
 								break 'a None;
 							};
-							let object: tg::Object = match referent.item.clone() {
-								tg::graph::Edge::Reference(reference) => {
+							let object: tg::Object = match dependency.0.item.clone() {
+								Some(tg::graph::Edge::Reference(reference)) => {
 									let graph = reference
 										.graph
 										.ok_or_else(|| tg::error!("expected a graph"))?;
@@ -235,11 +242,18 @@ impl File {
 									})
 									.into()
 								},
-								tg::graph::Edge::Object(object) => object,
+								Some(tg::graph::Edge::Object(object)) => object,
+								None => {
+									break 'a Some(tg::file::Dependency(
+										dependency.0.clone().map(|_| None),
+									));
+								},
 							};
-							Some(referent.clone().map(|_| object))
+							Some(tg::file::Dependency(
+								dependency.0.clone().map(|_| Some(object)),
+							))
 						};
-						Ok::<_, tg::Error>((reference, referent))
+						Ok::<_, tg::Error>((reference, option))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -253,7 +267,7 @@ impl File {
 		&self,
 		handle: &H,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<tg::Object>>
+	) -> tg::Result<tg::file::Dependency>
 	where
 		H: tg::Handle,
 	{
@@ -266,28 +280,31 @@ impl File {
 		&self,
 		handle: &H,
 		reference: &tg::Reference,
-	) -> tg::Result<Option<tg::Referent<tg::Object>>>
+	) -> tg::Result<Option<tg::file::Dependency>>
 	where
 		H: tg::Handle,
 	{
-		let Some(referent) = self.try_get_dependency_edge(handle, reference).await? else {
+		let Some(dependency) = self.try_get_dependency_edge(handle, reference).await? else {
 			return Ok(None);
 		};
-		let item = match referent.item {
-			tg::graph::Edge::Reference(reference) => tg::Artifact::with_reference(reference).into(),
-			tg::graph::Edge::Object(object) => object,
+		let item = match dependency.0.item {
+			Some(tg::graph::Edge::Reference(reference)) => {
+				Some(tg::Artifact::with_reference(reference).into())
+			},
+			Some(tg::graph::Edge::Object(object)) => Some(object),
+			None => None,
 		};
-		Ok(Some(tg::Referent {
+		Ok(Some(tg::file::Dependency(tg::Referent {
 			item,
-			options: referent.options,
-		}))
+			options: dependency.0.options,
+		})))
 	}
 
 	pub async fn get_dependency_edge<H>(
 		&self,
 		handle: &H,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>>
+	) -> tg::Result<tg::graph::Dependency>
 	where
 		H: tg::Handle,
 	{
@@ -300,12 +317,12 @@ impl File {
 		&self,
 		handle: &H,
 		reference: &tg::Reference,
-	) -> tg::Result<Option<tg::Referent<tg::graph::Edge<tg::Object>>>>
+	) -> tg::Result<Option<tg::graph::Dependency>>
 	where
 		H: tg::Handle,
 	{
 		let object = self.object(handle).await?;
-		let referent = match object.as_ref() {
+		let dependency = match object.as_ref() {
 			Object::Reference(reference_) => {
 				let graph = reference_.graph.as_ref().unwrap();
 				let index = reference_.index;
@@ -318,53 +335,55 @@ impl File {
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let Some(referent) = file.dependencies.get(reference).ok_or_else(
+				let Some(dependency) = file.dependencies.get(reference).ok_or_else(
 					|| tg::error!(file = %self.id(), %reference, "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
 				};
-				let item = match referent.item.clone() {
-					tg::graph::Edge::Reference(reference) => {
+				let item = match dependency.0.item.clone() {
+					Some(tg::graph::Edge::Reference(reference)) => {
 						let graph = reference.graph.unwrap_or_else(|| graph.clone());
-						tg::graph::Edge::Reference(tg::graph::Reference {
+						Some(tg::graph::Edge::Reference(tg::graph::Reference {
 							graph: Some(graph),
 							index: reference.index,
 							kind: reference.kind,
-						})
+						}))
 					},
-					tg::graph::Edge::Object(object) => tg::graph::Edge::Object(object),
+					Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
+					None => None,
 				};
-				tg::Referent {
+				tg::graph::Dependency(tg::Referent {
 					item,
-					options: referent.options.clone(),
-				}
+					options: dependency.0.options.clone(),
+				})
 			},
 			Object::Node(node) => {
-				let Some(referent) = node.dependencies.get(reference).ok_or_else(
+				let Some(dependency) = node.dependencies.get(reference).ok_or_else(
 					|| tg::error!(file = %self.id(), %reference, "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
 				};
-				let item = match referent.item.clone() {
-					tg::graph::Edge::Reference(reference) => {
+				let item = match dependency.0.item.clone() {
+					Some(tg::graph::Edge::Reference(reference)) => {
 						let graph = reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
-						tg::graph::Edge::Reference(tg::graph::Reference {
+						Some(tg::graph::Edge::Reference(tg::graph::Reference {
 							graph: Some(graph),
 							index: reference.index,
 							kind: reference.kind,
-						})
+						}))
 					},
-					tg::graph::Edge::Object(object) => tg::graph::Edge::Object(object),
+					Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
+					None => None,
 				};
-				tg::Referent {
+				tg::graph::Dependency(tg::Referent {
 					item,
-					options: referent.options.clone(),
-				}
+					options: dependency.0.options.clone(),
+				})
 			},
 		};
-		Ok(Some(referent))
+		Ok(Some(dependency))
 	}
 
 	pub async fn executable<H>(&self, handle: &H) -> tg::Result<bool>

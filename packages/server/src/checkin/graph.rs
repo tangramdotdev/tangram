@@ -97,10 +97,10 @@ impl Graph {
 			let node = self.nodes.get_mut(&index).unwrap();
 			if let Variant::File(file) = &mut node.variant {
 				let mut marked = false;
-				for (reference, referent) in &mut file.dependencies {
+				for (reference, option) in &mut file.dependencies {
 					if reference.is_solvable() {
 						marked = true;
-						referent.take();
+						option.take();
 					}
 				}
 				if marked {
@@ -138,7 +138,8 @@ impl Node {
 			},
 			Variant::File(file) => {
 				for referent in file.dependencies.values().flatten() {
-					if let Ok(reference) = referent.item.try_unwrap_reference_ref()
+					if let Some(edge) = &referent.item
+						&& let Ok(reference) = edge.try_unwrap_reference_ref()
 						&& reference.graph.is_none()
 					{
 						children.push(reference.index);
@@ -186,8 +187,7 @@ pub struct Directory {
 #[derive(Clone, Debug)]
 pub struct File {
 	pub contents: Option<Contents>,
-	pub dependencies:
-		BTreeMap<tg::Reference, Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>>,
+	pub dependencies: BTreeMap<tg::Reference, Option<tg::graph::data::Dependency>>,
 	pub executable: bool,
 }
 
@@ -256,7 +256,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 				.filter_map(move |option| {
 					option
 						.as_ref()
-						.map(|referent| &referent.item)
+						.and_then(|referent| referent.item.as_ref())
 						.and_then(|edge| {
 							edge.try_unwrap_reference_ref().ok().and_then(|reference| {
 								reference.graph.is_none().then_some(reference.index)

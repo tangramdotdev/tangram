@@ -182,14 +182,14 @@ impl Server {
 						}
 					},
 					(tg::graph::data::Node::File(lock), Variant::File(node)) => {
-						if node.dependencies.iter().any(|(reference, referent)| {
+						if node.dependencies.iter().any(|(reference, option)| {
 							if !reference.is_solvable() {
 								return false;
 							}
 							if let Some(lock) = lock.dependencies.get(reference) {
 								// If a file had a dependency change, then the lock changed.
 								if lock.as_ref().map(|lock| &lock.options)
-									!= referent.as_ref().map(|referent| &referent.options)
+									!= option.as_ref().map(|referent| &referent.options)
 								{
 									return true;
 								}
@@ -233,7 +233,6 @@ impl Server {
 		let root_index = *graph.paths.get(root).unwrap();
 
 		let mut nodes = Vec::with_capacity(graph.nodes.len());
-		let mut ids = Vec::with_capacity(graph.nodes.len());
 		let mut visited = HashSet::new();
 		let mut queue = VecDeque::new();
 		let mut mapping = BTreeMap::new();
@@ -251,7 +250,6 @@ impl Server {
 
 			// Get the node.
 			let node = &graph.nodes.get(&index).unwrap();
-			ids.push(node.id.clone().unwrap());
 
 			// Create the lock node.
 			let (lock_node, children) = match &node.variant {
@@ -274,11 +272,11 @@ impl Server {
 				Variant::File(file) => {
 					let mut dependencies = BTreeMap::new();
 					let mut children = Vec::new();
-					for (reference, referent) in &file.dependencies {
-						dependencies.insert(reference.clone(), referent.clone());
-						if let Some(referent_value) = referent
-							&& let Ok(edge_reference) =
-								referent_value.item.try_unwrap_reference_ref()
+					for (reference, option) in &file.dependencies {
+						dependencies.insert(reference.clone(), option.clone());
+						if let Some(dependency) = option
+							&& let Some(edge) = &dependency.0.item
+							&& let Ok(edge_reference) = edge.try_unwrap_reference_ref()
 							&& edge_reference.graph.is_none()
 							&& !visited.contains(&edge_reference.index)
 						{
@@ -333,10 +331,9 @@ impl Server {
 					}
 				},
 				tg::graph::data::Node::File(file) => {
-					for referent_value in file.dependencies.values_mut().flatten() {
-						if let tg::graph::data::Edge::Reference(reference) =
-							&mut referent_value.item
-							&& reference.graph.is_none()
+					for dependency in file.dependencies.values_mut().flatten() {
+						if let Some(tg::graph::data::Edge::Reference(reference)) =
+							&mut dependency.item && reference.graph.is_none()
 							&& let Some(lock_index) = mapping.get(&reference.index)
 						{
 							reference.index = *lock_index;
@@ -358,10 +355,10 @@ impl Server {
 		let lock = tg::graph::Data { nodes };
 
 		// Strip the lock.
-		Self::strip_lock(lock, &ids)
+		Self::strip_lock(lock)
 	}
 
-	pub(crate) fn strip_lock(lock: tg::graph::Data, ids: &[tg::object::Id]) -> tg::graph::Data {
+	pub(crate) fn strip_lock(lock: tg::graph::Data) -> tg::graph::Data {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
@@ -378,20 +375,25 @@ impl Server {
 							.filter(|reference| reference.graph.is_none())
 							.any(|reference| marks[reference.index]),
 						tg::graph::data::Node::File(file) => {
-							file.dependencies.iter().any(|(reference, referent)| {
-								let Some(referent) = referent else {
+							file.dependencies.iter().any(|(reference, option)| {
+								let Some(dependency) = option else {
 									return false;
 								};
-								let Ok(item) = referent.item().try_unwrap_reference_ref() else {
+								let Some(edge) = dependency.item() else {
+									return false;
+								};
+								let Ok(item) = edge.try_unwrap_reference_ref() else {
 									return false;
 								};
 								if item.graph.is_some() {
 									return reference.is_solvable()
-										&& (referent.id().is_some() || referent.tag().is_some());
+										&& (dependency.id().is_some()
+											|| dependency.tag().is_some());
 								}
 								marks[item.index]
 									|| (reference.is_solvable()
-										&& (referent.id().is_some() || referent.tag().is_some()))
+										&& (dependency.id().is_some()
+											|| dependency.tag().is_some()))
 							})
 						},
 						tg::graph::data::Node::Symlink(symlink) => symlink
@@ -442,33 +444,36 @@ impl Server {
 				},
 				tg::graph::data::Node::File(file) => {
 					// Remove unmarked dependencies.
-					file.dependencies.retain(|reference, referent| {
-						let Some(referent) = referent else {
+					file.dependencies.retain(|reference, option| {
+						let Some(dependency) = option else {
 							return false;
 						};
-
-						let Ok(item) = referent.item().try_unwrap_reference_ref() else {
+						let Some(edge) = dependency.item() else {
+							return false;
+						};
+						let Ok(item) = edge.try_unwrap_reference_ref() else {
 							return false;
 						};
 
 						// Keep references to external graphs.
 						if item.graph.is_some() {
 							return reference.is_solvable()
-								&& (referent.id().is_some() || referent.tag().is_some());
+								&& (dependency.id().is_some() || dependency.tag().is_some());
 						}
 
 						marks[item.index]
 							|| (reference.is_solvable()
-								&& (referent.id().is_some() || referent.tag().is_some()))
+								&& (dependency.id().is_some() || dependency.tag().is_some()))
 					});
 
 					// Update indexes.
-					for referent in file.dependencies.values_mut() {
-						let Some(referent) = referent else {
+					for dependency in file.dependencies.values_mut() {
+						let Some(dependency) = dependency else {
 							continue;
 						};
-
-						let tg::graph::data::Edge::Reference(reference) = &mut referent.item else {
+						let Some(tg::graph::data::Edge::Reference(reference)) =
+							&mut dependency.item
+						else {
 							continue;
 						};
 
@@ -480,8 +485,7 @@ impl Server {
 						if marks[reference.index] {
 							reference.index = map.get(&reference.index).copied().unwrap();
 						} else {
-							let id = ids[reference.index].clone();
-							referent.item = tg::graph::data::Edge::Object(id);
+							dependency.item = None;
 						}
 					}
 				},
@@ -546,8 +550,13 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 			tg::graph::data::Node::File(file) => file
 				.dependencies
 				.values()
-				.filter_map(|referent| {
-					let reference = referent.as_ref()?.item.try_unwrap_reference_ref().ok()?;
+				.filter_map(|option| {
+					let reference = option
+						.as_ref()?
+						.item
+						.as_ref()?
+						.try_unwrap_reference_ref()
+						.ok()?;
 					// Only return indices for references to the current graph.
 					reference.graph.is_none().then_some(reference.index)
 				})

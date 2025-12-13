@@ -105,13 +105,14 @@ impl Server {
 			.try_unwrap_file()
 			.ok()
 			.ok_or_else(|| tg::error!(referrer = %referrer.item, "the referrer must be a file"))?;
-		let referent = file.get_dependency_edge(self, &import.reference).await?;
+		let dependency = file.get_dependency_edge(self, &import.reference).await?;
 
-		let object = match &referent.item {
-			tg::graph::Edge::Reference(reference) => {
+		let object = match &dependency.0.item {
+			Some(tg::graph::Edge::Reference(reference)) => {
 				tg::Artifact::with_reference(reference.clone()).into()
 			},
-			tg::graph::Edge::Object(object) => object.clone(),
+			Some(tg::graph::Edge::Object(object)) => object.clone(),
+			None => return Err(tg::error!("dependency has no resolved item")),
 		};
 
 		let referent = match (import.kind, &object) {
@@ -139,22 +140,30 @@ impl Server {
 							tg::graph::Edge::Object(file.into())
 						},
 					};
-					let path = referent
+					let path = dependency
+						.0
 						.path()
 						.map_or_else(|| path.into(), |p| p.join(path));
 					let options = tg::referent::Options {
-						artifact: referent.artifact().cloned(),
-						id: referent.id().cloned(),
-						name: referent.name().map(ToOwned::to_owned),
+						artifact: dependency.0.artifact().cloned(),
+						id: dependency.0.id().cloned(),
+						name: dependency.0.name().map(ToOwned::to_owned),
 						path: Some(path),
-						tag: referent.tag().cloned(),
+						tag: dependency.0.tag().cloned(),
 					};
 					tg::Referent {
 						item: edge,
 						options,
 					}
 				} else if import.kind.is_none() {
-					referent
+					let item = dependency
+						.0
+						.item
+						.ok_or_else(|| tg::error!("expected a resolved item"))?;
+					tg::Referent {
+						item,
+						options: dependency.0.options,
+					}
 				} else {
 					return Err(tg::error!("expected a root module"));
 				}
@@ -178,7 +187,16 @@ impl Server {
 			| (
 				Some(tg::module::Kind::Artifact),
 				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_),
-			) => referent,
+			) => {
+				let item = dependency
+					.0
+					.item
+					.ok_or_else(|| tg::error!("expected a resolved item"))?;
+				tg::Referent {
+					item,
+					options: dependency.0.options,
+				}
+			},
 			(
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
 				_,

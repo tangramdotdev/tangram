@@ -25,7 +25,7 @@ pub struct Directory {
 #[derive(Clone, Debug)]
 pub struct File {
 	pub contents: tg::Blob,
-	pub dependencies: BTreeMap<tg::Reference, Option<tg::Referent<Edge<tg::Object>>>>,
+	pub dependencies: BTreeMap<tg::Reference, Option<Dependency>>,
 	pub executable: bool,
 }
 
@@ -34,6 +34,9 @@ pub struct Symlink {
 	pub artifact: Option<Edge<tg::Artifact>>,
 	pub path: Option<PathBuf>,
 }
+
+#[derive(Clone, Debug)]
+pub struct Dependency(pub tg::Referent<Option<Edge<tg::Object>>>);
 
 #[derive(
 	Clone,
@@ -179,12 +182,14 @@ impl File {
 		let dependencies = self
 			.dependencies
 			.iter()
-			.map(|(reference, referent)| {
+			.map(|(reference, option)| {
 				(
 					reference.clone(),
-					referent
-						.clone()
-						.map(|referent| referent.clone().map(|edge| edge.to_data())),
+					option.clone().map(|dependency| {
+						tg::graph::data::Dependency(
+							dependency.0.map(|edge| edge.map(|e| e.to_data())),
+						)
+					}),
 				)
 			})
 			.collect();
@@ -204,11 +209,17 @@ impl File {
 		let dependencies = data
 			.dependencies
 			.into_iter()
-			.map(|(reference, referent)| {
-				let referent = referent
-					.map(|referent| referent.try_map(Edge::try_from_data))
+			.map(|(reference, option)| {
+				let option = option
+					.map(|dependency| {
+						Ok::<_, tg::Error>(Dependency(
+							dependency
+								.0
+								.try_map(|edge| edge.map(Edge::try_from_data).transpose())?,
+						))
+					})
 					.transpose()?;
-				Ok((reference, referent))
+				Ok((reference, option))
 			})
 			.collect::<tg::Result<_>>()?;
 		let executable = data.executable;
@@ -226,8 +237,9 @@ impl File {
 		let dependencies = self
 			.dependencies
 			.values()
-			.filter_map(|referent| referent.as_ref())
-			.flat_map(|referent| referent.item.children());
+			.filter_map(|option| option.as_ref())
+			.filter_map(|dependency| dependency.0.item.as_ref())
+			.flat_map(Edge::children);
 		std::iter::once(contents).chain(dependencies).collect()
 	}
 }

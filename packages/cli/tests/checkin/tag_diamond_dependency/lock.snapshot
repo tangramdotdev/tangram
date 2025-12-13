@@ -56,7 +56,7 @@
       "kind": "file",
       "dependencies": {
         "d/%5E1": {
-          "item": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+          "item": null,
           "options": {
             "id": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
             "tag": "d/1.1.0"
@@ -68,7 +68,7 @@
       "kind": "file",
       "dependencies": {
         "d/%5E1.0": {
-          "item": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+          "item": null,
           "options": {
             "id": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
             "tag": "d/1.1.0"

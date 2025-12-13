@@ -12,8 +12,13 @@ def main [
 	--print-passing-test-output # Print the output of passing tests.
 	--review (-r) # Review snapshots.
 	--timeout: duration = 10sec # The timeout for each test.
-	filter: string = '.*' # Filter tests.
+	...filters: string # Filter tests.
 ] {
+	let filter = if ($filters | is-empty) {
+		'.*'
+	} else {
+		$filters | each { '(' + $in + ')' } | str join '|'
+	}
 	# Add the debug build to the path.
 	cargo build --features=nats,postgres,scylla
 	ln -sf tangram target/debug/tg

@@ -58,24 +58,28 @@ export class Graph {
 				} else if (node.kind === "file") {
 					let contents = await tg.blob(node.contents);
 					let dependencies = Object.fromEntries(
-						Object.entries(node.dependencies ?? {}).map(([key, value]) => {
-							if (!value) {
-								return [key, undefined];
-							}
-							let referent: tg.Referent<tg.Graph.Edge<tg.Object>>;
-							if (
-								typeof value === "number" ||
-								"index" in value ||
-								tg.Object.is(value)
-							) {
-								let item = tg.Graph.Edge.fromArg(value, arg.nodes);
-								referent = { item, options: {} };
-							} else {
-								let item = tg.Graph.Edge.fromArg(value.item, arg.nodes);
-								referent = { item, options: value.options };
-							}
-							return [key, referent];
-						}),
+						Object.entries(node.dependencies ?? {}).map(
+							([reference, value]) => {
+								if (!value) {
+									return [reference, undefined];
+								}
+								let dependency: tg.Graph.Dependency;
+								if (
+									typeof value === "number" ||
+									"index" in value ||
+									tg.Object.is(value)
+								) {
+									let item = tg.Graph.Edge.fromArg(value, arg.nodes);
+									dependency = { item, options: {} };
+								} else if (value.item === undefined) {
+									dependency = { item: undefined, options: value.options };
+								} else {
+									let item = tg.Graph.Edge.fromArg(value.item, arg.nodes);
+									dependency = { item, options: value.options };
+								}
+								return [reference, dependency];
+							},
+						),
 					);
 					let executable = node.executable ?? false;
 					return {
@@ -151,31 +155,35 @@ export class Graph {
 							node.dependencies = {};
 							for (let reference in argNode.dependencies) {
 								let value = argNode.dependencies[reference]!;
-								let referent: tg.Referent<tg.Graph.Arg.Edge<tg.Object>>;
+								let dependency: tg.Referent<
+									tg.Graph.Arg.Edge<tg.Object> | undefined
+								>;
 								if (
 									typeof value === "number" ||
 									"index" in value ||
 									tg.Object.is(value)
 								) {
-									referent = { item: value, options: {} };
+									dependency = { item: value, options: {} };
 								} else {
-									referent = value;
+									dependency = value;
 								}
-								if (typeof referent.item === "number") {
+								if (dependency.item === undefined) {
+									node.dependencies[reference] = dependency;
+								} else if (typeof dependency.item === "number") {
 									node.dependencies[reference] = {
-										item: referent.item + offset,
-										options: referent.options,
+										item: dependency.item + offset,
+										options: dependency.options,
 									};
-								} else if ("index" in referent.item) {
+								} else if ("index" in dependency.item) {
 									node.dependencies[reference] = {
 										item: {
-											...referent.item,
-											index: referent.item.index + offset,
+											...dependency.item,
+											index: dependency.item.index + offset,
 										},
-										options: referent.options,
+										options: dependency.options,
 									};
-								} else if (tg.Object.is(referent.item)) {
-									node.dependencies[reference] = referent;
+								} else if (tg.Object.is(dependency.item)) {
+									node.dependencies[reference] = dependency;
 								}
 							}
 						} else {
@@ -307,13 +315,15 @@ export namespace Graph {
 			entries?: { [name: string]: tg.Graph.Arg.Edge<tg.Artifact> } | undefined;
 		};
 
+		export type Dependency = tg.MaybeReferent<
+			tg.Graph.Arg.Edge<tg.Object> | undefined
+		>;
+
 		export type File = {
 			contents?: tg.Blob.Arg | undefined;
 			dependencies?:
 				| {
-						[reference: tg.Reference]:
-							| tg.MaybeReferent<tg.Graph.Arg.Edge<tg.Object>>
-							| undefined;
+						[reference: tg.Reference]: tg.Graph.Arg.Dependency | undefined;
 				  }
 				| undefined;
 			executable?: boolean | undefined;
@@ -478,9 +488,7 @@ export namespace Graph {
 	export type File = {
 		contents: tg.Blob;
 		dependencies: {
-			[reference: tg.Reference]:
-				| tg.Referent<tg.Graph.Edge<tg.Object>>
-				| undefined;
+			[reference: tg.Reference]: tg.Graph.Dependency | undefined;
 		};
 		executable: boolean;
 	};
@@ -492,16 +500,11 @@ export namespace Graph {
 			if (globalThis.Object.entries(object.dependencies).length > 0) {
 				data.dependencies = globalThis.Object.fromEntries(
 					globalThis.Object.entries(object.dependencies).map(
-						([reference, referent]) => {
-							if (!referent) {
+						([reference, dependency]) => {
+							if (!dependency) {
 								return [reference, undefined];
 							}
-							return [
-								reference,
-								tg.Referent.toData(referent, (item) =>
-									tg.Graph.Edge.toData(item, (item) => item.id),
-								),
-							];
+							return [reference, tg.Graph.Dependency.toDataString(dependency)];
 						},
 					),
 				);
@@ -518,15 +521,19 @@ export namespace Graph {
 				contents: tg.Blob.withId(data.contents),
 				dependencies: globalThis.Object.fromEntries(
 					globalThis.Object.entries(data.dependencies ?? {}).map(
-						([reference, referent]) => {
-							if (!referent) {
+						([reference, dependency]) => {
+							if (!dependency) {
 								return [reference, undefined];
 							}
 							return [
 								reference,
-								tg.Referent.fromData(referent, (item) =>
-									tg.Graph.Edge.fromData(item, tg.Object.withId),
-								),
+								typeof dependency === "string"
+									? tg.Graph.Dependency.fromDataString(dependency)
+									: tg.Referent.fromData(dependency, (item) =>
+											item !== undefined
+												? tg.Graph.Edge.fromData(item, tg.Object.withId)
+												: undefined,
+										),
 							];
 						},
 					),
@@ -537,10 +544,97 @@ export namespace Graph {
 
 		export let children = (object: tg.Graph.File): Array<tg.Object> => {
 			let dependencies = globalThis.Object.entries(object.dependencies)
-				.filter(([_, referent]) => referent !== undefined)
-				.flatMap(([_, referent]) => tg.Graph.Edge.children(referent!.item));
+				.filter(
+					([_, dependency]) =>
+						dependency !== undefined && dependency.item !== undefined,
+				)
+				.flatMap(([_, dependency]) =>
+					tg.Graph.Edge.children(dependency!.item!),
+				);
 			return [object.contents, ...dependencies];
 		};
+	}
+
+	export type Dependency = tg.Referent<tg.Graph.Edge<tg.Object> | undefined>;
+
+	export namespace Dependency {
+		export let toDataString = (value: tg.Graph.Dependency): string => {
+			let item =
+				value.item !== undefined
+					? tg.Graph.Edge.toDataString(value.item, (item) => item.id)
+					: "";
+			let params = [];
+			if (value.options?.artifact !== undefined) {
+				params.push(`artifact=${encodeURIComponent(value.options.artifact)}`);
+			}
+			if (value.options?.id !== undefined) {
+				params.push(`id=${encodeURIComponent(value.options.id)}`);
+			}
+			if (value.options?.name !== undefined) {
+				params.push(`name=${encodeURIComponent(value.options.name)}`);
+			}
+			if (value.options?.path !== undefined) {
+				params.push(`path=${encodeURIComponent(value.options.path)}`);
+			}
+			if (value.options?.tag !== undefined) {
+				params.push(`tag=${encodeURIComponent(value.options.tag)}`);
+			}
+			if (params.length > 0) {
+				item += "?";
+				item += params.join("&");
+			}
+			return item;
+		};
+
+		export let fromDataString = (data: string): tg.Graph.Dependency => {
+			let [itemString, params] = data.split("?");
+			let item: tg.Graph.Edge<tg.Object> | undefined;
+			if (itemString !== undefined && itemString !== "") {
+				item = tg.Graph.Edge.fromDataString(itemString, tg.Object.withId);
+			}
+			let options: tg.Referent.Options = {};
+			if (params !== undefined) {
+				for (let param of params.split("&")) {
+					let [key, value] = param.split("=");
+					if (value === undefined) {
+						throw new Error("missing value");
+					}
+					switch (key) {
+						case "artifact": {
+							options.artifact = decodeURIComponent(value);
+							break;
+						}
+						case "id": {
+							options.id = decodeURIComponent(value);
+							break;
+						}
+						case "name": {
+							options.name = decodeURIComponent(value);
+							break;
+						}
+						case "path": {
+							options.path = decodeURIComponent(value);
+							break;
+						}
+						case "tag": {
+							options.tag = decodeURIComponent(value);
+							break;
+						}
+						default: {
+							throw new Error("invalid key");
+						}
+					}
+				}
+			}
+			return { item, options };
+		};
+
+		export type Data =
+			| string
+			| {
+					item: tg.Graph.Data.Edge<tg.Object.Id> | undefined;
+					options?: tg.Referent.Data.Options;
+			  };
 	}
 
 	export type Symlink = {
@@ -816,9 +910,7 @@ export namespace Graph {
 		export type File = {
 			contents?: tg.Blob.Id;
 			dependencies?: {
-				[reference: tg.Reference]:
-					| tg.Referent.Data<tg.Graph.Data.Edge<tg.Object.Id>>
-					| undefined;
+				[reference: tg.Reference]: tg.Graph.Dependency.Data | undefined;
 			};
 			executable?: boolean;
 		};

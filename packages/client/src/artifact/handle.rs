@@ -162,7 +162,7 @@ impl Artifact {
 				.dependencies(handle)
 				.await?
 				.into_values()
-				.filter_map(|referent| referent?.item.try_into().ok())
+				.filter_map(|option| option?.0.item?.try_into().ok())
 				.collect()),
 
 			Self::Symlink(symlink) => Ok(symlink

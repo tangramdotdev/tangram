@@ -13,14 +13,14 @@
       "kind": "file",
       "dependencies": {
         "a/*": {
-          "item": "dir_01am412pa4vq5v2my99qrg0h6ky4s1qm7w3dj05mm93kbdzg7hamj0",
+          "item": null,
           "options": {
             "id": "dir_01axfqeskenrmxgby6s3hj3x698w4pdfkcm6t1rdz1s5n9705da09g",
             "tag": "a/1.0.0"
           }
         },
         "b/*": {
-          "item": "dir_0132wgmz5rvb8q50w1hmnspsnf2mnseq1b1vzwpkmhvj458wqc7ze0",
+          "item": null,
           "options": {
             "id": "dir_018y9xaczb1ksxt56zdemkxpyt1tpqyk2qr6chebx1xdv46zqjq04g",
             "tag": "b/1.0.0"

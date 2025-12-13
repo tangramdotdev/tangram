@@ -7,6 +7,7 @@ tree
     │     ├╴contents: blb_0171ytyz9bccy0k15hrep1as9ccybpy2ny0bjq2cmshydz9265zbz0
     │     └╴dependencies: map
     │       └╴tree/of/tags/foo: map
+    │         ├╴id: "dir_01x6rye7cfh2jjq6f58ffrs4s6pwb25e4xepm61z9nkg7hq3dky7y0"
     │         ├╴item: dir_01x6rye7cfh2jjq6f58ffrs4s6pwb25e4xepm61z9nkg7hq3dky7y0
     │         └╴tag: "tree/of/tags/foo"
     └╴tree/of/tags/foo: dir_01x6rye7cfh2jjq6f58ffrs4s6pwb25e4xepm61z9nkg7hq3dky7y0

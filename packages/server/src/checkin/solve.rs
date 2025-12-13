@@ -230,8 +230,13 @@ impl Server {
 									.dependencies
 									.get_mut(reference)
 									.unwrap()
-									.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
-									.item = edge.clone();
+									.get_or_insert_with(|| {
+										tg::graph::data::Dependency(tg::Referent::with_item(Some(
+											edge.clone(),
+										)))
+									})
+									.0
+									.item = Some(edge.clone());
 							},
 							ItemVariant::SymlinkArtifact => {
 								let edge =
@@ -295,8 +300,13 @@ impl Server {
 									.dependencies
 									.get_mut(reference)
 									.unwrap()
-									.get_or_insert_with(|| tg::Referent::with_item(edge.clone()))
-									.item = edge.clone();
+									.get_or_insert_with(|| {
+										tg::graph::data::Dependency(tg::Referent::with_item(Some(
+											edge.clone(),
+										)))
+									})
+									.0
+									.item = Some(edge.clone());
 							},
 							ItemVariant::SymlinkArtifact => {
 								let edge =
@@ -408,15 +418,17 @@ impl Server {
 					.unwrap_file_mut()
 					.dependencies
 					.iter_mut()
-					.find_map(|(r, referent)| (r == &reference).then_some(referent))
+					.find_map(|(r, option)| (r == &reference).then_some(option))
 					.unwrap()
-					.replace(referent.clone().map(|item| {
-						tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-							graph: None,
-							index: item,
-							kind,
-						})
-					}));
+					.replace(tg::graph::data::Dependency(referent.clone().map(|item| {
+						Some(tg::graph::data::Edge::Reference(
+							tg::graph::data::Reference {
+								graph: None,
+								index: item,
+								kind,
+							},
+						))
+					})));
 				checkpoint
 					.graph
 					.nodes
@@ -698,11 +710,11 @@ impl Server {
 				let dependencies = file
 					.dependencies
 					.into_iter()
-					.map(|(reference, referent)| {
+					.map(|(reference, option)| {
 						if reference.is_solvable() {
 							(reference, None)
 						} else {
-							(reference, referent)
+							(reference, option)
 						}
 					})
 					.collect();
@@ -831,32 +843,38 @@ impl Server {
 					None
 				};
 				let mut dependencies = std::collections::BTreeMap::new();
-				for (reference, referent) in &file.dependencies {
-					let Some(referent) = referent else {
+				for (reference, option) in &file.dependencies {
+					let Some(dependency) = option else {
 						if !reference.is_solvable() {
 							return Err(tg::error!(%reference, "unsolvable unsolved dependency"));
 						}
 						dependencies.insert(reference.clone(), None);
 						continue;
 					};
-					if referent.tag().is_some() {
+					if dependency.tag().is_some() {
 						dependencies.insert(reference.clone(), None);
 					} else {
-						let referent = referent.clone().map(|item| match item {
-							tg::graph::data::Edge::Reference(reference) => {
+						let referent = dependency.0.clone().map(|item| match item {
+							Some(tg::graph::data::Edge::Reference(reference)) => {
 								let graph =
 									reference.graph.clone().or_else(|| Some(graph_id.clone()));
-								tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-									graph,
-									index: reference.index,
-									kind: reference.kind,
-								})
+								Some(tg::graph::data::Edge::Reference(
+									tg::graph::data::Reference {
+										graph,
+										index: reference.index,
+										kind: reference.kind,
+									},
+								))
 							},
-							tg::graph::data::Edge::Object(id) => {
-								tg::graph::data::Edge::Object(id.clone())
+							Some(tg::graph::data::Edge::Object(id)) => {
+								Some(tg::graph::data::Edge::Object(id.clone()))
 							},
+							None => None,
 						});
-						dependencies.insert(reference.clone(), Some(referent));
+						dependencies.insert(
+							reference.clone(),
+							Some(tg::graph::data::Dependency(referent)),
+						);
 					}
 				}
 				Variant::File(File {
@@ -940,6 +958,7 @@ impl Server {
 					.get(reference)?
 					.as_ref()?
 					.item()
+					.as_ref()?
 					.try_unwrap_reference_ref()
 					.ok()?
 					.index,
@@ -1013,7 +1032,7 @@ impl Server {
 					.get(reference)
 					.cloned()
 					.unwrap()
-					.map(|referent| referent.item)
+					.and_then(|dependency| dependency.0.item)
 			},
 			ItemVariant::SymlinkArtifact => {
 				let symlink = node.variant.unwrap_symlink_ref();
@@ -1102,7 +1121,8 @@ impl Server {
 						.values()
 						.flatten()
 						.find_map(|referent| {
-							let reference = referent.item.try_unwrap_reference_ref().ok()?;
+							let reference =
+								referent.item.as_ref()?.try_unwrap_reference_ref().ok()?;
 							if reference.graph.is_some() {
 								return None;
 							}

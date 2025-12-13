@@ -1,6 +1,9 @@
 use {super::Data, crate::prelude::*};
 
 #[derive(Clone, Debug)]
+pub struct Dependency(pub tg::Referent<Option<tg::Object>>);
+
+#[derive(Clone, Debug)]
 pub enum File {
 	Reference(tg::graph::Reference),
 	Node(Node),
