@@ -242,9 +242,9 @@ impl Server {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
 				Node::Object(node) => {
-					// if node.stored.is_some() && node.metadata.is_some() {
-					// 	continue;
-					// }
+					if node.metadata.is_some() && node.children.is_none() {
+						continue;
+					}
 					let Some(metadata) = &node.metadata else {
 						continue;
 					};
@@ -341,9 +341,9 @@ impl Server {
 				},
 
 				Node::Process(node) => {
-					// if node.stored.is_some() && node.metadata.is_some() {
-					// 	continue;
-					// }
+					if node.children.is_none() && node.metadata.is_some() {
+						continue;
+					}
 
 					// Initialize the metadata.
 					let mut metadata = tg::process::Metadata {

@@ -222,6 +222,7 @@ impl Graph {
 		marked: Option<bool>,
 		requested: Option<Requested>,
 	) {
+		tracing::warn!(id=?id, metadata=?metadata, data=?data.is_some(), stored=?stored, "update object");
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
