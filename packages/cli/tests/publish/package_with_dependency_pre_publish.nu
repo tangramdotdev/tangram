@@ -64,7 +64,5 @@ let local_main_metadata = tg object metadata $main_id | from json
 let remote_main_metadata = tg --url $remote.url object metadata $main_id | from json
 let local_dep_metadata = tg object metadata $dep_id | from json
 let remote_dep_metadata = tg --url $remote.url object metadata $dep_id | from json
-print "main id" $main_id
-print "dep id" $dep_id
 assert equal $local_main_metadata $remote_main_metadata "Main metadata not synced between local and remote."
 assert equal $local_dep_metadata $remote_dep_metadata "Dependency metadata not synced between local and remote."

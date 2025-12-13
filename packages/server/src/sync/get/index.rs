@@ -258,9 +258,6 @@ impl Server {
 						continue;
 					};
 
-					// // Initialize the stored output.
-					// let mut stored = true;
-
 					// Initialize the metadata from existing node metadata.
 					let mut metadata = tg::object::Metadata {
 						node: tg::object::metadata::Node {
@@ -285,8 +282,6 @@ impl Server {
 								.try_unwrap_object_ref()
 								.ok()
 								.ok_or_else(|| tg::error!("expected an object"))?;
-							// stored =
-							// 	stored && child_node.stored.clone().unwrap_or_default().subtree;
 							metadata.subtree.count = metadata
 								.subtree
 								.count
@@ -339,7 +334,6 @@ impl Server {
 								.map(|(a, b)| a && b);
 						}
 					} else {
-						// stored = false;
 						metadata = tg::object::Metadata::default();
 					}
 
