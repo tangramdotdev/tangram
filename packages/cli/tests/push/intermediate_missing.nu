@@ -48,6 +48,10 @@ export def test [...args] {
 	let output = tg -u $local_server.url get $fil_id | complete
 	failure $output
 
+	# Index.
+	tg -u $local_server.url index
+	tg -u $remote_server.url index
+
 	# Add the remote to the local server.
 	tg -u $local_server.url remote put default $remote_server.url
 

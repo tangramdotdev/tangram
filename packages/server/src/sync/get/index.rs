@@ -119,6 +119,15 @@ impl Server {
 						.ok_or_else(|| tg::error!("expected the object to exist"))?
 						.bytes;
 					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+					// Update the graph.
+					state.graph.lock().unwrap().update_object(
+						&item.id,
+						Some(&data),
+						None,
+						None,
+						None,
+						None,
+					);
 					Self::sync_get_enqueue_object_children(state, &item.id, &data, None);
 				}
 			}
