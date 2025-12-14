@@ -91,7 +91,7 @@ impl Server {
 		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
 
 		// Parse the arg.
-		let arg = request.json().await?;
+		let arg = request.json_or_default().await?;
 
 		// Get the stream.
 		let handle = self.clone();

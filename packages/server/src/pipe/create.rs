@@ -40,7 +40,7 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
+		let arg = request.json_or_default().await?;
 		let output = self.create_pipe_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)

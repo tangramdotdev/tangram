@@ -35,6 +35,10 @@ pub trait Ext {
 	where
 		T: serde::de::DeserializeOwned;
 
+	fn json_or_default<T>(self) -> impl Future<Output = Result<T, Error>> + Send
+	where
+		T: serde::de::DeserializeOwned + Default;
+
 	fn reader(self) -> impl AsyncBufRead + Send + 'static;
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static;
@@ -116,6 +120,18 @@ impl Ext for http::Request<Body> {
 		T: serde::de::DeserializeOwned,
 	{
 		let bytes = self.bytes().await?;
+		let json = serde_json::from_slice(&bytes)?;
+		Ok(json)
+	}
+
+	async fn json_or_default<T>(self) -> Result<T, Error>
+	where
+		T: serde::de::DeserializeOwned + Default,
+	{
+		let bytes = self.bytes().await?;
+		if bytes.is_empty() {
+			return Ok(T::default());
+		}
 		let json = serde_json::from_slice(&bytes)?;
 		Ok(json)
 	}

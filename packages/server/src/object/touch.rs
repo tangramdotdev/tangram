@@ -117,7 +117,7 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		let id = id.parse()?;
-		let arg = request.json().await?;
+		let arg = request.json_or_default().await?;
 		self.touch_object_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
