@@ -1,8 +1,14 @@
 use {
 	futures::future,
-	std::path::Path,
+	std::{
+		path::Path,
+		sync::{
+			Arc,
+			atomic::{AtomicU64, Ordering},
+		},
+	},
 	tangram_client::prelude::*,
-	tangram_futures::read::Ext as _,
+	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task},
 	tokio_util::compat::{FuturesAsyncWriteCompatExt as _, TokioAsyncWriteCompatExt as _},
 };
 
@@ -12,7 +18,7 @@ pub(crate) async fn archive<H>(
 	_cwd: std::path::PathBuf,
 	_env: tg::value::data::Map,
 	_executable: tg::command::data::Executable,
-	_logger: crate::Logger,
+	logger: crate::Logger,
 ) -> tg::Result<crate::Output>
 where
 	H: tg::Handle,
@@ -51,11 +57,50 @@ where
 		return Err(tg::error!("compression is not supported for zip archives"));
 	}
 
+	// Create the position tracker.
+	let position = Arc::new(AtomicU64::new(0));
+
+	// Spawn a task to log progress.
+	let (sender, receiver) = async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
+	let progress_task = Task::spawn({
+		let position = position.clone();
+		|_| async move {
+			loop {
+				let current = position.load(Ordering::Relaxed);
+				let indicator = tg::progress::Indicator {
+					current: Some(current),
+					format: tg::progress::IndicatorFormat::Bytes,
+					name: String::new(),
+					title: "archiving".to_owned(),
+					total: None,
+				};
+				let event = tg::progress::Event::Update::<()>(indicator);
+				if sender.send(Ok(event)).await.is_err() {
+					break;
+				}
+				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+			}
+		}
+	});
+	let stream = receiver.attach(progress_task);
+	let log_task = Task::spawn({
+		let logger = logger.clone();
+		|_| async move { crate::log_progress_stream(&logger, stream).await.ok() }
+	});
+
 	// Archive.
 	let blob = match format {
-		tg::ArchiveFormat::Tar => tar(handle, &artifact, compression).await?,
-		tg::ArchiveFormat::Zip => zip(handle, &artifact).await?,
+		tg::ArchiveFormat::Tar => tar(handle, &artifact, compression, &position).await?,
+		tg::ArchiveFormat::Zip => zip(handle, &artifact, &position).await?,
 	};
+
+	// Abort the log task.
+	log_task.abort();
+
+	// Log that the archiving finished.
+	let message = "finished archiving\n";
+	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
+
 	let output = blob.into();
 
 	let output = crate::Output {
@@ -72,6 +117,7 @@ async fn tar<H>(
 	handle: &H,
 	artifact: &tg::Artifact,
 	compression: Option<tg::CompressionFormat>,
+	position: &Arc<AtomicU64>,
 ) -> tg::Result<tg::Blob>
 where
 	H: tg::Handle,
@@ -80,6 +126,7 @@ where
 	let (reader, writer) = tokio::io::duplex(8192);
 
 	// Create the archive future.
+	let position = position.clone();
 	let archive_future = async move {
 		// Create the tar builder.
 		let mut builder = tokio_tar::Builder::new(writer);
@@ -90,7 +137,7 @@ where
 			.ok()
 			.ok_or_else(|| tg::error!("expected a directory"))?;
 		for (name, artifact) in directory.entries(handle).await? {
-			tar_inner(handle, &mut builder, Path::new(&name), &artifact).await?;
+			tar_inner(handle, &mut builder, Path::new(&name), &artifact, &position).await?;
 		}
 
 		// Finish writing the archive.
@@ -145,6 +192,7 @@ async fn tar_inner<H, W>(
 	builder: &mut tokio_tar::Builder<W>,
 	path: &Path,
 	artifact: &tg::Artifact,
+	position: &Arc<AtomicU64>,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -161,7 +209,14 @@ where
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append directory"))?;
 			for (name, artifact) in directory.entries(handle).await? {
-				Box::pin(tar_inner(handle, builder, &path.join(name), &artifact)).await?;
+				Box::pin(tar_inner(
+					handle,
+					builder,
+					&path.join(name),
+					&artifact,
+					position,
+				))
+				.await?;
 			}
 			Ok(())
 		},
@@ -180,7 +235,9 @@ where
 			builder
 				.append_data(&mut header, path, reader)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to append file"))
+				.map_err(|source| tg::error!(!source, "failed to append file"))?;
+			position.fetch_add(size, Ordering::Relaxed);
+			Ok(())
 		},
 		tg::Artifact::Symlink(symlink) => {
 			if symlink.artifact(handle).await?.is_some() {
@@ -205,7 +262,11 @@ where
 	}
 }
 
-async fn zip<H>(handle: &H, artifact: &tg::Artifact) -> tg::Result<tg::Blob>
+async fn zip<H>(
+	handle: &H,
+	artifact: &tg::Artifact,
+	position: &Arc<AtomicU64>,
+) -> tg::Result<tg::Blob>
 where
 	H: tg::Handle,
 {
@@ -213,8 +274,9 @@ where
 	let (reader, writer) = tokio::io::duplex(8192);
 
 	// Create the archive future.
+	let position = position.clone();
 	let archive_future = async move {
-		// Create the tar builder.
+		// Create the zip builder.
 		let mut builder = async_zip::base::write::ZipFileWriter::new(writer.compat_write());
 
 		// Archive the artifact.
@@ -223,7 +285,7 @@ where
 			.ok()
 			.ok_or_else(|| tg::error!("expected a directory"))?;
 		for (name, artifact) in directory.entries(handle).await? {
-			zip_inner(handle, &mut builder, Path::new(&name), &artifact).await?;
+			zip_inner(handle, &mut builder, Path::new(&name), &artifact, &position).await?;
 		}
 
 		// Finish writing the archive.
@@ -258,6 +320,7 @@ async fn zip_inner<H, W>(
 	builder: &mut async_zip::base::write::ZipFileWriter<W>,
 	path: &Path,
 	artifact: &tg::Artifact,
+	position: &Arc<AtomicU64>,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -279,6 +342,7 @@ where
 					builder,
 					&path.join(name),
 					&artifact.clone(),
+					position,
 				))
 				.await?;
 			}
@@ -288,6 +352,7 @@ where
 			if !file.dependencies(handle).await?.is_empty() {
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
+			let size = file.length(handle).await?;
 			let executable = file.executable(handle).await?;
 			let permissions = if executable { 0o0755 } else { 0o0644 };
 			let entry = async_zip::ZipEntryBuilder::new(
@@ -305,6 +370,7 @@ where
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the file entry"))?;
 			entry_writer.into_inner().close().await.unwrap();
+			position.fetch_add(size, Ordering::Relaxed);
 			Ok(())
 		},
 		tg::Artifact::Symlink(symlink) => {

@@ -6,7 +6,7 @@ use {
 		sync::{Arc, Mutex, atomic::AtomicU64},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::read::Ext as _,
+	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task},
 	tangram_uri::Uri,
 	tokio::io::AsyncBufReadExt as _,
 	tokio_util::io::StreamReader,
@@ -74,7 +74,33 @@ where
 
 	// Spawn the progress task.
 	let downloaded = Arc::new(AtomicU64::new(0));
-	let _content_length = response.content_length();
+	let content_length = response.content_length();
+	let (sender, receiver) = async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
+	let progress_task = Task::spawn({
+		let downloaded = downloaded.clone();
+		|_| async move {
+			loop {
+				let current = downloaded.load(std::sync::atomic::Ordering::Relaxed);
+				let indicator = tg::progress::Indicator {
+					current: Some(current),
+					format: tg::progress::IndicatorFormat::Bytes,
+					name: String::new(),
+					title: "downloading".to_owned(),
+					total: content_length,
+				};
+				let event = tg::progress::Event::Update::<()>(indicator);
+				if sender.send(Ok(event)).await.is_err() {
+					break;
+				}
+				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+			}
+		}
+	});
+	let stream = receiver.attach(progress_task);
+	let log_task = Task::spawn({
+		let logger = logger.clone();
+		|_| async move { crate::log_progress_stream(&logger, stream).await.ok() }
+	});
 
 	// Create the checksum writer.
 	let checksum = options
@@ -211,6 +237,9 @@ where
 	let artifact = tg::checkin(handle, arg)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?;
+
+	// Abort the log task.
+	log_task.abort();
 
 	// Log that the download finished.
 	let message = format!("finished download from \"{url}\"\n");
