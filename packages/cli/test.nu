@@ -14,17 +14,23 @@ def main [
 	--timeout: duration = 10sec # The timeout for each test.
 	...filters: string # Filter tests.
 ] {
-	let filter = if ($filters | is-empty) {
-		'.*'
-	} else {
-		$filters | each { '(' + $in + ')' } | str join '|'
+	# Clean up test temp directories older than 1 hour.
+	for entry in (ls $env.TMPDIR | where name =~ 'tangram_test_' and type == dir and modified < ((date now) - 1hr)) {
+		chmod -R +w $entry.name
+		rm -rf $entry.name
 	}
+
 	# Add the debug build to the path.
 	cargo build --features=nats,postgres,scylla
 	ln -sf tangram target/debug/tg
 	path add ($repository_path | path join 'target/debug')
 
 	# Get the matching tests.
+	let filter = if ($filters | is-empty) {
+		'.*'
+	} else {
+		$filters | each { '(' + $in + ')' } | str join '|'
+	}
 	let tests_path = ($repository_path | path join 'packages/cli/tests')
 	let tests = fd -e nu -p $filter $tests_path | lines | each { |path|
 		{
@@ -52,7 +58,7 @@ def main [
 	def spawn [test: record] {
 		job spawn {
 			# Create a temp directory for this test.
-			let temp_path = mktemp -d | path expand
+			let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
 
 			# Remove inline, pending, and touch files.
 			let parsed = $test.path | path parse
