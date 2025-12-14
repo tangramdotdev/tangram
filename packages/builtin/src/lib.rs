@@ -76,14 +76,13 @@ pub(crate) async fn log_progress_stream<T: Send + std::fmt::Debug>(
 ) -> tg::Result<()> {
 	let mut stream = pin!(stream);
 	while let Some(event) = stream.try_next().await? {
-		let (tg::progress::Event::Start(indicator)
-		| tg::progress::Event::Finish(indicator)
-		| tg::progress::Event::Update(indicator)) = event
-		else {
+		let tg::progress::Event::Indicators(indicators) = event else {
 			continue;
 		};
-		let message = format!("{indicator}\n");
-		logger(tg::process::log::Stream::Stderr, message).await?;
+		for indicator in indicators {
+			let message = format!("{indicator}\n");
+			logger(tg::process::log::Stream::Stderr, message).await?;
+		}
 	}
 	Ok(())
 }

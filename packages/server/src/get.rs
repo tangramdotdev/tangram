@@ -51,12 +51,8 @@ impl Server {
 					tg::progress::Event::Diagnostic(diagnostic) => {
 						tg::progress::Event::Diagnostic(diagnostic)
 					},
-					tg::progress::Event::Start(indicator) => tg::progress::Event::Start(indicator),
-					tg::progress::Event::Update(indicator) => {
-						tg::progress::Event::Update(indicator)
-					},
-					tg::progress::Event::Finish(indicator) => {
-						tg::progress::Event::Finish(indicator)
+					tg::progress::Event::Indicators(indicators) => {
+						tg::progress::Event::Indicators(indicators)
 					},
 					tg::progress::Event::Output(output) => {
 						let referent = tg::Referent {

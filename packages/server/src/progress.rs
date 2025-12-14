@@ -2,10 +2,7 @@ use {
 	futures::{Stream, StreamExt as _, future, stream},
 	indexmap::IndexMap,
 	std::{
-		sync::{
-			Arc, Mutex, RwLock,
-			atomic::{AtomicU64, Ordering},
-		},
+		sync::{Arc, Mutex, RwLock, atomic::AtomicU64},
 		time::Duration,
 	},
 	tangram_client::prelude::*,
@@ -39,14 +36,6 @@ impl<T> Handle<T> {
 			receiver,
 			sender,
 		}
-	}
-
-	pub fn log(&self, level: tg::progress::Level, message: String) {
-		let event = tg::progress::Event::Log(tg::progress::Log {
-			level: Some(level),
-			message,
-		});
-		self.sender.try_send(Ok(event)).ok();
 	}
 
 	pub fn diagnostic(&self, diagnostic: tg::diagnostic::Data) {
@@ -109,21 +98,16 @@ impl<T> Handle<T> {
 	}
 
 	pub fn finish(&self, name: &str) {
-		let Some(indicator) = self.indicators.write().unwrap().shift_remove(name) else {
-			return;
-		};
-		let indicator = tg::progress::Indicator {
-			current: indicator
-				.current
-				.map(|current| current.load(Ordering::Relaxed)),
-			format: indicator.format,
-			name: indicator.name,
-			title: indicator.title.into_inner().unwrap(),
-			total: indicator.total.map(|total| total.load(Ordering::Relaxed)),
-		};
-		self.sender
-			.try_send(Ok(tg::progress::Event::Finish(indicator)))
-			.ok();
+		self.indicators.write().unwrap().shift_remove(name);
+	}
+
+	pub fn finish_all(&self) {
+		self.indicators.write().unwrap().clear();
+	}
+
+	pub fn log(&self, level: Option<tg::progress::Level>, message: String) {
+		let event = tg::progress::Event::Log(tg::progress::Log { level, message });
+		self.sender.try_send(Ok(event)).ok();
 	}
 
 	pub fn output(&self, output: T) {
@@ -135,26 +119,7 @@ impl<T> Handle<T> {
 		self.sender.try_send(Err(error)).ok();
 	}
 
-	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + use<T> {
-		let indicators = self.indicators.clone();
-		let receiver = self.receiver.clone();
-		let interval = Duration::from_millis(100);
-		let interval = tokio::time::interval(interval);
-		let updates = IntervalStream::new(interval)
-			.skip(1)
-			.flat_map(move |_| stream::iter(Self::get_indicator_update_events(&indicators)));
-		stream::select(receiver, updates).take_while_inclusive(|result| {
-			future::ready(!matches!(
-				result,
-				Ok(tg::progress::Event::Output(_)) | Err(_)
-			))
-		})
-	}
-
-	pub fn forward<U>(
-		&self,
-		event: tg::Result<tg::progress::Event<U>>,
-	) -> Option<tg::Result<tg::progress::Event<U>>> {
+	pub fn forward<U>(&self, event: tg::Result<tg::progress::Event<U>>) -> Option<U> {
 		let event = match event {
 			Ok(event) => event,
 			Err(error) => {
@@ -163,85 +128,100 @@ impl<T> Handle<T> {
 			},
 		};
 		match event {
-			tg::progress::Event::Log(event) => {
-				self.log(
-					event.level.unwrap_or(tg::progress::Level::Info),
-					event.message,
-				);
-			},
 			tg::progress::Event::Diagnostic(event) => {
 				self.diagnostic(event);
 			},
-			tg::progress::Event::Start(event) => {
-				self.start(
-					event.name.clone(),
-					event.title.clone(),
-					event.format,
-					event.current,
-					event.total,
-				);
+			tg::progress::Event::Indicators(indicators) => {
+				*self.indicators.write().unwrap() = indicators
+					.into_iter()
+					.map(|indicator| {
+						let name = indicator.name.clone();
+						let indicator = Indicator {
+							current: indicator.current.map(AtomicU64::new),
+							format: indicator.format,
+							name: indicator.name,
+							title: Mutex::new(indicator.title),
+							total: indicator.total.map(AtomicU64::new),
+						};
+						(name, indicator)
+					})
+					.collect();
 			},
-			tg::progress::Event::Update(event) => {
-				self.sender
-					.try_send(Ok(tg::progress::Event::Update(event)))
-					.ok();
+			tg::progress::Event::Log(event) => {
+				self.log(event.level, event.message);
 			},
-			tg::progress::Event::Finish(event) => {
-				self.indicators.write().unwrap().shift_remove(&event.name);
-				self.sender
-					.try_send(Ok(tg::progress::Event::Finish(event)))
-					.ok();
-			},
-			tg::progress::Event::Output(_) => {
-				return Some(Ok(event));
+			tg::progress::Event::Output(output) => {
+				self.indicators.write().unwrap().clear();
+				return Some(output);
 			},
 		}
 		None
 	}
 
-	pub fn finish_all(&self) {
-		let names = self
-			.indicators
-			.read()
-			.unwrap()
-			.keys()
-			.cloned()
-			.collect::<Vec<_>>();
-		for name in names {
-			self.finish(&name);
-		}
+	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + use<T> {
+		let indicators = self.indicators.clone();
+		let receiver = self.receiver.clone();
+		let interval = Duration::from_millis(100);
+		let interval = tokio::time::interval(interval);
+		let updates = IntervalStream::new(interval)
+			.skip(1)
+			.map(move |_| Ok(Self::get_indicators_event(&indicators)));
+		let previous_indicators = Arc::new(RwLock::new(None));
+		stream::select(receiver, updates)
+			.filter(move |result| {
+				future::ready(match result {
+					Ok(tg::progress::Event::Indicators(current_indicators)) => {
+						let mut previous_indicators = previous_indicators.write().unwrap();
+						if previous_indicators
+							.as_ref()
+							.is_some_and(|indicators| indicators == current_indicators)
+						{
+							false
+						} else {
+							previous_indicators.replace(current_indicators.clone());
+							!current_indicators.is_empty()
+						}
+					},
+					_ => true,
+				})
+			})
+			.take_while_inclusive(|result| {
+				future::ready(!matches!(
+					result,
+					Ok(tg::progress::Event::Output(_)) | Err(_)
+				))
+			})
 	}
 
-	fn get_indicator_update_events(
+	fn get_indicators_event(
 		indicators: &RwLock<IndexMap<String, Indicator>>,
-	) -> Vec<tg::Result<tg::progress::Event<T>>> {
-		indicators
+	) -> tg::progress::Event<T> {
+		let indicators = indicators
 			.read()
 			.unwrap()
 			.values()
-			.map(|indicator| Ok(Self::get_indicator_update_event(indicator)))
-			.collect()
-	}
-
-	fn get_indicator_update_event(indicator: &Indicator) -> tg::progress::Event<T> {
-		let name = indicator.name.clone();
-		let format = indicator.format.clone();
-		let title = indicator.title.lock().unwrap().clone();
-		let current = indicator
-			.current
-			.as_ref()
-			.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
-		let total = indicator
-			.total
-			.as_ref()
-			.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
-		tg::progress::Event::Update(tg::progress::Indicator {
-			current,
-			format,
-			name,
-			title,
-			total,
-		})
+			.map(|indicator| {
+				let current = indicator
+					.current
+					.as_ref()
+					.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
+				let format = indicator.format.clone();
+				let name = indicator.name.clone();
+				let title = indicator.title.lock().unwrap().clone();
+				let total = indicator
+					.total
+					.as_ref()
+					.map(|value| value.load(std::sync::atomic::Ordering::Relaxed));
+				tg::progress::Indicator {
+					current,
+					format,
+					name,
+					title,
+					total,
+				}
+			})
+			.collect();
+		tg::progress::Event::Indicators(indicators)
 	}
 }
 

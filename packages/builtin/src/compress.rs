@@ -66,7 +66,7 @@ where
 					title: "compressing".to_owned(),
 					total: Some(size),
 				};
-				let event = tg::progress::Event::Update::<()>(indicator);
+				let event = tg::progress::Event::Indicators::<()>(vec![indicator]);
 				let result = sender.send(Ok(event)).await;
 				if result.is_err() {
 					break;

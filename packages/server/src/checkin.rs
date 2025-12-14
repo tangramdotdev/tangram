@@ -142,8 +142,7 @@ impl Server {
 				let mut output = None;
 				let mut stream = std::pin::pin!(root_progress.stream());
 				while let Some(event) = stream.next().await {
-					if let Some(Ok(tg::progress::Event::Output(output_))) = progress.forward(event)
-					{
+					if let Some(output_) = progress.forward(event) {
 						output = Some(output_);
 					}
 				}

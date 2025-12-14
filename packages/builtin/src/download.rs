@@ -88,7 +88,7 @@ where
 					title: "downloading".to_owned(),
 					total: content_length,
 				};
-				let event = tg::progress::Event::Update::<()>(indicator);
+				let event = tg::progress::Event::Indicators::<()>(vec![indicator]);
 				if sender.send(Ok(event)).await.is_err() {
 					break;
 				}

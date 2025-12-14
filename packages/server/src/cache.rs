@@ -65,7 +65,7 @@ impl Server {
 				if let Err(error) = result {
 					tracing::warn!(?error);
 					progress.log(
-						tg::progress::Level::Warning,
+						Some(tg::progress::Level::Warning),
 						"failed to ensure the artifacts are stored".into(),
 					);
 				}
@@ -265,13 +265,15 @@ impl Server {
 		loop {
 			futures::select! {
 				event = stream.next() => {
-					if let Some(Ok(tg::progress::Event::Update(indicator))) = event {
-						if indicator.name == "artifacts" && let Some(current) = indicator.current {
-							progress.increment("artifacts", current.saturating_sub(dependency_artifacts));
-							dependency_artifacts = current;
-						} else if indicator.name == "bytes" && let Some(current) = indicator.current {
-							progress.increment("bytes", current.saturating_sub(dependency_bytes));
-							dependency_bytes = current;
+					if let Some(Ok(tg::progress::Event::Indicators(indicators))) = event {
+						for indicator in indicators {
+							if indicator.name == "artifacts" && let Some(current) = indicator.current {
+								progress.increment("artifacts", current.saturating_sub(dependency_artifacts));
+								dependency_artifacts = current;
+							} else if indicator.name == "bytes" && let Some(current) = indicator.current {
+								progress.increment("bytes", current.saturating_sub(dependency_bytes));
+								dependency_bytes = current;
+							}
 						}
 					}
 				}

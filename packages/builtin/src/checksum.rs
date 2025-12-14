@@ -87,7 +87,7 @@ where
 					title: "computing checksum".to_owned(),
 					total: None,
 				};
-				let event = tg::progress::Event::Update::<()>(indicator);
+				let event = tg::progress::Event::Indicators::<()>(vec![indicator]);
 				if sender.send(Ok(event)).await.is_err() {
 					break;
 				}
@@ -144,7 +144,7 @@ where
 					title: "computing checksum".to_owned(),
 					total: None,
 				};
-				let event = tg::progress::Event::Update::<()>(indicator);
+				let event = tg::progress::Event::Indicators::<()>(vec![indicator]);
 				if sender.send(Ok(event)).await.is_err() {
 					break;
 				}

@@ -491,14 +491,8 @@ pub trait Ext: tg::Handle {
 						crate::progress::Event::Diagnostic(diagnostic) => {
 							Ok(tg::progress::Event::Diagnostic(diagnostic))
 						},
-						crate::progress::Event::Start(indicator) => {
-							Ok(tg::progress::Event::Start(indicator))
-						},
-						crate::progress::Event::Update(indicator) => {
-							Ok(tg::progress::Event::Update(indicator))
-						},
-						crate::progress::Event::Finish(indicator) => {
-							Ok(tg::progress::Event::Finish(indicator))
+						crate::progress::Event::Indicators(indicators) => {
+							Ok(tg::progress::Event::Indicators(indicators))
 						},
 						crate::progress::Event::Output(output) => output
 							.map(|output| {

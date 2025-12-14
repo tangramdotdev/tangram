@@ -56,7 +56,7 @@ impl Cli {
 			output: None,
 		};
 
-		let interval = Duration::from_millis(20);
+		let interval = Duration::from_millis(100);
 		let mut interval = tokio::time::interval(interval);
 		let mut stream = pin!(stream);
 		loop {
@@ -65,9 +65,9 @@ impl Cli {
 			let either = future::select(next, tick).await;
 			match either {
 				future::Either::Left((Some(Ok(event)), _)) => {
-					let is_update = event.is_update();
+					let is_indicators = event.is_indicators();
 					self.render_progress_stream_update(&mut state, event).await;
-					if is_update {
+					if is_indicators {
 						continue;
 					}
 				},
@@ -98,6 +98,19 @@ impl Cli {
 		event: tg::progress::Event<T>,
 	) {
 		match event {
+			tg::progress::Event::Diagnostic(diagnostic) => {
+				let item = diagnostic.try_into().unwrap();
+				let referent = tg::Referent::with_item(item);
+				self.print_diagnostic(referent).await;
+			},
+
+			tg::progress::Event::Indicators(indicators) => {
+				state.indicators = indicators
+					.into_iter()
+					.map(|i| (i.name.clone(), i))
+					.collect();
+			},
+
 			tg::progress::Event::Log(log) => {
 				if let Some(level) = log.level {
 					match level {
@@ -116,20 +129,6 @@ impl Cli {
 					}
 				}
 				writeln!(state.tty, "{}", log.message).unwrap();
-			},
-
-			tg::progress::Event::Diagnostic(diagnostic) => {
-				let item = diagnostic.try_into().unwrap();
-				let referent = tg::Referent::with_item(item);
-				self.print_diagnostic(referent).await;
-			},
-
-			tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
-				state.indicators.insert(indicator.name.clone(), indicator);
-			},
-
-			tg::progress::Event::Finish(indicator) => {
-				state.indicators.shift_remove(&indicator.name);
 			},
 
 			tg::progress::Event::Output(output) => {

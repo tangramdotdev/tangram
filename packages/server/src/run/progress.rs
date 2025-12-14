@@ -46,20 +46,19 @@ impl Server {
 	) -> tg::Result<()> {
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			let (tg::progress::Event::Start(indicator)
-			| tg::progress::Event::Finish(indicator)
-			| tg::progress::Event::Update(indicator)) = event
-			else {
+			let tg::progress::Event::Indicators(indicators) = event else {
 				continue;
 			};
-			let message = format!("{indicator}\n");
-			let arg = tg::process::log::post::Arg {
-				bytes: message.into(),
-				local: None,
-				remotes: process.remote().cloned().map(|r| vec![r]),
-				stream: tg::process::log::Stream::Stderr,
-			};
-			self.post_process_log(process.id(), arg).await?;
+			for indicator in indicators {
+				let message = format!("{indicator}\n");
+				let arg = tg::process::log::post::Arg {
+					bytes: message.into(),
+					local: None,
+					remotes: process.remote().cloned().map(|r| vec![r]),
+					stream: tg::process::log::Stream::Stderr,
+				};
+				self.post_process_log(process.id(), arg).await?;
+			}
 		}
 		Ok(())
 	}
@@ -87,9 +86,9 @@ impl Server {
 				let either = future::select(next, tick).await;
 				match either {
 					future::Either::Left((Some(Ok(event)), _)) => {
-						let is_update = event.is_update();
+						let is_indicators = event.is_indicators();
 						state.update(event).await;
-						if is_update {
+						if is_indicators {
 							continue;
 						}
 					},
@@ -149,12 +148,11 @@ impl State {
 				self.sender.send(Ok(event)).await.ok();
 			},
 
-			tg::progress::Event::Start(indicator) | tg::progress::Event::Update(indicator) => {
-				self.indicators.insert(indicator.name.clone(), indicator);
-			},
-
-			tg::progress::Event::Finish(indicator) => {
-				self.indicators.shift_remove(&indicator.name);
+			tg::progress::Event::Indicators(indicators) => {
+				self.indicators = indicators
+					.into_iter()
+					.map(|i| (i.name.clone(), i))
+					.collect();
 			},
 
 			tg::progress::Event::Output(_) => (),
