@@ -14,9 +14,8 @@ version = { workspace = true }
 workspace = true
 
 [features]
-biome = ["tangram_compiler/biome"]
 boa = ["tangram_js/boa"]
-default = ["biome", "js", "typescript"]
+default = ["js", "typescript"]
 v8 = ["js", "tangram_js/v8"]
 foundationdb = ["tangram_store/foundationdb"]
 js = ["dep:tangram_js"]

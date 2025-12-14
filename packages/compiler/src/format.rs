@@ -1,7 +1,6 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 impl Compiler {
-	#[cfg(not(feature = "biome"))]
 	pub fn format(text: &str) -> tg::Result<String> {
 		let allocator = oxc::allocator::Allocator::default();
 		let source_type = oxc::span::SourceType::ts();
@@ -12,25 +11,14 @@ impl Compiler {
 		let output = oxc::parser::Parser::new(&allocator, text, source_type)
 			.with_options(options)
 			.parse();
-		let mut options = oxc_formatter::FormatOptions::default();
-		options.indent_style = oxc_formatter::IndentStyle::Tab;
+		let options = oxc_formatter::FormatOptions {
+			indent_style: oxc_formatter::IndentStyle::Tab,
+			line_width: oxc_formatter::LineWidth::try_from(80).unwrap(),
+			..Default::default()
+		};
 		let formatter = oxc_formatter::Formatter::new(&allocator, options);
 		let formatted = formatter.build(&output.program);
 		Ok(formatted)
-	}
-
-	#[cfg(feature = "biome")]
-	pub fn format(text: &str) -> tg::Result<String> {
-		let source_type = biome_js_syntax::JsFileSource::ts();
-		let options = biome_js_parser::JsParserOptions::default();
-		let node = biome_js_parser::parse(text, source_type, options);
-		let options = biome_js_formatter::context::JsFormatOptions::new(source_type);
-		let formatted = biome_js_formatter::format_node(options, &node.syntax())
-			.map_err(|source| tg::error!(!source, "failed to format the module"))?;
-		let text = formatted
-			.print()
-			.map_err(|source| tg::error!(!source, "failed to format the module"))?;
-		Ok(text.into_code())
 	}
 }
 

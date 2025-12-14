@@ -15,9 +15,8 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-biome = ["tangram_server/biome"]
 boa = ["tangram_server/boa"]
-default = ["biome", "js", "typescript", "v8"]
+default = ["js", "typescript", "v8"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
 js = ["tangram_server/js"]
 nats = ["tangram_server/nats"]
