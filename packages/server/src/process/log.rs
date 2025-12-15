@@ -83,7 +83,10 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn wait_for_log_compaction(&self, id: &tg::process::Id) -> tg::Result<()> {
+	pub(crate) async fn wait_for_log_compaction(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
 		// Get the process data.
 		let data = self
 			.try_get_process_local(id)
@@ -118,7 +121,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
 			.next()
-			.await;
+			.await
+			.ok_or_else(|| tg::error!("expected a message"))?;
 
 		Ok(())
 	}

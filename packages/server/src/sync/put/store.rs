@@ -1,6 +1,6 @@
 use {
 	crate::{Server, sync::put::State},
-	futures::{StreamExt as _, TryStreamExt as _},
+	futures::{StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -134,6 +134,22 @@ impl Server {
 			.try_get_process_batch_local(&ids)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+
+		// Wait for the logs to be compacted.
+		ids.iter()
+			.map(|id| {
+				let server = self.clone();
+				let id = id.clone();
+				async move { server.wait_for_log_compaction(&id).await }
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await
+			.into_iter()
+			.collect::<tg::Result<()>>()
+			.map_err(|source: tg::Error| {
+				tg::error!(!source, "failed to wait for log compaction")
+			})?;
 
 		// Handle the processes.
 		for (item, output) in std::iter::zip(items, outputs) {
