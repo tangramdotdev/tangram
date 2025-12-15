@@ -276,6 +276,13 @@ impl Reader {
 		};
 		Ok(reader)
 	}
+
+	pub fn length(&self) -> u64 {
+		match self {
+			Self::File(file) => file.length,
+			Self::Object(object) => object.length,
+		}
+	}
 }
 
 impl AsyncRead for Reader {

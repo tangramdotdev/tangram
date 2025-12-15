@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use {
-	futures::{StreamExt as _, TryStreamExt as _, future},
+	futures::{FutureExt, TryStreamExt as _},
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
 	std::{
@@ -10,12 +10,11 @@ use {
 			Arc, Mutex,
 			atomic::{AtomicBool, AtomicU64, Ordering},
 		},
-		time::Duration,
 	},
 	tangram_client::prelude::*,
 };
 
-mod scroll;
+pub mod scroll;
 
 pub struct Log<H> {
 	// A buffer of log chunks.
@@ -49,7 +48,7 @@ pub struct Log<H> {
 	task: Mutex<Option<tokio::task::JoinHandle<tg::Result<()>>>>,
 
 	// A watch to be notified when new logs are received from the log task.
-	watch: tokio::sync::Mutex<Option<tokio::sync::watch::Receiver<()>>>,
+	notify: tokio::sync::Notify,
 
 	rect: std::sync::Mutex<Option<Rect>>,
 }
@@ -90,15 +89,14 @@ where
 				Ok(count) if count != 1 && !self.is_complete() => {
 					drop(chunks);
 					scroll.take();
-					self.update_log_stream(true).await?;
+					self.tail_log().await?;
 				},
 				Ok(_) => {
 					return Ok(());
 				},
 				Err(error) => {
 					drop(chunks);
-					self.update_log_stream(matches!(error, scroll::Error::Append))
-						.await?;
+					self.try_update_chunks(error).await?;
 				},
 			}
 		}
@@ -110,38 +108,6 @@ where
 		};
 		let position = Position { x, y };
 		rect.contains(position)
-	}
-
-	async fn init(self: &Arc<Self>) -> tg::Result<()> {
-		let client = &self.handle;
-
-		// Get at least one chunk.
-		let position = Some(std::io::SeekFrom::End(0));
-		let length = Some(-1);
-		let timeout = Duration::from_millis(16);
-		let timeout = tokio::time::sleep(timeout);
-		let arg = tg::process::log::get::Arg {
-			length,
-			position,
-			..Default::default()
-		};
-		let chunk = self
-			.process
-			.log(client, arg)
-			.await?
-			.take_until(timeout)
-			.boxed()
-			.try_next()
-			.await?;
-		let max_position = chunk.map_or(0, |chunk| {
-			chunk.position + chunk.bytes.len().to_u64().unwrap()
-		});
-		self.max_position.store(max_position, Ordering::Relaxed);
-
-		// Start tailing if necessary.
-		self.update_log_stream(true).await?;
-
-		Ok(())
 	}
 
 	fn is_complete(&self) -> bool {
@@ -164,7 +130,7 @@ where
 			event_task: Mutex::new(None),
 			lines,
 			task: Mutex::new(None),
-			watch: tokio::sync::Mutex::new(None),
+			notify: tokio::sync::Notify::new(),
 			max_position: AtomicU64::new(0),
 			scroll: tokio::sync::Mutex::new(None),
 			rect: std::sync::Mutex::new(None),
@@ -174,16 +140,9 @@ where
 		let event_task = tokio::spawn({
 			let log = log.clone();
 			async move {
-				log.init().await?;
+				log.tail_log().await?;
 				loop {
-					let log_receiver = log.watch.lock().await.clone();
-					let log_receiver = async move {
-						if let Some(mut log_receiver) = log_receiver {
-							log_receiver.changed().await.ok()
-						} else {
-							future::pending().await
-						}
-					};
+					let notification = log.notify.notified();
 					tokio::select! {
 						event = event_receiver.recv() => match event.unwrap() {
 							LogEvent::ScrollDown => {
@@ -193,14 +152,13 @@ where
 								log.up_impl().await.ok();
 							}
 						},
-						_ = log_receiver => (),
+						_ = notification => (),
 					}
 					log.update_lines().await?;
 				}
 			}
 		});
 		log.event_task.lock().unwrap().replace(event_task);
-
 		log
 	}
 
@@ -238,8 +196,7 @@ where
 					},
 					Err(error) => {
 						drop(chunks);
-						self.update_log_stream(matches!(error, scroll::Error::Append))
-							.await?;
+						self.try_update_chunks(error).await?;
 					},
 				}
 			}
@@ -254,11 +211,9 @@ where
 				Ok(_) => {
 					return Ok(());
 				},
-				// If we need to append or prepend, update the log stream and try again.
 				Err(error) => {
 					drop(chunks);
-					self.update_log_stream(matches!(error, scroll::Error::Append))
-						.await?;
+					self.try_update_chunks(error).await?;
 				},
 			}
 		}
@@ -292,8 +247,7 @@ where
 				},
 				Err(error) => {
 					drop(chunks);
-					self.update_log_stream(matches!(error, scroll::Error::Append))
-						.await?;
+					self.try_update_chunks(error).await?;
 				},
 			}
 		}
@@ -301,98 +255,194 @@ where
 		Ok(())
 	}
 
-	// Update the log stream. If prepend is Some, the tailing stream is destroyed and bytes are appended to the the front.
-	async fn update_log_stream(self: &Arc<Self>, append: bool) -> tg::Result<()> {
-		// If we're appending and the task already exists, just wait for more data to be available.
-		if append && self.watch.lock().await.is_some() {
-			let mut watch = self.watch.lock().await.clone().unwrap();
-			watch.changed().await.ok();
-			return Ok(());
-		}
-
-		// Otherwise, abort an existing log task.
+	async fn tail_log(self: &Arc<Self>) -> tg::Result<()> {
+		// Cancel the task if it's running.
 		if let Some(task) = self.task.lock().unwrap().take() {
 			task.abort();
 		}
 
-		// Compute the position and length.
+		// Get the area, bailing if we haven't been set.
 		let Some(area) = *self.rect.lock().unwrap() else {
 			return Ok(());
 		};
-		let area = area.height.to_i64().unwrap();
-		let mut chunks = self.chunks.lock().await;
-		let max_position = self.max_position.load(Ordering::Relaxed);
-		let (position, length) = if append {
-			let last_position = chunks
-				.last()
-				.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap());
-			match last_position {
-				Some(position) if position == max_position => {
-					(Some(SeekFrom::Start(position)), None)
-				},
-				Some(position) => (Some(SeekFrom::Start(position)), Some(3 * area / 2)),
-				None => (Some(SeekFrom::End(0)), Some(-3 * area / 2)),
-			}
-		} else {
-			let position = chunks.first().map(|chunk| chunk.position);
-
-			let length = (3 * area / 2).to_u64().unwrap();
-			match position {
-				Some(position) if position >= length => {
-					(Some(SeekFrom::Start(0)), Some(position.to_i64().unwrap()))
-				},
-				Some(position) => (
-					Some(SeekFrom::Start(position)),
-					Some(-length.to_i64().unwrap()),
-				),
-				None => (Some(SeekFrom::End(0)), Some(-length.to_i64().unwrap())),
-			}
-		};
-
-		// Create the stream.
-		let mut stream = self
-			.process
-			.log(
-				&self.handle,
-				tg::process::log::get::Arg {
-					length,
-					position,
-					..Default::default()
-				},
-			)
-			.await?;
-
-		// Spawn the log task if necessary.
-		if append && chunks.last().is_none_or(|chunk| !chunk.bytes.is_empty()) {
-			drop(chunks);
+		let mut num_lines = area.height;
+		let task = tokio::spawn({
 			let log = self.clone();
-			let (tx, rx) = tokio::sync::watch::channel(());
-			let task = tokio::spawn(async move {
-				while let Some(chunk) = stream.try_next().await? {
-					let mut chunks = log.chunks.lock().await;
-					if chunk.bytes.is_empty() {
-						log.eof.store(true, Ordering::SeqCst);
-						break;
-					}
-					let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
-					log.max_position.fetch_max(max_position, Ordering::AcqRel);
+			async move {
+				// First figure out how many lines to walk back up.
+				let arg = tg::process::log::get::Arg {
+					position: Some(SeekFrom::End(0)),
+					length: Some(-4096),
+					..tg::process::log::get::Arg::default()
+				};
+				let stream = log
+					.handle
+					.get_process_log(log.process.id(), arg)
+					.await
+					.map_err(
+						|source| tg::error!(!source, process = %log.process.id(), "failed to get the process log"),
+					)?;
+				let mut stream = std::pin::pin!(stream);
+				let mut chunks = Vec::new();
+				while let Some(chunk) = stream
+					.try_next()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the next chunk"))?
+				{
+					// Hold onto the chunk for now.
 					chunks.push(chunk);
-					drop(chunks);
-					tx.send(()).ok();
+					let chunk = chunks.last().unwrap();
+
+					// Count newlines walking backward through the chunk.
+					for n in (0..chunk.bytes.len()).rev() {
+						if chunk.bytes[n] == b'\n' {
+							if num_lines == 0 {
+								break;
+							}
+							num_lines -= 1;
+						}
+					}
 				}
-				log.watch.lock().await.take();
+
+				// Get the max position of those chunks.
+				let max_position = chunks
+					.first()
+					.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap() + 1)
+					.unwrap_or_default();
+
+				// Update chunks.
+				let mut chunks_ = log.chunks.lock().await;
+				chunks_.clear();
+				while let Some(chunk) = chunks.pop() {
+					chunks_.push(chunk);
+				}
+				log.max_position.store(max_position, Ordering::SeqCst);
+				drop(chunks_);
+
+				// Notify.
+				log.notify.notify_waiters();
+
+				let arg = tg::process::log::get::Arg {
+					position: Some(SeekFrom::Start(max_position)),
+					..tg::process::log::get::Arg::default()
+				};
+				let stream = log
+					.handle
+					.get_process_log(log.process.id(), arg)
+					.await
+					.map_err(
+						|source| tg::error!(!source, process = %log.process.id(), "failed to get the process log"),
+					)?;
+				let mut stream = std::pin::pin!(stream);
+				while let Some(chunk) = stream
+					.try_next()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the next chunk"))?
+				{
+					let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
+
+					// Add the chunk.
+					let mut chunks = log.chunks.lock().await;
+					chunks.push(chunk);
+
+					// Update the max position.
+					log.max_position.fetch_max(max_position, Ordering::AcqRel);
+					drop(chunks);
+
+					// Notify.
+					log.notify.notify_waiters();
+				}
 				Ok::<_, tg::Error>(())
-			});
-			self.task.lock().unwrap().replace(task);
-			self.watch.lock().await.replace(rx);
-		} else {
-			// Drain the stream and prepend the chunks.
-			let new_chunks = stream.try_collect::<Vec<_>>().await?;
-			let mid = chunks.len();
-			chunks.extend_from_slice(&new_chunks);
-			chunks.rotate_left(mid);
+			}
+		});
+
+		self.task.lock().unwrap().replace(task);
+		Ok(())
+	}
+
+	fn try_update_chunks(
+		self: &Arc<Self>,
+		error: scroll::Error,
+	) -> impl Future<Output = tg::Result<()>> {
+		match error {
+			scroll::Error::Append => self.append().left_future(),
+			scroll::Error::Prepend => self.prepend().right_future(),
+		}
+	}
+
+	async fn append(self: &Arc<Self>) -> tg::Result<()> {
+		// If we're appending and the log task already exists, just wait for more data to be available.
+		if self.task.lock().unwrap().is_some() {
+			self.notify.notified().await;
+			return Ok(());
 		}
 
+		// Get the last chunk position.
+		let position = self
+			.chunks
+			.lock()
+			.await
+			.last()
+			.ok_or_else(|| tg::error!("expected a chunk"))
+			.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap())?;
+
+		// Create the stream.
+		let arg = tg::process::log::get::Arg {
+			position: Some(SeekFrom::Start(position)),
+			..tg::process::log::get::Arg::default()
+		};
+		let stream = self
+			.handle
+			.get_process_log(self.process.id(), arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the process log stream"))?;
+		let mut stream = std::pin::pin!(stream);
+		let chunk = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the log chunk"))?
+			.ok_or_else(|| tg::error!("expected a chunk"))?;
+		let mut chunks = self.chunks.lock().await;
+		let max_position = chunk.position + chunk.bytes.len().to_u64().unwrap();
+		self.max_position.fetch_max(max_position, Ordering::AcqRel);
+		chunks.push(chunk);
+		Ok(())
+	}
+
+	async fn prepend(self: &Arc<Self>) -> tg::Result<()> {
+		// Get the last chunk position.
+		let Some(position) = self
+			.chunks
+			.lock()
+			.await
+			.first()
+			.map(|chunk| chunk.position + chunk.bytes.len().to_u64().unwrap())
+		else {
+			return Ok(());
+		};
+		if position == 0 {
+			return Err(tg::error!("start of stream"));
+		}
+
+		// Create the stream.
+		let arg = tg::process::log::get::Arg {
+			position: Some(SeekFrom::Start(position)),
+			length: Some(-1),
+			..tg::process::log::get::Arg::default()
+		};
+		let stream = self
+			.handle
+			.get_process_log(self.process.id(), arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the process log stream"))?;
+		let mut stream = std::pin::pin!(stream);
+		let chunk = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the log chunk"))?
+			.ok_or_else(|| tg::error!("expected a chunk"))?;
+		let mut chunks = self.chunks.lock().await;
+		chunks.insert(0, chunk);
 		Ok(())
 	}
 }

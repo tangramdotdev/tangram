@@ -43,6 +43,9 @@ pub struct Config {
 	#[serde(default = "default_indexer")]
 	pub indexer: Option<Indexer>,
 
+	#[serde(default = "default_log_compaction")]
+	pub log_compaction: Option<LogCompaction>,
+
 	#[serde(default)]
 	pub messenger: Messenger,
 
@@ -78,6 +81,7 @@ pub struct Config {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Advanced {
+	pub binary_process_logs: bool,
 	pub disable_version_check: bool,
 	pub internal_error_locations: bool,
 	pub preserve_temp_directories: bool,
@@ -203,6 +207,11 @@ pub struct Indexer {
 	pub message_batch_timeout: Duration,
 	pub queue_batch_size: usize,
 }
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LogCompaction {}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
@@ -468,6 +477,7 @@ impl Default for Config {
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
+			log_compaction: Some(LogCompaction {}),
 			messenger: Messenger::default(),
 			remotes: None,
 			runner: Some(Runner::default()),
@@ -484,6 +494,7 @@ impl Default for Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
+			binary_process_logs: false,
 			disable_version_check: false,
 			internal_error_locations: false,
 			process_dequeue_timeout: Duration::from_secs(3600),
@@ -753,6 +764,11 @@ fn default_http() -> Option<Http> {
 #[expect(clippy::unnecessary_wraps)]
 fn default_indexer() -> Option<Indexer> {
 	Some(Indexer::default())
+}
+
+#[expect(clippy::unnecessary_wraps)]
+fn default_log_compaction() -> Option<LogCompaction> {
+	Some(LogCompaction {})
 }
 
 #[expect(clippy::unnecessary_wraps)]

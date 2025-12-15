@@ -1,7 +1,10 @@
 use {
 	futures::FutureExt as _,
 	std::{
-		os::unix::fs::{MetadataExt, PermissionsExt as _},
+		os::{
+			fd::{AsRawFd, RawFd},
+			unix::fs::{MetadataExt, PermissionsExt as _},
+		},
 		path::{Path, PathBuf},
 	},
 };
@@ -93,4 +96,37 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 		Ok(())
 	}
 	inner(path.as_ref())
+}
+
+pub struct Flock {
+	fd: RawFd,
+}
+
+impl Flock {
+	pub async fn exclusive(file: &impl AsRawFd) -> std::io::Result<Self> {
+		let fd = file.as_raw_fd();
+		let (send, recv) = tokio::sync::oneshot::channel();
+		let task = tokio::task::spawn_blocking(move || {
+			let ret = unsafe { libc::flock(fd, libc::LOCK_EX) };
+			if ret != 0 {
+				send.send(Err::<(), _>(std::io::Error::last_os_error()))
+					.ok();
+			}
+		});
+		let duration = std::time::Duration::from_secs(10);
+		let Ok(Ok(result)) = tokio::time::timeout(duration, recv).await else {
+			task.abort();
+			return Err(std::io::Error::other("flock() timed out"));
+		};
+		result?;
+		Ok(Self { fd })
+	}
+}
+
+impl Drop for Flock {
+	fn drop(&mut self) {
+		unsafe {
+			libc::flock(self.fd, libc::LOCK_UN | libc::LOCK_NB);
+		}
+	}
 }

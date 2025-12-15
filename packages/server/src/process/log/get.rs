@@ -11,7 +11,6 @@ use {
 	},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
-	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 	tokio_stream::wrappers::IntervalStream,
 };
 
@@ -127,102 +126,44 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to seek the stream"))?;
 
-		// Create the state.
-		let size = arg.size.unwrap_or(4096);
-		let mut read = 0;
+		// Check if we're reading in reverse or not.
+		let reverse = arg.length.is_some_and(|length| length < 0);
 
+		// Create the state.
+		let mut read = 0;
+		let mut last_position = 0;
 		loop {
 			// Get the process's status.
 			let status = self.get_current_process_status_local(id).await?;
 
-			// Send as many data events as possible.
-			loop {
-				// Get the position.
-				let position = reader
-					.stream_position()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
-
-				// Determine the size.
-				let size = match arg.length {
-					None => size,
-					Some(length) => {
-						if length >= 0 {
-							size.min(length.abs().to_u64().unwrap() - read)
-						} else {
-							size.min(length.abs().to_u64().unwrap() - read)
-								.min(position)
-						}
-					},
-				};
-
-				// Seek if necessary.
-				if arg.length.is_some_and(|length| length < 0) {
-					let seek = std::io::SeekFrom::Current(-size.to_i64().unwrap());
-					reader
-						.seek(seek)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to seek the reader"))?;
-				}
-
-				// Read the chunk.
-				let position = reader
-					.stream_position()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
-				let mut data = vec![0u8; size.to_usize().unwrap()];
-				let mut n = 0;
-				while n < data.len() {
-					let n_ = reader
-						.read(&mut data[n..])
-						.await
-						.map_err(|source| tg::error!(!source, "failed to read from the reader"))?;
-					n += n_;
-					if n_ == 0 {
-						break;
-					}
-				}
-				data.truncate(n);
-				let chunk = tg::process::log::get::Chunk {
-					position,
-					bytes: data.into(),
-				};
-
-				// Update the state.
-				read += n.to_u64().unwrap();
-
-				// Seek if necessary.
-				if arg.length.is_some_and(|length| length < 0) {
-					let seek = std::io::SeekFrom::Current(-n.to_i64().unwrap());
-					reader
-						.seek(seek)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to seek the reader"))?;
-				}
-
-				// If the chunk is empty, then break.
-				if chunk.bytes.is_empty() {
-					break;
-				}
-
-				// Send the data.
+			// Send as many chunks as possible.
+			while let Some(chunk) = reader
+				.next(reverse)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the next chunk"))?
+			{
+				read += chunk.bytes.len().to_u64().unwrap();
+				last_position = chunk.position;
 				let result = sender.try_send(Ok(tg::process::log::get::Event::Chunk(chunk)));
 				if result.is_err() {
 					return Ok(());
 				}
+				if arg
+					.length
+					.is_some_and(|length| length.abs().to_u64().unwrap() <= read)
+					|| (reverse && last_position == 0)
+				{
+					break;
+				}
 			}
 
-			// If the process was finished or the length was reached, then send the end event and break.
-			let end = if let Some(length) = arg.length {
-				let position = reader
-					.stream_position()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
-				(read >= length.abs().to_u64().unwrap()) || (position == 0 && length < 0)
-			} else {
-				false
-			};
-			if end || status.is_finished() {
+			// Check if we need to exit the loop or continue.
+			if arg
+				.length
+				.is_some_and(|length| length.abs().to_u64().unwrap() <= read)
+				|| status.is_finished()
+				|| (reverse && last_position == 0)
+			{
 				let result = sender.try_send(Ok(tg::process::log::get::Event::End));
 				if result.is_err() {
 					return Ok(());

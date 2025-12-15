@@ -3,9 +3,11 @@ use {
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered,
 	},
-	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
+	num::ToPrimitive,
+	std::{collections::BTreeSet, panic::AssertUnwindSafe, path::Path, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_either::Either,
+	tokio_util::task::AbortOnDropHandle,
 };
 
 mod common;
@@ -128,6 +130,28 @@ impl Server {
 		scopeguard::defer! {
 			self.process_permits.remove(process.id());
 		}
+
+		// Spawn a task for the process's log.
+		let _log_task = AbortOnDropHandle::new(tokio::spawn({
+			let server = self.clone();
+			let id = process.id().clone();
+			let started_at = process
+				.load(self)
+				.await?
+				.started_at
+				.ok_or_else(|| tg::error!("expected a started_at time"))?
+				.to_u64()
+				.unwrap();
+			AssertUnwindSafe(async move {
+				server
+					.process_log_task(&id, started_at)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "process log task failed"))
+					.ok();
+			})
+			.catch_unwind()
+			.inspect_err(|error| tracing::error!(?error, "the log task panicked"))
+		}));
 
 		// Run.
 		let wait = self.run(process).await?;

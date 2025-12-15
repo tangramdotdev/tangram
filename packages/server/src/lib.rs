@@ -88,6 +88,7 @@ pub struct State {
 	#[cfg_attr(not(feature = "js"), expect(dead_code))]
 	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
 	lock: Mutex<Option<tokio::fs::File>>,
+	log_compaction_tasks: LogCompactionTasks,
 	messenger: Messenger,
 	path: PathBuf,
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
@@ -131,6 +132,8 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
+
+type LogCompactionTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
 
 impl Owned {
 	pub fn stop(&self) {
@@ -275,6 +278,9 @@ impl Server {
 
 		// Create the process tasks.
 		let process_tasks = tangram_futures::task::Map::default();
+
+		// Create teh log compaction tasks.
+		let log_compaction_tasks = tangram_futures::task::Map::default();
 
 		// Create the database.
 		let database = match &config.database {
@@ -496,6 +502,7 @@ impl Server {
 			library,
 			local_pool_handle,
 			lock,
+			log_compaction_tasks,
 			messenger,
 			path,
 			pipes,
@@ -703,8 +710,24 @@ impl Server {
 		let runner_task = if server.config.runner.is_some() {
 			Some(tokio::spawn({
 				let server = server.clone();
+				async move { server.runner_task().await }
+			}))
+		} else {
+			None
+		};
+
+		// Spawn the log compaction task.
+		let log_compaction_task = if server.config.log_compaction.is_some() {
+			Some(tokio::spawn({
+				let server = server.clone();
 				async move {
-					server.runner_task().await;
+					server
+						.log_compaction_task()
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "the log compaction task failed")
+						})
+						.ok();
 				}
 			}))
 		} else {
@@ -754,6 +777,30 @@ impl Server {
 					}
 				}
 				tracing::trace!("process tasks");
+
+				// Abort the log compaction task.
+				if let Some(task) = log_compaction_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the log compaction task panicked");
+					}
+					tracing::trace!("runner task");
+				}
+
+				// Abort the log compaction tasks.
+				server.log_compaction_tasks.abort_all();
+				let results = server.log_compaction_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a log compaction task panicked");
+					}
+				}
+				tracing::trace!("log compaction tasks");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {

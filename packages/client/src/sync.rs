@@ -36,6 +36,10 @@ pub struct Arg {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]

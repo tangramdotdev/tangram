@@ -507,6 +507,8 @@ mod tests {
 		let chunks = [tg::process::log::get::Chunk {
 			position: 0,
 			bytes: b"1 abcdef\n2 abcdef\n3 abcdef\n".to_vec().into(),
+			stream: tangram_client::process::log::Stream::Stdout,
+			timestamp: 0,
 		}];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 20, 1), &chunks).unwrap();
 		let (init_start, init_end) = (scroll.start, scroll.end);
@@ -527,14 +529,20 @@ mod tests {
 			tg::process::log::get::Chunk {
 				position: 0,
 				bytes: b"a".to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 0,
 			},
 			tg::process::log::get::Chunk {
 				position: 1,
 				bytes: vec![0b1010_1010].into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 1,
 			},
 			tg::process::log::get::Chunk {
 				position: 2,
 				bytes: b"b".to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 2,
 			},
 		];
 		let mut buffer = Vec::new();
@@ -566,14 +574,20 @@ mod tests {
 			tg::process::log::get::Chunk {
 				position: 0,
 				bytes: "1——👍👌👉👈——\n".as_bytes().to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 0,
 			},
 			tg::process::log::get::Chunk {
 				position: 30,
 				bytes: "2——👍👌👉👈——\n".as_bytes().to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 30,
 			},
 			tg::process::log::get::Chunk {
 				position: 60,
 				bytes: "3——👍👌👉👈——\n".as_bytes().to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 60,
 			},
 		];
 		let mut scroll = Scroll {
@@ -595,10 +609,14 @@ mod tests {
 						.as_bytes()
 						.to_vec()
 						.into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 0,
 			},
 			tg::process::log::get::Chunk {
 				position: 128,
 				bytes: "\"4——👍👌👉👈——\"\n".as_bytes().to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 1,
 			},
 		];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 20, 10), &chunks).unwrap();
@@ -621,6 +639,8 @@ mod tests {
 		let chunks = vec![tg::process::log::get::Chunk {
 			position: 0,
 			bytes: "😀😀".as_bytes().to_vec().into(),
+			stream: tangram_client::process::log::Stream::Stdout,
+			timestamp: 0,
 		}];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 2, 4), &chunks).unwrap();
 		let lines = scroll.read_lines(&chunks).unwrap();
@@ -634,7 +654,12 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..24 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk { position, bytes };
+			let chunk = tg::process::log::get::Chunk {
+				position,
+				bytes,
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: n,
+			};
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -652,7 +677,12 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk { position, bytes };
+			let chunk = tg::process::log::get::Chunk {
+				position,
+				bytes,
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: n,
+			};
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -679,7 +709,12 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk { position, bytes };
+			let chunk = tg::process::log::get::Chunk {
+				position,
+				bytes,
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 0,
+			};
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
 		}
@@ -717,22 +752,32 @@ mod tests {
 			tg::process::log::get::Chunk {
 				position: 114,
 				bytes: b"\"doing stuff 6...\"\n".to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 0,
 			},
 			tg::process::log::get::Chunk {
 				position: 133,
 				bytes: b"\"doing stuff 7...\"\n".to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 1,
 			},
 			tg::process::log::get::Chunk {
 				position: 152,
 				bytes: b"\"doing stuff 8...\"\n".to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 2,
 			},
 			tg::process::log::get::Chunk {
 				position: 171,
 				bytes: b"\"doing stuff 9...\"\n".to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 3,
 			},
 			tg::process::log::get::Chunk {
 				position: 190,
 				bytes: b"\"doing stuff 10...\"\n".to_vec().into(),
+				stream: tangram_client::process::log::Stream::Stdout,
+				timestamp: 4,
 			},
 		];
 
