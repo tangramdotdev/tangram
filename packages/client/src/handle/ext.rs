@@ -385,8 +385,12 @@ pub trait Ext: tg::Handle {
 				} else {
 					chunk.position.saturating_sub(1)
 				};
-				state.arg.position = Some(SeekFrom::Start(position));
+				state
+					.arg
+					.position
+					.replace(std::io::SeekFrom::Start(position));
 			});
+
 			Ok(Some(stream))
 		}
 	}

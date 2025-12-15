@@ -130,6 +130,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Get the processes.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+
 		let outputs = self
 			.try_get_process_batch_local(&ids)
 			.await
@@ -185,6 +186,24 @@ impl Server {
 					parent: Some(Either::Right(item.id.clone())),
 					id: output.data.command.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
+					eager: item.eager,
+				};
+				state.queue.enqueue_object(item);
+			}
+
+			// Enqueue the log.
+			if item.eager && state.arg.logs {
+				// Wait for log compaction.
+				let id = output
+					.data
+					.log
+					.ok_or_else(|| tg::error!(process = %item.id, "expected a compacted log"))?
+					.clone()
+					.into();
+				let item = crate::sync::queue::ObjectItem {
+					parent: Some(Either::Right(item.id.clone())),
+					id,
+					kind: Some(crate::sync::queue::ObjectKind::Log),
 					eager: item.eager,
 				};
 				state.queue.enqueue_object(item);

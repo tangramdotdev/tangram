@@ -703,8 +703,24 @@ impl Server {
 		let runner_task = if server.config.runner.is_some() {
 			Some(tokio::spawn({
 				let server = server.clone();
+				async move { server.runner_task().await }
+			}))
+		} else {
+			None
+		};
+
+		// Spawn the log compaction task.
+		let log_compaction_task = if server.config.log_compaction.is_some() {
+			Some(tokio::spawn({
+				let server = server.clone();
 				async move {
-					server.runner_task().await;
+					server
+						.log_compaction_task()
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error, "the log compaction task failed");
+						})
+						.ok();
 				}
 			}))
 		} else {
@@ -754,6 +770,18 @@ impl Server {
 					}
 				}
 				tracing::trace!("process tasks");
+
+				// Abort the log compaction task.
+				if let Some(task) = log_compaction_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the log compaction task panicked");
+					}
+					tracing::trace!("log compaction task");
+				}
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {

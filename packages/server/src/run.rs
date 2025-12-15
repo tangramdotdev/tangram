@@ -3,9 +3,11 @@ use {
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered,
 	},
-	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
+	num::ToPrimitive,
+	std::{collections::BTreeSet, panic::AssertUnwindSafe, path::Path, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_either::Either,
+	tokio_util::task::AbortOnDropHandle,
 };
 
 mod common;
@@ -129,6 +131,28 @@ impl Server {
 			self.process_permits.remove(process.id());
 		}
 
+		// Spawn a task for the process's log.
+		let log_task = AbortOnDropHandle::new(tokio::spawn({
+			let server = self.clone();
+			let id = process.id().clone();
+			let started_at = process
+				.load(self)
+				.await?
+				.started_at
+				.ok_or_else(|| tg::error!("expected a started_at time"))?
+				.to_u64()
+				.unwrap();
+			AssertUnwindSafe(async move {
+				server
+					.process_log_task(&id, started_at)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "process log task failed"))
+					.ok();
+			})
+			.catch_unwind()
+			.inspect_err(|error| tracing::error!(?error, "the log task panicked"))
+		}));
+
 		// Run.
 		let wait = self.run(process).await?;
 
@@ -166,6 +190,12 @@ impl Server {
 			remotes: process.remote().cloned().map(|r| vec![r]),
 		};
 		self.finish_process(process.id(), arg).await?;
+
+		// Wait for the log task to finish to ensure all logs get written to disk.
+		self.finish_process_log(process.id())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to finish the log task"))?;
+		log_task.await.ok();
 
 		Ok::<_, tg::Error>(())
 	}

@@ -180,6 +180,8 @@ impl Server {
 						id: item.id.clone(),
 						node_output_stored: stored.node_output,
 						subtree_output_stored: stored.subtree_output,
+						node_log_stored: stored.node_log,
+						subtree_log_stored: stored.subtree_log,
 					},
 				));
 				state
@@ -371,6 +373,13 @@ impl Server {
 								solvable: None,
 								solved: None,
 							},
+							log: tg::object::metadata::Subtree {
+								count: Some(0),
+								depth: Some(0),
+								size: Some(0),
+								solvable: None,
+								solved: None,
+							},
 							output: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
@@ -382,6 +391,13 @@ impl Server {
 						subtree: tg::process::metadata::Subtree {
 							count: Some(1),
 							command: tg::object::metadata::Subtree {
+								count: Some(0),
+								depth: Some(0),
+								size: Some(0),
+								solvable: None,
+								solved: None,
+							},
+							log: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
 								size: Some(0),

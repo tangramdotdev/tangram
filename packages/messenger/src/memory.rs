@@ -1,6 +1,7 @@
 use {
 	crate::{
-		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, StreamConfig, StreamInfo,
+		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, RetentionPolicy,
+		StreamConfig, StreamInfo, StreamMessage,
 	},
 	async_broadcast as broadcast,
 	bytes::Bytes,
@@ -45,8 +46,14 @@ struct StreamState {
 	closed: bool,
 	config: StreamConfig,
 	consumers: HashMap<String, (Consumer, ConsumerState)>,
-	messages: BTreeMap<u64, Bytes>,
+	messages: BTreeMap<u64, MessageState>,
 	sequence: u64,
+}
+
+struct MessageState {
+	subject: String,
+	payload: Bytes,
+	acks: usize,
 }
 
 #[derive(Debug)]
@@ -306,7 +313,12 @@ impl Stream {
 			state.sequence += 1;
 			let sequence = state.sequence;
 			state.bytes += payload.len().to_u64().unwrap();
-			state.messages.insert(sequence, payload);
+			let message_state = MessageState {
+				subject: self.name.clone(),
+				payload,
+				acks: 0,
+			};
+			state.messages.insert(sequence, message_state);
 			sequences.push(sequence);
 		}
 
@@ -360,7 +372,6 @@ impl Consumer {
 		struct State {
 			consumer: Consumer,
 			stream: Weak<StreamInner>,
-			name: String,
 			notify: Arc<Notify>,
 		}
 
@@ -370,7 +381,6 @@ impl Consumer {
 			.upgrade()
 			.ok_or_else(|| Error::Other("stream closed".into()))?;
 
-		let name = stream.name.clone();
 		let notify = stream.notify.clone();
 
 		// Compute the max number of messages.
@@ -380,7 +390,6 @@ impl Consumer {
 		let state = State {
 			consumer: self.clone(),
 			stream: Arc::downgrade(&stream),
-			name,
 			notify,
 		};
 
@@ -428,17 +437,18 @@ impl Consumer {
 				.iter()
 				.skip_while(|(sequence, _)| **sequence <= consumer_sequence)
 				.take(max_messages)
-				.map(|(sequence, bytes)| (*sequence, bytes.clone()))
+				.map(|(sequence, message)| {
+					(*sequence, message.subject.clone(), message.payload.clone())
+				})
 				.collect::<Vec<_>>();
 
 			// Set the consumer's sequence number.
-			if let Some((sequence, _)) = messages.last() {
-				stream_state
+			if let Some((sequence, _, _)) = messages.last() {
+				let (_, consumer) = stream_state
 					.consumers
 					.get_mut(&state.consumer.name)
-					.ok_or_else(|| Error::NotFound)?
-					.1
-					.sequence = *sequence;
+					.ok_or_else(|| Error::NotFound)?;
+				consumer.sequence = *sequence;
 			}
 
 			// Drop the state.
@@ -447,7 +457,7 @@ impl Consumer {
 			// Create the messages.
 			let messages = messages
 				.into_iter()
-				.map(|(sequence, payload)| {
+				.map(|(sequence, subject, payload)| {
 					let inner = Arc::downgrade(&state.consumer.inner);
 					let acker = Acker::new(async move {
 						if let Some(inner) = inner.upgrade() {
@@ -459,7 +469,7 @@ impl Consumer {
 					let message = Message {
 						acker,
 						payload,
-						subject: state.name.clone(),
+						subject,
 					};
 					Ok(message)
 				})
@@ -479,8 +489,22 @@ impl Consumer {
 			.upgrade()
 			.ok_or_else(|| Error::other("the stream was destroyed"))?;
 		let mut state = stream.state.write().unwrap();
-		let message = state.messages.remove(&sequence).unwrap();
-		state.bytes -= message.len().to_u64().unwrap();
+		match state.config.retention {
+			RetentionPolicy::Interest => {
+				let message = state.messages.get_mut(&sequence).unwrap();
+				message.acks += 1;
+				if message.acks == state.consumers.len() {
+					let message = state.messages.remove(&sequence).unwrap();
+					state.bytes -= message.payload.len().to_u64().unwrap();
+				}
+			},
+			RetentionPolicy::Limits
+				if state.config.max_bytes.is_none() && state.config.max_messages.is_none() => {},
+			RetentionPolicy::Limits | RetentionPolicy::WorkQueue => {
+				let message = state.messages.remove(&sequence).unwrap();
+				state.bytes -= message.payload.len().to_u64().unwrap();
+			},
+		}
 		Ok(())
 	}
 }
@@ -582,6 +606,85 @@ impl crate::Stream for Stream {
 
 	async fn get_consumer(&self, name: String) -> Result<Self::Consumer, Error> {
 		self.get_consumer(&name)
+	}
+
+	fn direct_get(
+		&self,
+		sequence: u64,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send {
+		let result = self
+			.inner
+			.state
+			.read()
+			.unwrap()
+			.messages
+			.get(&sequence)
+			.map(|state| StreamMessage {
+				subject: state.subject.clone(),
+				sequence,
+				payload: state.payload.clone(),
+			})
+			.ok_or(Error::MessageConsumed);
+		future::ready(result)
+	}
+
+	fn direct_get_first_for_subject(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<crate::StreamMessage, Error>> + Send {
+		self.direct_get_next_for_subject(name, Some(0))
+	}
+
+	fn direct_get_next_for_subject(
+		&self,
+		name: String,
+		sequence: Option<u64>,
+	) -> impl Future<Output = Result<crate::StreamMessage, Error>> + Send {
+		let result = self
+			.inner
+			.state
+			.read()
+			.unwrap()
+			.messages
+			.range(sequence.unwrap_or_default()..)
+			.find_map(|(sequence, message)| {
+				if message.subject == name {
+					return Some(StreamMessage {
+						subject: name.clone(),
+						sequence: *sequence,
+						payload: message.payload.clone(),
+					});
+				}
+				None
+			})
+			.ok_or(Error::NotFound);
+		future::ready(result)
+	}
+
+	fn direct_get_last_for_subject(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<crate::StreamMessage, Error>> + Send {
+		let result = self
+			.inner
+			.state
+			.read()
+			.unwrap()
+			.messages
+			.iter()
+			.rev()
+			.find_map(|(sequence, message)| {
+				if message.subject == name {
+					return Some(StreamMessage {
+						subject: name.clone(),
+						sequence: *sequence,
+						payload: message.payload.clone(),
+					});
+				}
+				None
+			})
+			.ok_or(Error::NotFound);
+		future::ready(result)
 	}
 
 	async fn create_consumer(

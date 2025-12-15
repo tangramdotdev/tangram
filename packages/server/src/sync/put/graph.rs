@@ -141,6 +141,10 @@ impl Graph {
 								stored.subtree_command = true;
 								stored.node_command = true;
 							},
+							Some(crate::sync::queue::ObjectKind::Log) => {
+								stored.subtree_log = true;
+								stored.node_log = true;
+							},
 							Some(crate::sync::queue::ObjectKind::Output) => {
 								stored.subtree_output = true;
 								stored.node_output = true;
@@ -149,6 +153,7 @@ impl Graph {
 								stored.subtree_command = true;
 								stored.subtree_output = true;
 								stored.node_command = true;
+								stored.node_log = true;
 								stored.node_output = true;
 							},
 						}
@@ -187,6 +192,9 @@ impl Graph {
 					process.stored.as_ref().is_some_and(|stored| match kind {
 						Some(crate::sync::queue::ObjectKind::Command) => {
 							stored.subtree_command || (path.len() == 2 && stored.node_command)
+						},
+						Some(crate::sync::queue::ObjectKind::Log) => {
+							stored.subtree_log || (path.len() == 2 && stored.node_log)
 						},
 						Some(crate::sync::queue::ObjectKind::Output) => {
 							stored.subtree_output || (path.len() == 2 && stored.node_output)

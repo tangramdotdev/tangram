@@ -225,7 +225,7 @@ impl Graph {
 		};
 
 		let objects = if let Some(data) = data {
-			let mut objects = Vec::new();
+			let mut objects: Vec<(usize, crate::index::message::ProcessObjectKind)> = Vec::new();
 
 			let command_id: tg::object::Id = data.command.clone().into();
 			let command_entry = self.nodes.entry(command_id.into());
@@ -236,6 +236,14 @@ impl Graph {
 				command_index,
 				crate::index::message::ProcessObjectKind::Command,
 			));
+
+			if let Some(log_id) = data.log.clone() {
+				let log_entry = self.nodes.entry(tg::object::Id::from(log_id).into());
+				let log_index = log_entry.index();
+				let log_node = log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+				log_node.unwrap_object_mut().parents.push(index);
+				objects.push((log_index, crate::index::message::ProcessObjectKind::Log));
+			}
 
 			if let Some(output) = &data.output {
 				let mut output_children = BTreeSet::new();
@@ -363,8 +371,10 @@ impl Graph {
 		let mut stored = crate::process::stored::Output {
 			subtree: true,
 			subtree_command: true,
+			subtree_log: true,
 			subtree_output: true,
 			node_command: true,
+			node_log: true,
 			node_output: true,
 		};
 		for child_index in children {
@@ -375,10 +385,12 @@ impl Graph {
 			if let Some(child_stored) = child_stored {
 				stored.subtree = stored.subtree && child_stored.subtree;
 				stored.subtree_command = stored.subtree_command && child_stored.subtree_command;
+				stored.subtree_log = stored.subtree_log && child_stored.subtree_log;
 				stored.subtree_output = stored.subtree_output && child_stored.subtree_output;
 			} else {
 				stored.subtree = false;
 				stored.subtree_command = false;
+				stored.subtree_log = false;
 				stored.subtree_output = false;
 			}
 		}
@@ -392,6 +404,10 @@ impl Graph {
 				crate::index::message::ProcessObjectKind::Command => {
 					stored.node_command = stored.node_command && object_stored;
 					stored.subtree_command = stored.subtree_command && object_stored;
+				},
+				crate::index::message::ProcessObjectKind::Log => {
+					stored.node_log = stored.node_log && object_stored;
+					stored.subtree_log = stored.subtree_log && object_log;
 				},
 				crate::index::message::ProcessObjectKind::Output => {
 					stored.node_output = stored.node_output && object_stored;
@@ -475,6 +491,7 @@ impl Graph {
 			|| (!old.subtree_command && new.subtree_command)
 			|| (!old.subtree_output && new.subtree_output)
 			|| (!old.node_command && new.node_command)
+			|| (!old.node_log && new.node_log)
 			|| (!old.node_output && new.node_output)
 	}
 
@@ -488,8 +505,10 @@ impl Graph {
 		crate::process::stored::Output {
 			subtree: old.subtree || new.subtree,
 			subtree_command: old.subtree_command || new.subtree_command,
+			subtree_log: old.subtree_log || new.subtree_log,
 			subtree_output: old.subtree_output || new.subtree_output,
 			node_command: old.node_command || new.node_command,
+			node_log: old.node_log || new.node_log,
 			node_output: old.node_output || new.node_output,
 		}
 	}

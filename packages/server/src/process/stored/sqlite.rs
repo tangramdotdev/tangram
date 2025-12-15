@@ -33,8 +33,10 @@ impl Server {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
 			node_command_stored: bool,
+			node_log_stored: bool,
 			node_output_stored: bool,
 			subtree_command_stored: bool,
+			subtree_log_stored: bool,
 			subtree_output_stored: bool,
 			subtree_stored: bool,
 		}
@@ -42,8 +44,10 @@ impl Server {
 			"
 				select
 					node_command_stored,
+					node_log_stored,
 					node_output_stored,
 					subtree_command_stored,
+					subtree_log_stored,
 					subtree_output_stored,
 					subtree_stored
 				from processes
@@ -68,9 +72,11 @@ impl Server {
 		let stored = Output {
 			node_command: row.node_command_stored,
 			node_output: row.node_output_stored,
+			subtree: row.subtree_stored,
 			subtree_command: row.subtree_command_stored,
 			subtree_output: row.subtree_output_stored,
-			subtree: row.subtree_stored,
+			node_log: row.node_log_stored,
+			subtree_log: row.subtree_log_stored,
 		};
 		Ok(Some(stored))
 	}
@@ -106,8 +112,10 @@ impl Server {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
 			node_command_stored: bool,
+			node_log_stored: bool,
 			node_output_stored: bool,
 			subtree_command_stored: bool,
+			subtree_log_stored: bool,
 			subtree_output_stored: bool,
 			subtree_stored: bool,
 		}
@@ -115,8 +123,10 @@ impl Server {
 			"
 				select
 					node_command_stored,
+					node_log_stored,
 					node_output_stored,
 					subtree_command_stored,
+					subtree_log_stored,
 					subtree_output_stored,
 					subtree_stored
 				from processes
@@ -144,9 +154,11 @@ impl Server {
 			let stored = Output {
 				node_command: row.node_command_stored,
 				node_output: row.node_output_stored,
+				subtree: row.subtree_stored,
 				subtree_command: row.subtree_command_stored,
 				subtree_output: row.subtree_output_stored,
-				subtree: row.subtree_stored,
+				node_log: row.node_log_stored,
+				subtree_log: row.subtree_log_stored,
 			};
 			outputs.push(Some(stored));
 		}
@@ -189,6 +201,10 @@ impl Server {
 			node_command_depth: Option<u64>,
 			node_command_size: Option<u64>,
 			node_command_stored: u64,
+			node_log_count: Option<u64>,
+			node_log_depth: Option<u64>,
+			node_log_size: Option<u64>,
+			node_log_stored: u64,
 			node_output_count: Option<u64>,
 			node_output_depth: Option<u64>,
 			node_output_size: Option<u64>,
@@ -197,6 +213,10 @@ impl Server {
 			subtree_command_depth: Option<u64>,
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: u64,
+			subtree_log_count: Option<u64>,
+			subtree_log_depth: Option<u64>,
+			subtree_log_size: Option<u64>,
+			subtree_log_stored: u64,
 			subtree_output_count: Option<u64>,
 			subtree_output_depth: Option<u64>,
 			subtree_output_size: Option<u64>,
@@ -211,6 +231,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_log_count,
+					node_log_depth,
+					node_log_size,
+					node_log_stored,
 					node_output_count,
 					node_output_depth,
 					node_output_size,
@@ -219,6 +243,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_log_count,
+					subtree_log_depth,
+					subtree_log_size,
+					subtree_log_stored,
 					subtree_output_count,
 					subtree_output_depth,
 					subtree_output_size,
@@ -250,15 +278,24 @@ impl Server {
 			let stored = Output {
 				node_command: row.node_command_stored != 0,
 				node_output: row.node_output_stored != 0,
+				subtree: row.subtree_stored != 0,
 				subtree_command: row.subtree_command_stored != 0,
 				subtree_output: row.subtree_output_stored != 0,
-				subtree: row.subtree_stored != 0,
+				node_log: row.node_log_stored != 0,
+				subtree_log: row.subtree_log_stored != 0,
 			};
 			let node = tg::process::metadata::Node {
 				command: tg::object::metadata::Subtree {
 					count: row.node_command_count,
 					depth: row.node_command_depth,
 					size: row.node_command_size,
+					solvable: None,
+					solved: None,
+				},
+				log: tg::object::metadata::Subtree {
+					count: row.node_log_count,
+					depth: row.node_log_depth,
+					size: row.node_log_size,
 					solvable: None,
 					solved: None,
 				},
@@ -275,6 +312,13 @@ impl Server {
 					count: row.subtree_command_count,
 					depth: row.subtree_command_depth,
 					size: row.subtree_command_size,
+					solvable: None,
+					solved: None,
+				},
+				log: tg::object::metadata::Subtree {
+					count: row.subtree_log_count,
+					depth: row.subtree_log_depth,
+					size: row.subtree_log_size,
 					solvable: None,
 					solved: None,
 				},
@@ -327,6 +371,10 @@ impl Server {
 			node_command_depth: Option<u64>,
 			node_command_size: Option<u64>,
 			node_command_stored: u64,
+			node_log_count: Option<u64>,
+			node_log_depth: Option<u64>,
+			node_log_size: Option<u64>,
+			node_log_stored: u64,
 			node_output_count: Option<u64>,
 			node_output_depth: Option<u64>,
 			node_output_size: Option<u64>,
@@ -335,6 +383,10 @@ impl Server {
 			subtree_command_depth: Option<u64>,
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: u64,
+			subtree_log_count: Option<u64>,
+			subtree_log_depth: Option<u64>,
+			subtree_log_size: Option<u64>,
+			subtree_log_stored: u64,
 			subtree_output_count: Option<u64>,
 			subtree_output_depth: Option<u64>,
 			subtree_output_size: Option<u64>,
@@ -352,6 +404,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_log_count,
+					node_log_depth,
+					node_log_size,
+					node_log_stored,
 					node_output_count,
 					node_output_depth,
 					node_output_size,
@@ -360,6 +416,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_log_count,
+					subtree_log_depth,
+					subtree_log_size,
+					subtree_log_stored,
 					subtree_output_count,
 					subtree_output_depth,
 					subtree_output_size,
@@ -386,15 +446,24 @@ impl Server {
 		let stored = Output {
 			node_command: row.node_command_stored != 0,
 			node_output: row.node_output_stored != 0,
+			subtree: row.subtree_stored != 0,
 			subtree_command: row.subtree_command_stored != 0,
 			subtree_output: row.subtree_output_stored != 0,
-			subtree: row.subtree_stored != 0,
+			node_log: row.node_log_stored != 0,
+			subtree_log: row.subtree_log_stored != 0,
 		};
 		let node = tg::process::metadata::Node {
 			command: tg::object::metadata::Subtree {
 				count: row.node_command_count,
 				depth: row.node_command_depth,
 				size: row.node_command_size,
+				solvable: None,
+				solved: None,
+			},
+			log: tg::object::metadata::Subtree {
+				count: row.node_log_count,
+				depth: row.node_log_depth,
+				size: row.node_log_size,
 				solvable: None,
 				solved: None,
 			},
@@ -411,6 +480,13 @@ impl Server {
 				count: row.subtree_command_count,
 				depth: row.subtree_command_depth,
 				size: row.subtree_command_size,
+				solvable: None,
+				solved: None,
+			},
+			log: tg::object::metadata::Subtree {
+				count: row.subtree_log_count,
+				depth: row.subtree_log_depth,
+				size: row.subtree_log_size,
 				solvable: None,
 				solved: None,
 			},
@@ -467,6 +543,10 @@ impl Server {
 			node_command_depth: Option<u64>,
 			node_command_size: Option<u64>,
 			node_command_stored: u64,
+			node_log_count: Option<u64>,
+			node_log_depth: Option<u64>,
+			node_log_size: Option<u64>,
+			node_log_stored: u64,
 			node_output_count: Option<u64>,
 			node_output_depth: Option<u64>,
 			node_output_size: Option<u64>,
@@ -475,6 +555,10 @@ impl Server {
 			subtree_command_depth: Option<u64>,
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: u64,
+			subtree_log_count: Option<u64>,
+			subtree_log_depth: Option<u64>,
+			subtree_log_size: Option<u64>,
+			subtree_log_stored: u64,
 			subtree_output_count: Option<u64>,
 			subtree_output_depth: Option<u64>,
 			subtree_output_size: Option<u64>,
@@ -492,6 +576,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_log_count,
+					node_log_depth,
+					node_log_size,
+					node_log_stored,
 					node_output_count,
 					node_output_depth,
 					node_output_size,
@@ -500,6 +588,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_log_count,
+					subtree_log_depth,
+					subtree_log_size,
+					subtree_log_stored,
 					subtree_output_count,
 					subtree_output_depth,
 					subtree_output_size,
@@ -529,15 +621,24 @@ impl Server {
 			let stored = Output {
 				node_command: row.node_command_stored != 0,
 				node_output: row.node_output_stored != 0,
+				subtree: row.subtree_stored != 0,
 				subtree_command: row.subtree_command_stored != 0,
 				subtree_output: row.subtree_output_stored != 0,
-				subtree: row.subtree_stored != 0,
+				node_log: row.node_log_stored != 0,
+				subtree_log: row.subtree_log_stored != 0,
 			};
 			let node = tg::process::metadata::Node {
 				command: tg::object::metadata::Subtree {
 					count: row.node_command_count,
 					depth: row.node_command_depth,
 					size: row.node_command_size,
+					solvable: None,
+					solved: None,
+				},
+				log: tg::object::metadata::Subtree {
+					count: row.node_log_count,
+					depth: row.node_log_depth,
+					size: row.node_log_size,
 					solvable: None,
 					solved: None,
 				},
@@ -554,6 +655,13 @@ impl Server {
 					count: row.subtree_command_count,
 					depth: row.subtree_command_depth,
 					size: row.subtree_command_size,
+					solvable: None,
+					solved: None,
+				},
+				log: tg::object::metadata::Subtree {
+					count: row.subtree_log_count,
+					depth: row.subtree_log_depth,
+					size: row.subtree_log_size,
 					solvable: None,
 					solved: None,
 				},

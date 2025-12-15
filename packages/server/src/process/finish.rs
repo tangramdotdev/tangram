@@ -275,7 +275,7 @@ impl Server {
 			})
 			.detach();
 
-		// Publish the status message.
+		// Publish the status.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();

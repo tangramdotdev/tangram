@@ -431,6 +431,64 @@ impl crate::Stream for Stream {
 		self.get_consumer(name).await
 	}
 
+	async fn direct_get(&self, sequence: u64) -> Result<crate::StreamMessage, Error> {
+		self.stream
+			.direct_get(sequence)
+			.await
+			.map(|message| crate::StreamMessage {
+				subject: message.subject.into_string(),
+				sequence: message.sequence,
+				payload: message.payload,
+			})
+			.map_err(|error| Error::other(Box::new(error)))
+	}
+
+	async fn direct_get_first_for_subject(
+		&self,
+		name: String,
+	) -> Result<crate::StreamMessage, Error> {
+		self.stream
+			.direct_get_first_for_subject(name)
+			.await
+			.map(|message| crate::StreamMessage {
+				subject: message.subject.into_string(),
+				sequence: message.sequence,
+				payload: message.payload,
+			})
+			.map_err(|error| Error::other(Box::new(error)))
+	}
+
+	async fn direct_get_next_for_subject(
+		&self,
+		name: String,
+		sequence: Option<u64>,
+	) -> Result<crate::StreamMessage, Error> {
+		self.stream
+			.direct_get_next_for_subject(name, sequence)
+			.await
+			.map(|message| crate::StreamMessage {
+				subject: message.subject.into_string(),
+				sequence: message.sequence,
+				payload: message.payload,
+			})
+			.map_err(|error| Error::other(Box::new(error)))
+	}
+
+	async fn direct_get_last_for_subject(
+		&self,
+		name: String,
+	) -> Result<crate::StreamMessage, Error> {
+		self.stream
+			.direct_get_last_for_subject(name)
+			.await
+			.map(|message| crate::StreamMessage {
+				subject: message.subject.into_string(),
+				sequence: message.sequence,
+				payload: message.payload,
+			})
+			.map_err(|error| Error::other(Box::new(error)))
+	}
+
 	async fn create_consumer(
 		&self,
 		name: String,

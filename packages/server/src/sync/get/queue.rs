@@ -247,6 +247,8 @@ impl Server {
 									id: item.id.clone(),
 									node_output_stored: stored.node_output,
 									subtree_output_stored: stored.subtree_output,
+									node_log_stored: stored.node_log,
+									subtree_log_stored: stored.subtree_log,
 								},
 							));
 						state.sender.send(Ok(message)).await.map_err(|source| {
@@ -293,6 +295,7 @@ impl Server {
 		if state.arg.recursive
 			&& (!stored.is_some_and(|stored| stored.subtree)
 				|| (state.arg.commands && !stored.is_some_and(|stored| stored.subtree_command))
+				|| (state.arg.logs && !stored.is_some_and(|stored| stored.subtree_log))
 				|| (state.arg.outputs && !stored.is_some_and(|stored| stored.subtree_output)))
 			&& let Some(children) = &data.children
 		{
@@ -314,6 +317,21 @@ impl Server {
 				eager: state.arg.eager,
 			};
 			state.queue.enqueue_object(item);
+		}
+
+		// Enqueue the log if necessary.
+		if state.arg.logs && !stored.is_some_and(|stored| stored.node_log) {
+			if let Some(log) = data.log.clone() {
+				let item = ObjectItem {
+					parent: Some(Either::Right(id.clone())),
+					id: log.into(),
+					kind: Some(crate::sync::queue::ObjectKind::Log),
+					eager: state.arg.eager,
+				};
+				state.queue.enqueue_object(item);
+			} else {
+				tracing::warn!(process = %id, "cannot sync logs: missing log id");
+			}
 		}
 
 		// Enqueue the output if necessary.

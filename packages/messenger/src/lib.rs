@@ -5,6 +5,7 @@ pub use self::acker::Acker;
 pub mod acker;
 pub mod either;
 pub mod memory;
+
 #[cfg(feature = "nats")]
 pub mod nats;
 
@@ -13,9 +14,15 @@ pub mod prelude {
 }
 
 pub struct Message {
-	pub subject: String,
-	pub payload: Bytes,
 	pub acker: Acker,
+	pub payload: Bytes,
+	pub subject: String,
+}
+
+pub struct StreamMessage {
+	pub payload: Bytes,
+	pub sequence: u64,
+	pub subject: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -81,6 +88,8 @@ pub enum Error {
 	MaxBytes,
 	#[display("publish failed")]
 	PublishFailed,
+	#[display("message was consumed")]
+	MessageConsumed,
 	Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
@@ -132,6 +141,27 @@ pub trait Stream {
 	type Consumer: Consumer;
 
 	fn info(&self) -> impl Future<Output = Result<StreamInfo, Error>> + Send;
+
+	fn direct_get(
+		&self,
+		sequence: u64,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send;
+
+	fn direct_get_first_for_subject(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send;
+
+	fn direct_get_next_for_subject(
+		&self,
+		name: String,
+		sequence: Option<u64>,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send;
+
+	fn direct_get_last_for_subject(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send;
 
 	fn get_consumer(
 		&self,

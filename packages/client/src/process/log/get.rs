@@ -25,7 +25,7 @@ pub struct Arg {
 	pub remotes: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub size: Option<u64>,
+	pub stream: Option<tg::process::log::Stream>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,11 +35,27 @@ pub enum Event {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Serialize,
+	tangram_serialize::Deserialize,
+)]
 pub struct Chunk {
+	#[tangram_serialize(id = 0)]
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
+
+	#[tangram_serialize(id = 1)]
+	pub stream: tg::process::log::Stream,
+
+	#[tangram_serialize(id = 2)]
 	pub position: u64,
+
+	#[tangram_serialize(id = 3)]
+	pub timestamp: u64,
 }
 
 impl tg::Process {

@@ -23,7 +23,7 @@ pub struct Args {
 	pub remotes: crate::util::args::Remotes,
 
 	#[arg(long)]
-	pub size: Option<u64>,
+	pub stream: Option<tg::process::log::Stream>,
 }
 
 impl Cli {
@@ -37,7 +37,7 @@ impl Cli {
 			local: args.local.local,
 			position: args.position.map(std::io::SeekFrom::Start),
 			remotes: args.remotes.remotes,
-			size: args.size,
+			stream: args.stream,
 		};
 		let mut log = process
 			.log(&handle, arg)
