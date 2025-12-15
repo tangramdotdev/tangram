@@ -264,13 +264,10 @@ export interface RunBuilder<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > {
-	// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
 	(...args: tg.UnresolvedArgs<A>): RunBuilder<[], R>;
 }
 
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.
 export class RunBuilder<
-	// biome-ignore lint/correctness/noUnusedVariables: <reason>
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > extends Function {
@@ -279,7 +276,6 @@ export class RunBuilder<
 	constructor(...args: tg.Args<tg.Process.RunArg>) {
 		super();
 		this.#args = args;
-		// biome-ignore lint/correctness/noConstructorReturn: This is necessary to make this callable.
 		return new Proxy(this, {
 			get(this_: any, prop, _receiver) {
 				if (typeof this_[prop] === "function") {
@@ -365,7 +361,6 @@ export class RunBuilder<
 		return this;
 	}
 
-	// biome-ignore lint/suspicious/noThenProperty: <reason>
 	then<TResult1 = R, TResult2 = never>(
 		onfulfilled?:
 			| ((value: R) => TResult1 | PromiseLike<TResult1>)

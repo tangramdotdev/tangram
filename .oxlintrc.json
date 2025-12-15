@@ -1,0 +1,16 @@
+{
+	"$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+	"rules": {
+		"@typescript-eslint/ban-types": "off",
+		"@typescript-eslint/no-explicit-any": "off",
+		"@typescript-eslint/no-non-null-assertion": "off",
+		"@typescript-eslint/no-this-alias": "off",
+		"@typescript-eslint/no-unsafe-declaration-merging": "off",
+		"no-else-return": "off",
+		"no-param-reassign": "off",
+		"no-redeclare": "off",
+		"no-unused-vars": "off",
+		"prefer-const": "off",
+		"unicorn/no-thenable": "off"
+	}
+}

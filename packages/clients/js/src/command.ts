@@ -534,11 +534,9 @@ export interface CommandBuilder<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
 > {
-	// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
 	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.CommandBuilder<[], R>;
 }
 
-// biome-ignore lint/suspicious/noUnsafeDeclarationMerging: This is necessary to make this callable.
 export class CommandBuilder<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
@@ -548,7 +546,6 @@ export class CommandBuilder<
 	constructor(...args: tg.Args<tg.Command.Arg.Object>) {
 		super();
 		this.#args = args;
-		// biome-ignore lint/correctness/noConstructorReturn: This is necessary to make this callable.
 		return new Proxy(this, {
 			get(this_: any, prop, _receiver) {
 				if (typeof this_[prop] === "function") {
@@ -611,7 +608,6 @@ export class CommandBuilder<
 		return this;
 	}
 
-	// biome-ignore lint/suspicious/noThenProperty: <reason>
 	then<TResult1 = tg.Command<A, R>, TResult2 = never>(
 		onfulfilled?:
 			| ((value: tg.Command<A, R>) => TResult1 | PromiseLike<TResult1>)

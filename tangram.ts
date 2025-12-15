@@ -156,7 +156,6 @@ export const cloud = async (arg?: CloudArg) => {
 
 export const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? std.triple.host();
-	const hostOs = std.triple.os(host);
 
 	// Create subset of source relevant for bun install.
 	const packageJson = source.get("package.json").then(tg.File.expect);
@@ -181,7 +180,7 @@ export const nodeModules = async (hostArg?: string) => {
 		},
 	});
 
-	let output = await $`
+	const output = await $`
 			cp -R ${workspaceSource}/. ${tg.output}
 			cd ${tg.output}
 			bun install --frozen-lockfile || true
@@ -192,18 +191,6 @@ export const nodeModules = async (hostArg?: string) => {
 		.network(true)
 		.env(bunEnvArg(host))
 		.then(tg.Directory.expect);
-
-	// On Linux, we need to wrap the biome executable.
-	if (hostOs === "linux") {
-		const hostArch = std.triple.arch(host);
-		const pathArch = hostArch === "aarch64" ? "arm64" : "x64";
-		const path = `node_modules/@biomejs/cli-linux-${pathArch}/biome`;
-		const unwrapped = await output.get(path).then(tg.File.expect);
-		const wrapped = await std.wrap(unwrapped);
-		output = await tg.directory(output, {
-			[path]: wrapped,
-		});
-	}
 
 	return output;
 };

@@ -14,7 +14,6 @@ export declare namespace Checksum {
 		input: string | Uint8Array | tg.Blob | tg.Artifact,
 		algorithm: Checksum.Algorithm,
 	) => Promise<Checksum>;
-	// biome-ignore lint/style/useExportType: <reason>
 	export { new_ as new };
 }
 

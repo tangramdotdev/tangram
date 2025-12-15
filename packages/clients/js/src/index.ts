@@ -18,7 +18,6 @@ import { Command, CommandBuilder, command } from "./command.ts";
 import { Diagnostic } from "./diagnostic.ts";
 import { Directory, directory } from "./directory.ts";
 import * as encoding from "./encoding.ts";
-// biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 import { Error, error } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
@@ -26,7 +25,6 @@ import { type Handle, handle, setHandle } from "./handle.ts";
 import { Location } from "./location.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
-// biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 import { Object } from "./object.ts";
 import { path } from "./path.ts";
 import { output, Placeholder, placeholder } from "./placeholder.ts";

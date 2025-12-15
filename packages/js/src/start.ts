@@ -29,7 +29,6 @@ export let start = async (arg: Arg): Promise<tg.Value.Data> => {
 	}
 
 	// Import the module.
-	// biome-ignore lint/security/noGlobalEval: <reason>
 	let namespace = await eval(`import("!")`);
 
 	// If there is no export, then return undefined.

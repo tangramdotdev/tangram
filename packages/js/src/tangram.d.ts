@@ -1,5 +1,7 @@
 /// <reference lib="es2023" />
 
+// oxlint-disable no-unused-private-class-members
+
 declare interface ImportAttributes {
 	path?: string;
 }
@@ -154,7 +156,6 @@ declare namespace tg {
 	): Promise<tg.Blob>;
 	export function blob(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
 
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Blob {
 		#__brand;
 
@@ -224,7 +225,6 @@ declare namespace tg {
 	) => Promise<tg.Directory>;
 
 	/** A directory. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Directory {
 		#__brand;
 
@@ -292,7 +292,6 @@ declare namespace tg {
 	export function file(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
 
 	/** A file. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class File {
 		#__brand;
 
@@ -368,7 +367,6 @@ declare namespace tg {
 	) => Promise<tg.Symlink>;
 
 	/** A symlink. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Symlink {
 		#__brand;
 
@@ -419,7 +417,6 @@ declare namespace tg {
 	export let graph: (...args: tg.Args<tg.Graph.Arg>) => Promise<tg.Graph>;
 
 	/** A graph. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Graph {
 		#__brand;
 
@@ -562,7 +559,6 @@ declare namespace tg {
 	export function command(...args: tg.Args<tg.Command.Arg>): tg.CommandBuilder;
 
 	/** A command. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
@@ -771,7 +767,6 @@ declare namespace tg {
 		arg: tg.Unresolved<tg.Mutation.Arg<T>>,
 	): Promise<tg.Mutation<T>>;
 
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Mutation<T extends tg.Value = tg.Value> {
 		#__brand;
 
@@ -903,7 +898,6 @@ declare namespace tg {
 	): Promise<tg.Template>;
 
 	/** A template. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Template {
 		#__brand;
 
@@ -944,7 +938,6 @@ declare namespace tg {
 	export const output: tg.Placeholder;
 
 	/** A placeholder. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Placeholder {
 		#__brand;
 
@@ -1105,8 +1098,6 @@ declare namespace tg {
 	export function error(arg: tg.Error.Arg): tg.Error;
 
 	/** An error. */
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
-	// biome-ignore lint/suspicious/noShadowRestrictedNames: This shadows the global Error intentionally.
 	export class Error {
 		#__brand;
 
@@ -1267,7 +1258,6 @@ declare namespace tg {
 		executable: tg.Command.Executable;
 	};
 
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class Process {
 		#__brand;
 
@@ -1426,13 +1416,10 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> {
-		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
 		(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
 	}
 
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class BuildBuilder<
-		// biome-ignore lint/correctness/noUnusedVariables: <reason>
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {
@@ -1468,7 +1455,6 @@ declare namespace tg {
 
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
-		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
 		then<TResult1 = R, TResult2 = never>(
 			this: tg.BuildBuilder<[], R>,
 			onfulfilled?:
@@ -1486,11 +1472,9 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> {
-		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
 		(...args: tg.UnresolvedArgs<A>): tg.CommandBuilder<[], R>;
 	}
 
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class CommandBuilder<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
@@ -1529,7 +1513,6 @@ declare namespace tg {
 		/** Run this command and return the process's output. */
 		run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
 
-		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
 		then<TResult1 = tg.Command<A, R>, TResult2 = never>(
 			onfulfilled?:
 				| ((value: tg.Command<A, R>) => TResult1 | PromiseLike<TResult1>)
@@ -1546,13 +1529,10 @@ declare namespace tg {
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> {
-		// biome-ignore lint/style/useShorthandFunctionType: This is necessary to make this callable.
 		(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
 	}
 
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
 	export class RunBuilder<
-		// biome-ignore lint/correctness/noUnusedVariables: <reason>
 		A extends Array<tg.Value> = Array<tg.Value>,
 		R extends tg.Value = tg.Value,
 	> extends Function {
@@ -1594,7 +1574,6 @@ declare namespace tg {
 
 		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
-		// biome-ignore lint/suspicious/noThenProperty: This is necessary to make this thenable.
 		then<TResult1 = R, TResult2 = never>(
 			this: tg.RunBuilder<[], R>,
 			onfulfilled?:

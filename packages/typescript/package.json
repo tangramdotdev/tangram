@@ -2,8 +2,8 @@
 	"name": "@tangramdotdev/typescript",
 	"private": true,
 	"scripts": {
-		"check": "tsc && biome check src",
-		"format": "biome check --write src"
+		"check": "tsc && oxlint src",
+		"format": "oxfmt --write src"
 	},
 	"type": "module"
 }

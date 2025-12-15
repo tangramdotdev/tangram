@@ -1610,8 +1610,8 @@ let convertObjectType = (
 	let indexSignature: IndexSignature | undefined;
 	let indexSymbol = type.symbol?.members?.get("__index" as ts.__String);
 	if (indexSymbol) {
-		let declaration =
-			indexSymbol.declarations![0]! as ts.IndexSignatureDeclaration;
+		let declaration = indexSymbol
+			.declarations![0]! as ts.IndexSignatureDeclaration;
 		indexSignature = convertIndexSignature(
 			typeChecker,
 			declaration,

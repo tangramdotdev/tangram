@@ -47,9 +47,7 @@ let stringifyObject = (value: object, visited: WeakSet<object>): string => {
 	visited.add(value);
 	let output: string;
 	if (value instanceof Array) {
-		output = `[${value
-			.map((value) => stringifyInner(value, visited))
-			.join(", ")}]`;
+		output = `[${value.map((value) => stringifyInner(value, visited)).join(", ")}]`;
 	} else if (value instanceof Error) {
 		output = value.message;
 	} else if (value instanceof Promise) {

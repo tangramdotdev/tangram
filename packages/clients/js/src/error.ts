@@ -63,7 +63,6 @@ export function error(
 	return tg.Error.withObject(object);
 }
 
-// biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 export class Error {
 	#state: tg.Object.State;
 

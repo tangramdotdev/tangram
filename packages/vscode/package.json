@@ -132,8 +132,8 @@
 	},
 	"scripts": {
 		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode extension.ts && vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
-		"check": "tsc && biome check extension.ts",
-		"format": "biome check --write extension.ts"
+		"check": "tsc && oxlint extension.ts",
+		"format": "oxfmt --write extension.ts"
 	},
 	"version": "0.0.0"
 }

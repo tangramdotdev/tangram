@@ -13,6 +13,6 @@
 		"strict": true,
 		"target": "esnext",
 		"types": [],
-		"verbatimModuleSyntax": true
-	}
+		"verbatimModuleSyntax": true,
+	},
 }
