@@ -83,10 +83,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn wait_for_log_compaction(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<()> {
+	pub(crate) async fn wait_for_log_compaction(&self, id: &tg::process::Id) -> tg::Result<()> {
 		// Get the process data.
 		let data = self
 			.try_get_process_local(id)
@@ -169,9 +166,16 @@ impl Server {
 		data.log.replace(blob);
 
 		// Update the process.
-		self.put_process(id, tg::process::put::Arg { data })
-			.await
-			.map_err(|source| tg::error!(!source, process = %id, "failed to put the process"))?;
+		self.put_process(
+			id,
+			tg::process::put::Arg {
+				data,
+				local: Some(true),
+				remotes: None,
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, process = %id, "failed to put the process"))?;
 
 		// Publish a message to notify waiters that the log has been compacted.
 		self.messenger

@@ -296,6 +296,8 @@ impl Server {
 					count: row.node_log_count,
 					depth: row.node_log_depth,
 					size: row.node_log_size,
+					solvable: None,
+					solved: None,
 				},
 				output: tg::object::metadata::Subtree {
 					count: row.node_output_count,
@@ -317,6 +319,8 @@ impl Server {
 					count: row.subtree_log_count,
 					depth: row.subtree_log_depth,
 					size: row.subtree_log_size,
+					solvable: None,
+					solved: None,
 				},
 				output: tg::object::metadata::Subtree {
 					count: row.subtree_output_count,
@@ -460,6 +464,8 @@ impl Server {
 				count: row.node_log_count,
 				depth: row.node_log_depth,
 				size: row.node_log_size,
+				solvable: None,
+				solved: None,
 			},
 			output: tg::object::metadata::Subtree {
 				count: row.node_output_count,
@@ -481,6 +487,8 @@ impl Server {
 				count: row.subtree_log_count,
 				depth: row.subtree_log_depth,
 				size: row.subtree_log_size,
+				solvable: None,
+				solved: None,
 			},
 			output: tg::object::metadata::Subtree {
 				count: row.subtree_output_count,
@@ -631,6 +639,8 @@ impl Server {
 					count: row.node_log_count,
 					depth: row.node_log_depth,
 					size: row.node_log_size,
+					solvable: None,
+					solved: None,
 				},
 				output: tg::object::metadata::Subtree {
 					count: row.node_output_count,
@@ -652,6 +662,8 @@ impl Server {
 					count: row.subtree_log_count,
 					depth: row.subtree_log_depth,
 					size: row.subtree_log_size,
+					solvable: None,
+					solved: None,
 				},
 				output: tg::object::metadata::Subtree {
 					count: row.subtree_output_count,

@@ -37,8 +37,6 @@ impl Cli {
 			local: args.local.local,
 			position: args.position.map(std::io::SeekFrom::Start),
 			remotes: args.remotes.remotes,
-			size: args.size,
-			remote,
 			stream: args.stream,
 		};
 		let mut log = process

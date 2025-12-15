@@ -13,8 +13,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
 
-	pub stream: Option<tg::process::log::Stream>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
 
@@ -27,7 +25,7 @@ pub struct Arg {
 	pub remotes: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub size: Option<u64>,
+	pub stream: Option<tg::process::log::Stream>,
 }
 
 #[derive(Clone, Debug)]
