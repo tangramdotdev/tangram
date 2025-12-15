@@ -24,8 +24,10 @@ impl Server {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			node_command_stored: bool,
+			node_log_stored: bool,
 			node_output_stored: bool,
 			subtree_command_stored: bool,
+			subtree_log_stored: bool,
 			subtree_output_stored: bool,
 			subtree_stored: bool,
 		}
@@ -33,8 +35,10 @@ impl Server {
 			"
 				select
 					node_command_stored,
+					node_log_stored,
 					node_output_stored,
 					subtree_command_stored,
+					subtree_log_stored,
 					subtree_output_stored,
 					subtree_stored
 				from processes
@@ -49,9 +53,11 @@ impl Server {
 			.map(|row| Output {
 				node_command: row.node_command_stored,
 				node_output: row.node_output_stored,
+				subtree: row.subtree_stored,
 				subtree_command: row.subtree_command_stored,
 				subtree_output: row.subtree_output_stored,
-				subtree: row.subtree_stored,
+				node_log: row.node_log_stored,
+				subtree_log: row.subtree_log_stored,
 			});
 
 		// Drop the connection.
@@ -77,8 +83,10 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<Vec<u8>>>")]
 			id: Option<tg::process::Id>,
 			node_command_stored: bool,
+			node_log_stored: bool,
 			node_output_stored: bool,
 			subtree_command_stored: bool,
+			subtree_log_stored: bool,
 			subtree_output_stored: bool,
 			subtree_stored: bool,
 		}
@@ -87,8 +95,10 @@ impl Server {
 				select
 					processes.id,
 					node_command_stored,
+					node_log_stored,
 					node_output_stored,
 					subtree_command_stored,
+					subtree_log_stored,
 					subtree_output_stored,
 					subtree_stored
 				from unnest($1::bytea[]) as ids (id)
@@ -116,9 +126,11 @@ impl Server {
 				let output = Output {
 					node_command: row.node_command_stored,
 					node_output: row.node_output_stored,
+					subtree: row.subtree_stored,
 					subtree_command: row.subtree_command_stored,
 					subtree_output: row.subtree_output_stored,
-					subtree: row.subtree_stored,
+					node_log: row.node_log_stored,
+					subtree_log: row.subtree_log_stored,
 				};
 				Some(output)
 			})
@@ -150,6 +162,13 @@ impl Server {
 			node_command_size: Option<u64>,
 			node_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_log_size: Option<u64>,
+			node_log_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_output_depth: Option<u64>,
@@ -163,6 +182,13 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_log_size: Option<u64>,
+			subtree_log_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
@@ -182,6 +208,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_log_count,
+					node_log_depth,
+					node_log_size,
+					node_log_stored,
 					node_output_count,
 					node_output_depth,
 					node_output_size,
@@ -190,6 +220,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_log_count,
+					subtree_log_depth,
+					subtree_log_size,
+					subtree_log_stored,
 					subtree_output_count,
 					subtree_output_depth,
 					subtree_output_size,
@@ -220,9 +254,11 @@ impl Server {
 				let stored = Output {
 					node_command: row.node_command_stored,
 					node_output: row.node_output_stored,
+					subtree: row.subtree_stored,
 					subtree_command: row.subtree_command_stored,
 					subtree_output: row.subtree_output_stored,
-					subtree: row.subtree_stored,
+					node_log: row.node_log_stored,
+					subtree_log: row.subtree_log_stored,
 				};
 				let node = tg::process::metadata::Node {
 					command: tg::object::metadata::Subtree {
@@ -231,6 +267,11 @@ impl Server {
 						size: row.node_command_size,
 						solvable: None,
 						solved: None,
+					},
+					log: tg::object::metadata::Subtree {
+						count: row.node_log_count,
+						depth: row.node_log_depth,
+						size: row.node_log_size,
 					},
 					output: tg::object::metadata::Subtree {
 						count: row.node_output_count,
@@ -247,6 +288,11 @@ impl Server {
 						size: row.subtree_command_size,
 						solvable: None,
 						solved: None,
+					},
+					log: tg::object::metadata::Subtree {
+						count: row.subtree_log_count,
+						depth: row.subtree_log_depth,
+						size: row.subtree_log_size,
 					},
 					output: tg::object::metadata::Subtree {
 						count: row.subtree_output_count,
@@ -283,6 +329,10 @@ impl Server {
 			node_command_depth: Option<u64>,
 			node_command_size: Option<u64>,
 			node_command_stored: bool,
+			node_log_count: Option<u64>,
+			node_log_depth: Option<u64>,
+			node_log_size: Option<u64>,
+			node_log_stored: bool,
 			node_output_count: Option<u64>,
 			node_output_depth: Option<u64>,
 			node_output_size: Option<u64>,
@@ -291,6 +341,10 @@ impl Server {
 			subtree_command_depth: Option<u64>,
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: bool,
+			subtree_log_count: Option<u64>,
+			subtree_log_depth: Option<u64>,
+			subtree_log_size: Option<u64>,
+			subtree_log_stored: bool,
 			subtree_output_count: Option<u64>,
 			subtree_output_depth: Option<u64>,
 			subtree_output_size: Option<u64>,
@@ -308,6 +362,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_log_count,
+					node_log_depth,
+					node_log_size,
+					node_log_stored,
 					node_output_count,
 					node_output_depth,
 					node_output_size,
@@ -316,6 +374,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_log_count,
+					subtree_log_depth,
+					subtree_log_size,
+					subtree_log_stored,
 					subtree_output_count,
 					subtree_output_depth,
 					subtree_output_size,
@@ -337,9 +399,11 @@ impl Server {
 			let stored = Output {
 				node_command: row.node_command_stored,
 				node_output: row.node_output_stored,
+				subtree: row.subtree_stored,
 				subtree_command: row.subtree_command_stored,
 				subtree_output: row.subtree_output_stored,
-				subtree: row.subtree_stored,
+				node_log: row.node_log_stored,
+				subtree_log: row.subtree_log_stored,
 			};
 			let node = tg::process::metadata::Node {
 				command: tg::object::metadata::Subtree {
@@ -348,6 +412,11 @@ impl Server {
 					size: row.node_command_size,
 					solvable: None,
 					solved: None,
+				},
+				log: tg::object::metadata::Subtree {
+					count: row.node_log_count,
+					depth: row.node_log_depth,
+					size: row.node_log_size,
 				},
 				output: tg::object::metadata::Subtree {
 					count: row.node_output_count,
@@ -364,6 +433,11 @@ impl Server {
 					size: row.subtree_command_size,
 					solvable: None,
 					solved: None,
+				},
+				log: tg::object::metadata::Subtree {
+					count: row.subtree_log_count,
+					depth: row.subtree_log_depth,
+					size: row.subtree_log_size,
 				},
 				output: tg::object::metadata::Subtree {
 					count: row.subtree_output_count,
@@ -421,6 +495,13 @@ impl Server {
 			node_command_size: Option<u64>,
 			node_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_log_size: Option<u64>,
+			node_log_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_output_depth: Option<u64>,
@@ -434,6 +515,13 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_log_size: Option<u64>,
+			subtree_log_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_output_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
@@ -464,6 +552,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_log_count,
+					node_log_depth,
+					node_log_size,
+					node_log_stored,
 					node_output_count,
 					node_output_depth,
 					node_output_size,
@@ -472,6 +564,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_log_count,
+					subtree_log_depth,
+					subtree_log_size,
+					subtree_log_stored,
 					subtree_output_count,
 					subtree_output_depth,
 					subtree_output_size,
@@ -513,9 +609,11 @@ impl Server {
 				let stored = Output {
 					node_command: row.node_command_stored,
 					node_output: row.node_output_stored,
+					subtree: row.subtree_stored,
 					subtree_command: row.subtree_command_stored,
 					subtree_output: row.subtree_output_stored,
-					subtree: row.subtree_stored,
+					node_log: row.node_log_stored,
+					subtree_log: row.subtree_log_stored,
 				};
 				let node = tg::process::metadata::Node {
 					command: tg::object::metadata::Subtree {
@@ -524,6 +622,11 @@ impl Server {
 						size: row.node_command_size,
 						solvable: None,
 						solved: None,
+					},
+					log: tg::object::metadata::Subtree {
+						count: row.node_log_count,
+						depth: row.node_log_depth,
+						size: row.node_log_size,
 					},
 					output: tg::object::metadata::Subtree {
 						count: row.node_output_count,
@@ -540,6 +643,11 @@ impl Server {
 						size: row.subtree_command_size,
 						solvable: None,
 						solved: None,
+					},
+					log: tg::object::metadata::Subtree {
+						count: row.subtree_log_count,
+						depth: row.subtree_log_depth,
+						size: row.subtree_log_size,
 					},
 					output: tg::object::metadata::Subtree {
 						count: row.subtree_output_count,

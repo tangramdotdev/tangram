@@ -103,6 +103,14 @@ impl Server {
 						message.bytes += commands_size;
 					}
 				}
+				if state.arg.logs {
+					if let Some(logs_count) = metadata.subtree.log.count {
+						message.objects += logs_count;
+					}
+					if let Some(logs_size) = metadata.subtree.log.size {
+						message.bytes += logs_size;
+					}
+				}
 				if state.arg.outputs {
 					if let Some(outputs_count) = metadata.subtree.output.count {
 						message.objects += outputs_count;
@@ -118,6 +126,14 @@ impl Server {
 					}
 					if let Some(command_size) = metadata.node.command.size {
 						message.bytes += command_size;
+					}
+				}
+				if state.arg.logs {
+					if let Some(logs_count) = metadata.subtree.log.count {
+						message.objects += logs_count;
+					}
+					if let Some(logs_size) = metadata.subtree.log.size {
+						message.bytes += logs_size;
 					}
 				}
 				if state.arg.outputs {

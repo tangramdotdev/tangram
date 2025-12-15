@@ -28,6 +28,10 @@ create or replace procedure handle_messages(
 	process_subtree_command_counts int8[],
 	process_subtree_command_depths int8[],
 	process_subtree_command_sizes int8[],
+	process_subtree_log_storeds bool[],
+	process_subtree_log_counts int8[],
+	process_subtree_log_depths int8[],
+	process_subtree_log_sizes int8[],
 	process_subtree_output_storeds bool[],
 	process_subtree_output_counts int8[],
 	process_subtree_output_depths int8[],
@@ -36,6 +40,10 @@ create or replace procedure handle_messages(
 	process_node_command_counts int8[],
 	process_node_command_depths int8[],
 	process_node_command_sizes int8[],
+	process_node_log_storeds bool[],
+	process_node_log_counts int8[],
+	process_node_log_depths int8[],
+	process_node_log_sizes int8[],	
 	process_node_output_storeds bool[],
 	process_node_output_counts int8[],
 	process_node_output_depths int8[],
@@ -88,6 +96,10 @@ begin
 		process_subtree_command_counts,
 		process_subtree_command_depths,
 		process_subtree_command_sizes,
+		process_subtree_log_storeds,
+		process_subtree_log_counts,
+		process_subtree_log_depths,
+		process_subtree_log_sizes,
 		process_subtree_output_storeds,
 		process_subtree_output_counts,
 		process_subtree_output_depths,
@@ -96,6 +108,10 @@ begin
 		process_node_command_counts,
 		process_node_command_depths,
 		process_node_command_sizes,
+		process_node_log_storeds,
+		process_node_log_counts,
+		process_node_log_depths,
+		process_node_log_sizes,
 		process_node_output_storeds,
 		process_node_output_counts,
 		process_node_output_depths,
@@ -255,6 +271,10 @@ create or replace procedure put_processes(
 	subtree_command_counts int8[],
 	subtree_command_depths int8[],
 	subtree_command_sizes int8[],
+	subtree_log_storeds boolean[],
+	subtree_log_counts int8[],
+	subtree_log_depths int8[],
+	subtree_log_sizes int8[],
 	subtree_output_storeds boolean[],
 	subtree_output_counts int8[],
 	subtree_output_depths int8[],
@@ -263,6 +283,10 @@ create or replace procedure put_processes(
 	node_command_counts int8[],
 	node_command_depths int8[],
 	node_command_sizes int8[],
+	node_log_storeds boolean[],
+	node_log_counts int8[],
+	node_log_depths int8[],
+	node_log_sizes int8[],
 	node_output_storeds boolean[],
 	node_output_counts int8[],
 	node_output_depths int8[],
@@ -291,14 +315,18 @@ begin
 	select count(*) into locked_count from locked;
 
 	with upsert as (
-		insert into processes (id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, transaction_id)
-		select id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, (select id from transaction_id)
-		from unnest(process_ids, subtree_storeds, subtree_counts, subtree_command_storeds, subtree_command_counts, subtree_command_depths, subtree_command_sizes, subtree_output_storeds, subtree_output_counts, subtree_output_depths, subtree_output_sizes, node_command_storeds, node_command_counts, node_command_depths, node_command_sizes, node_output_storeds, node_output_counts, node_output_depths, node_output_sizes, touched_ats) as t (id, subtree_stored, subtree_count, subtree_command_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_output_stored, subtree_output_count, subtree_output_depth, subtree_output_size, node_command_stored, node_command_count, node_command_depth, node_command_size, node_output_stored, node_output_count, node_output_depth, node_output_size, touched_at)
+		insert into processes (id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_log_count, node_log_depth, node_log_size, node_log_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_log_count, subtree_log_depth, subtree_log_size, subtree_log_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, transaction_id)
+		select id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_log_count, node_log_depth, node_log_size, node_log_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_log_count, subtree_log_depth, subtree_log_size, subtree_log_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, (select id from transaction_id)
+		from unnest(process_ids, subtree_storeds, subtree_counts, subtree_command_storeds, subtree_command_counts, subtree_command_depths, subtree_command_sizes, subtree_log_storeds, subtree_log_counts, subtree_log_depths, subtree_log_sizes, subtree_output_storeds, subtree_output_counts, subtree_output_depths, subtree_output_sizes, node_command_storeds, node_command_counts, node_command_depths, node_command_sizes, node_log_storeds, node_log_counts, node_log_depths, node_log_sizes, node_output_storeds, node_output_counts, node_output_depths, node_output_sizes, touched_ats) as t (id, subtree_stored, subtree_count, subtree_command_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_log_stored, subtree_log_count, subtree_log_depth, subtree_log_size, subtree_output_stored, subtree_output_count, subtree_output_depth, subtree_output_size, node_command_stored, node_command_count, node_command_depth, node_command_size, node_log_stored, node_log_count, node_log_depth, node_log_size, node_output_stored, node_output_count, node_output_depth, node_output_size, touched_at)
 		on conflict (id) do update set
 			node_command_count = coalesce(processes.node_command_count, excluded.node_command_count),
 			node_command_depth = coalesce(processes.node_command_depth, excluded.node_command_depth),
 			node_command_size = coalesce(processes.node_command_size, excluded.node_command_size),
 			node_command_stored = processes.node_command_stored or excluded.node_command_stored,
+			node_log_count = coalesce(processes.node_log_count, excluded.node_log_count),
+			node_log_depth = coalesce(processes.node_log_depth, excluded.node_log_depth),
+			node_log_size = coalesce(processes.node_log_size, excluded.node_log_size),
+			node_log_stored = processes.node_log_stored or excluded.node_log_stored,
 			node_output_count = coalesce(processes.node_output_count, excluded.node_output_count),
 			node_output_depth = coalesce(processes.node_output_depth, excluded.node_output_depth),
 			node_output_size = coalesce(processes.node_output_size, excluded.node_output_size),
@@ -307,6 +335,10 @@ begin
 			subtree_command_depth = coalesce(processes.subtree_command_depth, excluded.subtree_command_depth),
 			subtree_command_size = coalesce(processes.subtree_command_size, excluded.subtree_command_size),
 			subtree_command_stored = processes.subtree_command_stored or excluded.subtree_command_stored,
+			subtree_log_count = coalesce(processes.subtree_log_count, excluded.subtree_log_count),
+			subtree_log_depth = coalesce(processes.subtree_log_depth, excluded.subtree_log_depth),
+			subtree_log_size = coalesce(processes.subtree_log_size, excluded.subtree_log_size),
+			subtree_log_stored = processes.subtree_log_stored or excluded.subtree_log_stored,
 			subtree_output_count = coalesce(processes.subtree_output_count, excluded.subtree_output_count),
 			subtree_output_depth = coalesce(processes.subtree_output_depth, excluded.subtree_output_depth),
 			subtree_output_size = coalesce(processes.subtree_output_size, excluded.subtree_output_size),
@@ -343,7 +375,7 @@ begin
 	insert into process_queue (process, kind, transaction_id)
 	select id, kind, (select id from transaction_id)
 	from unnest(changed_ids) as t(id)
-	cross join (values (1), (2), (3)) as kinds(kind);
+	cross join (values (1), (2), (3), (4)) as kinds(kind);
 
 	insert into process_children (process, position, child)
 	select process_ids[process_index], position, child

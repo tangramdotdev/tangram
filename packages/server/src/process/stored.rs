@@ -41,6 +41,16 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
 	pub subtree_output: bool,
+
+	/// Whether this node's log's subtree is stored.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
+	pub node_log: bool,
+
+	/// Whether this node's subtree's logs' subtrees are stored.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 6, default, skip_serializing_if = "is_false")]
+	pub subtree_log: bool,
 }
 
 impl Server {

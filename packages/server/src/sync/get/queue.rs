@@ -247,6 +247,8 @@ impl Server {
 									id: item.id.clone(),
 									node_output_stored: stored.node_output,
 									subtree_output_stored: stored.subtree_output,
+									node_log_stored: stored.node_log,
+									subtree_log_stored: stored.subtree_log,
 								},
 							));
 						state.sender.send(Ok(message)).await.map_err(|source| {

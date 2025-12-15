@@ -190,6 +190,22 @@ impl Server {
 				state.queue.enqueue_object(item);
 			}
 
+			// Enqueue the log.
+			if item.eager && state.arg.logs {
+				let item = crate::sync::queue::ObjectItem {
+					parent: Some(Either::Right(item.id.clone())),
+					id: output
+						.data
+						.log
+						.clone()
+						.ok_or_else(|| tg::error!("expected a log object"))?
+						.into(),
+					kind: Some(crate::sync::queue::ObjectKind::Log),
+					eager: item.eager,
+				};
+				state.queue.enqueue_object(item);
+			}
+
 			// Enqueue the outputs.
 			if item.eager
 				&& state.arg.outputs
