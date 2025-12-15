@@ -155,7 +155,7 @@ impl Server {
 							.publish(format!("processes.{id}.log"), Bytes::new())
 							.await
 							.inspect_err(|error| {
-								tracing::error!(?error, "failed to publish the message")
+								tracing::error!(?error, "failed to publish the message");
 							})
 							.ok();
 					}

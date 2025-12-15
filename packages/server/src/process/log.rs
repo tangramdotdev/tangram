@@ -30,7 +30,7 @@ impl Server {
 		// Create the consumer.
 		let config = tangram_messenger::ConsumerConfig::default();
 		let consumer = stream
-			.create_consumer(format!("logs"), config)
+			.create_consumer("logs".into(), config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create consumer"))?;
 
@@ -94,7 +94,7 @@ impl Server {
 		// Log is a blob, exit early.
 		if data.log.is_some() {
 			return Ok(());
-		};
+		}
 
 		// Process isn't finished, error.
 		if !data.status.is_finished() {
@@ -107,7 +107,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
 		let _published = self
 			.messenger
-			.stream_publish(format!("processes.log_compaction"), message.into())
+			.stream_publish("processes.log_compaction".to_owned(), message.into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 

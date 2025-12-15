@@ -152,7 +152,7 @@ where
 								log.up_impl().await.ok();
 							}
 						},
-						_ = notification => (),
+						() = notification => (),
 					}
 					log.update_lines().await?;
 				}

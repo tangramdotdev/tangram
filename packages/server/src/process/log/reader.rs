@@ -140,7 +140,7 @@ impl Reader {
 					.map_err(|source| tg::error!(!source, "failed to seek"))?;
 				break;
 			} else if range.end() < &position {
-				left = line_start + size.to_u64().unwrap()
+				left = line_start + size.to_u64().unwrap();
 			} else if range.start() > &position {
 				right = line_start;
 			} else {

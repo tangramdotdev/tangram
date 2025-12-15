@@ -725,7 +725,7 @@ impl Server {
 						.log_compaction_task()
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error, "the log compaction task failed")
+							tracing::error!(?error, "the log compaction task failed");
 						})
 						.ok();
 				}
