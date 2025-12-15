@@ -25,6 +25,7 @@ scylla = ["tangram_store/scylla"]
 typescript = ["tangram_compiler/typescript"]
 
 [dependencies]
+async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 async-nats = { workspace = true, optional = true }
 byteorder = { workspace = true }

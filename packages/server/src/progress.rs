@@ -12,9 +12,10 @@ use {
 
 #[derive(Clone, Debug)]
 pub struct Handle<T> {
+	#[allow(dead_code)]
+	inactive_receiver: async_broadcast::InactiveReceiver<tg::Result<tg::progress::Event<T>>>,
 	indicators: Arc<RwLock<IndexMap<String, Indicator>>>,
-	receiver: async_channel::Receiver<tg::Result<tg::progress::Event<T>>>,
-	sender: async_channel::Sender<tg::Result<tg::progress::Event<T>>>,
+	sender: async_broadcast::Sender<tg::Result<tg::progress::Event<T>>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -26,21 +27,26 @@ struct Indicator {
 	total: Option<AtomicU64>,
 }
 
-impl<T> Handle<T> {
+impl<T> Handle<T>
+where
+	T: Clone,
+{
 	#[must_use]
 	pub fn new() -> Self {
-		let (sender, receiver) = async_channel::unbounded();
+		let (mut sender, receiver) = async_broadcast::broadcast(1024);
+		sender.set_overflow(true);
+		let inactive_receiver = receiver.deactivate();
 		let indicators = Arc::new(RwLock::new(IndexMap::new()));
 		Self {
+			inactive_receiver,
 			indicators,
-			receiver,
 			sender,
 		}
 	}
 
 	pub fn diagnostic(&self, diagnostic: tg::diagnostic::Data) {
 		let event = tg::progress::Event::Diagnostic(diagnostic);
-		self.sender.try_send(Ok(event)).ok();
+		self.sender.try_broadcast(Ok(event)).ok();
 	}
 
 	pub fn spinner(&self, name: &str, title: &str) {
@@ -107,23 +113,23 @@ impl<T> Handle<T> {
 
 	pub fn log(&self, level: Option<tg::progress::Level>, message: String) {
 		let event = tg::progress::Event::Log(tg::progress::Log { level, message });
-		self.sender.try_send(Ok(event)).ok();
+		self.sender.try_broadcast(Ok(event)).ok();
 	}
 
 	pub fn output(&self, output: T) {
 		let event = tg::progress::Event::Output(output);
-		self.sender.try_send(Ok(event)).ok();
+		self.sender.try_broadcast(Ok(event)).ok();
 	}
 
 	pub fn error(&self, error: tg::Error) {
-		self.sender.try_send(Err(error)).ok();
+		self.sender.try_broadcast(Err(error)).ok();
 	}
 
 	pub fn forward<U>(&self, event: tg::Result<tg::progress::Event<U>>) -> Option<U> {
 		let event = match event {
 			Ok(event) => event,
 			Err(error) => {
-				self.sender.try_send(Err(error)).ok();
+				self.sender.try_broadcast(Err(error)).ok();
 				return None;
 			},
 		};
@@ -160,7 +166,7 @@ impl<T> Handle<T> {
 
 	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + use<T> {
 		let indicators = self.indicators.clone();
-		let receiver = self.receiver.clone();
+		let receiver = self.sender.new_receiver();
 		let interval = Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
 		let updates = IntervalStream::new(interval)
@@ -225,7 +231,10 @@ impl<T> Handle<T> {
 	}
 }
 
-impl<T> Default for Handle<T> {
+impl<T> Default for Handle<T>
+where
+	T: Clone,
+{
 	fn default() -> Self {
 		Self::new()
 	}

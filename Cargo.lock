@@ -6401,6 +6401,7 @@ dependencies = [
 name = "tangram_server"
 version = "0.0.0"
 dependencies = [
+ "async-broadcast",
  "async-channel",
  "async-nats",
  "byteorder",
