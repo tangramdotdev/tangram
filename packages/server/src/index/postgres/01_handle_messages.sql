@@ -129,6 +129,45 @@ begin
 end;
 $$;
 
+create or replace procedure put_cache_entries(
+		cache_entry_ids bytea[],
+		cache_entry_touched_ats int8[]
+)
+language plpgsql
+as $$
+declare
+	inserted_ids bytea[];
+	locked_count int8;
+begin
+	if array_length(cache_entry_ids, 1) > 0 then
+		with locked as (
+			select cache_entries.id
+			from cache_entries
+			where cache_entries.id = any(cache_entry_ids)
+			order by cache_entries.id
+			for update
+		)
+		select count(*) into locked_count from locked;
+
+		with upsert as (
+			insert into cache_entries (id, touched_at)
+			select id, touched_at
+			from unnest(cache_entry_ids, cache_entry_touched_ats) as t (id, touched_at)
+			on conflict (id) do update set
+				touched_at = greatest(excluded.touched_at, cache_entries.touched_at)
+			returning id, xmax = 0 as was_inserted
+		)
+		select coalesce(array_agg(id), '{}') into inserted_ids
+		from upsert
+		where was_inserted;
+
+		insert into cache_entry_queue (cache_entry, transaction_id)
+		select id, (select id from transaction_id)
+		from unnest(inserted_ids) as t(id);
+	end if;
+end;
+$$;
+
 create or replace procedure put_objects(
 	ids bytea[],
 	cache_entries bytea[],
@@ -172,7 +211,7 @@ begin
 			subtree_solvable = coalesce(excluded.subtree_solvable, objects.subtree_solvable),
 			subtree_solved = coalesce(excluded.subtree_solved, objects.subtree_solved),
 			subtree_stored = excluded.subtree_stored or objects.subtree_stored,
-			touched_at = excluded.touched_at
+			touched_at = greatest(excluded.touched_at, objects.touched_at)
 		returning id, xmax = 0 as was_inserted
 	)
 	select coalesce(array_agg(id), '{}') into inserted_ids
@@ -257,7 +296,7 @@ begin
 			subtree_output_stored = processes.subtree_output_stored or excluded.subtree_output_stored,
 			subtree_count = coalesce(processes.subtree_count, excluded.subtree_count),
 			subtree_stored = processes.subtree_stored or excluded.subtree_stored,
-			touched_at = excluded.touched_at
+			touched_at = greatest(processes.touched_at, excluded.touched_at)
 		returning id, xmax = 0 as was_inserted
 	)
 	select coalesce(array_agg(id), '{}') into inserted_ids
@@ -494,7 +533,7 @@ begin
 		select count(*) into locked_count from locked;
 
 		update objects
-		set touched_at = t.touched_at
+		set touched_at = greatest(objects.touched_at, t.touched_at)
 		from unnest(touched_ats, object_ids) as t (touched_at, id)
 		where objects.id = t.id;
 	end if;
@@ -521,7 +560,7 @@ begin
 		select count(*) into locked_count from locked;
 
 		update processes
-		set touched_at = t.touched_at
+		set touched_at = greatest(processes.touched_at, t.touched_at)
 		from unnest(touched_ats, process_ids) as t (touched_at, id)
 		where processes.id = t.id;
 	end if;

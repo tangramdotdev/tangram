@@ -8,7 +8,7 @@ create table cache_entries (
 	id blob primary key,
 	reference_count integer,
 	reference_count_transaction_id integer,
-	touched_at integer
+	touched_at integer not null
 );
 
 create index cache_entries_reference_count_zero_index on cache_entries (touched_at) where reference_count = 0;
@@ -35,7 +35,7 @@ create table objects (
 	subtree_solvable integer,
 	subtree_solved integer,
 	subtree_stored integer not null default 0,
-	touched_at integer,
+	touched_at integer not null,
 	transaction_id integer not null
 );
 
@@ -85,7 +85,7 @@ create table processes (
 	subtree_output_stored integer not null default 0,
 	subtree_count integer,
 	subtree_stored integer not null default 0,
-	touched_at integer,
+	touched_at integer not null,
 	transaction_id integer not null
 );
 

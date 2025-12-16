@@ -83,7 +83,7 @@ impl Server {
 		let update_statement = indoc!(
 			"
 				update cache_entries
-				set touched_at = ?2
+				set touched_at = max(touched_at, ?2)
 				where id = ?1;
 			"
 		);
@@ -157,7 +157,7 @@ impl Server {
 					subtree_solvable = coalesce(subtree_solvable, ?9),
 					subtree_solved = coalesce(subtree_solved, ?10),
 					subtree_stored = subtree_stored or ?11,
-					touched_at = coalesce(touched_at, ?12)
+					touched_at = max(touched_at, ?12)
 				where id = ?1;
 			"
 		);
@@ -272,7 +272,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				update objects
-				set touched_at = ?1
+				set touched_at = max(touched_at, ?1)
 				where id = ?2;
 			"
 		);
@@ -372,7 +372,7 @@ impl Server {
 					subtree_output_stored = subtree_output_stored or ?17,
 					subtree_count = coalesce(subtree_count, ?18),
 					subtree_stored = subtree_stored or ?19,
-					touched_at = ?20
+					touched_at = max(touched_at, ?20)
 				where id = ?1;
 			"
 		);
@@ -516,7 +516,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				update processes
-				set touched_at = ?1
+				set touched_at = max(touched_at, ?1)
 				where id = ?2;
 			"
 		);
