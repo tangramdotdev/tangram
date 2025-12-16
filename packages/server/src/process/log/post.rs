@@ -3,15 +3,23 @@ use {
 	bytes::Bytes,
 	futures::stream::StreamExt as _,
 	num::ToPrimitive,
+	std::io::Write,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
-	tangram_util::fs::Flock,
-	tokio::io::AsyncWriteExt as _,
 };
 
 #[derive(tangram_serialize::Serialize, tangram_serialize::Deserialize)]
-struct ChunkMessage {
+enum LogQueueMessage {
+	#[tangram_serialize(id = 0)]
+	AppendChunk(AppendChunk),
+
+	#[tangram_serialize(id = 1)]
+	End,
+}
+
+#[derive(tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+struct AppendChunk {
 	#[tangram_serialize(id = 0)]
 	stream: tg::process::log::Stream,
 
@@ -56,19 +64,29 @@ impl Server {
 		}
 
 		// Send the message.
-		let message = ChunkMessage {
+		let message = LogQueueMessage::AppendChunk(AppendChunk {
 			stream: arg.stream,
 			bytes: arg.bytes,
-		};
+		});
 		let payload = tangram_serialize::to_vec(&message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?
 			.into();
 		self.messenger
-			.stream_publish(format!("processes.{id}.log.queue"), payload)
+			.publish(format!("processes.{id}.log.queue"), payload)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+		Ok(())
+	}
+
+	pub(crate) async fn finish_process_log(&self, id: &tg::process::Id) -> tg::Result<()> {
+		let message = LogQueueMessage::End;
+		let payload = tangram_serialize::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?
+			.into();
+		self.messenger
+			.publish(format!("processes.{id}.log.queue"), payload)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 		Ok(())
 	}
 
@@ -77,99 +95,64 @@ impl Server {
 		id: &tg::process::Id,
 		started_at: u64,
 	) -> tg::Result<()> {
-		// Spawn a task to delete the log queue when this future drops.
-		scopeguard::defer! {
-			tokio::spawn({
-				let server = self.clone();
-				let id = id.clone();
-				async move {
-					server.messenger
-						.delete_stream(format!("process.{id}.log.queue"))
-						.await
-						.ok();
-				}
-			});
-		};
-
-		// Create the stream and consumer.
-		let stream_config = tangram_messenger::StreamConfig {
-			discard: tangram_messenger::DiscardPolicy::New,
-			max_bytes: None,
-			max_messages: None,
-			retention: tangram_messenger::RetentionPolicy::Limits,
-		};
-		let consumer_config = tangram_messenger::ConsumerConfig {
-			deliver: tangram_messenger::DeliverPolicy::All,
-		};
-		let consumer = self
-			.messenger
-			.get_or_create_stream(format!("processes.{id}.log.queue"), stream_config)
-			.await
-			.map_err(
-				|source| tg::error!(!source, process = %id, "failed to subscribe to log stream"),
-			)?
-			.create_consumer(format!("process.{id}.log"), consumer_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get consumer"))?;
-
 		// Subscribe to the stream.
-		let mut stream = consumer
-			.subscribe()
+		let mut stream = self
+			.messenger
+			.subscribe(format!("process.{id}.log.queue"), None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to stream"))?
 			.boxed();
 
 		// Keep track of the log position.
 		let mut position = 0;
-		loop {
-			let message = match stream.next().await {
-				Some(Ok(message)) => message,
-				Some(Err(error)) => {
-					tracing::error!(?error, "stream error");
-					continue;
-				},
-				None => break,
+		while let Some(message) = stream.next().await {
+			let Ok(message) = tangram_serialize::from_slice(&message.payload)
+				.inspect_err(|error| tracing::error!(?error, "failed to deserialize the message"))
+			else {
+				continue;
 			};
+			match message {
+				LogQueueMessage::AppendChunk(message) => {
+					// Write to the file.
+					self.post_process_log_to_file(
+						id,
+						message.bytes,
+						&mut position,
+						started_at,
+						message.stream,
+					)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "failed to write the log message"))
+					.ok();
 
-			// Attempt to deserialize and write the message.
-			if let Ok(message) = tangram_serialize::from_slice::<ChunkMessage>(&message.payload) {
-				// Write to the file.
-				self.post_process_log_to_file(
-					id,
-					message.bytes,
-					&mut position,
-					started_at,
-					message.stream,
-				)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to write the log message"))
-				.ok();
-
-				// Send a notification now that the log has been committed.
-				tokio::spawn({
-					let server = self.clone();
-					let id = id.clone();
-					async move {
-						server
-							.messenger
-							.publish(format!("processes.{id}.log"), Bytes::new())
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to publish the message");
-							})
-							.ok();
-					}
-				});
+					// Send a notification now that the log has been committed.
+					tokio::spawn({
+						let server = self.clone();
+						let id = id.clone();
+						async move {
+							server
+								.messenger
+								.publish(format!("processes.{id}.log"), Bytes::new())
+								.await
+								.inspect_err(|error| {
+									tracing::error!(?error, "failed to publish the message");
+								})
+								.ok();
+						}
+					});
+				},
+				LogQueueMessage::End => break,
 			}
-
-			// Acknowledge the message.
-			message
-				.acker
-				.ack()
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to ack message"))
-				.ok();
 		}
+
+		let message = super::Message::Compact(id.clone());
+		let message = serde_json::to_vec(&message)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		let _published = self
+			.messenger
+			.stream_publish("log_compaction".into(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 		Ok(())
 	}
@@ -184,19 +167,13 @@ impl Server {
 	) -> tg::Result<()> {
 		// Open the file.
 		let path = self.logs_path().join(id.to_string());
-		let mut file = tokio::fs::File::options()
+		let mut file = std::fs::File::options()
 			.create(true)
 			.append(true)
 			.open(&path)
-			.await
 			.map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to open the log file"),
 			)?;
-
-		// Lock the file.
-		let _flock = Flock::exclusive(&file)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to lock the file"))?;
 
 		// Compute the timestamp.
 		let now = time::OffsetDateTime::now_utc()
@@ -213,17 +190,24 @@ impl Server {
 			timestamp,
 		};
 
-		// Update the position.
-		*position += chunk.bytes.len().to_u64().unwrap();
-
+		// Serialize the chunk.
 		let mut json = serde_json::to_vec(&chunk)
 			.map_err(|source| tg::error!(!source, "failed to serialize log chunk"))?;
 		json.push(b'\n');
 
-		// Write the chunk.
-		file.write_all(&json).await.map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to write to the log file"),
-		)?;
+		tokio::task::spawn_blocking(move || {
+			file.lock()
+				.map_err(|source| tg::error!(!source, "failed to lock the file"))?;
+			file.write_all(&json)
+				.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
+			Ok::<_, tg::Error>(())
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to write the log"))?;
+
+		// Update the position.
+		*position += chunk.bytes.len().to_u64().unwrap();
 
 		Ok(())
 	}

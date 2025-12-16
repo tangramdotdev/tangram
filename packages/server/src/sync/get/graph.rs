@@ -225,7 +225,7 @@ impl Graph {
 		};
 
 		let objects = if let Some(data) = data {
-			let mut objects = Vec::new();
+			let mut objects: Vec<(usize, crate::index::message::ProcessObjectKind)> = Vec::new();
 
 			let command_id: tg::object::Id = data.command.clone().into();
 			let command_entry = self.nodes.entry(command_id.into());
@@ -236,6 +236,14 @@ impl Graph {
 				command_index,
 				crate::index::message::ProcessObjectKind::Command,
 			));
+
+			if let Some(log_id) = data.log.clone() {
+				let log_entry = self.nodes.entry(tg::object::Id::from(log_id).into());
+				let log_index = log_entry.index();
+				let log_node = log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+				log_node.unwrap_object_mut().parents.push(index);
+				objects.push((log_index, crate::index::message::ProcessObjectKind::Log));
+			}
 
 			if let Some(output) = &data.output {
 				let mut output_children = BTreeSet::new();

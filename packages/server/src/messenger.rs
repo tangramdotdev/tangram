@@ -165,6 +165,51 @@ impl messenger::Stream for Stream {
 		}
 	}
 
+	async fn direct_get(
+		&self,
+		sequence: u64,
+	) -> Result<tangram_messenger::StreamMessage, tangram_messenger::Error> {
+		match self {
+			Self::Memory(s) => s.direct_get(sequence).await,
+			#[cfg(feature = "nats")]
+			Self::Nats(s) => s.direct_get(sequence).await,
+		}
+	}
+
+	async fn direct_get_first_for_subject(
+		&self,
+		name: String,
+	) -> Result<tangram_messenger::StreamMessage, tangram_messenger::Error> {
+		match self {
+			Self::Memory(s) => s.direct_get_first_for_subject(name).await,
+			#[cfg(feature = "nats")]
+			Self::Nats(s) => s.direct_get_first_for_subject(name).await,
+		}
+	}
+
+	async fn direct_get_next_for_subject(
+		&self,
+		name: String,
+		sequence: Option<u64>,
+	) -> Result<tangram_messenger::StreamMessage, tangram_messenger::Error> {
+		match self {
+			Self::Memory(s) => s.direct_get_next_for_subject(name, sequence).await,
+			#[cfg(feature = "nats")]
+			Self::Nats(s) => s.direct_get_next_for_subject(name, sequence).await,
+		}
+	}
+
+	async fn direct_get_last_for_subject(
+		&self,
+		name: String,
+	) -> Result<tangram_messenger::StreamMessage, tangram_messenger::Error> {
+		match self {
+			Self::Memory(s) => s.direct_get_last_for_subject(name).await,
+			#[cfg(feature = "nats")]
+			Self::Nats(s) => s.direct_get_last_for_subject(name).await,
+		}
+	}
+
 	async fn get_or_create_consumer(
 		&self,
 		name: String,

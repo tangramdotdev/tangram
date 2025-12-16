@@ -1,6 +1,6 @@
 use {
 	crate::{Server, sync::put::State},
-	futures::{StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
+	futures::{StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -130,26 +130,11 @@ impl Server {
 	) -> tg::Result<()> {
 		// Get the processes.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+
 		let outputs = self
 			.try_get_process_batch_local(&ids)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
-
-		// Wait for the logs to be compacted.
-		ids.iter()
-			.map(|id| {
-				let server = self.clone();
-				let id = id.clone();
-				async move { server.wait_for_log_compaction(&id).await }
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await
-			.into_iter()
-			.collect::<tg::Result<()>>()
-			.map_err(|source: tg::Error| {
-				tg::error!(!source, "failed to wait for log compaction")
-			})?;
 
 		// Handle the processes.
 		for (item, output) in std::iter::zip(items, outputs) {
@@ -208,14 +193,16 @@ impl Server {
 
 			// Enqueue the log.
 			if item.eager && state.arg.logs {
+				// Wait for log compaction.
+				let id = output
+					.data
+					.log
+					.ok_or_else(|| tg::error!(process = %item.id, "expected a compacted log"))?
+					.clone()
+					.into();
 				let item = crate::sync::queue::ObjectItem {
 					parent: Some(Either::Right(item.id.clone())),
-					id: output
-						.data
-						.log
-						.clone()
-						.ok_or_else(|| tg::error!("expected a log object"))?
-						.into(),
+					id,
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					eager: item.eager,
 				};

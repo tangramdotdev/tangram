@@ -15,7 +15,6 @@ enum Inner {
 	Blob(crate::read::Reader),
 	File(tokio::fs::File),
 }
-
 impl Reader {
 	pub async fn new(server: &Server, id: &tg::process::Id) -> tg::Result<Self> {
 		// Create the inner reader.

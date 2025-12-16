@@ -88,7 +88,6 @@ pub struct State {
 	#[cfg_attr(not(feature = "js"), expect(dead_code))]
 	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
 	lock: Mutex<Option<tokio::fs::File>>,
-	log_compaction_tasks: LogCompactionTasks,
 	messenger: Messenger,
 	path: PathBuf,
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
@@ -132,8 +131,6 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
-
-type LogCompactionTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
 
 impl Owned {
 	pub fn stop(&self) {
@@ -278,9 +275,6 @@ impl Server {
 
 		// Create the process tasks.
 		let process_tasks = tangram_futures::task::Map::default();
-
-		// Create teh log compaction tasks.
-		let log_compaction_tasks = tangram_futures::task::Map::default();
 
 		// Create the database.
 		let database = match &config.database {
@@ -502,7 +496,6 @@ impl Server {
 			library,
 			local_pool_handle,
 			lock,
-			log_compaction_tasks,
 			messenger,
 			path,
 			pipes,
@@ -787,20 +780,8 @@ impl Server {
 					{
 						tracing::error!(?error, "the log compaction task panicked");
 					}
-					tracing::trace!("runner task");
+					tracing::trace!("log compaction task");
 				}
-
-				// Abort the log compaction tasks.
-				server.log_compaction_tasks.abort_all();
-				let results = server.log_compaction_tasks.wait().await;
-				for result in results {
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "a log compaction task panicked");
-					}
-				}
-				tracing::trace!("log compaction tasks");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {

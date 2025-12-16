@@ -1,9 +1,10 @@
 use {
 	crate::Server,
-	bytes::Bytes,
 	futures::stream::{StreamExt as _, TryStreamExt as _},
+	indoc::formatdoc,
 	std::pin::pin,
-	tangram_client::{self as tg, Handle as _, handle::Process},
+	tangram_client::{self as tg, Handle as _},
+	tangram_database::{self as db, Database, Query},
 	tangram_messenger::{Consumer as _, Messenger as _, Stream as _},
 };
 
@@ -23,7 +24,7 @@ impl Server {
 		let config = tangram_messenger::StreamConfig::default();
 		let stream = self
 			.messenger
-			.get_or_create_stream("process.log_compaction".into(), config)
+			.get_or_create_stream("log_compaction".into(), config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get stream"))?;
 
@@ -53,93 +54,64 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to deserialize the message"))?;
 			match message {
 				Message::Compact(process) => {
-					// Get or spawn the task.
-					let server = self.clone();
-					let task = self.log_compaction_tasks.get_or_spawn(
-						process.clone(),
-						async move |_stop| {
-							server
-								.compact_logs(&process)
-								.await
-								.inspect_err(
-									|error| tracing::error!(?error, process = %process, "failed to compact the process logs"),
-								)
-								.ok();
-						},
-					);
+					// Compact the log.
+					self.compact_log(&process)
+						.await
+						.inspect_err(
+							|error| tracing::error!(?error, process = %process, "failed to compact the logs"),
+						)
+						.ok();
 
 					// Spawn a task to ack the message when the compaction task completes.
-					tokio::spawn(async move {
-						task.wait().await.ok();
-						acker
-							.ack()
-							.await
-							.inspect_err(|error| tracing::error!(?error, "failed to ack message"))
-							.ok();
-					});
+					acker
+						.ack()
+						.await
+						.inspect_err(|error| tracing::error!(?error, "failed to ack message"))
+						.ok();
 				},
 			}
 		}
 		Ok(())
 	}
 
-	pub(crate) async fn wait_for_log_compaction(&self, id: &tg::process::Id) -> tg::Result<()> {
-		// Get the process data.
-		let data = self
-			.try_get_process_local(id)
-			.await?
-			.ok_or_else(|| tg::error!(process = %id, "process is not local"))?
-			.data;
-
-		// Log is a blob, exit early.
-		if data.log.is_some() {
-			return Ok(());
+	pub(crate) async fn wait_for_log_compaction(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<tg::blob::Id> {
+		// If running in shared process mode, we need to make sure the log compaction task is configured else there's no guarantee that the log will ever be compacted!
+		if self.config.advanced.shared_process && self.config.log_compaction.is_none() {
+			return Err(tg::error!("expected log compaction to be configured"));
 		}
 
-		// Process isn't finished, error.
-		if !data.status.is_finished() {
-			return Err(tg::error!(process = %id, "expected the process to be finished"));
-		}
+		// Create a future to wait for the notification.
+		let stream = self
+			.messenger
+			.subscribe(format!("process.{id}.log.compacted"), None)
+			.await
+			.map_err(|source| tg::error!(!source, "acknowledgement failed"))?;
+		let mut stream = pin!(stream);
+		let compacted = stream.next();
 
-		// Publish a notification that we want the log to be compacted.
+		// Notify the compaction task.
 		let message = Message::Compact(id.clone());
 		let message = serde_json::to_vec(&message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-		let _published = self
-			.messenger
-			.stream_publish("processes.log_compaction".to_owned(), message.into())
+		self.messenger
+			.stream_publish("log_compaction".to_owned(), message.into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
-		// Wait for the notification that the log has been compacted.
-		let _message = self
-			.messenger
-			.subscribe(format!("processes.{id}.log_compacted"), None)
+		// Wait for the reply.
+		let response = compacted
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
-			.next()
-			.await
-			.ok_or_else(|| tg::error!("expected a message"))?;
-
-		Ok(())
+			.ok_or_else(|| tg::error!("failed to wait for the log to be compacted"))?;
+		serde_json::from_slice(&response.payload)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))
 	}
 
-	pub(crate) async fn compact_logs(&self, id: &tg::process::Id) -> tg::Result<()> {
-		// Get the process data.
-		let mut data = self
-			.try_get_process_local(id)
-			.await?
-			.ok_or_else(|| tg::error!(process = %id, "process is not local"))?
-			.data;
-		if !data.status.is_finished() {
-			return Err(tg::error!(process = %id, "cannot compact logs of an unfinished process"));
-		}
-
-		// Bail out if the log is already a blob.
-		if data.log.is_some() {
-			return Ok(());
-		}
-
+	pub(crate) async fn compact_log(&self, id: &tg::process::Id) -> tg::Result<()> {
 		// Open the log file.
 		let path = self.logs_path().join(id.to_string());
 		let file = match tokio::fs::File::open(&path).await {
@@ -162,27 +134,38 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the blob"))?
 			.blob;
 
-		// Update the process data.
-		data.log.replace(blob);
-
 		// Update the process.
-		self.put_process(
-			id,
-			tg::process::put::Arg {
-				data,
-				local: Some(true),
-				remotes: None,
-			},
-		)
-		.await
-		.map_err(|source| tg::error!(!source, process = %id, "failed to put the process"))?;
+		self.put_process_log(id, &blob).await?;
 
 		// Publish a message to notify waiters that the log has been compacted.
+		let payload = blob.to_bytes();
 		self.messenger
-			.publish(format!("processes.{id}.log_compacted"), Bytes::new())
+			.publish(format!("processes.{id}.log_compacted"), payload)
 			.await
 			.map_err(|source| tg::error!(!source, "published message"))?;
 
+		Ok(())
+	}
+
+	async fn put_process_log(&self, id: &tg::process::Id, log: &tg::blob::Id) -> tg::Result<()> {
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set log = {p}2
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string(), log.to_string()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to set the process log"))?;
 		Ok(())
 	}
 }

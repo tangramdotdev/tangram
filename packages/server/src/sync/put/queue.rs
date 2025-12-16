@@ -6,7 +6,7 @@ use {
 			queue::{ObjectItem, ProcessItem},
 		},
 	},
-	futures::{StreamExt as _, TryStreamExt as _},
+	futures::{StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -138,6 +138,23 @@ impl Server {
 		index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
 		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
 	) -> tg::Result<()> {
+		// Ensure that logs are compacted when the put'er enqueues processes.
+		if state.arg.logs {
+			items
+				.iter()
+				.map(|item| {
+					let id = item.id.clone();
+					let server = self.clone();
+					async move {
+						server.wait_for_log_compaction(&id).await?;
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.try_collect::<()>()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to compact logs"))?;
+		}
 		for item in items {
 			let parent = item.parent.clone().map(super::graph::Id::Process);
 			let (inserted, stored) = state

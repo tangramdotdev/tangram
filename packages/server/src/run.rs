@@ -132,7 +132,7 @@ impl Server {
 		}
 
 		// Spawn a task for the process's log.
-		let _log_task = AbortOnDropHandle::new(tokio::spawn({
+		let log_task = AbortOnDropHandle::new(tokio::spawn({
 			let server = self.clone();
 			let id = process.id().clone();
 			let started_at = process
@@ -190,6 +190,12 @@ impl Server {
 			remotes: process.remote().cloned().map(|r| vec![r]),
 		};
 		self.finish_process(process.id(), arg).await?;
+
+		// Wait for the log task to finish to ensure all logs get written to disk.
+		self.finish_process_log(process.id())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to finish the log task"))?;
+		log_task.await.ok();
 
 		Ok::<_, tg::Error>(())
 	}
