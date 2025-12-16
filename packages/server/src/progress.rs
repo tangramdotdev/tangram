@@ -15,6 +15,7 @@ pub struct Handle<T> {
 	#[allow(dead_code)]
 	inactive_receiver: async_broadcast::InactiveReceiver<tg::Result<tg::progress::Event<T>>>,
 	indicators: Arc<RwLock<IndexMap<String, Indicator>>>,
+	last: Arc<RwLock<Option<tg::Result<tg::progress::Event<T>>>>>,
 	sender: async_broadcast::Sender<tg::Result<tg::progress::Event<T>>>,
 }
 
@@ -37,9 +38,11 @@ where
 		sender.set_overflow(true);
 		let inactive_receiver = receiver.deactivate();
 		let indicators = Arc::new(RwLock::new(IndexMap::new()));
+		let last = Arc::new(RwLock::new(None));
 		Self {
 			inactive_receiver,
 			indicators,
+			last,
 			sender,
 		}
 	}
@@ -118,11 +121,15 @@ where
 
 	pub fn output(&self, output: T) {
 		let event = tg::progress::Event::Output(output);
-		self.sender.try_broadcast(Ok(event)).ok();
+		let result = Ok(event);
+		*self.last.write().unwrap() = Some(result.clone());
+		self.sender.try_broadcast(result).ok();
 	}
 
 	pub fn error(&self, error: tg::Error) {
-		self.sender.try_broadcast(Err(error)).ok();
+		let result = Err(error);
+		*self.last.write().unwrap() = Some(result.clone());
+		self.sender.try_broadcast(result).ok();
 	}
 
 	pub fn forward<U>(&self, event: tg::Result<tg::progress::Event<U>>) -> Option<U> {
@@ -165,8 +172,12 @@ where
 	}
 
 	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + use<T> {
-		let indicators = self.indicators.clone();
 		let receiver = self.sender.new_receiver();
+		let last = self.last.read().unwrap().clone();
+		if let Some(result) = last {
+			return stream::once(future::ready(result)).left_stream();
+		}
+		let indicators = self.indicators.clone();
 		let interval = Duration::from_millis(100);
 		let interval = tokio::time::interval(interval);
 		let updates = IntervalStream::new(interval)
@@ -197,6 +208,7 @@ where
 					Ok(tg::progress::Event::Output(_)) | Err(_)
 				))
 			})
+			.right_stream()
 	}
 
 	fn get_indicators_event(
