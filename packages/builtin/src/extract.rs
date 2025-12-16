@@ -108,7 +108,7 @@ where
 			options: tg::checkin::Options {
 				destructive: true,
 				ignore: false,
-				lock: false,
+				lock: None,
 				..Default::default()
 			},
 			path: temp.path().to_owned(),

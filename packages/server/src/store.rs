@@ -75,7 +75,6 @@ impl Store {
 	}
 
 	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => store.try_get_sync(id),
 			Store::Memory(store) => Ok(store.try_get(id)),
@@ -85,7 +84,6 @@ impl Store {
 
 	#[expect(dead_code)]
 	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => store.try_get_batch_sync(ids),
 			Store::Memory(store) => Ok(store.try_get_batch(ids)),
@@ -97,7 +95,6 @@ impl Store {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => store.try_get_object_data_sync(id),
 			Store::Memory(store) => store.try_get_object_data(id),
@@ -109,7 +106,6 @@ impl Store {
 		&self,
 		id: &tg::blob::Id,
 	) -> tg::Result<Option<CacheReference>> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			crate::store::Store::Lmdb(lmdb) => {
 				lmdb.try_get_cache_reference_sync(&id.clone().into())
@@ -122,7 +118,6 @@ impl Store {
 	}
 
 	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => {
 				store.put_sync(arg)?;
@@ -139,7 +134,6 @@ impl Store {
 
 	#[expect(dead_code)]
 	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => {
 				store.put_batch_sync(args)?;
@@ -156,7 +150,6 @@ impl Store {
 
 	#[expect(dead_code)]
 	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => {
 				store.delete_sync(arg)?;
@@ -173,7 +166,6 @@ impl Store {
 
 	#[expect(dead_code)]
 	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => {
 				store.delete_batch_sync(args)?;
@@ -190,7 +182,6 @@ impl Store {
 
 	#[expect(dead_code)]
 	pub fn flush_sync(&self) -> tg::Result<()> {
-		#[allow(clippy::match_wildcard_for_single_variants)]
 		match self {
 			Store::Lmdb(store) => {
 				store.flush_sync()?;

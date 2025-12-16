@@ -7,6 +7,8 @@ use {
 	tangram_util::serde::{is_false, is_true, return_true},
 };
 
+pub use crate::checkin::Lock;
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub artifact: tg::artifact::Id,
@@ -17,8 +19,11 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub lock: bool,
+	#[serde(
+		default = "crate::checkin::default_lock",
+		skip_serializing_if = "crate::checkin::is_default_lock"
+	)]
+	pub lock: Option<Lock>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,

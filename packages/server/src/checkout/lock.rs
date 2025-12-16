@@ -10,6 +10,11 @@ struct State {
 
 impl Server {
 	pub(super) fn checkout_write_lock(&self, state: &mut super::State) -> tg::Result<()> {
+		// Do not write a lock if the lock arg is not set.
+		if state.arg.lock.is_none() {
+			return Ok(());
+		}
+
 		// Create the lock.
 		let lock = self
 			.checkout_create_lock(&state.artifact, state.arg.dependencies)
@@ -29,10 +34,23 @@ impl Server {
 				|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
 			)?;
 		} else if state.artifact.is_file() {
-			let contents = serde_json::to_vec(&lock)
-				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
-			xattr::set(&state.path, tg::file::LOCKATTR_XATTR_NAME, &contents)
-				.map_err(|source| tg::error!(!source, "failed to write the lockattr"))?;
+			match state.arg.lock {
+				Some(tg::checkout::Lock::File) => {
+					let contents = serde_json::to_vec_pretty(&lock)
+						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+					let lockfile_path = state.path.with_extension("lock");
+					std::fs::write(&lockfile_path, &contents).map_err(
+						|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
+					)?;
+				},
+				Some(tg::checkout::Lock::Attr) => {
+					let contents = serde_json::to_vec(&lock)
+						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+					xattr::set(&state.path, tg::file::LOCKATTR_XATTR_NAME, &contents)
+						.map_err(|source| tg::error!(!source, "failed to write the lockattr"))?;
+				},
+				None => unreachable!(),
+			}
 		}
 
 		Ok(())

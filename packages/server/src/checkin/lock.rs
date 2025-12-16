@@ -11,39 +11,26 @@ use {
 
 impl Server {
 	pub(crate) fn checkin_try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::Data>> {
-		// Attempt to read a lockattr.
-		let contents = 'a: {
-			let Ok(Some(contents)) = xattr::get(path, tg::file::LOCKATTR_XATTR_NAME) else {
-				break 'a None;
-			};
-			Some(contents)
-		};
-
-		// Attempt to read a lockfile.
-		let contents = 'a: {
-			if let Some(contents) = contents {
-				break 'a Some(contents);
+		// Try to read the lock contents.
+		let contents = if path.is_dir() {
+			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+			Self::try_read_lockfile(&lockfile_path)?
+		} else if path.is_file() {
+			let lockfile_path = path.with_extension("lock");
+			let contents = Self::try_read_lockfile(&lockfile_path)?;
+			if contents.is_some() {
+				contents
+			} else {
+				// Fall back to xattr.
+				xattr::get(path, tg::file::LOCKATTR_XATTR_NAME)
+					.ok()
+					.flatten()
 			}
-			let lock_path = path.join(tg::package::LOCKFILE_FILE_NAME);
-			let contents = match std::fs::read(&lock_path) {
-				Ok(contents) => contents,
-				Err(error)
-					if matches!(
-						error.kind(),
-						std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-					) =>
-				{
-					break 'a None;
-				},
-				Err(source) => {
-					return Err(
-						tg::error!(!source, path = %lock_path.display(), "failed to read the lockfile"),
-					);
-				},
-			};
-			Some(contents)
+		} else {
+			None
 		};
 
+		// Return early if no contents found.
 		let Some(contents) = contents else {
 			return Ok(None);
 		};
@@ -54,6 +41,23 @@ impl Server {
 		)?;
 
 		Ok(Some(lock))
+	}
+
+	fn try_read_lockfile(path: &Path) -> tg::Result<Option<Vec<u8>>> {
+		match std::fs::read(path) {
+			Ok(contents) => Ok(Some(contents)),
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+				) =>
+			{
+				Ok(None)
+			},
+			Err(source) => {
+				Err(tg::error!(!source, path = %path.display(), "failed to read the lockfile"))
+			},
+		}
 	}
 
 	pub(super) async fn checkin_write_lock(
@@ -71,8 +75,8 @@ impl Server {
 		let root_index = graph.paths.get(root).unwrap();
 		let root_node = graph.nodes.get(root_index).unwrap();
 
-		// Do not write a lock if the lock flag is false.
-		if !arg.options.lock {
+		// Do not write a lock if the lock arg is not set.
+		if arg.options.lock.is_none() {
 			return Ok(());
 		}
 
@@ -89,6 +93,8 @@ impl Server {
 					tangram_util::fs::remove(&lockfile_path).await.ok();
 				},
 				Variant::File(_) => {
+					let lockfile_path = root.with_extension("lock");
+					tangram_util::fs::remove(&lockfile_path).await.ok();
 					xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
 				},
 				Variant::Symlink(_) => (),
@@ -138,22 +144,57 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
 			},
 
-			Variant::File(_) => {
-				// Remove an existing lockattr.
-				xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
+			Variant::File(_) => match arg.options.lock {
+				Some(tg::checkin::Lock::File) => {
+					// Remove an existing lockattr.
+					xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
 
-				// Do not write an empty lock.
-				if lock.nodes.is_empty() {
-					return Ok(());
-				}
+					// Get the lockfile path.
+					let lockfile_path = root.with_extension("lock");
 
-				// Serialize the lock.
-				let contents = serde_json::to_vec(&lock)
-					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+					// Remove an existing lockfile.
+					tangram_util::fs::remove(&lockfile_path).await.ok();
 
-				// Write the lockattr.
-				xattr::set(root, tg::file::LOCKATTR_XATTR_NAME, &contents)
-					.map_err(|source| tg::error!(!source, "failed to write the lockatttr"))?;
+					// Do not write an empty lock.
+					if lock.nodes.is_empty() {
+						return Ok(());
+					}
+
+					// Serialize the lock.
+					let contents = serde_json::to_vec_pretty(&lock)
+						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+
+					// Write the lockfile.
+					tokio::fs::write(&lockfile_path, contents)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
+				},
+
+				Some(tg::checkin::Lock::Attr) => {
+					// Get the lockfile path.
+					let lockfile_path = root.with_extension("lock");
+
+					// Remove an existing lockfile.
+					tangram_util::fs::remove(&lockfile_path).await.ok();
+
+					// Remove an existing lockattr.
+					xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
+
+					// Do not write an empty lock.
+					if lock.nodes.is_empty() {
+						return Ok(());
+					}
+
+					// Serialize the lock.
+					let contents = serde_json::to_vec(&lock)
+						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+
+					// Write the lockattr.
+					xattr::set(root, tg::file::LOCKATTR_XATTR_NAME, &contents)
+						.map_err(|source| tg::error!(!source, "failed to write the lockattr"))?;
+				},
+
+				None => unreachable!(),
 			},
 
 			Variant::Symlink(_) => {},

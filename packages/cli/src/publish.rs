@@ -381,7 +381,7 @@ impl State {
 				// If this node has no local dependencies then we don't have to check it in again
 				let checkin = (!node.outgoing.is_empty()).then(|| tg::checkin::Options {
 					local_dependencies: false,
-					lock: false,
+					lock: None,
 					solve: true,
 					..tg::checkin::Options::default()
 				});
@@ -415,7 +415,7 @@ impl State {
 					plan.push(Item {
 						checkin: Some(tg::checkin::Options {
 							local_dependencies: false,
-							lock: false,
+							lock: None,
 							solve: false,
 							..tg::checkin::Options::default()
 						}),

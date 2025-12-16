@@ -111,7 +111,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 				destructive: true,
 				deterministic: true,
 				ignore: false,
-				lock: false,
+				lock: None,
 				locked: true,
 				..Default::default()
 			},

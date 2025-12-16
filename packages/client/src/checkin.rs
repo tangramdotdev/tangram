@@ -8,6 +8,23 @@ use {
 	tangram_util::serde::{CommaSeparatedString, is_false, is_true, return_false, return_true},
 };
 
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	Eq,
+	Hash,
+	PartialEq,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+pub enum Lock {
+	#[default]
+	File,
+	Attr,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -44,9 +61,8 @@ pub struct Options {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub local_dependencies: bool,
 
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub lock: bool,
+	#[serde(default = "default_lock", skip_serializing_if = "is_default_lock")]
+	pub lock: Option<Lock>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -147,11 +163,42 @@ impl Default for Options {
 			deterministic: false,
 			ignore: true,
 			local_dependencies: true,
-			lock: true,
+			lock: Some(Lock::default()),
 			locked: false,
 			solve: true,
 			unsolved_dependencies: false,
 			watch: false,
 		}
 	}
+}
+
+impl std::fmt::Display for Lock {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::File => write!(f, "file"),
+			Self::Attr => write!(f, "attr"),
+		}
+	}
+}
+
+impl std::str::FromStr for Lock {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"file" => Ok(Self::File),
+			"attr" => Ok(Self::Attr),
+			_ => Err(tg::error!(%s, "invalid lock")),
+		}
+	}
+}
+
+#[expect(clippy::unnecessary_wraps)]
+pub(crate) fn default_lock() -> Option<Lock> {
+	Some(Lock::default())
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, clippy::ref_option)]
+pub(crate) fn is_default_lock(lock: &Option<Lock>) -> bool {
+	*lock == Some(Lock::File)
 }

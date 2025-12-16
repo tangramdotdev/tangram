@@ -228,7 +228,7 @@ where
 			destructive: true,
 			deterministic: true,
 			ignore: false,
-			lock: false,
+			lock: None,
 			..Default::default()
 		},
 		path,

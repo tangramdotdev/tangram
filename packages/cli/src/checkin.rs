@@ -147,29 +147,28 @@ impl LocalDependencies {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Lock {
-	/// Whether to write the lock.
+	/// Whether to write the lock. Use `--lock=file` to write a lockfile, "attr" to write a lockattr. "file" is the default if not specified.
 	#[arg(
-		default_missing_value = "true",
+		default_missing_value = "file",
 		long,
 		num_args = 0..=1,
 		overrides_with = "no_lock",
 		require_equals = true,
 	)]
-	lock: Option<bool>,
+	lock: Option<tg::checkin::Lock>,
 
-	#[arg(
-		default_missing_value = "true",
-		long,
-		num_args = 0..=1,
-		overrides_with = "lock",
-		require_equals = true,
-	)]
-	no_lock: Option<bool>,
+	/// Disable writing the lock.
+	#[arg(long, overrides_with = "lock")]
+	no_lock: bool,
 }
 
 impl Lock {
-	pub fn get(&self) -> bool {
-		self.lock.or(self.no_lock.map(|v| !v)).unwrap_or(true)
+	pub fn get(&self) -> Option<tg::checkin::Lock> {
+		if self.no_lock {
+			None
+		} else {
+			self.lock.or(Some(tg::checkin::Lock::default()))
+		}
 	}
 }
 

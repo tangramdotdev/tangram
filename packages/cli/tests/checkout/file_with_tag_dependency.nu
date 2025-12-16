@@ -27,4 +27,32 @@ let id = tg build $artifact
 
 let path = $tmp | path join "checkout"
 tg checkout --dependencies=false $id $path
-snapshot --path $path
+snapshot --path $path '
+	{
+	  "kind": "file",
+	  "contents": "foo",
+	  "xattrs": {
+	    "user.tangram.dependencies": "[\"bar\"]"
+	  }
+	}
+'
+
+let lock = open ($path | path parse | update extension "lock" | path join)
+snapshot $lock '
+	{
+	  "nodes": [
+	    {
+	      "kind": "file",
+	      "dependencies": {
+	        "bar": {
+	          "item": null,
+	          "options": {
+	            "id": "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g",
+	            "tag": "bar"
+	          }
+	        }
+	      }
+	    }
+	  ]
+	}
+'

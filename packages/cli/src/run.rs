@@ -394,7 +394,7 @@ impl Cli {
 				artifact,
 				dependencies: path.is_some(),
 				force: options.checkout_force,
-				lock: false,
+				lock: None,
 				path,
 			};
 			let stream = handle.checkout(arg).await?;
