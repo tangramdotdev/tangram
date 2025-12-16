@@ -15,7 +15,7 @@ def main [
 	...filters: string # Filter tests.
 ] {
 	# Clean up test temp directories older than 1 hour.
-	for entry in (ls $env.TMPDIR | where name =~ 'tangram_test_' and type == dir and modified < ((date now) - 1hr)) {
+	for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir and modified < ((date now) - 1hr)) {
 		chmod -R +w $entry.name
 		rm -rf $entry.name
 	}
@@ -612,7 +612,7 @@ export def --env spawn [
 	mut id: any = null
 	if $cloud {
 		$id = random chars
-		$id ++ "\n" | save --append ($env.TMPDIR | path join 'ids')
+		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
 		print -e $id
 
 		createdb -U postgres -h localhost $'database_($id)'
