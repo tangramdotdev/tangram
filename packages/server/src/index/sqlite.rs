@@ -1196,31 +1196,43 @@ impl Server {
 						processes.id,
 						case
 							when
-								min(coalesce(command_objects.subtree_stored, 0))
-								and (count(process_children_commands.child) = 0
-								or min(coalesce(child_processes.subtree_command_stored, 0)))
+								coalesce(command_objects.subtree_stored, 0)
+								and (coalesce(child_processes.child_count, 0) = 0 or child_processes.all_stored)
 								then 1
 							else 0
 						end as subtree_command_stored,
-					coalesce(sum(coalesce(command_objects.subtree_count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.subtree_command_count, 0)), 0) as subtree_command_count,
-					max(coalesce(command_objects.subtree_depth, 0),
-					coalesce(child_processes.subtree_command_depth, 0)) as subtree_command_depth,
-					coalesce(sum(coalesce(command_objects.subtree_size, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.subtree_command_size, 0)), 0) as subtree_command_size
+						coalesce(command_objects.subtree_count, 0) + coalesce(child_processes.subtree_command_count, 0) as subtree_command_count,
+						max(coalesce(command_objects.subtree_depth, 0), coalesce(child_processes.subtree_command_depth, 0)) as subtree_command_depth,
+						coalesce(command_objects.subtree_size, 0) + coalesce(child_processes.subtree_command_size, 0) as subtree_command_size
 					from processes
-					left join process_objects process_objects_commands on process_objects_commands.process = processes.id and process_objects_commands.kind = 0
-					left join objects command_objects on command_objects.id = process_objects_commands.object
-					left join process_children process_children_commands on process_children_commands.process = processes.id
-					left join processes child_processes on child_processes.id = process_children_commands.child
+					left join (
+						select
+							process_objects.process,
+							objects.subtree_stored,
+							objects.subtree_count,
+							objects.subtree_depth,
+							objects.subtree_size
+						from process_objects
+						left join objects on objects.id = process_objects.object
+						where process_objects.kind = 0
+					) as command_objects on command_objects.process = processes.id
+					left join (
+						select
+							process_children.process,
+							count(process_children.child) as child_count,
+							min(coalesce(child.subtree_command_stored, 0)) as all_stored,
+							sum(coalesce(child.subtree_command_count, 0)) as subtree_command_count,
+							max(coalesce(child.subtree_command_depth, 0)) as subtree_command_depth,
+							sum(coalesce(child.subtree_command_size, 0)) as subtree_command_size
+						from process_children
+						left join processes child on child.id = process_children.child
+						group by process_children.process
+					) as child_processes on child_processes.process = processes.id
 					where processes.id = ?1
-					and (
-						processes.subtree_command_stored = 0 or
-						processes.subtree_command_count is null or
-						processes.subtree_command_depth is null or
-						processes.subtree_command_size is null
-					)
-					group by processes.id
+					and (processes.subtree_command_stored = 0
+						or processes.subtree_command_count is null
+						or processes.subtree_command_depth is null
+						or processes.subtree_command_size is null)
 				) as updates
 				where processes.id = updates.id
 				and updates.subtree_command_stored = 1
@@ -1272,31 +1284,43 @@ impl Server {
 						processes.id,
 						case
 							when
-								min(coalesce(output_objects.subtree_stored, 0))
-								and (count(process_children_outputs.child) = 0
-								or min(coalesce(child_processes.subtree_output_stored, 0)))
+								coalesce(output_objects.subtree_stored, 0)
+								and (coalesce(child_processes.child_count, 0) = 0 or child_processes.all_stored)
 								then 1
 							else 0
 						end as subtree_output_stored,
-					coalesce(sum(coalesce(output_objects.subtree_count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.subtree_output_count, 0)), 0) as subtree_output_count,
-					max(coalesce(output_objects.subtree_depth, 0),
-					coalesce(child_processes.subtree_output_depth, 0)) as subtree_output_depth,
-					coalesce(sum(coalesce(output_objects.subtree_size, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.subtree_output_size, 0)), 0) as subtree_output_size
+						coalesce(output_objects.subtree_count, 0) + coalesce(child_processes.subtree_output_count, 0) as subtree_output_count,
+						max(coalesce(output_objects.subtree_depth, 0), coalesce(child_processes.subtree_output_depth, 0)) as subtree_output_depth,
+						coalesce(output_objects.subtree_size, 0) + coalesce(child_processes.subtree_output_size, 0) as subtree_output_size
 					from processes
-					left join process_objects process_objects_outputs on process_objects_outputs.process = processes.id and process_objects_outputs.kind = 3
-					left join objects output_objects on output_objects.id = process_objects_outputs.object
-					left join process_children process_children_outputs on process_children_outputs.process = processes.id
-					left join processes child_processes on child_processes.id = process_children_outputs.child
+					left join (
+						select
+							process_objects.process,
+							objects.subtree_stored,
+							objects.subtree_count,
+							objects.subtree_depth,
+							objects.subtree_size
+						from process_objects
+						left join objects on objects.id = process_objects.object
+						where process_objects.kind = 3
+					) as output_objects on output_objects.process = processes.id
+					left join (
+						select
+							process_children.process,
+							count(process_children.child) as child_count,
+							min(coalesce(child.subtree_output_stored, 0)) as all_stored,
+							sum(coalesce(child.subtree_output_count, 0)) as subtree_output_count,
+							max(coalesce(child.subtree_output_depth, 0)) as subtree_output_depth,
+							sum(coalesce(child.subtree_output_size, 0)) as subtree_output_size
+						from process_children
+						left join processes child on child.id = process_children.child
+						group by process_children.process
+					) as child_processes on child_processes.process = processes.id
 					where processes.id = ?1
-					and (
-						processes.subtree_output_stored = 0 or
-						processes.subtree_output_count is null or
-						processes.subtree_output_depth is null or
-						processes.subtree_output_size is null
-					)
-					group by processes.id
+					and (processes.subtree_output_stored = 0
+						or processes.subtree_output_count is null
+						or processes.subtree_output_depth is null
+						or processes.subtree_output_size is null)
 				) as updates
 				where processes.id = updates.id
 				and updates.subtree_output_stored = 1
