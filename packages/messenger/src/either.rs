@@ -1,7 +1,7 @@
 use {
 	crate::{
 		BatchConfig, Consumer, ConsumerConfig, ConsumerInfo, Error, Message, Messenger, Stream,
-		StreamConfig, StreamInfo,
+		StreamConfig, StreamInfo, StreamMessage,
 	},
 	bytes::Bytes,
 	futures::{FutureExt as _, TryFutureExt as _},
@@ -144,6 +144,47 @@ where
 		match self {
 			Either::Left(s) => s.get_consumer(name).map_ok(Either::Left).left_future(),
 			Either::Right(s) => s.get_consumer(name).map_ok(Either::Right).right_future(),
+		}
+	}
+
+	fn direct_get(
+		&self,
+		sequence: u64,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send {
+		match self {
+			Either::Left(s) => s.direct_get(sequence).left_future(),
+			Either::Right(s) => s.direct_get(sequence).right_future(),
+		}
+	}
+
+	fn direct_get_first_for_subject(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send {
+		match self {
+			Either::Left(s) => s.direct_get_first_for_subject(name).left_future(),
+			Either::Right(s) => s.direct_get_first_for_subject(name).right_future(),
+		}
+	}
+
+	fn direct_get_next_for_subject(
+		&self,
+		name: String,
+		sequence: Option<u64>,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send {
+		match self {
+			Either::Left(s) => s.direct_get_next_for_subject(name, sequence).left_future(),
+			Either::Right(s) => s.direct_get_next_for_subject(name, sequence).right_future(),
+		}
+	}
+
+	fn direct_get_last_for_subject(
+		&self,
+		name: String,
+	) -> impl Future<Output = Result<StreamMessage, Error>> + Send {
+		match self {
+			Either::Left(s) => s.direct_get_last_for_subject(name).left_future(),
+			Either::Right(s) => s.direct_get_last_for_subject(name).right_future(),
 		}
 	}
 
