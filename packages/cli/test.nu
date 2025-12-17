@@ -607,6 +607,10 @@ export def --env spawn [
 			internal_error_locations: false
 		},
 		remotes: [],
+		store: {
+			kind: 'lmdb',
+			map_size: 10_485_760,
+		},
 	}
 
 	mut id: any = null

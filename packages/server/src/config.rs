@@ -262,6 +262,7 @@ pub struct FdbStore {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct LmdbStore {
+	pub map_size: usize,
 	pub path: PathBuf,
 }
 
@@ -569,6 +570,7 @@ impl Default for Index {
 impl Default for LmdbStore {
 	fn default() -> Self {
 		Self {
+			map_size: 1_099_511_627_776,
 			path: PathBuf::from("store"),
 		}
 	}

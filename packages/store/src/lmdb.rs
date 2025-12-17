@@ -9,6 +9,7 @@ use {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+	pub map_size: usize,
 	pub path: std::path::PathBuf,
 }
 
@@ -62,7 +63,7 @@ impl Store {
 			.map_err(Error::other)?;
 		let env = unsafe {
 			lmdb::EnvOpenOptions::new()
-				.map_size(1_099_511_627_776)
+				.map_size(config.map_size)
 				.max_dbs(3)
 				.max_readers(1_000)
 				.flags(

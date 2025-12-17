@@ -39,6 +39,7 @@ impl Store {
 
 	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbStore) -> Result<Self, Error> {
 		let config = store::lmdb::Config {
+			map_size: config.map_size,
 			path: directory.join(&config.path),
 		};
 		let lmdb = store::lmdb::Store::new(&config)?;
