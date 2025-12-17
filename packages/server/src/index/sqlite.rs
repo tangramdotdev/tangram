@@ -318,8 +318,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Newly inserted rows always enqueue parents.
-			// Updated rows only enqueue parents if one of their subtree fields changed.
+			// Newly inserted rows always enqueue parents. Updated rows only enqueue parents if one of their subtree fields changed.
 			if changed {
 				// Enqueue for stored and metadata.
 				let params = sqlite::params![&id.to_bytes().to_vec(), 1];
@@ -641,8 +640,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Newly inserted rows always enqueue parents.
-			// Updated rows only enqueue parents if one of their subtree fields changed.
+			// Newly inserted rows always enqueue parents. Updated rows only enqueue parents if one of their subtree fields changed.
 			if changed {
 				for kind in [1, 2, 3] {
 					let params = sqlite::params![message.id.to_bytes().to_vec(), kind];
