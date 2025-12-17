@@ -371,8 +371,10 @@ impl Graph {
 		let mut stored = crate::process::stored::Output {
 			subtree: true,
 			subtree_command: true,
+			subtree_log: true,
 			subtree_output: true,
 			node_command: true,
+			node_log: true,
 			node_output: true,
 		};
 		for child_index in children {
@@ -383,10 +385,12 @@ impl Graph {
 			if let Some(child_stored) = child_stored {
 				stored.subtree = stored.subtree && child_stored.subtree;
 				stored.subtree_command = stored.subtree_command && child_stored.subtree_command;
+				stored.subtree_log = stored.subtree_log && child_stored.subtree_log;
 				stored.subtree_output = stored.subtree_output && child_stored.subtree_output;
 			} else {
 				stored.subtree = false;
 				stored.subtree_command = false;
+				stored.subtree_log = false;
 				stored.subtree_output = false;
 			}
 		}
@@ -496,8 +500,10 @@ impl Graph {
 		crate::process::stored::Output {
 			subtree: old.subtree || new.subtree,
 			subtree_command: old.subtree_command || new.subtree_command,
+			subtree_log: old.subtree_log || new.subtree_log,
 			subtree_output: old.subtree_output || new.subtree_output,
 			node_command: old.node_command || new.node_command,
+			node_log: old.node_log || new.node_log,
 			node_output: old.node_output || new.node_output,
 		}
 	}
