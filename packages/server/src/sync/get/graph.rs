@@ -407,7 +407,7 @@ impl Graph {
 				},
 				crate::index::message::ProcessObjectKind::Log => {
 					stored.node_log = stored.node_log && object_stored;
-					stored.subtree_log = stored.subtree_log && object_log;
+					stored.subtree_log = stored.subtree_log && object_stored;
 				},
 				crate::index::message::ProcessObjectKind::Output => {
 					stored.node_output = stored.node_output && object_stored;
