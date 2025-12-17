@@ -146,6 +146,34 @@ impl Server {
 			.prepare_cached(insert_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+		// Prepare query statement.
+		#[derive(db::sqlite::row::Deserialize, Clone, PartialEq)]
+		#[expect(clippy::struct_field_names)]
+		struct Row {
+			subtree_count: Option<u64>,
+			subtree_depth: Option<u64>,
+			subtree_size: Option<u64>,
+			subtree_stored: bool,
+			subtree_solved: Option<bool>,
+			subtree_solvable: Option<bool>,
+		}
+		let statement = indoc!(
+			"
+				select
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_stored,
+					subtree_solved,
+					subtree_solvable
+				from objects
+				where id = ?1;
+			"
+		);
+		let mut subtree_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the subtree statement"))?;
+
 		// Prepare update statement for objects.
 		let update_statement = indoc!(
 			"
@@ -158,7 +186,14 @@ impl Server {
 					subtree_solved = coalesce(subtree_solved, ?10),
 					subtree_stored = subtree_stored or ?11,
 					touched_at = max(touched_at, ?12)
-				where id = ?1;
+				where id = ?1
+				returning
+					subtree_count,
+					subtree_depth,
+					subtree_size,
+					subtree_solved,
+					subtree_solvable,
+					subtree_stored;
 			"
 		);
 		let mut update_statement = transaction
@@ -231,7 +266,21 @@ impl Server {
 			let inserted = rows > 0;
 
 			// If not inserted, update instead.
+			let mut updated = inserted;
 			if !inserted {
+				// Get the old values.
+				let params = [id.to_bytes().to_vec()];
+				let mut rows = subtree_statement
+					.query(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let old_row = rows
+					.next()
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.ok_or_else(|| tg::error!("expected a row"))?;
+				let old_row = <Row as db::sqlite::row::Deserialize>::deserialize(old_row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+
+				// Update and get the new values.
 				let params = sqlite::params![
 					&id.to_bytes().to_vec(),
 					cache_entry,
@@ -246,9 +295,19 @@ impl Server {
 					stored.subtree,
 					touched_at,
 				];
-				update_statement
-					.execute(params)
+				let mut rows = update_statement
+					.query(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let row = rows
+					.next()
+					.map_err(|source| {
+						tg::error!(!source, "failed to execute the update subtree statement")
+					})?
+					.ok_or_else(|| tg::error!("expected a row"))?;
+				let new_row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize row"))?;
+
+				updated = old_row != new_row;
 			}
 
 			if inserted {
@@ -259,11 +318,15 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Enqueue for stored and metadata.
-			let params = sqlite::params![&id.to_bytes().to_vec(), 1];
-			queue_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			// Newly inserted rows always enqueue parents.
+			// Updated rows only enqueue parents if one of their subtree fields changed.
+			if updated {
+				// Enqueue for stored and metadata.
+				let params = sqlite::params![&id.to_bytes().to_vec(), 1];
+				queue_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 		}
 
 		Ok(())
@@ -353,6 +416,41 @@ impl Server {
 			.prepare_cached(insert_statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
+		// Prepare query statement for processes.
+		#[derive(db::sqlite::row::Deserialize, Clone, PartialEq)]
+		struct Row {
+			subtree_command_count: Option<u64>,
+			subtree_command_depth: Option<u64>,
+			subtree_command_size: Option<u64>,
+			subtree_command_stored: bool,
+			subtree_output_count: Option<u64>,
+			subtree_output_depth: Option<u64>,
+			subtree_output_size: Option<u64>,
+			subtree_output_stored: bool,
+			subtree_count: Option<u64>,
+			subtree_stored: bool,
+		}
+		let statement = indoc!(
+			"
+				select
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_command_stored,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_output_stored,
+					subtree_count,
+					subtree_stored
+				from processes
+				where id = ?1;
+			"
+		);
+		let mut query_statement = transaction
+			.prepare_cached(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the query statement"))?;
+
 		// Prepare update statement for processes.
 		let update_statement = indoc!(
 			"
@@ -377,7 +475,18 @@ impl Server {
 					subtree_count = coalesce(subtree_count, ?18),
 					subtree_stored = subtree_stored or ?19,
 					touched_at = max(touched_at, ?20)
-				where id = ?1;
+				where id = ?1
+				returning
+					subtree_command_count,
+					subtree_command_depth,
+					subtree_command_size,
+					subtree_command_stored,
+					subtree_output_count,
+					subtree_output_depth,
+					subtree_output_size,
+					subtree_output_stored,
+					subtree_count,
+					subtree_stored;
 			"
 		);
 		let mut update_statement = transaction
@@ -447,7 +556,22 @@ impl Server {
 			let inserted = rows > 0;
 
 			// If not inserted, update instead.
+			let mut updated = inserted;
 			if !inserted {
+				// Get the old values.
+				let params = [message.id.to_bytes().to_vec()];
+				let mut rows = query_statement.query(params).map_err(|source| {
+					tg::error!(!source, "failed to execute the query statement")
+				})?;
+				let old_row = rows
+					.next()
+					.map_err(|source| tg::error!(!source, "failed to get next row"))?
+					.ok_or_else(|| tg::error!("expected a row"))?;
+				let old_row = <Row as db::sqlite::row::Deserialize>::deserialize(old_row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize row"))?;
+				drop(rows);
+
+				// Update and get the new values.
 				let params = sqlite::params![
 					message.id.to_bytes().to_vec(),
 					message.metadata.node.command.count,
@@ -470,9 +594,18 @@ impl Server {
 					message.stored.subtree,
 					message.touched_at,
 				];
-				update_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let mut rows = update_statement.query(params).map_err(|source| {
+					tg::error!(!source, "failed to execute the update statement")
+				})?;
+				let row = rows
+					.next()
+					.map_err(|source| tg::error!(!source, "failed to get next row"))?
+					.ok_or_else(|| tg::error!("expected a row"))?;
+				let new_row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize row"))?;
+				drop(rows);
+
+				updated = old_row != new_row;
 			}
 
 			// Insert the children.
@@ -500,17 +633,22 @@ impl Server {
 			}
 
 			if inserted {
+				// Enqueue for reference count.
 				let params = sqlite::params![message.id.to_bytes().to_vec(), 0];
 				queue_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			for kind in [1, 2, 3] {
-				let params = sqlite::params![message.id.to_bytes().to_vec(), kind];
-				queue_statement
-					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			// Newly inserted rows always enqueue parents.
+			// Updated rows only enqueue parents if one of their subtree fields changed.
+			if updated {
+				for kind in [1, 2, 3] {
+					let params = sqlite::params![message.id.to_bytes().to_vec(), kind];
+					queue_statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				}
 			}
 		}
 
@@ -898,15 +1036,7 @@ impl Server {
 				insert into object_queue (object, kind, transaction_id)
 				select object, 1, ?2
 				from object_children
-				join objects on objects.id = object_children.object
-				where object_children.child = ?1 and (
-					objects.subtree_stored = 0 or
-					objects.subtree_count is null or
-					objects.subtree_depth is null or
-					objects.subtree_size is null or
-					objects.subtree_solved is null or
-					objects.subtree_solvable is null
-				);
+				where object_children.child = ?1;
 			"
 		);
 		let mut enqueue_parents_statement =
@@ -919,16 +1049,7 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 2, ?2
 				from process_objects
-				join processes on processes.id = process_objects.process
-				where process_objects.object = ?1 and (
-					processes.subtree_command_stored = 0 or
-					processes.node_command_count is null or
-					processes.node_command_depth is null or
-					processes.node_command_size is null or
-					processes.subtree_command_count is null or
-					processes.subtree_command_depth is null or
-					processes.subtree_command_size is null
-				);
+				where process_objects.object = ?1;
 			"
 		);
 		let mut enqueue_commands_processes_statement =
@@ -941,16 +1062,7 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 3, ?2
 				from process_objects
-				join processes on processes.id = process_objects.process
-				where process_objects.object = ?1 and (
-					processes.subtree_output_stored = 0 or
-					processes.node_output_count is null or
-					processes.node_output_depth is null or
-					processes.node_output_size is null or
-					processes.subtree_output_count is null or
-					processes.subtree_output_depth is null or
-					processes.subtree_output_size is null
-				);
+				where process_objects.object = ?1;
 			"
 		);
 		let mut enqueue_outputs_processes_statement =
@@ -1107,10 +1219,7 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 1, ?2
 				from process_children
-				join processes on processes.id = process_children.process
-				where
-					process_children.child = ?1
-					and processes.subtree_stored = 0;
+				where process_children.child = ?1;
 			"
 		);
 		let mut enqueue_parents_process_statement =
@@ -1126,10 +1235,7 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 2, ?2
 				from process_children
-				join processes on processes.id = process_children.process
-				where
-					process_children.child = ?1
-					and processes.subtree_command_stored = 0;
+				where process_children.child = ?1;
 			"
 		);
 		let mut enqueue_parents_command_statement =
@@ -1146,10 +1252,7 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 3, ?2
 				from process_children
-				join processes on processes.id = process_children.process
-				where
-					process_children.child = ?1
-					and processes.subtree_output_stored = 0;
+				where process_children.child = ?1;
 			"
 		);
 		let mut enqueue_parents_output_statement =
