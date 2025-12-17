@@ -418,6 +418,7 @@ impl Server {
 
 		// Prepare query statement for processes.
 		#[derive(db::sqlite::row::Deserialize, Clone, PartialEq)]
+		#[expect(clippy::struct_field_names)]
 		struct Row {
 			subtree_command_count: Option<u64>,
 			subtree_command_depth: Option<u64>,

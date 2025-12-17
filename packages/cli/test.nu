@@ -763,8 +763,8 @@ def cleanup [id: string] {
 	try { dropdb -U postgres -h localhost $'index_($id)' }
 
 	# Remove the NATS stream and consumer.
-	try { nats consumer rm -f $'($id).index' index }
-	try { nats stream rm -f $'($id).index' }
+	try { nats consumer rm -f $'index_($id)' index }
+	try { nats stream rm -f $'index_($id)' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }
