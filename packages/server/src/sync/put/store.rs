@@ -70,10 +70,9 @@ impl Server {
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
 		// Get the objects.
-		let n = items.len();
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
-			.try_get_object_batch(&ids)
+			.try_get_object_batch_local(&ids)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
@@ -121,9 +120,6 @@ impl Server {
 			}
 		}
 
-		// Ack the items.
-		state.queue.decrement(n);
-
 		Ok(())
 	}
 
@@ -133,10 +129,9 @@ impl Server {
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
 		// Get the processes.
-		let n = items.len();
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
-			.try_get_process_batch(&ids)
+			.try_get_process_batch_local(&ids)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
@@ -213,9 +208,6 @@ impl Server {
 				state.queue.enqueue_objects(items);
 			}
 		}
-
-		// Ack the items.
-		state.queue.decrement(n);
 
 		Ok(())
 	}

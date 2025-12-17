@@ -1,13 +1,8 @@
-use {
-	std::sync::atomic::{AtomicUsize, Ordering},
-	tangram_client::prelude::*,
-	tangram_either::Either,
-};
+use {tangram_client::prelude::*, tangram_either::Either};
 
-#[derive(Clone, Copy, Debug)]
-pub enum ObjectKind {
-	Command,
-	Output,
+pub struct Queue {
+	object_sender: async_channel::Sender<ObjectItem>,
+	process_sender: async_channel::Sender<ProcessItem>,
 }
 
 pub struct ObjectItem {
@@ -23,10 +18,10 @@ pub struct ProcessItem {
 	pub parent: Option<tg::process::Id>,
 }
 
-pub struct Queue {
-	counter: AtomicUsize,
-	object_sender: async_channel::Sender<ObjectItem>,
-	process_sender: async_channel::Sender<ProcessItem>,
+#[derive(Clone, Copy, Debug)]
+pub enum ObjectKind {
+	Command,
+	Output,
 }
 
 impl Queue {
@@ -34,58 +29,36 @@ impl Queue {
 		object_sender: async_channel::Sender<ObjectItem>,
 		process_sender: async_channel::Sender<ProcessItem>,
 	) -> Self {
-		let counter = AtomicUsize::new(0);
 		Self {
-			counter,
 			object_sender,
 			process_sender,
 		}
 	}
 
 	pub fn enqueue_object(&self, item: ObjectItem) {
-		self.increment(1);
-		self.object_sender.force_send(item).unwrap();
+		self.object_sender.force_send(item).ok();
 	}
 
 	pub fn enqueue_process(&self, item: ProcessItem) {
-		self.increment(1);
-		self.process_sender.force_send(item).unwrap();
+		self.process_sender.force_send(item).ok();
 	}
 
 	pub fn enqueue_objects(&self, items: impl IntoIterator<Item = ObjectItem>) {
 		let items: Vec<_> = items.into_iter().collect();
-		self.increment(items.len());
 		for item in items {
-			self.object_sender.force_send(item).unwrap();
+			self.object_sender.force_send(item).ok();
 		}
 	}
 
 	pub fn enqueue_processes(&self, items: impl IntoIterator<Item = ProcessItem>) {
 		let items: Vec<_> = items.into_iter().collect();
-		self.increment(items.len());
 		for item in items {
-			self.process_sender.force_send(item).unwrap();
+			self.process_sender.force_send(item).ok();
 		}
 	}
 
-	pub fn increment(&self, n: usize) {
-		self.counter.fetch_add(n, Ordering::SeqCst);
-	}
-
-	pub fn decrement(&self, n: usize) {
-		let previous = self.counter.fetch_sub(n, Ordering::SeqCst);
-		if previous == n {
-			self.object_sender.close();
-			self.process_sender.close();
-			tracing::trace!("closed the queue");
-		}
-	}
-
-	pub fn close_if_empty(&self) {
-		if self.counter.load(Ordering::SeqCst) == 0 {
-			self.object_sender.close();
-			self.process_sender.close();
-			tracing::trace!("closed the queue");
-		}
+	pub fn close(&self) {
+		self.object_sender.close();
+		self.process_sender.close();
 	}
 }

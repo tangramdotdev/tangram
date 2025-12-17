@@ -173,6 +173,11 @@ impl Server {
 			.sum();
 		state.progress.increment(0, objects, bytes);
 
+		let end = state.graph.lock().unwrap().end(&state.arg);
+		if end {
+			state.queue.close();
+		}
+
 		Ok(())
 	}
 
@@ -239,6 +244,11 @@ impl Server {
 		// Update the progress.
 		let processes = items.len().to_u64().unwrap();
 		state.progress.increment(processes, 0, 0);
+
+		let end = state.graph.lock().unwrap().end(&state.arg);
+		if end {
+			state.queue.close();
+		}
 
 		Ok(())
 	}

@@ -32,7 +32,7 @@ impl Server {
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
 	) -> tg::Result<()> {
 		// Create the graph.
-		let graph = Mutex::new(Graph::new());
+		let graph = Mutex::new(Graph::new(&arg.get));
 
 		// Create the progress.
 		let progress = Progress::new();
@@ -76,8 +76,10 @@ impl Server {
 			}
 		}
 
-		// Close the queue if the it is emtpy.
-		state.queue.close_if_empty();
+		// Close the queue if there are no items.
+		if state.arg.get.is_empty() {
+			state.queue.close();
+		}
 
 		// Create the channels.
 		let (store_object_sender, store_object_receiver) =

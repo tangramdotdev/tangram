@@ -188,6 +188,7 @@ language plpgsql
 as $$
 declare
 	inserted_ids bytea[];
+	changed_ids bytea[];
 	locked_count int8;
 begin
 	with locked as (
@@ -212,16 +213,31 @@ begin
 			subtree_solved = coalesce(excluded.subtree_solved, objects.subtree_solved),
 			subtree_stored = excluded.subtree_stored or objects.subtree_stored,
 			touched_at = greatest(excluded.touched_at, objects.touched_at)
-		returning id, xmax = 0 as was_inserted
+		returning
+			objects.id,
+			xmax = 0 as was_inserted,
+			old.subtree_count is distinct from new.subtree_count
+				or old.subtree_depth is distinct from new.subtree_depth
+				or old.subtree_size is distinct from new.subtree_size
+				or old.subtree_stored is distinct from new.subtree_stored
+				or old.subtree_solvable is distinct from new.subtree_solvable
+				or old.subtree_solved is distinct from new.subtree_solved
+			as subtree_changed
 	)
-	select coalesce(array_agg(id), '{}') into inserted_ids
-	from upsert
-	where was_inserted;
+	select
+		coalesce((select array_agg(id) from upsert where was_inserted), '{}'),
+		coalesce((select array_agg(id) from upsert where was_inserted or subtree_changed), '{}')
+	into inserted_ids, changed_ids;
 
+	-- Enqueue reference count for inserted rows only.
 	insert into object_queue (object, kind, transaction_id)
-	select id, kind, (select id from transaction_id)
-	from unnest(inserted_ids) as t(id)
-	cross join (values (0), (1)) as kinds(kind);
+	select id, 0, (select id from transaction_id)
+	from unnest(inserted_ids) as t(id);
+
+	-- Enqueue stored/metadata for inserted rows or rows where subtree changed.
+	insert into object_queue (object, kind, transaction_id)
+	select id, 1, (select id from transaction_id)
+	from unnest(changed_ids) as t(id);
 
 	insert into object_children (object, child)
 	select ids[object_index], child
@@ -262,6 +278,7 @@ language plpgsql
 as $$
 declare
 	inserted_ids bytea[];
+	changed_ids bytea[];
 	locked_count int8;
 begin
 	with locked as (
@@ -297,16 +314,36 @@ begin
 			subtree_count = coalesce(processes.subtree_count, excluded.subtree_count),
 			subtree_stored = processes.subtree_stored or excluded.subtree_stored,
 			touched_at = greatest(processes.touched_at, excluded.touched_at)
-		returning id, xmax = 0 as was_inserted
+		returning
+			processes.id,
+			xmax = 0 as was_inserted,
+			old.subtree_command_count is distinct from new.subtree_command_count
+				or old.subtree_command_depth is distinct from new.subtree_command_depth
+				or old.subtree_command_size is distinct from new.subtree_command_size
+				or old.subtree_command_stored is distinct from new.subtree_command_stored
+				or old.subtree_output_count is distinct from new.subtree_output_count
+				or old.subtree_output_depth is distinct from new.subtree_output_depth
+				or old.subtree_output_size is distinct from new.subtree_output_size
+				or old.subtree_output_stored is distinct from new.subtree_output_stored
+				or old.subtree_count is distinct from new.subtree_count
+				or old.subtree_stored is distinct from new.subtree_stored
+			as subtree_changed
 	)
-	select coalesce(array_agg(id), '{}') into inserted_ids
-	from upsert
-	where was_inserted;
+	select
+		coalesce((select array_agg(id) from upsert where was_inserted), '{}'),
+		coalesce((select array_agg(id) from upsert where was_inserted or subtree_changed), '{}')
+	into inserted_ids, changed_ids;
 
+	-- Enqueue reference count for inserted rows only.
+	insert into process_queue (process, kind, transaction_id)
+	select id, 0, (select id from transaction_id)
+	from unnest(inserted_ids) as t(id);
+
+	-- Enqueue stored/metadata for inserted rows or rows where subtree changed.
 	insert into process_queue (process, kind, transaction_id)
 	select id, kind, (select id from transaction_id)
-	from unnest(inserted_ids) as t(id)
-	cross join (values (0), (1), (2), (3)) as kinds(kind);
+	from unnest(changed_ids) as t(id)
+	cross join (values (1), (2), (3)) as kinds(kind);
 
 	insert into process_children (process, position, child)
 	select process_ids[process_index], position, child
