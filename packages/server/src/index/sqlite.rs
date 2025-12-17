@@ -119,10 +119,12 @@ impl Server {
 			}
 
 			// Enqueue.
-			let params = sqlite::params![message.id.to_bytes().to_vec()];
-			queue_statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			if inserted {
+				let params = sqlite::params![message.id.to_bytes().to_vec()];
+				queue_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
 		}
 
 		Ok(())
@@ -249,13 +251,19 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Enqueue.
-			for kind in [0, 1] {
-				let params = sqlite::params![&id.to_bytes().to_vec(), kind];
+			if inserted {
+				// Enqueue for reference count.
+				let params = sqlite::params![&id.to_bytes().to_vec(), 0];
 				queue_statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
+
+			// Enqueue for stored and metadata.
+			let params = sqlite::params![&id.to_bytes().to_vec(), 1];
+			queue_statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())
@@ -491,8 +499,14 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			}
 
-			// Enqueue.
-			for kind in [0, 1, 2, 3] {
+			if inserted {
+				let params = sqlite::params![message.id.to_bytes().to_vec(), 0];
+				queue_statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			}
+
+			for kind in [1, 2, 3] {
 				let params = sqlite::params![message.id.to_bytes().to_vec(), kind];
 				queue_statement
 					.execute(params)
