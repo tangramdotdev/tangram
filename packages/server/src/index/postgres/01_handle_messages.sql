@@ -200,19 +200,7 @@ begin
 	)
 	select count(*) into locked_count from locked;
 
-	with old_values as (
-		select
-			objects.id,
-			objects.subtree_count,
-			objects.subtree_depth,
-			objects.subtree_size,
-			objects.subtree_stored,
-			objects.subtree_solvable,
-			objects.subtree_solved
-		from objects
-		where objects.id = any(ids)
-	),
-	upsert as (
+	with upsert as (
 		insert into objects (id, cache_entry, node_size, node_solvable, node_solved, touched_at, subtree_count, subtree_depth, subtree_size, subtree_solvable, subtree_solved, subtree_stored, transaction_id)
 		select id, cache_entry, node_size, node_solvable, node_solved, touched_at, subtree_count, subtree_depth, subtree_size, subtree_solvable, subtree_solved, subtree_stored, (select id from transaction_id)
 		from unnest(ids, cache_entries, node_sizes, node_solvables, node_solveds, touched_ats, subtree_counts, subtree_depths, subtree_sizes, subtree_solvables, subtree_solveds, subtree_storeds)
@@ -228,31 +216,17 @@ begin
 		returning
 			objects.id,
 			xmax = 0 as was_inserted,
-			objects.subtree_count,
-			objects.subtree_depth,
-			objects.subtree_size,
-			objects.subtree_stored,
-			objects.subtree_solvable,
-			objects.subtree_solved
-	),
-	inserted as (
-		select id from upsert where was_inserted
-	),
-	changed as (
-		select u.id
-		from upsert u
-		left join old_values o on o.id = u.id
-		where u.was_inserted
-			or u.subtree_count is distinct from o.subtree_count
-			or u.subtree_depth is distinct from o.subtree_depth
-			or u.subtree_size is distinct from o.subtree_size
-			or u.subtree_stored is distinct from o.subtree_stored
-			or u.subtree_solvable is distinct from o.subtree_solvable
-			or u.subtree_solved is distinct from o.subtree_solved
+			old.subtree_count is distinct from new.subtree_count
+				or old.subtree_depth is distinct from new.subtree_depth
+				or old.subtree_size is distinct from new.subtree_size
+				or old.subtree_stored is distinct from new.subtree_stored
+				or old.subtree_solvable is distinct from new.subtree_solvable
+				or old.subtree_solved is distinct from new.subtree_solved
+			as subtree_changed
 	)
 	select
-		coalesce((select array_agg(id) from inserted), '{}'),
-		coalesce((select array_agg(id) from changed), '{}')
+		coalesce((select array_agg(id) from upsert where was_inserted), '{}'),
+		coalesce((select array_agg(id) from upsert where was_inserted or subtree_changed), '{}')
 	into inserted_ids, changed_ids;
 
 	-- Enqueue reference count for inserted rows only.
@@ -316,23 +290,7 @@ begin
 	)
 	select count(*) into locked_count from locked;
 
-	with old_values as (
-		select
-			processes.id,
-			processes.subtree_command_count,
-			processes.subtree_command_depth,
-			processes.subtree_command_size,
-			processes.subtree_command_stored,
-			processes.subtree_output_count,
-			processes.subtree_output_depth,
-			processes.subtree_output_size,
-			processes.subtree_output_stored,
-			processes.subtree_count,
-			processes.subtree_stored
-		from processes
-		where processes.id = any(process_ids)
-	),
-	upsert as (
+	with upsert as (
 		insert into processes (id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, transaction_id)
 		select id, node_command_count, node_command_depth, node_command_size, node_command_stored, node_output_count, node_output_depth, node_output_size, node_output_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_command_stored, subtree_output_count, subtree_output_depth, subtree_output_size, subtree_output_stored, subtree_count, subtree_stored, touched_at, (select id from transaction_id)
 		from unnest(process_ids, subtree_storeds, subtree_counts, subtree_command_storeds, subtree_command_counts, subtree_command_depths, subtree_command_sizes, subtree_output_storeds, subtree_output_counts, subtree_output_depths, subtree_output_sizes, node_command_storeds, node_command_counts, node_command_depths, node_command_sizes, node_output_storeds, node_output_counts, node_output_depths, node_output_sizes, touched_ats) as t (id, subtree_stored, subtree_count, subtree_command_stored, subtree_command_count, subtree_command_depth, subtree_command_size, subtree_output_stored, subtree_output_count, subtree_output_depth, subtree_output_size, node_command_stored, node_command_count, node_command_depth, node_command_size, node_output_stored, node_output_count, node_output_depth, node_output_size, touched_at)
@@ -359,39 +317,21 @@ begin
 		returning
 			processes.id,
 			xmax = 0 as was_inserted,
-			processes.subtree_command_count,
-			processes.subtree_command_depth,
-			processes.subtree_command_size,
-			processes.subtree_command_stored,
-			processes.subtree_output_count,
-			processes.subtree_output_depth,
-			processes.subtree_output_size,
-			processes.subtree_output_stored,
-			processes.subtree_count,
-			processes.subtree_stored
-	),
-	inserted as (
-		select id from upsert where was_inserted
-	),
-	changed as (
-		select u.id
-		from upsert u
-		left join old_values o on o.id = u.id
-		where u.was_inserted
-			or u.subtree_command_count is distinct from o.subtree_command_count
-			or u.subtree_command_depth is distinct from o.subtree_command_depth
-			or u.subtree_command_size is distinct from o.subtree_command_size
-			or u.subtree_command_stored is distinct from o.subtree_command_stored
-			or u.subtree_output_count is distinct from o.subtree_output_count
-			or u.subtree_output_depth is distinct from o.subtree_output_depth
-			or u.subtree_output_size is distinct from o.subtree_output_size
-			or u.subtree_output_stored is distinct from o.subtree_output_stored
-			or u.subtree_count is distinct from o.subtree_count
-			or u.subtree_stored is distinct from o.subtree_stored
+			old.subtree_command_count is distinct from new.subtree_command_count
+				or old.subtree_command_depth is distinct from new.subtree_command_depth
+				or old.subtree_command_size is distinct from new.subtree_command_size
+				or old.subtree_command_stored is distinct from new.subtree_command_stored
+				or old.subtree_output_count is distinct from new.subtree_output_count
+				or old.subtree_output_depth is distinct from new.subtree_output_depth
+				or old.subtree_output_size is distinct from new.subtree_output_size
+				or old.subtree_output_stored is distinct from new.subtree_output_stored
+				or old.subtree_count is distinct from new.subtree_count
+				or old.subtree_stored is distinct from new.subtree_stored
+			as subtree_changed
 	)
 	select
-		coalesce((select array_agg(id) from inserted), '{}'),
-		coalesce((select array_agg(id) from changed), '{}')
+		coalesce((select array_agg(id) from upsert where was_inserted), '{}'),
+		coalesce((select array_agg(id) from upsert where was_inserted or subtree_changed), '{}')
 	into inserted_ids, changed_ids;
 
 	-- Enqueue reference count for inserted rows only.
