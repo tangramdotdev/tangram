@@ -266,7 +266,7 @@ impl Server {
 			let inserted = rows > 0;
 
 			// If not inserted, update instead.
-			let mut updated = inserted;
+			let mut changed = inserted;
 			if !inserted {
 				// Get the old values.
 				let params = [id.to_bytes().to_vec()];
@@ -307,7 +307,7 @@ impl Server {
 				let new_row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 					.map_err(|source| tg::error!(!source, "failed to deserialize row"))?;
 
-				updated = old_row != new_row;
+				changed = old_row != new_row;
 			}
 
 			if inserted {
@@ -320,7 +320,7 @@ impl Server {
 
 			// Newly inserted rows always enqueue parents.
 			// Updated rows only enqueue parents if one of their subtree fields changed.
-			if updated {
+			if changed {
 				// Enqueue for stored and metadata.
 				let params = sqlite::params![&id.to_bytes().to_vec(), 1];
 				queue_statement
@@ -556,7 +556,7 @@ impl Server {
 			let inserted = rows > 0;
 
 			// If not inserted, update instead.
-			let mut updated = inserted;
+			let mut changed = inserted;
 			if !inserted {
 				// Get the old values.
 				let params = [message.id.to_bytes().to_vec()];
@@ -605,7 +605,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to deserialize row"))?;
 				drop(rows);
 
-				updated = old_row != new_row;
+				changed = old_row != new_row;
 			}
 
 			// Insert the children.
@@ -642,7 +642,7 @@ impl Server {
 
 			// Newly inserted rows always enqueue parents.
 			// Updated rows only enqueue parents if one of their subtree fields changed.
-			if updated {
+			if changed {
 				for kind in [1, 2, 3] {
 					let params = sqlite::params![message.id.to_bytes().to_vec(), kind];
 					queue_statement
