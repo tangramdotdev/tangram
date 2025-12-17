@@ -6536,7 +6536,6 @@ dependencies = [
  "fnv",
  "futures",
  "im",
- "libc",
  "num",
  "serde",
  "serde-untagged",
