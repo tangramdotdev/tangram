@@ -375,7 +375,7 @@ begin
 	insert into process_queue (process, kind, transaction_id)
 	select id, kind, (select id from transaction_id)
 	from unnest(changed_ids) as t(id)
-	cross join (values (1), (2), (3), (4)) as kinds(kind);
+	cross join (values (1), (2), (4), (5)) as kinds(kind);
 
 	insert into process_children (process, position, child)
 	select process_ids[process_index], position, child

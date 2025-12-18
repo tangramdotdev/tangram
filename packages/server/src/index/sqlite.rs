@@ -694,7 +694,7 @@ impl Server {
 
 			// Newly inserted rows always enqueue parents. Updated rows only enqueue parents if one of their subtree fields changed.
 			if changed {
-				for kind in [1, 2, 3, 4] {
+				for kind in [1, 2, 4, 5] {
 					let params = sqlite::params![message.id.to_bytes().to_vec(), kind];
 					queue_statement
 						.execute(params)
@@ -1124,7 +1124,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				insert into process_queue (process, kind, transaction_id)
-				select process, 3, ?2
+				select process, 5, ?2
 				from process_objects
 				where process_objects.object = ?1;
 			"
@@ -1256,8 +1256,9 @@ impl Server {
 		enum Kind {
 			Children = 1,
 			Commands = 2,
-			Outputs = 3,
+			Errors = 3,
 			Logs = 4,
+			Outputs = 5,
 		}
 
 		let statement = indoc!(
@@ -1339,7 +1340,7 @@ impl Server {
 		let statement = indoc!(
 			"
 				insert into process_queue (process, kind, transaction_id)
-				select process, 3, ?2
+				select process, 5, ?2
 				from process_children
 				where process_children.child = ?1;
 			"
@@ -1717,6 +1718,8 @@ impl Server {
 							tg::error!(!source, "failed to execute the enqueue parents statement")
 						})?;
 				},
+
+				Kind::Errors => {},
 
 				Kind::Logs => {
 					let params = [item.process.to_bytes().to_vec()];

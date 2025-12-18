@@ -428,45 +428,39 @@ impl Server {
 							.map(|(a, b)| a + b);
 
 						// Aggregate child process's subtree log metadata.
-						metadata.subtree.log.count = dbg!(
-							metadata
-								.subtree
-								.log
-								.count
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|m| m.subtree.log.count),
-								)
-								.map(|(a, b)| a + b)
-						);
-						metadata.subtree.log.depth = dbg!(
-							metadata
-								.subtree
-								.log
-								.depth
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|m| m.subtree.log.depth),
-								)
-								.map(|(a, b)| a.max(b))
-						);
-						metadata.subtree.log.size = dbg!(
-							metadata
-								.subtree
-								.log
-								.size
-								.zip(
-									child_node
-										.metadata
-										.as_ref()
-										.and_then(|m| m.subtree.log.size),
-								)
-								.map(|(a, b)| a + b)
-						);
+						metadata.subtree.log.count = metadata
+							.subtree
+							.log
+							.count
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.log.depth = metadata
+							.subtree
+							.log
+							.depth
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.depth),
+							)
+							.map(|(a, b)| a.max(b));
+						metadata.subtree.log.size = metadata
+							.subtree
+							.log
+							.size
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.size),
+							)
+							.map(|(a, b)| a + b);
 
 						// Aggregate child process's subtree command metadata.
 						metadata.subtree.command.count = metadata

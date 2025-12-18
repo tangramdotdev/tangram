@@ -87,7 +87,7 @@ begin
 	where process_objects.object = any(dequeued_objects);
 
 	insert into process_queue (process, kind, transaction_id)
-	select distinct process_objects.process, 3, (select id from transaction_id)
+	select distinct process_objects.process, 5, (select id from transaction_id)
 	from process_objects
 	where process_objects.object = any(dequeued_objects);
 
@@ -128,7 +128,7 @@ begin
 		coalesce(array_agg(process) filter (where kind = 1), '{}') as children_processes,
 		coalesce(array_agg(process) filter (where kind = 2), '{}') as commands_processes,
 		coalesce(array_agg(process) filter (where kind = 4), '{}') as logs_processes,
-		coalesce(array_agg(process) filter (where kind = 3), '{}') as outputs_processes
+		coalesce(array_agg(process) filter (where kind = 5), '{}') as outputs_processes
 	into children_processes, commands_processes, logs_processes, outputs_processes
 	from dequeued;
 
@@ -469,7 +469,7 @@ begin
 		and updates.node_output_stored = true;
 
 		insert into process_queue (process, kind, transaction_id)
-		select distinct process_children.process, 3, (select id from transaction_id)
+		select distinct process_children.process, 5, (select id from transaction_id)
 		from process_children
 		where process_children.child = any(outputs_processes);
 	end if;
