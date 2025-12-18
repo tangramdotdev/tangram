@@ -12,7 +12,7 @@ Run `bun run format` to format all code when you complete changes.
 
 ## Testing
 
-To run all tests, run `bun run test`. The most important tests are the CLI tests in `packages/cli/tests`. You can run the CLI tests with `nu packages/cli/test.nu`, and provide a regex pattern as an arg for the tests in the tests directory.
+To run all tests, run `bun run test`. The most important tests are the CLI tests in `packages/cli/tests`. You can run the CLI tests with `nu packages/cli/test.nu`, and provide a regex pattern as an arg for the tests in the tests directory. For example, `nu packages/cli/test.nu build` will run all the build tests. To accept new and updated snapshots, run the tests with `--accept`.
 
 ## Style
 

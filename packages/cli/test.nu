@@ -7,6 +7,7 @@ export use std assert
 const repository_path = path self '../../'
 
 def main [
+	--accept (-a) # Accept all new and updated snapshots.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--print-passing-test-output # Print the output of passing tests.
@@ -222,11 +223,50 @@ def main [
 	# Show the cursor.
 	print -e -n "\e[?25h"
 
+	if $accept {
+		for test in $tests {
+			let parsed = $test.path | path parse
+
+			# Accept all pending file snapshots.
+			for pending_path in (glob $'($parsed.parent | path join $parsed.stem){.{pending},/*.{pending}}') {
+				let snapshot_path = $pending_path | str replace '.pending' '.snapshot'
+				mv -f $pending_path $snapshot_path
+			}
+
+			# Accept all inline snapshots.
+			let inline_paths = glob $'($parsed.parent | path join $parsed.stem).inline'
+			for inline_path in $inline_paths {
+				let entries = open $inline_path | from json
+				let sorted_entries = $entries | sort-by position --reverse
+				mut source = open $test.path
+				for entry in $sorted_entries {
+					let before = $source | str substring ..<$entry.position
+					let indent = get_indent $source $entry.position
+					let after = $source | str substring ($entry.position + $entry.length)..
+					$source = $before ++ (literal $entry.new $indent) ++ $after
+				}
+				$source | save -f $test.path
+				rm $inline_path
+			}
+
+			# Delete snapshots which were not touched and remove touched files.
+			for path in (glob $'($parsed.parent | path join $parsed.stem){.snapshot,/*.snapshot}') {
+				if not ($path | str replace '.snapshot' '.touched' | path exists) {
+					rm $path
+				}
+			}
+			for path in (glob $'($parsed.parent | path join $parsed.stem){.touched,/*.touched}') {
+				rm $path
+			}
+		}
+	}
+
 	if $review {
 		for test in $tests {
 			let parsed = $test.path | path parse
 
-			for pending_path in (glob $'($parsed.parent | path join $parsed.stem){.{pending},/*.{pending}}') {
+			let pending_paths = glob $'($parsed.parent | path join $parsed.stem){.{pending},/*.{pending}}'
+			for pending_path in $pending_paths {
 				let snapshot_path = $pending_path | str replace '.pending' '.snapshot'
 				clear -k
 				if ($snapshot_path | path exists) {
@@ -285,16 +325,15 @@ def main [
 				print -e ''
 			}
 
-			# Delete snapshots which were not touched and remove touch files.
-			if ($inline_paths | length) > 0 {
-				let parent_path = $test.path | path dirname
-				let stem = $test.path | path parse | get stem
-				for path in (glob $'($parent_path | path join $stem){.snapshot,/*.snapshot}') {
+			# Delete snapshots which were not touched and remove touched files.
+			# Only run cleanup if there were pending or inline snapshots to review.
+			if ($pending_paths | length) > 0 or ($inline_paths | length) > 0 {
+				for path in (glob $'($parsed.parent | path join $parsed.stem){.snapshot,/*.snapshot}') {
 					if not ($path | str replace '.snapshot' '.touched' | path exists) {
 						rm $path
 					}
 				}
-				for path in (glob $'($parent_path | path join $stem){.touched,/*.touched}') {
+				for path in (glob $'($parsed.parent | path join $parsed.stem){.touched,/*.touched}') {
 					rm $path
 				}
 			}
