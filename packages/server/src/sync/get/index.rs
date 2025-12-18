@@ -427,7 +427,7 @@ impl Server {
 							.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
 							.map(|(a, b)| a + b);
 
-						// Aggregate child process's subtree command metadata.
+						// Aggregate the child process's subtree command metadata.
 						metadata.subtree.command.count = metadata
 							.subtree
 							.command
@@ -462,7 +462,42 @@ impl Server {
 							)
 							.map(|(a, b)| a + b);
 
-						// Aggregate child process's subtree output metadata.
+						// Aggregate the child process's subtree log metadata.
+						metadata.subtree.log.count = metadata
+							.subtree
+							.log
+							.count
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.log.depth = metadata
+							.subtree
+							.log
+							.depth
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.depth),
+							)
+							.map(|(a, b)| a.max(b));
+						metadata.subtree.log.size = metadata
+							.subtree
+							.log
+							.size
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.size),
+							)
+							.map(|(a, b)| a + b);
+
+						// Aggregate the child process's subtree output metadata.
 						metadata.subtree.output.count = metadata
 							.subtree
 							.output
@@ -554,6 +589,58 @@ impl Server {
 									)
 									.map(|(a, b)| a + b);
 							},
+
+							ProcessObjectKind::Error => unimplemented!(),
+
+							ProcessObjectKind::Log => {
+								metadata.node.log.count = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.count);
+								metadata.node.log.depth = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.depth);
+								metadata.node.log.size = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.size);
+
+								metadata.subtree.log.count = metadata
+									.subtree
+									.log
+									.count
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.count),
+									)
+									.map(|(a, b)| a + b);
+								metadata.subtree.log.depth = metadata
+									.subtree
+									.log
+									.depth
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.depth),
+									)
+									.map(|(a, b)| a.max(b));
+								metadata.subtree.log.size = metadata
+									.subtree
+									.log
+									.size
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.size),
+									)
+									.map(|(a, b)| a + b);
+							},
+
 							ProcessObjectKind::Output => {
 								metadata.node.output.count = metadata
 									.node
@@ -623,7 +710,6 @@ impl Server {
 									)
 									.map(|(a, b)| a + b);
 							},
-							_ => (),
 						}
 					}
 
