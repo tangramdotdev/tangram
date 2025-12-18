@@ -91,6 +91,11 @@ begin
 	from process_objects
 	where process_objects.object = any(dequeued_objects);
 
+	insert into process_queue (process, kind, transaction_id)
+	select distinct process_objects.process, 4, (select id from transaction_id)
+	from process_objects
+	where process_objects.object = any(dequeued_objects);
+
 	n := n - coalesce(array_length(dequeued_objects, 1), 0);
 end;
 $$;
@@ -288,10 +293,10 @@ begin
 					processes.id,
 					case
 						when count(process_children.child) = 0
-						and bool_and(coalesce(objects.subtree_stored, false))
+						and (count(process_objects.object) = 0 or bool_and(coalesce(objects.subtree_stored, false)))
 							then true
-						when bool_and(coalesce(objects.subtree_stored, false))
-						and bool_and(coalesce(child_processes.subtree_log_stored, false))
+						when (count(process_objects.object) = 0 or bool_and(coalesce(objects.subtree_stored, false)))
+						and (count(process_children.child) = 0 or bool_and(coalesce(child_processes.subtree_log_stored, false)))
 							then true
 						else false
 					end as subtree_log_stored,
@@ -341,7 +346,10 @@ begin
 		from (
 			select
 				processes.id,
-				bool_and(coalesce(objects.subtree_stored, false)) as node_log_stored,
+				case
+					when count(process_objects.object) = 0 then true
+					else bool_and(coalesce(objects.subtree_stored, false))
+				end as node_log_stored,
 				coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_log_count,
 				coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_log_depth,
 				coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_log_size
@@ -355,6 +363,10 @@ begin
 		where processes.id = updates.id
 		and updates.node_log_stored = true;
 
+		insert into process_queue (process, kind, transaction_id)
+		select distinct process_children.process, 4, (select id from transaction_id)
+		from process_children
+		where process_children.child = any(logs_processes);
 	else
 		subtree_log_stored_processes := array[]::bytea[];
 	end if;
