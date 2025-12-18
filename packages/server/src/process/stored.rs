@@ -22,24 +22,34 @@ pub struct Output {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_false")]
 	pub node_command: bool,
 
-	/// Whether this node's outputs' subtrees are stored.
+	/// Whether this node's log's subtree is stored.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	pub node_log: bool,
+
+	/// Whether this node's outputs' subtrees are stored.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub node_output: bool,
 
 	/// Whether this node's subtree is stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
 	pub subtree: bool,
 
 	/// Whether this node's subtree's commands' subtrees are stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
 	pub subtree_command: bool,
+
+	/// Whether this node's subtree's logs' subtrees are stored.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
+	pub subtree_log: bool,
 
 	/// Whether this node's subtree's outputs' subtrees are stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(id = 6, default, skip_serializing_if = "is_false")]
 	pub subtree_output: bool,
 }
 

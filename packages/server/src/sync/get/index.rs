@@ -174,12 +174,14 @@ impl Server {
 			if let Some(stored) = output.as_ref().map(|(stored, _)| stored) {
 				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 					tg::sync::GetStoredProcessMessage {
-						node_command_stored: stored.node_command,
-						subtree_command_stored: stored.subtree_command,
-						subtree_stored: stored.subtree,
 						id: item.id.clone(),
+						node_command_stored: stored.node_command,
+						node_log_stored: stored.node_log,
 						node_output_stored: stored.node_output,
+						subtree_command_stored: stored.subtree_command,
+						subtree_log_stored: stored.subtree_log,
 						subtree_output_stored: stored.subtree_output,
+						subtree_stored: stored.subtree,
 					},
 				));
 				state
@@ -371,6 +373,13 @@ impl Server {
 								solvable: None,
 								solved: None,
 							},
+							log: tg::object::metadata::Subtree {
+								count: Some(0),
+								depth: Some(0),
+								size: Some(0),
+								solvable: None,
+								solved: None,
+							},
 							output: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
@@ -382,6 +391,13 @@ impl Server {
 						subtree: tg::process::metadata::Subtree {
 							count: Some(1),
 							command: tg::object::metadata::Subtree {
+								count: Some(0),
+								depth: Some(0),
+								size: Some(0),
+								solvable: None,
+								solved: None,
+							},
+							log: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
 								size: Some(0),
@@ -409,6 +425,41 @@ impl Server {
 							.subtree
 							.count
 							.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
+							.map(|(a, b)| a + b);
+
+						// Aggregate child process's subtree log metadata.
+						metadata.subtree.log.count = metadata
+							.subtree
+							.log
+							.count
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.log.depth = metadata
+							.subtree
+							.log
+							.depth
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.depth),
+							)
+							.map(|(a, b)| a.max(b));
+						metadata.subtree.log.size = metadata
+							.subtree
+							.log
+							.size
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.size),
+							)
 							.map(|(a, b)| a + b);
 
 						// Aggregate child process's subtree command metadata.
@@ -446,7 +497,42 @@ impl Server {
 							)
 							.map(|(a, b)| a + b);
 
-						// Aggregate child process's subtree output metadata.
+						// Aggregate the child process's subtree log metadata.
+						metadata.subtree.log.count = metadata
+							.subtree
+							.log
+							.count
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.log.depth = metadata
+							.subtree
+							.log
+							.depth
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.depth),
+							)
+							.map(|(a, b)| a.max(b));
+						metadata.subtree.log.size = metadata
+							.subtree
+							.log
+							.size
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.log.size),
+							)
+							.map(|(a, b)| a + b);
+
+						// Aggregate the child process's subtree output metadata.
 						metadata.subtree.output.count = metadata
 							.subtree
 							.output
@@ -538,6 +624,58 @@ impl Server {
 									)
 									.map(|(a, b)| a + b);
 							},
+
+							ProcessObjectKind::Error => unimplemented!(),
+
+							ProcessObjectKind::Log => {
+								metadata.node.log.count = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.count);
+								metadata.node.log.depth = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.depth);
+								metadata.node.log.size = object_node
+									.metadata
+									.as_ref()
+									.and_then(|metadata| metadata.subtree.size);
+
+								metadata.subtree.log.count = metadata
+									.subtree
+									.log
+									.count
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.count),
+									)
+									.map(|(a, b)| a + b);
+								metadata.subtree.log.depth = metadata
+									.subtree
+									.log
+									.depth
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.depth),
+									)
+									.map(|(a, b)| a.max(b));
+								metadata.subtree.log.size = metadata
+									.subtree
+									.log
+									.size
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.size),
+									)
+									.map(|(a, b)| a + b);
+							},
+
 							ProcessObjectKind::Output => {
 								metadata.node.output.count = metadata
 									.node
@@ -607,7 +745,6 @@ impl Server {
 									)
 									.map(|(a, b)| a + b);
 							},
-							_ => (),
 						}
 					}
 

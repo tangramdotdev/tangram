@@ -190,6 +190,23 @@ impl Server {
 				state.queue.enqueue_object(item);
 			}
 
+			// Enqueue the log.
+			if item.eager && state.arg.logs {
+				let id = output
+					.data
+					.log
+					.ok_or_else(|| tg::error!(process = %item.id, "expected a compacted log"))?
+					.clone()
+					.into();
+				let item = crate::sync::queue::ObjectItem {
+					parent: Some(Either::Right(item.id.clone())),
+					id,
+					kind: Some(crate::sync::queue::ObjectKind::Log),
+					eager: item.eager,
+				};
+				state.queue.enqueue_object(item);
+			}
+
 			// Enqueue the outputs.
 			if item.eager
 				&& state.arg.outputs

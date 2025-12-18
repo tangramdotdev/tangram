@@ -76,19 +76,23 @@ impl Store {
 	}
 
 	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		match self {
-			Store::Lmdb(store) => store.try_get_sync(id),
-			Store::Memory(store) => Ok(store.try_get(id)),
-			_ => Err(tg::error!("unimplemented")),
+		if let Store::Lmdb(store) = self {
+			store.try_get_sync(id)
+		} else if let Store::Memory(store) = self {
+			Ok(store.try_get(id))
+		} else {
+			Err(tg::error!("unimplemented"))
 		}
 	}
 
 	#[expect(dead_code)]
 	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
-		match self {
-			Store::Lmdb(store) => store.try_get_batch_sync(ids),
-			Store::Memory(store) => Ok(store.try_get_batch(ids)),
-			_ => Err(tg::error!("unimplemented")),
+		if let Store::Lmdb(store) = self {
+			store.try_get_batch_sync(ids)
+		} else if let Store::Memory(store) = self {
+			Ok(store.try_get_batch(ids))
+		} else {
+			Err(tg::error!("unimplemented"))
 		}
 	}
 
@@ -96,10 +100,12 @@ impl Store {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
-		match self {
-			Store::Lmdb(store) => store.try_get_object_data_sync(id),
-			Store::Memory(store) => store.try_get_object_data(id),
-			_ => Err(tg::error!("unimplemented")),
+		if let Store::Lmdb(store) = self {
+			store.try_get_object_data_sync(id)
+		} else if let Store::Memory(store) = self {
+			store.try_get_object_data(id)
+		} else {
+			Err(tg::error!("unimplemented"))
 		}
 	}
 
@@ -107,92 +113,70 @@ impl Store {
 		&self,
 		id: &tg::blob::Id,
 	) -> tg::Result<Option<CacheReference>> {
-		match self {
-			crate::store::Store::Lmdb(lmdb) => {
-				lmdb.try_get_cache_reference_sync(&id.clone().into())
-			},
-			crate::store::Store::Memory(memory) => {
-				Ok(memory.try_get_cache_reference(&id.clone().into()))
-			},
-			_ => Err(tg::error!("invalid store")),
+		if let crate::store::Store::Lmdb(lmdb) = self {
+			lmdb.try_get_cache_reference_sync(&id.clone().into())
+		} else if let crate::store::Store::Memory(memory) = self {
+			Ok(memory.try_get_cache_reference(&id.clone().into()))
+		} else {
+			Err(tg::error!("invalid store"))
 		}
 	}
 
 	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
-		match self {
-			Store::Lmdb(store) => {
-				store.put_sync(arg)?;
-			},
-			Store::Memory(store) => {
-				store.put(arg);
-			},
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
+		if let Store::Lmdb(store) = self {
+			store.put_sync(arg)?;
+		} else if let Store::Memory(store) = self {
+			store.put(arg);
+		} else {
+			return Err(tg::error!("unimplemented"));
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
-		match self {
-			Store::Lmdb(store) => {
-				store.put_batch_sync(args)?;
-			},
-			Store::Memory(store) => {
-				store.put_batch(args);
-			},
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
+		if let Store::Lmdb(store) = self {
+			store.put_batch_sync(args)?;
+		} else if let Store::Memory(store) = self {
+			store.put_batch(args);
+		} else {
+			return Err(tg::error!("unimplemented"));
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
-		match self {
-			Store::Lmdb(store) => {
-				store.delete_sync(arg)?;
-			},
-			Store::Memory(store) => {
-				store.delete(arg);
-			},
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
+		if let Store::Lmdb(store) = self {
+			store.delete_sync(arg)?;
+		} else if let Store::Memory(store) = self {
+			store.delete(arg);
+		} else {
+			return Err(tg::error!("unimplemented"));
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
-		match self {
-			Store::Lmdb(store) => {
-				store.delete_batch_sync(args)?;
-			},
-			Store::Memory(store) => {
-				store.delete_batch(args);
-			},
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
+		if let Store::Lmdb(store) = self {
+			store.delete_batch_sync(args)?;
+		} else if let Store::Memory(store) = self {
+			store.delete_batch(args);
+		} else {
+			return Err(tg::error!("unimplemented"));
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn flush_sync(&self) -> tg::Result<()> {
-		match self {
-			Store::Lmdb(store) => {
-				store.flush_sync()?;
-			},
-			Store::Memory(store) => {
-				store.flush();
-			},
-			_ => {
-				return Err(tg::error!("unimplemented"));
-			},
+		if let Store::Lmdb(store) = self {
+			store.flush_sync()?;
+		} else if let Store::Memory(store) = self {
+			store.flush();
+		} else {
+			return Err(tg::error!("unimplemented"));
 		}
 		Ok(())
 	}

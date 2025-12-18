@@ -87,7 +87,12 @@ begin
 	where process_objects.object = any(dequeued_objects);
 
 	insert into process_queue (process, kind, transaction_id)
-	select distinct process_objects.process, 3, (select id from transaction_id)
+	select distinct process_objects.process, 5, (select id from transaction_id)
+	from process_objects
+	where process_objects.object = any(dequeued_objects);
+
+	insert into process_queue (process, kind, transaction_id)
+	select distinct process_objects.process, 4, (select id from transaction_id)
 	from process_objects
 	where process_objects.object = any(dequeued_objects);
 
@@ -103,6 +108,7 @@ as $$
 declare
 	children_processes bytea[];
 	commands_processes bytea[];
+	logs_processes bytea[];
 	outputs_processes bytea[];
 	locked_count int8;
 begin
@@ -121,8 +127,9 @@ begin
 	select
 		coalesce(array_agg(process) filter (where kind = 1), '{}') as children_processes,
 		coalesce(array_agg(process) filter (where kind = 2), '{}') as commands_processes,
-		coalesce(array_agg(process) filter (where kind = 3), '{}') as outputs_processes
-	into children_processes, commands_processes, outputs_processes
+		coalesce(array_agg(process) filter (where kind = 4), '{}') as logs_processes,
+		coalesce(array_agg(process) filter (where kind = 5), '{}') as outputs_processes
+	into children_processes, commands_processes, logs_processes, outputs_processes
 	from dequeued;
 
 	if array_length(children_processes, 1) > 0 then
@@ -258,6 +265,112 @@ begin
 		where process_children.child = any(commands_processes);
 	end if;
 
+	if array_length(logs_processes, 1) > 0 then
+		with locked as (
+			select processes.id
+			from processes
+			where processes.id = any(logs_processes)
+			order by processes.id
+			for update
+		)
+		select count(*) into locked_count from locked;
+
+		with already_stored as (
+			select id
+			from processes
+			where id = any(logs_processes)
+			and subtree_log_stored = true
+		),
+		updated_to_stored as (
+			update processes
+			set
+				subtree_log_stored = updates.subtree_log_stored,
+				subtree_log_count = updates.subtree_log_count,
+				subtree_log_depth = updates.subtree_log_depth,
+				subtree_log_size = updates.subtree_log_size
+			from (
+				select
+					processes.id,
+					case
+						when count(process_children.child) = 0
+						and (count(process_objects.object) = 0 or bool_and(coalesce(objects.subtree_stored, false)))
+							then true
+						when (count(process_objects.object) = 0 or bool_and(coalesce(objects.subtree_stored, false)))
+						and (count(process_children.child) = 0 or bool_and(coalesce(child_processes.subtree_log_stored, false)))
+							then true
+						else false
+					end as subtree_log_stored,
+					coalesce(sum(coalesce(objects.subtree_count, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_log_count, 0)), 0) as subtree_log_count,
+					greatest(
+					coalesce(max(coalesce(objects.subtree_depth, 0)), 0),
+					coalesce(max(coalesce(child_processes.subtree_log_depth, 0)), 0)
+					) as subtree_log_depth,
+					coalesce(sum(coalesce(objects.subtree_size, 0)), 0)
+					+ coalesce(sum(coalesce(child_processes.subtree_log_size, 0)), 0) as subtree_log_size
+				from processes
+				left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
+				left join objects on objects.id = process_objects.object
+				left join process_children on process_children.process = processes.id
+				left join processes child_processes on child_processes.id = process_children.child
+				where processes.id = any(logs_processes)
+				and processes.subtree_log_stored = false
+				group by processes.id
+			) as updates
+			where processes.id = updates.id
+			and updates.subtree_log_stored = true
+			returning processes.id
+		)
+		select array_agg(distinct id) into subtree_log_stored_processes
+		from (
+			select id from already_stored
+			union all
+			select id from updated_to_stored
+		) all_stored;
+
+		with locked as (
+			select processes.id
+			from processes
+			where processes.id = any(logs_processes)
+			order by processes.id
+			for update
+		)
+		select count(*) into locked_count from locked;
+
+		update processes
+		set
+			node_log_stored = updates.node_log_stored,
+			node_log_count = updates.node_log_count,
+			node_log_depth = updates.node_log_depth,
+			node_log_size = updates.node_log_size
+		from (
+			select
+				processes.id,
+				case
+					when count(process_objects.object) = 0 then true
+					else bool_and(coalesce(objects.subtree_stored, false))
+				end as node_log_stored,
+				coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_log_count,
+				coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_log_depth,
+				coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_log_size
+			from processes
+			left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
+			left join objects on objects.id = process_objects.object
+			where processes.id = any(logs_processes)
+			and processes.node_log_stored = false
+			group by processes.id
+		) as updates
+		where processes.id = updates.id
+		and updates.node_log_stored = true;
+
+		insert into process_queue (process, kind, transaction_id)
+		select distinct process_children.process, 4, (select id from transaction_id)
+		from process_children
+		where process_children.child = any(logs_processes);
+	else
+		subtree_log_stored_processes := array[]::bytea[];
+	end if;
+
 	if array_length(outputs_processes, 1) > 0 then
 		with locked as (
 			select processes.id
@@ -356,7 +469,7 @@ begin
 		and updates.node_output_stored = true;
 
 		insert into process_queue (process, kind, transaction_id)
-		select distinct process_children.process, 3, (select id from transaction_id)
+		select distinct process_children.process, 5, (select id from transaction_id)
 		from process_children
 		where process_children.child = any(outputs_processes);
 	end if;
@@ -364,6 +477,7 @@ begin
 	n := n
 		- coalesce(array_length(children_processes, 1), 0)
 		- coalesce(array_length(commands_processes, 1), 0)
+		- coalesce(array_length(logs_processes, 1), 0)
 		- coalesce(array_length(outputs_processes, 1), 0);
 end;
 $$;

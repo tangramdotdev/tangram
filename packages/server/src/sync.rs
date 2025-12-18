@@ -37,6 +37,7 @@ impl Server {
 				eager: arg.eager,
 				get: arg.get,
 				local: None,
+				logs: arg.logs,
 				outputs: arg.outputs,
 				put: arg.put,
 				recursive: arg.recursive,

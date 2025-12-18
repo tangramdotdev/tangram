@@ -21,6 +21,7 @@ pub struct ProcessItem {
 #[derive(Clone, Copy, Debug)]
 pub enum ObjectKind {
 	Command,
+	Log,
 	Output,
 }
 
