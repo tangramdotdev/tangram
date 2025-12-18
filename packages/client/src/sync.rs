@@ -36,6 +36,10 @@ pub struct Arg {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
@@ -135,16 +139,22 @@ pub struct GetStoredProcessMessage {
 	pub node_command_stored: bool,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
-	pub node_output_stored: bool,
+	pub node_log_stored: bool,
 
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
-	pub subtree_stored: bool,
+	pub node_output_stored: bool,
 
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
 	pub subtree_command_stored: bool,
 
 	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
+	pub subtree_log_stored: bool,
+
+	#[tangram_serialize(id = 6, default, skip_serializing_if = "is_false")]
 	pub subtree_output_stored: bool,
+
+	#[tangram_serialize(id = 7, default, skip_serializing_if = "is_false")]
+	pub subtree_stored: bool,
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

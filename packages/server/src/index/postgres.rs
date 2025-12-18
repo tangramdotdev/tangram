@@ -195,24 +195,6 @@ impl Server {
 			.values()
 			.map(|message| message.touched_at)
 			.collect::<Vec<_>>();
-		let process_subtree_storeds = put_process_messages
-			.values()
-			.map(|message| message.stored.subtree)
-			.collect::<Vec<_>>();
-		let process_subtree_counts = put_process_messages
-			.values()
-			.map(|message| {
-				message
-					.metadata
-					.subtree
-					.count
-					.map(|value| value.to_i64().unwrap())
-			})
-			.collect::<Vec<_>>();
-		let process_node_command_storeds = put_process_messages
-			.values()
-			.map(|message| message.stored.node_command)
-			.collect::<Vec<_>>();
 		let process_node_command_counts = put_process_messages
 			.values()
 			.map(|message| {
@@ -246,46 +228,46 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_subtree_command_storeds = put_process_messages
+		let process_node_command_storeds = put_process_messages
 			.values()
-			.map(|message| message.stored.subtree_command)
+			.map(|message| message.stored.node_command)
 			.collect::<Vec<_>>();
-		let process_subtree_command_counts = put_process_messages
+		let process_node_log_counts = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.subtree
-					.command
+					.node
+					.log
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_subtree_command_depths = put_process_messages
+		let process_node_log_depths = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.subtree
-					.command
+					.node
+					.log
 					.depth
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_subtree_command_sizes = put_process_messages
+		let process_node_log_sizes = put_process_messages
 			.values()
 			.map(|message| {
 				message
 					.metadata
-					.subtree
-					.command
+					.node
+					.log
 					.size
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_node_output_storeds = put_process_messages
+		let process_node_log_storeds = put_process_messages
 			.values()
-			.map(|message| message.stored.node_output)
+			.map(|message| message.stored.node_log)
 			.collect::<Vec<_>>();
 		let process_node_output_counts = put_process_messages
 			.values()
@@ -320,9 +302,93 @@ impl Server {
 					.map(|value| value.to_i64().unwrap())
 			})
 			.collect::<Vec<_>>();
-		let process_subtree_output_storeds = put_process_messages
+		let process_node_output_storeds = put_process_messages
 			.values()
-			.map(|message| message.stored.subtree_output)
+			.map(|message| message.stored.node_output)
+			.collect::<Vec<_>>();
+		let process_subtree_command_counts = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.command
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_command_depths = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.command
+					.depth
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_command_sizes = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.command
+					.size
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_command_storeds = put_process_messages
+			.values()
+			.map(|message| message.stored.subtree_command)
+			.collect::<Vec<_>>();
+		let process_subtree_counts = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_log_counts = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.log
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_log_depths = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.log
+					.depth
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_log_sizes = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.log
+					.size
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_log_storeds = put_process_messages
+			.values()
+			.map(|message| message.stored.subtree_log)
 			.collect::<Vec<_>>();
 		let process_subtree_output_counts = put_process_messages
 			.values()
@@ -356,6 +422,14 @@ impl Server {
 					.size
 					.map(|value| value.to_i64().unwrap())
 			})
+			.collect::<Vec<_>>();
+		let process_subtree_output_storeds = put_process_messages
+			.values()
+			.map(|message| message.stored.subtree_output)
+			.collect::<Vec<_>>();
+		let process_subtree_storeds = put_process_messages
+			.values()
+			.map(|message| message.stored.subtree)
 			.collect::<Vec<_>>();
 		let process_children = put_process_messages
 			.values()
@@ -476,33 +550,41 @@ impl Server {
 					$20::int8[],
 					$21::bool[],
 					$22::int8[],
-					$23::bool[],
+					$23::int8[],
 					$24::int8[],
-					$25::int8[],
+					$25::bool[],
 					$26::int8[],
-					$27::bool[],
+					$27::int8[],
 					$28::int8[],
-					$29::int8[],
+					$29::bool[],
 					$30::int8[],
-					$31::bool[],
+					$31::int8[],
 					$32::int8[],
-					$33::int8[],
+					$33::bool[],
 					$34::int8[],
-					$35::bool[],
+					$35::int8[],
 					$36::int8[],
 					$37::int8[],
-					$38::int8[],
-					$39::bytea[],
+					$38::bool[],
+					$39::int8[],
 					$40::int8[],
 					$41::int8[],
-					$42::bytea[],
+					$42::bool[],
 					$43::int8[],
 					$44::int8[],
 					$45::int8[],
-					$46::bytea[],
-					$47::text[],
-					$48::bytea[],
-					$49::text[]
+					$46::bool[],
+					$47::bytea[],
+					$48::int8[],
+					$49::int8[],
+					$50::bytea[],
+					$51::int8[],
+					$52::int8[],
+					$53::int8[],
+					$54::bytea[],
+					$55::text[],
+					$56::bytea[],
+					$57::text[]
 				);
 			"
 		);
@@ -531,24 +613,32 @@ impl Server {
 					&touch_object_ids.as_slice(),
 					&process_ids.as_slice(),
 					&process_touched_ats.as_slice(),
-					&process_subtree_storeds.as_slice(),
-					&process_subtree_counts.as_slice(),
-					&process_subtree_command_storeds.as_slice(),
-					&process_subtree_command_counts.as_slice(),
-					&process_subtree_command_depths.as_slice(),
-					&process_subtree_command_sizes.as_slice(),
-					&process_subtree_output_storeds.as_slice(),
-					&process_subtree_output_counts.as_slice(),
-					&process_subtree_output_depths.as_slice(),
-					&process_subtree_output_sizes.as_slice(),
-					&process_node_command_storeds.as_slice(),
 					&process_node_command_counts.as_slice(),
 					&process_node_command_depths.as_slice(),
 					&process_node_command_sizes.as_slice(),
-					&process_node_output_storeds.as_slice(),
+					&process_node_command_storeds.as_slice(),
+					&process_node_log_counts.as_slice(),
+					&process_node_log_depths.as_slice(),
+					&process_node_log_sizes.as_slice(),
+					&process_node_log_storeds.as_slice(),
 					&process_node_output_counts.as_slice(),
 					&process_node_output_depths.as_slice(),
 					&process_node_output_sizes.as_slice(),
+					&process_node_output_storeds.as_slice(),
+					&process_subtree_command_counts.as_slice(),
+					&process_subtree_command_depths.as_slice(),
+					&process_subtree_command_sizes.as_slice(),
+					&process_subtree_command_storeds.as_slice(),
+					&process_subtree_counts.as_slice(),
+					&process_subtree_log_counts.as_slice(),
+					&process_subtree_log_depths.as_slice(),
+					&process_subtree_log_sizes.as_slice(),
+					&process_subtree_log_storeds.as_slice(),
+					&process_subtree_output_counts.as_slice(),
+					&process_subtree_output_depths.as_slice(),
+					&process_subtree_output_sizes.as_slice(),
+					&process_subtree_output_storeds.as_slice(),
+					&process_subtree_storeds.as_slice(),
 					&process_children.as_slice(),
 					&process_child_process_indices.as_slice(),
 					&process_child_positions.as_slice(),
