@@ -1111,6 +1111,19 @@ impl Server {
 		let statement = indoc!(
 			"
 				insert into process_queue (process, kind, transaction_id)
+				select process, 4, ?2
+				from process_objects
+				where process_objects.object = ?1;
+			"
+		);
+		let mut enqueue_logs_processes_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the enqueue processes statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
 				select process, 3, ?2
 				from process_objects
 				where process_objects.object = ?1;
@@ -1205,6 +1218,14 @@ impl Server {
 				.map_err(|source| {
 					tg::error!(!source, "failed to execute the enqueue processes statement")
 				})?;
+
+			let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
+			enqueue_logs_processes_statement
+				.execute(params)
+				.map_err(|source| {
+					tg::error!(!source, "failed to execute the enqueue processes statement")
+				})?;
+
 			let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
 			enqueue_outputs_processes_statement
 				.execute(params)
@@ -1302,22 +1323,6 @@ impl Server {
 		let statement = indoc!(
 			"
 				insert into process_queue (process, kind, transaction_id)
-				select process, 3, ?2
-				from process_children
-				where process_children.child = ?1;
-			"
-		);
-		let mut enqueue_parents_output_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(
-					!source,
-					"failed to prepare the enqueue parents output statement"
-				)
-			})?;
-
-		let statement = indoc!(
-			"
-				insert into process_queue (process, kind, transaction_id)
 				select process, 4, ?2
 				from process_children
 				where process_children.child = ?1;
@@ -1328,6 +1333,22 @@ impl Server {
 				tg::error!(
 					!source,
 					"failed to prepare the enqueue parents log statement"
+				)
+			})?;
+
+		let statement = indoc!(
+			"
+				insert into process_queue (process, kind, transaction_id)
+				select process, 3, ?2
+				from process_children
+				where process_children.child = ?1;
+			"
+		);
+		let mut enqueue_parents_output_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to prepare the enqueue parents output statement"
 				)
 			})?;
 
@@ -1364,6 +1385,108 @@ impl Server {
 			"
 		);
 		let mut update_subtree_stored_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update stored statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				update processes
+				set
+					node_command_stored = objects.subtree_stored,
+					node_command_count = objects.subtree_count,
+					node_command_depth = objects.subtree_depth,
+					node_command_size = objects.subtree_size
+				from process_objects
+				left join objects on process_objects.object = objects.id
+				where processes.id = process_objects.process
+					and process_objects.kind = 0
+					and process_objects.process = ?1
+					and objects.subtree_stored = 1
+					and (
+						processes.node_command_stored = 0 or
+						processes.node_command_count is null or
+						processes.node_command_depth is null or
+						processes.node_command_size is null
+					);
+			"
+		);
+		let mut update_node_command_stored_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update stored statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				update processes
+				set
+					node_log_stored = updates.node_log_stored,
+					node_log_count = updates.node_log_count,
+					node_log_depth = updates.node_log_depth,
+					node_log_size = updates.node_log_size
+				from (
+					select
+						processes.id,
+						case
+							when count(process_objects.object) = 0 then 1
+							else min(coalesce(objects.subtree_stored, 0))
+						end as node_log_stored,
+						coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_log_count,
+						coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_log_depth,
+						coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_log_size
+					from processes
+					left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
+					left join objects on objects.id = process_objects.object
+					where processes.id = ?1
+					and processes.node_log_stored = 0
+					group by processes.id
+				) as updates
+				where processes.id = updates.id
+				and updates.node_log_stored = 1;
+			"
+		);
+		let mut update_node_log_stored_statement =
+			transaction.prepare_cached(statement).map_err(|source| {
+				tg::error!(!source, "failed to prepare the update stored statement")
+			})?;
+
+		let statement = indoc!(
+			"
+				update processes
+				set
+					node_output_stored = updates.node_output_stored,
+					node_output_count = updates.node_output_count,
+					node_output_depth = updates.node_output_depth,
+					node_output_size = updates.node_output_size
+				from (
+					select
+						process_objects.process as id,
+						case
+							when count(process_objects.object) = 0 then 1
+							when min(coalesce(objects.subtree_stored, 0)) = 1 then 1
+							else 0
+						end as node_output_stored,
+						coalesce(sum(objects.subtree_count), 0) as node_output_count,
+						coalesce(max(objects.subtree_depth), 0) as node_output_depth,
+						coalesce(sum(objects.subtree_size), 0) as node_output_size
+					from processes
+					join process_objects on processes.id = process_objects.process
+					left join objects on process_objects.object = objects.id
+					where process_objects.kind = 3
+					and process_objects.process = ?1
+					and (
+						processes.node_output_stored = 0 or
+						processes.node_output_count is null or
+						processes.node_output_depth is null or
+						processes.node_output_size is null
+					)
+					group by process_objects.process
+				) updates
+				where processes.id = updates.id
+				and updates.node_output_stored = 1;
+			"
+		);
+		let mut update_node_output_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
@@ -1414,10 +1537,12 @@ impl Server {
 						group by process_children.process
 					) as child_processes on child_processes.process = processes.id
 					where processes.id = ?1
-					and (processes.subtree_command_stored = 0
+					and (
+						processes.subtree_command_stored = 0
 						or processes.subtree_command_count is null
 						or processes.subtree_command_depth is null
-						or processes.subtree_command_size is null)
+						or processes.subtree_command_size is null
+					)
 				) as updates
 				where processes.id = updates.id
 				and updates.subtree_command_stored = 1
@@ -1432,26 +1557,46 @@ impl Server {
 		let statement = indoc!(
 			"
 				update processes
-				set
-					node_command_stored = objects.subtree_stored,
-					node_command_count = objects.subtree_count,
-					node_command_depth = objects.subtree_depth,
-					node_command_size = objects.subtree_size
-				from process_objects
-				left join objects on process_objects.object = objects.id
-				where processes.id = process_objects.process
-					and process_objects.kind = 0
-					and process_objects.process = ?1
-					and objects.subtree_stored = 1
-					and (
-						processes.node_command_stored = 0 or
-						processes.node_command_count is null or
-						processes.node_command_depth is null or
-						processes.node_command_size is null
-					);
+					set
+						subtree_log_stored = updates.subtree_log_stored,
+						subtree_log_count = updates.subtree_log_count,
+						subtree_log_depth = updates.subtree_log_depth,
+						subtree_log_size = updates.subtree_log_size
+				from (
+					select
+						processes.id,
+						case
+							when count(process_children.child) = 0
+							and (count(process_objects.object) = 0 or min(coalesce(objects.subtree_stored, 0)) = 1)
+								then 1
+							when (count(process_objects.object) = 0 or min(coalesce(objects.subtree_stored, 0)) = 1)
+							and (count(process_children.child) = 0 or min(coalesce(child_processes.subtree_log_stored, 0)) = 1)
+								then 1
+							else 0
+						end as subtree_log_stored,
+						coalesce(sum(coalesce(objects.subtree_count, 0)), 0)
+						+ coalesce(sum(coalesce(child_processes.subtree_log_count, 0)), 0) as subtree_log_count,
+						max(
+						coalesce(max(coalesce(objects.subtree_depth, 0)), 0),
+						coalesce(max(coalesce(child_processes.subtree_log_depth, 0)), 0)
+						) as subtree_log_depth,
+						coalesce(sum(coalesce(objects.subtree_size, 0)), 0)
+						+ coalesce(sum(coalesce(child_processes.subtree_log_size, 0)), 0) as subtree_log_size
+					from processes
+					left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
+					left join objects on objects.id = process_objects.object
+					left join process_children on process_children.process = processes.id
+					left join processes child_processes on child_processes.id = process_children.child
+					where processes.id = ?1
+					and processes.subtree_log_stored = 0
+					group by processes.id
+				) as updates
+				where processes.id = updates.id
+				and updates.subtree_log_stored = 1
+				returning subtree_log_stored;
 			"
 		);
-		let mut update_node_command_stored_statement =
+		let mut update_subtree_log_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
@@ -1502,10 +1647,12 @@ impl Server {
 						group by process_children.process
 					) as child_processes on child_processes.process = processes.id
 					where processes.id = ?1
-					and (processes.subtree_output_stored = 0
+					and (
+						processes.subtree_output_stored = 0
 						or processes.subtree_output_count is null
 						or processes.subtree_output_depth is null
-						or processes.subtree_output_size is null)
+						or processes.subtree_output_size is null
+					)
 				) as updates
 				where processes.id = updates.id
 				and updates.subtree_output_stored = 1
@@ -1513,128 +1660,6 @@ impl Server {
 			"
 		);
 		let mut update_subtree_output_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update stored statement")
-			})?;
-
-		let statement = indoc!(
-			"
-				update processes
-				set
-					node_output_stored = updates.node_output_stored,
-					node_output_count = updates.node_output_count,
-					node_output_depth = updates.node_output_depth,
-					node_output_size = updates.node_output_size
-				from (
-					select
-						process_objects.process as id,
-						case
-							when count(process_objects.object) = 0 then 1
-							when min(coalesce(objects.subtree_stored, 0)) = 1 then 1
-							else 0
-						end as node_output_stored,
-						coalesce(sum(objects.subtree_count), 0) as node_output_count,
-						coalesce(max(objects.subtree_depth), 0) as node_output_depth,
-						coalesce(sum(objects.subtree_size), 0) as node_output_size
-					from processes
-					join process_objects on processes.id = process_objects.process
-					left join objects on process_objects.object = objects.id
-					where process_objects.kind = 3
-					and process_objects.process = ?1
-					and (
-						processes.node_output_stored = 0 or
-						processes.node_output_count is null or
-						processes.node_output_depth is null or
-						processes.node_output_size is null
-					)
-					group by process_objects.process
-				) updates
-				where processes.id = updates.id
-				and updates.node_output_stored = 1;
-			"
-		);
-		let mut update_node_output_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update stored statement")
-			})?;
-
-		let statement = indoc!(
-			"
-				update processes
-					set
-						subtree_log_stored = updates.subtree_log_stored,
-						subtree_log_count = updates.subtree_log_count,
-						subtree_log_depth = updates.subtree_log_depth,
-						subtree_log_size = updates.subtree_log_size
-				from (
-					select
-						processes.id,
-						case
-							when count(process_children.child) = 0
-							and (count(process_objects.object) = 0 or min(coalesce(objects.subtree_stored, 0)) = 1)
-								then 1
-							when (count(process_objects.object) = 0 or min(coalesce(objects.subtree_stored, 0)) = 1)
-							and (count(process_children.child) = 0 or min(coalesce(child_processes.subtree_log_stored, 0)) = 1)
-								then 1
-							else 0
-						end as subtree_log_stored,
-						coalesce(sum(coalesce(objects.subtree_count, 0)), 0)
-						+ coalesce(sum(coalesce(child_processes.subtree_log_count, 0)), 0) as subtree_log_count,
-						max(
-						coalesce(max(coalesce(objects.subtree_depth, 0)), 0),
-						coalesce(max(coalesce(child_processes.subtree_log_depth, 0)), 0)
-						) as subtree_log_depth,
-						coalesce(sum(coalesce(objects.subtree_size, 0)), 0)
-						+ coalesce(sum(coalesce(child_processes.subtree_log_size, 0)), 0) as subtree_log_size
-					from processes
-					left join process_objects on process_objects.process = processes.id and process_objects.kind = 1
-					left join objects on objects.id = process_objects.object
-					left join process_children on process_children.process = processes.id
-					left join processes child_processes on child_processes.id = process_children.child
-					where processes.id = ?1
-					and processes.subtree_log_stored = 0
-					group by processes.id
-				) as updates
-				where processes.id = updates.id
-				and updates.subtree_log_stored = 1
-				returning subtree_log_stored;
-			"
-		);
-		let mut update_subtree_log_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
-				tg::error!(!source, "failed to prepare the update stored statement")
-			})?;
-
-		let statement = indoc!(
-			"
-				update processes
-				set
-					node_log_stored = updates.node_log_stored,
-					node_log_count = updates.node_log_count,
-					node_log_depth = updates.node_log_depth,
-					node_log_size = updates.node_log_size
-				from (
-					select
-						processes.id,
-						case
-							when count(process_objects.object) = 0 then 1
-							else min(coalesce(objects.subtree_stored, 0))
-						end as node_log_stored,
-						coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_log_count,
-						coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_log_depth,
-						coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_log_size
-					from processes
-					left join process_objects on process_objects.process = processes.id and process_objects.kind = 1
-					left join objects on objects.id = process_objects.object
-					where processes.id = ?1
-					and processes.node_log_stored = 0
-					group by processes.id
-				) as updates
-				where processes.id = updates.id
-				and updates.node_log_stored = 1;
-			"
-		);
-		let mut update_node_log_stored_statement =
 			transaction.prepare_cached(statement).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
@@ -1661,6 +1686,7 @@ impl Server {
 							tg::error!(!source, "failed to execute the enqueue parents statement")
 						})?;
 				},
+
 				Kind::Commands => {
 					let params = [item.process.to_bytes().to_vec()];
 					let mut rows = update_subtree_command_stored_statement
@@ -1691,6 +1717,36 @@ impl Server {
 							tg::error!(!source, "failed to execute the enqueue parents statement")
 						})?;
 				},
+
+				Kind::Logs => {
+					let params = [item.process.to_bytes().to_vec()];
+					let mut rows =
+						update_subtree_log_stored_statement
+							.query(params)
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the update stored statement")
+							})?;
+					rows.next().map_err(|source| {
+						tg::error!(!source, "failed to execute the update stored statement")
+					})?;
+
+					// Update log stored.
+					let params = [item.process.to_bytes().to_vec()];
+					update_node_log_stored_statement
+						.execute(params)
+						.map_err(|source| {
+							tg::error!(!source, "failed to execute the update log stored statement")
+						})?;
+
+					let params =
+						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
+					enqueue_parents_log_statement
+						.execute(params)
+						.map_err(|source| {
+							tg::error!(!source, "failed to execute the enqueue parents statement")
+						})?;
+				},
+
 				Kind::Outputs => {
 					let params = [item.process.to_bytes().to_vec()];
 					let mut rows = update_subtree_output_stored_statement
@@ -1716,36 +1772,6 @@ impl Server {
 					let params =
 						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
 					enqueue_parents_output_statement
-						.execute(params)
-						.map_err(|source| {
-							tg::error!(!source, "failed to execute the enqueue parents statement")
-						})?;
-				},
-				Kind::Logs => {
-					let params = [item.process.to_bytes().to_vec()];
-					let mut rows = update_subtree_log_stored_statement
-						.query(params)
-						.map_err(|source| {
-							tg::error!(!source, "failed to execute the update stored statement")
-						})?;
-					rows.next().map_err(|source| {
-						tg::error!(!source, "failed to execute the update stored statement")
-					})?;
-
-					// Update log stored.
-					let params = [item.process.to_bytes().to_vec()];
-					update_node_log_stored_statement
-						.execute(params)
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								"failed to execute the update log stored statement"
-							)
-						})?;
-
-					let params =
-						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
-					enqueue_parents_log_statement
 						.execute(params)
 						.map_err(|source| {
 							tg::error!(!source, "failed to execute the enqueue parents statement")

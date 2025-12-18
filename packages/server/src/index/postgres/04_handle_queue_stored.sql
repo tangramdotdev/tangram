@@ -309,7 +309,7 @@ begin
 					coalesce(sum(coalesce(objects.subtree_size, 0)), 0)
 					+ coalesce(sum(coalesce(child_processes.subtree_log_size, 0)), 0) as subtree_log_size
 				from processes
-				left join process_objects on process_objects.process = processes.id and process_objects.kind = 1
+				left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
 				left join objects on objects.id = process_objects.object
 				left join process_children on process_children.process = processes.id
 				left join processes child_processes on child_processes.id = process_children.child
@@ -354,7 +354,7 @@ begin
 				coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_log_depth,
 				coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_log_size
 			from processes
-			left join process_objects on process_objects.process = processes.id and process_objects.kind = 1
+			left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
 			left join objects on objects.id = process_objects.object
 			where processes.id = any(logs_processes)
 			and processes.node_log_stored = false
