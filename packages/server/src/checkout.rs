@@ -64,19 +64,21 @@ impl Server {
 				let context = context.clone();
 				let stream = stream
 					.boxed()
-					.map_ok({
+					.map({
 						let server = self.clone();
-						move |event| {
-							event.map_output(|()| {
-								let path = server.artifacts_path().join(arg.artifact.to_string());
-								let path = if let Some(process) = &context.process {
-									process.guest_path_for_host_path(path).unwrap_or_else(|_| {
-										server.artifacts_path().join(arg.artifact.to_string())
-									})
-								} else {
-									path
-								};
-								tg::checkout::Output { path }
+						move |result| {
+							result.and_then(|event| match event {
+								tg::progress::Event::Output(()) => {
+									let path =
+										server.artifacts_path().join(arg.artifact.to_string());
+									let path = if let Some(process) = &context.process {
+										process.guest_path_for_host_path(path)?
+									} else {
+										path
+									};
+									Ok(tg::progress::Event::Output(tg::checkout::Output { path }))
+								},
+								event => Ok(event.map_output(|()| unreachable!())),
 							})
 						}
 					})
