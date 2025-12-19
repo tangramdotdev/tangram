@@ -61,6 +61,7 @@ impl Server {
 					artifacts: vec![arg.artifact.clone()],
 				};
 				let stream = self.cache(cache_arg).await?;
+				let context = context.clone();
 				let stream = stream
 					.boxed()
 					.map_ok({
@@ -68,6 +69,13 @@ impl Server {
 						move |event| {
 							event.map_output(|()| {
 								let path = server.artifacts_path().join(arg.artifact.to_string());
+								let path = if let Some(process) = &context.process {
+									process.guest_path_for_host_path(path).unwrap_or_else(|_| {
+										server.artifacts_path().join(arg.artifact.to_string())
+									})
+								} else {
+									path
+								};
 								tg::checkout::Output { path }
 							})
 						}
