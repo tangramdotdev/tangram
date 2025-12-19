@@ -61,14 +61,24 @@ impl Server {
 					artifacts: vec![arg.artifact.clone()],
 				};
 				let stream = self.cache(cache_arg).await?;
+				let context = context.clone();
 				let stream = stream
 					.boxed()
-					.map_ok({
+					.map({
 						let server = self.clone();
-						move |event| {
-							event.map_output(|()| {
-								let path = server.artifacts_path().join(arg.artifact.to_string());
-								tg::checkout::Output { path }
+						move |result| {
+							result.and_then(|event| match event {
+								tg::progress::Event::Output(()) => {
+									let path =
+										server.artifacts_path().join(arg.artifact.to_string());
+									let path = if let Some(process) = &context.process {
+										process.guest_path_for_host_path(path)?
+									} else {
+										path
+									};
+									Ok(tg::progress::Event::Output(tg::checkout::Output { path }))
+								},
+								event => Ok(event.map_output(|()| unreachable!())),
 							})
 						}
 					})
