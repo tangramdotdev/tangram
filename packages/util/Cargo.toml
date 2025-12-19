@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 bytes = { workspace = true }
 data-encoding = { workspace = true }
+libc = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }

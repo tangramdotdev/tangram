@@ -28,12 +28,14 @@ struct State {
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
+	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 }
 
-struct GetNodeOutput {
-	id: tg::artifact::Id,
-	node: tg::graph::data::Node,
-	graph: Option<tg::graph::Id>,
+#[derive(Clone)]
+pub struct Item {
+	pub id: tg::artifact::Id,
+	pub node: tg::graph::data::Node,
+	pub graph: Option<tg::graph::Id>,
 }
 
 impl Server {
@@ -273,16 +275,16 @@ impl Server {
 					path,
 					progress,
 					visited: HashSet::default(),
+					visiting: HashSet::default(),
 				};
 
-				// Get the node.
-				let id = state.artifact.clone();
-				let edge = tg::graph::data::Edge::Object(id.clone());
-				let GetNodeOutput { id, node, graph } = server.checkout_get_node(None, &edge)?;
+				// Get the item.
+				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
+				let item = server.checkout_get_item(None, edge)?;
 
 				// Check out the artifact.
 				let path = state.path.clone();
-				server.checkout_artifact(&mut state, &path, &edge, &id, node, graph.as_ref())?;
+				server.checkout_artifact(&mut state, &path, &item)?;
 
 				// Write the lock if necessary.
 				server.checkout_write_lock(&mut state)?;
@@ -294,7 +296,7 @@ impl Server {
 		.await
 		.map_err(|source| tg::error!(!source, "the checkout task panicked"))?;
 
-		// Delete the partially constructed output if checkout failed.
+		// Remove the output if checkout failed.
 		if let Err(error) = result {
 			tangram_util::fs::remove(&path).await.ok();
 			return Err(error);
@@ -305,18 +307,11 @@ impl Server {
 		Ok(output)
 	}
 
-	fn checkout_dependency(
-		&self,
-		state: &mut State,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-		id: &tg::artifact::Id,
-		node: tg::graph::data::Node,
-		graph: Option<&tg::graph::Id>,
-	) -> tg::Result<()> {
+	fn checkout_dependency(&self, state: &mut State, item: &Item) -> tg::Result<()> {
 		if !state.arg.dependencies {
 			return Ok(());
 		}
-		if !state.visited.insert(id.clone()) {
+		if !state.visited.insert(item.id.clone()) {
 			return Ok(());
 		}
 		let artifacts_path = state
@@ -329,30 +324,27 @@ impl Server {
 			})?;
 			state.artifacts_path_created = true;
 		}
-		let path = artifacts_path.join(id.to_string());
-		self.checkout_artifact(state, &path, edge, id, node, graph)?;
-		Ok(())
+		let path = artifacts_path.join(item.id.to_string());
+
+		// Save and clear the visiting set for the dependency checkout. Dependencies are checked out to a separate location and should have their own cycle detection.
+		let visiting = std::mem::take(&mut state.visiting);
+		let result = self.checkout_artifact(state, &path, item);
+		state.visiting = visiting;
+
+		result
 	}
 
-	fn checkout_artifact(
-		&self,
-		state: &mut State,
-		path: &Path,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-		id: &tg::artifact::Id,
-		node: tg::graph::data::Node,
-		graph: Option<&tg::graph::Id>,
-	) -> tg::Result<()> {
+	fn checkout_artifact(&self, state: &mut State, path: &Path, item: &Item) -> tg::Result<()> {
 		// Checkout the artifact.
-		match node {
+		match &item.node {
 			tg::graph::data::Node::Directory(node) => {
-				self.checkout_directory(state, path, edge, id, graph, &node)?;
+				self.checkout_directory(state, path, item, node)?;
 			},
 			tg::graph::data::Node::File(node) => {
-				self.checkout_file(state, path, edge, id, graph, &node)?;
+				self.checkout_file(state, path, item, node)?;
 			},
 			tg::graph::data::Node::Symlink(node) => {
-				self.checkout_symlink(state, path, edge, id, graph, &node)?;
+				self.checkout_symlink(state, path, item, node)?;
 			},
 		}
 
@@ -363,11 +355,14 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		_edge: &tg::graph::data::Edge<tg::artifact::Id>,
-		_id: &tg::artifact::Id,
-		graph: Option<&tg::graph::Id>,
+		item: &Item,
 		node: &tg::graph::data::Directory,
 	) -> tg::Result<()> {
+		let Item { id, graph, .. } = item;
+
+		// Add to visiting set to detect cycles.
+		state.visiting.insert(id.clone());
+
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
@@ -379,13 +374,21 @@ impl Server {
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
 				&& reference.graph.is_none()
 			{
-				reference.graph = graph.cloned();
+				reference.graph = graph.clone();
 			}
 			let path = path.join(name);
-			let GetNodeOutput { id, node, graph } =
-				self.checkout_get_node(Some(&mut state.graphs), &edge)?;
-			self.checkout_artifact(state, &path, &edge, &id, node, graph.as_ref())?;
+			let item = self.checkout_get_item(Some(&mut state.graphs), edge)?;
+
+			// Check for a cycle.
+			if state.visiting.contains(&item.id) {
+				return Err(tg::error!("detected a directory cycle"));
+			}
+
+			self.checkout_artifact(state, &path, &item)?;
 		}
+
+		// Remove from visiting set.
+		state.visiting.remove(id);
 
 		// Increment the progress.
 		state.progress.increment("artifacts", 1);
@@ -397,11 +400,11 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		_edge: &tg::graph::data::Edge<tg::artifact::Id>,
-		id: &tg::artifact::Id,
-		graph: Option<&tg::graph::Id>,
+		item: &Item,
 		node: &tg::graph::data::File,
 	) -> tg::Result<()> {
+		let Item { id, graph, .. } = item;
+
 		// Check out the dependencies.
 		for dependency in node.dependencies.values() {
 			let Some(dependency) = dependency else {
@@ -420,12 +423,11 @@ impl Server {
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
 				&& reference.graph.is_none()
 			{
-				reference.graph = graph.cloned();
+				reference.graph = graph.clone();
 			}
-			let GetNodeOutput { id, node, graph } =
-				self.checkout_get_node(Some(&mut state.graphs), &edge)?;
-			if id != state.artifact {
-				self.checkout_dependency(state, &edge, &id, node, graph.as_ref())?;
+			let item = self.checkout_get_item(Some(&mut state.graphs), edge)?;
+			if item.id != state.artifact {
+				self.checkout_dependency(state, &item)?;
 			}
 		}
 
@@ -436,7 +438,7 @@ impl Server {
 			.ok_or_else(|| tg::error!("missing contents"))?;
 
 		let src = &self.cache_path().join(id.to_string());
-		let dst = &path;
+		let dst = path;
 
 		// Attempt to reflink the file.
 		let result = reflink(src, dst);
@@ -480,11 +482,10 @@ impl Server {
 					state.progress.increment("bytes", len);
 				}
 			});
-			let mut file = std::fs::File::create(dst)
-				.map_err(|source| tg::error!(!source, path = ?dst, "failed to create the file"))?;
-			std::io::copy(&mut reader, &mut file).map_err(
-				|source| tg::error!(!source, path = ?dst, "failed to write to the file"),
-			)?;
+			let mut file = std::fs::File::create(path)
+				.map_err(|source| tg::error!(!source, ?path, "failed to create the file"))?;
+			std::io::copy(&mut reader, &mut file)
+				.map_err(|source| tg::error!(!source, ?path, "failed to write to the file"))?;
 
 			// Set the dependencies attr.
 			let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
@@ -492,7 +493,7 @@ impl Server {
 				let dependencies = serde_json::to_vec(&dependencies).map_err(|source| {
 					tg::error!(!source, "failed to serialize the dependencies")
 				})?;
-				xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
+				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
 					|source| tg::error!(!source, "failed to write the dependencies attr"),
 				)?;
 			}
@@ -500,7 +501,7 @@ impl Server {
 			// Set the permissions.
 			if node.executable {
 				let permissions = std::fs::Permissions::from_mode(0o755);
-				std::fs::set_permissions(dst, permissions)
+				std::fs::set_permissions(path, permissions)
 					.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
 			}
 		}
@@ -515,11 +516,11 @@ impl Server {
 		&self,
 		state: &mut State,
 		path: &Path,
-		_edge: &tg::graph::data::Edge<tg::artifact::Id>,
-		_id: &tg::artifact::Id,
-		graph: Option<&tg::graph::Id>,
+		item: &Item,
 		node: &tg::graph::data::Symlink,
 	) -> tg::Result<()> {
+		let Item { graph, .. } = item;
+
 		// Render the target.
 		let target = if let Some(mut edge) = node.artifact.clone() {
 			let mut target = PathBuf::new();
@@ -528,28 +529,19 @@ impl Server {
 			if let tg::graph::data::Edge::Reference(reference) = &mut edge
 				&& reference.graph.is_none()
 			{
-				reference.graph = graph.cloned();
+				reference.graph = graph.clone();
 			}
 
 			// Get the dependency node.
-			let GetNodeOutput {
-				id: dependency_id,
-				node: dependency_node,
-				graph: dependency_graph,
-			} = self.checkout_get_node(Some(&mut state.graphs), &edge)?;
+			let dependency_item = self.checkout_get_item(Some(&mut state.graphs), edge)?;
 
-			if dependency_id == state.artifact {
+			if dependency_item.id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
 				target.push(&state.path);
 			} else {
 				// If the symlink's artifact is another artifact, then check it out and use the artifact's path.
-				self.checkout_dependency(
-					state,
-					&edge,
-					&dependency_id,
-					dependency_node,
-					dependency_graph.as_ref(),
-				)?;
+				let dependency_id = dependency_item.id.clone();
+				self.checkout_dependency(state, &dependency_item)?;
 
 				// Update the target.
 				let artifacts_path = state
@@ -587,11 +579,11 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkout_get_node(
+	fn checkout_get_item(
 		&self,
 		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
-		edge: &tg::graph::data::Edge<tg::artifact::Id>,
-	) -> tg::Result<GetNodeOutput> {
+		edge: tg::graph::data::Edge<tg::artifact::Id>,
+	) -> tg::Result<Item> {
 		let mut local_graphs = HashMap::default();
 		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
 		match edge {
@@ -633,7 +625,7 @@ impl Server {
 				};
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
-				Ok(GetNodeOutput {
+				Ok(Item {
 					id,
 					node,
 					graph: Some(graph.clone()),
@@ -683,28 +675,26 @@ impl Server {
 							.ok_or_else(|| tg::error!("invalid graph node"))?
 							.clone();
 
-						Ok(GetNodeOutput {
+						Ok(Item {
 							id: id.clone(),
 							node,
 							graph: Some(graph.clone()),
 						})
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
-						Ok(GetNodeOutput {
+						Ok(Item {
 							id: id.clone(),
 							node: tg::graph::data::Node::Directory(node),
 							graph: None,
 						})
 					},
-					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
-						Ok(GetNodeOutput {
-							id: id.clone(),
-							node: tg::graph::data::Node::File(node),
-							graph: None,
-						})
-					},
+					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => Ok(Item {
+						id: id.clone(),
+						node: tg::graph::data::Node::File(node),
+						graph: None,
+					}),
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
-						Ok(GetNodeOutput {
+						Ok(Item {
 							id: id.clone(),
 							node: tg::graph::data::Node::Symlink(node),
 							graph: None,

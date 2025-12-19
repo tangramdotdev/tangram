@@ -1,19 +1,31 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
 
 /// Cache an artifact.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
 	#[arg(required = true)]
-	pub artifacts: Vec<tg::artifact::Id>,
+	pub references: Vec<tg::Reference>,
 }
 
 impl Cli {
 	pub async fn command_cache(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let arg = tg::cache::Arg {
-			artifacts: args.artifacts,
-		};
+
+		// Resolve the references to artifact IDs.
+		let referents = self.get_references(&args.references).await?;
+		let artifacts = referents
+			.into_iter()
+			.map(|referent| {
+				let Either::Left(object) = referent.item else {
+					return Err(tg::error!("expected an object"));
+				};
+				let artifact = tg::Artifact::try_from(object)?;
+				Ok(artifact.id())
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		let arg = tg::cache::Arg { artifacts };
 		let stream = handle
 			.cache(arg)
 			.await

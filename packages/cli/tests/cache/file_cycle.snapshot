@@ -1,0 +1,19 @@
+{
+  "kind": "directory",
+  "entries": {
+    "fil_01c9hv1869wgpf6mq55r62ynf1eap3wbgepfvye819ax9t246aegn0": {
+      "kind": "file",
+      "contents": "",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"./foo.tg.ts\"]"
+      }
+    },
+    "fil_01rcw74s81fxd9kc36m7cmtcaq1pam24ffnwwha50psrr48yce29t0": {
+      "kind": "file",
+      "contents": "",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"./bar.tg.ts\"]"
+      }
+    }
+  }
+}

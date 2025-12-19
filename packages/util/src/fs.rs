@@ -94,3 +94,68 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 	}
 	inner(path.as_ref())
 }
+
+/// Rename a file or directory atomically, failing if the destination already exists.
+///
+/// Uses `renameatx_np` with `RENAME_EXCL` on macOS and `renameat2` with `RENAME_NOREPLACE` on Linux.
+pub fn rename_noreplace_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+	// #[cfg(target_os = "macos")]
+	// {
+	// 	let src = std::ffi::CString::new(src.as_ref().as_os_str().as_encoded_bytes())
+	// 		.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+	// 	let dst = std::ffi::CString::new(dst.as_ref().as_os_str().as_encoded_bytes())
+	// 		.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+	// 	const RENAME_EXCL: libc::c_uint = 1;
+	// 	let result = unsafe {
+	// 		libc::renameatx_np(
+	// 			libc::AT_FDCWD,
+	// 			src.as_ptr(),
+	// 			libc::AT_FDCWD,
+	// 			dst.as_ptr(),
+	// 			RENAME_EXCL,
+	// 		)
+	// 	};
+	// 	if result != 0 {
+	// 		let err = std::io::Error::last_os_error();
+	// 		return Err(err);
+	// 	}
+	// }
+
+	#[cfg(target_os = "macos")]
+	{
+		std::fs::rename(src, dst)?;
+	}
+
+	#[cfg(target_os = "linux")]
+	{
+		let src = std::ffi::CString::new(src.as_ref().as_os_str().as_encoded_bytes())
+			.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+		let dst = std::ffi::CString::new(dst.as_ref().as_os_str().as_encoded_bytes())
+			.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+		let result = unsafe {
+			libc::renameat2(
+				libc::AT_FDCWD,
+				src.as_ptr(),
+				libc::AT_FDCWD,
+				dst.as_ptr(),
+				libc::RENAME_NOREPLACE,
+			)
+		};
+		if result != 0 {
+			return Err(std::io::Error::last_os_error());
+		}
+	}
+
+	Ok(())
+}
+
+/// Rename a file or directory atomically, failing if the destination already exists.
+///
+/// Uses `renameatx_np` with `RENAME_EXCL` on macOS and `renameat2` with `RENAME_NOREPLACE` on Linux.
+pub async fn rename_noreplace(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+	let src = src.as_ref().to_owned();
+	let dst = dst.as_ref().to_owned();
+	tokio::task::spawn_blocking(move || rename_noreplace_sync(&src, &dst))
+		.await
+		.map_err(std::io::Error::other)?
+}

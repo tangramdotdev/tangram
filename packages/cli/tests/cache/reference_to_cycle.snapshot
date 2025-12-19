@@ -1,0 +1,34 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_011wswg4m0n2s4489kf4dzgmgm2yjgddpxdxt0tmj0wgrnvyj9f65g": {
+      "kind": "directory",
+      "entries": {
+        "c": {
+          "kind": "file",
+          "contents": "",
+          "xattrs": {
+            "user.tangram.dependencies": "[\"a\"]"
+          }
+        }
+      }
+    },
+    "dir_017r8463w58kndvyysne89y22d4fs9x7jzaffwxfk9h753j5ayzj70": {
+      "kind": "directory",
+      "entries": {
+        "b": {
+          "kind": "directory",
+          "entries": {
+            "c": {
+              "kind": "file",
+              "contents": "",
+              "xattrs": {
+                "user.tangram.dependencies": "[\"a\"]"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

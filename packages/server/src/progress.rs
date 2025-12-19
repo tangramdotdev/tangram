@@ -30,7 +30,7 @@ struct Indicator {
 
 impl<T> Handle<T>
 where
-	T: Clone,
+	T: Clone + Send,
 {
 	#[must_use]
 	pub fn new() -> Self {
@@ -171,7 +171,7 @@ where
 		None
 	}
 
-	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + use<T> {
+	pub fn stream(&self) -> impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + use<T> {
 		let receiver = self.sender.new_receiver();
 		let last = self.last.read().unwrap().clone();
 		if let Some(result) = last {
@@ -245,7 +245,7 @@ where
 
 impl<T> Default for Handle<T>
 where
-	T: Clone,
+	T: Clone + Send,
 {
 	fn default() -> Self {
 		Self::new()

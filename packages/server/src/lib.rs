@@ -77,6 +77,7 @@ pub struct Inner {
 pub struct Server(Arc<State>);
 
 pub struct State {
+	cache_graph_tasks: CacheGraphTasks,
 	cache_tasks: CacheTasks,
 	checkin_tasks: CheckinTasks,
 	config: Config,
@@ -103,6 +104,13 @@ pub struct State {
 	vfs: Mutex<Option<self::vfs::Server>>,
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
 }
+
+type CacheGraphTasks = tangram_futures::task::Map<
+	tg::graph::Id,
+	tg::Result<()>,
+	crate::progress::Handle<()>,
+	tg::id::BuildHasher,
+>;
 
 type CacheTasks = tangram_futures::task::Map<
 	tg::artifact::Id,
@@ -241,6 +249,9 @@ impl Server {
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
+
+		// Create the cache graph tasks.
+		let cache_graph_tasks = tangram_futures::task::Map::default();
 
 		// Create the cache tasks.
 		let cache_tasks = tangram_futures::task::Map::default();
@@ -486,6 +497,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(State {
+			cache_graph_tasks,
 			cache_tasks,
 			checkin_tasks,
 			config,
@@ -823,6 +835,18 @@ impl Server {
 				}
 				tracing::trace!("checkin tasks");
 
+				// Abort the cache graph tasks.
+				server.cache_graph_tasks.abort_all();
+				let results = server.cache_graph_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a cache graph task failed");
+					}
+				}
+				tracing::trace!("cache graph tasks");
+
 				// Abort the cache tasks.
 				server.cache_tasks.abort_all();
 				let results = server.cache_tasks.wait().await;
@@ -1010,6 +1034,7 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		self.cache_graph_tasks.abort_all();
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.process_tasks.abort_all();
