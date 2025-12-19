@@ -984,6 +984,15 @@ impl Cli {
 		Ok(referents)
 	}
 
+	async fn get_modules(&mut self, references: &[tg::Reference]) -> tg::Result<Vec<tg::Module>> {
+		let mut modules = Vec::with_capacity(references.len());
+		for reference in references {
+			let module = self.get_module(reference).await?;
+			modules.push(module);
+		}
+		Ok(modules)
+	}
+
 	async fn get_module(&mut self, reference: &tg::Reference) -> tg::Result<tg::Module> {
 		let handle = self.handle().await?;
 

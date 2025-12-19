@@ -12,7 +12,7 @@ pub struct Args {
 	pub locked: bool,
 
 	#[arg(default_value = ".", index = 1)]
-	pub reference: tg::Reference,
+	pub references: Vec<tg::Reference>,
 
 	#[command(flatten)]
 	pub remotes: crate::util::args::Remotes,
@@ -22,15 +22,18 @@ impl Cli {
 	pub async fn command_check(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the module.
-		let module = self.get_module(&args.reference).await?;
-		let (referent, _) = module.referent.clone().replace(());
+		// Get the modules.
+		let modules = self.get_modules(&args.references).await?;
+		let referents: Vec<_> = modules
+			.iter()
+			.map(|module| module.referent.clone().replace(()).0)
+			.collect();
 
-		// Check the module.
-		let module = module.to_data();
+		// Check the modules.
+		let modules = modules.iter().map(tg::Module::to_data).collect();
 		let arg = tg::check::Arg {
 			local: args.local.local,
-			module,
+			modules,
 			remotes: args.remotes.remotes,
 		};
 		let output = handle.check(arg).await?;
@@ -43,7 +46,10 @@ impl Cli {
 		for diagnostic in output.diagnostics {
 			let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
 			let mut diagnostic = tg::Referent::with_item(diagnostic);
-			diagnostic.inherit(&referent);
+			// Inherit from the first referent if available.
+			if let Some(referent) = referents.first() {
+				diagnostic.inherit(referent);
+			}
 			self.print_diagnostic(diagnostic).await;
 		}
 

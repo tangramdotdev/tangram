@@ -11,7 +11,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
 
-	pub module: tg::module::Data,
+	pub modules: Vec<tg::module::Data>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]

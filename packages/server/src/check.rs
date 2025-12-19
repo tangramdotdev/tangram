@@ -27,7 +27,7 @@ impl Server {
 			let client = self.get_remote_client(remote).await?;
 			let arg = tg::check::Arg {
 				local: None,
-				module: arg.module,
+				modules: arg.modules,
 				remotes: None,
 			};
 			let output = client.check(arg).await?;
@@ -42,7 +42,7 @@ impl Server {
 		let compiler = self.create_compiler();
 
 		// Check the package.
-		let diagnostics = compiler.check(vec![arg.module]).await?;
+		let diagnostics = compiler.check(arg.modules).await?;
 
 		// Create the output.
 		let diagnostics = diagnostics.iter().map(tg::Diagnostic::to_data).collect();
