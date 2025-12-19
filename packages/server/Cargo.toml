@@ -15,7 +15,7 @@ workspace = true
 
 [features]
 boa = ["tangram_js/boa"]
-default = ["js", "typescript"]
+default = ["js", "tangram_js/v8", "typescript"]
 v8 = ["js", "tangram_js/v8"]
 foundationdb = ["tangram_store/foundationdb"]
 js = ["dep:tangram_js"]

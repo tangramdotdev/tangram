@@ -794,11 +794,8 @@ export namespace Graph {
 
 	export namespace Reference {
 		export let fromArg = (arg: tg.Graph.Arg.Reference): tg.Graph.Reference => {
-			if (typeof arg === "number") {
-				throw new Error("cannot convert number to Reference without kind");
-			}
-			if (arg.kind === undefined) {
-				throw new Error("cannot convert Reference without kind");
+			if (typeof arg === "number" || arg.kind === undefined) {
+				throw new Error("expected the kind field to be set");
 			}
 			return arg as tg.Graph.Reference;
 		};

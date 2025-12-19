@@ -1,0 +1,39 @@
+{
+  "kind": "directory",
+  "entries": {
+    ".tangram": {
+      "kind": "directory",
+      "entries": {
+        "artifacts": {
+          "kind": "directory",
+          "entries": {
+            "dir_017r8463w58kndvyysne89y22d4fs9x7jzaffwxfk9h753j5ayzj70": {
+              "kind": "directory",
+              "entries": {
+                "b": {
+                  "kind": "directory",
+                  "entries": {
+                    "c": {
+                      "kind": "file",
+                      "contents": "",
+                      "xattrs": {
+                        "user.tangram.dependencies": "[\"a\"]"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "c": {
+      "kind": "file",
+      "contents": "",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"a\"]"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_01wxx1tw1qw8ywnwnkztxmrnjwpdq0bt87ahnp3q2s539s09y0bcfg": {
+      "kind": "directory",
+      "entries": {
+        "tangram.ts": {
+          "kind": "file",
+          "contents": "",
+          "xattrs": {
+            "user.tangram.dependencies": "[\".\"]"
+          }
+        }
+      }
+    }
+  }
+}

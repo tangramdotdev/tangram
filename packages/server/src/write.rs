@@ -63,11 +63,22 @@ impl Server {
 			});
 			let id = tg::file::Id::new(&data.serialize()?);
 			let path = self.cache_path().join(id.to_string());
-			tokio::fs::rename(temp.path(), path)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to rename the file to the blobs directory")
-				})?;
+			match tangram_util::fs::rename_noreplace(temp.path(), path).await {
+				Ok(()) => (),
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::AlreadyExists
+							| std::io::ErrorKind::IsADirectory
+							| std::io::ErrorKind::PermissionDenied
+					) => {},
+				Err(source) => {
+					return Err(tg::error!(
+						!source,
+						"failed to rename the file to the blobs directory"
+					));
+				},
+			}
 			Some((id.into(), None))
 		} else {
 			None

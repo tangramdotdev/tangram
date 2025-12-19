@@ -95,13 +95,13 @@ impl Server {
 				|source| tg::error!(!source, path = %src.display(), "failed to set permissions"),
 			)?;
 		}
-		let done = match tokio::fs::rename(src, dst).await {
+		let done = match tangram_util::fs::rename_noreplace(src, dst).await {
 			Ok(()) => false,
 			Err(error)
 				if matches!(
 					error.kind(),
 					std::io::ErrorKind::AlreadyExists
-						| std::io::ErrorKind::DirectoryNotEmpty
+						| std::io::ErrorKind::IsADirectory
 						| std::io::ErrorKind::PermissionDenied
 				) =>
 			{
@@ -157,8 +157,18 @@ impl Server {
 			// Rename the temp to the cache directory.
 			let src = temp.path();
 			let dst = &cache_path;
-			let done = match std::fs::rename(src, dst) {
+			let done = match tangram_util::fs::rename_noreplace_sync(src, dst) {
 				Ok(()) => false,
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::AlreadyExists
+							| std::io::ErrorKind::IsADirectory
+							| std::io::ErrorKind::PermissionDenied
+					) =>
+				{
+					true
+				},
 				Err(source) => {
 					return Err(tg::error!(!source, "failed to rename the file"));
 				},

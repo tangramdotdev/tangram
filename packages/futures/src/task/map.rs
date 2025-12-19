@@ -5,7 +5,7 @@ use {
 	std::{
 		collections::hash_map::RandomState,
 		hash::{BuildHasher, Hash},
-		panic::AssertUnwindSafe,
+		panic::{AssertUnwindSafe, catch_unwind},
 		sync::Arc,
 	},
 };
@@ -63,6 +63,67 @@ where
 								Ok(value) => value,
 								Err(payload) => std::panic::resume_unwind(payload),
 							}
+						}
+					}
+				});
+				task.set_on_drop({
+					let id = task.id();
+					let key = key.clone();
+					move || {
+						map.remove_if(&key, |_, task| task.id() == id);
+					}
+				});
+				task.detach();
+				task
+			}
+		};
+		let mut task = if get {
+			self.map.entry(key).or_insert_with(spawn).value().clone()
+		} else {
+			let task = spawn();
+			self.map.insert(key, task.clone());
+			task
+		};
+		task.attach();
+		task
+	}
+
+	pub fn spawn_blocking_with_context<G, F>(&self, key: K, context: G, f: F) -> Shared<T, C>
+	where
+		G: FnOnce() -> C,
+		F: FnOnce(C, Stop) -> T + Send + 'static,
+	{
+		self.spawn_blocking_inner(key, context, f, false)
+	}
+
+	pub fn get_or_spawn_blocking_with_context<G, F>(&self, key: K, context: G, f: F) -> Shared<T, C>
+	where
+		G: FnOnce() -> C,
+		F: FnOnce(C, Stop) -> T + Send + 'static,
+	{
+		self.spawn_blocking_inner(key, context, f, true)
+	}
+
+	fn spawn_blocking_inner<G, F>(&self, key: K, context: G, f: F, get: bool) -> Shared<T, C>
+	where
+		G: FnOnce() -> C,
+		F: FnOnce(C, Stop) -> T + Send + 'static,
+	{
+		let map = self.map.clone();
+		let spawn = {
+			let key = key.clone();
+			move || {
+				let context = context();
+				let mut task = Shared::spawn_blocking_with_context(context.clone(), {
+					let key = key.clone();
+					let map = map.clone();
+					move |stop| {
+						let result = catch_unwind(AssertUnwindSafe(|| f(context, stop)));
+						let id = tokio::task::id();
+						map.remove_if(&key, |_, task| task.id() == id);
+						match result {
+							Ok(value) => value,
+							Err(payload) => std::panic::resume_unwind(payload),
 						}
 					}
 				});
@@ -151,6 +212,20 @@ where
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		self.get_or_spawn_with_context(key, || (), |(), stop| f(stop))
+	}
+
+	pub fn spawn_blocking<F>(&self, key: K, f: F) -> Shared<T, ()>
+	where
+		F: FnOnce(Stop) -> T + Send + 'static,
+	{
+		self.spawn_blocking_with_context(key, || (), |(), stop| f(stop))
+	}
+
+	pub fn get_or_spawn_blocking<F>(&self, key: K, f: F) -> Shared<T, ()>
+	where
+		F: FnOnce(Stop) -> T + Send + 'static,
+	{
+		self.get_or_spawn_blocking_with_context(key, || (), |(), stop| f(stop))
 	}
 }
 
