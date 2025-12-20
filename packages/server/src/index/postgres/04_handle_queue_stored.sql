@@ -392,7 +392,7 @@ begin
 				processes.id,
 				case
 					when
-						coalesce(output_objects.subtree_stored, false)
+						(output_objects.process is null or coalesce(output_objects.subtree_stored, false))
 						and (coalesce(child_processes.child_count, 0) = 0 or child_processes.all_stored)
 						then true
 					else false
@@ -443,28 +443,26 @@ begin
 			node_output_size = updates.node_output_size
 		from (
 			select
-				process_objects.process as id,
+				processes.id,
 				case
 					when count(process_objects.object) = 0 then true
-					when bool_and(coalesce(objects.subtree_stored, false)) then true
-					else false
+					else bool_and(coalesce(objects.subtree_stored, false))
 				end as node_output_stored,
-				coalesce(sum(objects.subtree_count), 0) as node_output_count,
-				coalesce(max(objects.subtree_depth), 0) as node_output_depth,
-				coalesce(sum(objects.subtree_size), 0) as node_output_size
+				coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_output_count,
+				coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_output_depth,
+				coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_output_size
 			from processes
-			join process_objects on processes.id = process_objects.process
-			left join objects on process_objects.object = objects.id
-			where process_objects.kind = 3
-			and process_objects.process = any(outputs_processes)
+			left join process_objects on process_objects.process = processes.id and process_objects.kind = 3
+			left join objects on objects.id = process_objects.object
+			where processes.id = any(outputs_processes)
 			and (
 				processes.node_output_stored = false
 				or processes.node_output_count is null
 				or processes.node_output_depth is null
 				or processes.node_output_size is null
 			)
-			group by process_objects.process
-		) updates
+			group by processes.id
+		) as updates
 		where processes.id = updates.id
 		and updates.node_output_stored = true;
 

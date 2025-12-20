@@ -1461,28 +1461,26 @@ impl Server {
 					node_output_size = updates.node_output_size
 				from (
 					select
-						process_objects.process as id,
+						processes.id,
 						case
 							when count(process_objects.object) = 0 then 1
-							when min(coalesce(objects.subtree_stored, 0)) = 1 then 1
-							else 0
+							else min(coalesce(objects.subtree_stored, 0))
 						end as node_output_stored,
-						coalesce(sum(objects.subtree_count), 0) as node_output_count,
-						coalesce(max(objects.subtree_depth), 0) as node_output_depth,
-						coalesce(sum(objects.subtree_size), 0) as node_output_size
+						coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_output_count,
+						coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_output_depth,
+						coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_output_size
 					from processes
-					join process_objects on processes.id = process_objects.process
-					left join objects on process_objects.object = objects.id
-					where process_objects.kind = 3
-					and process_objects.process = ?1
+					left join process_objects on process_objects.process = processes.id and process_objects.kind = 3
+					left join objects on objects.id = process_objects.object
+					where processes.id = ?1
 					and (
 						processes.node_output_stored = 0 or
 						processes.node_output_count is null or
 						processes.node_output_depth is null or
 						processes.node_output_size is null
 					)
-					group by process_objects.process
-				) updates
+					group by processes.id
+				) as updates
 				where processes.id = updates.id
 				and updates.node_output_stored = 1;
 			"
@@ -1615,7 +1613,7 @@ impl Server {
 						processes.id,
 						case
 							when
-								coalesce(output_objects.subtree_stored, 0)
+								(output_objects.process is null or coalesce(output_objects.subtree_stored, 0))
 								and (coalesce(child_processes.child_count, 0) = 0 or child_processes.all_stored)
 								then 1
 							else 0
