@@ -45,17 +45,17 @@ impl Server {
 
 				// Handle the messages.
 				Self::indexer_put_cache_entries_sqlite(
+					&transaction,
 					cache,
 					put_cache_entry_messages,
-					&transaction,
 				)?;
-				Self::indexer_put_objects_sqlite(cache, put_object_messages, &transaction)?;
-				Self::indexer_touch_objects_sqlite(cache, touch_object_messages, &transaction)?;
-				Self::indexer_put_processes_sqlite(cache, put_process_messages, &transaction)?;
-				Self::indexer_touch_processes_sqlite(cache, touch_process_messages, &transaction)?;
-				Self::indexer_put_tags_sqlite(cache, put_tag_messages, &transaction)?;
-				Self::indexer_delete_tags_sqlite(cache, delete_tag_messages, &transaction)?;
-				Self::indexer_increment_transaction_id_sqlite(cache, &transaction)?;
+				Self::indexer_put_objects_sqlite(&transaction, cache, put_object_messages)?;
+				Self::indexer_touch_objects_sqlite(&transaction, cache, touch_object_messages)?;
+				Self::indexer_put_processes_sqlite(&transaction, cache, put_process_messages)?;
+				Self::indexer_touch_processes_sqlite(&transaction, cache, touch_process_messages)?;
+				Self::indexer_put_tags_sqlite(&transaction, cache, put_tag_messages)?;
+				Self::indexer_delete_tags_sqlite(&transaction, cache, delete_tag_messages)?;
+				Self::indexer_increment_transaction_id_sqlite(&transaction, cache)?;
 
 				// Commit the transaction.
 				transaction
@@ -70,9 +70,9 @@ impl Server {
 	}
 
 	fn indexer_put_cache_entries_sqlite(
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		messages: Vec<PutCacheEntry>,
-		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let insert_statement = indoc!(
 			"
@@ -136,9 +136,9 @@ impl Server {
 	}
 
 	fn indexer_put_objects_sqlite(
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		messages: Vec<PutObject>,
-		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		// Prepare insert statement for objects.
 		let insert_statement = indoc!(
@@ -341,9 +341,9 @@ impl Server {
 	}
 
 	fn indexer_touch_objects_sqlite(
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		messages: Vec<TouchObject>,
-		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let statement = indoc!(
 			"
@@ -366,9 +366,9 @@ impl Server {
 	}
 
 	fn indexer_put_processes_sqlite(
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		messages: Vec<PutProcess>,
-		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		// Prepare insert statement for processes.
 		let insert_statement = indoc!(
@@ -993,9 +993,9 @@ impl Server {
 	}
 
 	fn indexer_touch_processes_sqlite(
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		messages: Vec<TouchProcess>,
-		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let statement = indoc!(
 			"
@@ -1018,9 +1018,9 @@ impl Server {
 	}
 
 	fn indexer_put_tags_sqlite(
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		messages: Vec<PutTagMessage>,
-		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
@@ -1186,9 +1186,9 @@ impl Server {
 	}
 
 	fn indexer_delete_tags_sqlite(
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		messages: Vec<DeleteTag>,
-		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
@@ -1269,8 +1269,8 @@ impl Server {
 	}
 
 	fn indexer_increment_transaction_id_sqlite(
-		cache: &db::sqlite::Cache,
 		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
 	) -> tg::Result<()> {
 		let statement = indoc!(
 			"
@@ -1323,7 +1323,7 @@ impl Server {
 
 				// Commit the transaction.
 				if n > 0 {
-					Self::indexer_increment_transaction_id_sqlite(cache, &transaction)?;
+					Self::indexer_increment_transaction_id_sqlite(&transaction, cache)?;
 					transaction.commit().map_err(|source| {
 						tg::error!(!source, "failed to commit the transaction")
 					})?;
