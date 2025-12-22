@@ -147,9 +147,10 @@ impl Error {
 
 	#[must_use]
 	pub fn to_data_or_id(&self) -> tg::Either<tg::error::Data, tg::error::Id> {
-		match self.state().object() {
-			Some(object) => tg::Either::Left(object.unwrap_error_ref().to_data()),
-			None => tg::Either::Right(self.id()),
+		if self.state().stored() {
+			tg::Either::Right(self.id())
+		} else {
+			tg::Either::Left(self.state().object().unwrap().unwrap_error_ref().to_data())
 		}
 	}
 }

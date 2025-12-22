@@ -232,7 +232,13 @@ export namespace Error {
 			if (object.source !== undefined) {
 				data.source = tg.Referent.toData(object.source, (item) => {
 					if (item instanceof tg.Error) {
-						return item.id;
+						if (item.state.stored) {
+							return item.id;
+						} else {
+							let obj = item.state.object;
+							tg.assert(obj?.kind === "error");
+							return Error.Object.toData(obj.value);
+						}
 					} else {
 						return Error.Object.toData(item);
 					}

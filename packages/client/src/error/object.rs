@@ -118,10 +118,15 @@ impl Error {
 				children.extend(location.children());
 			}
 		}
-		if let Some(source) = &self.source
-			&& let Either::Right(error) = &source.item
-		{
-			children.push((*error.clone()).into());
+		if let Some(source) = &self.source {
+			match &source.item {
+				Either::Left(object) => {
+					children.extend(object.children());
+				},
+				Either::Right(error) => {
+					children.push((*error.clone()).into());
+				},
+			}
 		}
 		children
 	}

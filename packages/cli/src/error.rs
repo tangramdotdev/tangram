@@ -153,7 +153,7 @@ impl Cli {
 				.item()
 				.load(&handle)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to load error"))?;
+				.map_err(|source| tg::error!(!source, "failed to load the error"))?;
 			let error = error_referent
 				.item()
 				.state()
