@@ -1,11 +1,8 @@
 use {byteorder::ReadBytesExt as _, bytes::Bytes, std::path::PathBuf, tangram_client::prelude::*};
 
-#[cfg(feature = "foundationdb")]
-pub mod fdb;
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod memory;
-pub mod s3;
 #[cfg(feature = "scylla")]
 pub mod scylla;
 

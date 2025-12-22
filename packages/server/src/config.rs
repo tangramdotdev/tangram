@@ -257,18 +257,9 @@ pub struct Runner {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Store {
-	Fdb(FdbStore),
 	Lmdb(LmdbStore),
 	Memory,
-	S3(S3Store),
 	Scylla(ScyllaStore),
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct FdbStore {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -276,19 +267,6 @@ pub struct FdbStore {
 pub struct LmdbStore {
 	pub map_size: usize,
 	pub path: PathBuf,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct S3Store {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub access_key: Option<String>,
-	pub bucket: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub region: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub secret_key: Option<String>,
-	pub url: Uri,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -358,14 +336,12 @@ pub struct SyncGetQueue {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetStore {
-	pub fdb: SyncGetStoreObject,
 	pub lmdb: SyncGetStoreObject,
 	pub memory: SyncGetStoreObject,
 	pub process_batch_size: usize,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
 	pub process_concurrency: usize,
-	pub s3: SyncGetStoreObject,
 	pub scylla: SyncGetStoreObject,
 }
 
@@ -666,11 +642,6 @@ impl Default for SyncGetQueue {
 impl Default for SyncGetStore {
 	fn default() -> Self {
 		Self {
-			fdb: SyncGetStoreObject {
-				object_concurrency: 64,
-				object_max_batch: 1_000,
-				object_max_bytes: 1_000_000,
-			},
 			lmdb: SyncGetStoreObject {
 				object_concurrency: 1,
 				object_max_batch: 1_000,
@@ -684,11 +655,6 @@ impl Default for SyncGetStore {
 			process_batch_size: 16,
 			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
-			s3: SyncGetStoreObject {
-				object_concurrency: 256,
-				object_max_batch: 1,
-				object_max_bytes: u64::MAX,
-			},
 			scylla: SyncGetStoreObject {
 				object_concurrency: 64,
 				object_max_batch: 1_000,

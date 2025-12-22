@@ -39,11 +39,8 @@ impl Server {
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
 		let store_config = match &self.store {
-			#[cfg(feature = "foundationdb")]
-			Store::Fdb(_) => &self.config.sync.get.store.fdb,
 			Store::Lmdb(_) => &self.config.sync.get.store.lmdb,
 			Store::Memory(_) => &self.config.sync.get.store.memory,
-			Store::S3(_) => &self.config.sync.get.store.s3,
 			#[cfg(feature = "scylla")]
 			Store::Scylla(_) => &self.config.sync.get.store.scylla,
 		};

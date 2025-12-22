@@ -455,23 +455,8 @@ impl Server {
 		// Create the store.
 		let store = match &config.store {
 			config::Store::Memory => Store::new_memory(),
-			config::Store::Fdb(fdb) => {
-				#[cfg(not(feature = "foundationdb"))]
-				{
-					let _ = fdb;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with foundationdb support"
-					));
-				}
-				#[cfg(feature = "foundationdb")]
-				{
-					Store::new_fdb(&path, fdb)
-						.map_err(|error| tg::error!(!error, "failed to create the store"))?
-				}
-			},
 			config::Store::Lmdb(lmdb) => Store::new_lmdb(&path, lmdb)
 				.map_err(|error| tg::error!(!error, "failed to create the store"))?,
-			config::Store::S3(s3) => Store::new_s3(s3),
 			config::Store::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
 				{

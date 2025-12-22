@@ -18,7 +18,7 @@ fn main() {
 	let out_dir = std::env::var("OUT_DIR").unwrap();
 	let fdb_dir = Path::new(&out_dir).join("fdb");
 	std::fs::create_dir_all(&fdb_dir).unwrap();
-	let fdb_version = "7.3.58";
+	let fdb_version = "7.3.68";
 	match target_os.as_str() {
 		"linux" => {
 			let lib_url = format!(
