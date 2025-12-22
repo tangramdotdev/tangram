@@ -158,6 +158,23 @@ impl Server {
 		// Set `$TANGRAM_PROCESS`.
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
+		// Create the guest uri.
+		let guest_socket = if root_mounted {
+			temp.path().join(".tangram/socket")
+		} else {
+			Path::new("/.tangram/socket").to_owned()
+		};
+		let guest_socket = guest_socket.to_str().unwrap();
+		let guest_uri = tangram_uri::Uri::builder()
+			.scheme("http+unix")
+			.authority(guest_socket)
+			.path("")
+			.build()
+			.unwrap();
+
+		// Set `$TANGRAM_URL`.
+		env.insert("TANGRAM_URL".to_owned(), guest_uri.to_string());
+
 		// Get the server's user.
 		let whoami = whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
 
@@ -210,20 +227,6 @@ impl Server {
 				})
 			};
 
-			// Create the guest uri.
-			let guest_socket = if root_mounted {
-				temp.path().join(".tangram/socket")
-			} else {
-				Path::new("/.tangram/socket").to_owned()
-			};
-			let guest_socket = guest_socket.to_str().unwrap();
-			let guest_uri = tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(guest_socket)
-				.path("")
-				.build()
-				.unwrap();
-
 			// Create the host uri.
 			let host_socket = temp.path().join(".tangram/socket");
 			tokio::fs::create_dir_all(host_socket.parent().unwrap())
@@ -258,10 +261,6 @@ impl Server {
 
 			Some((task, guest_uri))
 		};
-
-		// Set `$TANGRAM_URL`.
-		let url = serve_task.as_ref().map(|(_, url)| url.to_string()).unwrap();
-		env.insert("TANGRAM_URL".to_owned(), url);
 
 		// Run the process.
 		let arg = crate::run::common::Arg {
