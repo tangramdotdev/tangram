@@ -242,8 +242,7 @@ impl Server {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::process::Id,
-			#[tangram_database(as = "Option<db::value::Json<tg::Error>>")]
-			error: Option<tg::Error>,
+			error: Option<String>,
 			exit: Option<u8>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::process::Status,
