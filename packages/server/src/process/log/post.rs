@@ -4,7 +4,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
-	tokio::io::AsyncWriteExt as _,
+	tangram_store::Store,
 };
 
 impl Server {
@@ -42,13 +42,28 @@ impl Server {
 			.ok_or_else(|| tg::error!("not found"))?
 			.data;
 
+		// Compute the timestamp.
+		let timestamp = time::OffsetDateTime::now_utc().unix_timestamp()
+			- data
+				.started_at
+				.ok_or_else(|| tg::error!("expected the process to be started"))?;
+
 		// Verify the process is local and started.
 		if data.status != tg::process::Status::Started {
 			return Err(tg::error!("failed to find the process"));
 		}
 
-		// Write to the log file.
-		self.post_process_log_to_file(id, arg.bytes.clone()).await?;
+		// Write to the store.
+		let arg = tangram_store::PutLogArg {
+			bytes: arg.bytes,
+			process: id.clone(),
+			stream: arg.stream,
+			timestamp,
+		};
+		self.store
+			.put_log(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the log"))?;
 
 		// Publish the message.
 		tokio::spawn({
@@ -64,22 +79,6 @@ impl Server {
 			}
 		});
 
-		Ok(())
-	}
-
-	async fn post_process_log_to_file(&self, id: &tg::process::Id, bytes: Bytes) -> tg::Result<()> {
-		let path = self.logs_path().join(format!("{id}"));
-		let mut file = tokio::fs::File::options()
-			.create(true)
-			.append(true)
-			.open(&path)
-			.await
-			.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to open the log file"),
-			)?;
-		file.write_all(&bytes).await.map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to write to the log file"),
-		)?;
 		Ok(())
 	}
 

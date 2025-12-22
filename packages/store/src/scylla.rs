@@ -1,5 +1,5 @@
 use {
-	crate::{CacheReference, DeleteArg, Error as _, PutArg},
+	crate::{CacheReference, DeleteArg, DeleteLogArg, Error as _, GetLogArg, PutArg, PutLogArg},
 	bytes::Bytes,
 	futures::FutureExt as _,
 	indoc::indoc,
@@ -308,6 +308,18 @@ impl crate::Store for Store {
 		Ok(None)
 	}
 
+	async fn try_read_log(&self, _arg: GetLogArg) -> Result<Option<Bytes>, Self::Error> {
+		todo!()
+	}
+
+	async fn try_get_log_length(
+		&self,
+		_id: &tg::process::Id,
+		_stream: Option<tg::process::log::Stream>,
+	) -> Result<Option<u64>, Self::Error> {
+		todo!()
+	}
+
 	async fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
@@ -379,6 +391,10 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
+	async fn put_log(&self, _arg: PutLogArg) -> Result<(), Self::Error> {
+		todo!()
+	}
+
 	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
 		if args.is_empty() {
 			return Ok(());
@@ -419,6 +435,10 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
+	async fn put_log_batch(&self, _args: Vec<PutLogArg>) -> Result<(), Self::Error> {
+		todo!()
+	}
+
 	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
@@ -431,6 +451,10 @@ impl crate::Store for Store {
 				Error::other(tg::error!(!source, %id, "failed to execute the query"))
 			})?;
 		Ok(())
+	}
+
+	async fn delete_log(&self, _arg: DeleteLogArg) -> Result<(), Self::Error> {
+		todo!()
 	}
 
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
@@ -458,6 +482,10 @@ impl crate::Store for Store {
 			.await
 			.map_err(|source| Error::other(tg::error!(!source, "failed to execute the batch")))?;
 		Ok(())
+	}
+
+	async fn delete_log_batch(&self, _args: Vec<DeleteLogArg>) -> Result<(), Self::Error> {
+		todo!()
 	}
 
 	async fn flush(&self) -> Result<(), Self::Error> {

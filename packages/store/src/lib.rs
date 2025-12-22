@@ -16,6 +16,18 @@ pub trait Error: std::error::Error + Send + Sync + 'static {
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+pub mod log {
+	use {bytes::Bytes, tangram_client as tg};
+	#[derive(Debug, Clone)]
+	pub struct Chunk {
+		pub bytes: Bytes,
+		pub combined_position: u64,
+		pub stream_position: u64,
+		pub stream: tg::process::log::Stream,
+		pub timestamp: i64,
+	}
+}
+
 pub trait Store {
 	type Error: Error;
 
@@ -29,6 +41,17 @@ pub trait Store {
 		ids: &[tg::object::Id],
 	) -> impl std::future::Future<Output = std::result::Result<Vec<Option<Bytes>>, Self::Error>> + Send;
 
+	fn try_read_log(
+		&self,
+		arg: ReadLogArg,
+	) -> impl std::future::Future<Output = std::result::Result<Option<Bytes>, Self::Error>> + Send;
+
+	fn try_get_log_length(
+		&self,
+		id: &tg::process::Id,
+		_stream: Option<tg::process::log::Stream>,
+	) -> impl std::future::Future<Output = std::result::Result<Option<u64>, Self::Error>> + Send;
+
 	fn try_get_cache_reference(
 		&self,
 		id: &tg::object::Id,
@@ -39,9 +62,19 @@ pub trait Store {
 		arg: PutArg,
 	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
 
+	fn put_log(
+		&self,
+		arg: PutLogArg,
+	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+
 	fn put_batch(
 		&self,
 		args: Vec<PutArg>,
+	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+
+	fn put_log_batch(
+		&self,
+		args: Vec<PutLogArg>,
 	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
 
 	fn delete(
@@ -49,9 +82,19 @@ pub trait Store {
 		arg: DeleteArg,
 	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
 
+	fn delete_log(
+		&self,
+		arg: DeleteLogArg,
+	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+
 	fn delete_batch(
 		&self,
 		args: Vec<DeleteArg>,
+	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+
+	fn delete_log_batch(
+		&self,
+		args: Vec<DeleteLogArg>,
 	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
 
 	fn flush(
@@ -68,10 +111,33 @@ pub struct PutArg {
 }
 
 #[derive(Clone, Debug)]
+pub struct ReadLogArg {
+	pub process: tg::process::Id,
+	pub position: u64,
+	pub length: u64,
+	pub stream: Option<tg::process::log::Stream>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PutLogArg {
+	pub bytes: Bytes,
+	pub process: tg::process::Id,
+	pub stream: tg::process::log::Stream,
+	pub timestamp: i64,
+}
+
+#[derive(Clone, Debug)]
 pub struct DeleteArg {
 	pub id: tg::object::Id,
 	pub now: i64,
 	pub ttl: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeleteLogArg {
+	pub process: tg::process::Id,
+	pub stream: tg::process::log::Stream,
+	pub stream_position: u64,
 }
 
 #[derive(

@@ -1,17 +1,33 @@
 use {
-	crate::{CacheReference, DeleteArg, PutArg},
+	crate::{CacheReference, DeleteArg, DeleteLogArg, PutArg, PutLogArg, ReadLogArg},
 	bytes::Bytes,
 	dashmap::DashMap,
 	num::ToPrimitive as _,
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 };
 
-pub struct Store(DashMap<tg::object::Id, Entry, tg::id::BuildHasher>);
+pub struct Store {
+	objects: DashMap<tg::object::Id, ObjectEntry, tg::id::BuildHasher>,
+	logs: DashMap<tg::process::Id, LogEntry, tg::id::BuildHasher>,
+}
 
-struct Entry {
+struct ObjectEntry {
 	bytes: Option<Bytes>,
 	cache_reference: Option<CacheReference>,
 	touched_at: i64,
+}
+
+#[derive(Default)]
+struct LogEntry {
+	counter: usize,
+	chunks: BTreeMap<usize, crate::log::Chunk>,
+	stderr: BTreeMap<u64, usize>,
+	stdout: BTreeMap<u64, usize>,
+	combined: BTreeMap<u64, usize>,
+	stderr_position: u64,
+	stdout_position: u64,
+	combined_position: u64,
 }
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
@@ -22,12 +38,15 @@ pub enum Error {
 impl Store {
 	#[must_use]
 	pub fn new() -> Self {
-		Self(DashMap::default())
+		Self {
+			objects: DashMap::default(),
+			logs: DashMap::default(),
+		}
 	}
 
 	#[must_use]
 	pub fn try_get(&self, id: &tg::object::Id) -> Option<Bytes> {
-		let entry = self.0.get(id)?;
+		let entry = self.objects.get(id)?;
 		let bytes = entry.bytes.as_ref()?;
 		Some(bytes.clone())
 	}
@@ -39,7 +58,7 @@ impl Store {
 
 	#[must_use]
 	pub fn try_get_cache_reference(&self, id: &tg::object::Id) -> Option<CacheReference> {
-		let entry = self.0.get(id)?;
+		let entry = self.objects.get(id)?;
 		let cache_reference = entry.cache_reference.clone()?;
 		Some(cache_reference)
 	}
@@ -48,7 +67,7 @@ impl Store {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
-		let Some(entry) = self.0.get(id) else {
+		let Some(entry) = self.objects.get(id) else {
 			return Ok(None);
 		};
 		let Some(bytes) = &entry.bytes else {
@@ -60,12 +79,12 @@ impl Store {
 	}
 
 	pub fn put(&self, arg: PutArg) {
-		let entry = Entry {
+		let entry = ObjectEntry {
 			bytes: arg.bytes,
 			cache_reference: arg.cache_reference,
 			touched_at: arg.touched_at,
 		};
-		self.0.insert(arg.id, entry);
+		self.objects.insert(arg.id, entry);
 	}
 
 	pub fn put_batch(&self, args: Vec<PutArg>) {
@@ -76,7 +95,7 @@ impl Store {
 
 	#[expect(clippy::needless_pass_by_value)]
 	pub fn delete(&self, arg: DeleteArg) {
-		self.0.remove_if(&arg.id, |_, entry| {
+		self.objects.remove_if(&arg.id, |_, entry| {
 			entry.touched_at >= arg.now - arg.ttl.to_i64().unwrap()
 		});
 	}
@@ -84,6 +103,138 @@ impl Store {
 	pub fn delete_batch(&self, args: Vec<DeleteArg>) {
 		for arg in args {
 			self.delete(arg);
+		}
+	}
+
+	#[must_use]
+	#[expect(clippy::needless_pass_by_value)]
+	pub fn try_read_log(&self, arg: ReadLogArg) -> Option<Bytes> {
+		let entry = self.logs.get(&arg.process)?;
+		let index = match arg.stream {
+			Some(tg::process::log::Stream::Stderr) => {
+				if arg.position >= entry.stderr_position {
+					return Some(Bytes::new());
+				}
+				let (_, index) = entry.stderr.range(0..=arg.position).rev().next()?;
+				*index
+			},
+			Some(tg::process::log::Stream::Stdout) => {
+				if arg.position >= entry.stdout_position {
+					return Some(Bytes::new());
+				}
+				let (_, index) = entry.stdout.range(0..=arg.position).rev().next()?;
+				*index
+			},
+			None => {
+				if arg.position == entry.combined_position {
+					return Some(Bytes::new());
+				}
+				let (_, index) = entry.combined.range(0..=arg.position).rev().next()?;
+				*index
+			},
+		};
+		let data = entry
+			.chunks
+			.range(index..)
+			.filter_map(|(_, chunk)| {
+				if arg.stream.is_some_and(|stream| stream == chunk.stream) {
+					Some((chunk.stream_position, &chunk.bytes))
+				} else if arg.stream.is_none() {
+					Some((chunk.combined_position, &chunk.bytes))
+				} else {
+					None
+				}
+			})
+			.take_while(|(position, _)| *position <= (arg.position + arg.length))
+			.fold(
+				Vec::with_capacity(arg.length.to_usize().unwrap()),
+				|mut output, (position, bytes)| {
+					let offset = arg.position.saturating_sub(position).to_usize().unwrap();
+					let length = bytes
+						.len()
+						.min(arg.length.to_usize().unwrap() - output.len());
+					output.extend_from_slice(&bytes[offset..(offset + length)]);
+					output
+				},
+			);
+		Some(data.into())
+	}
+
+	#[must_use]
+	pub fn try_get_log_length(
+		&self,
+		id: &tg::process::Id,
+		stream: Option<tg::process::log::Stream>,
+	) -> Option<u64> {
+		let entry = self.logs.get(id)?;
+		match stream {
+			Some(tg::process::log::Stream::Stderr) => Some(entry.stderr_position),
+			Some(tg::process::log::Stream::Stdout) => Some(entry.stdout_position),
+			None => Some(entry.combined_position),
+		}
+	}
+
+	pub fn put_log(&self, arg: PutLogArg) {
+		let mut entry = self.logs.entry(arg.process).or_default();
+
+		// Get the index we're inserting to.
+		let index = entry.counter;
+
+		// Get the stream positions.
+		let combined_position = entry.combined_position;
+		let stderr_position = entry.stderr_position;
+		let stdout_position = entry.stdout_position;
+
+		// Create the combined position.
+		entry.combined.insert(combined_position, index);
+
+		// Insert the chunk and update counters.
+		match arg.stream {
+			tg::process::log::Stream::Stderr => {
+				let chunk = crate::log::Chunk {
+					bytes: arg.bytes.clone(),
+					combined_position,
+					stream_position: stderr_position,
+					stream: arg.stream,
+					timestamp: arg.timestamp,
+				};
+				entry.chunks.insert(index, chunk);
+				entry.stderr.insert(stderr_position, index);
+				entry.combined_position += arg.bytes.len().to_u64().unwrap();
+				entry.stderr_position += arg.bytes.len().to_u64().unwrap();
+			},
+			tg::process::log::Stream::Stdout => {
+				let chunk = crate::log::Chunk {
+					bytes: arg.bytes.clone(),
+					combined_position,
+					stream_position: stdout_position,
+					stream: arg.stream,
+					timestamp: arg.timestamp,
+				};
+				entry.chunks.insert(index, chunk);
+				entry.stdout.insert(stdout_position, index);
+				entry.combined_position += arg.bytes.len().to_u64().unwrap();
+				entry.stdout_position += arg.bytes.len().to_u64().unwrap();
+			},
+		}
+
+		entry.counter += 1;
+	}
+
+	pub fn put_log_batch(&self, args: Vec<PutLogArg>) {
+		for arg in args {
+			self.put_log(arg);
+		}
+	}
+
+	#[expect(clippy::needless_pass_by_value)]
+	pub fn delete_log(&self, arg: DeleteLogArg) {
+		self.logs.remove(&arg.process);
+	}
+
+	pub fn delete_log_batch(&self, args: Vec<DeleteLogArg>) {
+		for arg in args {
+			self.delete_log(arg);
 		}
 	}
 
@@ -101,6 +252,18 @@ impl crate::Store for Store {
 
 	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
 		Ok(self.try_get(id))
+	}
+
+	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
+		Ok(self.try_read_log(arg))
+	}
+
+	async fn try_get_log_length(
+		&self,
+		id: &tg::process::Id,
+		stream: Option<tg::process::log::Stream>,
+	) -> Result<Option<u64>, Self::Error> {
+		Ok(self.try_get_log_length(id, stream))
 	}
 
 	async fn try_get_batch(
@@ -122,8 +285,18 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
+	async fn put_log(&self, arg: PutLogArg) -> Result<(), Self::Error> {
+		self.put_log(arg);
+		Ok(())
+	}
+
 	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
 		self.put_batch(args);
+		Ok(())
+	}
+
+	async fn put_log_batch(&self, args: Vec<PutLogArg>) -> Result<(), Self::Error> {
+		self.put_log_batch(args);
 		Ok(())
 	}
 
@@ -132,8 +305,18 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
+	async fn delete_log(&self, arg: DeleteLogArg) -> Result<(), Self::Error> {
+		self.delete_log(arg);
+		Ok(())
+	}
+
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
 		self.delete_batch(args);
+		Ok(())
+	}
+
+	async fn delete_log_batch(&self, args: Vec<DeleteLogArg>) -> Result<(), Self::Error> {
+		self.delete_log_batch(args);
 		Ok(())
 	}
 

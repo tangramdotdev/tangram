@@ -125,9 +125,7 @@ impl Server {
 		let mut events = stream::select_all([log, status, interval]).boxed();
 
 		// Create the reader.
-		let mut reader = Reader::new(self, id)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the log reader"))?;
+		let mut reader = Reader::new(self, id, arg.stream).await?;
 
 		// Seek the reader.
 		let seek = if let Some(position) = arg.position {
