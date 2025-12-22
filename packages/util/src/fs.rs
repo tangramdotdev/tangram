@@ -132,8 +132,10 @@ pub fn rename_noreplace_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> st
 			.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
 		let dst = std::ffi::CString::new(dst.as_ref().as_os_str().as_encoded_bytes())
 			.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+		// Use syscall directly instead of libc::renameat2 because older glibc versions do not have the wrapper.
 		let result = unsafe {
-			libc::renameat2(
+			libc::syscall(
+				libc::SYS_renameat2,
 				libc::AT_FDCWD,
 				src.as_ptr(),
 				libc::AT_FDCWD,
