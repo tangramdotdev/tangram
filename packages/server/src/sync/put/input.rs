@@ -56,9 +56,11 @@ impl Server {
 					let stored = crate::process::stored::Output {
 						subtree: message.subtree_stored,
 						subtree_command: message.subtree_command_stored,
+						subtree_error: message.subtree_error_stored,
 						subtree_log: message.subtree_log_stored,
 						subtree_output: message.subtree_output_stored,
 						node_command: message.node_command_stored,
+						node_error: message.node_error_stored,
 						node_log: message.node_log_stored,
 						node_output: message.node_output_stored,
 					};

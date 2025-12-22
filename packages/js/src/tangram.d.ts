@@ -98,7 +98,8 @@ declare namespace tg {
 		| tg.File
 		| tg.Symlink
 		| tg.Graph
-		| tg.Command;
+		| tg.Command
+		| tg.Error;
 
 	export namespace Object {
 		export type Id =
@@ -107,7 +108,8 @@ declare namespace tg {
 			| tg.File.Id
 			| tg.Symlink.Id
 			| tg.Graph.Id
-			| tg.Command.Id;
+			| tg.Command.Id
+			| tg.Error.Id;
 
 		/** Get an object with an ID. */
 		export let withId: (id: tg.Object.Id) => tg.Object;
@@ -1052,6 +1054,174 @@ declare namespace tg {
 			| "symlink"
 			| "graph"
 			| "command";
+
+		export type Data = {
+			kind: tg.Module.Kind;
+			referent: tg.Referent.Data<string>;
+		};
+	}
+
+	export type Position = {
+		line: number;
+		character: number;
+	};
+
+	export type Range = {
+		start: tg.Position;
+		end: tg.Position;
+	};
+
+	export type Location = {
+		module: tg.Module;
+		range: tg.Range;
+	};
+
+	export namespace Location {
+		export type Data = {
+			module: tg.Module.Data;
+			range: tg.Range;
+		};
+	}
+
+	export type Diagnostic = {
+		location?: tg.Location;
+		message: string;
+		severity: tg.Diagnostic.Severity;
+	};
+
+	export namespace Diagnostic {
+		export type Severity = "error" | "warning" | "info" | "hint";
+
+		export type Data = {
+			location?: tg.Location.Data;
+			message: string;
+			severity: tg.Diagnostic.Severity;
+		};
+	}
+
+	/** Create an error. */
+	export function error(): tg.Error;
+	export function error(message: string, arg?: tg.Error.Arg): tg.Error;
+	export function error(arg: tg.Error.Arg): tg.Error;
+
+	/** An error. */
+	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: This field is used for nominal typing.
+	// biome-ignore lint/suspicious/noShadowRestrictedNames: This shadows the global Error intentionally.
+	export class Error {
+		#__brand;
+
+		/** Get an error with an ID. */
+		static withId(id: tg.Error.Id): tg.Error;
+
+		/** Get an error with an object. */
+		static withObject(object: tg.Error.Object): tg.Error;
+
+		/** Create an error from data. */
+		static fromData(data: tg.Error.Data): tg.Error;
+
+		/** Convert an error to data. */
+		static toData(value: tg.Error): tg.Error.Data;
+
+		/** Expect that a value is a `tg.Error`. */
+		static expect(value: unknown): tg.Error;
+
+		/** Assert that a value is a `tg.Error`. */
+		static assert(value: unknown): asserts value is tg.Error;
+
+		/** Get this error's ID. */
+		get id(): tg.Error.Id;
+
+		/** Get this error's object. */
+		object(): Promise<tg.Error.Object>;
+
+		/** Load this error's object. */
+		load(): Promise<tg.Error.Object>;
+
+		/** Unload this error's object. */
+		unload(): void;
+
+		/** Store this error. */
+		store(): Promise<tg.Error.Id>;
+
+		/** Get this error's children. */
+		children(): Promise<Array<tg.Object>>;
+
+		/** Get this error's code. */
+		code(): Promise<string | undefined>;
+
+		/** Get this error's diagnostics. */
+		diagnostics(): Promise<Array<tg.Diagnostic> | undefined>;
+
+		/** Get this error's location. */
+		location(): Promise<tg.Error.Location | undefined>;
+
+		/** Get this error's message. */
+		message(): Promise<string | undefined>;
+
+		/** Get this error's source. */
+		source(): Promise<tg.Referent<tg.Error> | undefined>;
+
+		/** Get this error's stack. */
+		stack(): Promise<Array<tg.Error.Location> | undefined>;
+
+		/** Get this error's values. */
+		values(): Promise<{ [key: string]: string }>;
+	}
+
+	export namespace Error {
+		export type Id = string;
+
+		export type Arg = {
+			code?: string | undefined;
+			diagnostics?: Array<tg.Diagnostic> | undefined;
+			location?: tg.Error.Location | undefined;
+			message?: string;
+			source?: tg.Referent<tg.Error.Object | tg.Error> | undefined;
+			stack?: Array<tg.Error.Location> | undefined;
+			values?: { [key: string]: string } | undefined;
+		};
+
+		export type Object = {
+			code?: string | undefined;
+			diagnostics?: Array<tg.Diagnostic> | undefined;
+			location?: tg.Error.Location | undefined;
+			message?: string | undefined;
+			source?: tg.Referent<tg.Error.Object | tg.Error> | undefined;
+			stack?: Array<tg.Error.Location> | undefined;
+			values: { [key: string]: string };
+		};
+
+		export type Location = {
+			symbol?: string;
+			file: tg.Error.File;
+			range: tg.Range;
+		};
+
+		export type File =
+			| { kind: "internal"; value: string }
+			| { kind: "module"; value: tg.Module };
+
+		export type Data = {
+			code?: string;
+			diagnostics?: Array<tg.Diagnostic.Data>;
+			location?: tg.Error.Data.Location;
+			message?: string;
+			source?: tg.Referent.Data<tg.Error.Data | tg.Error.Id>;
+			stack?: Array<tg.Error.Data.Location>;
+			values?: { [key: string]: string };
+		};
+
+		export namespace Data {
+			export type Location = {
+				symbol?: string;
+				file: tg.Error.Data.File;
+				range: tg.Range;
+			};
+
+			export type File =
+				| { kind: "internal"; value: string }
+				| { kind: "module"; value: tg.Module.Data };
+		}
 	}
 
 	export function build<
@@ -1449,9 +1619,27 @@ declare namespace tg {
 		export type Options = {
 			artifact?: tg.Artifact.Id | undefined;
 			id?: tg.Object.Id | undefined;
+			name?: string | undefined;
 			path?: string | undefined;
 			tag?: tg.Tag | undefined;
 		};
+
+		export type Data<T> =
+			| string
+			| {
+					item: T;
+					options?: tg.Referent.Data.Options;
+			  };
+
+		export namespace Data {
+			export type Options = {
+				artifact?: tg.Artifact.Id;
+				id?: tg.Object.Id;
+				name?: string;
+				path?: string;
+				tag?: tg.Tag;
+			};
+		}
 	}
 
 	/** Resolve all deeply nested promises in an unresolved value. */

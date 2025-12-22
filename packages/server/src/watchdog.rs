@@ -3,9 +3,10 @@ use {
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
-	std::pin::pin,
+	std::{collections::BTreeMap, pin::pin},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
 	tangram_messenger::prelude::*,
 };
 
@@ -98,15 +99,18 @@ impl Server {
 			.map(|row| {
 				let server = self.clone();
 				async move {
-					let error = tg::Error {
+					let error = tg::error::Data {
 						code: row.code,
+						diagnostics: None,
+						location: None,
 						message: Some(row.message),
-						..Default::default()
+						source: None,
+						stack: None,
+						values: BTreeMap::default(),
 					};
-					let error = Some(error.to_data());
 					let arg = tg::process::finish::Arg {
 						checksum: None,
-						error,
+						error: Some(Either::Left(error)),
 						exit: 1,
 						local: None,
 						output: None,

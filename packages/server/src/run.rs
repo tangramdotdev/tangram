@@ -141,6 +141,23 @@ impl Server {
 			None
 		};
 
+		let error = if let Some(error) = &wait.error {
+			match error.to_data_or_id() {
+				tg::Either::Left(mut data) => {
+					if !self.config.advanced.internal_error_locations {
+						data.remove_internal_locations();
+					}
+					let object = tg::error::Object::try_from_data(data)?;
+					let error = tg::Error::with_object(object);
+					let id = error.store(self).await?;
+					Some(tg::Either::Right(id))
+				},
+				tg::Either::Right(id) => Some(tg::Either::Right(id)),
+			}
+		} else {
+			None
+		};
+
 		// If the process is remote, then push the output.
 		if let Some(remote) = process.remote()
 			&& let Some(output) = &output
@@ -159,7 +176,7 @@ impl Server {
 		// Finish the process.
 		let arg = tg::process::finish::Arg {
 			checksum: wait.checksum,
-			error: wait.error.as_ref().map(tg::Error::to_data),
+			error,
 			exit: wait.exit,
 			local: None,
 			output,
@@ -304,15 +321,14 @@ impl Server {
 			.map(|output| {
 				let server = self.clone();
 				async move {
-					let error = tg::Error {
+					let error = tg::error::Data {
 						code: Some(tg::error::Code::HeartbeatExpiration),
 						message: Some("heartbeat expired".into()),
-						..tg::Error::default()
+						..Default::default()
 					};
-					let error = Some(error.to_data());
 					let arg = tg::process::finish::Arg {
 						checksum: None,
-						error,
+						error: Some(Either::Left(error)),
 						exit: 1,
 						local: None,
 						output: None,

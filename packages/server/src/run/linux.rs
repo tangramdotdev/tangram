@@ -158,21 +158,6 @@ impl Server {
 		// Set `$TANGRAM_PROCESS`.
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
-		// Set `$TANGRAM_URL`.
-		let path = if root_mounted {
-			self.path.join("socket")
-		} else {
-			Path::new("/.tangram/socket").to_owned()
-		};
-		let path = path.to_str().unwrap();
-		let url = tangram_uri::Uri::builder()
-			.scheme("http+unix")
-			.authority(path)
-			.path("")
-			.build()
-			.unwrap();
-		env.insert("TANGRAM_URL".to_owned(), url.to_string());
-
 		// Get the server's user.
 		let whoami = whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
 
@@ -212,38 +197,44 @@ impl Server {
 		};
 
 		// Create the serve task.
-		let serve_task = if root_mounted {
-			None
-		} else {
-			// Create the paths.
-			let paths = crate::context::Paths {
-				server_host: self.path.clone(),
-				output_host: temp.path().join("output"),
-				output_guest: "/output".into(),
-				root_host: root,
+		let serve_task = {
+			// Create the paths for sandboxed processes.
+			let paths = if root_mounted {
+				None
+			} else {
+				Some(crate::context::Paths {
+					server_host: self.path.clone(),
+					output_host: temp.path().join("output"),
+					output_guest: "/output".into(),
+					root_host: root,
+				})
 			};
 
 			// Create the guest uri.
-			let socket = Path::new("/.tangram/socket");
-			let socket = socket.to_str().unwrap();
+			let guest_socket = if root_mounted {
+				temp.path().join(".tangram/socket")
+			} else {
+				Path::new("/.tangram/socket").to_owned()
+			};
+			let guest_socket = guest_socket.to_str().unwrap();
 			let guest_uri = tangram_uri::Uri::builder()
 				.scheme("http+unix")
-				.authority(socket)
+				.authority(guest_socket)
 				.path("")
 				.build()
 				.unwrap();
 
 			// Create the host uri.
-			let socket = temp.path().join(".tangram/socket");
-			tokio::fs::create_dir_all(socket.parent().unwrap())
+			let host_socket = temp.path().join(".tangram/socket");
+			tokio::fs::create_dir_all(host_socket.parent().unwrap())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-			let socket = socket
+			let host_socket = host_socket
 				.to_str()
-				.ok_or_else(|| tg::error!(path = %socket.display(), "invalid path"))?;
+				.ok_or_else(|| tg::error!(path = %host_socket.display(), "invalid path"))?;
 			let host_uri = tangram_uri::Uri::builder()
 				.scheme("http+unix")
-				.authority(socket)
+				.authority(host_socket)
 				.path("")
 				.build()
 				.unwrap();
@@ -256,7 +247,7 @@ impl Server {
 			let context = Context {
 				process: Some(Arc::new(crate::context::Process {
 					id: process.id().clone(),
-					paths: Some(paths),
+					paths,
 					remote: remote.cloned(),
 					retry: *process.retry(self).await?,
 				})),
@@ -267,6 +258,10 @@ impl Server {
 
 			Some((task, guest_uri))
 		};
+
+		// Set `$TANGRAM_URL`.
+		let url = serve_task.as_ref().map(|(_, url)| url.to_string()).unwrap();
+		env.insert("TANGRAM_URL".to_owned(), url);
 
 		// Run the process.
 		let arg = crate::run::common::Arg {

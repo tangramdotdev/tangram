@@ -52,13 +52,10 @@ impl State {
 
 	#[must_use]
 	pub fn id(&self) -> tg::object::Id {
-		{
-			let inner = self.0.read().unwrap();
-			if let Some(id) = inner.id.clone() {
-				return id;
-			}
-		}
 		let inner = self.0.read().unwrap();
+		if let Some(id) = inner.id.clone() {
+			return id;
+		}
 		let object = inner.object.as_ref().unwrap();
 		let data = object.to_data();
 		let bytes = data.serialize().unwrap();

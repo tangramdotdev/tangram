@@ -243,9 +243,11 @@ impl Server {
 								tg::sync::GetStoredProcessMessage {
 									id: item.id.clone(),
 									node_command_stored: stored.node_command,
+									node_error_stored: stored.node_error,
 									node_log_stored: stored.node_log,
 									node_output_stored: stored.node_output,
 									subtree_command_stored: stored.subtree_command,
+									subtree_error_stored: stored.subtree_error,
 									subtree_log_stored: stored.subtree_log,
 									subtree_output_stored: stored.subtree_output,
 									subtree_stored: stored.subtree,
@@ -295,6 +297,7 @@ impl Server {
 		if state.arg.recursive
 			&& (!stored.is_some_and(|stored| stored.subtree)
 				|| (state.arg.commands && !stored.is_some_and(|stored| stored.subtree_command))
+				|| (state.arg.errors && !stored.is_some_and(|stored| stored.subtree_error))
 				|| (state.arg.logs && !stored.is_some_and(|stored| stored.subtree_log))
 				|| (state.arg.outputs && !stored.is_some_and(|stored| stored.subtree_output)))
 			&& let Some(children) = &data.children
@@ -317,6 +320,36 @@ impl Server {
 				eager: state.arg.eager,
 			};
 			state.queue.enqueue_object(item);
+		}
+
+		// Enqueue the error if necessary.
+		if state.arg.errors
+			&& !stored.is_some_and(|stored| stored.node_error)
+			&& let Some(error) = &data.error
+		{
+			match error {
+				Either::Left(data) => {
+					let mut children = BTreeSet::new();
+					data.children(&mut children);
+					state
+						.queue
+						.enqueue_objects(children.into_iter().map(|object| ObjectItem {
+							parent: Some(Either::Right(id.clone())),
+							id: object,
+							kind: Some(crate::sync::queue::ObjectKind::Error),
+							eager: state.arg.eager,
+						}));
+				},
+				Either::Right(error) => {
+					let item = ObjectItem {
+						parent: Some(Either::Right(id.clone())),
+						id: error.clone().into(),
+						kind: Some(crate::sync::queue::ObjectKind::Error),
+						eager: state.arg.eager,
+					};
+					state.queue.enqueue_object(item);
+				},
+			}
 		}
 
 		// Enqueue the log if necessary.

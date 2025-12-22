@@ -473,6 +473,23 @@ impl TryFrom<Value> for tg::Command {
 	}
 }
 
+impl From<tg::Error> for Value {
+	fn from(value: tg::Error) -> Self {
+		tg::Object::from(value).into()
+	}
+}
+
+impl TryFrom<Value> for tg::Error {
+	type Error = tg::Error;
+
+	fn try_from(value: Value) -> Result<Self, Self::Error> {
+		tg::Object::try_from(value)
+			.map_err(|_| tg::error!("invalid value"))?
+			.try_into()
+			.map_err(|_| tg::error!("invalid value"))
+	}
+}
+
 impl From<serde_json::Value> for Value {
 	fn from(value: serde_json::Value) -> Self {
 		match value {

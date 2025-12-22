@@ -1,5 +1,6 @@
 use {
 	crate::Cli,
+	futures::FutureExt as _,
 	petgraph::algo::tarjan_scc,
 	radix_trie::TrieCommon as _,
 	std::{collections::HashMap, path::PathBuf},
@@ -92,6 +93,7 @@ impl Cli {
 		// Create the publishing plan.
 		let plan = state
 			.create_plan(&handle, args.tag.map(tg::Tag::new))
+			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create publishing plan"))?;
 
@@ -159,6 +161,7 @@ impl Cli {
 			.push(tg::push::Arg {
 				commands: false,
 				eager: true,
+				errors: true,
 				items,
 				logs: false,
 				outputs: true,

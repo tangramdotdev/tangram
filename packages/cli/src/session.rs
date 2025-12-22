@@ -16,7 +16,7 @@ impl Cli {
 		match result {
 			Ok(()) => 0.into(),
 			Err(error) => {
-				Self::print_error_basic(tg::Referent::with_item(error));
+				Cli::print_error_basic(tg::Referent::with_item(error));
 				std::process::ExitCode::FAILURE
 			},
 		}

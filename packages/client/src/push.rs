@@ -12,6 +12,9 @@ pub struct Arg {
 	pub commands: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub errors: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	pub items: Vec<Either<tg::object::Id, tg::process::Id>>,
@@ -96,6 +99,7 @@ impl Default for Arg {
 		Self {
 			commands: false,
 			eager: true,
+			errors: false,
 			items: Vec::new(),
 			logs: false,
 			outputs: true,

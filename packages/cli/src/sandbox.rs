@@ -98,8 +98,7 @@ impl Cli {
 			Ok(status) => status,
 			Err(error) => {
 				let error = tg::error!(!error, "failed to run the sandbox");
-				let error = tg::Referent::with_item(error);
-				Self::print_error_basic(error);
+				Cli::print_error_basic(tg::Referent::with_item(error));
 				std::process::ExitCode::FAILURE
 			},
 		}

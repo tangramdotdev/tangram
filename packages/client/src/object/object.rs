@@ -17,6 +17,7 @@ pub enum Object {
 	Symlink(Arc<tg::symlink::Object>),
 	Graph(Arc<tg::graph::Object>),
 	Command(Arc<tg::command::Object>),
+	Error(Arc<tg::error::Object>),
 }
 
 impl Object {
@@ -29,6 +30,7 @@ impl Object {
 			Self::Symlink(object) => Data::Symlink(object.to_data()),
 			Self::Graph(object) => Data::Graph(object.to_data()),
 			Self::Command(object) => Data::Command(object.to_data()),
+			Self::Error(object) => Data::Error(object.to_data()),
 		}
 	}
 
@@ -58,6 +60,10 @@ impl Object {
 				let object = tg::command::Object::try_from_data(data)?;
 				Self::Command(Arc::new(object))
 			},
+			Data::Error(data) => {
+				let object = tg::error::Object::try_from_data(data)?;
+				Self::Error(Arc::new(object))
+			},
 		})
 	}
 
@@ -70,6 +76,7 @@ impl Object {
 			Self::Symlink(symlink) => symlink.children(),
 			Self::Graph(graph) => graph.children(),
 			Self::Command(command) => command.children(),
+			Self::Error(error) => error.children(),
 		}
 	}
 
@@ -82,6 +89,7 @@ impl Object {
 			Self::Symlink(_) => tg::object::Kind::Symlink,
 			Self::Graph(_) => tg::object::Kind::Graph,
 			Self::Command(_) => tg::object::Kind::Command,
+			Self::Error(_) => tg::object::Kind::Error,
 		}
 	}
 

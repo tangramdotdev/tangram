@@ -533,17 +533,25 @@ impl Server {
 					touched_at = {p}18;
 			"
 		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
+		let (error_data, error_code) = if let Some(error) = &error {
+			error
+				.store(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to store the error"))?;
+			let code = error.data(self).await?.code.map(|code| code.to_string());
+			(Some(error.id()), code)
+		} else {
+			(None, None)
+		};
 		let params = db::params![
 			id.to_string(),
 			actual_checksum.to_string(),
 			true,
 			arg.command.item.to_string(),
 			now,
-			error.as_ref().map(tg::Error::to_data).map(db::value::Json),
-			error
-				.as_ref()
-				.and_then(|error| error.code.map(|code| code.to_string())),
+			error_data.map(db::value::Json),
+			error_code,
 			exit,
 			expected_checksum.to_string(),
 			now,

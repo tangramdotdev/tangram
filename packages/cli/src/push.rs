@@ -10,6 +10,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub eager: Eager,
 
+	#[arg(alias = "errors", long)]
+	pub errors: bool,
+
 	#[arg(long, short)]
 	pub force: bool,
 
@@ -105,6 +108,7 @@ impl Cli {
 		let arg = tg::push::Arg {
 			commands: args.commands,
 			eager: args.eager.get(),
+			errors: args.errors,
 			items: items.clone(),
 			logs: args.logs,
 			outputs: args.outputs.get(),

@@ -270,6 +270,7 @@ impl Server {
 		// Start the push.
 		let push_arg = tg::sync::Arg {
 			commands: arg.commands,
+			errors: arg.errors,
 			eager: arg.eager,
 			get: Vec::new(),
 			local: None,
@@ -288,6 +289,7 @@ impl Server {
 		// Start the pull.
 		let pull_arg = tg::sync::Arg {
 			commands: arg.commands,
+			errors: arg.errors,
 			eager: arg.eager,
 			get: arg.items.clone(),
 			local: None,

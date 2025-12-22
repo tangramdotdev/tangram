@@ -40,6 +40,7 @@ pub enum Kind {
 	Symlink,
 	Graph,
 	Command,
+	Error,
 }
 
 #[derive(
@@ -123,6 +124,7 @@ impl std::fmt::Display for Kind {
 			Self::Symlink => write!(f, "symlink"),
 			Self::Graph => write!(f, "graph"),
 			Self::Command => write!(f, "command"),
+			Self::Error => write!(f, "error"),
 		}
 	}
 }
@@ -143,6 +145,7 @@ impl std::str::FromStr for Kind {
 			"symlink" => Ok(Self::Symlink),
 			"graph" => Ok(Self::Graph),
 			"command" => Ok(Self::Command),
+			"error" => Ok(Self::Error),
 			_ => Err(tg::error!(kind = %s, "invalid kind")),
 		}
 	}

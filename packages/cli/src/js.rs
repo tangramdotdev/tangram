@@ -34,8 +34,7 @@ impl Cli {
 		match Self::command_js_inner(matches, args) {
 			Ok(exit) => exit,
 			Err(error) => {
-				let error = tg::Referent::with_item(error);
-				Cli::print_error_basic(error);
+				Cli::print_error_basic(tg::Referent::with_item(error));
 				std::process::ExitCode::FAILURE
 			},
 		}
@@ -144,10 +143,23 @@ impl Cli {
 					.map_err(|source| tg::error!(!source, "failed to write the output xattr"))?;
 			}
 			if let Some(error) = &error {
-				let json = serde_json::to_vec(&error.to_data())
-					.map_err(|source| tg::error!(!source, "failed to serialize the error"))?;
-				xattr::set(&output_path, "user.tangram.error", &json)
+				if let Some(data) = error
+					.state()
+					.object()
+					.map(|object| object.unwrap_error().to_data())
+				{
+					let json = serde_json::to_vec(&data)
+						.map_err(|source| tg::error!(!source, "failed to serialize the error"))?;
+					xattr::set(&output_path, "user.tangram.error", &json)
+						.map_err(|source| tg::error!(!source, "failed to write the error xattr"))?;
+				} else {
+					xattr::set(
+						&output_path,
+						"user.tangram.error",
+						error.id().to_string().as_bytes(),
+					)
 					.map_err(|source| tg::error!(!source, "failed to write the error xattr"))?;
+				}
 			}
 		}
 

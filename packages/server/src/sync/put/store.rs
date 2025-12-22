@@ -190,6 +190,38 @@ impl Server {
 				state.queue.enqueue_object(item);
 			}
 
+			// Enqueue the error.
+			if item.eager
+				&& state.arg.errors
+				&& let Some(error) = &output.data.error
+			{
+				match error {
+					Either::Left(data) => {
+						let mut children = BTreeSet::new();
+						data.children(&mut children);
+						let items =
+							children
+								.into_iter()
+								.map(|child| crate::sync::queue::ObjectItem {
+									parent: Some(Either::Right(item.id.clone())),
+									id: child,
+									kind: Some(crate::sync::queue::ObjectKind::Error),
+									eager: item.eager,
+								});
+						state.queue.enqueue_objects(items);
+					},
+					Either::Right(id) => {
+						let item = crate::sync::queue::ObjectItem {
+							parent: Some(Either::Right(item.id.clone())),
+							id: id.clone().into(),
+							kind: Some(crate::sync::queue::ObjectKind::Error),
+							eager: item.eager,
+						};
+						state.queue.enqueue_object(item);
+					},
+				}
+			}
+
 			// Enqueue the log.
 			if item.eager && state.arg.logs {
 				let id = output

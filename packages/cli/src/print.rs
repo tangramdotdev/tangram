@@ -71,6 +71,10 @@ impl Cli {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 			}
+			stdout
+				.flush()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 		}
 		let mut stream = pin!(stream);
 		let mut first = true;
@@ -86,6 +90,10 @@ impl Cli {
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 				}
+				stdout
+					.flush()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 			}
 			first = false;
 			self.print_serde(value, options.clone()).await?;

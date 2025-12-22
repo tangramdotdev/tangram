@@ -16,7 +16,7 @@ export def test [...args] {
 				return tg.directory({
 					"hello": tg.file("Hello, World!")
 				})
-			}
+			};
 		'
 	}
 

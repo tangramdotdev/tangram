@@ -24,9 +24,11 @@ impl Server {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			node_command_stored: bool,
+			node_error_stored: bool,
 			node_log_stored: bool,
 			node_output_stored: bool,
 			subtree_command_stored: bool,
+			subtree_error_stored: bool,
 			subtree_log_stored: bool,
 			subtree_output_stored: bool,
 			subtree_stored: bool,
@@ -35,9 +37,11 @@ impl Server {
 			"
 				select
 					node_command_stored,
+					node_error_stored,
 					node_log_stored,
 					node_output_stored,
 					subtree_command_stored,
+					subtree_error_stored,
 					subtree_log_stored,
 					subtree_output_stored,
 					subtree_stored
@@ -52,10 +56,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.map(|row| Output {
 				node_command: row.node_command_stored,
+				node_error: row.node_error_stored,
 				node_log: row.node_log_stored,
 				node_output: row.node_output_stored,
 				subtree: row.subtree_stored,
 				subtree_command: row.subtree_command_stored,
+				subtree_error: row.subtree_error_stored,
 				subtree_log: row.subtree_log_stored,
 				subtree_output: row.subtree_output_stored,
 			});
@@ -83,9 +89,11 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<Vec<u8>>>")]
 			id: Option<tg::process::Id>,
 			node_command_stored: bool,
+			node_error_stored: bool,
 			node_log_stored: bool,
 			node_output_stored: bool,
 			subtree_command_stored: bool,
+			subtree_error_stored: bool,
 			subtree_log_stored: bool,
 			subtree_output_stored: bool,
 			subtree_stored: bool,
@@ -95,9 +103,11 @@ impl Server {
 				select
 					processes.id,
 					node_command_stored,
+					node_error_stored,
 					node_log_stored,
 					node_output_stored,
 					subtree_command_stored,
+					subtree_error_stored,
 					subtree_log_stored,
 					subtree_output_stored,
 					subtree_stored
@@ -125,10 +135,12 @@ impl Server {
 				row.id?;
 				let output = Output {
 					node_command: row.node_command_stored,
+					node_error: row.node_error_stored,
 					node_log: row.node_log_stored,
 					node_output: row.node_output_stored,
 					subtree: row.subtree_stored,
 					subtree_command: row.subtree_command_stored,
+					subtree_error: row.subtree_error_stored,
 					subtree_log: row.subtree_log_stored,
 					subtree_output: row.subtree_output_stored,
 				};
@@ -162,6 +174,13 @@ impl Server {
 			node_command_size: Option<u64>,
 			node_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_error_size: Option<u64>,
+			node_error_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_log_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_log_depth: Option<u64>,
@@ -182,6 +201,13 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_error_size: Option<u64>,
+			subtree_error_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_log_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
@@ -208,6 +234,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_error_count,
+					node_error_depth,
+					node_error_size,
+					node_error_stored,
 					node_log_count,
 					node_log_depth,
 					node_log_size,
@@ -220,6 +250,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_error_count,
+					subtree_error_depth,
+					subtree_error_size,
+					subtree_error_stored,
 					subtree_log_count,
 					subtree_log_depth,
 					subtree_log_size,
@@ -253,10 +287,12 @@ impl Server {
 			.map_ok(|row| {
 				let stored = Output {
 					node_command: row.node_command_stored,
+					node_error: row.node_error_stored,
 					node_log: row.node_log_stored,
 					node_output: row.node_output_stored,
 					subtree: row.subtree_stored,
 					subtree_command: row.subtree_command_stored,
+					subtree_error: row.subtree_error_stored,
 					subtree_log: row.subtree_log_stored,
 					subtree_output: row.subtree_output_stored,
 				};
@@ -265,6 +301,13 @@ impl Server {
 						count: row.node_command_count,
 						depth: row.node_command_depth,
 						size: row.node_command_size,
+						solvable: None,
+						solved: None,
+					},
+					error: tg::object::metadata::Subtree {
+						count: row.node_error_count,
+						depth: row.node_error_depth,
+						size: row.node_error_size,
 						solvable: None,
 						solved: None,
 					},
@@ -288,6 +331,13 @@ impl Server {
 						count: row.subtree_command_count,
 						depth: row.subtree_command_depth,
 						size: row.subtree_command_size,
+						solvable: None,
+						solved: None,
+					},
+					error: tg::object::metadata::Subtree {
+						count: row.subtree_error_count,
+						depth: row.subtree_error_depth,
+						size: row.subtree_error_size,
 						solvable: None,
 						solved: None,
 					},
@@ -333,6 +383,10 @@ impl Server {
 			node_command_depth: Option<u64>,
 			node_command_size: Option<u64>,
 			node_command_stored: bool,
+			node_error_count: Option<u64>,
+			node_error_depth: Option<u64>,
+			node_error_size: Option<u64>,
+			node_error_stored: bool,
 			node_log_count: Option<u64>,
 			node_log_depth: Option<u64>,
 			node_log_size: Option<u64>,
@@ -345,6 +399,10 @@ impl Server {
 			subtree_command_depth: Option<u64>,
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: bool,
+			subtree_error_count: Option<u64>,
+			subtree_error_depth: Option<u64>,
+			subtree_error_size: Option<u64>,
+			subtree_error_stored: bool,
 			subtree_log_count: Option<u64>,
 			subtree_log_depth: Option<u64>,
 			subtree_log_size: Option<u64>,
@@ -366,6 +424,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_error_count,
+					node_error_depth,
+					node_error_size,
+					node_error_stored,
 					node_log_count,
 					node_log_depth,
 					node_log_size,
@@ -378,6 +440,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_error_count,
+					subtree_error_depth,
+					subtree_error_size,
+					subtree_error_stored,
 					subtree_log_count,
 					subtree_log_depth,
 					subtree_log_size,
@@ -402,10 +468,12 @@ impl Server {
 		let output = row.map(|row| {
 			let stored = Output {
 				node_command: row.node_command_stored,
+				node_error: row.node_error_stored,
 				node_log: row.node_log_stored,
 				node_output: row.node_output_stored,
 				subtree: row.subtree_stored,
 				subtree_command: row.subtree_command_stored,
+				subtree_error: row.subtree_error_stored,
 				subtree_log: row.subtree_log_stored,
 				subtree_output: row.subtree_output_stored,
 			};
@@ -414,6 +482,13 @@ impl Server {
 					count: row.node_command_count,
 					depth: row.node_command_depth,
 					size: row.node_command_size,
+					solvable: None,
+					solved: None,
+				},
+				error: tg::object::metadata::Subtree {
+					count: row.node_error_count,
+					depth: row.node_error_depth,
+					size: row.node_error_size,
 					solvable: None,
 					solved: None,
 				},
@@ -437,6 +512,13 @@ impl Server {
 					count: row.subtree_command_count,
 					depth: row.subtree_command_depth,
 					size: row.subtree_command_size,
+					solvable: None,
+					solved: None,
+				},
+				error: tg::object::metadata::Subtree {
+					count: row.subtree_error_count,
+					depth: row.subtree_error_depth,
+					size: row.subtree_error_size,
 					solvable: None,
 					solved: None,
 				},
@@ -503,6 +585,13 @@ impl Server {
 			node_command_size: Option<u64>,
 			node_command_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			node_error_size: Option<u64>,
+			node_error_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_log_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			node_log_depth: Option<u64>,
@@ -523,6 +612,13 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: bool,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
+			subtree_error_size: Option<u64>,
+			subtree_error_stored: bool,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			subtree_log_count: Option<u64>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
@@ -560,6 +656,10 @@ impl Server {
 					node_command_depth,
 					node_command_size,
 					node_command_stored,
+					node_error_count,
+					node_error_depth,
+					node_error_size,
+					node_error_stored,
 					node_log_count,
 					node_log_depth,
 					node_log_size,
@@ -572,6 +672,10 @@ impl Server {
 					subtree_command_depth,
 					subtree_command_size,
 					subtree_command_stored,
+					subtree_error_count,
+					subtree_error_depth,
+					subtree_error_size,
+					subtree_error_stored,
 					subtree_log_count,
 					subtree_log_depth,
 					subtree_log_size,
@@ -616,10 +720,12 @@ impl Server {
 			.map_ok(|row| {
 				let stored = Output {
 					node_command: row.node_command_stored,
+					node_error: row.node_error_stored,
 					node_log: row.node_log_stored,
 					node_output: row.node_output_stored,
 					subtree: row.subtree_stored,
 					subtree_command: row.subtree_command_stored,
+					subtree_error: row.subtree_error_stored,
 					subtree_log: row.subtree_log_stored,
 					subtree_output: row.subtree_output_stored,
 				};
@@ -628,6 +734,13 @@ impl Server {
 						count: row.node_command_count,
 						depth: row.node_command_depth,
 						size: row.node_command_size,
+						solvable: None,
+						solved: None,
+					},
+					error: tg::object::metadata::Subtree {
+						count: row.node_error_count,
+						depth: row.node_error_depth,
+						size: row.node_error_size,
 						solvable: None,
 						solved: None,
 					},
@@ -651,6 +764,13 @@ impl Server {
 						count: row.subtree_command_count,
 						depth: row.subtree_command_depth,
 						size: row.subtree_command_size,
+						solvable: None,
+						solved: None,
+					},
+					error: tg::object::metadata::Subtree {
+						count: row.subtree_error_count,
+						depth: row.subtree_error_depth,
+						size: row.subtree_error_size,
 						solvable: None,
 						solved: None,
 					},

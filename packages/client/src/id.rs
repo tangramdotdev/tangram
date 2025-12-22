@@ -33,6 +33,7 @@ pub enum Kind {
 	Pty,
 	User,
 	Request,
+	Error,
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -102,6 +103,7 @@ impl Id {
 			Kind::Pty => 8,
 			Kind::User => 9,
 			Kind::Request => 10,
+			Kind::Error => 11,
 		};
 		writer
 			.write_u8(kind)
@@ -154,6 +156,7 @@ impl Id {
 			8 => Kind::Pty,
 			9 => Kind::User,
 			10 => Kind::Request,
+			11 => Kind::Error,
 			_ => {
 				return Err(tg::error!(%kind, "invalid kind"));
 			},
@@ -292,6 +295,7 @@ impl std::fmt::Display for Kind {
 			Self::Pty => "pty",
 			Self::User => "usr",
 			Self::Request => "req",
+			Self::Error => "err",
 		};
 		write!(f, "{kind}")?;
 		Ok(())
@@ -314,6 +318,7 @@ impl std::str::FromStr for Kind {
 			"pty" => Self::Pty,
 			"usr" | "user" => Self::User,
 			"req" | "request" => Self::Request,
+			"err" | "error" => Self::Error,
 			_ => {
 				return Err(tg::error!(%s, "invalid kind"));
 			},

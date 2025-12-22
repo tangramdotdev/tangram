@@ -1,15 +1,19 @@
 use {
 	crate::prelude::*,
+	byteorder::{ReadBytesExt as _, WriteBytesExt as _},
+	bytes::Bytes,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::PathBuf,
 	},
+	tangram_either::Either,
 };
 
 /// An error.
 #[derive(
 	Clone,
 	Debug,
+	Default,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
@@ -39,7 +43,7 @@ pub struct Error {
 	/// The error's source.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
-	pub source: Option<tg::Referent<Box<tg::error::Data>>>,
+	pub source: Option<tg::Referent<Either<Box<tg::error::Data>, tg::error::Id>>>,
 
 	/// A stack trace associated with the error.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,6 +95,30 @@ pub enum File {
 }
 
 impl Error {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		bytes.write_u8(0).unwrap();
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+		Ok(bytes.into())
+	}
+
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		let bytes = bytes.into();
+		let mut reader = std::io::Cursor::new(bytes.as_ref());
+		let format = reader
+			.read_u8()
+			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+		let error = match format {
+			0 => tangram_serialize::from_reader(&mut reader)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+			b'{' => serde_json::from_slice(bytes.as_ref())
+				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+			_ => Err(tg::error!("invalid format")),
+		}?;
+		Ok(error)
+	}
+
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		if let Some(diagnostics) = &self.diagnostics {
 			for diagnostic in diagnostics {
@@ -103,6 +131,33 @@ impl Error {
 		if let Some(stack) = &self.stack {
 			for location in stack {
 				location.children(children);
+			}
+		}
+		if let Some(source) = &self.source {
+			match &source.item {
+				Either::Left(data) => data.children(children),
+				Either::Right(id) => {
+					children.insert(id.clone().into());
+				},
+			}
+		}
+	}
+
+	pub fn remove_internal_locations(&mut self) {
+		let mut stack = vec![self];
+		while let Some(error) = stack.pop() {
+			if let Some(location) = &error.location
+				&& matches!(location.file, File::Internal(_))
+			{
+				error.location = None;
+			}
+			if let Some(stack_locations) = &mut error.stack {
+				stack_locations.retain(|location| !matches!(location.file, File::Internal(_)));
+			}
+			if let Some(source) = &mut error.source
+				&& let Either::Left(data) = &mut source.item
+			{
+				stack.push(&mut **data);
 			}
 		}
 	}

@@ -1,28 +1,14 @@
-use {
-	crate::prelude::*,
-	itertools::Itertools as _,
-	std::{collections::BTreeMap, fmt::Debug, path::PathBuf},
-};
+use {crate::prelude::*, std::path::PathBuf};
 
-pub use self::data::Error as Data;
+pub use self::{data::Error as Data, handle::Error, id::Id, object::Error as Object};
 
 pub mod data;
+pub mod handle;
+pub mod id;
+pub mod object;
 
 /// An alias for `std::result::Result` that defaults to `tg::Error` as the error type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-/// An error.
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-#[serde(try_from = "Data")]
-pub struct Error {
-	pub code: Option<tg::error::Code>,
-	pub diagnostics: Option<Vec<tg::Diagnostic>>,
-	pub location: Option<tg::error::Location>,
-	pub message: Option<String>,
-	pub source: Option<tg::Referent<Box<tg::Error>>>,
-	pub stack: Option<Vec<tg::error::Location>>,
-	pub values: BTreeMap<String, String>,
-}
 
 #[derive(
 	Clone,
@@ -60,97 +46,13 @@ pub enum File {
 	Module(tg::Module),
 }
 
-impl Error {
-	pub fn try_from_data(data: Data) -> tg::Result<Self> {
-		let code = data.code;
-		let diagnostics = data
-			.diagnostics
-			.map(|diagnostics| diagnostics.into_iter().map(TryInto::try_into).try_collect())
-			.transpose()?;
-		let location = data.location.map(TryInto::try_into).transpose()?;
-		let message = data.message;
-		let stack = data
-			.stack
-			.map(|stack| stack.into_iter().map(TryInto::try_into).try_collect())
-			.transpose()?;
-		let source = data
-			.source
-			.map(|referent| {
-				referent.try_map(|item| Ok::<_, tg::Error>(Box::new((*item).try_into()?)))
-			})
-			.transpose()?;
-		let values = data.values;
-		let value = Self {
-			code,
-			diagnostics,
-			location,
-			message,
-			source,
-			stack,
-			values,
-		};
-		Ok(value)
-	}
-
-	#[must_use]
-	pub fn children(&self) -> Vec<tg::Object> {
-		std::iter::empty()
-			.chain(
-				self.location
-					.as_ref()
-					.map(tg::error::Location::children)
-					.into_iter()
-					.flatten(),
-			)
-			.chain(
-				self.diagnostics
-					.as_ref()
-					.into_iter()
-					.flatten()
-					.flat_map(tg::Diagnostic::children),
-			)
-			.collect()
-	}
-
-	pub fn to_data(&self) -> Data {
-		let code = self.code;
-		let diagnostics = self
-			.diagnostics
-			.as_ref()
-			.map(|diagnostics| diagnostics.iter().map(tg::Diagnostic::to_data).collect());
-		let location = self.location.as_ref().map(Location::to_data);
-		let message = self.message.clone();
-		let source = self
-			.source
-			.as_ref()
-			.map(|source| source.clone().map(|item| Box::new(item.to_data())));
-		let stack = self
-			.stack
-			.as_ref()
-			.map(|stack| stack.iter().map(Location::to_data).collect());
-		let values = self.values.clone();
-		Data {
-			code,
-			diagnostics,
-			location,
-			message,
-			source,
-			stack,
-			values,
-		}
-	}
-}
-
 impl Location {
-	#[must_use]
-	pub fn children(&self) -> Vec<tg::Object> {
-		self.file
-			.try_unwrap_module_ref()
-			.ok()
-			.map(tg::Module::children)
-			.into_iter()
-			.flatten()
-			.collect()
+	pub fn try_from_data(value: data::Location) -> tg::Result<Self> {
+		Ok(Self {
+			symbol: value.symbol,
+			file: value.file.try_into()?,
+			range: value.range,
+		})
 	}
 
 	#[must_use]
@@ -163,6 +65,17 @@ impl Location {
 			file,
 			range,
 		}
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.file
+			.try_unwrap_module_ref()
+			.ok()
+			.map(tg::Module::children)
+			.into_iter()
+			.flatten()
+			.collect()
 	}
 }
 
@@ -190,14 +103,6 @@ pub fn ok<T>(value: T) -> Result<T> {
 	Ok(value)
 }
 
-impl TryFrom<Data> for Error {
-	type Error = tg::Error;
-
-	fn try_from(data: Data) -> Result<Self, Self::Error> {
-		Self::try_from_data(data)
-	}
-}
-
 impl TryFrom<data::Location> for Location {
 	type Error = tg::Error;
 
@@ -222,58 +127,6 @@ impl TryFrom<data::File> for File {
 			},
 		};
 		Ok(value)
-	}
-}
-
-impl std::fmt::Display for Error {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let message = self.message.as_deref().unwrap_or("an error occurred");
-		write!(f, "{message}")
-	}
-}
-
-impl std::error::Error for Error {
-	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-		self.source
-			.as_ref()
-			.map(|source| source.item.as_ref() as &(dyn std::error::Error + 'static))
-	}
-}
-
-impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
-	fn from(value: Box<dyn std::error::Error + Send + Sync + 'static>) -> Self {
-		match value.downcast::<Error>() {
-			Ok(error) => *error,
-			Err(error) => Self {
-				code: None,
-				message: Some(error.to_string()),
-				location: None,
-				stack: None,
-				source: error
-					.source()
-					.map(Into::into)
-					.map(|error| tg::Referent::with_item(Box::new(error))),
-				values: BTreeMap::new(),
-				diagnostics: None,
-			},
-		}
-	}
-}
-
-impl From<&(dyn std::error::Error + 'static)> for Error {
-	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
-		Self {
-			code: None,
-			message: Some(value.to_string()),
-			location: None,
-			stack: None,
-			source: value
-				.source()
-				.map(Into::into)
-				.map(|error| tg::Referent::with_item(Box::new(error))),
-			values: BTreeMap::new(),
-			diagnostics: None,
-		}
 	}
 }
 
@@ -330,11 +183,10 @@ impl TryFrom<Error> for tangram_http::sse::Event {
 	type Error = tg::Error;
 
 	fn try_from(value: Error) -> Result<Self, Self::Error> {
-		let data = serde_json::to_string(&value.to_data())
-			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+		let json = serde_json::to_string(&value.to_data_or_id()).unwrap();
 		let event = tangram_http::sse::Event {
 			event: Some("error".to_owned()),
-			data,
+			data: json,
 			..Default::default()
 		};
 		Ok(event)
@@ -348,61 +200,66 @@ impl TryFrom<tangram_http::sse::Event> for Error {
 		if value.event.as_ref().is_none_or(|event| event != "error") {
 			return Err(tg::error!("invalid event"));
 		}
-		let error = serde_json::from_str(&value.data)
+		let data: Data = serde_json::from_str(&value.data)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-		Ok(error)
+		let object = Object::try_from_data(data)?;
+		Ok(Error::with_object(object))
 	}
 }
 
 #[macro_export]
 macro_rules! error {
-	({ $error:ident }, %$name:ident, $($arg:tt)*) => {
-		$error.values.insert(stringify!($name).to_owned(), $name.to_string());
-		$crate::error!({ $error }, $($arg)*)
+	({ $object:ident }, %$name:ident, $($arg:tt)*) => {
+		$object.values.insert(stringify!($name).to_owned(), $name.to_string());
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, ?$name:ident, $($arg:tt)*) => {
-		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $name));
-		$crate::error!({ $error }, $($arg)*)
+	({ $object:ident }, ?$name:ident, $($arg:tt)*) => {
+		$object.values.insert(stringify!($name).to_owned(), format!("{:?}", $name));
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, $name:ident = %$value:expr, $($arg:tt)*) => {
-		$error.values.insert(stringify!($name).to_owned(), $value.to_string());
-		$crate::error!({ $error }, $($arg)*)
+	({ $object:ident }, $name:ident = %$value:expr, $($arg:tt)*) => {
+		$object.values.insert(stringify!($name).to_owned(), $value.to_string());
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, $name:ident = ?$value:expr, $($arg:tt)*) => {
-		$error.values.insert(stringify!($name).to_owned(), format!("{:?}", $value));
-		$crate::error!({ $error }, $($arg)*)
+	({ $object:ident }, $name:ident = ?$value:expr, $($arg:tt)*) => {
+		$object.values.insert(stringify!($name).to_owned(), format!("{:?}", $value));
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, !$source:ident, $($arg:tt)*) => {
+	({ $object:ident }, !$source:ident, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
-		let source = $crate::Error::from(source);
-		let source = $crate::Referent::with_item(std::boxed::Box::new(source));
-		$error.source.replace(source);
-		$crate::error!({ $error }, $($arg)*)
+		let source_handle = $crate::Error::from(source);
+		let source_arc = source_handle.state().object().unwrap();
+		let source_obj = source_arc.unwrap_error_ref().as_ref().clone();
+		let source = $crate::Referent::with_item($crate::Either::Left(std::boxed::Box::new(source_obj)));
+		$object.source.replace(source);
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, source = $source:expr, $($arg:tt)*) => {
+	({ $object:ident }, source = $source:expr, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
-		let source = $crate::Error::from(source);
-		let source = $crate::Referent::with_item(std::boxed::Box::new(source));
-		$error.source.replace(source);
-		$crate::error!({ $error }, $($arg)*)
+		let source_handle = $crate::Error::from(source);
+		let source_arc = source_handle.state().object().unwrap();
+		let source_obj = source_arc.unwrap_error_ref().as_ref().clone();
+		let source = $crate::Referent::with_item($crate::Either::Left(std::boxed::Box::new(source_obj)));
+		$object.source.replace(source);
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, code = $code:expr, $($arg:tt)*) => {
-		$error.code.replace($code);
-		$crate::error!({ $error }, $($arg)*)
+	({ $object:ident }, code = $code:expr, $($arg:tt)*) => {
+		$object.code.replace($code);
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, stack = $stack:expr, $($arg:tt)*) => {
-		$error.stack.replace($stack);
-		$crate::error!({ $error }, $($arg)*)
+	({ $object:ident }, stack = $stack:expr, $($arg:tt)*) => {
+		$object.stack.replace($stack);
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, diagnostics = $diagnostics:expr, $($arg:tt)*) => {
-		$error.diagnostics.replace($diagnostics);
-		$crate::error!({ $error }, $($arg)*)
+	({ $object:ident }, diagnostics = $diagnostics:expr, $($arg:tt)*) => {
+		$object.diagnostics.replace($diagnostics);
+		$crate::error!({ $object }, $($arg)*)
 	};
-	({ $error:ident }, $($arg:tt)*) => {
-		$error.message = Some(format!($($arg)*));
+	({ $object:ident }, $($arg:tt)*) => {
+		$object.message = Some(format!($($arg)*));
 	};
 	($($arg:tt)*) => {{
-		let mut error = $crate::Error {
+		let mut object = $crate::error::Object {
 			code: None,
 			diagnostics: None,
 			location: Some($crate::error::Location {
@@ -418,8 +275,8 @@ macro_rules! error {
 			stack: None,
 			values: ::std::collections::BTreeMap::new(),
 		};
-		$crate::error!({ error }, $($arg)*);
-		error
+		$crate::error!({ object }, $($arg)*);
+		$crate::Error::with_object(object)
 	}};
 }
 

@@ -3,6 +3,7 @@ use {
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, rc::Rc},
 	tangram_client::prelude::*,
+	tangram_either::Either,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
@@ -20,15 +21,28 @@ pub(super) fn to_exception<'s>(
 	let error_constructor = tangram.get(scope, error_constructor.into()).unwrap();
 	let error_constructor = v8::Local::<v8::Object>::try_from(error_constructor).unwrap();
 
-	let from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
-	let from_data = error_constructor.get(scope, from_data.into()).unwrap();
-	let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
+	match error.to_data_or_id() {
+		Either::Left(data) => {
+			let from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
+			let from_data = error_constructor.get(scope, from_data.into()).unwrap();
+			let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
 
-	let data = Serde(error.to_data()).serialize(scope).unwrap();
-	let undefined = v8::undefined(scope);
-	let exception = from_data.call(scope, undefined.into(), &[data])?;
+			let data = Serde(data).serialize(scope).unwrap();
+			let undefined = v8::undefined(scope);
+			let exception = from_data.call(scope, undefined.into(), &[data])?;
+			Some(exception)
+		},
+		Either::Right(id) => {
+			let with_id = v8::String::new_external_onebyte_static(scope, b"withId").unwrap();
+			let with_id = error_constructor.get(scope, with_id.into()).unwrap();
+			let with_id = v8::Local::<v8::Function>::try_from(with_id).unwrap();
 
-	Some(exception)
+			let id = Serde(id).serialize(scope).unwrap();
+			let undefined = v8::undefined(scope);
+			let exception = with_id.call(scope, undefined.into(), &[id])?;
+			Some(exception)
+		},
+	}
 }
 
 pub(super) fn from_exception<'s>(
@@ -97,8 +111,18 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
 	{
-		let error = from_exception(state, scope, source.into())?;
-		let referent = tg::Referent::with_item(Box::new(error));
+		let item = from_exception(state, scope, source.into())?
+			.to_data_or_id()
+			.map_left(|data| {
+				Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
+					tg::error::Object {
+						message: Some("invalid error".to_owned()),
+						..Default::default()
+					}
+				}))
+			})
+			.map_right(|id| Box::new(tg::Error::with_id(id)));
+		let referent = tg::Referent::with_item(item);
 		Some(referent)
 	} else {
 		None
@@ -136,7 +160,7 @@ pub(super) fn from_exception<'s>(
 		None
 	};
 
-	Some(tg::Error {
+	Some(tg::Error::with_object(tg::error::Object {
 		code: None,
 		message,
 		location,
@@ -144,7 +168,7 @@ pub(super) fn from_exception<'s>(
 		source,
 		values: BTreeMap::new(),
 		diagnostics: None,
-	})
+	}))
 }
 
 pub fn prepare_stack_trace_callback<'s>(

@@ -46,6 +46,7 @@ serde_repr = { workspace = true }
 serde_yaml = { workspace = true }
 sourcemap = { workspace = true }
 tangram_client = { workspace = true }
+tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }
 tokio = { workspace = true }

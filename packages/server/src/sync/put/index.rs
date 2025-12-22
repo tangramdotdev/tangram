@@ -103,6 +103,14 @@ impl Server {
 						message.bytes += commands_size;
 					}
 				}
+				if state.arg.errors {
+					if let Some(errors_count) = metadata.subtree.error.count {
+						message.objects += errors_count;
+					}
+					if let Some(errors_size) = metadata.subtree.error.size {
+						message.bytes += errors_size;
+					}
+				}
 				if state.arg.logs {
 					if let Some(logs_count) = metadata.subtree.log.count {
 						message.objects += logs_count;

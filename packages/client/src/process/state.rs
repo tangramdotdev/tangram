@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use {crate::prelude::*, tangram_either::Either};
 
 #[derive(Clone, Debug)]
 pub struct State {
@@ -41,7 +41,16 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let created_at = value.created_at;
 		let dequeued_at = value.dequeued_at;
 		let enqueued_at = value.enqueued_at;
-		let error = value.error.map(TryInto::try_into).transpose()?;
+		let error = value
+			.error
+			.map(|either| match either {
+				Either::Left(data) => {
+					let object = tg::error::Object::try_from_data(data)?;
+					Ok::<_, tg::Error>(tg::Error::with_object(object))
+				},
+				Either::Right(id) => Ok(tg::Error::with_id(id)),
+			})
+			.transpose()?;
 		let exit = value.exit;
 		let expected_checksum = value.expected_checksum;
 		let finished_at = value.finished_at;

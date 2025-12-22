@@ -25,6 +25,10 @@ pub struct Arg {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub errors: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
@@ -138,6 +142,9 @@ pub struct GetStoredProcessMessage {
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
 	pub node_command_stored: bool,
 
+	#[tangram_serialize(id = 8, default, skip_serializing_if = "is_false")]
+	pub node_error_stored: bool,
+
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub node_log_stored: bool,
 
@@ -146,6 +153,9 @@ pub struct GetStoredProcessMessage {
 
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
 	pub subtree_command_stored: bool,
+
+	#[tangram_serialize(id = 9, default, skip_serializing_if = "is_false")]
+	pub subtree_error_stored: bool,
 
 	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
 	pub subtree_log_stored: bool,
@@ -267,7 +277,10 @@ impl tg::Client {
 				Err(error) => {
 					let mut trailers = http::HeaderMap::new();
 					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-					let json = serde_json::to_string(&error.to_data()).unwrap();
+					let json = error.state().object().map_or_else(
+						|| serde_json::to_string(&error.id()).unwrap(),
+						|object| serde_json::to_string(&object.to_data()).unwrap(),
+					);
 					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 					hyper::body::Frame::trailers(trailers)
 				},

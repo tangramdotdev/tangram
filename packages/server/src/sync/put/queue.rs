@@ -149,10 +149,12 @@ impl Server {
 				if state.arg.recursive {
 					stored.subtree
 						&& (!state.arg.commands || stored.subtree_command)
+						&& (!state.arg.errors || stored.subtree_error)
 						&& (!state.arg.logs || stored.subtree_log)
 						&& (!state.arg.outputs || stored.subtree_output)
 				} else {
 					(!state.arg.commands || stored.node_command)
+						&& (!state.arg.errors || stored.node_error)
 						&& (!state.arg.logs || stored.node_log)
 						&& (!state.arg.outputs || stored.node_output)
 				}

@@ -18,6 +18,7 @@ pub enum Object {
 	Symlink(tg::symlink::Data),
 	Graph(tg::graph::Data),
 	Command(tg::command::Data),
+	Error(tg::error::Data),
 }
 
 impl Object {
@@ -30,6 +31,7 @@ impl Object {
 			Self::Symlink(_) => Kind::Symlink,
 			Self::Graph(_) => Kind::Graph,
 			Self::Command(_) => Kind::Command,
+			Self::Error(_) => Kind::Error,
 		}
 	}
 
@@ -41,6 +43,7 @@ impl Object {
 			Self::Symlink(data) => Ok(data.serialize()?),
 			Self::Graph(data) => Ok(data.serialize()?),
 			Self::Command(data) => Ok(data.serialize()?),
+			Self::Error(data) => Ok(data.serialize()?),
 		}
 	}
 
@@ -52,6 +55,7 @@ impl Object {
 			Kind::Symlink => Ok(Self::Symlink(tg::symlink::Data::deserialize(bytes)?)),
 			Kind::Graph => Ok(Self::Graph(tg::graph::Data::deserialize(bytes)?)),
 			Kind::Command => Ok(Self::Command(tg::command::Data::deserialize(bytes)?)),
+			Kind::Error => Ok(Self::Error(tg::error::Data::deserialize(bytes)?)),
 		}
 	}
 
@@ -63,6 +67,7 @@ impl Object {
 			Self::Symlink(symlink) => symlink.children(children),
 			Self::Graph(graph) => graph.children(children),
 			Self::Command(command) => command.children(children),
+			Self::Error(error) => error.children(children),
 		}
 	}
 }

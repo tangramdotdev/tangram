@@ -4,7 +4,7 @@ use {
 	num::ToPrimitive as _,
 	sourcemap::SourceMap,
 	std::collections::BTreeMap,
-	tangram_client::prelude::*,
+	tangram_client::{Either, prelude::*},
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
@@ -12,7 +12,7 @@ pub(super) fn to_exception<'s>(
 	scope: &mut v8::HandleScope<'s>,
 	error: &tg::Error,
 ) -> v8::Local<'s, v8::Value> {
-	Serde(error.to_data()).serialize(scope).unwrap()
+	Serde(error.to_data_or_id()).serialize(scope).unwrap()
 }
 
 pub(super) fn from_exception<'s>(
@@ -42,7 +42,7 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
 		.map(|cause| from_exception(scope, cause.into()))
-		.map(|error| tg::Referent::with_item(Box::new(error)));
+		.map(|error| tg::Referent::with_item(Either::Right(Box::new(error))));
 
 	// Get the stack trace.
 	let stack = v8::String::new_external_onebyte_static(scope, b"stack").unwrap();
@@ -62,7 +62,7 @@ pub(super) fn from_exception<'s>(
 
 	let values = BTreeMap::new();
 
-	tg::Error {
+	tg::Error::with_object(tg::error::Object {
 		code: None,
 		message,
 		location,
@@ -70,7 +70,7 @@ pub(super) fn from_exception<'s>(
 		source,
 		values,
 		diagnostics: None,
-	}
+	})
 }
 
 pub fn prepare_stack_trace_callback<'s>(

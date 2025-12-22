@@ -6,6 +6,7 @@ use {
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -117,39 +118,25 @@ impl Server {
 				.as_ref()
 				.ok_or_else(|| tg::error!(%id, "the actual checksum was not set"))?;
 			if expected != actual {
-				error = Some(
-					tg::error!(
-						code = tg::error::Code::ChecksumMismatch,
-						%expected,
-						%actual,
-						"checksum mismatch",
-					)
-					.to_data(),
-				);
+				let data = tg::error::Data {
+					code: Some(tg::error::Code::ChecksumMismatch),
+					message: Some("checksum mismatch".into()),
+					values: [
+						("expected".into(), expected.to_string()),
+						("actual".into(), actual.to_string()),
+					]
+					.into(),
+					..Default::default()
+				};
+				error = Some(Either::Left(data));
 				exit = 1;
 			}
 		}
 
-		// Remove internal error locations if necessary.
 		if !self.config.advanced.internal_error_locations
-			&& let Some(error) = &mut error
+			&& let Some(Either::Left(error)) = &mut error
 		{
-			let mut stack = vec![error];
-			while let Some(error) = stack.pop() {
-				if let Some(location) = &mut error.location
-					&& matches!(location.file, tg::error::data::File::Internal(_))
-				{
-					error.location = None;
-				}
-				if let Some(stack) = &mut error.stack {
-					stack.retain(|location| {
-						!matches!(location.file, tg::error::data::File::Internal(_))
-					});
-				}
-				if let Some(source) = &mut error.source {
-					stack.push(&mut *source.item);
-				}
-			}
+			error.remove_internal_locations();
 		}
 
 		// Get a database connection.
@@ -181,12 +168,18 @@ impl Server {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let error_data_or_id = error.as_ref().map(|error| match error {
+			Either::Left(data) => serde_json::to_string(data).unwrap(),
+			Either::Right(id) => id.to_string(),
+		});
+		let error_code = error.as_ref().and_then(|error| match error {
+			Either::Left(data) => data.code.map(|code| code.to_string()),
+			Either::Right(_) => None,
+		});
 		let params = db::params![
 			arg.checksum.as_ref().map(ToString::to_string),
-			error.clone().map(db::value::Json),
-			error
-				.as_ref()
-				.and_then(|error| error.code.map(|code| code.to_string())),
+			error_data_or_id,
+			error_code,
 			now,
 			output.clone().map(db::value::Json),
 			exit,
@@ -236,14 +229,42 @@ impl Server {
 			data.command.clone().into(),
 			crate::index::message::ProcessObjectKind::Command,
 		);
+		let errors = data.error.as_ref().into_iter().flat_map(|e| match e {
+			Either::Left(data) => {
+				let mut children = BTreeSet::new();
+				data.children(&mut children);
+				children
+					.into_iter()
+					.map(|object| {
+						let kind = crate::index::message::ProcessObjectKind::Error;
+						(object, kind)
+					})
+					.collect::<Vec<_>>()
+			},
+			Either::Right(id) => {
+				let id = id.clone().into();
+				let kind = crate::index::message::ProcessObjectKind::Error;
+				vec![(id, kind)]
+			},
+		});
+		let log = data.log.as_ref().map(|id| {
+			let id = id.clone().into();
+			let kind = crate::index::message::ProcessObjectKind::Log;
+			(id, kind)
+		});
 		let mut outputs = BTreeSet::new();
 		if let Some(output) = &output {
 			output.children(&mut outputs);
 		}
-		let outputs = outputs
-			.into_iter()
-			.map(|object| (object, crate::index::message::ProcessObjectKind::Output));
-		let objects = std::iter::once(command).chain(outputs).collect();
+		let outputs = outputs.into_iter().map(|object| {
+			let kind = crate::index::message::ProcessObjectKind::Output;
+			(object, kind)
+		});
+		let objects = std::iter::once(command)
+			.chain(errors)
+			.chain(log)
+			.chain(outputs)
+			.collect();
 		let children = children.into_iter().map(|row| row.child).collect();
 		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
 			children,

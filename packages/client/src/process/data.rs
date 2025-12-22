@@ -42,7 +42,7 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 7, default, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::error::Data>,
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 8, default, skip_serializing_if = "Option::is_none")]

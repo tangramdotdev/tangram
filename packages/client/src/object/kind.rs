@@ -19,6 +19,7 @@ pub enum Kind {
 	Symlink,
 	Graph,
 	Command,
+	Error,
 }
 
 impl std::fmt::Display for Kind {
@@ -44,6 +45,7 @@ impl From<Kind> for tg::id::Kind {
 			Kind::Symlink => Self::Symlink,
 			Kind::Graph => Self::Graph,
 			Kind::Command => Self::Command,
+			Kind::Error => Self::Error,
 		}
 	}
 }
@@ -51,7 +53,7 @@ impl From<Kind> for tg::id::Kind {
 impl TryFrom<tg::id::Kind> for Kind {
 	type Error = tg::Error;
 
-	fn try_from(value: tg::id::Kind) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::id::Kind) -> tg::Result<Self> {
 		match value {
 			tg::id::Kind::Blob => Ok(Self::Blob),
 			tg::id::Kind::Directory => Ok(Self::Directory),
@@ -59,6 +61,7 @@ impl TryFrom<tg::id::Kind> for Kind {
 			tg::id::Kind::Symlink => Ok(Self::Symlink),
 			tg::id::Kind::Graph => Ok(Self::Graph),
 			tg::id::Kind::Command => Ok(Self::Command),
+			tg::id::Kind::Error => Ok(Kind::Error),
 			kind => Err(tg::error!(%kind, "invalid kind")),
 		}
 	}
