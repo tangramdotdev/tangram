@@ -14,7 +14,19 @@ assert equal $output.exit_code 1
 let first_output = $output.stderr 
 	| str replace --regex --all 'pcs_[a-z0-9]+' "PROCESS"
 	| str replace --regex --all '\s06[a-z0-9]+' ""
-snapshot $first_output
+snapshot $first_output '
+	info PROCESS
+	error an error occurred
+	-> the process failed
+	   id = PROCESS
+	-> Uncaught Error: whoops
+	   ╭─[./tangram.ts:1:30]
+	 1 │ export default () => { throw new Error("whoops"); };
+	   ·                              ▲
+	   ·                              ╰── Uncaught Error: whoops
+	   ╰────
+
+'
 
 let output = tg build | complete
 assert equal $output.exit_code 1
