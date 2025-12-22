@@ -32,6 +32,9 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
 
+	#[serde(default = "default_finisher")]
+	pub finisher: Option<Finisher>,
+
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_http")]
 	pub http: Option<Http>,
@@ -83,8 +86,8 @@ pub struct Advanced {
 	pub preserve_temp_directories: bool,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_dequeue_timeout: Duration,
-	pub shared_directory: bool,
-	pub shared_process: bool,
+	pub single_directory: bool,
+	pub single_process: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -161,6 +164,15 @@ pub struct SqliteDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
 	pub path: PathBuf,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Finisher {
+	pub message_batch_size: usize,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub message_batch_timeout: Duration,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -469,6 +481,7 @@ impl Default for Config {
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
+			finisher: Some(Finisher::default()),
 			messenger: Messenger::default(),
 			remotes: None,
 			runner: Some(Runner::default()),
@@ -489,8 +502,8 @@ impl Default for Advanced {
 			internal_error_locations: false,
 			process_dequeue_timeout: Duration::from_secs(3600),
 			preserve_temp_directories: false,
-			shared_directory: true,
-			shared_process: true,
+			single_directory: true,
+			single_process: true,
 		}
 	}
 }
@@ -543,6 +556,21 @@ impl Default for Database {
 	}
 }
 
+impl Default for Finisher {
+	fn default() -> Self {
+		Self {
+			message_batch_size: 1024,
+			message_batch_timeout: Duration::from_millis(100),
+		}
+	}
+}
+
+impl Default for Index {
+	fn default() -> Self {
+		Self::Sqlite(SqliteIndex::default())
+	}
+}
+
 impl Default for PostgresIndex {
 	fn default() -> Self {
 		Self {
@@ -558,27 +586,6 @@ impl Default for SqliteIndex {
 			connections: None,
 			path: PathBuf::from("index"),
 		}
-	}
-}
-
-impl Default for Index {
-	fn default() -> Self {
-		Self::Sqlite(SqliteIndex::default())
-	}
-}
-
-impl Default for LmdbStore {
-	fn default() -> Self {
-		Self {
-			map_size: 1_099_511_627_776,
-			path: PathBuf::from("store"),
-		}
-	}
-}
-
-impl Default for Store {
-	fn default() -> Self {
-		Self::Lmdb(LmdbStore::default())
 	}
 }
 
@@ -610,6 +617,21 @@ impl Default for Runner {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
 			remotes: Vec::new(),
+		}
+	}
+}
+
+impl Default for Store {
+	fn default() -> Self {
+		Self::Lmdb(LmdbStore::default())
+	}
+}
+
+impl Default for LmdbStore {
+	fn default() -> Self {
+		Self {
+			map_size: 1_099_511_627_776,
+			path: PathBuf::from("store"),
 		}
 	}
 }
@@ -745,6 +767,11 @@ impl Default for Write {
 			min_leaf_size: 4_096,
 		}
 	}
+}
+
+#[expect(clippy::unnecessary_wraps)]
+fn default_finisher() -> Option<Finisher> {
+	Some(Finisher::default())
 }
 
 #[expect(clippy::unnecessary_wraps)]

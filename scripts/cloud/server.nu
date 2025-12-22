@@ -1,7 +1,8 @@
 let config = {
 	advanced: {
 		disable_version_check: true,
-		shared_directory: false,
+		single_directory: false,
+		single_process: false,
 	},
 	cleaner: true,
 	database: {

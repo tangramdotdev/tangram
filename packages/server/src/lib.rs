@@ -419,18 +419,30 @@ impl Server {
 			let stream = messenger
 				.create_stream("index".to_owned(), stream_config)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to ensure the index stream exists")
-				})?;
+				.map_err(|source| tg::error!(!source, "failed to create the index stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
 				deliver: tangram_messenger::DeliverPolicy::All,
 			};
 			stream
 				.create_consumer("index".to_owned(), consumer_config)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to ensure the index stream exists")
-				})?;
+				.map_err(|source| tg::error!(!source, "failed to create the index stream"))?;
+		}
+
+		// Create the finish stream and consumer if the messenger is memory.
+		if messenger.is_memory() {
+			let stream_config = tangram_messenger::StreamConfig::default();
+			let stream = messenger
+				.create_stream("finish".to_owned(), stream_config)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the finish stream"))?;
+			let consumer_config = tangram_messenger::ConsumerConfig {
+				deliver: tangram_messenger::DeliverPolicy::All,
+			};
+			stream
+				.create_consumer("finish".to_owned(), consumer_config)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the finish consumer"))?;
 		}
 
 		// Create the pipes and ptys.
@@ -532,11 +544,12 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
 		}
 
-		// Migrate the index.
-		if let Ok(database) = server.index.try_unwrap_sqlite_ref() {
-			self::index::sqlite::migrate(database)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
+		// Finish unfinished processes if single process mode is enabled.
+		if server.config().advanced.single_process {
+			let result = server.finish_unfinished_processes().await;
+			if let Err(error) = result {
+				tracing::error!(?error, "failed to finish unfinished processes");
+			}
 		}
 
 		// Set the remotes if specified in the config.
@@ -571,6 +584,45 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
 			}
 		}
+
+		// Migrate the index.
+		if let Ok(database) = server.index.try_unwrap_sqlite_ref() {
+			self::index::sqlite::migrate(database)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
+		}
+
+		// Spawn the indexer task.
+		let indexer_task = server.config.indexer.clone().map(|config| {
+			tokio::spawn({
+				let server = server.clone();
+				async move {
+					server
+						.indexer_task(&config)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error);
+						})
+						.ok();
+				}
+			})
+		});
+
+		// Spawn the cleaner task.
+		let cleaner_task = server.config.cleaner.clone().map(|config| {
+			tokio::spawn({
+				let server = server.clone();
+				async move {
+					server
+						.cleaner_task(&config)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(?error);
+						})
+						.ok();
+				}
+			})
+		});
 
 		// Start the VFS if enabled.
 		let artifacts_path = server.path.join("artifacts");
@@ -652,6 +704,21 @@ impl Server {
 				})?;
 		}
 
+		// Spawn the HTTP task.
+		let http_task = if let Some(http) = &server.http {
+			let listener = Self::listen(&http.url).await?;
+			tracing::info!("listening on {}", http.url);
+			Some(Task::spawn(|stop| {
+				let server = server.clone();
+				let context = Context::default();
+				async move {
+					server.serve(listener, context, stop).await;
+				}
+			}))
+		} else {
+			None
+		};
+
 		// Spawn the diagnostics task.
 		let diagnostics_task = Some(tokio::spawn({
 			let server = server.clone();
@@ -664,32 +731,16 @@ impl Server {
 			}
 		}));
 
-		// Spawn the cleaner task.
-		let cleaner_task = server.config.cleaner.clone().map(|config| {
+		// Spawn the finisher task.
+		let finisher_task = server.config.finisher.clone().map(|config| {
 			tokio::spawn({
 				let server = server.clone();
 				async move {
 					server
-						.cleaner_task(&config)
+						.finisher_task(&config)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error);
-						})
-						.ok();
-				}
-			})
-		});
-
-		// Spawn the indexer task.
-		let indexer_task = server.config.indexer.clone().map(|config| {
-			tokio::spawn({
-				let server = server.clone();
-				async move {
-					server
-						.indexer_task(&config)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(?error);
+							tracing::error!(?error, "the finisher task failed");
 						})
 						.ok();
 				}
@@ -717,21 +768,6 @@ impl Server {
 				let server = server.clone();
 				async move {
 					server.runner_task().await;
-				}
-			}))
-		} else {
-			None
-		};
-
-		// Spawn the HTTP task.
-		let http_task = if let Some(http) = &server.http {
-			let listener = Self::listen(&http.url).await?;
-			tracing::info!("listening on {}", http.url);
-			Some(Task::spawn(|stop| {
-				let server = server.clone();
-				let context = Context::default();
-				async move {
-					server.serve(listener, context, stop).await;
 				}
 			}))
 		} else {
@@ -779,33 +815,29 @@ impl Server {
 					tracing::trace!("http task");
 				}
 
+				// Stop the VFS.
+				let vfs = server.vfs.lock().unwrap().take();
+				if let Some(vfs) = vfs {
+					vfs.stop();
+					vfs.wait().await;
+					tracing::trace!("vfs task");
+				}
+
 				// Abort the diagnostics task.
 				if let Some(task) = diagnostics_task {
 					task.abort();
 				}
 
-				// Abort the cleaner task.
-				if let Some(task) = cleaner_task {
+				// Abort the finish task.
+				if let Some(task) = finisher_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "the clean task panicked");
+						tracing::error!(?error, "the finsher task panicked");
 					}
-					tracing::trace!("cleaner task");
-				}
-
-				// Abort the indexer task.
-				if let Some(task) = indexer_task {
-					task.abort();
-					let result = task.await;
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "the index task panicked");
-					}
-					tracing::trace!("indexer task");
+					tracing::trace!("finsher task");
 				}
 
 				// Abort the watchdog task.
@@ -863,12 +895,28 @@ impl Server {
 				server.tasks.abort_all();
 				server.tasks.wait().await;
 
-				// Stop the VFS.
-				let vfs = server.vfs.lock().unwrap().take();
-				if let Some(vfs) = vfs {
-					vfs.stop();
-					vfs.wait().await;
-					tracing::trace!("vfs task");
+				// Abort the cleaner task.
+				if let Some(task) = cleaner_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the clean task panicked");
+					}
+					tracing::trace!("cleaner task");
+				}
+
+				// Abort the indexer task.
+				if let Some(task) = indexer_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the index task panicked");
+					}
+					tracing::trace!("indexer task");
 				}
 
 				// Remove the temp paths.
@@ -902,6 +950,42 @@ impl Server {
 		let handle = Owned(Arc::new(Inner { server, task }));
 
 		Ok(handle)
+	}
+
+	async fn finish_unfinished_processes(&self) -> tg::Result<()> {
+		let outputs = self
+			.list_processes_local()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list processes"))?;
+		outputs
+			.into_iter()
+			.filter(|output| !matches!(output.data.status, tg::process::Status::Finished))
+			.map(|output| {
+				let server = self.clone();
+				async move {
+					let error = tg::error::Data {
+						code: Some(tg::error::Code::HeartbeatExpiration),
+						message: Some("heartbeat expired".into()),
+						..Default::default()
+					};
+					let error = Some(tg::Either::Left(error));
+					let arg = tg::process::finish::Arg {
+						checksum: None,
+						error,
+						exit: 1,
+						local: None,
+						output: None,
+						remotes: None,
+					};
+					if let Err(error) = server.finish_process(&output.id, arg).await {
+						tracing::error!(process = %output.id, ?error, "failed to finish the process");
+					}
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<()>()
+			.await;
+		Ok(())
 	}
 
 	fn create_compiler(&self) -> tangram_compiler::Handle {

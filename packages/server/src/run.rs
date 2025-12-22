@@ -1,8 +1,6 @@
 use {
 	crate::{ProcessPermit, Server},
-	futures::{
-		FutureExt as _, StreamExt as _, TryFutureExt as _, future, stream::FuturesUnordered,
-	},
+	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_either::Either,
@@ -31,13 +29,6 @@ pub struct Output {
 
 impl Server {
 	pub(crate) async fn runner_task(&self) {
-		if self.config().advanced.shared_process {
-			let result = self.expire_unfinished_processes().await;
-			if let Err(error) = result {
-				tracing::error!(?error, "failed to expire unfinished processes");
-			}
-		}
-
 		loop {
 			// Wait for a permit.
 			let permit = self
@@ -308,40 +299,5 @@ impl Server {
 				"cannot checksum a value that is not a blob or an artifact"
 			))
 		}
-	}
-
-	async fn expire_unfinished_processes(&self) -> tg::Result<()> {
-		let outputs = self
-			.list_processes_local()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to list processes"))?;
-		outputs
-			.into_iter()
-			.filter(|output| !matches!(output.data.status, tg::process::Status::Finished))
-			.map(|output| {
-				let server = self.clone();
-				async move {
-					let error = tg::error::Data {
-						code: Some(tg::error::Code::HeartbeatExpiration),
-						message: Some("heartbeat expired".into()),
-						..Default::default()
-					};
-					let arg = tg::process::finish::Arg {
-						checksum: None,
-						error: Some(Either::Left(error)),
-						exit: 1,
-						local: None,
-						output: None,
-						remotes: None,
-					};
-					if let Err(error) = server.finish_process(&output.id, arg).await {
-						tracing::error!(process = %output.id, ?error, "failed to finish the process");
-					}
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<()>()
-			.await;
-		Ok(())
 	}
 }

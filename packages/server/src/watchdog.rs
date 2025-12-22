@@ -13,13 +13,13 @@ use {
 impl Server {
 	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) -> tg::Result<()> {
 		loop {
-			// Reap processes.
+			// Finish processes.
 			let result = self
 				.watchdog_task_inner(config)
 				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to cancel processes"));
+				.inspect_err(|error| tracing::error!(?error, "failed to finish processes"));
 
-			// If an error occurred or no processes were reaped, wait to be signaled or for the timeout to expire.
+			// If an error occurred or no processes were finished, wait to be signaled or for the timeout to expire.
 			if matches!(result, Err(_) | Ok(0)) {
 				let stream = self
 					.messenger

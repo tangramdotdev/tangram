@@ -44,7 +44,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Create the destination.
-		let destination = if self.config.advanced.shared_directory {
+		let destination = if self.config.advanced.single_directory {
 			Destination::Temp(Temp::new(self))
 		} else {
 			Destination::Store { touched_at }

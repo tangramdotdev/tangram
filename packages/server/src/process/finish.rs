@@ -1,15 +1,33 @@
 use {
 	crate::{Context, Server},
+	byteorder::ReadBytesExt as _,
 	bytes::Bytes,
-	futures::{StreamExt as _, TryFutureExt as _, stream::FuturesUnordered},
+	futures::{
+		Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+		stream::FuturesUnordered,
+	},
 	indoc::formatdoc,
-	std::collections::BTreeSet,
+	num::ToPrimitive as _,
+	std::{collections::BTreeSet, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
-	tangram_messenger::prelude::*,
+	tangram_messenger::{self as messenger, prelude::*},
 };
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Message {
+	#[tangram_serialize(id = 0)]
+	id: tg::process::Id,
+}
 
 impl Server {
 	pub(crate) async fn finish_process_with_context(
@@ -296,7 +314,7 @@ impl Server {
 			})
 			.detach();
 
-		// Publish the status message.
+		// Publish the status.
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
@@ -313,6 +331,105 @@ impl Server {
 		Ok(())
 	}
 
+	pub(crate) async fn finisher_task(&self, config: &crate::config::Finisher) -> tg::Result<()> {
+		// Get the messages stream.
+		let stream = self.finisher_create_message_stream(config).await?;
+		let mut stream = pin!(stream);
+
+		loop {
+			// Handle the result.
+			let messages = match stream.try_next().await {
+				Ok(Some(messages)) => messages,
+				Ok(None) => {
+					panic!("the stream ended")
+				},
+				Err(error) => {
+					tracing::error!(?error, "failed to get a batch of messages");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+					continue;
+				},
+			};
+
+			// Handle the messages.
+			let result = self.finisher_handle_messages(config, messages).await;
+			if let Err(error) = result {
+				tracing::error!(?error, "failed to handle the messages");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+			} else {
+				// Publish finisher progress.
+				self.messenger
+					.publish("finisher_progress".to_owned(), Bytes::new())
+					.await
+					.ok();
+			}
+		}
+	}
+
+	async fn finisher_create_message_stream(
+		&self,
+		config: &crate::config::Finisher,
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Vec<Message>, messenger::Acker)>>>> {
+		let stream = self
+			.messenger
+			.get_stream("finish".to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the finish stream"))?;
+		let consumer = stream
+			.get_consumer("finish".to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the finish consumer"))?;
+		let batch_config = messenger::BatchConfig {
+			max_bytes: None,
+			max_messages: Some(config.message_batch_size.to_u64().unwrap()),
+			timeout: Some(config.message_batch_timeout),
+		};
+		let stream = consumer
+			.batch_subscribe(batch_config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
+			.boxed()
+			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
+			.and_then(|message| async {
+				let (payload, acker) = message.split();
+				let len = payload.len();
+				let mut position = 0usize;
+				let mut messages = Vec::new();
+				while position < len {
+					let message = Message::deserialize(&payload[position..])
+						.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
+					let serialized = message.serialize()?;
+					position += serialized.len();
+					messages.push(message);
+				}
+				Ok::<_, tg::Error>((messages, acker))
+			})
+			.inspect_err(|error| {
+				tracing::error!(?error);
+			})
+			.filter_map(|result| future::ready(result.ok()));
+		let stream = tokio_stream::StreamExt::chunks_timeout(
+			stream,
+			config.message_batch_size,
+			config.message_batch_timeout,
+		)
+		.map(Ok);
+		Ok(stream)
+	}
+
+	async fn finisher_handle_messages(
+		&self,
+		_config: &crate::config::Finisher,
+		messages: Vec<(Vec<Message>, messenger::Acker)>,
+	) -> tg::Result<()> {
+		for (_messages, acker) in messages {
+			acker
+				.ack()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to acknowledge the message"))?;
+		}
+		Ok(())
+	}
+
 	pub(crate) async fn handle_finish_process_request(
 		&self,
 		request: http::Request<Body>,
@@ -324,5 +441,30 @@ impl Server {
 		self.finish_process_with_context(context, &id, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
+	}
+}
+
+impl Message {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		bytes.push(0);
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		Ok(bytes.into())
+	}
+
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		let bytes = bytes.into();
+		let mut reader = std::io::Cursor::new(bytes.as_ref());
+		let format = reader
+			.read_u8()
+			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+		match format {
+			0 => tangram_serialize::from_reader(&mut reader)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
+			b'{' => serde_json::from_slice(&bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
+			_ => Err(tg::error!("invalid format")),
+		}
 	}
 }

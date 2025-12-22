@@ -11,7 +11,7 @@ use {
 		task::{Stop, Task},
 	},
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::{self as messenger, Acker, prelude::*},
+	tangram_messenger::{self as messenger, prelude::*},
 	tokio_stream::wrappers::IntervalStream,
 };
 
@@ -214,7 +214,7 @@ impl Server {
 	async fn indexer_create_message_stream(
 		&self,
 		config: &crate::config::Indexer,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Vec<Message>, Acker)>>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Vec<Message>, messenger::Acker)>>>> {
 		let stream = self
 			.messenger
 			.get_stream("index".to_owned())
@@ -265,7 +265,7 @@ impl Server {
 	async fn indexer_handle_messages(
 		&self,
 		config: &crate::config::Indexer,
-		messages: Vec<(Vec<Message>, Acker)>,
+		messages: Vec<(Vec<Message>, messenger::Acker)>,
 	) -> tg::Result<()> {
 		// Create the state.
 		let mut n = 0;
@@ -276,7 +276,7 @@ impl Server {
 		let mut touch_process_messages = Vec::new();
 		let mut put_tag_messages = Vec::new();
 		let mut delete_tag_messages = Vec::new();
-		let mut ackers: Vec<Acker> = Vec::new();
+		let mut ackers: Vec<messenger::Acker> = Vec::new();
 
 		for (messages, acker) in messages {
 			for message in messages {
