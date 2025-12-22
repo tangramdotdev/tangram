@@ -2,6 +2,7 @@ use {
 	super::{InnerOutput, Server},
 	bytes::Bytes,
 	indoc::formatdoc,
+	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -57,9 +58,11 @@ impl Server {
 			);
 			let params = db::params![id.to_bytes()];
 			let reference_count = transaction
-				.query_one_value_into::<u64>(statement.into(), params)
+				.query_one_value_into::<i64>(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.to_u64()
+				.unwrap();
 
 			if reference_count == 0 {
 				let statement = formatdoc!(
@@ -115,9 +118,11 @@ impl Server {
 			);
 			let params = db::params![id.to_bytes()];
 			let reference_count = transaction
-				.query_one_value_into::<u64>(statement.into(), params)
+				.query_one_value_into::<i64>(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.to_u64()
+				.unwrap();
 
 			if reference_count == 0 {
 				// Get the node size before deleting.
@@ -128,9 +133,11 @@ impl Server {
 				);
 				let params = db::params![id.to_bytes()];
 				let size = transaction
-					.query_one_value_into::<u64>(statement.into(), params)
+					.query_one_value_into::<i64>(statement.into(), params)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.to_u64()
+					.unwrap();
 
 				let statement = formatdoc!(
 					"
@@ -223,9 +230,11 @@ impl Server {
 			);
 			let params = db::params![id.to_bytes()];
 			let reference_count = transaction
-				.query_one_value_into::<u64>(statement.into(), params)
+				.query_one_value_into::<i64>(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.to_u64()
+				.unwrap();
 
 			if reference_count == 0 {
 				let statement = formatdoc!(

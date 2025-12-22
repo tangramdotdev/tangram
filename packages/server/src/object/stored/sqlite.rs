@@ -152,11 +152,15 @@ impl Server {
 	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_size: u64,
 			node_solvable: bool,
 			node_solved: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_size: Option<u64>,
 			subtree_solvable: Option<bool>,
 			subtree_solved: Option<bool>,
@@ -245,11 +249,15 @@ impl Server {
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_size: u64,
 			node_solvable: bool,
 			node_solved: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_size: Option<u64>,
 			subtree_solvable: Option<bool>,
 			subtree_solved: Option<bool>,
@@ -341,11 +349,15 @@ impl Server {
 	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_size: u64,
 			node_solvable: bool,
 			node_solved: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_size: Option<u64>,
 			subtree_solvable: Option<bool>,
 			subtree_solved: Option<bool>,
@@ -449,11 +461,15 @@ impl Server {
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_size: u64,
 			node_solvable: bool,
 			node_solved: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_size: Option<u64>,
 			subtree_solvable: Option<bool>,
 			subtree_solved: Option<bool>,

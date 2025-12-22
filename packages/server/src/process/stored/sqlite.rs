@@ -209,39 +209,73 @@ impl Server {
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_command_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_error_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_log_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_output_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_command_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_error_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_log_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_output_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_stored: u64,
 		}
 		let statement = indoc!(
@@ -411,39 +445,73 @@ impl Server {
 	) -> tg::Result<Option<(Output, tg::process::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_command_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_error_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_log_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_output_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_command_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_error_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_log_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_output_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_stored: u64,
 		}
 		let statement = indoc!(
@@ -607,39 +675,73 @@ impl Server {
 		}
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_command_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_command_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_error_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_error_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_log_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_log_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			node_output_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			node_output_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_command_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_error_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_log_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_size: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_output_stored: u64,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			subtree_stored: u64,
 		}
 		let statement = indoc!(

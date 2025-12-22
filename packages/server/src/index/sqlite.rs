@@ -150,8 +150,11 @@ impl Server {
 		#[derive(db::sqlite::row::Deserialize, Clone, PartialEq)]
 		#[expect(clippy::struct_field_names)]
 		struct Row {
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_size: Option<u64>,
 			subtree_stored: bool,
 			subtree_solved: Option<bool>,
@@ -249,12 +252,12 @@ impl Server {
 			let params = sqlite::params![
 				&id.to_bytes().to_vec(),
 				cache_entry,
-				node_size,
+				node_size.to_i64().unwrap(),
 				metadata.node.solvable,
 				metadata.node.solved,
-				metadata.subtree.count,
-				metadata.subtree.depth,
-				metadata.subtree.size,
+				metadata.subtree.count.map(|v| v.to_i64().unwrap()),
+				metadata.subtree.depth.map(|v| v.to_i64().unwrap()),
+				metadata.subtree.size.map(|v| v.to_i64().unwrap()),
 				metadata.subtree.solvable,
 				metadata.subtree.solved,
 				stored.subtree,
@@ -284,12 +287,12 @@ impl Server {
 				let params = sqlite::params![
 					&id.to_bytes().to_vec(),
 					cache_entry,
-					node_size,
+					node_size.to_i64().unwrap(),
 					metadata.node.solvable,
 					metadata.node.solved,
-					metadata.subtree.count,
-					metadata.subtree.depth,
-					metadata.subtree.size,
+					metadata.subtree.count.map(|v| v.to_i64().unwrap()),
+					metadata.subtree.depth.map(|v| v.to_i64().unwrap()),
+					metadata.subtree.size.map(|v| v.to_i64().unwrap()),
 					metadata.subtree.solvable,
 					metadata.subtree.solved,
 					stored.subtree,
@@ -451,21 +454,34 @@ impl Server {
 		#[derive(db::sqlite::row::Deserialize, Clone, PartialEq)]
 		#[expect(clippy::struct_field_names)]
 		struct Row {
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_command_size: Option<u64>,
 			subtree_command_stored: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_error_size: Option<u64>,
 			subtree_error_stored: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_log_size: Option<u64>,
 			subtree_log_stored: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_count: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_depth: Option<u64>,
+			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<i64>>")]
 			subtree_output_size: Option<u64>,
 			subtree_output_stored: bool,
 			subtree_stored: bool,
@@ -602,38 +618,143 @@ impl Server {
 			// Try to insert the process.
 			let params = sqlite::params![
 				message.id.to_bytes().to_vec(),
-				message.metadata.node.command.count,
-				message.metadata.node.command.depth,
-				message.metadata.node.command.size,
+				message
+					.metadata
+					.node
+					.command
+					.count
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.node
+					.command
+					.depth
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.node
+					.command
+					.size
+					.map(|v| v.to_i64().unwrap()),
 				message.stored.node_command,
-				message.metadata.node.error.count,
-				message.metadata.node.error.depth,
-				message.metadata.node.error.size,
+				message
+					.metadata
+					.node
+					.error
+					.count
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.node
+					.error
+					.depth
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.node
+					.error
+					.size
+					.map(|v| v.to_i64().unwrap()),
 				message.stored.node_error,
-				message.metadata.node.log.count,
-				message.metadata.node.log.depth,
-				message.metadata.node.log.size,
+				message.metadata.node.log.count.map(|v| v.to_i64().unwrap()),
+				message.metadata.node.log.depth.map(|v| v.to_i64().unwrap()),
+				message.metadata.node.log.size.map(|v| v.to_i64().unwrap()),
 				message.stored.node_log,
-				message.metadata.node.output.count,
-				message.metadata.node.output.depth,
-				message.metadata.node.output.size,
+				message
+					.metadata
+					.node
+					.output
+					.count
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.node
+					.output
+					.depth
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.node
+					.output
+					.size
+					.map(|v| v.to_i64().unwrap()),
 				message.stored.node_output,
-				message.metadata.subtree.command.count,
-				message.metadata.subtree.command.depth,
-				message.metadata.subtree.command.size,
+				message
+					.metadata
+					.subtree
+					.command
+					.count
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.command
+					.depth
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.command
+					.size
+					.map(|v| v.to_i64().unwrap()),
 				message.stored.subtree_command,
-				message.metadata.subtree.count,
-				message.metadata.subtree.error.count,
-				message.metadata.subtree.error.depth,
-				message.metadata.subtree.error.size,
+				message.metadata.subtree.count.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.error
+					.count
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.error
+					.depth
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.error
+					.size
+					.map(|v| v.to_i64().unwrap()),
 				message.stored.subtree_error,
-				message.metadata.subtree.log.count,
-				message.metadata.subtree.log.depth,
-				message.metadata.subtree.log.size,
+				message
+					.metadata
+					.subtree
+					.log
+					.count
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.log
+					.depth
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.log
+					.size
+					.map(|v| v.to_i64().unwrap()),
 				message.stored.subtree_log,
-				message.metadata.subtree.output.count,
-				message.metadata.subtree.output.depth,
-				message.metadata.subtree.output.size,
+				message
+					.metadata
+					.subtree
+					.output
+					.count
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.output
+					.depth
+					.map(|v| v.to_i64().unwrap()),
+				message
+					.metadata
+					.subtree
+					.output
+					.size
+					.map(|v| v.to_i64().unwrap()),
 				message.stored.subtree_output,
 				message.stored.subtree,
 				message.touched_at,
@@ -662,38 +783,143 @@ impl Server {
 				// Update and get the new values.
 				let params = sqlite::params![
 					message.id.to_bytes().to_vec(),
-					message.metadata.node.command.count,
-					message.metadata.node.command.depth,
-					message.metadata.node.command.size,
+					message
+						.metadata
+						.node
+						.command
+						.count
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.node
+						.command
+						.depth
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.node
+						.command
+						.size
+						.map(|v| v.to_i64().unwrap()),
 					message.stored.node_command,
-					message.metadata.node.error.count,
-					message.metadata.node.error.depth,
-					message.metadata.node.error.size,
+					message
+						.metadata
+						.node
+						.error
+						.count
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.node
+						.error
+						.depth
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.node
+						.error
+						.size
+						.map(|v| v.to_i64().unwrap()),
 					message.stored.node_error,
-					message.metadata.node.log.count,
-					message.metadata.node.log.depth,
-					message.metadata.node.log.size,
+					message.metadata.node.log.count.map(|v| v.to_i64().unwrap()),
+					message.metadata.node.log.depth.map(|v| v.to_i64().unwrap()),
+					message.metadata.node.log.size.map(|v| v.to_i64().unwrap()),
 					message.stored.node_log,
-					message.metadata.node.output.count,
-					message.metadata.node.output.depth,
-					message.metadata.node.output.size,
+					message
+						.metadata
+						.node
+						.output
+						.count
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.node
+						.output
+						.depth
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.node
+						.output
+						.size
+						.map(|v| v.to_i64().unwrap()),
 					message.stored.node_output,
-					message.metadata.subtree.command.count,
-					message.metadata.subtree.command.depth,
-					message.metadata.subtree.command.size,
+					message
+						.metadata
+						.subtree
+						.command
+						.count
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.command
+						.depth
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.command
+						.size
+						.map(|v| v.to_i64().unwrap()),
 					message.stored.subtree_command,
-					message.metadata.subtree.count,
-					message.metadata.subtree.error.count,
-					message.metadata.subtree.error.depth,
-					message.metadata.subtree.error.size,
+					message.metadata.subtree.count.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.error
+						.count
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.error
+						.depth
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.error
+						.size
+						.map(|v| v.to_i64().unwrap()),
 					message.stored.subtree_error,
-					message.metadata.subtree.log.count,
-					message.metadata.subtree.log.depth,
-					message.metadata.subtree.log.size,
+					message
+						.metadata
+						.subtree
+						.log
+						.count
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.log
+						.depth
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.log
+						.size
+						.map(|v| v.to_i64().unwrap()),
 					message.stored.subtree_log,
-					message.metadata.subtree.output.count,
-					message.metadata.subtree.output.depth,
-					message.metadata.subtree.output.size,
+					message
+						.metadata
+						.subtree
+						.output
+						.count
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.output
+						.depth
+						.map(|v| v.to_i64().unwrap()),
+					message
+						.metadata
+						.subtree
+						.output
+						.size
+						.map(|v| v.to_i64().unwrap()),
 					message.stored.subtree_output,
 					message.stored.subtree,
 					message.touched_at,
@@ -716,7 +942,7 @@ impl Server {
 			for (position, child) in message.children.iter().enumerate() {
 				let params = sqlite::params![
 					message.id.to_bytes().to_vec(),
-					position,
+					position.to_i64().unwrap(),
 					child.to_bytes().to_vec(),
 				];
 				child_statement
@@ -1102,6 +1328,7 @@ impl Server {
 		struct Item {
 			#[tangram_database(try_from = "Vec<u8>")]
 			object: tg::object::Id,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			transaction_id: u64,
 		}
 
@@ -1123,7 +1350,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
-			.query([n])
+			.query([n.to_i64().unwrap()])
 			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
 			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
 			.map(|result| {
@@ -1270,35 +1497,50 @@ impl Server {
 			})?;
 
 			// Enqueue parents and processes.
-			let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
+			let params = sqlite::params![
+				item.object.to_bytes().to_vec(),
+				item.transaction_id.to_i64().unwrap()
+			];
 			enqueue_parents_statement
 				.execute(params)
 				.map_err(|source| {
 					tg::error!(!source, "failed to execute the enqueue parents statement")
 				})?;
 
-			let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
+			let params = sqlite::params![
+				item.object.to_bytes().to_vec(),
+				item.transaction_id.to_i64().unwrap()
+			];
 			enqueue_commands_processes_statement
 				.execute(params)
 				.map_err(|source| {
 					tg::error!(!source, "failed to execute the enqueue processes statement")
 				})?;
 
-			let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
+			let params = sqlite::params![
+				item.object.to_bytes().to_vec(),
+				item.transaction_id.to_i64().unwrap()
+			];
 			enqueue_errors_processes_statement
 				.execute(params)
 				.map_err(|source| {
 					tg::error!(!source, "failed to execute the enqueue processes statement")
 				})?;
 
-			let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
+			let params = sqlite::params![
+				item.object.to_bytes().to_vec(),
+				item.transaction_id.to_i64().unwrap()
+			];
 			enqueue_logs_processes_statement
 				.execute(params)
 				.map_err(|source| {
 					tg::error!(!source, "failed to execute the enqueue processes statement")
 				})?;
 
-			let params = sqlite::params![item.object.to_bytes().to_vec(), item.transaction_id];
+			let params = sqlite::params![
+				item.object.to_bytes().to_vec(),
+				item.transaction_id.to_i64().unwrap()
+			];
 			enqueue_outputs_processes_statement
 				.execute(params)
 				.map_err(|source| {
@@ -1317,14 +1559,15 @@ impl Server {
 		struct Item {
 			#[tangram_database(try_from = "Vec<u8>")]
 			process: tg::process::Id,
-			#[tangram_database(try_from = "u64")]
+			#[tangram_database(try_from = "i64")]
 			kind: Kind,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			transaction_id: u64,
 		}
 
 		#[derive(derive_more::TryFrom)]
 		#[try_from(repr)]
-		#[repr(u64)]
+		#[repr(i64)]
 		enum Kind {
 			Children = 1,
 			Commands = 2,
@@ -1351,7 +1594,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
-			.query([n])
+			.query([n.to_i64().unwrap()])
 			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
 			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
 			.map(|row| row.map_err(|source| tg::error!(!source, "failed to deserialize the row")))
@@ -1867,8 +2110,10 @@ impl Server {
 						tg::error!(!source, "failed to execute the update stored statement")
 					})?;
 
-					let params =
-						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
+					let params = sqlite::params![
+						item.process.to_bytes().to_vec(),
+						item.transaction_id.to_i64().unwrap()
+					];
 					enqueue_parents_process_statement
 						.execute(params)
 						.map_err(|source| {
@@ -1898,8 +2143,10 @@ impl Server {
 							)
 						})?;
 
-					let params =
-						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
+					let params = sqlite::params![
+						item.process.to_bytes().to_vec(),
+						item.transaction_id.to_i64().unwrap()
+					];
 					enqueue_parents_command_statement
 						.execute(params)
 						.map_err(|source| {
@@ -1929,8 +2176,10 @@ impl Server {
 							)
 						})?;
 
-					let params =
-						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
+					let params = sqlite::params![
+						item.process.to_bytes().to_vec(),
+						item.transaction_id.to_i64().unwrap()
+					];
 					enqueue_parents_error_statement
 						.execute(params)
 						.map_err(|source| {
@@ -1958,8 +2207,10 @@ impl Server {
 							tg::error!(!source, "failed to execute the update log stored statement")
 						})?;
 
-					let params =
-						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
+					let params = sqlite::params![
+						item.process.to_bytes().to_vec(),
+						item.transaction_id.to_i64().unwrap()
+					];
 					enqueue_parents_log_statement
 						.execute(params)
 						.map_err(|source| {
@@ -1989,8 +2240,10 @@ impl Server {
 							)
 						})?;
 
-					let params =
-						sqlite::params![item.process.to_bytes().to_vec(), item.transaction_id];
+					let params = sqlite::params![
+						item.process.to_bytes().to_vec(),
+						item.transaction_id.to_i64().unwrap()
+					];
 					enqueue_parents_output_statement
 						.execute(params)
 						.map_err(|source| {
@@ -2030,7 +2283,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let ids = statement
-			.query([n])
+			.query([n.to_i64().unwrap()])
 			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
 			.and_then(<Row as db::sqlite::row::Deserialize>::deserialize)
 			.map(|result| {
@@ -2101,7 +2354,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
-			.query([n])
+			.query([n.to_i64().unwrap()])
 			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
 			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
 			.map(|row| row.map_err(|source| tg::error!(!source, "failed to deserialize the row")))
@@ -2228,7 +2481,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
-			.query([n])
+			.query([n.to_i64().unwrap()])
 			.map_err(|source| tg::error!(!source, "failed to execute the dequeue statement"))?
 			.and_then(<Item as db::sqlite::row::Deserialize>::deserialize)
 			.map(|row| row.map_err(|source| tg::error!(!source, "failed to deserialize the row")))
@@ -2421,16 +2674,15 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		.connection()
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-	let version =
-		connection
-			.with(|connection| {
-				connection
-					.pragma_query_value(None, "user_version", |row| {
-						Ok(row.get_unwrap::<_, usize>(0))
-					})
-					.map_err(|source| tg::error!(!source, "failed to get the version"))
-			})
-			.await?;
+	let version = connection
+		.with(|connection| {
+			connection
+				.pragma_query_value(None, "user_version", |row| {
+					Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
+				})
+				.map_err(|source| tg::error!(!source, "failed to get the version"))
+		})
+		.await?;
 	drop(connection);
 
 	// If this path is from a newer version of Tangram, then return an error.
@@ -2454,7 +2706,7 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		connection
 			.with(move |connection| {
 				connection
-					.pragma_update(None, "user_version", version + 1)
+					.pragma_update(None, "user_version", (version + 1).to_i64().unwrap())
 					.map_err(|source| tg::error!(!source, "failed to get the version"))
 			})
 			.await?;

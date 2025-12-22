@@ -67,6 +67,7 @@ impl Server {
 			// This is a branch tag, get its children.
 			#[derive(db::sqlite::row::Deserialize)]
 			struct Row {
+				#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 				id: u64,
 				component: String,
 				#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
@@ -82,7 +83,7 @@ impl Server {
 			let mut statement = transaction
 				.prepare_cached(statement)
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-			let params = sqlite::params![m.id];
+			let params = sqlite::params![m.id.to_i64().unwrap()];
 			let mut rows = statement
 				.query(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -139,6 +140,7 @@ impl Server {
 	) -> tg::Result<Vec<Match>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct TagRow {
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			id: u64,
 			component: String,
 			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
@@ -147,6 +149,7 @@ impl Server {
 
 		#[derive(db::sqlite::row::Deserialize)]
 		struct TagRowNoComponent {
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			id: u64,
 			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
 			item: Option<Either<tg::object::Id, tg::process::Id>>,
@@ -201,7 +204,7 @@ impl Server {
 					let mut statement = transaction
 						.prepare_cached(statement)
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id)];
+					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())];
 					let mut rows = statement
 						.query(params)
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -233,7 +236,7 @@ impl Server {
 					let mut statement = transaction
 						.prepare_cached(statement)
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id)];
+					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())];
 					let mut rows = statement
 						.query(params)
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -267,8 +270,10 @@ impl Server {
 					let mut statement = transaction
 						.prepare_cached(statement)
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-					let params =
-						sqlite::params![m.as_ref().map_or(0, |m| m.id), pattern.to_string()];
+					let params = sqlite::params![
+						m.as_ref().map_or(0, |m| m.id.to_i64().unwrap()),
+						pattern.to_string()
+					];
 					let mut rows = statement
 						.query(params)
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -314,7 +319,7 @@ impl Server {
 					let mut statement = transaction
 						.prepare_cached(statement)
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-					let params = sqlite::params![m.id];
+					let params = sqlite::params![m.id.to_i64().unwrap()];
 					let mut rows = statement
 						.query(params)
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;

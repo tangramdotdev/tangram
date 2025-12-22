@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	indoc::indoc,
+	num::ToPrimitive as _,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -210,7 +211,7 @@ impl Server {
 				for (position, child) in children.iter().enumerate() {
 					let params = sqlite::params![
 						id.to_string(),
-						position,
+						position.to_i64().unwrap(),
 						child.item.to_string(),
 						serde_json::to_string(child.options()).unwrap(),
 					];

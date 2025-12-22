@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	indoc::indoc,
+	num::ToPrimitive as _,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -73,7 +74,7 @@ impl Server {
 				let mut statement = transaction
 					.prepare_cached(statement)
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-				let params = sqlite::params![m.id];
+				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -89,7 +90,7 @@ impl Server {
 				let mut statement = transaction
 					.prepare_cached(statement)
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-				let params = sqlite::params![m.id];
+				let params = sqlite::params![m.id.to_i64().unwrap()];
 				let count: i64 = statement
 					.query_row(params, |row| row.get(0))
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -111,7 +112,7 @@ impl Server {
 				let mut statement = transaction
 					.prepare_cached(statement)
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-				let params = sqlite::params![m.id];
+				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;

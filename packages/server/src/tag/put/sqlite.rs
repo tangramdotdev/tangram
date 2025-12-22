@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	indoc::indoc,
+	num::ToPrimitive as _,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -68,13 +69,14 @@ impl Server {
 			let mut statement = transaction
 				.prepare_cached(statement)
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-			let params = sqlite::params![parent, component.to_string()];
+			let params = sqlite::params![parent.to_i64().unwrap(), component.to_string()];
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			#[derive(db::sqlite::row::Deserialize)]
 			struct Row {
+				#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 				id: u64,
 				item: Option<String>,
 			}
@@ -88,7 +90,7 @@ impl Server {
 			let mut statement = transaction
 				.prepare_cached(statement)
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-			let params = sqlite::params![parent, component.to_string()];
+			let params = sqlite::params![parent.to_i64().unwrap(), component.to_string()];
 			let mut rows = statement
 				.query(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -118,7 +120,10 @@ impl Server {
 		let mut statement = transaction
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-		let params = sqlite::params![parent, tag.components().last().unwrap().to_string(),];
+		let params = sqlite::params![
+			parent.to_i64().unwrap(),
+			tag.components().last().unwrap().to_string(),
+		];
 		let exists = statement
 			.query(params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -141,7 +146,7 @@ impl Server {
 			.prepare_cached(statement)
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let params = sqlite::params![
-			parent,
+			parent.to_i64().unwrap(),
 			tag.components().last().unwrap().to_string(),
 			arg.item.to_string(),
 		];

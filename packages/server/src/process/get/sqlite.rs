@@ -47,6 +47,7 @@ impl Server {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
 			actual_checksum: Option<String>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			cacheable: u64,
 			command: String,
 			created_at: i64,
@@ -59,8 +60,10 @@ impl Server {
 			host: String,
 			log: Option<String>,
 			output: Option<String>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			retry: u64,
 			mounts: Option<String>,
+			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			network: u64,
 			started_at: Option<i64>,
 			status: String,

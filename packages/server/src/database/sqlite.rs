@@ -44,16 +44,15 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		.connection()
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-	let version =
-		connection
-			.with(|connection| {
-				connection
-					.pragma_query_value(None, "user_version", |row| {
-						Ok(row.get_unwrap::<_, usize>(0))
-					})
-					.map_err(|source| tg::error!(!source, "failed to get the version"))
-			})
-			.await?;
+	let version = connection
+		.with(|connection| {
+			connection
+				.pragma_query_value(None, "user_version", |row| {
+					Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
+				})
+				.map_err(|source| tg::error!(!source, "failed to get the version"))
+		})
+		.await?;
 	drop(connection);
 
 	// If this path is from a newer version of Tangram, then return an error.
@@ -77,7 +76,7 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		connection
 			.with(move |connection| {
 				connection
-					.pragma_update(None, "user_version", version + 1)
+					.pragma_update(None, "user_version", (version + 1).to_i64().unwrap())
 					.map_err(|source| tg::error!(!source, "failed to get the version"))
 			})
 			.await?;
