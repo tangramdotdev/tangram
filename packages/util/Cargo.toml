@@ -17,6 +17,7 @@ workspace = true
 bytes = { workspace = true }
 data-encoding = { workspace = true }
 libc = { workspace = true }
+rustix = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
