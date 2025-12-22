@@ -20,32 +20,40 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_output(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-
-		// Get the process.
-		let arg = tg::process::get::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes.clone(),
-		};
-		let output = handle
-			.try_get_process(&args.process, arg)
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the process"))?;
-
-		// Get the output.
-		let output = output
-			.data
-			.output
-			.map(TryInto::try_into)
-			.transpose()?
-			.unwrap_or(tg::Value::Null);
-
-		// Print the output.
-		let arg = tg::object::get::Arg {
+		let process = &args.process;
+		let arg = tg::process::wait::Arg {
 			local: args.local.local,
 			remotes: args.remotes.remotes,
 		};
-		self.print_value(&output, args.print, arg).await?;
-
+		let wait = handle.wait_process(process, arg).await?;
+		if let Some(error) = wait.error {
+			let error = error
+				.map_left(|data| {
+					Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
+						tg::error::Object {
+							message: Some("invalid error".to_owned()),
+							..Default::default()
+						}
+					}))
+				})
+				.map_right(|id| Box::new(tg::Error::with_id(id)));
+			let error = tg::Error::with_object(tg::error::Object {
+				message: Some("the process failed".to_owned()),
+				source: Some(tg::Referent::with_item(error)),
+				..Default::default()
+			});
+			return Err(error);
+		}
+		if wait.exit > 1 && wait.exit < 128 {
+			return Err(tg::error!("the process exited with code {}", wait.exit));
+		}
+		if wait.exit >= 128 {
+			return Err(tg::error!(
+				"the process exited with signal {}",
+				wait.exit - 128
+			));
+		}
+		self.print_serde(&wait.output, args.print).await?;
 		Ok(())
 	}
 }
