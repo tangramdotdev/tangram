@@ -443,41 +443,6 @@ impl Server {
 							.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
 							.map(|(a, b)| a + b);
 
-						// Aggregate child process's subtree log metadata.
-						metadata.subtree.log.count = metadata
-							.subtree
-							.log
-							.count
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.log.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.subtree.log.depth = metadata
-							.subtree
-							.log
-							.depth
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.log.depth),
-							)
-							.map(|(a, b)| a.max(b));
-						metadata.subtree.log.size = metadata
-							.subtree
-							.log
-							.size
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.log.size),
-							)
-							.map(|(a, b)| a + b);
-
 						// Aggregate child process's subtree command metadata.
 						metadata.subtree.command.count = metadata
 							.subtree
@@ -510,6 +475,41 @@ impl Server {
 									.metadata
 									.as_ref()
 									.and_then(|m| m.subtree.command.size),
+							)
+							.map(|(a, b)| a + b);
+
+						// Aggregate the child process's subtree error metadata.
+						metadata.subtree.error.count = metadata
+							.subtree
+							.error
+							.count
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.error.count),
+							)
+							.map(|(a, b)| a + b);
+						metadata.subtree.error.depth = metadata
+							.subtree
+							.error
+							.depth
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.error.depth),
+							)
+							.map(|(a, b)| a.max(b));
+						metadata.subtree.error.size = metadata
+							.subtree
+							.error
+							.size
+							.zip(
+								child_node
+									.metadata
+									.as_ref()
+									.and_then(|m| m.subtree.error.size),
 							)
 							.map(|(a, b)| a + b);
 
