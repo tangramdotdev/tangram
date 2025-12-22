@@ -641,7 +641,75 @@ impl Server {
 									.map(|(a, b)| a + b);
 							},
 
-							ProcessObjectKind::Error => unimplemented!(),
+							ProcessObjectKind::Error => {
+								metadata.node.error.count = metadata
+									.node
+									.error
+									.count
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.count),
+									)
+									.map(|(a, b)| a + b);
+								metadata.node.error.depth = metadata
+									.node
+									.error
+									.depth
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.depth),
+									)
+									.map(|(a, b)| a.max(b));
+								metadata.node.error.size = metadata
+									.node
+									.error
+									.size
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.size),
+									)
+									.map(|(a, b)| a + b);
+
+								metadata.subtree.error.count = metadata
+									.subtree
+									.error
+									.count
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.count),
+									)
+									.map(|(a, b)| a + b);
+								metadata.subtree.error.depth = metadata
+									.subtree
+									.error
+									.depth
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.depth),
+									)
+									.map(|(a, b)| a.max(b));
+								metadata.subtree.error.size = metadata
+									.subtree
+									.error
+									.size
+									.zip(
+										object_node
+											.metadata
+											.as_ref()
+											.and_then(|metadata| metadata.subtree.size),
+									)
+									.map(|(a, b)| a + b);
+							},
 
 							ProcessObjectKind::Log => {
 								metadata.node.log.count = object_node
