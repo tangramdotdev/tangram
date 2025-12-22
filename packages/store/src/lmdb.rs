@@ -26,6 +26,12 @@ type RequestReceiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
 type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
+pub enum Error {
+	Lmdb(lmdb::Error),
+	Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
 enum Request {
 	Put(Put),
 	PutBatch(Vec<Put>),
@@ -46,10 +52,15 @@ struct Delete {
 	ttl: u64,
 }
 
-#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
-pub enum Error {
-	Lmdb(lmdb::Error),
-	Other(Box<dyn std::error::Error + Send + Sync>),
+struct Key<'a> {
+	id: &'a [u8],
+	kind: KeyKind,
+}
+
+enum KeyKind {
+	Bytes,
+	TouchedAt,
+	CacheReference,
 }
 
 impl Store {
@@ -93,7 +104,10 @@ impl Store {
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let id = id.to_bytes();
-		let key = (0, id.as_ref(), 0);
+		let key = Key {
+			id: id.as_ref(),
+			kind: KeyKind::Bytes,
+		};
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
@@ -113,7 +127,10 @@ impl Store {
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
 			let id = id.to_bytes();
-			let key = (0, id.as_ref(), 0);
+			let key = Key {
+				id: id.as_ref(),
+				kind: KeyKind::Bytes,
+			};
 			let bytes = self
 				.db
 				.get(&transaction, &key.pack_to_vec())
@@ -131,7 +148,10 @@ impl Store {
 		let transaction = self.env.read_txn().unwrap();
 		let kind = id.kind();
 		let id = id.to_bytes();
-		let key = (0, id.as_ref(), 0);
+		let key = Key {
+			id: id.as_ref(),
+			kind: KeyKind::Bytes,
+		};
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
@@ -153,7 +173,10 @@ impl Store {
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let id = id.to_bytes();
-		let key = (0, id.as_ref(), 2);
+		let key = Key {
+			id: id.as_ref(),
+			kind: KeyKind::CacheReference,
+		};
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
@@ -234,7 +257,10 @@ impl Store {
 	) -> tg::Result<()> {
 		if let Some(bytes) = request.bytes {
 			let id = request.id.to_bytes();
-			let key = (0, id.as_ref(), 0);
+			let key = Key {
+				id: id.as_ref(),
+				kind: KeyKind::Bytes,
+			};
 			let flags = lmdb::PutFlags::NO_OVERWRITE;
 			let result = db.put_with_flags(transaction, flags, &key.pack_to_vec(), &bytes);
 			match result {
@@ -245,13 +271,19 @@ impl Store {
 			}
 		}
 		let id = request.id.to_bytes();
-		let key = (0, id.as_ref(), 1);
+		let key = Key {
+			id: id.as_ref(),
+			kind: KeyKind::TouchedAt,
+		};
 		let touched_at = request.touched_at.to_le_bytes();
 		db.put(transaction, &key.pack_to_vec(), &touched_at)
 			.map_err(|source| tg::error!(!source, "failed to put the value"))?;
 		if let Some(cache_reference) = request.cache_reference {
 			let id = request.id.to_bytes();
-			let key = (0, id.as_ref(), 2);
+			let key = Key {
+				id: id.as_ref(),
+				kind: KeyKind::CacheReference,
+			};
 			let value = cache_reference.serialize().unwrap();
 			db.put(transaction, &key.pack_to_vec(), &value)
 				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
@@ -267,7 +299,10 @@ impl Store {
 		request: Delete,
 	) -> tg::Result<()> {
 		let id = request.id.to_bytes();
-		let key = (0, id.as_ref(), 1);
+		let key = Key {
+			id: id.as_ref(),
+			kind: KeyKind::TouchedAt,
+		};
 		let Some(touched_at) = db
 			.get(transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, "failed to get the touch time"))?
@@ -280,15 +315,24 @@ impl Store {
 		let touched_at = i64::from_le_bytes(touched_at);
 		if request.now - touched_at >= request.ttl.to_i64().unwrap() {
 			let id = request.id.to_bytes();
-			let key = (0, id.as_ref(), 0);
+			let key = Key {
+				id: id.as_ref(),
+				kind: KeyKind::Bytes,
+			};
 			db.delete(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
 			let id = request.id.to_bytes();
-			let key = (0, id.as_ref(), 1);
+			let key = Key {
+				id: id.as_ref(),
+				kind: KeyKind::TouchedAt,
+			};
 			db.delete(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
 			let id = request.id.to_bytes();
-			let key = (0, id.as_ref(), 2);
+			let key = Key {
+				id: id.as_ref(),
+				kind: KeyKind::CacheReference,
+			};
 			db.delete(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
 		}
@@ -383,6 +427,12 @@ impl Store {
 	}
 }
 
+impl crate::Error for Error {
+	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+		Self::Other(error.into())
+	}
+}
+
 impl crate::Store for Store {
 	type Error = Error;
 
@@ -396,7 +446,10 @@ impl crate::Store for Store {
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let id = id.to_bytes();
-				let key = (0, id.as_ref(), 0);
+				let key = Key {
+					id: id.as_ref(),
+					kind: KeyKind::Bytes,
+				};
 				let Some(bytes) = db
 					.get(&transaction, &key.pack_to_vec())
 					.map_err(|source| tg::error!(!source, "failed to get the value"))?
@@ -431,7 +484,10 @@ impl crate::Store for Store {
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in ids {
 					let id = id.to_bytes();
-					let key = (0, id.as_ref(), 0);
+					let key = Key {
+						id: id.as_ref(),
+						kind: KeyKind::Bytes,
+					};
 					let bytes = db
 						.get(&transaction, &key.pack_to_vec())
 						.map_err(|source| tg::error!(!source, "failed to get the value"))?
@@ -460,7 +516,10 @@ impl crate::Store for Store {
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let id = id.to_bytes();
-				let key = (0, id.as_ref(), 2);
+				let key = Key {
+					id: id.as_ref(),
+					kind: KeyKind::CacheReference,
+				};
 				let Some(bytes) = db
 					.get(&transaction, &key.pack_to_vec())
 					.map_err(|source| tg::error!(!source, "failed to get the value"))?
@@ -581,8 +640,17 @@ impl crate::Store for Store {
 	}
 }
 
-impl crate::Error for Error {
-	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-		Self::Other(error.into())
+impl foundationdb_tuple::TuplePack for Key<'_> {
+	fn pack<W: std::io::Write>(
+		&self,
+		w: &mut W,
+		tuple_depth: foundationdb_tuple::TupleDepth,
+	) -> std::io::Result<foundationdb_tuple::VersionstampOffset> {
+		let column = match self.kind {
+			KeyKind::Bytes => 0,
+			KeyKind::TouchedAt => 1,
+			KeyKind::CacheReference => 2,
+		};
+		(0, self.id, column).pack(w, tuple_depth)
 	}
 }
