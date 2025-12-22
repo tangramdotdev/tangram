@@ -196,7 +196,7 @@ impl Server {
 			Err(error) => {
 				let mut trailers = http::HeaderMap::new();
 				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-				let json = serde_json::to_string(&error.to_data()).unwrap();
+				let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
 				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 				Ok(hyper::body::Frame::trailers(trailers))
 			},

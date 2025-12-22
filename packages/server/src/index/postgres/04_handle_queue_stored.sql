@@ -96,6 +96,11 @@ begin
 	from process_objects
 	where process_objects.object = any(dequeued_objects);
 
+	insert into process_queue (process, kind, transaction_id)
+	select distinct process_objects.process, 3, (select id from transaction_id)
+	from process_objects
+	where process_objects.object = any(dequeued_objects);
+
 	n := n - coalesce(array_length(dequeued_objects, 1), 0);
 end;
 $$;
@@ -108,6 +113,7 @@ as $$
 declare
 	children_processes bytea[];
 	commands_processes bytea[];
+	errors_processes bytea[];
 	logs_processes bytea[];
 	outputs_processes bytea[];
 	locked_count int8;
@@ -127,9 +133,10 @@ begin
 	select
 		coalesce(array_agg(process) filter (where kind = 1), '{}') as children_processes,
 		coalesce(array_agg(process) filter (where kind = 2), '{}') as commands_processes,
+		coalesce(array_agg(process) filter (where kind = 3), '{}') as errors_processes,
 		coalesce(array_agg(process) filter (where kind = 4), '{}') as logs_processes,
 		coalesce(array_agg(process) filter (where kind = 5), '{}') as outputs_processes
-	into children_processes, commands_processes, logs_processes, outputs_processes
+	into children_processes, commands_processes, errors_processes, logs_processes, outputs_processes
 	from dequeued;
 
 	if array_length(children_processes, 1) > 0 then
@@ -263,6 +270,107 @@ begin
 		select distinct process_children.process, 2, (select id from transaction_id)
 		from process_children
 		where process_children.child = any(commands_processes);
+	end if;
+
+	if array_length(errors_processes, 1) > 0 then
+		with locked as (
+			select processes.id
+			from processes
+			where processes.id = any(errors_processes)
+			order by processes.id
+			for update
+		)
+		select count(*) into locked_count from locked;
+
+		update processes
+		set
+			subtree_error_stored = updates.subtree_error_stored,
+			subtree_error_count = updates.subtree_error_count,
+			subtree_error_depth = updates.subtree_error_depth,
+			subtree_error_size = updates.subtree_error_size
+		from (
+			select
+				processes.id,
+				case
+					when
+						coalesce(error_objects.subtree_stored, false)
+						and (coalesce(child_processes.child_count, 0) = 0 or child_processes.all_stored)
+						then true
+					else false
+				end as subtree_error_stored,
+				coalesce(error_objects.subtree_count, 0) + coalesce(child_processes.subtree_error_count, 0) as subtree_error_count,
+				greatest(coalesce(error_objects.subtree_depth, 0), coalesce(child_processes.subtree_error_depth, 0)) as subtree_error_depth,
+				coalesce(error_objects.subtree_size, 0) + coalesce(child_processes.subtree_error_size, 0) as subtree_error_size
+			from processes
+			left join (
+				select
+					process_objects.process,
+					objects.subtree_stored,
+					objects.subtree_count,
+					objects.subtree_depth,
+					objects.subtree_size
+				from process_objects
+				left join objects on objects.id = process_objects.object
+				where process_objects.kind = 1
+			) as error_objects on error_objects.process = processes.id
+			left join (
+				select
+					process_children.process,
+					count(process_children.child) as child_count,
+					bool_and(coalesce(child.subtree_error_stored, false)) as all_stored,
+					sum(coalesce(child.subtree_error_count, 0)) as subtree_error_count,
+					max(coalesce(child.subtree_error_depth, 0)) as subtree_error_depth,
+					sum(coalesce(child.subtree_error_size, 0)) as subtree_error_size
+				from process_children
+				left join processes child on child.id = process_children.child
+				group by process_children.process
+			) as child_processes on child_processes.process = processes.id
+			where processes.id = any(errors_processes)
+			and (
+				processes.subtree_error_stored = false
+				or processes.subtree_error_count is null
+				or processes.subtree_error_depth is null
+				or processes.subtree_error_size is null
+			)
+		) as updates
+		where processes.id = updates.id
+		and updates.subtree_error_stored = true;
+
+		update processes
+		set
+			node_error_stored = updates.node_error_stored,
+			node_error_count = updates.node_error_count,
+			node_error_depth = updates.node_error_depth,
+			node_error_size = updates.node_error_size
+		from (
+			select
+				processes.id,
+				case
+					when count(process_objects.object) = 0 then true
+					else bool_and(coalesce(objects.subtree_stored, false))
+				end as node_error_stored,
+				coalesce(sum(coalesce(objects.subtree_count, 0)), 0) as node_error_count,
+				coalesce(max(coalesce(objects.subtree_depth, 0)), 0) as node_error_depth,
+				coalesce(sum(coalesce(objects.subtree_size, 0)), 0) as node_error_size
+			from processes
+			left join process_objects on process_objects.process = processes.id and process_objects.kind = 1
+			left join objects on objects.id = process_objects.object
+			where processes.id = any(errors_processes)
+			and (
+				processes.node_error_stored = false
+				or processes.node_error_count is null
+				or processes.node_error_depth is null
+				or processes.node_error_size is null
+			)
+			group by processes.id
+		) as updates
+		where processes.id = updates.id
+		and updates.node_error_stored = true;
+
+		insert into process_queue (process, kind, transaction_id)
+		select distinct process_children.process, 3, (select id from transaction_id)
+		from process_children
+		where process_children.child = any(errors_processes);
 	end if;
 
 	if array_length(logs_processes, 1) > 0 then
@@ -475,6 +583,7 @@ begin
 	n := n
 		- coalesce(array_length(children_processes, 1), 0)
 		- coalesce(array_length(commands_processes, 1), 0)
+		- coalesce(array_length(errors_processes, 1), 0)
 		- coalesce(array_length(logs_processes, 1), 0)
 		- coalesce(array_length(outputs_processes, 1), 0);
 end;

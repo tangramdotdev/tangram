@@ -22,6 +22,7 @@ pub enum Object {
 	Symlink(tg::Symlink),
 	Graph(tg::Graph),
 	Command(tg::Command),
+	Error(tg::Error),
 }
 
 impl Object {
@@ -34,6 +35,7 @@ impl Object {
 			Id::Symlink(id) => Self::Symlink(tg::Symlink::with_id(id)),
 			Id::Graph(id) => Self::Graph(tg::Graph::with_id(id)),
 			Id::Command(id) => Self::Command(tg::Command::with_id(id)),
+			Id::Error(id) => Self::Error(tg::Error::with_id(id)),
 		}
 	}
 
@@ -46,6 +48,7 @@ impl Object {
 			Object_::Symlink(object) => Self::Symlink(tg::Symlink::with_object(object)),
 			Object_::Graph(object) => Self::Graph(tg::Graph::with_object(object)),
 			Object_::Command(object) => Self::Command(tg::Command::with_object(object)),
+			Object_::Error(object) => Self::Error(tg::Error::with_object(object)),
 		}
 	}
 
@@ -58,6 +61,7 @@ impl Object {
 			Self::Symlink(symlink) => symlink.state().clone(),
 			Self::Graph(graph) => graph.state().clone(),
 			Self::Command(command) => command.state().clone(),
+			Self::Error(error) => error.state().clone(),
 		}
 	}
 
@@ -70,6 +74,7 @@ impl Object {
 			Self::Symlink(object) => Id::Symlink(object.id()),
 			Self::Graph(object) => Id::Graph(object.id()),
 			Self::Command(object) => Id::Command(object.id()),
+			Self::Error(object) => Id::Error(object.id()),
 		}
 	}
 
@@ -84,6 +89,7 @@ impl Object {
 			Self::Symlink(object) => object.object(handle).await.map(Object_::Symlink),
 			Self::Graph(object) => object.object(handle).await.map(Object_::Graph),
 			Self::Command(object) => object.object(handle).await.map(Object_::Command),
+			Self::Error(object) => object.object(handle).await.map(Object_::Error),
 		}
 	}
 
@@ -112,6 +118,7 @@ impl Object {
 			Self::Symlink(symlink) => symlink.load_with_arg(handle, arg).await.map(Into::into),
 			Self::Graph(graph) => graph.load_with_arg(handle, arg).await.map(Into::into),
 			Self::Command(command) => command.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Error(error) => error.load_with_arg(handle, arg).await.map(Into::into),
 		}
 	}
 
@@ -141,6 +148,7 @@ impl Object {
 			Self::Symlink(symlink) => symlink.unload(),
 			Self::Graph(graph) => graph.unload(),
 			Self::Command(command) => command.unload(),
+			Self::Error(error) => error.unload(),
 		}
 	}
 
@@ -155,6 +163,7 @@ impl Object {
 			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
 			Self::Graph(graph) => graph.store(handle).await.map(Into::into),
 			Self::Command(command) => command.store(handle).await.map(Into::into),
+			Self::Error(error) => error.store(handle).await.map(Into::into),
 		}
 	}
 
@@ -177,6 +186,7 @@ impl Object {
 			Self::Symlink(symlink) => symlink.data(handle).await.map(Into::into),
 			Self::Graph(graph) => graph.data(handle).await.map(Into::into),
 			Self::Command(command) => command.data(handle).await.map(Into::into),
+			Self::Error(error) => error.data(handle).await.map(Into::into),
 		}
 	}
 
@@ -189,6 +199,7 @@ impl Object {
 			Self::Symlink(_) => tg::object::Kind::Symlink,
 			Self::Graph(_) => tg::object::Kind::Graph,
 			Self::Command(_) => tg::object::Kind::Command,
+			Self::Error(_) => tg::object::Kind::Error,
 		}
 	}
 

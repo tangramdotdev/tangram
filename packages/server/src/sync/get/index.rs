@@ -176,9 +176,11 @@ impl Server {
 					tg::sync::GetStoredProcessMessage {
 						id: item.id.clone(),
 						node_command_stored: stored.node_command,
+						node_error_stored: stored.node_error,
 						node_log_stored: stored.node_log,
 						node_output_stored: stored.node_output,
 						subtree_command_stored: stored.subtree_command,
+						subtree_error_stored: stored.subtree_error,
 						subtree_log_stored: stored.subtree_log,
 						subtree_output_stored: stored.subtree_output,
 						subtree_stored: stored.subtree,
@@ -373,6 +375,13 @@ impl Server {
 								solvable: None,
 								solved: None,
 							},
+							error: tg::object::metadata::Subtree {
+								count: Some(0),
+								depth: Some(0),
+								size: Some(0),
+								solvable: None,
+								solved: None,
+							},
 							log: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
@@ -391,6 +400,13 @@ impl Server {
 						subtree: tg::process::metadata::Subtree {
 							count: Some(1),
 							command: tg::object::metadata::Subtree {
+								count: Some(0),
+								depth: Some(0),
+								size: Some(0),
+								solvable: None,
+								solved: None,
+							},
+							error: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
 								size: Some(0),

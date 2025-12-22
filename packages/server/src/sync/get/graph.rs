@@ -353,9 +353,13 @@ impl Graph {
 					if arg.recursive {
 						stored.subtree
 							&& (!arg.commands || stored.subtree_command)
+							&& (!arg.errors || stored.subtree_error)
+							&& (!arg.logs || stored.subtree_log)
 							&& (!arg.outputs || stored.subtree_output)
 					} else {
 						(!arg.commands || stored.node_command)
+							&& (!arg.errors || stored.node_error)
+							&& (!arg.logs || stored.node_log)
 							&& (!arg.outputs || stored.node_output)
 					}
 				}),
@@ -370,10 +374,12 @@ impl Graph {
 	) -> crate::process::stored::Output {
 		let mut stored = crate::process::stored::Output {
 			node_command: true,
+			node_error: true,
 			node_log: true,
 			node_output: true,
 			subtree: true,
 			subtree_command: true,
+			subtree_error: true,
 			subtree_log: true,
 			subtree_output: true,
 		};
@@ -505,9 +511,11 @@ impl Graph {
 		crate::process::stored::Output {
 			subtree: old.subtree || new.subtree,
 			subtree_command: old.subtree_command || new.subtree_command,
+			subtree_error: old.subtree_error || new.subtree_error,
 			subtree_log: old.subtree_log || new.subtree_log,
 			subtree_output: old.subtree_output || new.subtree_output,
 			node_command: old.node_command || new.node_command,
+			node_error: old.node_error || new.node_error,
 			node_log: old.node_log || new.node_log,
 			node_output: old.node_output || new.node_output,
 		}

@@ -525,6 +525,195 @@ where
 		Ok(())
 	}
 
+	async fn expand_error(
+		handle: &H,
+		error: tg::Error,
+		update_sender: NodeUpdateSender,
+		guard: UpdateGuard,
+	) -> tg::Result<()> {
+		let object = error.object(handle).await?;
+		let mut children = Vec::new();
+
+		// Add message if present.
+		if let Some(message) = &object.message {
+			children.push(("message".to_owned(), tg::Value::String(message.clone())));
+		}
+
+		// Add code if present.
+		if let Some(code) = &object.code {
+			children.push(("code".to_owned(), tg::Value::String(code.to_string())));
+		}
+
+		// Add source error if present.
+		if let Some(source) = &object.source {
+			let source_error: tg::Error = match &source.item {
+				Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
+				Either::Right(handle) => handle.as_ref().clone(),
+			};
+			children.push(("source".to_owned(), tg::Value::Object(source_error.into())));
+		}
+
+		// Add location if present.
+		if let Some(location) = &object.location {
+			let mut map = BTreeMap::new();
+			if let Some(symbol) = &location.symbol {
+				map.insert("symbol".to_owned(), tg::Value::String(symbol.clone()));
+			}
+			match &location.file {
+				tg::error::File::Internal(path) => {
+					map.insert(
+						"file".to_owned(),
+						tg::Value::String(path.to_string_lossy().to_string()),
+					);
+				},
+				tg::error::File::Module(module) => {
+					let referent = &module.referent;
+					let item = match referent.item.clone() {
+						tg::module::Item::Edge(edge) => {
+							let object = match edge {
+								tg::graph::Edge::Reference(reference) => {
+									reference.get(handle).await?.into()
+								},
+								tg::graph::Edge::Object(object) => object,
+							};
+							tg::Value::Object(object)
+						},
+						tg::module::Item::Path(path) => {
+							tg::Value::String(path.to_string_lossy().into_owned())
+						},
+					};
+					let mut module_map = BTreeMap::new();
+					module_map.insert(
+						"kind".to_owned(),
+						tg::Value::String(module.kind.to_string()),
+					);
+					module_map.insert("item".to_owned(), item);
+					map.insert("file".to_owned(), tg::Value::Map(module_map));
+				},
+			}
+			let range_str = format!(
+				"{}:{}-{}:{}",
+				location.range.start.line,
+				location.range.start.character,
+				location.range.end.line,
+				location.range.end.character
+			);
+			map.insert("range".to_owned(), tg::Value::String(range_str));
+			children.push(("location".to_owned(), tg::Value::Map(map)));
+		}
+
+		// Add stack if present.
+		if let Some(stack) = &object.stack {
+			let stack_array: Vec<tg::Value> = stack
+				.iter()
+				.map(|loc| {
+					let mut map = BTreeMap::new();
+					if let Some(symbol) = &loc.symbol {
+						map.insert("symbol".to_owned(), tg::Value::String(symbol.clone()));
+					}
+					match &loc.file {
+						tg::error::File::Internal(path) => {
+							map.insert(
+								"file".to_owned(),
+								tg::Value::String(path.to_string_lossy().to_string()),
+							);
+						},
+						tg::error::File::Module(module) => {
+							map.insert(
+								"file".to_owned(),
+								tg::Value::String(format!("{}", module.kind)),
+							);
+						},
+					}
+					let range_str = format!(
+						"{}:{}-{}:{}",
+						loc.range.start.line,
+						loc.range.start.character,
+						loc.range.end.line,
+						loc.range.end.character
+					);
+					map.insert("range".to_owned(), tg::Value::String(range_str));
+					tg::Value::Map(map)
+				})
+				.collect();
+			children.push(("stack".to_owned(), tg::Value::Array(stack_array)));
+		}
+
+		// Add values if non-empty.
+		if !object.values.is_empty() {
+			let values_map: BTreeMap<String, tg::Value> = object
+				.values
+				.iter()
+				.map(|(k, v)| (k.clone(), tg::Value::String(v.clone())))
+				.collect();
+			children.push(("values".to_owned(), tg::Value::Map(values_map)));
+		}
+
+		// Add diagnostics if present.
+		if let Some(diagnostics) = &object.diagnostics {
+			let diagnostics_array: Vec<tg::Value> = diagnostics
+				.iter()
+				.map(|diag| {
+					let mut map = BTreeMap::new();
+					if let Some(location) = &diag.location {
+						let mut loc_map = BTreeMap::new();
+						match &location.module.referent.item {
+							tg::module::Item::Edge(_) => {
+								loc_map.insert(
+									"module".to_owned(),
+									tg::Value::String("(graph)".to_owned()),
+								);
+							},
+							tg::module::Item::Path(path) => {
+								loc_map.insert(
+									"module".to_owned(),
+									tg::Value::String(path.to_string_lossy().into_owned()),
+								);
+							},
+						}
+						let range_str = format!(
+							"{}:{}-{}:{}",
+							location.range.start.line,
+							location.range.start.character,
+							location.range.end.line,
+							location.range.end.character
+						);
+						loc_map.insert("range".to_owned(), tg::Value::String(range_str));
+						map.insert("location".to_owned(), tg::Value::Map(loc_map));
+					}
+					map.insert(
+						"severity".to_owned(),
+						tg::Value::String(diag.severity.to_string()),
+					);
+					map.insert(
+						"message".to_owned(),
+						tg::Value::String(diag.message.clone()),
+					);
+					tg::Value::Map(map)
+				})
+				.collect();
+			children.push((
+				"diagnostics".to_owned(),
+				tg::Value::Array(diagnostics_array),
+			));
+		}
+
+		error.unload();
+
+		// Send the update.
+		let handle = handle.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
+			for (name, child) in children {
+				let item = tg::Referent::with_item(Item::Value(child));
+				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				node.borrow_mut().children.push(child);
+			}
+			node.borrow_mut().guard.replace(guard);
+		};
+		update_sender.send(Box::new(update)).unwrap();
+		Ok(())
+	}
+
 	async fn expand_directory(
 		handle: &H,
 		directory: tg::Directory,
@@ -955,6 +1144,9 @@ where
 			},
 			tg::Object::Command(command) => {
 				Self::expand_command(handle, command, update_sender, guard).await?;
+			},
+			tg::Object::Error(error) => {
+				Self::expand_error(handle, error, update_sender, guard).await?;
 			},
 		}
 		Ok(())
@@ -1776,8 +1968,12 @@ where
 			.try_get_process(process.item.id(), arg)
 			.await?
 			.and_then(|output| output.data.error)
-			.is_some_and(|error| matches!(error.code, Some(tg::error::Code::Cancellation)))
-		{
+			.is_some_and(|error| match error {
+				Either::Left(data) => {
+					matches!(data.code, Some(tg::error::Code::Cancellation))
+				},
+				Either::Right(_) => false,
+			}) {
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(Indicator::Canceled);
 			};

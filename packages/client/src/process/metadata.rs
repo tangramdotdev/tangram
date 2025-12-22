@@ -54,6 +54,10 @@ pub struct Node {
 	pub command: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
+	pub error: tg::object::metadata::Subtree,
+
+	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
 	pub log: tg::object::metadata::Subtree,
 
@@ -81,6 +85,10 @@ pub struct Subtree {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
 	pub count: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
+	pub error: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]

@@ -34,6 +34,7 @@ impl Server {
 			let client = self.get_remote_client(remote).await?;
 			let arg = tg::sync::Arg {
 				commands: arg.commands,
+				errors: arg.errors,
 				eager: arg.eager,
 				get: arg.get,
 				local: None,
@@ -264,7 +265,7 @@ impl Server {
 					Err(error) => {
 						let mut trailers = http::HeaderMap::new();
 						trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-						let json = serde_json::to_string(&error.to_data()).unwrap();
+						let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
 						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 						hyper::body::Frame::trailers(trailers)
 					},

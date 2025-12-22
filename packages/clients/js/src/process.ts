@@ -207,7 +207,11 @@ export namespace Process {
 			let output: State = {
 				command: tg.Command.withId(data.command),
 				error:
-					data.error !== undefined ? tg.Error.fromData(data.error) : undefined,
+					data.error !== undefined
+						? typeof data.error === "string"
+							? tg.Error.withId(data.error)
+							: tg.Error.fromData(data.error)
+						: undefined,
 				exit: data.exit,
 				mounts: data.mounts ?? [],
 				network: data.network ?? false,
@@ -238,7 +242,7 @@ export namespace Process {
 
 	export type Data = {
 		command: tg.Command.Id;
-		error?: tg.Error.Data;
+		error?: tg.Error.Data | tg.Error.Id;
 		exit?: number;
 		mounts?: Array<tg.Process.Mount>;
 		network?: boolean;
@@ -257,7 +261,7 @@ export namespace Process {
 
 	export namespace Wait {
 		export type Data = {
-			error?: tg.Error.Data;
+			error?: tg.Error.Data | tg.Error.Id;
 			exit: number;
 			output?: tg.Value.Data;
 		};
@@ -265,7 +269,11 @@ export namespace Process {
 		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
 			let output: Wait = {
 				error:
-					data.error !== undefined ? tg.Error.fromData(data.error) : undefined,
+					data.error !== undefined
+						? typeof data.error === "string"
+							? tg.Error.withId(data.error)
+							: tg.Error.fromData(data.error)
+						: undefined,
 				exit: data.exit,
 			};
 			if ("output" in data) {

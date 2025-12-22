@@ -205,12 +205,20 @@ impl Cli {
 
 		// Handle an error.
 		if let Some(error) = wait.error {
-			let error = tg::Error {
+			let error = match error.to_data_or_id() {
+				tg::Either::Left(data) => {
+					let object = tg::error::Object::try_from_data(data)
+						.map_err(|source| tg::error!(!source, "invalid error"))?;
+					tg::Either::Left(Box::new(object))
+				},
+				tg::Either::Right(id) => tg::Either::Right(Box::new(tg::Error::with_id(id))),
+			};
+			let error = tg::Error::with_object(tg::error::Object {
 				message: Some("the process failed".to_owned()),
-				source: Some(process.clone().map(|_| Box::new(error))),
+				source: Some(process.clone().map(|_| error)),
 				values: [("id".to_owned(), process.item().id().to_string())].into(),
 				..Default::default()
-			};
+			});
 			return Err(error);
 		}
 

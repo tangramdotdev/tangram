@@ -106,9 +106,7 @@ impl Server {
 		};
 
 		// Create the serve task.
-		let serve_task = if root_mounted {
-			None
-		} else {
+		let serve_task = {
 			let path = temp.path().join(".tangram");
 			tokio::fs::create_dir_all(&path).await.map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
@@ -162,20 +160,7 @@ impl Server {
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
 		// Set `$TANGRAM_URL`.
-		let url = serve_task.as_ref().map_or_else(
-			|| {
-				let path = self.path.join("socket");
-				let path = path.to_str().unwrap();
-				tangram_uri::Uri::builder()
-					.scheme("http+unix")
-					.authority(path)
-					.path("")
-					.build()
-					.unwrap()
-					.to_string()
-			},
-			|(_, url)| url.to_string(),
-		);
+		let url = serve_task.as_ref().map(|(_, url)| url.to_string()).unwrap();
 		env.insert("TANGRAM_URL".to_owned(), url);
 
 		// Get the server's user.

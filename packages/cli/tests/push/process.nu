@@ -32,7 +32,7 @@ export def test [path: string, ...args] {
 	assert equal $local_process $remote_process
 
 	# Confirm output is present.
-	if (($output.output | describe) | str starts-with 'record') {
+	if $output.output? != null and (($output.output | describe) | str starts-with 'record') {
 		if $output.output.kind == "object" {
 			tg -u $remote_server.url get $output.output.value --pretty
 		}

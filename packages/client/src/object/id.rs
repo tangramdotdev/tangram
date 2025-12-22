@@ -36,6 +36,8 @@ pub enum Id {
 	Graph(tg::graph::Id),
 	#[debug("tg::object::Id(\"{_0}\")")]
 	Command(tg::command::Id),
+	#[debug("tg::object::Id(\"{_0}\")")]
+	Error(tg::error::Id),
 }
 
 impl Id {
@@ -47,6 +49,7 @@ impl Id {
 			Kind::Symlink => tg::symlink::Id::new(bytes).into(),
 			Kind::Graph => tg::graph::Id::new(bytes).into(),
 			Kind::Command => tg::command::Id::new(bytes).into(),
+			Kind::Error => tg::error::Id::new(bytes).into(),
 		}
 	}
 
@@ -59,6 +62,7 @@ impl Id {
 			Self::Symlink(_) => Kind::Symlink,
 			Self::Graph(_) => Kind::Graph,
 			Self::Command(_) => Kind::Command,
+			Self::Error(_) => Kind::Error,
 		}
 	}
 
@@ -83,6 +87,7 @@ impl Deref for Id {
 			Self::Symlink(id) => id,
 			Self::Graph(id) => id,
 			Self::Command(id) => id,
+			Self::Error(id) => id,
 		}
 	}
 }
@@ -96,6 +101,7 @@ impl From<self::Id> for crate::Id {
 			self::Id::Symlink(id) => id.into(),
 			self::Id::Graph(id) => id.into(),
 			self::Id::Command(id) => id.into(),
+			self::Id::Error(id) => id.into(),
 		}
 	}
 }
@@ -103,7 +109,7 @@ impl From<self::Id> for crate::Id {
 impl TryFrom<crate::Id> for self::Id {
 	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: crate::Id) -> tg::Result<Self> {
 		match value.kind() {
 			crate::id::Kind::Blob => Ok(Self::Blob(value.try_into()?)),
 			crate::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
@@ -111,6 +117,7 @@ impl TryFrom<crate::Id> for self::Id {
 			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
 			crate::id::Kind::Graph => Ok(Self::Graph(value.try_into()?)),
 			crate::id::Kind::Command => Ok(Self::Command(value.try_into()?)),
+			crate::id::Kind::Error => Ok(Id::Error(value.try_into()?)),
 			kind => Err(tg::error!(%kind, "expected an object ID")),
 		}
 	}

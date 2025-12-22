@@ -348,8 +348,7 @@ fn main() -> std::process::ExitCode {
 		Ok(config) => config,
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
-			let error = tg::Referent::with_item(error);
-			Cli::print_error_basic(error);
+			Cli::print_error_basic(tg::Referent::with_item(error));
 			return std::process::ExitCode::FAILURE;
 		},
 	};
@@ -432,7 +431,9 @@ fn main() -> std::process::ExitCode {
 			Cli::print_error_message("an error occurred");
 			runtime.block_on(async {
 				let error = tg::Referent::with_item(error);
-				cli.print_error(error).await;
+				if let Err(error) = cli.print_error(error).await {
+					eprintln!("failed to print the error: {error}");
+				}
 			});
 			cli.exit.map_or(std::process::ExitCode::FAILURE, Into::into)
 		},

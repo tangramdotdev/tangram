@@ -22,6 +22,7 @@ impl Cli {
 		let arg = tg::pull::Arg {
 			commands: args.commands,
 			eager: args.eager.get(),
+			errors: args.errors,
 			items: items.clone(),
 			logs: args.logs,
 			outputs: args.outputs.get(),

@@ -154,7 +154,7 @@ impl<'a> Visitor<'a> {
 				let diagnostic = tg::diagnostic::Data {
 					location,
 					message: error
-						.message
+						.message()
 						.unwrap_or_else(|| "failed to parse the import".to_owned()),
 					severity: tg::diagnostic::Severity::Error,
 				};

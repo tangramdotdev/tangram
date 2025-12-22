@@ -3,6 +3,7 @@ use {
 	futures::TryFutureExt as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
+	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -59,6 +60,29 @@ impl Server {
 			arg.data.command.clone().into(),
 			crate::index::message::ProcessObjectKind::Command,
 		));
+		let error = arg.data.error.as_ref().into_iter().flat_map(|e| match e {
+			Either::Left(data) => {
+				let mut children = BTreeSet::new();
+				data.children(&mut children);
+				children
+					.into_iter()
+					.map(|object| {
+						let kind = crate::index::message::ProcessObjectKind::Error;
+						(object, kind)
+					})
+					.collect::<Vec<_>>()
+			},
+			Either::Right(id) => {
+				let id = id.clone().into();
+				let kind = crate::index::message::ProcessObjectKind::Error;
+				vec![(id, kind)]
+			},
+		});
+		let log = arg.data.log.as_ref().map(|id| {
+			let id = id.clone().into();
+			let kind = crate::index::message::ProcessObjectKind::Log;
+			(id, kind)
+		});
 		let mut output = BTreeSet::new();
 		if let Some(data) = &arg.data.output {
 			data.children(&mut output);
@@ -66,7 +90,12 @@ impl Server {
 		let output = output
 			.into_iter()
 			.map(|output| (output, crate::index::message::ProcessObjectKind::Output));
-		let objects = std::iter::empty().chain(command).chain(output).collect();
+		let objects = std::iter::empty()
+			.chain(command)
+			.chain(error)
+			.chain(log)
+			.chain(output)
+			.collect();
 		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
 			children,
 			stored: crate::process::stored::Output::default(),

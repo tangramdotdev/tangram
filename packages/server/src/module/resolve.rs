@@ -66,6 +66,7 @@ impl Server {
 					tg::object::Kind::Symlink => tg::module::Kind::Symlink,
 					tg::object::Kind::Graph => tg::module::Kind::Graph,
 					tg::object::Kind::Command => tg::module::Kind::Command,
+					tg::object::Kind::Error => tg::module::Kind::Error,
 				},
 
 				tg::module::data::Item::Path(path) => {
@@ -98,7 +99,7 @@ impl Server {
 		&self,
 		referrer: &tg::Referent<&tg::graph::data::Edge<tg::object::Id>>,
 		import: &tg::module::Import,
-	) -> Result<tg::Referent<tg::module::data::Item>, tg::Error> {
+	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
 		let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(referrer.item.clone())?;
 		let file = tg::Artifact::with_edge(edge)
 			.clone()
@@ -184,6 +185,7 @@ impl Server {
 			| (Some(tg::module::Kind::Symlink), tg::Object::Symlink(_))
 			| (Some(tg::module::Kind::Graph), tg::Object::Graph(_))
 			| (Some(tg::module::Kind::Command), tg::Object::Command(_))
+			| (Some(tg::module::Kind::Error), tg::Object::Error(_))
 			| (
 				Some(tg::module::Kind::Artifact),
 				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_),
@@ -223,6 +225,9 @@ impl Server {
 			},
 			(Some(tg::module::Kind::Command), _) => {
 				return Err(tg::error!("expected a command"));
+			},
+			(Some(tg::module::Kind::Error), _) => {
+				return Err(tg::error!("expected an error"));
 			},
 		};
 

@@ -6222,6 +6222,7 @@ dependencies = [
  "serde_yaml",
  "sourcemap",
  "tangram_client",
+ "tangram_either",
  "tangram_futures",
  "tangram_v8",
  "tokio",

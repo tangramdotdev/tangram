@@ -46,6 +46,10 @@ where
 				let referent = referent.clone().map(|_| command);
 				visitor.visit_command(handle, referent).await?
 			},
+			tg::Object::Error(error) => {
+				let referent = referent.clone().map(|_| error);
+				visitor.visit_error(handle, referent).await?
+			},
 		};
 
 		if !recurse {
@@ -167,6 +171,14 @@ where
 		&mut self,
 		handle: &H,
 		command: tg::Referent<&tg::Command>,
+	) -> impl Future<Output = tg::Result<bool>> {
+		future::ok(false)
+	}
+
+	fn visit_error(
+		&mut self,
+		handle: &H,
+		error: tg::Referent<&tg::Error>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)
 	}

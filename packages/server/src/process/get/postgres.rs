@@ -4,6 +4,7 @@ use {
 	itertools::Itertools as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_either::Either,
 };
 
 impl Server {
@@ -33,8 +34,7 @@ impl Server {
 			created_at: i64,
 			dequeued_at: Option<i64>,
 			enqueued_at: Option<i64>,
-			#[tangram_database(as = "Option<db::value::Json<tg::error::Data>>")]
-			error: Option<tg::error::Data>,
+			error: Option<String>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			exit: Option<u8>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
@@ -104,6 +104,13 @@ impl Server {
 			})
 			.map_ok(|row| {
 				let id = row.id?;
+				let error = row.error.map(|s| {
+					if s.starts_with('{') {
+						Either::Left(serde_json::from_str(&s).unwrap())
+					} else {
+						Either::Right(s.parse().unwrap())
+					}
+				});
 				let data = tg::process::Data {
 					actual_checksum: row.actual_checksum,
 					cacheable: row.cacheable,
@@ -112,7 +119,7 @@ impl Server {
 					created_at: row.created_at,
 					dequeued_at: row.dequeued_at,
 					enqueued_at: row.enqueued_at,
-					error: row.error,
+					error,
 					exit: row.exit,
 					expected_checksum: row.expected_checksum,
 					finished_at: row.finished_at,

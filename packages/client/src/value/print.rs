@@ -178,6 +178,7 @@ where
 			tg::Object::Symlink(v) => self.symlink(v),
 			tg::Object::Graph(v) => self.graph(v),
 			tg::Object::Command(v) => self.command(v),
+			tg::Object::Error(v) => self.error(v),
 		}
 	}
 
@@ -477,6 +478,134 @@ where
 		}
 		self.depth -= 1;
 		Ok(())
+	}
+
+	pub fn error(&mut self, value: &tg::Error) -> Result {
+		let state = value.state();
+		let recurse = self.depth < self.options.depth.unwrap_or(u64::MAX);
+		self.depth += 1;
+		if let (Some(object), true) = (state.object(), recurse) {
+			let object = object.unwrap_error_ref();
+			self.error_object(object)?;
+		} else {
+			write!(self.writer, "{}", state.id())?;
+		}
+		self.depth -= 1;
+		Ok(())
+	}
+
+	fn error_object(&mut self, object: &tg::error::Object) -> Result {
+		write!(self.writer, "tg.error(")?;
+		self.start_map()?;
+		if let Some(code) = &object.code {
+			self.map_entry("code", |s| s.string(&code.to_string()))?;
+		}
+		if let Some(diagnostics) = &object.diagnostics {
+			self.map_entry("diagnostics", |s| {
+				s.start_array()?;
+				for diagnostic in diagnostics {
+					s.array_value(|s| s.error_diagnostic(diagnostic))?;
+				}
+				s.finish_array()
+			})?;
+		}
+		if let Some(location) = &object.location {
+			self.map_entry("location", |s| s.error_location(location))?;
+		}
+		if let Some(message) = &object.message {
+			self.map_entry("message", |s| s.string(message))?;
+		}
+		if let Some(source) = &object.source {
+			self.map_entry("source", |s| match &source.item {
+				tangram_either::Either::Left(obj) => s.error_object(obj),
+				tangram_either::Either::Right(handle) => s.error(handle),
+			})?;
+		}
+		if let Some(stack) = &object.stack {
+			self.map_entry("stack", |s| {
+				s.start_array()?;
+				for location in stack {
+					s.array_value(|s| s.error_location(location))?;
+				}
+				s.finish_array()
+			})?;
+		}
+		if !object.values.is_empty() {
+			self.map_entry("values", |s| {
+				s.start_map()?;
+				for (key, value) in &object.values {
+					s.map_entry(key, |s| s.string(value))?;
+				}
+				s.finish_map()
+			})?;
+		}
+		self.finish_map()?;
+		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	fn error_location(&mut self, location: &tg::error::Location) -> Result {
+		self.start_map()?;
+		self.map_entry("file", |s| s.error_file(&location.file))?;
+		self.map_entry("range", |s| s.range(&location.range))?;
+		if let Some(symbol) = &location.symbol {
+			self.map_entry("symbol", |s| s.string(symbol))?;
+		}
+		self.finish_map()
+	}
+
+	fn error_file(&mut self, file: &tg::error::File) -> Result {
+		match file {
+			tg::error::File::Internal(path) => {
+				self.start_map()?;
+				self.map_entry("kind", |s| s.string("internal"))?;
+				self.map_entry("value", |s| s.string(&path.to_string_lossy()))?;
+				self.finish_map()
+			},
+			tg::error::File::Module(module) => {
+				self.start_map()?;
+				self.map_entry("kind", |s| s.string("module"))?;
+				self.map_entry("value", |s| s.module(module))?;
+				self.finish_map()
+			},
+		}
+	}
+
+	fn error_diagnostic(&mut self, diagnostic: &tg::Diagnostic) -> Result {
+		self.start_map()?;
+		if let Some(location) = &diagnostic.location {
+			self.map_entry("location", |s| s.location(location))?;
+		}
+		self.map_entry("message", |s| s.string(&diagnostic.message))?;
+		self.map_entry("severity", |s| s.string(&diagnostic.severity.to_string()))?;
+		self.finish_map()
+	}
+
+	fn location(&mut self, location: &tg::Location) -> Result {
+		self.start_map()?;
+		self.map_entry("module", |s| s.module(&location.module))?;
+		self.map_entry("range", |s| s.range(&location.range))?;
+		self.finish_map()
+	}
+
+	fn range(&mut self, range: &tg::Range) -> Result {
+		self.start_map()?;
+		self.map_entry("start", |s| s.position(range.start))?;
+		self.map_entry("end", |s| s.position(range.end))?;
+		self.finish_map()
+	}
+
+	fn position(&mut self, position: tg::Position) -> Result {
+		self.start_map()?;
+		self.map_entry("line", |s| {
+			write!(s.writer, "{}", position.line)?;
+			Ok(())
+		})?;
+		self.map_entry("character", |s| {
+			write!(s.writer, "{}", position.character)?;
+			Ok(())
+		})?;
+		self.finish_map()
 	}
 
 	fn command_object(&mut self, object: &tg::command::Object) -> Result {

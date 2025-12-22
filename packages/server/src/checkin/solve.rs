@@ -1081,10 +1081,10 @@ impl Server {
 				}
 			}
 		}
-		tg::Error {
+		tg::Error::with_object(tg::error::Object {
 			message: Some(message),
 			..Default::default()
-		}
+		})
 	}
 
 	fn checkin_solve_get_referrer(state: &State, graph: &Graph, node: usize) -> String {

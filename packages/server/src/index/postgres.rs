@@ -232,6 +232,43 @@ impl Server {
 			.values()
 			.map(|message| message.stored.node_command)
 			.collect::<Vec<_>>();
+		let process_node_error_counts = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.node
+					.error
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_node_error_depths = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.node
+					.error
+					.depth
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_node_error_sizes = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.node
+					.error
+					.size
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_node_error_storeds = put_process_messages
+			.values()
+			.map(|message| message.stored.node_error)
+			.collect::<Vec<_>>();
 		let process_node_log_counts = put_process_messages
 			.values()
 			.map(|message| {
@@ -352,6 +389,43 @@ impl Server {
 					.count
 					.map(|value| value.to_i64().unwrap())
 			})
+			.collect::<Vec<_>>();
+		let process_subtree_error_counts = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.error
+					.count
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_error_depths = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.error
+					.depth
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_error_sizes = put_process_messages
+			.values()
+			.map(|message| {
+				message
+					.metadata
+					.subtree
+					.error
+					.size
+					.map(|value| value.to_i64().unwrap())
+			})
+			.collect::<Vec<_>>();
+		let process_subtree_error_storeds = put_process_messages
+			.values()
+			.map(|message| message.stored.subtree_error)
 			.collect::<Vec<_>>();
 		let process_subtree_log_counts = put_process_messages
 			.values()
@@ -564,27 +638,35 @@ impl Server {
 					$34::int8[],
 					$35::int8[],
 					$36::int8[],
-					$37::int8[],
-					$38::bool[],
+					$37::bool[],
+					$38::int8[],
 					$39::int8[],
 					$40::int8[],
-					$41::int8[],
-					$42::bool[],
+					$41::bool[],
+					$42::int8[],
 					$43::int8[],
 					$44::int8[],
-					$45::int8[],
-					$46::bool[],
-					$47::bytea[],
+					$45::bool[],
+					$46::int8[],
+					$47::int8[],
 					$48::int8[],
 					$49::int8[],
-					$50::bytea[],
+					$50::bool[],
 					$51::int8[],
 					$52::int8[],
 					$53::int8[],
-					$54::bytea[],
-					$55::text[],
-					$56::bytea[],
-					$57::text[]
+					$54::bool[],
+					$55::bytea[],
+					$56::int8[],
+					$57::int8[],
+					$58::bytea[],
+					$59::int8[],
+					$60::int8[],
+					$61::int8[],
+					$62::bytea[],
+					$63::text[],
+					$64::bytea[],
+					$65::text[]
 				);
 			"
 		);
@@ -617,6 +699,10 @@ impl Server {
 					&process_node_command_depths.as_slice(),
 					&process_node_command_sizes.as_slice(),
 					&process_node_command_storeds.as_slice(),
+					&process_node_error_counts.as_slice(),
+					&process_node_error_depths.as_slice(),
+					&process_node_error_sizes.as_slice(),
+					&process_node_error_storeds.as_slice(),
 					&process_node_log_counts.as_slice(),
 					&process_node_log_depths.as_slice(),
 					&process_node_log_sizes.as_slice(),
@@ -630,6 +716,10 @@ impl Server {
 					&process_subtree_command_sizes.as_slice(),
 					&process_subtree_command_storeds.as_slice(),
 					&process_subtree_counts.as_slice(),
+					&process_subtree_error_counts.as_slice(),
+					&process_subtree_error_depths.as_slice(),
+					&process_subtree_error_sizes.as_slice(),
+					&process_subtree_error_storeds.as_slice(),
 					&process_subtree_log_counts.as_slice(),
 					&process_subtree_log_depths.as_slice(),
 					&process_subtree_log_sizes.as_slice(),

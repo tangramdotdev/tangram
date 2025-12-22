@@ -7,108 +7,289 @@ export function error(
 	firstArg?: string | Error.Arg,
 	secondArg?: Error.Arg,
 ): tg.Error {
-	let arg: tg.Error.Arg = {};
+	let object: tg.Error.Object = { values: {} };
 	if (firstArg !== undefined && typeof firstArg === "string") {
-		arg.message = firstArg;
+		object.message = firstArg;
 		if (secondArg !== undefined) {
 			if ("code" in secondArg) {
-				arg.code = secondArg.code;
+				object.code = secondArg.code;
 			}
 			if ("diagnostics" in secondArg) {
-				arg.diagnostics = secondArg.diagnostics;
+				object.diagnostics = secondArg.diagnostics;
 			}
 			if ("location" in secondArg) {
-				arg.location = secondArg.location;
+				object.location = secondArg.location;
 			}
 			if ("message" in secondArg) {
-				arg.message = secondArg.message;
+				object.message = secondArg.message;
 			}
 			if ("source" in secondArg) {
-				arg.source = secondArg.source;
+				object.source = secondArg.source;
 			}
 			if ("stack" in secondArg) {
-				arg.stack = secondArg.stack;
+				object.stack = secondArg.stack;
 			}
 			if ("values" in secondArg) {
-				arg.values = secondArg.values ?? {};
+				object.values = secondArg.values ?? {};
 			}
 		}
 	} else if (firstArg !== undefined && typeof firstArg === "object") {
 		if ("code" in firstArg) {
-			arg.code = firstArg.code;
+			object.code = firstArg.code;
 		}
 		if ("diagnostics" in firstArg) {
-			arg.diagnostics = firstArg.diagnostics;
+			object.diagnostics = firstArg.diagnostics;
 		}
 		if ("location" in firstArg) {
-			arg.location = firstArg.location;
+			object.location = firstArg.location;
 		}
 		if ("message" in firstArg) {
-			arg.message = firstArg.message;
+			object.message = firstArg.message;
 		}
 		if ("source" in firstArg) {
-			arg.source = firstArg.source;
+			object.source = firstArg.source;
 		}
 		if ("stack" in firstArg) {
-			arg.stack = firstArg.stack;
+			object.stack = firstArg.stack;
 		}
 		if ("values" in firstArg) {
-			arg.values = firstArg.values ?? {};
+			object.values = firstArg.values ?? {};
 		}
 	}
-	if (!("stack" in arg)) {
+	if (!("stack" in object)) {
 		// @ts-expect-error
-		globalThis.Error.captureStackTrace(arg, tg.error);
+		globalThis.Error.captureStackTrace(object, tg.error);
 	}
-	return new tg.Error(arg);
+	return tg.Error.withObject(object);
 }
 
 // biome-ignore lint/suspicious/noShadowRestrictedNames: <reason>
 export class Error {
-	code: string | undefined;
-	diagnostics: Array<tg.Diagnostic> | undefined;
-	location: tg.Error.Location | undefined;
-	message: string | undefined;
-	source: tg.Referent<tg.Error> | undefined;
-	stack: Array<tg.Error.Location> | undefined;
-	values: { [key: string]: string };
+	#state: tg.Object.State;
 
-	constructor(arg: Error.Arg) {
-		if ("code" in arg) {
-			this.code = arg.code;
+	constructor(arg: {
+		id?: tg.Error.Id;
+		object?: tg.Error.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "error" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
+	}
+
+	get state(): tg.Object.State {
+		return this.#state;
+	}
+
+	static withId(id: tg.Error.Id): tg.Error {
+		return new tg.Error({ id, stored: true });
+	}
+
+	static withObject(object: tg.Error.Object): tg.Error {
+		return new tg.Error({ object, stored: false });
+	}
+
+	static fromData(data: tg.Error.Data): tg.Error {
+		return tg.Error.withObject(Error.Object.fromData(data));
+	}
+
+	static toData(value: tg.Error): tg.Error.Data {
+		let object = value.state.object;
+		tg.assert(object?.kind === "error");
+		return Error.Object.toData(object.value);
+	}
+
+	static expect(value: unknown): tg.Error {
+		tg.assert(value instanceof Error);
+		return value;
+	}
+
+	static assert(value: unknown): asserts value is tg.Error {
+		tg.assert(value instanceof Error);
+	}
+
+	get id(): tg.Error.Id {
+		let id = this.#state.id;
+		tg.assert(tg.Object.Id.kind(id) === "error");
+		return id;
+	}
+
+	async object(): Promise<tg.Error.Object> {
+		let object = await this.#state.load();
+		tg.assert(object.kind === "error");
+		return object.value;
+	}
+
+	async load(): Promise<tg.Error.Object> {
+		let object = await this.#state.load();
+		tg.assert(object.kind === "error");
+		return object.value;
+	}
+
+	unload(): void {
+		this.#state.unload();
+	}
+
+	async store(): Promise<tg.Error.Id> {
+		await tg.Value.store(this);
+		return this.id;
+	}
+
+	async children(): Promise<Array<tg.Object>> {
+		return this.#state.children();
+	}
+
+	async code(): Promise<string | undefined> {
+		let object = await this.object();
+		return object.code;
+	}
+
+	async diagnostics(): Promise<Array<tg.Diagnostic> | undefined> {
+		let object = await this.object();
+		return object.diagnostics;
+	}
+
+	async location(): Promise<tg.Error.Location | undefined> {
+		let object = await this.object();
+		return object.location;
+	}
+
+	async message(): Promise<string | undefined> {
+		let object = await this.object();
+		return object.message;
+	}
+
+	async source(): Promise<tg.Referent<tg.Error> | undefined> {
+		let object = await this.object();
+		if (object.source === undefined) {
+			return undefined;
 		}
-		if ("diagnostics" in arg) {
-			this.diagnostics = arg.diagnostics;
+		if (object.source.item instanceof tg.Error) {
+			return object.source as tg.Referent<tg.Error>;
+		} else {
+			return {
+				...object.source,
+				item: tg.Error.withObject(object.source.item),
+			};
 		}
-		if ("location" in arg) {
-			this.location = arg.location;
-		}
-		if ("message" in arg) {
-			this.message = arg.message;
-		}
-		if ("source" in arg) {
-			this.source = arg.source;
-		}
-		if ("stack" in arg) {
-			this.stack = arg.stack;
-		}
-		if ("values" in arg) {
-			this.values = arg.values ?? {};
-		}
-		this.values ??= {};
+	}
+
+	async stack(): Promise<Array<tg.Error.Location> | undefined> {
+		let object = await this.object();
+		return object.stack;
+	}
+
+	async values(): Promise<{ [key: string]: string }> {
+		let object = await this.object();
+		return object.values;
 	}
 }
 
 export namespace Error {
+	export type Id = string;
+
 	export type Arg = {
 		code?: string | undefined;
 		diagnostics?: Array<tg.Diagnostic> | undefined;
 		location?: tg.Error.Location | undefined;
 		message?: string;
-		source?: tg.Referent<tg.Error> | undefined;
+		source?: tg.Referent<tg.Error.Object | tg.Error> | undefined;
 		stack?: Array<tg.Error.Location> | undefined;
 		values?: { [key: string]: string } | undefined;
 	};
+
+	export type Object = {
+		code?: string | undefined;
+		diagnostics?: Array<tg.Diagnostic> | undefined;
+		location?: tg.Error.Location | undefined;
+		message?: string | undefined;
+		source?: tg.Referent<tg.Error.Object | tg.Error> | undefined;
+		stack?: Array<tg.Error.Location> | undefined;
+		values: { [key: string]: string };
+	};
+
+	export namespace Object {
+		export let toData = (object: tg.Error.Object): tg.Error.Data => {
+			let data: tg.Error.Data = {};
+			if (object.code !== undefined) {
+				data.code = object.code;
+			}
+			if (object.diagnostics !== undefined) {
+				data.diagnostics = object.diagnostics.map(tg.Diagnostic.toData);
+			}
+			if (object.location !== undefined) {
+				data.location = tg.Error.Location.toData(object.location);
+			}
+			if (object.message !== undefined) {
+				data.message = object.message;
+			}
+			if (object.source !== undefined) {
+				data.source = tg.Referent.toData(object.source, (item) => {
+					if (item instanceof tg.Error) {
+						return item.id;
+					} else {
+						return Error.Object.toData(item);
+					}
+				});
+			}
+			if (object.stack !== undefined) {
+				data.stack = object.stack.map(tg.Error.Location.toData);
+			}
+			if (globalThis.Object.keys(object.values).length > 0) {
+				data.values = object.values;
+			}
+			return data;
+		};
+
+		export let fromData = (data: tg.Error.Data): tg.Error.Object => {
+			let object: tg.Error.Object = { values: {} };
+			if ("code" in data) {
+				object.code = data.code;
+			}
+			if ("diagnostics" in data) {
+				object.diagnostics = data.diagnostics?.map(tg.Diagnostic.fromData);
+			}
+			if ("location" in data) {
+				object.location = tg.Error.Location.fromData(data.location);
+			}
+			if ("message" in data) {
+				object.message = data.message;
+			}
+			if ("source" in data) {
+				object.source = tg.Referent.fromData(data.source, (item) => {
+					if (typeof item === "string") {
+						return tg.Error.withId(item);
+					} else {
+						return Error.Object.fromData(item);
+					}
+				});
+			}
+			if ("stack" in data) {
+				object.stack = data.stack?.map(tg.Error.Location.fromData);
+			}
+			if ("values" in data) {
+				object.values = data.values ?? {};
+			}
+			return object;
+		};
+
+		export let children = (object: tg.Error.Object): Array<tg.Object> => {
+			let children: Array<tg.Object> = [];
+			if (
+				object.source !== undefined &&
+				object.source.item instanceof tg.Error
+			) {
+				children.push(object.source.item);
+			}
+			return children;
+		};
+	}
 
 	export type Location = {
 		symbol?: string;
@@ -125,7 +306,7 @@ export namespace Error {
 		diagnostics?: Array<tg.Diagnostic.Data>;
 		location?: tg.Error.Data.Location;
 		message?: string;
-		source?: tg.Referent.Data<tg.Error.Data>;
+		source?: tg.Referent.Data<tg.Error.Data | tg.Error.Id>;
 		stack?: Array<tg.Error.Data.Location>;
 		values?: { [key: string]: string };
 	};
@@ -141,58 +322,6 @@ export namespace Error {
 			| { kind: "internal"; value: string }
 			| { kind: "module"; value: tg.Module.Data };
 	}
-
-	export let toData = (value: tg.Error): tg.Error.Data => {
-		let data: tg.Error.Data = {};
-		if (value.code !== undefined) {
-			data.code = value.code;
-		}
-		if (value.diagnostics !== undefined) {
-			data.diagnostics = value.diagnostics.map(tg.Diagnostic.toData);
-		}
-		if (value.location !== undefined) {
-			data.location = tg.Error.Location.toData(value.location);
-		}
-		if (value.message !== undefined) {
-			data.message = value.message;
-		}
-		if (value.source !== undefined) {
-			data.source = tg.Referent.toData(value.source, tg.Error.toData);
-		}
-		if (value.stack !== undefined) {
-			data.stack = value.stack.map(tg.Error.Location.toData);
-		}
-		if (value.values !== undefined) {
-			data.values = value.values;
-		}
-		return data;
-	};
-
-	export let fromData = (data: tg.Error.Data): tg.Error => {
-		let arg: tg.Error.Arg = {};
-		if ("code" in data) {
-			arg.code = data.code;
-		}
-		if ("diagnostics" in data) {
-			arg.diagnostics = data.diagnostics?.map(tg.Diagnostic.fromData);
-		}
-		if ("location" in data) {
-			arg.location = tg.Error.Location.fromData(data.location);
-		}
-		if ("message" in data) {
-			arg.message = data.message;
-		}
-		if ("source" in data) {
-			arg.source = tg.Referent.fromData(data.source, tg.Error.fromData);
-		}
-		if ("stack" in data) {
-			arg.stack = data.stack.map(tg.Error.Location.fromData);
-		}
-		if ("values" in data) {
-			arg.values = data.values;
-		}
-		return new tg.Error(arg);
-	};
 
 	export namespace Location {
 		export let toData = (value: tg.Error.Location): tg.Error.Data.Location => {

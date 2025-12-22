@@ -6,7 +6,8 @@ export type Object =
 	| tg.File
 	| tg.Symlink
 	| tg.Graph
-	| tg.Command;
+	| tg.Command
+	| tg.Error;
 
 export namespace Object {
 	export type Kind =
@@ -15,7 +16,8 @@ export namespace Object {
 		| "file"
 		| "symlink"
 		| "graph"
-		| "command";
+		| "command"
+		| "error";
 
 	export type Id =
 		| tg.Blob.Id
@@ -23,7 +25,8 @@ export namespace Object {
 		| tg.File.Id
 		| tg.Symlink.Id
 		| tg.Graph.Id
-		| tg.Command.Id;
+		| tg.Command.Id
+		| tg.Error.Id;
 
 	export namespace Id {
 		export let kind = (id: tg.Object.Id): tg.Object.Kind => {
@@ -40,6 +43,8 @@ export namespace Object {
 				return "graph";
 			} else if (prefix === "cmd") {
 				return "command";
+			} else if (prefix === "err") {
+				return "error";
 			} else {
 				throw new Error(`invalid object id: ${id}`);
 			}
@@ -123,7 +128,8 @@ export namespace Object {
 		| { kind: "file"; value: tg.File.Object }
 		| { kind: "symlink"; value: tg.Symlink.Object }
 		| { kind: "graph"; value: tg.Graph.Object }
-		| { kind: "command"; value: tg.Command.Object };
+		| { kind: "command"; value: tg.Command.Object }
+		| { kind: "error"; value: tg.Error.Object };
 
 	export namespace Object {
 		export let toData = (object: tg.Object.Object): tg.Object.Data => {
@@ -151,6 +157,10 @@ export namespace Object {
 				case "command": {
 					let value = tg.Command.Object.toData(object.value);
 					return { kind: "command", value };
+				}
+				case "error": {
+					let value = tg.Error.Object.toData(object.value);
+					return { kind: "error", value };
 				}
 			}
 		};
@@ -181,6 +191,10 @@ export namespace Object {
 					let value = tg.Command.Object.fromData(data.value);
 					return { kind: "command", value };
 				}
+				case "error": {
+					let value = tg.Error.Object.fromData(data.value);
+					return { kind: "error", value };
+				}
 			}
 		};
 
@@ -204,6 +218,9 @@ export namespace Object {
 				case "command": {
 					return tg.Command.Object.children(object.value);
 				}
+				case "error": {
+					return tg.Error.Object.children(object.value);
+				}
 			}
 		};
 	}
@@ -214,7 +231,8 @@ export namespace Object {
 		| { kind: "file"; value: tg.File.Data }
 		| { kind: "symlink"; value: tg.Symlink.Data }
 		| { kind: "graph"; value: tg.Graph.Data }
-		| { kind: "command"; value: tg.Command.Data };
+		| { kind: "command"; value: tg.Command.Data }
+		| { kind: "error"; value: tg.Error.Data };
 
 	export let withId = (id: tg.Object.Id): tg.Object => {
 		let prefix = id.substring(0, 3);
@@ -230,6 +248,8 @@ export namespace Object {
 			return tg.Graph.withId(id);
 		} else if (prefix === "cmd") {
 			return tg.Command.withId(id);
+		} else if (prefix === "err") {
+			return tg.Error.withId(id);
 		} else {
 			throw new Error(`invalid object id: ${id}`);
 		}
@@ -242,7 +262,8 @@ export namespace Object {
 			value instanceof tg.File ||
 			value instanceof tg.Symlink ||
 			value instanceof tg.Graph ||
-			value instanceof tg.Command
+			value instanceof tg.Command ||
+			value instanceof tg.Error
 		);
 	};
 
@@ -268,6 +289,8 @@ export namespace Object {
 			return "graph";
 		} else if (object instanceof tg.Command) {
 			return "command";
+		} else if (object instanceof tg.Error) {
+			return "error";
 		} else {
 			return tg.unreachable();
 		}

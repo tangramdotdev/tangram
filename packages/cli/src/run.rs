@@ -201,12 +201,23 @@ impl Cli {
 
 			// Handle an error.
 			if let Some(error) = wait.error {
-				let error = tg::Error {
+				let error = error
+					.to_data_or_id()
+					.map_left(|data| {
+						Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
+							tg::error::Object {
+								message: Some("invalid error".to_owned()),
+								..Default::default()
+							}
+						}))
+					})
+					.map_right(|id| Box::new(tg::Error::with_id(id)));
+				let error = tg::Error::with_object(tg::error::Object {
 					message: Some("the process failed".to_owned()),
-					source: Some(process.clone().map(|_| Box::new(error))),
+					source: Some(process.clone().map(|_| error)),
 					values: [("id".to_owned(), process.item().id().to_string())].into(),
 					..Default::default()
-				};
+				});
 				return Err(error);
 			}
 
@@ -347,15 +358,25 @@ impl Cli {
 
 		// Handle an error.
 		if let Some(error) = wait.error {
-			let error = tg::Error {
+			let error = error
+				.to_data_or_id()
+				.map_left(|data| {
+					Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
+						tg::error::Object {
+							message: Some("invalid error".to_owned()),
+							..Default::default()
+						}
+					}))
+				})
+				.map_right(|id| Box::new(tg::Error::with_id(id)));
+			let error = tg::Error::with_object(tg::error::Object {
 				message: Some("the process failed".to_owned()),
-				source: Some(process.clone().map(|_| Box::new(error))),
+				source: Some(process.clone().map(|_| error)),
 				values: [("id".to_owned(), process.item().id().to_string())].into(),
 				..Default::default()
-			};
+			});
 			return Err(error);
 		}
-
 		// Handle non-zero exit.
 		if wait.exit > 1 && wait.exit < 128 {
 			return Err(tg::error!("the process exited with code {}", wait.exit));

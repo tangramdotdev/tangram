@@ -394,8 +394,13 @@ impl Server {
 		// Handle an error.
 		let mut response = response.unwrap_or_else(|error| {
 			tracing::error!(?error);
-			let bytes = serde_json::to_string(&error.to_data())
-				.ok()
+			let bytes = error
+				.state()
+				.object()
+				.and_then(|arc| {
+					let object = arc.unwrap_error_ref();
+					serde_json::to_string(&object.to_data()).ok()
+				})
 				.unwrap_or_default();
 			http::Response::builder()
 				.status(http::StatusCode::INTERNAL_SERVER_ERROR)

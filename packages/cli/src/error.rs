@@ -4,6 +4,7 @@ use {
 	crossterm::style::Stylize as _,
 	std::{fmt::Write as _, path::Path},
 	tangram_client::prelude::*,
+	tangram_either::Either,
 	tokio::io::AsyncReadExt,
 };
 
@@ -11,8 +12,14 @@ impl Cli {
 	pub(crate) fn print_error_basic(error: tg::Referent<tg::Error>) {
 		let mut stack = vec![error];
 
-		while let Some(error) = stack.pop() {
-			let (referent, error) = error.replace(());
+		while let Some(error_referent) = stack.pop() {
+			let error_handle = &error_referent.item;
+
+			// Get the object from the handle.
+			let Some(error) = error_handle.state().object().map(|o| o.unwrap_error()) else {
+				eprintln!("{} {}", "->".red(), error_handle.id());
+				continue;
+			};
 
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
@@ -20,49 +27,61 @@ impl Cli {
 
 			// Print the values.
 			for (key, value) in &error.values {
-				let key = key.as_str();
-				let value = value.as_str();
 				eprintln!("   {key} = {value}");
 			}
 
 			// Print the location.
-			if let Some(mut location) = error.location {
+			if let Some(location) = &error.location {
+				let mut location = location.clone();
 				if let tg::error::File::Module(module) = &mut location.file {
-					module.referent.inherit(&referent);
+					module.referent.inherit(&error_referent);
 				}
 				Self::print_error_location_basic(&location);
 			}
 
 			// Print the stack.
-			for mut location in error.stack.into_iter().flatten() {
-				if let tg::error::File::Module(module) = &mut location.file {
-					module.referent.inherit(&referent);
+			if let Some(error_stack) = &error.stack {
+				for loc in error_stack {
+					let mut location = loc.clone();
+					if let tg::error::File::Module(module) = &mut location.file {
+						module.referent.inherit(&error_referent);
+					}
+					Self::print_error_location_basic(&location);
 				}
-				Self::print_error_location_basic(&location);
 			}
 
 			// Print the diagnostics.
-			for mut diagnostic in error.diagnostics.into_iter().flatten() {
-				if let Some(location) = &mut diagnostic.location {
-					location.module.referent.inherit(&referent);
-				}
-				let severity = match diagnostic.severity {
-					tg::diagnostic::Severity::Error => "error",
-					tg::diagnostic::Severity::Warning => "warning",
-					tg::diagnostic::Severity::Info => "info",
-					tg::diagnostic::Severity::Hint => "hint",
-				};
-				eprintln!("{} {}", severity, diagnostic.message);
-				if let Some(location) = &diagnostic.location {
-					Self::print_location_basic(&location.module, &location.range);
+			if let Some(diagnostics) = &error.diagnostics {
+				for diag in diagnostics {
+					let mut diagnostic = diag.clone();
+					if let Some(location) = &mut diagnostic.location {
+						location.module.referent.inherit(&error_referent);
+					}
+					let severity = match diagnostic.severity {
+						tg::diagnostic::Severity::Error => "error",
+						tg::diagnostic::Severity::Warning => "warning",
+						tg::diagnostic::Severity::Info => "info",
+						tg::diagnostic::Severity::Hint => "hint",
+					};
+					eprintln!("{} {}", severity, diagnostic.message);
+					if let Some(location) = &diagnostic.location {
+						Self::print_location_basic(&location.module, &location.range);
+					}
 				}
 			}
 
 			// Add the source to the stack.
-			if let Some(source) = error.source {
-				let mut source = source.map(|item| *item);
-				source.inherit(&referent);
-				stack.push(source);
+			if let Some(source) = &error.source {
+				let source_handle = match &source.item {
+					Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
+					Either::Right(handle) => (**handle).clone(),
+				};
+				let mut source_referent = tg::Referent {
+					item: source_handle,
+					options: source.options.clone(),
+				};
+				source_referent.inherit(&error_referent);
+				stack.push(source_referent);
 			}
 		}
 	}
@@ -121,14 +140,27 @@ impl Cli {
 		}
 	}
 
-	pub(crate) async fn print_error(&mut self, error: tg::Referent<tg::Error>) {
+	pub(crate) async fn print_error(&mut self, error: tg::Referent<tg::Error>) -> tg::Result<()> {
+		let handle = self.handle().await?;
 		let internal = self
 			.config
 			.as_ref()
 			.is_some_and(|config| config.server.advanced.internal_error_locations);
 		let mut stack = vec![error];
-		while let Some(error) = stack.pop() {
-			let (referent, error) = error.replace(());
+		while let Some(error_referent) = stack.pop() {
+			// Get the object from the handle.
+			error_referent
+				.item()
+				.load(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to load error"))?;
+			let error = error_referent
+				.item()
+				.state()
+				.load(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to load the error"))?
+				.unwrap_error();
 
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
@@ -136,45 +168,59 @@ impl Cli {
 
 			// Print the values.
 			for (key, value) in &error.values {
-				let key = key.as_str();
-				let value = value.as_str();
-				eprintln!("   {key} = {value}");
+				eprintln!("   {} = {}", key, value);
 			}
 
 			// Print the location.
-			if let Some(mut location) = error.location {
+			if let Some(location) = &error.location {
+				let mut location = location.clone();
 				if let tg::error::File::Module(module) = &mut location.file {
-					module.referent.inherit(&referent);
+					module.referent.inherit(&error_referent);
 				}
 				self.print_error_location(&location, message, internal)
 					.await;
 			}
 
 			// Print the stack.
-			for mut location in error.stack.into_iter().flatten() {
-				if let tg::error::File::Module(module) = &mut location.file {
-					module.referent.inherit(&referent);
+			if let Some(error_stack) = &error.stack {
+				for location in error_stack {
+					let mut location = location.clone();
+					if let tg::error::File::Module(module) = &mut location.file {
+						module.referent.inherit(&error_referent);
+					}
+					self.print_error_location(&location, message, internal)
+						.await;
 				}
-				self.print_error_location(&location, message, internal)
-					.await;
 			}
 
 			// Print the diagnostics.
-			for mut diagnostic in error.diagnostics.into_iter().flatten() {
-				if let Some(location) = &mut diagnostic.location {
-					location.module.referent.inherit(&referent);
+			if let Some(diagnostics) = &error.diagnostics {
+				for diagnostic in diagnostics {
+					let mut diagnostic = diagnostic.clone();
+					if let Some(location) = &mut diagnostic.location {
+						location.module.referent.inherit(&error_referent);
+					}
+					let diagnostic_referent = tg::Referent::with_item(diagnostic);
+					self.print_diagnostic(diagnostic_referent).await;
 				}
-				let diagnostic_referent = tg::Referent::with_item(diagnostic);
-				self.print_diagnostic(diagnostic_referent).await;
 			}
 
 			// Add the source to the stack.
-			if let Some(source) = error.source {
-				let mut source = source.map(|item| *item);
-				source.inherit(&referent);
-				stack.push(source);
+			if let Some(source) = &error.source {
+				let source_handle = match &source.item {
+					Either::Left(obj) => tg::Error::with_object((**obj).clone()),
+					Either::Right(handle) => (**handle).clone(),
+				};
+				let mut source_referent = tg::Referent {
+					item: source_handle,
+					options: source.options.clone(),
+				};
+				source_referent.inherit(&error_referent);
+				stack.push(source_referent);
 			}
 		}
+
+		Ok(())
 	}
 
 	async fn print_error_location(
