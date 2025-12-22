@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Error as _,
+		CacheKey, Error as _,
 		pool::{self, Pool},
 	},
 	bytes::Bytes,
@@ -9,7 +9,7 @@ use {
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
-	std::{borrow::Cow, path::PathBuf, sync::Arc},
+	std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc},
 };
 
 pub mod row;
@@ -21,18 +21,30 @@ pub enum Error {
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
+type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
+
 pub struct DatabaseOptions {
 	pub connections: usize,
 	pub initialize: Initialize,
 	pub path: PathBuf,
 }
 
-type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
-
 pub struct Database {
 	options: DatabaseOptions,
 	read_pool: Pool<Connection>,
 	write_pool: Pool<Connection>,
+}
+
+#[derive(Default)]
+pub struct Cache {
+	statements:
+		std::sync::Mutex<HashMap<CacheKey, sqlite::Statement<'static>, fnv::FnvBuildHasher>>,
+}
+
+pub struct CachedStatement<'a> {
+	cache: &'a Cache,
+	key: CacheKey,
+	statement: Option<sqlite::Statement<'static>>,
 }
 
 pub struct Connection {
@@ -60,7 +72,7 @@ enum ConnectionMessage {
 	With(ConnectionWithMessage),
 }
 
-type ConnectionWithMessage = Box<dyn FnOnce(&mut sqlite::Connection) + Send>;
+type ConnectionWithMessage = Box<dyn FnOnce(&mut sqlite::Connection, &Cache) + Send>;
 
 struct ConnectionTransactionMessage {
 	sender: tokio::sync::oneshot::Sender<
@@ -77,7 +89,7 @@ enum TransactionMessage {
 	With(TransactionWithMessage),
 }
 
-type TransactionWithMessage = Box<dyn FnOnce(&mut sqlite::Transaction) + Send>;
+type TransactionWithMessage = Box<dyn FnOnce(&mut sqlite::Transaction, &Cache) + Send>;
 
 struct TransactionRollbackMessage {
 	sender: tokio::sync::oneshot::Sender<Result<(), Error>>,
@@ -168,7 +180,7 @@ impl Database {
 	pub async fn sync(&self) -> Result<(), Error> {
 		let connection = self.write_pool.get(crate::pool::Priority::default()).await;
 		connection
-			.with(|connection| {
+			.with(|connection, _cache| {
 				connection.pragma_update(None, "wal_checkpoint", "full")?;
 				Ok::<_, sqlite::Error>(())
 			})
@@ -191,22 +203,23 @@ impl Connection {
 		mut connection: sqlite::Connection,
 		mut receiver: tokio::sync::mpsc::UnboundedReceiver<ConnectionMessage>,
 	) {
+		let cache = Cache::default();
 		while let Some(message) = receiver.blocking_recv() {
 			match message {
 				ConnectionMessage::Execute(message) => {
-					handle_execute_message(&connection, message);
+					handle_execute_message(&connection, &cache, message);
 				},
 				ConnectionMessage::Query(message) => {
-					handle_query_message(&connection, message);
+					handle_query_message(&connection, &cache, message);
 				},
 				ConnectionMessage::QueryAll(message) => {
-					handle_query_all_message(&connection, message);
+					handle_query_all_message(&connection, &cache, message);
 				},
 				ConnectionMessage::Transaction(message) => {
-					Transaction::run(&mut connection, message.sender);
+					Transaction::run(&mut connection, &cache, message.sender);
 				},
 				ConnectionMessage::With(f) => {
-					f(&mut connection);
+					f(&mut connection, &cache);
 				},
 			}
 		}
@@ -214,13 +227,13 @@ impl Connection {
 
 	pub async fn with<F, T, E>(&self, f: F) -> Result<T, E>
 	where
-		F: FnOnce(&mut sqlite::Connection) -> Result<T, E> + Send + 'static,
+		F: FnOnce(&mut sqlite::Connection, &Cache) -> Result<T, E> + Send + 'static,
 		T: Send + 'static,
 		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
 	{
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = ConnectionMessage::With(Box::new(move |connection| {
-			sender.send(f(connection)).map_err(|_| ()).ok();
+		let message = ConnectionMessage::With(Box::new(move |connection, cache| {
+			sender.send(f(connection, cache)).map_err(|_| ()).ok();
 		}));
 		self.sender.send(message).unwrap();
 		receiver.await.unwrap()
@@ -230,6 +243,7 @@ impl Connection {
 impl Transaction<'_> {
 	fn run(
 		connection: &mut sqlite::Connection,
+		cache: &Cache,
 		sender: tokio::sync::oneshot::Sender<
 			Result<tokio::sync::mpsc::UnboundedSender<TransactionMessage>, Error>,
 		>,
@@ -246,13 +260,13 @@ impl Transaction<'_> {
 		while let Some(message) = receiver.blocking_recv() {
 			match message {
 				TransactionMessage::Execute(message) => {
-					handle_execute_message(&transaction, message);
+					handle_execute_message(&transaction, cache, message);
 				},
 				TransactionMessage::Query(message) => {
-					handle_query_message(&transaction, message);
+					handle_query_message(&transaction, cache, message);
 				},
 				TransactionMessage::QueryAll(message) => {
-					handle_query_all_message(&transaction, message);
+					handle_query_all_message(&transaction, cache, message);
 				},
 				TransactionMessage::Rollback(message) => {
 					let result = transaction.rollback().map_err(Into::into);
@@ -265,7 +279,7 @@ impl Transaction<'_> {
 					return;
 				},
 				TransactionMessage::With(f) => {
-					f(&mut transaction);
+					f(&mut transaction, cache);
 				},
 			}
 		}
@@ -274,13 +288,13 @@ impl Transaction<'_> {
 
 	pub async fn with<F, T, E>(&self, f: F) -> Result<T, E>
 	where
-		F: FnOnce(&mut sqlite::Transaction) -> Result<T, E> + Send + 'static,
+		F: FnOnce(&mut sqlite::Transaction, &Cache) -> Result<T, E> + Send + 'static,
 		T: Send + 'static,
 		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
 	{
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let message = TransactionMessage::With(Box::new(|connection| {
-			sender.send(f(connection)).map_err(|_| ()).ok();
+		let message = TransactionMessage::With(Box::new(|connection, cache| {
+			sender.send(f(connection, cache)).map_err(|_| ()).ok();
 		}));
 		self.sender.send(message).unwrap();
 		receiver.await.unwrap()
@@ -595,7 +609,7 @@ impl super::Query for Transaction<'_> {
 	}
 }
 
-fn handle_execute_message(connection: &sqlite::Connection, message: ExecuteMessage) {
+fn handle_execute_message(connection: &sqlite::Connection, cache: &Cache, message: ExecuteMessage) {
 	let ExecuteMessage {
 		statement,
 		params,
@@ -603,10 +617,10 @@ fn handle_execute_message(connection: &sqlite::Connection, message: ExecuteMessa
 	} = message;
 
 	// Prepare the statement.
-	let mut statement = match connection.prepare_cached(&statement) {
+	let mut statement = match cache.get(connection, statement) {
 		Ok(statement) => statement,
 		Err(error) => {
-			sender.send(Err(error.into())).ok();
+			sender.send(Err(error)).ok();
 			return;
 		},
 	};
@@ -624,7 +638,7 @@ fn handle_execute_message(connection: &sqlite::Connection, message: ExecuteMessa
 	sender.send(Ok(n)).ok();
 }
 
-fn handle_query_message(connection: &sqlite::Connection, message: QueryMessage) {
+fn handle_query_message(connection: &sqlite::Connection, cache: &Cache, message: QueryMessage) {
 	let QueryMessage {
 		statement,
 		params,
@@ -632,10 +646,10 @@ fn handle_query_message(connection: &sqlite::Connection, message: QueryMessage) 
 	} = message;
 
 	// Prepare the statement.
-	let mut statement = match connection.prepare_cached(&statement) {
+	let mut statement = match cache.get(connection, statement) {
 		Ok(statement) => statement,
 		Err(error) => {
-			sender.send(Err(error.into())).ok();
+			sender.send(Err(error)).ok();
 			return;
 		},
 	};
@@ -692,7 +706,11 @@ fn handle_query_message(connection: &sqlite::Connection, message: QueryMessage) 
 	}
 }
 
-fn handle_query_all_message(connection: &sqlite::Connection, message: QueryAllMessage) {
+fn handle_query_all_message(
+	connection: &sqlite::Connection,
+	cache: &Cache,
+	message: QueryAllMessage,
+) {
 	let QueryAllMessage {
 		statement,
 		params,
@@ -700,10 +718,10 @@ fn handle_query_all_message(connection: &sqlite::Connection, message: QueryAllMe
 	} = message;
 
 	// Prepare the statement.
-	let mut statement = match connection.prepare_cached(&statement) {
+	let mut statement = match cache.get(connection, statement) {
 		Ok(statement) => statement,
 		Err(error) => {
-			sender.send(Err(error.into())).ok();
+			sender.send(Err(error)).ok();
 			return;
 		},
 	};
@@ -777,5 +795,54 @@ impl sqlite::types::FromSql for super::Value {
 			)),
 			sqlite::types::ValueRef::Blob(value) => Ok(Self::Blob(Bytes::copy_from_slice(value))),
 		}
+	}
+}
+
+impl Cache {
+	pub fn get<'a>(
+		&'a self,
+		connection: &'a sqlite::Connection,
+		statement: Cow<'static, str>,
+	) -> Result<CachedStatement<'a>, Error> {
+		let key = CacheKey::new(statement);
+		let stmt = {
+			let mut guard = self.statements.lock().unwrap();
+			if let Some(stmt) = guard.remove(&key) {
+				stmt
+			} else {
+				let stmt = connection.prepare(key.as_str())?;
+				unsafe {
+					std::mem::transmute::<sqlite::Statement<'_>, sqlite::Statement<'static>>(stmt)
+				}
+			}
+		};
+		Ok(CachedStatement {
+			cache: self,
+			key,
+			statement: Some(stmt),
+		})
+	}
+}
+
+impl Drop for CachedStatement<'_> {
+	fn drop(&mut self) {
+		if let Some(stmt) = self.statement.take() {
+			let mut guard = self.cache.statements.lock().unwrap();
+			guard.insert(self.key.clone(), stmt);
+		}
+	}
+}
+
+impl std::ops::Deref for CachedStatement<'_> {
+	type Target = sqlite::Statement<'static>;
+
+	fn deref(&self) -> &Self::Target {
+		self.statement.as_ref().unwrap()
+	}
+}
+
+impl std::ops::DerefMut for CachedStatement<'_> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		self.statement.as_mut().unwrap()
 	}
 }

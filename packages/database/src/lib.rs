@@ -1,7 +1,11 @@
 use {
 	futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _},
 	itertools::Itertools as _,
-	std::{borrow::Cow, pin::pin},
+	std::{
+		borrow::Cow,
+		hash::{Hash, Hasher},
+		pin::pin,
+	},
 };
 
 pub use self::{pool::Priority, row::Row, value::Value};
@@ -322,6 +326,48 @@ pub trait Query {
 		})
 	}
 }
+
+#[derive(Clone)]
+pub struct CacheKey(Cow<'static, str>);
+
+impl CacheKey {
+	#[must_use]
+	pub fn new(s: Cow<'static, str>) -> Self {
+		Self(s)
+	}
+
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		&self.0
+	}
+}
+
+impl Hash for CacheKey {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		match &self.0 {
+			Cow::Borrowed(s) => {
+				0u8.hash(state);
+				(s.as_ptr() as usize).hash(state);
+			},
+			Cow::Owned(s) => {
+				1u8.hash(state);
+				s.hash(state);
+			},
+		}
+	}
+}
+
+impl PartialEq for CacheKey {
+	fn eq(&self, other: &Self) -> bool {
+		match (&self.0, &other.0) {
+			(Cow::Borrowed(a), Cow::Borrowed(b)) => std::ptr::eq(*a, *b),
+			(Cow::Owned(a), Cow::Owned(b)) => a == b,
+			_ => false,
+		}
+	}
+}
+
+impl Eq for CacheKey {}
 
 #[macro_export]
 macro_rules! params {

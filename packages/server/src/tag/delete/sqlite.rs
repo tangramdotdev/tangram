@@ -22,14 +22,15 @@ impl Server {
 		let output = connection
 			.with({
 				let pattern = pattern.clone();
-				move |connection| {
+				move |connection, cache| {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 					// Delete tags matching the pattern.
-					let output = Self::delete_tag_sqlite_sync(&transaction, &pattern, recursive)?;
+					let output =
+						Self::delete_tag_sqlite_sync(&transaction, cache, &pattern, recursive)?;
 
 					// Commit the transaction.
 					transaction.commit().map_err(|source| {
@@ -46,6 +47,7 @@ impl Server {
 
 	pub(crate) fn delete_tag_sqlite_sync(
 		transaction: &sqlite::Transaction,
+		cache: &db::sqlite::Cache,
 		pattern: &tg::tag::Pattern,
 		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
@@ -54,7 +56,7 @@ impl Server {
 		}
 
 		// Get all tags matching the pattern.
-		let mut matches = Self::match_tags_sqlite_sync(transaction, pattern, recursive)?;
+		let mut matches = Self::match_tags_sqlite_sync(transaction, cache, pattern, recursive)?;
 
 		// Sort by tag length descending to delete leaves before branches.
 		matches.sort_by_key(|m| std::cmp::Reverse(m.tag.as_str().len()));
@@ -71,8 +73,8 @@ impl Server {
 						where id = ?1;
 					"
 				);
-				let mut statement = transaction
-					.prepare_cached(statement)
+				let mut statement = cache
+					.get(transaction, statement.into())
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement
@@ -87,8 +89,8 @@ impl Server {
 						where parent = ?1;
 					"
 				);
-				let mut statement = transaction
-					.prepare_cached(statement)
+				let mut statement = cache
+					.get(transaction, statement.into())
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				let count: i64 = statement
@@ -109,8 +111,8 @@ impl Server {
 						where id = ?1;
 					"
 				);
-				let mut statement = transaction
-					.prepare_cached(statement)
+				let mut statement = cache
+					.get(transaction, statement.into())
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement

@@ -18,7 +18,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		let outputs = connection
-			.with(move |connection| Self::list_processes_sqlite_sync(connection))
+			.with(move |connection, cache| Self::list_processes_sqlite_sync(connection, cache))
 			.await?;
 
 		Ok(outputs)
@@ -26,6 +26,7 @@ impl Server {
 
 	pub(crate) fn list_processes_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
@@ -92,8 +93,8 @@ impl Server {
 				where status != 'finished';
 			"
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([])
@@ -121,8 +122,8 @@ impl Server {
 					where process = ?1;
 				"
 			);
-			let mut statement = connection
-				.prepare_cached(statement)
+			let mut statement = cache
+				.get(connection, statement.into())
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 			let mut child_rows = statement
 				.query([&row.id.to_string()])

@@ -210,7 +210,9 @@ impl Server {
 		let output = connection
 			.with({
 				let id = id.to_owned();
-				move |connection| Self::try_get_process_metadata_sqlite_sync(connection, &id)
+				move |connection, cache| {
+					Self::try_get_process_metadata_sqlite_sync(connection, cache, &id)
+				}
 			})
 			.await?;
 		Ok(output)
@@ -218,6 +220,7 @@ impl Server {
 
 	pub(crate) fn try_get_process_metadata_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -305,8 +308,8 @@ impl Server {
 				where processes.id = ?1;
 			"
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([id.to_bytes().to_vec()])

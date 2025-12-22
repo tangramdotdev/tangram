@@ -45,7 +45,7 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 	let version = connection
-		.with(|connection| {
+		.with(|connection, _cache| {
 			connection
 				.pragma_query_value(None, "user_version", |row| {
 					Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
@@ -74,7 +74,7 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		connection
-			.with(move |connection| {
+			.with(move |connection, _cache| {
 				connection
 					.pragma_update(None, "user_version", (version + 1).to_i64().unwrap())
 					.map_err(|source| tg::error!(!source, "failed to get the version"))
@@ -92,7 +92,7 @@ async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 	connection
-		.with(move |connection| {
+		.with(move |connection, _cache| {
 			connection
 				.execute_batch(sql)
 				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
@@ -100,7 +100,7 @@ async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
 		})
 		.await?;
 	connection
-		.with(move |connection| {
+		.with(move |connection, _cache| {
 			let sql =
 				"insert into remotes (name, url) values ('default', 'https://cloud.tangram.dev');";
 			connection

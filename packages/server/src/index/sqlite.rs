@@ -37,21 +37,25 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		connection
-			.with(move |connection| {
+			.with(move |connection, cache| {
 				// Begin a transaction.
 				let transaction = connection
 					.transaction()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 				// Handle the messages.
-				Self::indexer_put_cache_entries_sqlite(put_cache_entry_messages, &transaction)?;
-				Self::indexer_put_objects_sqlite(put_object_messages, &transaction)?;
-				Self::indexer_touch_objects_sqlite(touch_object_messages, &transaction)?;
-				Self::indexer_put_processes_sqlite(put_process_messages, &transaction)?;
-				Self::indexer_touch_processes_sqlite(touch_process_messages, &transaction)?;
-				Self::indexer_put_tags_sqlite(put_tag_messages, &transaction)?;
-				Self::indexer_delete_tags_sqlite(delete_tag_messages, &transaction)?;
-				Self::indexer_increment_transaction_id_sqlite(&transaction)?;
+				Self::indexer_put_cache_entries_sqlite(
+					cache,
+					put_cache_entry_messages,
+					&transaction,
+				)?;
+				Self::indexer_put_objects_sqlite(cache, put_object_messages, &transaction)?;
+				Self::indexer_touch_objects_sqlite(cache, touch_object_messages, &transaction)?;
+				Self::indexer_put_processes_sqlite(cache, put_process_messages, &transaction)?;
+				Self::indexer_touch_processes_sqlite(cache, touch_process_messages, &transaction)?;
+				Self::indexer_put_tags_sqlite(cache, put_tag_messages, &transaction)?;
+				Self::indexer_delete_tags_sqlite(cache, delete_tag_messages, &transaction)?;
+				Self::indexer_increment_transaction_id_sqlite(cache, &transaction)?;
 
 				// Commit the transaction.
 				transaction
@@ -66,6 +70,7 @@ impl Server {
 	}
 
 	fn indexer_put_cache_entries_sqlite(
+		cache: &db::sqlite::Cache,
 		messages: Vec<PutCacheEntry>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -76,8 +81,8 @@ impl Server {
 				on conflict (id) do nothing;
 			"
 		);
-		let mut insert_statement = transaction
-			.prepare_cached(insert_statement)
+		let mut insert_statement = cache
+			.get(transaction, insert_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let update_statement = indoc!(
@@ -87,8 +92,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut update_statement = transaction
-			.prepare_cached(update_statement)
+		let mut update_statement = cache
+			.get(transaction, update_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let queue_statement = indoc!(
@@ -97,8 +102,8 @@ impl Server {
 				values (?1, (select id from transaction_id));
 			"
 		);
-		let mut queue_statement = transaction
-			.prepare_cached(queue_statement)
+		let mut queue_statement = cache
+			.get(transaction, queue_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
@@ -131,6 +136,7 @@ impl Server {
 	}
 
 	fn indexer_put_objects_sqlite(
+		cache: &db::sqlite::Cache,
 		messages: Vec<PutObject>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -142,8 +148,8 @@ impl Server {
 				on conflict (id) do nothing;
 			"
 		);
-		let mut insert_statement = transaction
-			.prepare_cached(insert_statement)
+		let mut insert_statement = cache
+			.get(transaction, insert_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		// Prepare query statement.
@@ -173,8 +179,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut subtree_statement = transaction
-			.prepare_cached(statement)
+		let mut subtree_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the subtree statement"))?;
 
 		// Prepare update statement for objects.
@@ -199,8 +205,8 @@ impl Server {
 					subtree_stored;
 			"
 		);
-		let mut update_statement = transaction
-			.prepare_cached(update_statement)
+		let mut update_statement = cache
+			.get(transaction, update_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		// Prepare a statement for the object children.
@@ -211,8 +217,8 @@ impl Server {
 				on conflict (object, child) do nothing;
 			"
 		);
-		let mut children_statement = transaction
-			.prepare_cached(children_statement)
+		let mut children_statement = cache
+			.get(transaction, children_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		// Prepare statement for object queue.
@@ -222,8 +228,8 @@ impl Server {
 				values (?1, ?2, (select id from transaction_id));
 			"
 		);
-		let mut queue_statement = transaction
-			.prepare_cached(queue_statement)
+		let mut queue_statement = cache
+			.get(transaction, queue_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
@@ -335,6 +341,7 @@ impl Server {
 	}
 
 	fn indexer_touch_objects_sqlite(
+		cache: &db::sqlite::Cache,
 		messages: Vec<TouchObject>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -345,8 +352,8 @@ impl Server {
 				where id = ?2;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
 			let params = sqlite::params![message.touched_at, message.id.to_bytes().to_vec()];
@@ -359,6 +366,7 @@ impl Server {
 	}
 
 	fn indexer_put_processes_sqlite(
+		cache: &db::sqlite::Cache,
 		messages: Vec<PutProcess>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -446,8 +454,8 @@ impl Server {
 				on conflict (id) do nothing;
 			"
 		);
-		let mut insert_statement = transaction
-			.prepare_cached(insert_statement)
+		let mut insert_statement = cache
+			.get(transaction, insert_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		// Prepare query statement for processes.
@@ -511,8 +519,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut query_statement = transaction
-			.prepare_cached(statement)
+		let mut query_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the query statement"))?;
 
 		// Prepare update statement for processes.
@@ -577,8 +585,8 @@ impl Server {
 					subtree_stored;
 			"
 		);
-		let mut update_statement = transaction
-			.prepare_cached(update_statement)
+		let mut update_statement = cache
+			.get(transaction, update_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let object_statement = indoc!(
@@ -588,8 +596,8 @@ impl Server {
 				on conflict (process, object, kind) do nothing;
 			"
 		);
-		let mut object_statement = transaction
-			.prepare_cached(object_statement)
+		let mut object_statement = cache
+			.get(transaction, object_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let child_statement = indoc!(
@@ -599,8 +607,8 @@ impl Server {
 				on conflict (process, child) do nothing;
 			"
 		);
-		let mut child_statement = transaction
-			.prepare_cached(child_statement)
+		let mut child_statement = cache
+			.get(transaction, child_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		// Prepare statement for process queue.
@@ -610,8 +618,8 @@ impl Server {
 				values (?1, ?2, (select id from transaction_id));
 			"
 		);
-		let mut queue_statement = transaction
-			.prepare_cached(queue_statement)
+		let mut queue_statement = cache
+			.get(transaction, queue_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
@@ -985,6 +993,7 @@ impl Server {
 	}
 
 	fn indexer_touch_processes_sqlite(
+		cache: &db::sqlite::Cache,
 		messages: Vec<TouchProcess>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -995,8 +1004,8 @@ impl Server {
 				where id = ?2;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		for message in messages {
 			let params = sqlite::params![message.touched_at, message.id.to_bytes().to_vec()];
@@ -1009,6 +1018,7 @@ impl Server {
 	}
 
 	fn indexer_put_tags_sqlite(
+		cache: &db::sqlite::Cache,
 		messages: Vec<PutTagMessage>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -1024,8 +1034,8 @@ impl Server {
 				where tag = ?1;
 			"
 		);
-		let mut get_old_item_statement = transaction
-			.prepare_cached(statement)
+		let mut get_old_item_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1034,8 +1044,8 @@ impl Server {
 				values (?1, ?2);
 			"
 		);
-		let mut insert_statement = transaction
-			.prepare_cached(statement)
+		let mut insert_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1045,8 +1055,8 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut objects_increment_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut objects_increment_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1056,8 +1066,8 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut processes_increment_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut processes_increment_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1067,8 +1077,8 @@ impl Server {
 				where id = ?1
 			"
 		);
-		let mut cache_entries_increment_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut cache_entries_increment_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1078,8 +1088,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut objects_decrement_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut objects_decrement_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1089,8 +1099,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut processes_decrement_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut processes_decrement_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1100,8 +1110,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut cache_entries_decrement_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut cache_entries_decrement_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
@@ -1176,6 +1186,7 @@ impl Server {
 	}
 
 	fn indexer_delete_tags_sqlite(
+		cache: &db::sqlite::Cache,
 		messages: Vec<DeleteTag>,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
@@ -1191,8 +1202,8 @@ impl Server {
 				returning item;
 			"
 		);
-		let mut delete_statement = transaction
-			.prepare_cached(statement)
+		let mut delete_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1202,8 +1213,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut update_object_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut update_object_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1213,8 +1224,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut update_process_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut update_process_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		let statement = indoc!(
@@ -1224,8 +1235,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut update_cache_entry_reference_count_statement = transaction
-			.prepare_cached(statement)
+		let mut update_cache_entry_reference_count_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		for message in messages {
@@ -1258,6 +1269,7 @@ impl Server {
 	}
 
 	fn indexer_increment_transaction_id_sqlite(
+		cache: &db::sqlite::Cache,
 		transaction: &sqlite::Transaction<'_>,
 	) -> tg::Result<()> {
 		let statement = indoc!(
@@ -1265,8 +1277,8 @@ impl Server {
 				update transaction_id set id = id + 1;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		statement
 			.execute([])
@@ -1291,23 +1303,27 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		let n = connection
-			.with(move |connection| {
+			.with(move |connection, cache| {
 				// Begin a transaction.
 				let transaction = connection
 					.transaction()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 				let mut n = batch_size;
-				n -= Self::indexer_handle_stored_object_sqlite(&transaction, n)?;
-				n -= Self::indexer_handle_stored_process_sqlite(&transaction, n)?;
-				n -= Self::indexer_handle_reference_count_cache_entry_sqlite(&transaction, n)?;
-				n -= Self::indexer_handle_reference_count_object_sqlite(&transaction, n)?;
-				n -= Self::indexer_handle_reference_count_process_sqlite(&transaction, n)?;
+				n -= Self::indexer_handle_stored_object_sqlite(&transaction, cache, n)?;
+				n -= Self::indexer_handle_stored_process_sqlite(&transaction, cache, n)?;
+				n -= Self::indexer_handle_reference_count_cache_entry_sqlite(
+					&transaction,
+					cache,
+					n,
+				)?;
+				n -= Self::indexer_handle_reference_count_object_sqlite(&transaction, cache, n)?;
+				n -= Self::indexer_handle_reference_count_process_sqlite(&transaction, cache, n)?;
 				let n = batch_size - n;
 
 				// Commit the transaction.
 				if n > 0 {
-					Self::indexer_increment_transaction_id_sqlite(&transaction)?;
+					Self::indexer_increment_transaction_id_sqlite(cache, &transaction)?;
 					transaction.commit().map_err(|source| {
 						tg::error!(!source, "failed to commit the transaction")
 					})?;
@@ -1322,6 +1338,7 @@ impl Server {
 
 	fn indexer_handle_stored_object_sqlite(
 		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
 		n: usize,
 	) -> tg::Result<usize> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -1345,8 +1362,8 @@ impl Server {
 				returning object, transaction_id;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
@@ -1370,7 +1387,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_parents_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the enqueue parents statement")
 			})?;
 
@@ -1383,7 +1400,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_commands_processes_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the enqueue processes statement")
 			})?;
 
@@ -1396,7 +1413,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_errors_processes_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the enqueue processes statement")
 			})?;
 
@@ -1409,7 +1426,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_logs_processes_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the enqueue processes statement")
 			})?;
 
@@ -1422,7 +1439,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_outputs_processes_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the enqueue processes statement")
 			})?;
 
@@ -1471,7 +1488,7 @@ impl Server {
 			"
 		);
 		let mut update_subtree_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(
 					!source,
 					"failed to prepare the update subtree stored statement"
@@ -1553,6 +1570,7 @@ impl Server {
 
 	fn indexer_handle_stored_process_sqlite(
 		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
 		n: usize,
 	) -> tg::Result<usize> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -1589,8 +1607,8 @@ impl Server {
 				returning process, kind, transaction_id;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
@@ -1612,7 +1630,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_parents_process_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(
 					!source,
 					"failed to prepare the enqueue parents process statement"
@@ -1628,7 +1646,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_parents_command_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(
 					!source,
 					"failed to prepare the enqueue parents command
@@ -1645,7 +1663,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_parents_log_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(
 					!source,
 					"failed to prepare the enqueue parents log statement"
@@ -1661,7 +1679,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_parents_output_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(
 					!source,
 					"failed to prepare the enqueue parents output statement"
@@ -1677,7 +1695,7 @@ impl Server {
 			"
 		);
 		let mut enqueue_parents_error_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(
 					!source,
 					"failed to prepare the enqueue parents error statement"
@@ -1717,7 +1735,7 @@ impl Server {
 			"
 		);
 		let mut update_subtree_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -1744,7 +1762,7 @@ impl Server {
 			"
 		);
 		let mut update_node_command_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -1778,7 +1796,7 @@ impl Server {
 			"
 		);
 		let mut update_node_log_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -1817,7 +1835,7 @@ impl Server {
 			"
 		);
 		let mut update_node_output_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -1856,7 +1874,7 @@ impl Server {
 			"
 		);
 		let mut update_node_error_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -1919,7 +1937,7 @@ impl Server {
 			"
 		);
 		let mut update_subtree_command_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -1966,7 +1984,7 @@ impl Server {
 			"
 		);
 		let mut update_subtree_log_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -2029,7 +2047,7 @@ impl Server {
 			"
 		);
 		let mut update_subtree_output_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -2092,7 +2110,7 @@ impl Server {
 			"
 		);
 		let mut update_subtree_error_stored_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the update stored statement")
 			})?;
 
@@ -2258,6 +2276,7 @@ impl Server {
 
 	fn indexer_handle_reference_count_cache_entry_sqlite(
 		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
 		n: usize,
 	) -> tg::Result<usize> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -2278,8 +2297,8 @@ impl Server {
 				returning cache_entry;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let ids = statement
@@ -2311,7 +2330,7 @@ impl Server {
 			"
 		);
 		let mut reference_count_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the refence count statement")
 			})?;
 
@@ -2328,6 +2347,7 @@ impl Server {
 
 	fn indexer_handle_reference_count_object_sqlite(
 		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
 		n: usize,
 	) -> tg::Result<usize> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -2349,8 +2369,8 @@ impl Server {
 				returning object;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
@@ -2379,7 +2399,7 @@ impl Server {
 			"
 		);
 		let mut reference_count_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the reference count statement")
 			})?;
 
@@ -2401,8 +2421,8 @@ impl Server {
 					);
 			"
 		);
-		let mut children_statement = transaction
-			.prepare_cached(statement)
+		let mut children_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the children statement"))?;
 
 		let statement = indoc!(
@@ -2424,7 +2444,7 @@ impl Server {
 			"
 		);
 		let mut cache_entries_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the cache entries statement")
 			})?;
 
@@ -2455,6 +2475,7 @@ impl Server {
 
 	fn indexer_handle_reference_count_process_sqlite(
 		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
 		n: usize,
 	) -> tg::Result<usize> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -2476,8 +2497,8 @@ impl Server {
 				returning process;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the dequeue statement"))?;
 
 		let items = statement
@@ -2505,7 +2526,7 @@ impl Server {
 			"
 		);
 		let mut reference_count_statement =
-			transaction.prepare_cached(statement).map_err(|source| {
+			cache.get(transaction, statement.into()).map_err(|source| {
 				tg::error!(!source, "failed to prepare the reference count statement")
 			})?;
 
@@ -2527,8 +2548,8 @@ impl Server {
 					);
 			"
 		);
-		let mut children_statement = transaction
-			.prepare_cached(statement)
+		let mut children_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the children statement"))?;
 
 		let statement = indoc!(
@@ -2549,8 +2570,8 @@ impl Server {
 					);
 			"
 		);
-		let mut objects_statement = transaction
-			.prepare_cached(statement)
+		let mut objects_statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the objects statement"))?;
 
 		for item in &items {
@@ -2675,7 +2696,7 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 	let version = connection
-		.with(|connection| {
+		.with(|connection, _cache| {
 			connection
 				.pragma_query_value(None, "user_version", |row| {
 					Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
@@ -2704,7 +2725,7 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		connection
-			.with(move |connection| {
+			.with(move |connection, _cache| {
 				connection
 					.pragma_update(None, "user_version", (version + 1).to_i64().unwrap())
 					.map_err(|source| tg::error!(!source, "failed to get the version"))
@@ -2722,7 +2743,7 @@ async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 	connection
-		.with(move |connection| {
+		.with(move |connection, _cache| {
 			connection
 				.execute_batch(sql)
 				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;

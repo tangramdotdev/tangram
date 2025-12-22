@@ -40,8 +40,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		connection
-			.with(move |connection| {
-				Self::put_process_batch_sqlite_sync(connection, &items, touched_at)
+			.with(move |connection, cache| {
+				Self::put_process_batch_sqlite_sync(connection, cache, &items, touched_at)
 			})
 			.await?;
 
@@ -50,6 +50,7 @@ impl Server {
 
 	pub(crate) fn put_process_batch_sqlite_sync(
 		connection: &mut sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		items: &[(tg::process::Id, tg::process::Data)],
 		touched_at: i64,
 	) -> tg::Result<()> {
@@ -142,8 +143,8 @@ impl Server {
 					touched_at = ?25
 			"
 		);
-		let mut process_stmt = transaction
-			.prepare_cached(process_statement)
+		let mut process_stmt = cache
+			.get(&transaction, process_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		// Prepare the children insert statement.
@@ -154,8 +155,8 @@ impl Server {
 				on conflict (process, child) do nothing;
 			"
 		);
-		let mut children_stmt = transaction
-			.prepare_cached(children_statement)
+		let mut children_stmt = cache
+			.get(&transaction, children_statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 
 		// Insert all processes and their children.

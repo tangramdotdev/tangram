@@ -459,7 +459,7 @@ impl Provider {
 			"
 		);
 		connection
-			.with(move |connection| {
+			.with(move |connection, _cache| {
 				connection
 					.execute_batch(statement)
 					.map_err(|source| tg::error!(!source, "failed to create the database"))?;

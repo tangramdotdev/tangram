@@ -30,14 +30,14 @@ impl Server {
 		let output = connection
 			.with({
 				let arg = arg.clone();
-				move |connection| {
+				move |connection, cache| {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 					// List the tags.
-					let output = Self::list_tags_sqlite_sync(&transaction, &arg)?;
+					let output = Self::list_tags_sqlite_sync(&transaction, cache, &arg)?;
 
 					Ok::<_, tg::Error>(output)
 				}
@@ -49,10 +49,12 @@ impl Server {
 
 	fn list_tags_sqlite_sync(
 		transaction: &sqlite::Transaction,
+		cache: &db::sqlite::Cache,
 		arg: &tg::tag::list::Arg,
 	) -> tg::Result<tg::tag::list::Output> {
 		// Get all tags matching the pattern.
-		let matches = Self::match_tags_sqlite_sync(transaction, &arg.pattern, arg.recursive)?;
+		let matches =
+			Self::match_tags_sqlite_sync(transaction, cache, &arg.pattern, arg.recursive)?;
 
 		let mut output = matches;
 
@@ -80,8 +82,8 @@ impl Server {
 					where parent = ?1;
 				"
 			);
-			let mut statement = transaction
-				.prepare_cached(statement)
+			let mut statement = cache
+				.get(transaction, statement.into())
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 			let params = sqlite::params![m.id.to_i64().unwrap()];
 			let mut rows = statement
@@ -135,6 +137,7 @@ impl Server {
 
 	pub fn match_tags_sqlite_sync(
 		transaction: &sqlite::Transaction,
+		cache: &db::sqlite::Cache,
 		pattern: &tg::tag::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<Match>> {
@@ -164,8 +167,8 @@ impl Server {
 					where parent = 0;
 				"
 			);
-			let mut statement = transaction
-				.prepare_cached(statement)
+			let mut statement = cache
+				.get(transaction, statement.into())
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 			let mut rows = statement
 				.query([])
@@ -201,8 +204,8 @@ impl Server {
 							where parent = ?1;
 						"
 					);
-					let mut statement = transaction
-						.prepare_cached(statement)
+					let mut statement = cache
+						.get(transaction, statement.into())
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())];
 					let mut rows = statement
@@ -233,8 +236,8 @@ impl Server {
 							where parent = ?1;
 						"
 					);
-					let mut statement = transaction
-						.prepare_cached(statement)
+					let mut statement = cache
+						.get(transaction, statement.into())
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())];
 					let mut rows = statement
@@ -267,8 +270,8 @@ impl Server {
 							where parent = ?1 and component = ?2;
 						"
 					);
-					let mut statement = transaction
-						.prepare_cached(statement)
+					let mut statement = cache
+						.get(transaction, statement.into())
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 					let params = sqlite::params![
 						m.as_ref().map_or(0, |m| m.id.to_i64().unwrap()),
@@ -316,8 +319,8 @@ impl Server {
 							where parent = ?1;
 						"
 					);
-					let mut statement = transaction
-						.prepare_cached(statement)
+					let mut statement = cache
+						.get(transaction, statement.into())
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 					let params = sqlite::params![m.id.to_i64().unwrap()];
 					let mut rows = statement

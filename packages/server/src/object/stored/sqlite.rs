@@ -19,7 +19,9 @@ impl Server {
 		let output = connection
 			.with({
 				let id = id.to_owned();
-				move |connection| Self::try_get_object_stored_sqlite_sync(connection, &id)
+				move |connection, cache| {
+					Self::try_get_object_stored_sqlite_sync(connection, cache, &id)
+				}
 			})
 			.await?;
 		Ok(output)
@@ -27,6 +29,7 @@ impl Server {
 
 	pub(crate) fn try_get_object_stored_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<super::Output>> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -40,8 +43,8 @@ impl Server {
 				where id = ?1;
 			",
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let params = sqlite::params![id.to_bytes().to_vec()];
 		let mut rows = statement
@@ -76,7 +79,9 @@ impl Server {
 		let output = connection
 			.with({
 				let ids = ids.to_owned();
-				move |connection| Self::try_get_object_stored_batch_sqlite_sync(connection, &ids)
+				move |connection, cache| {
+					Self::try_get_object_stored_batch_sqlite_sync(connection, cache, &ids)
+				}
 			})
 			.await?;
 		Ok(output)
@@ -84,6 +89,7 @@ impl Server {
 
 	pub(crate) fn try_get_object_stored_batch_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<super::Output>>> {
 		if ids.is_empty() {
@@ -100,8 +106,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut outputs = Vec::new();
 		for id in ids {
@@ -138,8 +144,8 @@ impl Server {
 		let output = connection
 			.with({
 				let id = id.to_owned();
-				move |connection| {
-					Self::try_get_object_stored_and_metadata_sqlite_sync(connection, &id)
+				move |connection, cache| {
+					Self::try_get_object_stored_and_metadata_sqlite_sync(connection, cache, &id)
 				}
 			})
 			.await?;
@@ -148,6 +154,7 @@ impl Server {
 
 	pub(crate) fn try_get_object_stored_and_metadata_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
 		#[derive(db::sqlite::row::Deserialize)]
@@ -182,8 +189,8 @@ impl Server {
 				where id = ?1;
 			",
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let params = sqlite::params![id.to_bytes().to_vec()];
 		let mut rows = statement
@@ -232,8 +239,10 @@ impl Server {
 		let output = connection
 			.with({
 				let ids = ids.to_owned();
-				move |connection| {
-					Self::try_get_object_stored_and_metadata_batch_sqlite_sync(connection, &ids)
+				move |connection, cache| {
+					Self::try_get_object_stored_and_metadata_batch_sqlite_sync(
+						connection, cache, &ids,
+					)
 				}
 			})
 			.await?;
@@ -242,6 +251,7 @@ impl Server {
 
 	pub(crate) fn try_get_object_stored_and_metadata_batch_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
 		if ids.is_empty() {
@@ -279,8 +289,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut outputs = Vec::new();
 		for id in ids {
@@ -332,9 +342,9 @@ impl Server {
 		let output = connection
 			.with({
 				let id = id.to_owned();
-				move |connection| {
+				move |connection, cache| {
 					Self::try_touch_object_and_get_stored_and_metadata_sqlite_sync(
-						connection, &id, touched_at,
+						connection, cache, &id, touched_at,
 					)
 				}
 			})
@@ -344,6 +354,7 @@ impl Server {
 
 	pub(crate) fn try_touch_object_and_get_stored_and_metadata_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		id: &tg::object::Id,
 		touched_at: i64,
 	) -> tg::Result<Option<(super::Output, tg::object::Metadata)>> {
@@ -380,8 +391,8 @@ impl Server {
 					subtree_stored;
 			"
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let params = sqlite::params![touched_at, id.to_bytes().to_vec()];
 		let mut rows = statement
@@ -431,13 +442,14 @@ impl Server {
 		let output = connection
 			.with({
 				let ids = ids.to_owned();
-				move |connection| {
+				move |connection, cache| {
 					let transaction = connection
 						.transaction()
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 					let output =
 						Self::try_touch_object_and_get_stored_and_metadata_batch_sqlite_sync(
 							&transaction,
+							cache,
 							&ids,
 							touched_at,
 						)?;
@@ -453,6 +465,7 @@ impl Server {
 
 	pub(crate) fn try_touch_object_and_get_stored_and_metadata_batch_sqlite_sync(
 		transaction: &sqlite::Transaction,
+		cache: &db::sqlite::Cache,
 		ids: &[tg::object::Id],
 		touched_at: i64,
 	) -> tg::Result<Vec<Option<(super::Output, tg::object::Metadata)>>> {
@@ -492,8 +505,8 @@ impl Server {
 					subtree_stored;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut outputs = Vec::new();
 		for id in ids {

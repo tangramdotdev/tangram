@@ -18,7 +18,7 @@ impl Server {
 		connection
 			.with({
 				let arg = arg.clone();
-				move |connection| {
+				move |connection, cache| {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
@@ -32,7 +32,7 @@ impl Server {
 							local: None,
 							remotes: None,
 						};
-						Self::put_tag_sqlite_sync(&transaction, tag, &arg)
+						Self::put_tag_sqlite_sync(&transaction, cache, tag, &arg)
 							.map_err(|source| tg::error!(!source, %tag, "failed to put tag"))?;
 					}
 					// Commit the transaction.

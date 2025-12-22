@@ -23,14 +23,14 @@ impl Server {
 			.with({
 				let tag = tag.clone();
 				let arg = arg.clone();
-				move |connection| {
+				move |connection, cache| {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
 						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 					// Insert the tag.
-					Self::put_tag_sqlite_sync(&transaction, &tag, &arg)?;
+					Self::put_tag_sqlite_sync(&transaction, cache, &tag, &arg)?;
 
 					// Commit the transaction.
 					transaction.commit().map_err(|source| {
@@ -47,6 +47,7 @@ impl Server {
 
 	pub(crate) fn put_tag_sqlite_sync(
 		transaction: &sqlite::Transaction,
+		cache: &db::sqlite::Cache,
 		tag: &tg::Tag,
 		arg: &tg::tag::put::Arg,
 	) -> tg::Result<()> {
@@ -66,8 +67,8 @@ impl Server {
 					on conflict (parent, component) do nothing;
 				"
 			);
-			let mut statement = transaction
-				.prepare_cached(statement)
+			let mut statement = cache
+				.get(transaction, statement.into())
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 			let params = sqlite::params![parent.to_i64().unwrap(), component.to_string()];
 			statement
@@ -87,8 +88,8 @@ impl Server {
 					where parent = ?1 and component = ?2;
 				"
 			);
-			let mut statement = transaction
-				.prepare_cached(statement)
+			let mut statement = cache
+				.get(transaction, statement.into())
 				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 			let params = sqlite::params![parent.to_i64().unwrap(), component.to_string()];
 			let mut rows = statement
@@ -117,8 +118,8 @@ impl Server {
 					item is null;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let params = sqlite::params![
 			parent.to_i64().unwrap(),
@@ -142,8 +143,8 @@ impl Server {
 				on conflict (parent, component) do update set item = ?3;
 			"
 		);
-		let mut statement = transaction
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(transaction, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let params = sqlite::params![
 			parent.to_i64().unwrap(),

@@ -21,7 +21,9 @@ impl Server {
 		let outputs = connection
 			.with({
 				let ids = ids.to_owned();
-				move |connection| Self::try_get_process_batch_sqlite_sync(connection, &ids)
+				move |connection, cache| {
+					Self::try_get_process_batch_sqlite_sync(connection, cache, &ids)
+				}
 			})
 			.await?;
 
@@ -30,17 +32,19 @@ impl Server {
 
 	pub(crate) fn try_get_process_batch_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			outputs.push(Self::try_get_process_sqlite_sync(connection, id)?);
+			outputs.push(Self::try_get_process_sqlite_sync(connection, cache, id)?);
 		}
 		Ok(outputs)
 	}
 
 	pub(crate) fn try_get_process_sqlite_sync(
 		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Get the process.
@@ -99,8 +103,8 @@ impl Server {
 				where id = ?1;
 			"
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([id.to_string()])
@@ -158,8 +162,8 @@ impl Server {
 				where process = ?1;
 			"
 		);
-		let mut statement = connection
-			.prepare_cached(statement)
+		let mut statement = cache
+			.get(connection, statement.into())
 			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 		let mut child_rows = statement
 			.query([id.to_string()])

@@ -1,5 +1,8 @@
 use {
-	crate::pool::{self, Pool},
+	crate::{
+		CacheKey,
+		pool::{self, Pool},
+	},
 	futures::{Stream, TryStreamExt as _, future},
 	indexmap::IndexMap,
 	std::{borrow::Cow, collections::HashMap},
@@ -32,8 +35,7 @@ pub struct ConnectionOptions {
 
 #[derive(Default)]
 pub struct Cache {
-	statements:
-		tokio::sync::Mutex<HashMap<Cow<'static, str>, postgres::Statement, fnv::FnvBuildHasher>>,
+	statements: tokio::sync::Mutex<HashMap<CacheKey, postgres::Statement, fnv::FnvBuildHasher>>,
 }
 
 pub struct Database {
@@ -57,11 +59,11 @@ impl Cache {
 		client: &impl postgres::GenericClient,
 		statement: Cow<'static, str>,
 	) -> Result<postgres::Statement, Error> {
-		let key = statement;
+		let key = CacheKey::new(statement);
 		if let Some(statement) = self.statements.lock().await.get(&key) {
 			return Ok(statement.clone());
 		}
-		let statement = client.prepare(&key).await?;
+		let statement = client.prepare(key.as_str()).await?;
 		self.statements.lock().await.insert(key, statement.clone());
 		Ok(statement)
 	}
