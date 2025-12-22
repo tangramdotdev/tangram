@@ -128,22 +128,14 @@ pub fn rename_noreplace_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> st
 
 	#[cfg(target_os = "linux")]
 	{
-		let src = std::ffi::CString::new(src.as_ref().as_os_str().as_encoded_bytes())
-			.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
-		let dst = std::ffi::CString::new(dst.as_ref().as_os_str().as_encoded_bytes())
-			.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
-		let result = unsafe {
-			libc::renameat2(
-				libc::AT_FDCWD,
-				src.as_ptr(),
-				libc::AT_FDCWD,
-				dst.as_ptr(),
-				libc::RENAME_NOREPLACE,
-			)
-		};
-		if result != 0 {
-			return Err(std::io::Error::last_os_error());
-		}
+		rustix::fs::renameat_with(
+			rustix::fs::CWD,
+			src.as_ref(),
+			rustix::fs::CWD,
+			dst.as_ref(),
+			rustix::fs::RenameFlags::NOREPLACE,
+		)
+		.map_err(std::io::Error::from)?;
 	}
 
 	Ok(())

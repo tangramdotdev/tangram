@@ -6539,6 +6539,7 @@ dependencies = [
  "im",
  "libc",
  "num",
+ "rustix 1.1.2",
  "serde",
  "serde-untagged",
  "serde_with",
