@@ -2,7 +2,7 @@
 use std::path::Path;
 use {bytes::Bytes, tangram_client::prelude::*, tangram_store as store};
 
-pub use store::{CacheReference, DeleteArg, DeleteLogArg, ReadLogArg, PutArg, PutLogArg};
+pub use store::{CacheReference, DeleteArg, DeleteLogArg, PutArg, PutLogArg, ReadLogArg};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -279,11 +279,17 @@ impl store::Store for Store {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(fdb) => fdb.try_get_log_length(id, stream).await.map_err(Error::Fdb),
-			Self::Lmdb(lmdb) => lmdb.try_get_log_length(id, stream).await.map_err(Error::Lmdb),
+			Self::Lmdb(lmdb) => lmdb
+				.try_get_log_length(id, stream)
+				.await
+				.map_err(Error::Lmdb),
 			Self::Memory(memory) => Ok(memory.try_get_log_length(id, stream)),
 			Self::S3(s3) => s3.try_get_log_length(id, stream).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_log_length(id, stream).await.map_err(Error::Scylla),
+			Self::Scylla(scylla) => scylla
+				.try_get_log_length(id, stream)
+				.await
+				.map_err(Error::Scylla),
 		}
 	}
 

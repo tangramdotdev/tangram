@@ -6,7 +6,9 @@ use {
 pub mod get;
 pub mod post;
 
-#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay, Eq, PartialEq,
+)]
 pub enum Stream {
 	Stderr,
 	Stdout,

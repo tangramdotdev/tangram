@@ -38,6 +38,7 @@ impl Cli {
 			position: args.position.map(std::io::SeekFrom::Start),
 			remotes: args.remotes.remotes,
 			size: args.size,
+			stream: None,
 		};
 		let mut log = process.log(&handle, arg).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to get the process log"),
