@@ -1,7 +1,38 @@
 use {
 	byteorder::ReadBytesExt as _, bytes::Bytes, std::collections::BTreeSet,
-	tangram_client::prelude::*, tangram_either::Either, tangram_util::serde::is_default,
+	tangram_client::prelude::*, tangram_either::Either, tangram_messenger,
+	tangram_util::serde::is_default,
 };
+
+#[derive(Clone, Debug)]
+pub struct Messages(pub Vec<Message>);
+
+impl tangram_messenger::Payload for Messages {
+	fn serialize(&self) -> Result<Bytes, tangram_messenger::Error> {
+		let mut bytes = Vec::new();
+		for message in &self.0 {
+			let serialized =
+				Message::serialize(message).map_err(tangram_messenger::Error::other)?;
+			bytes.extend_from_slice(&serialized);
+		}
+		Ok(bytes.into())
+	}
+
+	fn deserialize(bytes: Bytes) -> Result<Self, tangram_messenger::Error> {
+		let len = bytes.len();
+		let mut position = 0;
+		let mut messages = Vec::new();
+		while position < len {
+			let message = Message::deserialize(&bytes[position..])
+				.map_err(tangram_messenger::Error::other)?;
+			let serialized =
+				Message::serialize(&message).map_err(tangram_messenger::Error::other)?;
+			position += serialized.len();
+			messages.push(message);
+		}
+		Ok(Messages(messages))
+	}
+}
 
 #[derive(
 	Clone,
@@ -57,6 +88,16 @@ impl Message {
 				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
 			_ => Err(tg::error!("invalid format")),
 		}
+	}
+}
+
+impl tangram_messenger::Payload for Message {
+	fn serialize(&self) -> Result<Bytes, tangram_messenger::Error> {
+		Message::serialize(self).map_err(tangram_messenger::Error::other)
+	}
+
+	fn deserialize(bytes: Bytes) -> Result<Self, tangram_messenger::Error> {
+		Message::deserialize(bytes).map_err(tangram_messenger::Error::other)
 	}
 }
 

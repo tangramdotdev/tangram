@@ -81,14 +81,16 @@ impl Server {
 			stored: crate::object::stored::Output::default(),
 			touched_at: now,
 		});
-		let message = message.serialize()?;
 		self.tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
 					let result = server
 						.messenger
-						.stream_publish("index".to_owned(), message)
+						.stream_publish(
+							"index".to_owned(),
+							crate::index::message::Messages(vec![message]),
+						)
 						.map_err(|source| tg::error!(!source, "failed to publish the message"))
 						.and_then(|future| {
 							future.map_err(|source| {

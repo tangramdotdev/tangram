@@ -1,6 +1,5 @@
 use {
 	crate::{Context, Server},
-	bytes::Bytes,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -68,7 +67,7 @@ impl Server {
 			async move {
 				server
 					.messenger
-					.publish("watchdog".into(), Bytes::new())
+					.publish("watchdog".into(), ())
 					.await
 					.inspect_err(|error| {
 						tracing::error!(?error, "failed to publish the watchdog message");

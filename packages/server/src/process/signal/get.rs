@@ -50,12 +50,16 @@ impl Server {
 
 		let stream = self
 			.messenger
-			.subscribe(format!("processes.{id}.signal"), None)
+			.subscribe::<tangram_messenger::payload::Json<tg::process::signal::get::Event>>(
+				format!("processes.{id}.signal"),
+				None,
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?
-			.map(|message| {
-				serde_json::from_slice::<tg::process::signal::get::Event>(&message.payload)
-					.map_err(|_| tg::error!("failed to deserialize the message"))
+			.map(|result| {
+				let message =
+					result.map_err(|source| tg::error!(!source, "failed to get message"))?;
+				Ok(message.payload.0)
 			})
 			.boxed();
 

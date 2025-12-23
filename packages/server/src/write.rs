@@ -466,13 +466,10 @@ impl Server {
 		touched_at: i64,
 	) -> tg::Result<()> {
 		let messages = Self::write_index_messages(blob, cache_reference, touched_at);
-		let messages = messages
-			.into_iter()
-			.map(|message| message.serialize())
-			.collect::<tg::Result<_>>()?;
+		let message = crate::index::message::Messages(messages);
 		let _published = self
 			.messenger
-			.stream_batch_publish("index".to_owned(), messages)
+			.stream_publish("index".to_owned(), message)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
 		Ok(())

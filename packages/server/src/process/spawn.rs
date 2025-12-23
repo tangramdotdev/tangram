@@ -1,6 +1,5 @@
 use {
 	crate::{Context, ProcessPermit, Server, database},
-	bytes::Bytes,
 	futures::{FutureExt as _, future},
 	indoc::{formatdoc, indoc},
 	std::pin::pin,
@@ -984,7 +983,7 @@ impl Server {
 			async move {
 				server
 					.messenger
-					.publish("processes.created".to_owned(), Bytes::new())
+					.publish("processes.created".to_owned(), ())
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
 					.ok();
@@ -997,11 +996,9 @@ impl Server {
 			let server = self.clone();
 			let id = parent.clone();
 			async move {
-				let subject = format!("processes.{id}.children");
-				let payload = Bytes::new();
 				server
 					.messenger
-					.publish(subject, payload)
+					.publish(format!("processes.{id}.children"), ())
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
 					.ok();

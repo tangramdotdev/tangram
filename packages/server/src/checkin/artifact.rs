@@ -797,9 +797,9 @@ impl Server {
 			touched_at,
 		};
 		let message = crate::index::Message::PutObject(index_message);
-		let message = message.serialize()?;
+		let message = crate::index::message::Messages(vec![message]);
 		self.messenger
-			.stream_batch_publish("index".to_owned(), vec![message])
+			.stream_publish("index".to_owned(), message)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the index message"))?
 			.await

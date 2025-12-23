@@ -1,4 +1,4 @@
-use {bytes::Bytes, tangram_messenger as messenger};
+use tangram_messenger as messenger;
 
 #[derive(derive_more::IsVariant)]
 pub enum Messenger {
@@ -24,7 +24,10 @@ pub enum Consumer {
 impl messenger::Messenger for Messenger {
 	type Stream = Stream;
 
-	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), messenger::Error> {
+	async fn publish<T>(&self, subject: String, payload: T) -> Result<(), messenger::Error>
+	where
+		T: messenger::Payload,
+	{
 		match self {
 			Self::Memory(s) => s.publish(subject, payload).await,
 			#[cfg(feature = "nats")]
@@ -32,11 +35,17 @@ impl messenger::Messenger for Messenger {
 		}
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> Result<impl futures::Stream<Item = messenger::Message> + 'static, messenger::Error> {
+	) -> Result<
+		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + 'static,
+		messenger::Error,
+	>
+	where
+		T: messenger::Payload + Clone,
+	{
 		match self {
 			Self::Memory(s) => s
 				.subscribe(subject, group)
@@ -96,11 +105,14 @@ impl messenger::Messenger for Messenger {
 		}
 	}
 
-	async fn stream_publish(
+	async fn stream_publish<T>(
 		&self,
 		name: String,
-		payload: Bytes,
-	) -> Result<impl Future<Output = Result<u64, messenger::Error>>, messenger::Error> {
+		payload: T,
+	) -> Result<impl Future<Output = Result<u64, messenger::Error>>, messenger::Error>
+	where
+		T: messenger::Payload,
+	{
 		match self {
 			Self::Memory(s) => s
 				.stream_publish(name, payload)
@@ -114,11 +126,13 @@ impl messenger::Messenger for Messenger {
 		}
 	}
 
-	async fn stream_batch_publish(
+	async fn stream_batch_publish<T>(
 		&self,
 		name: String,
-		payloads: Vec<Bytes>,
+		payloads: Vec<T>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, messenger::Error>> + Send, messenger::Error>
+	where
+		T: messenger::Payload,
 	{
 		match self {
 			Self::Memory(s) => s
@@ -201,12 +215,15 @@ impl messenger::Consumer for Consumer {
 		}
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
 	) -> Result<
-		impl futures::Stream<Item = Result<messenger::Message, messenger::Error>> + Send + 'static,
+		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
 		messenger::Error,
-	> {
+	>
+	where
+		T: messenger::Payload + Clone,
+	{
 		match self {
 			Self::Memory(s) => s.subscribe().await.map(futures::StreamExt::boxed),
 			#[cfg(feature = "nats")]
@@ -214,13 +231,16 @@ impl messenger::Consumer for Consumer {
 		}
 	}
 
-	async fn batch_subscribe(
+	async fn batch_subscribe<T>(
 		&self,
 		config: messenger::BatchConfig,
 	) -> Result<
-		impl futures::Stream<Item = Result<messenger::Message, messenger::Error>> + Send + 'static,
+		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
 		messenger::Error,
-	> {
+	>
+	where
+		T: messenger::Payload + Clone,
+	{
 		match self {
 			Self::Memory(s) => s
 				.batch_subscribe(config)

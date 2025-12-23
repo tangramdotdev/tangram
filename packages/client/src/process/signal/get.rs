@@ -7,7 +7,7 @@ use {
 	tangram_util::serde::CommaSeparatedString,
 };
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum Event {
 	Signal(tg::process::Signal),

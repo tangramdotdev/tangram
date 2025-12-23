@@ -1,20 +1,21 @@
-use {bytes::Bytes, std::time::Duration};
+use std::time::Duration;
 
-pub use self::acker::Acker;
+pub use self::{acker::Acker, payload::Payload};
 
 pub mod acker;
 pub mod either;
 pub mod memory;
 #[cfg(feature = "nats")]
 pub mod nats;
+pub mod payload;
 
 pub mod prelude {
 	pub use super::{Consumer as _, Messenger as _, Stream as _};
 }
 
-pub struct Message {
+pub struct Message<T> {
 	pub subject: String,
-	pub payload: Bytes,
+	pub payload: T,
 	pub acker: Acker,
 }
 
@@ -81,23 +82,36 @@ pub enum Error {
 	MaxBytes,
 	#[display("publish failed")]
 	PublishFailed,
+	#[display("serialization failed")]
+	Serialization(Box<dyn std::error::Error + Send + Sync + 'static>),
+	#[display("deserialization failed")]
+	Deserialization(Box<dyn std::error::Error + Send + Sync + 'static>),
 	Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 pub trait Messenger {
 	type Stream: Stream;
 
-	fn publish(
+	fn publish<T>(
 		&self,
 		subject: String,
-		payload: Bytes,
-	) -> impl Future<Output = Result<(), Error>> + Send;
+		payload: T,
+	) -> impl Future<Output = Result<(), Error>> + Send
+	where
+		T: Payload;
 
-	fn subscribe(
+	fn subscribe<T>(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl futures::Stream<Item = Message> + Send + 'static, Error>> + Send;
+	) -> impl Future<
+		Output = Result<
+			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,
+			Error,
+		>,
+	> + Send
+	where
+		T: Payload + Clone;
 
 	fn get_stream(&self, name: String) -> impl Future<Output = Result<Self::Stream, Error>> + Send;
 
@@ -115,17 +129,21 @@ pub trait Messenger {
 
 	fn delete_stream(&self, name: String) -> impl Future<Output = Result<(), Error>> + Send;
 
-	fn stream_publish(
+	fn stream_publish<T>(
 		&self,
 		name: String,
-		payload: Bytes,
-	) -> impl Future<Output = Result<impl Future<Output = Result<u64, Error>>, Error>> + Send;
+		payload: T,
+	) -> impl Future<Output = Result<impl Future<Output = Result<u64, Error>>, Error>> + Send
+	where
+		T: Payload;
 
-	fn stream_batch_publish(
+	fn stream_batch_publish<T>(
 		&self,
 		name: String,
-		payloads: Vec<Bytes>,
-	) -> impl Future<Output = Result<impl Future<Output = Result<Vec<u64>, Error>> + Send, Error>> + Send;
+		payloads: Vec<T>,
+	) -> impl Future<Output = Result<impl Future<Output = Result<Vec<u64>, Error>> + Send, Error>> + Send
+	where
+		T: Payload;
 }
 
 pub trait Stream {
@@ -156,28 +174,32 @@ pub trait Stream {
 pub trait Consumer {
 	fn info(&self) -> impl Future<Output = Result<ConsumerInfo, Error>> + Send;
 
-	fn subscribe(
+	fn subscribe<T>(
 		&self,
 	) -> impl Future<
 		Output = Result<
-			impl futures::Stream<Item = Result<Message, Error>> + Send + 'static,
+			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,
 			Error,
 		>,
-	> + Send;
+	> + Send
+	where
+		T: Payload + Clone;
 
-	fn batch_subscribe(
+	fn batch_subscribe<T>(
 		&self,
 		config: BatchConfig,
 	) -> impl Future<
 		Output = Result<
-			impl futures::Stream<Item = Result<Message, Error>> + Send + 'static,
+			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,
 			Error,
 		>,
-	> + Send;
+	> + Send
+	where
+		T: Payload + Clone;
 }
 
-impl Message {
-	pub fn split(self) -> (Bytes, Acker) {
+impl<T> Message<T> {
+	pub fn split(self) -> (T, Acker) {
 		(self.payload, self.acker)
 	}
 }
@@ -185,5 +207,17 @@ impl Message {
 impl Error {
 	pub fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
 		Self::Other(error.into())
+	}
+
+	pub fn serialization(
+		error: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+	) -> Self {
+		Self::Serialization(error.into())
+	}
+
+	pub fn deserialization(
+		error: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+	) -> Self {
+		Self::Deserialization(error.into())
 	}
 }

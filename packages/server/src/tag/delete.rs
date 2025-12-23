@@ -48,9 +48,11 @@ impl Server {
 			let message = crate::index::Message::DeleteTag(crate::index::message::DeleteTag {
 				tag: tag.to_string(),
 			});
-			let message = message.serialize()?;
 			self.messenger
-				.stream_publish("index".to_owned(), message)
+				.stream_publish(
+					"index".to_owned(),
+					crate::index::message::Messages(vec![message]),
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 				.await

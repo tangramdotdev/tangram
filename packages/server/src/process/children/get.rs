@@ -104,7 +104,7 @@ impl Server {
 		let subject = format!("processes.{id}.children");
 		let children = self
 			.messenger
-			.subscribe(subject, None)
+			.subscribe::<()>(subject, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ())
@@ -114,7 +114,7 @@ impl Server {
 		let subject = format!("processes.{id}.status");
 		let status = self
 			.messenger
-			.subscribe(subject, None)
+			.subscribe::<()>(subject, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ())

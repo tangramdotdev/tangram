@@ -16,6 +16,9 @@ use {
 	tangram_messenger::{self as messenger, prelude::*},
 };
 
+#[derive(Clone, Debug)]
+pub struct Messages(pub Vec<Message>);
+
 #[derive(
 	Clone,
 	Debug,
@@ -292,14 +295,16 @@ impl Server {
 			objects,
 			touched_at: now,
 		});
-		let message = message.serialize()?;
 		self.tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
 					let result = server
 						.messenger
-						.stream_publish("index".to_owned(), message)
+						.stream_publish(
+							"index".to_owned(),
+							crate::index::message::Messages(vec![message]),
+						)
 						.map_err(|source| tg::error!(!source, "failed to publish the message"))
 						.and_then(|future| {
 							future.map_err(|source| {
@@ -321,7 +326,7 @@ impl Server {
 			async move {
 				server
 					.messenger
-					.publish(format!("processes.{id}.status"), Bytes::new())
+					.publish(format!("processes.{id}.status"), ())
 					.await
 					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
 					.ok();
@@ -358,7 +363,7 @@ impl Server {
 			} else {
 				// Publish finisher progress.
 				self.messenger
-					.publish("finisher_progress".to_owned(), Bytes::new())
+					.publish("finisher_progress".to_owned(), ())
 					.await
 					.ok();
 			}
@@ -384,24 +389,14 @@ impl Server {
 			timeout: Some(config.message_batch_timeout),
 		};
 		let stream = consumer
-			.batch_subscribe(batch_config)
+			.batch_subscribe::<Messages>(batch_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
 			.boxed()
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
-			.and_then(|message| async {
-				let (payload, acker) = message.split();
-				let len = payload.len();
-				let mut position = 0usize;
-				let mut messages = Vec::new();
-				while position < len {
-					let message = Message::deserialize(&payload[position..])
-						.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-					let serialized = message.serialize()?;
-					position += serialized.len();
-					messages.push(message);
-				}
-				Ok::<_, tg::Error>((messages, acker))
+			.map_ok(|message| {
+				let (messages, acker) = message.split();
+				(messages.0, acker)
 			})
 			.inspect_err(|error| {
 				tracing::error!(?error);
@@ -466,5 +461,40 @@ impl Message {
 				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
 			_ => Err(tg::error!("invalid format")),
 		}
+	}
+}
+
+impl messenger::Payload for Message {
+	fn serialize(&self) -> Result<Bytes, messenger::Error> {
+		Message::serialize(self).map_err(messenger::Error::other)
+	}
+
+	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
+		Message::deserialize(bytes).map_err(messenger::Error::other)
+	}
+}
+
+impl messenger::Payload for Messages {
+	fn serialize(&self) -> Result<Bytes, messenger::Error> {
+		let mut bytes = Vec::new();
+		for message in &self.0 {
+			let serialized = Message::serialize(message).map_err(messenger::Error::other)?;
+			bytes.extend_from_slice(&serialized);
+		}
+		Ok(bytes.into())
+	}
+
+	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
+		let len = bytes.len();
+		let mut position = 0usize;
+		let mut messages = Vec::new();
+		while position < len {
+			let message =
+				Message::deserialize(&bytes[position..]).map_err(messenger::Error::other)?;
+			let serialized = Message::serialize(&message).map_err(messenger::Error::other)?;
+			position += serialized.len();
+			messages.push(message);
+		}
+		Ok(Messages(messages))
 	}
 }

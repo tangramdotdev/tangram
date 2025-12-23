@@ -52,9 +52,11 @@ impl Server {
 			tag: tag.to_string(),
 			item: arg.item,
 		});
-		let message = message.serialize()?;
 		self.messenger
-			.stream_publish("index".to_owned(), message)
+			.stream_publish(
+				"index".to_owned(),
+				crate::index::message::Messages(vec![message]),
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 			.await

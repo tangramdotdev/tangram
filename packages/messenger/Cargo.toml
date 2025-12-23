@@ -23,6 +23,8 @@ bytes = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 num = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tangram_either = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

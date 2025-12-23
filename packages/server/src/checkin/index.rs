@@ -3,7 +3,6 @@ use {
 		Server,
 		checkin::{Graph, IndexCacheEntryMessages, IndexObjectMessages},
 	},
-	bytes::Bytes,
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
@@ -19,7 +18,7 @@ impl Server {
 		root: &Path,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let mut messages: Vec<Bytes> = Vec::new();
+		let mut messages: Vec<crate::index::Message> = Vec::new();
 
 		// Create put cache entry messages.
 		if arg.options.cache_references {
@@ -40,31 +39,29 @@ impl Server {
 						id,
 						touched_at,
 					});
-				let message = message.serialize()?;
 				messages.push(message);
 			} else {
-				// Serialize and add cache entry messages.
+				// Add cache entry messages.
 				for message in cache_entry_messages {
 					let message = crate::index::Message::PutCacheEntry(message);
-					let message = message.serialize()?;
 					messages.push(message);
 				}
 			}
 		}
 
-		// Serialize and add put object messages.
+		// Add put object messages.
 		for (_, message) in object_messages {
 			let message = crate::index::Message::PutObject(message);
-			let message = message.serialize()?;
 			messages.push(message);
 		}
 
+		let message = crate::index::message::Messages(messages);
 		self.messenger
-			.stream_batch_publish("index".to_owned(), messages.clone())
+			.stream_publish("index".to_owned(), message)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
 
 		Ok(())
 	}

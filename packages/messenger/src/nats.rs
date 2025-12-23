@@ -1,12 +1,12 @@
 use {
 	crate::{
 		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, DeliverPolicy, DiscardPolicy, Error,
-		Message, RetentionPolicy, StreamConfig, StreamInfo,
+		Message, Payload, RetentionPolicy, StreamConfig, StreamInfo,
 	},
 	async_nats as nats,
-	bytes::Bytes,
 	futures::{FutureExt as _, TryFutureExt as _, prelude::*, stream::FuturesOrdered},
 	num::ToPrimitive as _,
+	std::future::IntoFuture,
 };
 
 #[derive(Clone)]
@@ -37,16 +37,32 @@ impl Messenger {
 		}
 	}
 
-	fn publish(&self, subject: String, message: Bytes) -> impl Future<Output = Result<(), Error>> {
+	#[expect(clippy::needless_pass_by_value, reason = "matches trait signature")]
+	fn publish<T>(&self, subject: String, payload: T) -> impl Future<Output = Result<(), Error>>
+	where
+		T: Payload,
+	{
 		let subject = self.subject_name(subject);
-		self.client.publish(subject, message).map_err(Error::other)
+		let bytes = match payload.serialize() {
+			Ok(bytes) => bytes,
+			Err(error) => return future::err(error).left_future(),
+		};
+		self.client
+			.publish(subject, bytes)
+			.map_err(Error::other)
+			.right_future()
 	}
 
-	fn subscribe(
+	fn subscribe<T>(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl futures::Stream<Item = Message> + 'static, Error>> {
+	) -> impl Future<
+		Output = Result<impl futures::Stream<Item = Result<Message<T>, Error>> + 'static, Error>,
+	>
+	where
+		T: Payload + Clone,
+	{
 		let subject = self.subject_name(subject);
 		match group {
 			None => self
@@ -54,10 +70,14 @@ impl Messenger {
 				.subscribe(subject)
 				.map_ok(|subscriber| {
 					subscriber
-						.map(|message| Message {
-							subject: message.subject.to_string(),
-							payload: message.payload,
-							acker: Acker::default(),
+						.map(|message| {
+							T::deserialize(message.payload)
+								.map(|payload| Message {
+									subject: message.subject.to_string(),
+									payload,
+									acker: Acker::default(),
+								})
+								.map_err(Error::deserialization)
 						})
 						.left_stream()
 				})
@@ -68,10 +88,14 @@ impl Messenger {
 				.queue_subscribe(subject, group)
 				.map_ok(|subscriber| {
 					subscriber
-						.map(|message| Message {
-							subject: message.subject.to_string(),
-							payload: message.payload,
-							acker: Acker::default(),
+						.map(|message| {
+							T::deserialize(message.payload)
+								.map(|payload| Message {
+									subject: message.subject.to_string(),
+									payload,
+									acker: Acker::default(),
+								})
+								.map_err(Error::deserialization)
 						})
 						.right_stream()
 				})
@@ -156,15 +180,19 @@ impl Messenger {
 		Ok(())
 	}
 
-	async fn stream_publish(
+	async fn stream_publish<T>(
 		&self,
 		name: String,
-		payload: Bytes,
-	) -> Result<impl Future<Output = Result<u64, Error>>, Error> {
+		payload: T,
+	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
+	where
+		T: Payload,
+	{
 		let name = self.stream_name(name);
+		let bytes = payload.serialize()?;
 		let future = self
 			.jetstream
-			.publish(name, payload)
+			.publish(name, bytes)
 			.await
 			.map_err(Error::other)?
 			.into_future()
@@ -173,21 +201,31 @@ impl Messenger {
 		Ok(future)
 	}
 
-	async fn stream_batch_publish(
+	async fn stream_batch_publish<T>(
 		&self,
 		name: String,
-		payloads: Vec<Bytes>,
-	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error> {
-		let results = payloads
+		payloads: Vec<T>,
+	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
+	where
+		T: Payload,
+	{
+		let mut futures = Vec::new();
+		for payload in payloads {
+			let bytes = payload.serialize()?;
+			let future = self
+				.jetstream
+				.publish(name.clone(), bytes)
+				.await
+				.map_err(Error::other)?;
+			futures.push(future);
+		}
+		Ok(futures
 			.into_iter()
-			.map(|payload| async { self.stream_publish(name.clone(), payload).await })
+			.map(IntoFuture::into_future)
 			.collect::<FuturesOrdered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		Ok(results
-			.into_iter()
-			.collect::<FuturesOrdered<_>>()
-			.try_collect::<_>())
+			.map_ok(|ack| ack.sequence)
+			.map_err(Error::other)
+			.try_collect::<Vec<_>>())
 	}
 
 	fn subject_name(&self, name: String) -> String {
@@ -298,31 +336,44 @@ impl Consumer {
 		Ok(info)
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		let stream = self
 			.consumer
 			.stream()
 			.messages()
 			.await
 			.map_err(Error::other)?
-			.map_ok(|message| {
-				let (message, acker) = message.split();
-				Message {
-					subject: message.subject.to_string(),
-					payload: message.payload.clone(),
-					acker: acker.into(),
+			.filter_map(|result| async {
+				match result {
+					Ok(message) => {
+						let (message, acker) = message.split();
+						match T::deserialize(message.payload.clone()) {
+							Ok(payload) => Some(Ok(Message {
+								subject: message.subject.to_string(),
+								payload,
+								acker: acker.into(),
+							})),
+							Err(error) => Some(Err(error)),
+						}
+					},
+					Err(error) => Some(Err(Error::other(error))),
 				}
-			})
-			.map_err(Error::other);
+			});
 		Ok(stream)
 	}
 
-	async fn batch_subscribe(
+	async fn batch_subscribe<T>(
 		&self,
 		config: BatchConfig,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		let stream = stream::try_unfold(
 			(self.consumer.clone(), config),
 			move |(consumer, config)| async move {
@@ -340,15 +391,22 @@ impl Consumer {
 					.messages()
 					.await
 					.map_err(|error| Error::Other(error.into()))?
-					.map_ok(|message| {
-						let (message, acker) = message.split();
-						Message {
-							subject: message.subject.to_string(),
-							payload: message.payload,
-							acker: acker.into(),
+					.filter_map(|result| async {
+						match result {
+							Ok(message) => {
+								let (message, acker) = message.split();
+								match T::deserialize(message.payload) {
+									Ok(payload) => Some(Ok(Message {
+										subject: message.subject.to_string(),
+										payload,
+										acker: acker.into(),
+									})),
+									Err(error) => Some(Err(error)),
+								}
+							},
+							Err(error) => Some(Err(Error::Other(error))),
 						}
-					})
-					.map_err(Error::Other);
+					});
 				Ok::<_, Error>(Some((batch, (consumer, config))))
 			},
 		)
@@ -367,15 +425,21 @@ impl From<nats::jetstream::message::Acker> for Acker {
 impl crate::Messenger for Messenger {
 	type Stream = Stream;
 
-	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
+	async fn publish<T>(&self, subject: String, payload: T) -> Result<(), Error>
+	where
+		T: Payload,
+	{
 		self.publish(subject, payload).await
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> Result<impl futures::Stream<Item = Message> + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		self.subscribe(subject, group).await
 	}
 
@@ -403,19 +467,25 @@ impl crate::Messenger for Messenger {
 		self.delete_stream(name)
 	}
 
-	async fn stream_publish(
+	async fn stream_publish<T>(
 		&self,
 		name: String,
-		payload: Bytes,
-	) -> Result<impl Future<Output = Result<u64, Error>>, Error> {
+		payload: T,
+	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
+	where
+		T: Payload,
+	{
 		self.stream_publish(name, payload).await
 	}
 
-	async fn stream_batch_publish(
+	async fn stream_batch_publish<T>(
 		&self,
 		name: String,
-		payloads: Vec<Bytes>,
-	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error> {
+		payloads: Vec<T>,
+	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
+	where
+		T: Payload,
+	{
 		self.stream_batch_publish(name, payloads).await
 	}
 }
@@ -457,16 +527,22 @@ impl crate::Consumer for Consumer {
 		self.info().await
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		self.subscribe().await
 	}
 
-	async fn batch_subscribe(
+	async fn batch_subscribe<T>(
 		&self,
 		config: BatchConfig,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		self.batch_subscribe(config).await
 	}
 }
