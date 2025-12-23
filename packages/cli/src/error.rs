@@ -147,12 +147,20 @@ impl Cli {
 			.is_some_and(|config| config.server.advanced.internal_error_locations);
 		let mut stack = vec![error];
 		while let Some(error_referent) = stack.pop() {
-			// Attempt to load the object.
-			let error = match &handle {
+			// Attempt to get the object.
+			let error = if let Some(error) = error_referent
+				.item()
+				.state()
+				.object()
+				.map(|object| object.unwrap_error())
+			{
+				error
+			} else if let Some(error) = match &handle {
 				Some(handle) => error_referent.item().load(handle).await.ok(),
 				None => None,
-			};
-			let Some(error) = error else {
+			} {
+				error
+			} else {
 				eprintln!("{} {}", "->".red(), error_referent.item().id());
 				continue;
 			};
