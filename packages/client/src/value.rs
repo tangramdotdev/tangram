@@ -8,7 +8,6 @@ use {
 		pin::pin,
 		sync::Arc,
 	},
-	tangram_either::Either,
 	tangram_futures::stream::TryExt as _,
 	tokio::{sync::Semaphore, task::JoinSet},
 };
@@ -536,15 +535,15 @@ impl TryFrom<Value> for serde_json::Value {
 	}
 }
 
-impl<L, R> From<Either<L, R>> for Value
+impl<L, R> From<tg::Either<L, R>> for Value
 where
 	L: Into<Value>,
 	R: Into<Value>,
 {
-	fn from(value: Either<L, R>) -> Self {
+	fn from(value: tg::Either<L, R>) -> Self {
 		match value {
-			Either::Left(value) => value.into(),
-			Either::Right(value) => value.into(),
+			tg::Either::Left(value) => value.into(),
+			tg::Either::Right(value) => value.into(),
 		}
 	}
 }

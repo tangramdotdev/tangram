@@ -11,7 +11,6 @@ use {
 	std::{collections::BTreeSet, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::{self as messenger, prelude::*},
 };
@@ -149,13 +148,13 @@ impl Server {
 					.into(),
 					..Default::default()
 				};
-				error = Some(Either::Left(data));
+				error = Some(tg::Either::Left(data));
 				exit = 1;
 			}
 		}
 
 		if !self.config.advanced.internal_error_locations
-			&& let Some(Either::Left(error)) = &mut error
+			&& let Some(tg::Either::Left(error)) = &mut error
 		{
 			error.remove_internal_locations();
 		}
@@ -190,12 +189,12 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let error_data_or_id = error.as_ref().map(|error| match error {
-			Either::Left(data) => serde_json::to_string(data).unwrap(),
-			Either::Right(id) => id.to_string(),
+			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
+			tg::Either::Right(id) => id.to_string(),
 		});
 		let error_code = error.as_ref().and_then(|error| match error {
-			Either::Left(data) => data.code.map(|code| code.to_string()),
-			Either::Right(_) => None,
+			tg::Either::Left(data) => data.code.map(|code| code.to_string()),
+			tg::Either::Right(_) => None,
 		});
 		let params = db::params![
 			arg.checksum.as_ref().map(ToString::to_string),
@@ -251,7 +250,7 @@ impl Server {
 			crate::index::message::ProcessObjectKind::Command,
 		);
 		let errors = data.error.as_ref().into_iter().flat_map(|e| match e {
-			Either::Left(data) => {
+			tg::Either::Left(data) => {
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
 				children
@@ -262,7 +261,7 @@ impl Server {
 					})
 					.collect::<Vec<_>>()
 			},
-			Either::Right(id) => {
+			tg::Either::Right(id) => {
 				let id = id.clone().into();
 				let kind = crate::index::message::ProcessObjectKind::Error;
 				vec![(id, kind)]

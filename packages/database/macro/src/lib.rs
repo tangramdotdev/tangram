@@ -45,7 +45,7 @@ pub fn row_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 			} else if let Some(as_type) = attrs.as_type {
 				quote! {
 					#name: {
-						let value = row.get(tangram_either::Either::Right(#name_str))
+						let value = row.get(tangram_database::Either::Right(#name_str))
 							.ok_or_else(|| format!("missing column \"{}\"", #name_str))?
 							.clone();
 						<#as_type as tangram_database::value::DeserializeAs<#field_type>>::deserialize_as(value)
@@ -55,7 +55,7 @@ pub fn row_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 			} else if let Some(try_from) = attrs.try_from {
 				quote! {
 					#name: {
-						let value = row.get(tangram_either::Either::Right(#name_str))
+						let value = row.get(tangram_database::Either::Right(#name_str))
 							.ok_or_else(|| format!("missing column \"{}\"", #name_str))?
 							.clone();
 						let try_from = <#try_from as tangram_database::value::Deserialize>::deserialize(value)
@@ -67,7 +67,7 @@ pub fn row_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 			} else {
 				quote! {
 					#name: {
-						let value = row.get(tangram_either::Either::Right(#name_str))
+						let value = row.get(tangram_database::Either::Right(#name_str))
 							.ok_or_else(|| format!("missing column \"{}\"", #name_str))?
 							.clone();
 						<#field_type as tangram_database::value::Deserialize>::deserialize(value)

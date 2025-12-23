@@ -1,4 +1,4 @@
-use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*, tangram_either::Either};
+use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
 /// Check out an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -101,7 +101,7 @@ impl Cli {
 
 		// Get the artifact.
 		let referent = self.get_reference(&args.reference).await?;
-		let Either::Left(object) = referent.item else {
+		let tg::Either::Left(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
 		let artifact = tg::Artifact::try_from(object)?;

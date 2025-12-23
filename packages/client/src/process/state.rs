@@ -1,4 +1,4 @@
-use {crate::prelude::*, tangram_either::Either};
+use crate::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct State {
@@ -44,11 +44,11 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let error = value
 			.error
 			.map(|either| match either {
-				Either::Left(data) => {
+				tg::Either::Left(data) => {
 					let object = tg::error::Object::try_from_data(data)?;
 					Ok::<_, tg::Error>(tg::Error::with_object(object))
 				},
-				Either::Right(id) => Ok(tg::Error::with_id(id)),
+				tg::Either::Right(id) => Ok(tg::Error::with_id(id)),
 			})
 			.transpose()?;
 		let exit = value.exit;

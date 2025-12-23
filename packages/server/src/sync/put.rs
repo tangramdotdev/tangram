@@ -5,7 +5,6 @@ use {
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::task::Task,
 	tracing::Instrument as _,
 };
@@ -56,7 +55,7 @@ impl Server {
 		// Enqueue the items.
 		for item in &state.arg.put {
 			match item {
-				Either::Left(object) => {
+				tg::Either::Left(object) => {
 					let item = super::queue::ObjectItem {
 						parent: None,
 						id: object.clone(),
@@ -65,7 +64,7 @@ impl Server {
 					};
 					state.queue.enqueue_object(item);
 				},
-				Either::Right(process) => {
+				tg::Either::Right(process) => {
 					let item = super::queue::ProcessItem {
 						parent: None,
 						id: process.clone(),

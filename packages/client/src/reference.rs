@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
 	std::{path::PathBuf, pin::pin},
-	tangram_either::Either,
 	tangram_futures::stream::TryExt as _,
 	tangram_uri::Uri,
 };
@@ -191,7 +190,7 @@ impl Reference {
 	pub async fn get<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<tg::Referent<Either<tg::Object, tg::Process>>>
+	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>>
 	where
 		H: tg::Handle,
 	{

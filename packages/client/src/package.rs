@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::path::Path, tangram_either::Either};
+use {crate::prelude::*, std::path::Path};
 
 /// The possible file names for the root module in a package.
 pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
@@ -57,7 +57,7 @@ pub fn is_non_root_module_path(path: &Path) -> bool {
 
 pub async fn try_get_root_module_file_name<H>(
 	handle: &H,
-	package: Either<&tg::Directory, &Path>,
+	package: tg::Either<&tg::Directory, &Path>,
 ) -> tg::Result<Option<&'static str>>
 where
 	H: tg::Handle,
@@ -65,8 +65,8 @@ where
 	let mut name = None;
 	for name_ in tg::package::ROOT_MODULE_FILE_NAMES {
 		let exists = match package {
-			Either::Left(directory) => directory.try_get_entry(handle, name_).await?.is_some(),
-			Either::Right(path) => tokio::fs::try_exists(path.join(*name_)).await.map_err(
+			tg::Either::Left(directory) => directory.try_get_entry(handle, name_).await?.is_some(),
+			tg::Either::Right(path) => tokio::fs::try_exists(path.join(*name_)).await.map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
 			)?,
 		};

@@ -11,7 +11,6 @@ use {
 		pin::pin,
 	},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tangram_util::read::InspectReader,
@@ -212,7 +211,7 @@ impl Server {
 		// Pull.
 		let stream = self
 			.pull(tg::pull::Arg {
-				items: vec![Either::Left(artifact.clone().into())],
+				items: vec![tg::Either::Left(artifact.clone().into())],
 				..Default::default()
 			})
 			.await?;

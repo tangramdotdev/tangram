@@ -5,7 +5,6 @@ use {
 	radix_trie::TrieCommon as _,
 	std::{collections::HashMap, path::PathBuf},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 /// Publish a package with its transitive dependencies.
@@ -110,7 +109,7 @@ impl Cli {
 		// Collect all the local items.
 		let mut items = tags
 			.iter()
-			.map(|(_, id)| Either::Left(id.clone()))
+			.map(|(_, id)| tg::Either::Left(id.clone()))
 			.collect::<Vec<_>>();
 
 		// Execute the plan.
@@ -134,7 +133,7 @@ impl Cli {
 				item.referent.item = artifact.id().into();
 			}
 			if item.push {
-				items.push(Either::Left(item.referent.item.clone()));
+				items.push(tg::Either::Left(item.referent.item.clone()));
 				tags.push((item.tag.clone(), item.referent.item.clone()));
 			}
 			handle
@@ -142,7 +141,7 @@ impl Cli {
 					&item.tag,
 					tg::tag::put::Arg {
 						force: true,
-						item: Either::Left(item.referent.item().clone()),
+						item: tg::Either::Left(item.referent.item().clone()),
 						local: None,
 						remotes: None,
 					},
@@ -184,7 +183,7 @@ impl Cli {
 			.into_iter()
 			.map(|(tag, item)| tg::tag::post::Item {
 				tag,
-				item: Either::Left(item),
+				item: tg::Either::Left(item),
 				force: false,
 			})
 			.collect::<Vec<_>>();
@@ -222,7 +221,8 @@ async fn try_get_package_tag(
 		tg::Object::Directory(directory) => {
 			// Get the root file name.
 			let Some(name) =
-				tg::package::try_get_root_module_file_name(handle, Either::Left(directory)).await?
+				tg::package::try_get_root_module_file_name(handle, tg::Either::Left(directory))
+					.await?
 			else {
 				return Ok(None);
 			};
@@ -488,7 +488,7 @@ where
 			.insert(path.to_owned(), directory.item.clone().into());
 
 		// Keep track of files.
-		if tg::package::try_get_root_module_file_name(handle, Either::Left(directory.item()))
+		if tg::package::try_get_root_module_file_name(handle, tg::Either::Left(directory.item()))
 			.await?
 			.is_some()
 		{

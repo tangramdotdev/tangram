@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Get a reference.
 #[derive(Clone, Debug, clap::Args)]
@@ -30,7 +30,7 @@ impl Cli {
 		});
 		Self::print_info_message(&referent.to_string());
 		match referent.item {
-			Either::Left(object) => {
+			tg::Either::Left(object) => {
 				let args = crate::object::get::Args {
 					bytes: args.bytes,
 					local: args.local,
@@ -40,7 +40,7 @@ impl Cli {
 				};
 				self.command_object_get(args).await?;
 			},
-			Either::Right(process) => {
+			tg::Either::Right(process) => {
 				let args = crate::process::get::Args {
 					local: args.local,
 					print: args.print,

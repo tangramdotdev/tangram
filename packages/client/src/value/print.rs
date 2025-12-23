@@ -517,8 +517,8 @@ where
 		}
 		if let Some(source) = &object.source {
 			self.map_entry("source", |s| match &source.item {
-				tangram_either::Either::Left(obj) => s.error_object(obj),
-				tangram_either::Either::Right(handle) => s.error(handle),
+				tg::Either::Left(obj) => s.error_object(obj),
+				tg::Either::Right(handle) => s.error(handle),
 			})?;
 		}
 		if let Some(stack) = &object.stack {

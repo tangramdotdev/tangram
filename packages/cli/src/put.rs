@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Put a process or an object.
 #[derive(Clone, Debug, clap::Args)]
@@ -12,7 +12,7 @@ pub struct Args {
 	pub input: Option<String>,
 
 	#[arg(long)]
-	pub id: Option<Either<tg::object::Id, tg::process::Id>>,
+	pub id: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[arg(long, short)]
 	pub kind: Option<tg::object::Kind>,
@@ -30,10 +30,10 @@ pub struct Args {
 impl Cli {
 	pub async fn command_put(&mut self, args: Args) -> tg::Result<()> {
 		match (args.id, args.kind) {
-			(id, kind) if id.is_none() || id.as_ref().is_some_and(Either::is_left) => {
+			(id, kind) if id.is_none() || id.as_ref().is_some_and(tg::Either::is_left) => {
 				let args = crate::object::put::Args {
 					bytes: args.bytes,
-					id: id.map(Either::unwrap_left),
+					id: id.map(tg::Either::unwrap_left),
 					input: args.input,
 					kind,
 					local: args.local,
@@ -42,7 +42,7 @@ impl Cli {
 				};
 				self.command_object_put(args).await?;
 			},
-			(Some(Either::Right(id)), None) => {
+			(Some(tg::Either::Right(id)), None) => {
 				let args = crate::process::put::Args {
 					bytes: args.input,
 					id,

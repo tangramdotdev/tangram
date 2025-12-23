@@ -4,7 +4,6 @@ use {
 	futures::TryStreamExt as _,
 	std::{io::Cursor, pin::pin, rc::Rc},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_v8::Serde,
 	tokio::io::AsyncReadExt as _,
 	tokio_util::io::StreamReader,
@@ -37,7 +36,7 @@ pub async fn read(state: Rc<State>, args: (Serde<tg::read::Arg>,)) -> tg::Result
 
 pub async fn write(
 	state: Rc<State>,
-	args: (Either<String, Bytes>,),
+	args: (tg::Either<String, Bytes>,),
 ) -> tg::Result<Serde<tg::blob::Id>> {
 	let (bytes,) = args;
 	let reader = Cursor::new(bytes);

@@ -8,7 +8,6 @@ use {
 		time::Duration,
 	},
 	tangram_client::{Client, prelude::*},
-	tangram_either::Either,
 	tangram_server::Owned as Server,
 	tangram_uri::Uri,
 	tracing_subscriber::prelude::*,
@@ -76,7 +75,7 @@ pub struct Cli {
 	args: Args,
 	config: Option<Config>,
 	exit: Option<u8>,
-	handle: Option<Either<Client, Server>>,
+	handle: Option<tg::Either<Client, Server>>,
 	matches: clap::ArgMatches,
 	mode: Mode,
 }
@@ -443,10 +442,10 @@ fn main() -> std::process::ExitCode {
 	runtime.block_on(async {
 		let handle = cli.handle.take();
 		match handle {
-			Some(Either::Left(client)) => {
+			Some(tg::Either::Left(client)) => {
 				client.disconnect().await;
 			},
-			Some(Either::Right(server)) => {
+			Some(tg::Either::Right(server)) => {
 				server.stop();
 				server.wait().await.unwrap();
 			},
@@ -461,7 +460,7 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	async fn handle(&mut self) -> tg::Result<Either<Client, Server>> {
+	async fn handle(&mut self) -> tg::Result<tg::Either<Client, Server>> {
 		// If the handle has already been created, then return it.
 		if let Some(handle) = self.handle.clone() {
 			return Ok(handle);
@@ -469,9 +468,9 @@ impl Cli {
 
 		// Create the handle.
 		let handle = match self.mode {
-			Mode::Auto => Either::Left(self.auto().boxed().await?),
-			Mode::Client => Either::Left(self.client().boxed().await?),
-			Mode::Server => Either::Right(self.server().boxed().await?),
+			Mode::Auto => tg::Either::Left(self.auto().boxed().await?),
+			Mode::Client => tg::Either::Left(self.client().boxed().await?),
+			Mode::Server => tg::Either::Right(self.server().boxed().await?),
 		};
 
 		// Get the health and print diagnostics.
@@ -927,7 +926,7 @@ impl Cli {
 	async fn get_reference(
 		&mut self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<Either<tg::Object, tg::Process>>> {
+	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
 		self.get_reference_with_arg(reference, tg::get::Arg::default())
 			.await
 	}
@@ -936,7 +935,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> tg::Result<tg::Referent<Either<tg::Object, tg::Process>>> {
+	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
 		let handle = self.handle().await?;
 
 		// Make the path absolute.
@@ -976,7 +975,7 @@ impl Cli {
 	async fn get_references(
 		&mut self,
 		references: &[tg::Reference],
-	) -> tg::Result<Vec<tg::Referent<Either<tg::Object, tg::Process>>>> {
+	) -> tg::Result<Vec<tg::Referent<tg::Either<tg::Object, tg::Process>>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
 			let referent = self.get_reference(reference).await?;
@@ -1008,12 +1007,14 @@ impl Cli {
 
 		let module = match referent.item.clone() {
 			tg::Object::Directory(directory) => {
-				let root_module_name =
-					tg::package::try_get_root_module_file_name(&handle, Either::Left(&directory))
-						.await?
-						.ok_or_else(
-							|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-						)?;
+				let root_module_name = tg::package::try_get_root_module_file_name(
+					&handle,
+					tg::Either::Left(&directory),
+				)
+				.await?
+				.ok_or_else(
+					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
+				)?;
 				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_name);
 				} else {

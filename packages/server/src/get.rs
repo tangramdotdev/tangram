@@ -2,7 +2,6 @@ use {
 	crate::{Context, Server},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _},
 };
 
@@ -21,7 +20,7 @@ impl Server {
 		let reference = reference.clone();
 		match &reference.item() {
 			tg::reference::Item::Object(object) => {
-				let item = Either::Left(object.clone());
+				let item = tg::Either::Left(object.clone());
 				let output = tg::get::Output {
 					referent: tg::Referent::with_item(item),
 				};
@@ -31,7 +30,7 @@ impl Server {
 			},
 
 			tg::reference::Item::Process(process) => {
-				let item = Either::Right(process.clone());
+				let item = tg::Either::Right(process.clone());
 				let output = tg::get::Output {
 					referent: tg::Referent::with_item(item),
 				};
@@ -56,7 +55,7 @@ impl Server {
 					},
 					tg::progress::Event::Output(output) => {
 						let referent = tg::Referent {
-							item: Either::Left(output.artifact.item.into()),
+							item: tg::Either::Left(output.artifact.item.into()),
 							options: output.artifact.options,
 						};
 						let output = Some(tg::get::Output { referent });

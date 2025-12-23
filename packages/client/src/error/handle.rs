@@ -2,7 +2,6 @@ use {
 	super::{Data, Id, Object},
 	crate::prelude::*,
 	std::{collections::BTreeMap, sync::Arc},
-	tangram_either::Either,
 };
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -18,8 +17,8 @@ impl Error {
 		let source = state.object().and_then(|object| {
 			let object = object.try_unwrap_error_ref().ok()?;
 			object.source.as_ref().map(|source| match &source.item {
-				Either::Left(object) => Box::new(Error::with_object(object.clone())),
-				Either::Right(handle) => handle.clone(),
+				tg::Either::Left(object) => Box::new(Error::with_object(object.clone())),
+				tg::Either::Right(handle) => handle.clone(),
 			})
 		});
 		Self { state, source }
@@ -42,8 +41,8 @@ impl Error {
 	pub fn with_object(object: impl Into<Arc<Object>>) -> Self {
 		let object: Arc<Object> = object.into();
 		let source = object.source.as_ref().map(|s| match &s.item {
-			Either::Left(object) => Box::new(Error::with_object(object.clone())),
-			Either::Right(handle) => handle.clone(),
+			tg::Either::Left(object) => Box::new(Error::with_object(object.clone())),
+			tg::Either::Right(handle) => handle.clone(),
 		});
 		Self {
 			state: tg::object::State::with_object(object),
@@ -198,8 +197,8 @@ impl TryFrom<tg::Either<tg::error::Data, tg::error::Id>> for Error {
 	type Error = tg::Error;
 	fn try_from(value: tg::Either<tg::error::Data, tg::error::Id>) -> Result<Self, Self::Error> {
 		match value {
-			Either::Left(data) => data.try_into(),
-			Either::Right(id) => Ok(Self::with_id(id)),
+			tg::Either::Left(data) => data.try_into(),
+			tg::Either::Right(id) => Ok(Self::with_id(id)),
 		}
 	}
 }

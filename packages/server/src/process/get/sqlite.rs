@@ -4,7 +4,6 @@ use {
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 };
 
 impl Server {
@@ -124,9 +123,9 @@ impl Server {
 		let command = row.command.parse()?;
 		let error = row.error.map(|s| {
 			if s.starts_with('{') {
-				Either::Left(serde_json::from_str(&s).unwrap())
+				tg::Either::Left(serde_json::from_str(&s).unwrap())
 			} else {
-				Either::Right(s.parse().unwrap())
+				tg::Either::Right(s.parse().unwrap())
 			}
 		});
 		let expected_checksum = row.expected_checksum.map(|s| s.parse()).transpose()?;

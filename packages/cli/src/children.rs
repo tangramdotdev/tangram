@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Get the children.
 #[derive(Clone, Debug, clap::Args)]
@@ -22,7 +22,7 @@ impl Cli {
 	pub async fn command_children(&mut self, args: Args) -> tg::Result<()> {
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
-			Either::Left(object) => {
+			tg::Either::Left(object) => {
 				let args = crate::object::children::Args {
 					local: args.local,
 					object: object.id(),
@@ -31,7 +31,7 @@ impl Cli {
 				};
 				self.command_object_children(args).await?;
 			},
-			Either::Right(process) => {
+			tg::Either::Right(process) => {
 				let args = crate::process::children::Args {
 					length: None,
 					local: args.local,

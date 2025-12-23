@@ -5,7 +5,6 @@ use {
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -603,11 +602,11 @@ impl Server {
 			{
 				let parent_permit = parent_permit.clone();
 				if let Ok(guard) = parent_permit.try_lock_owned() {
-					break 'a Some(ProcessPermit(Either::Right(guard)));
+					break 'a Some(ProcessPermit(tg::Either::Right(guard)));
 				}
 			}
 			if let Ok(server_permit) = self.process_semaphore.clone().try_acquire_owned() {
-				break 'a Some(ProcessPermit(Either::Left(server_permit)));
+				break 'a Some(ProcessPermit(tg::Either::Left(server_permit)));
 			}
 			None
 		};
@@ -1027,7 +1026,7 @@ impl Server {
 				};
 				let permit = permit
 					.lock_owned()
-					.map(|guard| ProcessPermit(Either::Right(guard)))
+					.map(|guard| ProcessPermit(tg::Either::Right(guard)))
 					.await;
 
 				// Attempt to start the process.

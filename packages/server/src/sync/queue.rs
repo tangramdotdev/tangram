@@ -1,4 +1,4 @@
-use {tangram_client::prelude::*, tangram_either::Either};
+use tangram_client::prelude::*;
 
 pub struct Queue {
 	object_sender: async_channel::Sender<ObjectItem>,
@@ -9,7 +9,7 @@ pub struct ObjectItem {
 	pub eager: bool,
 	pub id: tg::object::Id,
 	pub kind: Option<ObjectKind>,
-	pub parent: Option<Either<tg::object::Id, tg::process::Id>>,
+	pub parent: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 }
 
 pub struct ProcessItem {

@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::path::PathBuf, tangram_either::Either};
+use {crate::prelude::*, std::path::PathBuf};
 
 #[derive(Clone, Debug, Default)]
 pub struct Arg {
@@ -9,14 +9,14 @@ pub struct Arg {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
-	pub mounts: Option<Vec<Either<tg::process::Mount, tg::command::Mount>>>,
+	pub mounts: Option<Vec<tg::Either<tg::process::Mount, tg::command::Mount>>>,
 	pub name: Option<String>,
 	pub network: Option<bool>,
 	pub parent: Option<tg::process::Id>,
 	pub remote: Option<String>,
 	pub retry: bool,
 	pub stderr: Option<Option<tg::process::Stdio>>,
-	pub stdin: Option<Option<Either<tg::process::Stdio, tg::Blob>>>,
+	pub stdin: Option<Option<tg::Either<tg::process::Stdio, tg::Blob>>>,
 	pub stdout: Option<Option<tg::process::Stdio>>,
 	pub user: Option<String>,
 }
@@ -74,8 +74,8 @@ where
 	if let Some(mounts) = arg.mounts {
 		for mount in mounts {
 			match mount {
-				Either::Left(mount) => process_mounts.push(mount.to_data()),
-				Either::Right(mount) => command_mounts.push(mount),
+				tg::Either::Left(mount) => process_mounts.push(mount.to_data()),
+				tg::Either::Right(mount) => command_mounts.push(mount),
 			}
 		}
 	} else {
@@ -92,7 +92,7 @@ where
 			.as_ref()
 			.map(|command| command.stdin.clone())
 			.unwrap_or_default()
-	} else if let Some(Some(Either::Right(blob))) = &arg.stdin {
+	} else if let Some(Some(tg::Either::Right(blob))) = &arg.stdin {
 		Some(blob.clone())
 	} else {
 		None
@@ -118,12 +118,12 @@ where
 	let stdin = arg.stdin.unwrap_or_else(|| {
 		state
 			.as_ref()
-			.and_then(|state| state.stdin.clone().map(Either::Left))
+			.and_then(|state| state.stdin.clone().map(tg::Either::Left))
 	});
 	let stdin = match stdin {
 		None => None,
-		Some(Either::Left(stdio)) => Some(stdio),
-		Some(Either::Right(_)) => {
+		Some(tg::Either::Left(stdio)) => Some(stdio),
+		Some(tg::Either::Right(_)) => {
 			return Err(tg::error!("expected stdio"));
 		},
 	};

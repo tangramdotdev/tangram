@@ -9,7 +9,6 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -280,7 +279,7 @@ impl Server {
 		state
 			.queue
 			.enqueue_objects(children.into_iter().map(|object| ObjectItem {
-				parent: Some(Either::Left(id.clone())),
+				parent: Some(tg::Either::Left(id.clone())),
 				id: object,
 				kind,
 				eager: state.arg.eager,
@@ -314,7 +313,7 @@ impl Server {
 		// Enqueue the command if necessary.
 		if state.arg.commands && !stored.is_some_and(|stored| stored.node_command) {
 			let item = ObjectItem {
-				parent: Some(Either::Right(id.clone())),
+				parent: Some(tg::Either::Right(id.clone())),
 				id: data.command.clone().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Command),
 				eager: state.arg.eager,
@@ -328,21 +327,21 @@ impl Server {
 			&& let Some(error) = &data.error
 		{
 			match error {
-				Either::Left(data) => {
+				tg::Either::Left(data) => {
 					let mut children = BTreeSet::new();
 					data.children(&mut children);
 					state
 						.queue
 						.enqueue_objects(children.into_iter().map(|object| ObjectItem {
-							parent: Some(Either::Right(id.clone())),
+							parent: Some(tg::Either::Right(id.clone())),
 							id: object,
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							eager: state.arg.eager,
 						}));
 				},
-				Either::Right(error) => {
+				tg::Either::Right(error) => {
 					let item = ObjectItem {
-						parent: Some(Either::Right(id.clone())),
+						parent: Some(tg::Either::Right(id.clone())),
 						id: error.clone().into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
 						eager: state.arg.eager,
@@ -356,7 +355,7 @@ impl Server {
 		if state.arg.logs && !stored.is_some_and(|stored| stored.node_log) {
 			if let Some(log) = data.log.clone() {
 				let item = ObjectItem {
-					parent: Some(Either::Right(id.clone())),
+					parent: Some(tg::Either::Right(id.clone())),
 					id: log.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					eager: state.arg.eager,
@@ -376,7 +375,7 @@ impl Server {
 			state
 				.queue
 				.enqueue_objects(children.into_iter().map(|object| ObjectItem {
-					parent: Some(Either::Right(id.clone())),
+					parent: Some(tg::Either::Right(id.clone())),
 					id: object,
 					kind: Some(crate::sync::queue::ObjectKind::Output),
 					eager: state.arg.eager,

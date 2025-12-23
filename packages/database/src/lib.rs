@@ -8,7 +8,10 @@ use {
 	},
 };
 
-pub use self::{pool::Priority, row::Row, value::Value};
+pub use {
+	self::{pool::Priority, row::Row, value::Value},
+	tangram_either::Either,
+};
 
 pub mod either;
 pub mod pool;

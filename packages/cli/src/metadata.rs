@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Get process or object metadata.
 #[derive(Clone, Debug, clap::Args)]
@@ -27,7 +27,7 @@ impl Cli {
 			.map_right(|process| process.id().clone());
 
 		match item {
-			Either::Left(object) => {
+			tg::Either::Left(object) => {
 				let args = crate::object::metadata::Args {
 					local: args.local,
 					object,
@@ -36,7 +36,7 @@ impl Cli {
 				};
 				self.command_object_metadata(args).await?;
 			},
-			Either::Right(process) => {
+			tg::Either::Right(process) => {
 				let args = crate::process::metadata::Args {
 					local: args.local,
 					print: args.print,

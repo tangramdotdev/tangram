@@ -3,7 +3,6 @@ use {
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, path::PathBuf, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 pub trait Deserialize<'a>: 'a + Sized {
@@ -242,7 +241,7 @@ where
 	}
 }
 
-impl<'a, L, R> Deserialize<'a> for Either<L, R>
+impl<'a, L, R> Deserialize<'a> for tg::Either<L, R>
 where
 	L: Deserialize<'a>,
 	R: Deserialize<'a>,
@@ -252,8 +251,8 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		<_>::deserialize(scope, value)
-			.map(Either::Left)
-			.or_else(|_| <_>::deserialize(scope, value).map(Either::Right))
+			.map(tg::Either::Left)
+			.or_else(|_| <_>::deserialize(scope, value).map(tg::Either::Right))
 	}
 }
 

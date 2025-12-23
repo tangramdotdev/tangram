@@ -3,7 +3,6 @@ use {
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	serde::Deserialize as _,
 	serde_with::serde_as,
-	tangram_either::Either,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::CommaSeparatedString,
@@ -28,7 +27,7 @@ pub enum Event {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error: Option<Either<tg::error::Data, tg::error::Id>>,
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
 	pub exit: u8,
 
@@ -143,11 +142,11 @@ impl TryFrom<Output> for Wait {
 		let error = value
 			.error
 			.map(|either| match either {
-				Either::Left(data) => {
+				tg::Either::Left(data) => {
 					let object = tg::error::Object::try_from_data(data)?;
 					Ok::<_, tg::Error>(tg::Error::with_object(object))
 				},
-				Either::Right(id) => Ok(tg::Error::with_id(id)),
+				tg::Either::Right(id) => Ok(tg::Error::with_id(id)),
 			})
 			.transpose()?;
 		Ok(Self {

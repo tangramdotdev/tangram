@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Compute a checksum.
 #[derive(Clone, Debug, clap::Args)]
@@ -20,12 +20,12 @@ impl Cli {
 	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
-		let Either::Left(object) = referent.item else {
+		let tg::Either::Left(object) = referent.item else {
 			return Err(tg::error!("expected an object"));
 		};
 		if let Ok(blob) = tg::Blob::try_from(object.clone()) {
 			let algorithm = args.algorithm;
-			let command = tg::builtin::checksum_command(Either::Left(blob), algorithm);
+			let command = tg::builtin::checksum_command(tg::Either::Left(blob), algorithm);
 			let command = command.store(&handle).await?;
 			let reference = tg::Reference::with_object(command.into());
 			let args = crate::build::Args {
@@ -36,7 +36,7 @@ impl Cli {
 			self.command_build(args).await?;
 		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
 			let algorithm = args.algorithm;
-			let command = tg::builtin::checksum_command(Either::Right(artifact), algorithm);
+			let command = tg::builtin::checksum_command(tg::Either::Right(artifact), algorithm);
 			let command = command.store(&handle).await?;
 			let reference = tg::Reference::with_object(command.into());
 			let args = crate::build::Args {

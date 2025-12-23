@@ -3,7 +3,6 @@ use {
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, path::PathBuf, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 pub trait Serialize {
@@ -233,7 +232,7 @@ where
 	}
 }
 
-impl<L, R> Serialize for Either<L, R>
+impl<L, R> Serialize for tg::Either<L, R>
 where
 	L: Serialize,
 	R: Serialize,
@@ -243,8 +242,8 @@ where
 		scope: &mut v8::HandleScope<'a>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
-			Either::Left(s) => s.serialize(scope),
-			Either::Right(s) => s.serialize(scope),
+			tg::Either::Left(s) => s.serialize(scope),
+			tg::Either::Right(s) => s.serialize(scope),
 		}
 	}
 }

@@ -1,11 +1,10 @@
 use {
 	crate::prelude::*,
 	futures::{FutureExt as _, Stream, TryFutureExt as _, stream::BoxStream},
-	tangram_either::Either,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
-impl<L, R> tg::Handle for Either<L, R>
+impl<L, R> tg::Handle for tg::Either<L, R>
 where
 	L: tg::Handle,
 	R: tg::Handle,
@@ -19,11 +18,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.cache(arg)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.cache(arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -32,8 +31,8 @@ where
 
 	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		match self {
-			Either::Left(s) => s.check(arg).left_future(),
-			Either::Right(s) => s.check(arg).right_future(),
+			tg::Either::Left(s) => s.check(arg).left_future(),
+			tg::Either::Right(s) => s.check(arg).right_future(),
 		}
 	}
 
@@ -46,11 +45,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.checkin(arg)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.checkin(arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -66,11 +65,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.checkout(arg)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.checkout(arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -85,11 +84,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.clean()
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.clean()
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -101,22 +100,22 @@ where
 		arg: tg::document::Arg,
 	) -> impl Future<Output = tg::Result<serde_json::Value>> {
 		match self {
-			Either::Left(s) => s.document(arg).left_future(),
-			Either::Right(s) => s.document(arg).right_future(),
+			tg::Either::Left(s) => s.document(arg).left_future(),
+			tg::Either::Right(s) => s.document(arg).right_future(),
 		}
 	}
 
 	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.format(arg).left_future(),
-			Either::Right(s) => s.format(arg).right_future(),
+			tg::Either::Left(s) => s.format(arg).left_future(),
+			tg::Either::Right(s) => s.format(arg).right_future(),
 		}
 	}
 
 	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
 		match self {
-			Either::Left(s) => s.health().left_future(),
-			Either::Right(s) => s.health().right_future(),
+			tg::Either::Left(s) => s.health().left_future(),
+			tg::Either::Right(s) => s.health().right_future(),
 		}
 	}
 
@@ -128,11 +127,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.index()
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.index()
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -145,8 +144,8 @@ where
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.lsp(input, output).left_future(),
-			Either::Right(s) => s.lsp(input, output).right_future(),
+			tg::Either::Left(s) => s.lsp(input, output).left_future(),
+			tg::Either::Right(s) => s.lsp(input, output).right_future(),
 		}
 	}
 
@@ -159,11 +158,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.pull(arg)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.pull(arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -179,11 +178,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.push(arg)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.push(arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -198,11 +197,11 @@ where
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.sync(arg, stream)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.sync(arg, stream)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -221,11 +220,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_get(reference, arg.clone())
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_get(reference, arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
@@ -241,11 +240,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_read_stream(arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_read_stream(arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
@@ -257,13 +256,13 @@ where
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::write::Output>> {
 		match self {
-			Either::Left(s) => s.write(reader).left_future(),
-			Either::Right(s) => s.write(reader).right_future(),
+			tg::Either::Left(s) => s.write(reader).left_future(),
+			tg::Either::Right(s) => s.write(reader).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::Module for Either<L, R>
+impl<L, R> tg::handle::Module for tg::Either<L, R>
 where
 	L: tg::handle::Module,
 	R: tg::handle::Module,
@@ -273,8 +272,8 @@ where
 		arg: tg::module::resolve::Arg,
 	) -> impl Future<Output = tg::Result<tg::module::resolve::Output>> {
 		match self {
-			Either::Left(s) => s.resolve_module(arg).left_future(),
-			Either::Right(s) => s.resolve_module(arg).right_future(),
+			tg::Either::Left(s) => s.resolve_module(arg).left_future(),
+			tg::Either::Right(s) => s.resolve_module(arg).right_future(),
 		}
 	}
 
@@ -283,13 +282,13 @@ where
 		arg: tg::module::load::Arg,
 	) -> impl Future<Output = tg::Result<tg::module::load::Output>> {
 		match self {
-			Either::Left(s) => s.load_module(arg).left_future(),
-			Either::Right(s) => s.load_module(arg).right_future(),
+			tg::Either::Left(s) => s.load_module(arg).left_future(),
+			tg::Either::Right(s) => s.load_module(arg).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::Object for Either<L, R>
+impl<L, R> tg::handle::Object for tg::Either<L, R>
 where
 	L: tg::handle::Object,
 	R: tg::handle::Object,
@@ -300,8 +299,8 @@ where
 		arg: tg::object::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
 		match self {
-			Either::Left(s) => s.try_get_object_metadata(id, arg).left_future(),
-			Either::Right(s) => s.try_get_object_metadata(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_object_metadata(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_object_metadata(id, arg).right_future(),
 		}
 	}
 
@@ -311,8 +310,8 @@ where
 		arg: tg::object::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
 		match self {
-			Either::Left(s) => s.try_get_object(id, arg).left_future(),
-			Either::Right(s) => s.try_get_object(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_object(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_object(id, arg).right_future(),
 		}
 	}
 
@@ -322,8 +321,8 @@ where
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.put_object(id, arg).left_future(),
-			Either::Right(s) => s.put_object(id, arg).right_future(),
+			tg::Either::Left(s) => s.put_object(id, arg).left_future(),
+			tg::Either::Right(s) => s.put_object(id, arg).right_future(),
 		}
 	}
 
@@ -333,13 +332,13 @@ where
 		arg: tg::object::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.touch_object(id, arg).left_future(),
-			Either::Right(s) => s.touch_object(id, arg).right_future(),
+			tg::Either::Left(s) => s.touch_object(id, arg).left_future(),
+			tg::Either::Right(s) => s.touch_object(id, arg).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::Process for Either<L, R>
+impl<L, R> tg::handle::Process for tg::Either<L, R>
 where
 	L: tg::handle::Process,
 	R: tg::handle::Process,
@@ -349,8 +348,8 @@ where
 		arg: tg::process::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
 		match self {
-			Either::Left(s) => s.list_processes(arg).left_future(),
-			Either::Right(s) => s.list_processes(arg).right_future(),
+			tg::Either::Left(s) => s.list_processes(arg).left_future(),
+			tg::Either::Right(s) => s.list_processes(arg).right_future(),
 		}
 	}
 
@@ -360,8 +359,8 @@ where
 		arg: tg::process::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> {
 		match self {
-			Either::Left(s) => s.try_get_process_metadata(id, arg).left_future(),
-			Either::Right(s) => s.try_get_process_metadata(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_process_metadata(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_process_metadata(id, arg).right_future(),
 		}
 	}
 
@@ -371,8 +370,8 @@ where
 		arg: tg::process::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> {
 		match self {
-			Either::Left(s) => s.try_get_process(id, arg).left_future(),
-			Either::Right(s) => s.try_get_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_process(id, arg).right_future(),
 		}
 	}
 
@@ -382,8 +381,8 @@ where
 		arg: tg::process::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.put_process(id, arg).left_future(),
-			Either::Right(s) => s.put_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.put_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.put_process(id, arg).right_future(),
 		}
 	}
 
@@ -399,11 +398,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_get_process_children_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_get_process_children_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
@@ -420,11 +419,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_get_process_log_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_get_process_log_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
@@ -443,11 +442,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_get_process_signal_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_get_process_signal_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
@@ -464,11 +463,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_get_process_status_stream(id, arg.clone())
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_get_process_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
@@ -481,8 +480,8 @@ where
 		arg: crate::process::cancel::Arg,
 	) -> impl Future<Output = crate::Result<()>> {
 		match self {
-			Either::Left(s) => s.cancel_process(id, arg).left_future(),
-			Either::Right(s) => s.cancel_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.cancel_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.cancel_process(id, arg).right_future(),
 		}
 	}
 
@@ -491,8 +490,8 @@ where
 		arg: tg::process::dequeue::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
 		match self {
-			Either::Left(s) => s.try_dequeue_process(arg).left_future(),
-			Either::Right(s) => s.try_dequeue_process(arg).right_future(),
+			tg::Either::Left(s) => s.try_dequeue_process(arg).left_future(),
+			tg::Either::Right(s) => s.try_dequeue_process(arg).right_future(),
 		}
 	}
 
@@ -502,8 +501,8 @@ where
 		arg: tg::process::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.finish_process(id, arg).left_future(),
-			Either::Right(s) => s.finish_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.finish_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.finish_process(id, arg).right_future(),
 		}
 	}
 
@@ -513,8 +512,8 @@ where
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
 		match self {
-			Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
-			Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
 		}
 	}
 
@@ -524,8 +523,8 @@ where
 		arg: tg::process::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.post_process_log(id, arg).left_future(),
-			Either::Right(s) => s.post_process_log(id, arg).right_future(),
+			tg::Either::Left(s) => s.post_process_log(id, arg).left_future(),
+			tg::Either::Right(s) => s.post_process_log(id, arg).right_future(),
 		}
 	}
 
@@ -535,8 +534,8 @@ where
 		arg: crate::process::signal::post::Arg,
 	) -> impl Future<Output = crate::Result<()>> {
 		match self {
-			Either::Left(s) => s.signal_process(id, arg).left_future(),
-			Either::Right(s) => s.signal_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.signal_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.signal_process(id, arg).right_future(),
 		}
 	}
 
@@ -545,8 +544,8 @@ where
 		arg: tg::process::spawn::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
 		match self {
-			Either::Left(s) => s.try_spawn_process(arg).left_future(),
-			Either::Right(s) => s.try_spawn_process(arg).right_future(),
+			tg::Either::Left(s) => s.try_spawn_process(arg).left_future(),
+			tg::Either::Right(s) => s.try_spawn_process(arg).right_future(),
 		}
 	}
 
@@ -556,8 +555,8 @@ where
 		arg: tg::process::start::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.start_process(id, arg).left_future(),
-			Either::Right(s) => s.start_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.start_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.start_process(id, arg).right_future(),
 		}
 	}
 
@@ -567,8 +566,8 @@ where
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.touch_process(id, arg).left_future(),
-			Either::Right(s) => s.touch_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.touch_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.touch_process(id, arg).right_future(),
 		}
 	}
 
@@ -584,11 +583,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_wait_process_future(id, arg.clone())
 				.map_ok(|option| option.map(futures::FutureExt::left_future))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_wait_process_future(id, arg)
 				.map_ok(|option| option.map(futures::FutureExt::right_future))
 				.right_future(),
@@ -596,7 +595,7 @@ where
 	}
 }
 
-impl<L, R> tg::handle::Pipe for Either<L, R>
+impl<L, R> tg::handle::Pipe for tg::Either<L, R>
 where
 	L: tg::handle::Pipe,
 	R: tg::handle::Pipe,
@@ -606,8 +605,8 @@ where
 		arg: tg::pipe::create::Arg,
 	) -> impl Future<Output = tg::Result<tg::pipe::create::Output>> {
 		match self {
-			Either::Left(s) => s.create_pipe(arg).left_future(),
-			Either::Right(s) => s.create_pipe(arg).right_future(),
+			tg::Either::Left(s) => s.create_pipe(arg).left_future(),
+			tg::Either::Right(s) => s.create_pipe(arg).right_future(),
 		}
 	}
 
@@ -617,8 +616,8 @@ where
 		arg: tg::pipe::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.close_pipe(id, arg).left_future(),
-			Either::Right(s) => s.close_pipe(id, arg).right_future(),
+			tg::Either::Left(s) => s.close_pipe(id, arg).left_future(),
+			tg::Either::Right(s) => s.close_pipe(id, arg).right_future(),
 		}
 	}
 
@@ -628,8 +627,8 @@ where
 		arg: tg::pipe::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.delete_pipe(id, arg).left_future(),
-			Either::Right(s) => s.delete_pipe(id, arg).right_future(),
+			tg::Either::Left(s) => s.delete_pipe(id, arg).left_future(),
+			tg::Either::Right(s) => s.delete_pipe(id, arg).right_future(),
 		}
 	}
 
@@ -643,11 +642,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_read_pipe(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_read_pipe(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
@@ -661,13 +660,13 @@ where
 		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.write_pipe(id, arg, stream).left_future(),
-			Either::Right(s) => s.write_pipe(id, arg, stream).right_future(),
+			tg::Either::Left(s) => s.write_pipe(id, arg, stream).left_future(),
+			tg::Either::Right(s) => s.write_pipe(id, arg, stream).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::Pty for Either<L, R>
+impl<L, R> tg::handle::Pty for tg::Either<L, R>
 where
 	L: tg::handle::Pty,
 	R: tg::handle::Pty,
@@ -677,8 +676,8 @@ where
 		arg: tg::pty::create::Arg,
 	) -> impl Future<Output = tg::Result<tg::pty::create::Output>> {
 		match self {
-			Either::Left(s) => s.create_pty(arg).left_future(),
-			Either::Right(s) => s.create_pty(arg).right_future(),
+			tg::Either::Left(s) => s.create_pty(arg).left_future(),
+			tg::Either::Right(s) => s.create_pty(arg).right_future(),
 		}
 	}
 
@@ -688,8 +687,8 @@ where
 		arg: tg::pty::close::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.close_pty(id, arg).left_future(),
-			Either::Right(s) => s.close_pty(id, arg).right_future(),
+			tg::Either::Left(s) => s.close_pty(id, arg).left_future(),
+			tg::Either::Right(s) => s.close_pty(id, arg).right_future(),
 		}
 	}
 
@@ -699,8 +698,8 @@ where
 		arg: tg::pty::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.delete_pty(id, arg).left_future(),
-			Either::Right(s) => s.delete_pty(id, arg).right_future(),
+			tg::Either::Left(s) => s.delete_pty(id, arg).left_future(),
+			tg::Either::Right(s) => s.delete_pty(id, arg).right_future(),
 		}
 	}
 
@@ -710,8 +709,8 @@ where
 		arg: tg::pty::read::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
 		match self {
-			Either::Left(s) => s.get_pty_size(id, arg).left_future(),
-			Either::Right(s) => s.get_pty_size(id, arg).right_future(),
+			tg::Either::Left(s) => s.get_pty_size(id, arg).left_future(),
+			tg::Either::Right(s) => s.get_pty_size(id, arg).right_future(),
 		}
 	}
 
@@ -725,11 +724,11 @@ where
 		>,
 	> {
 		match self {
-			Either::Left(s) => s
+			tg::Either::Left(s) => s
 				.try_read_pty(id, arg)
 				.map(|result| result.map(|opt| opt.map(futures::StreamExt::left_stream)))
 				.left_future(),
-			Either::Right(s) => s
+			tg::Either::Right(s) => s
 				.try_read_pty(id, arg)
 				.map(|result| result.map(|opt| opt.map(futures::StreamExt::right_stream)))
 				.right_future(),
@@ -743,13 +742,13 @@ where
 		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.write_pty(id, arg, stream).left_future(),
-			Either::Right(s) => s.write_pty(id, arg, stream).right_future(),
+			tg::Either::Left(s) => s.write_pty(id, arg, stream).left_future(),
+			tg::Either::Right(s) => s.write_pty(id, arg, stream).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::Remote for Either<L, R>
+impl<L, R> tg::handle::Remote for tg::Either<L, R>
 where
 	L: tg::handle::Remote,
 	R: tg::handle::Remote,
@@ -759,8 +758,8 @@ where
 		arg: tg::remote::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::remote::list::Output>> {
 		match self {
-			Either::Left(s) => s.list_remotes(arg).left_future(),
-			Either::Right(s) => s.list_remotes(arg).right_future(),
+			tg::Either::Left(s) => s.list_remotes(arg).left_future(),
+			tg::Either::Right(s) => s.list_remotes(arg).right_future(),
 		}
 	}
 
@@ -769,8 +768,8 @@ where
 		name: &str,
 	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
 		match self {
-			Either::Left(s) => s.try_get_remote(name).left_future(),
-			Either::Right(s) => s.try_get_remote(name).right_future(),
+			tg::Either::Left(s) => s.try_get_remote(name).left_future(),
+			tg::Either::Right(s) => s.try_get_remote(name).right_future(),
 		}
 	}
 
@@ -780,20 +779,20 @@ where
 		arg: tg::remote::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.put_remote(name, arg).left_future(),
-			Either::Right(s) => s.put_remote(name, arg).right_future(),
+			tg::Either::Left(s) => s.put_remote(name, arg).left_future(),
+			tg::Either::Right(s) => s.put_remote(name, arg).right_future(),
 		}
 	}
 
 	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.delete_remote(name).left_future(),
-			Either::Right(s) => s.delete_remote(name).right_future(),
+			tg::Either::Left(s) => s.delete_remote(name).left_future(),
+			tg::Either::Right(s) => s.delete_remote(name).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::Tag for Either<L, R>
+impl<L, R> tg::handle::Tag for tg::Either<L, R>
 where
 	L: tg::handle::Tag,
 	R: tg::handle::Tag,
@@ -803,8 +802,8 @@ where
 		arg: tg::tag::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> {
 		match self {
-			Either::Left(s) => s.list_tags(arg).left_future(),
-			Either::Right(s) => s.list_tags(arg).right_future(),
+			tg::Either::Left(s) => s.list_tags(arg).left_future(),
+			tg::Either::Right(s) => s.list_tags(arg).right_future(),
 		}
 	}
 
@@ -814,8 +813,8 @@ where
 		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
 		match self {
-			Either::Left(s) => s.try_get_tag(pattern, arg.clone()).left_future(),
-			Either::Right(s) => s.try_get_tag(pattern, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_tag(pattern, arg.clone()).left_future(),
+			tg::Either::Right(s) => s.try_get_tag(pattern, arg).right_future(),
 		}
 	}
 
@@ -825,15 +824,15 @@ where
 		arg: tg::tag::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.put_tag(tag, arg).left_future(),
-			Either::Right(s) => s.put_tag(tag, arg).right_future(),
+			tg::Either::Left(s) => s.put_tag(tag, arg).left_future(),
+			tg::Either::Right(s) => s.put_tag(tag, arg).right_future(),
 		}
 	}
 
 	fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.post_tag_batch(arg).left_future(),
-			Either::Right(s) => s.post_tag_batch(arg).right_future(),
+			tg::Either::Left(s) => s.post_tag_batch(arg).left_future(),
+			tg::Either::Right(s) => s.post_tag_batch(arg).right_future(),
 		}
 	}
 
@@ -842,26 +841,26 @@ where
 		arg: tg::tag::delete::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> {
 		match self {
-			Either::Left(s) => s.delete_tag(arg).left_future(),
-			Either::Right(s) => s.delete_tag(arg).right_future(),
+			tg::Either::Left(s) => s.delete_tag(arg).left_future(),
+			tg::Either::Right(s) => s.delete_tag(arg).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::User for Either<L, R>
+impl<L, R> tg::handle::User for tg::Either<L, R>
 where
 	L: tg::handle::User,
 	R: tg::handle::User,
 {
 	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		match self {
-			Either::Left(s) => s.get_user(token).left_future(),
-			Either::Right(s) => s.get_user(token).right_future(),
+			tg::Either::Left(s) => s.get_user(token).left_future(),
+			tg::Either::Right(s) => s.get_user(token).right_future(),
 		}
 	}
 }
 
-impl<L, R> tg::handle::Watch for Either<L, R>
+impl<L, R> tg::handle::Watch for tg::Either<L, R>
 where
 	L: tg::handle::Watch,
 	R: tg::handle::Watch,
@@ -871,15 +870,15 @@ where
 		arg: tg::watch::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::watch::list::Output>> {
 		match self {
-			Either::Left(s) => s.list_watches(arg).left_future(),
-			Either::Right(s) => s.list_watches(arg).right_future(),
+			tg::Either::Left(s) => s.list_watches(arg).left_future(),
+			tg::Either::Right(s) => s.list_watches(arg).right_future(),
 		}
 	}
 
 	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			Either::Left(s) => s.delete_watch(arg).left_future(),
-			Either::Right(s) => s.delete_watch(arg).right_future(),
+			tg::Either::Left(s) => s.delete_watch(arg).left_future(),
+			tg::Either::Right(s) => s.delete_watch(arg).right_future(),
 		}
 	}
 }

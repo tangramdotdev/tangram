@@ -3,7 +3,6 @@ use {
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -30,7 +29,7 @@ impl Server {
 				let remote = remote.clone().unwrap_or_else(|| "default".to_owned());
 				Some(async move {
 					let arg = tg::pull::Arg {
-						items: vec![Either::Left(directory.into())],
+						items: vec![tg::Either::Left(directory.into())],
 						remote: Some(remote),
 						..Default::default()
 					};

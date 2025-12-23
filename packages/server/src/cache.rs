@@ -14,7 +14,6 @@ use {
 		pin::pin,
 	},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::prelude::*,
@@ -177,7 +176,7 @@ impl Server {
 			.pull(tg::pull::Arg {
 				items: artifacts
 					.iter()
-					.map(|artifact| Either::Left(artifact.clone().into()))
+					.map(|artifact| tg::Either::Left(artifact.clone().into()))
 					.collect(),
 				..Default::default()
 			})

@@ -5,14 +5,13 @@ use {
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 };
 
 #[derive(Clone, Debug)]
 pub struct Match {
 	pub id: u64,
 	pub tag: tg::Tag,
-	pub item: Option<Either<tg::object::Id, tg::process::Id>>,
+	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 }
 
 impl Server {
@@ -73,7 +72,7 @@ impl Server {
 				id: u64,
 				component: String,
 				#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
-				item: Option<Either<tg::object::Id, tg::process::Id>>,
+				item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 			}
 			let statement = indoc!(
 				"
@@ -147,7 +146,7 @@ impl Server {
 			id: u64,
 			component: String,
 			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
-			item: Option<Either<tg::object::Id, tg::process::Id>>,
+			item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 		}
 
 		#[derive(db::sqlite::row::Deserialize)]
@@ -155,7 +154,7 @@ impl Server {
 			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			id: u64,
 			#[tangram_database(as = "Option<db::sqlite::value::TryFrom<String>>")]
-			item: Option<Either<tg::object::Id, tg::process::Id>>,
+			item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 		}
 
 		// If the pattern is empty, return all root-level tags.

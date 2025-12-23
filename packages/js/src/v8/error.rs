@@ -3,7 +3,6 @@ use {
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, rc::Rc},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
@@ -22,7 +21,7 @@ pub(super) fn to_exception<'s>(
 	let error_constructor = v8::Local::<v8::Object>::try_from(error_constructor).unwrap();
 
 	match error.to_data_or_id() {
-		Either::Left(data) => {
+		tg::Either::Left(data) => {
 			let from_data = v8::String::new_external_onebyte_static(scope, b"fromData").unwrap();
 			let from_data = error_constructor.get(scope, from_data.into()).unwrap();
 			let from_data = v8::Local::<v8::Function>::try_from(from_data).unwrap();
@@ -32,7 +31,7 @@ pub(super) fn to_exception<'s>(
 			let exception = from_data.call(scope, undefined.into(), &[data])?;
 			Some(exception)
 		},
-		Either::Right(id) => {
+		tg::Either::Right(id) => {
 			let with_id = v8::String::new_external_onebyte_static(scope, b"withId").unwrap();
 			let with_id = error_constructor.get(scope, with_id.into()).unwrap();
 			let with_id = v8::Local::<v8::Function>::try_from(with_id).unwrap();

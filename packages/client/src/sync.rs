@@ -5,7 +5,6 @@ use {
 	http_body_util::BodyStream,
 	num::ToPrimitive as _,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
-	tangram_either::Either,
 	tangram_futures::{read::Ext, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::{Body, response::Ext as _},
 	tangram_util::serde::{CommaSeparatedString, is_false},
@@ -33,7 +32,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub get: Vec<Either<tg::object::Id, tg::process::Id>>,
+	pub get: Vec<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
@@ -48,7 +47,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub put: Vec<Either<tg::object::Id, tg::process::Id>>,
+	pub put: Vec<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]

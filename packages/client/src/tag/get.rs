@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
 	serde_with::serde_as,
-	tangram_either::Either,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::CommaSeparatedString,
 };
@@ -22,7 +21,7 @@ pub struct Output {
 	pub tag: tg::Tag,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub item: Option<Either<tg::object::Id, tg::process::Id>>,
+	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,

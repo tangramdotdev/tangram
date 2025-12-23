@@ -1,7 +1,4 @@
-use {
-	crate::Cli, std::pin::pin, tangram_client::prelude::*, tangram_either::Either,
-	tokio::io::AsyncWriteExt as _,
-};
+use {crate::Cli, std::pin::pin, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
 
 /// Read files and blobs.
 #[derive(Clone, Debug, clap::Args)]
@@ -31,7 +28,7 @@ impl Cli {
 
 		for reference in &args.references {
 			let referent = self.get_reference_with_arg(reference, arg.clone()).await?;
-			let Either::Left(object) = referent.item() else {
+			let tg::Either::Left(object) = referent.item() else {
 				return Err(tg::error!("expected an object"));
 			};
 			if let Ok(blob) = tg::Blob::try_from(object.clone()) {

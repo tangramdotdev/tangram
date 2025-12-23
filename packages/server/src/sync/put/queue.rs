@@ -9,7 +9,6 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::sync::Arc,
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 impl Server {
@@ -101,8 +100,8 @@ impl Server {
 	) -> tg::Result<()> {
 		for item in items {
 			let parent = item.parent.clone().map(|either| match either {
-				Either::Left(id) => super::graph::Id::Object(id),
-				Either::Right(id) => super::graph::Id::Process(id),
+				tg::Either::Left(id) => super::graph::Id::Object(id),
+				tg::Either::Right(id) => super::graph::Id::Process(id),
 			});
 			let (inserted, stored) = state
 				.graph

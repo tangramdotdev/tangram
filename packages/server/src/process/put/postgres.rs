@@ -4,7 +4,6 @@ use {
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 };
 
 impl Server {
@@ -83,8 +82,8 @@ impl Server {
 				data.error
 					.as_ref()
 					.and_then(|error| match error {
-						Either::Left(data) => data.code,
-						Either::Right(_) => None,
+						tg::Either::Left(data) => data.code,
+						tg::Either::Right(_) => None,
 					})
 					.as_ref()
 					.map(ToString::to_string),

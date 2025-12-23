@@ -3,7 +3,6 @@ use {
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 mod common;
@@ -37,7 +36,7 @@ impl Server {
 				.acquire_owned()
 				.await
 				.unwrap();
-			let permit = ProcessPermit(Either::Left(permit));
+			let permit = ProcessPermit(tg::Either::Left(permit));
 
 			// Try to dequeue a process locally or from one of the remotes.
 			let arg = tg::process::dequeue::Arg::default();
@@ -156,7 +155,7 @@ impl Server {
 			let mut objects = BTreeSet::new();
 			output.children(&mut objects);
 			let arg = tg::push::Arg {
-				items: objects.into_iter().map(Either::Left).collect(),
+				items: objects.into_iter().map(tg::Either::Left).collect(),
 				remote: Some(remote.to_owned()),
 				..Default::default()
 			};

@@ -1,7 +1,6 @@
 use {
 	byteorder::ReadBytesExt as _, bytes::Bytes, std::collections::BTreeSet,
-	tangram_client::prelude::*, tangram_either::Either, tangram_messenger,
-	tangram_util::serde::is_default,
+	tangram_client::prelude::*, tangram_messenger, tangram_util::serde::is_default,
 };
 
 #[derive(Clone, Debug)]
@@ -224,7 +223,7 @@ pub struct PutTagMessage {
 	pub tag: String,
 
 	#[tangram_serialize(id = 1)]
-	pub item: Either<tg::object::Id, tg::process::Id>,
+	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 }
 
 #[derive(

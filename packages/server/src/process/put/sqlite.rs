@@ -5,7 +5,6 @@ use {
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 };
 
 impl Server {
@@ -162,12 +161,12 @@ impl Server {
 		// Insert all processes and their children.
 		for (id, data) in items {
 			let error_string = data.error.as_ref().map(|e| match e {
-				Either::Left(data) => serde_json::to_string(data).unwrap(),
-				Either::Right(id) => id.to_string(),
+				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
+				tg::Either::Right(id) => id.to_string(),
 			});
 			let error_code = data.error.as_ref().and_then(|e| match e {
-				Either::Left(data) => data.code.map(|code| code.to_string()),
-				Either::Right(_) => None,
+				tg::Either::Left(data) => data.code.map(|code| code.to_string()),
+				tg::Either::Right(_) => None,
 			});
 			let mounts_json =
 				(!data.mounts.is_empty()).then(|| serde_json::to_string(&data.mounts).unwrap());

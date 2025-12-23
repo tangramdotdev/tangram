@@ -3,7 +3,6 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -111,7 +110,7 @@ impl Server {
 				let items = children
 					.into_iter()
 					.map(|child| crate::sync::queue::ObjectItem {
-						parent: Some(Either::Left(item.id.clone())),
+						parent: Some(tg::Either::Left(item.id.clone())),
 						id: child,
 						kind: item.kind,
 						eager: item.eager,
@@ -182,7 +181,7 @@ impl Server {
 			// Enqueue the command.
 			if item.eager && state.arg.commands {
 				let item = crate::sync::queue::ObjectItem {
-					parent: Some(Either::Right(item.id.clone())),
+					parent: Some(tg::Either::Right(item.id.clone())),
 					id: output.data.command.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
 					eager: item.eager,
@@ -196,23 +195,23 @@ impl Server {
 				&& let Some(error) = &output.data.error
 			{
 				match error {
-					Either::Left(data) => {
+					tg::Either::Left(data) => {
 						let mut children = BTreeSet::new();
 						data.children(&mut children);
 						let items =
 							children
 								.into_iter()
 								.map(|child| crate::sync::queue::ObjectItem {
-									parent: Some(Either::Right(item.id.clone())),
+									parent: Some(tg::Either::Right(item.id.clone())),
 									id: child,
 									kind: Some(crate::sync::queue::ObjectKind::Error),
 									eager: item.eager,
 								});
 						state.queue.enqueue_objects(items);
 					},
-					Either::Right(id) => {
+					tg::Either::Right(id) => {
 						let item = crate::sync::queue::ObjectItem {
-							parent: Some(Either::Right(item.id.clone())),
+							parent: Some(tg::Either::Right(item.id.clone())),
 							id: id.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							eager: item.eager,
@@ -231,7 +230,7 @@ impl Server {
 					.clone()
 					.into();
 				let item = crate::sync::queue::ObjectItem {
-					parent: Some(Either::Right(item.id.clone())),
+					parent: Some(tg::Either::Right(item.id.clone())),
 					id,
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					eager: item.eager,
@@ -249,7 +248,7 @@ impl Server {
 				let items = children
 					.into_iter()
 					.map(|child| crate::sync::queue::ObjectItem {
-						parent: Some(Either::Right(item.id.clone())),
+						parent: Some(tg::Either::Right(item.id.clone())),
 						id: child,
 						kind: Some(crate::sync::queue::ObjectKind::Output),
 						eager: item.eager,

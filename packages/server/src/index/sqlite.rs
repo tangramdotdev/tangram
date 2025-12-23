@@ -11,7 +11,6 @@ use {
 	std::str::FromStr as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 };
 
 impl Server {
@@ -1131,8 +1130,8 @@ impl Server {
 
 			// Insert or replace the tag.
 			let item = match &message.item {
-				Either::Left(item) => item.to_bytes().to_vec(),
-				Either::Right(item) => item.to_bytes().to_vec(),
+				tg::Either::Left(item) => item.to_bytes().to_vec(),
+				tg::Either::Right(item) => item.to_bytes().to_vec(),
 			};
 			let params = sqlite::params![message.tag, item];
 			insert_statement

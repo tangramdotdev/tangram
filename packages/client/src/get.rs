@@ -2,7 +2,6 @@ use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
 	serde_with::serde_as,
-	tangram_either::Either,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::CommaSeparatedString,
 };
@@ -23,7 +22,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub referent: tg::Referent<Either<tg::object::Id, tg::process::Id>>,
+	pub referent: tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
 }
 
 impl tg::Client {

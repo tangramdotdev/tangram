@@ -4,7 +4,6 @@ use {
 	smallvec::SmallVec,
 	std::collections::{BTreeSet, HashSet},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_util::iter::Ext as _,
 };
 
@@ -71,12 +70,12 @@ pub struct Requested {
 }
 
 impl Graph {
-	pub fn new(roots: &[Either<tg::object::Id, tg::process::Id>]) -> Self {
+	pub fn new(roots: &[tg::Either<tg::object::Id, tg::process::Id>]) -> Self {
 		let roots = roots
 			.iter()
 			.map(|id| match id {
-				Either::Left(id) => Id::Object(id.clone()),
-				Either::Right(id) => Id::Process(id.clone()),
+				tg::Either::Left(id) => Id::Object(id.clone()),
+				tg::Either::Right(id) => Id::Process(id.clone()),
 			})
 			.collect();
 		Graph {

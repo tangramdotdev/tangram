@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::collections::BTreeMap, tangram_either::Either, tangram_uri::Uri};
+use {crate::prelude::*, std::collections::BTreeMap, tangram_uri::Uri};
 
 #[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub enum ArchiveFormat {
@@ -103,7 +103,7 @@ pub fn bundle_command(artifact: &tg::Artifact) -> tg::Command {
 }
 
 pub async fn checksum<H>(
-	input: Either<&tg::Blob, &tg::Artifact>,
+	input: tg::Either<&tg::Blob, &tg::Artifact>,
 	handle: &H,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum>
@@ -129,7 +129,7 @@ where
 
 #[must_use]
 pub fn checksum_command(
-	input: Either<tg::Blob, tg::Artifact>,
+	input: tg::Either<tg::Blob, tg::Artifact>,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Command {
 	let host = "builtin";
@@ -203,7 +203,7 @@ pub async fn download<H>(
 	url: &Uri,
 	checksum: &tg::Checksum,
 	options: Option<DownloadOptions>,
-) -> tg::Result<Either<tg::Blob, tg::Artifact>>
+) -> tg::Result<tg::Either<tg::Blob, tg::Artifact>>
 where
 	H: tg::Handle,
 {
@@ -217,9 +217,9 @@ where
 		.await?
 		.into_output()?;
 	let output = if output.is_blob() {
-		Either::Left(output.try_into()?)
+		tg::Either::Left(output.try_into()?)
 	} else if output.is_artifact() {
-		Either::Right(output.try_into()?)
+		tg::Either::Right(output.try_into()?)
 	} else {
 		return Err(tg::error!("expected a blob or an artifact"));
 	};

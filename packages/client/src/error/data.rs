@@ -6,7 +6,6 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		path::PathBuf,
 	},
-	tangram_either::Either,
 };
 
 /// An error.
@@ -43,7 +42,7 @@ pub struct Error {
 	/// The error's source.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
-	pub source: Option<tg::Referent<Either<Box<tg::error::Data>, tg::error::Id>>>,
+	pub source: Option<tg::Referent<tg::Either<Box<tg::error::Data>, tg::error::Id>>>,
 
 	/// A stack trace associated with the error.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,8 +134,8 @@ impl Error {
 		}
 		if let Some(source) = &self.source {
 			match &source.item {
-				Either::Left(data) => data.children(children),
-				Either::Right(id) => {
+				tg::Either::Left(data) => data.children(children),
+				tg::Either::Right(id) => {
 					children.insert(id.clone().into());
 				},
 			}
@@ -155,7 +154,7 @@ impl Error {
 				stack_locations.retain(|location| !matches!(location.file, File::Internal(_)));
 			}
 			if let Some(source) = &mut error.source
-				&& let Either::Left(data) = &mut source.item
+				&& let tg::Either::Left(data) = &mut source.item
 			{
 				stack.push(&mut **data);
 			}

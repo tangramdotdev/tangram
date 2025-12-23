@@ -6,7 +6,6 @@ use {
 	std::{collections::BTreeMap, pin::pin},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 	tangram_messenger::prelude::*,
 };
 
@@ -110,7 +109,7 @@ impl Server {
 					};
 					let arg = tg::process::finish::Arg {
 						checksum: None,
-						error: Some(Either::Left(error)),
+						error: Some(tg::Either::Left(error)),
 						exit: 1,
 						local: None,
 						output: None,

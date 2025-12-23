@@ -2,7 +2,6 @@ use {
 	crate::{Server, context::Context},
 	std::{path::Path, pin::pin},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
@@ -122,7 +121,7 @@ impl Server {
 				tg::Object::Directory(directory),
 			) => {
 				let path =
-					tg::package::try_get_root_module_file_name(self, Either::Left(directory))
+					tg::package::try_get_root_module_file_name(self, tg::Either::Left(directory))
 						.await?;
 				if let Some(path) = path {
 					let edge = directory.get_entry_edge(self, path).await?;
@@ -260,7 +259,7 @@ impl Server {
 					import.kind,
 					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
 				) && let Some(root_module_name) =
-				tg::package::try_get_root_module_file_name(self, Either::Right(&path)).await?
+				tg::package::try_get_root_module_file_name(self, tg::Either::Right(&path)).await?
 			{
 				let path = path.join(root_module_name);
 				let item = tg::module::data::Item::Path(path);

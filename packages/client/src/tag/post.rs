@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
 	serde_with::serde_as,
-	tangram_either::Either,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::{CommaSeparatedString, is_false},
 };
@@ -24,7 +23,7 @@ pub struct Item {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 	pub tag: tg::Tag,
-	pub item: Either<tg::object::Id, tg::process::Id>,
+	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 }
 
 impl tg::Client {

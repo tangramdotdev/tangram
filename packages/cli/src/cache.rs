@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_either::Either};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Cache an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,7 +17,7 @@ impl Cli {
 		let artifacts = referents
 			.into_iter()
 			.map(|referent| {
-				let Either::Left(object) = referent.item else {
+				let tg::Either::Left(object) = referent.item else {
 					return Err(tg::error!("expected an object"));
 				};
 				let artifact = tg::Artifact::try_from(object)?;

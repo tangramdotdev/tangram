@@ -12,7 +12,6 @@ use {
 	},
 	sync_wrapper::SyncWrapper,
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::{
 		stream::Ext as _,
 		task::{Stop, Task},
@@ -34,7 +33,7 @@ pub struct File {
 	current: u64,
 	length: u64,
 	position: u64,
-	reader: Either<tokio::io::BufReader<tokio::fs::File>, std::io::BufReader<std::fs::File>>,
+	reader: tg::Either<tokio::io::BufReader<tokio::fs::File>, std::io::BufReader<std::fs::File>>,
 	seeking: bool,
 }
 
@@ -374,7 +373,7 @@ impl File {
 			current: 0,
 			length,
 			position,
-			reader: Either::Left(reader),
+			reader: tg::Either::Left(reader),
 			seeking: false,
 		})
 	}
@@ -388,7 +387,7 @@ impl File {
 			current: 0,
 			length,
 			position,
-			reader: Either::Right(reader),
+			reader: tg::Either::Right(reader),
 			seeking: false,
 		})
 	}

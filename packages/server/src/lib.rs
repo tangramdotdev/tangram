@@ -14,7 +14,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 	tangram_futures::task::Task,
 	tangram_messenger::prelude::*,
 	tangram_uri::Uri,
@@ -135,7 +134,7 @@ type ProcessPermits =
 
 struct ProcessPermit(
 	#[expect(dead_code)]
-	Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
+	tg::Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;

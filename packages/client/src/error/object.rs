@@ -1,4 +1,4 @@
-use {super::Data, crate::prelude::*, std::collections::BTreeMap, tangram_either::Either};
+use {super::Data, crate::prelude::*, std::collections::BTreeMap};
 
 #[derive(Clone, Debug, Default)]
 pub struct Error {
@@ -6,7 +6,7 @@ pub struct Error {
 	pub diagnostics: Option<Vec<tg::Diagnostic>>,
 	pub location: Option<tg::error::Location>,
 	pub message: Option<String>,
-	pub source: Option<tg::Referent<Either<Box<tg::error::Object>, Box<tg::Error>>>>,
+	pub source: Option<tg::Referent<tg::Either<Box<tg::error::Object>, Box<tg::Error>>>>,
 	pub stack: Option<Vec<tg::error::Location>>,
 	pub values: BTreeMap<String, String>,
 }
@@ -22,13 +22,13 @@ impl Error {
 		let message = self.message.clone();
 		let source = self.source.as_ref().map(|source| {
 			source.clone().map(|item| match item {
-				Either::Left(object) => {
+				tg::Either::Left(object) => {
 					let data = object.to_data();
-					Either::Left(Box::new(data))
+					tg::Either::Left(Box::new(data))
 				},
-				Either::Right(handle) => {
+				tg::Either::Right(handle) => {
 					let id = handle.id();
-					Either::Right(id)
+					tg::Either::Right(id)
 				},
 			})
 		});
@@ -68,13 +68,13 @@ impl Error {
 			.map(|source| {
 				source.try_map(|item| {
 					let error = match item {
-						Either::Left(data) => {
+						tg::Either::Left(data) => {
 							let object = Error::try_from_data(*data)?;
-							Either::Left(Box::new(object))
+							tg::Either::Left(Box::new(object))
 						},
-						Either::Right(id) => {
+						tg::Either::Right(id) => {
 							let error = tg::Error::with_id(id);
-							Either::Right(Box::new(error))
+							tg::Either::Right(Box::new(error))
 						},
 					};
 					Ok::<_, tg::Error>(error)
@@ -120,10 +120,10 @@ impl Error {
 		}
 		if let Some(source) = &self.source {
 			match &source.item {
-				Either::Left(object) => {
+				tg::Either::Left(object) => {
 					children.extend(object.children());
 				},
-				Either::Right(error) => {
+				tg::Either::Right(error) => {
 					children.push((*error.clone()).into());
 				},
 			}

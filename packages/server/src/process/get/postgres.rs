@@ -4,7 +4,6 @@ use {
 	itertools::Itertools as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 };
 
 impl Server {
@@ -106,9 +105,9 @@ impl Server {
 				let id = row.id?;
 				let error = row.error.map(|s| {
 					if s.starts_with('{') {
-						Either::Left(serde_json::from_str(&s).unwrap())
+						tg::Either::Left(serde_json::from_str(&s).unwrap())
 					} else {
-						Either::Right(s.parse().unwrap())
+						tg::Either::Right(s.parse().unwrap())
 					}
 				});
 				let data = tg::process::Data {

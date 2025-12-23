@@ -11,7 +11,6 @@ use {
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::task::Task,
 };
 
@@ -22,7 +21,7 @@ struct SandboxArg<'a> {
 	env: &'a BTreeMap<String, String>,
 	executable: &'a Path,
 	id: &'a tg::process::Id,
-	mounts: &'a [Either<&'a tg::process::Mount, &'a tg::command::data::Mount>],
+	mounts: &'a [tg::Either<&'a tg::process::Mount, &'a tg::command::data::Mount>],
 	root_mounted: bool,
 	server: &'a Server,
 	state: &'a tg::process::State,
@@ -145,8 +144,8 @@ impl Server {
 
 		// Create mounts.
 		let mounts = std::iter::empty()
-			.chain(state.mounts.iter().map(Either::Left))
-			.chain(command.mounts.iter().map(Either::Right))
+			.chain(state.mounts.iter().map(tg::Either::Left))
+			.chain(command.mounts.iter().map(tg::Either::Right))
 			.collect::<Vec<_>>();
 
 		// Set `$TANGRAM_OUTPUT`.
@@ -313,13 +312,13 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 	let mut overlays = HashMap::new();
 	for mount in mounts {
 		match mount {
-			Either::Left(mount) => {
+			tg::Either::Left(mount) => {
 				output.args.push("--mount".to_owned());
 				output
 					.args
 					.push(bind(&mount.source, &mount.target, mount.readonly));
 			},
-			Either::Right(mount) => {
+			tg::Either::Right(mount) => {
 				// Create the overlay state if it does not exist. Since we use async here, we can't use the .entry() api.
 				if !overlays.contains_key(&mount.target) {
 					let lowerdirs = Vec::new();

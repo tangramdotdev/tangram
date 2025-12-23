@@ -8,7 +8,6 @@ use {
 		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tokio_stream::wrappers::ReceiverStream,
@@ -40,7 +39,7 @@ impl Server {
 	{
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
-		if arg.items.iter().any(Either::is_right) {
+		if arg.items.iter().any(tg::Either::is_right) {
 			progress.start(
 				"processes".to_owned(),
 				"processes".to_owned(),
@@ -123,7 +122,7 @@ impl Server {
 				async move {
 					loop {
 						match item {
-							Either::Left(object) => {
+							tg::Either::Left(object) => {
 								let metadata_arg = tg::object::metadata::Arg::default();
 								let metadata = src
 									.try_get_object_metadata(object, metadata_arg)
@@ -132,10 +131,10 @@ impl Server {
 								if metadata.subtree.count.is_some()
 									&& metadata.subtree.size.is_some()
 								{
-									break Ok::<_, tg::Error>(Either::Left(metadata));
+									break Ok::<_, tg::Error>(tg::Either::Left(metadata));
 								}
 							},
-							Either::Right(process) => {
+							tg::Either::Right(process) => {
 								let metadata_arg = tg::process::metadata::Arg::default();
 								let Some(metadata) = src
 									.try_get_process_metadata(process, metadata_arg)
@@ -172,7 +171,7 @@ impl Server {
 									}
 								}
 								if stored {
-									break Ok::<_, tg::Error>(Either::Right(metadata));
+									break Ok::<_, tg::Error>(tg::Either::Right(metadata));
 								}
 							},
 						}
@@ -186,7 +185,7 @@ impl Server {
 		let mut bytes: Option<u64> = None;
 		while let Some(Ok(metadata)) = metadata_futures.next().await {
 			match metadata {
-				Either::Left(metadata) => {
+				tg::Either::Left(metadata) => {
 					if let Some(count) = metadata.subtree.count {
 						*objects.get_or_insert(0) += count;
 					}
@@ -194,7 +193,7 @@ impl Server {
 						*bytes.get_or_insert(0) += size;
 					}
 				},
-				Either::Right(metadata) => {
+				tg::Either::Right(metadata) => {
 					if arg.recursive {
 						if let Some(count) = metadata.subtree.count {
 							*processes.get_or_insert(0) += count;

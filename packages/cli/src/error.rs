@@ -4,7 +4,6 @@ use {
 	crossterm::style::Stylize as _,
 	std::{fmt::Write as _, path::Path},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tokio::io::AsyncReadExt,
 };
 
@@ -73,8 +72,8 @@ impl Cli {
 			// Add the source to the stack.
 			if let Some(source) = &error.source {
 				let source_handle = match &source.item {
-					Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
-					Either::Right(handle) => (**handle).clone(),
+					tg::Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
+					tg::Either::Right(handle) => (**handle).clone(),
 				};
 				let mut source_referent = tg::Referent {
 					item: source_handle,
@@ -208,8 +207,8 @@ impl Cli {
 			// Add the source to the stack.
 			if let Some(source) = &error.source {
 				let source_handle = match &source.item {
-					Either::Left(obj) => tg::Error::with_object((**obj).clone()),
-					Either::Right(handle) => (**handle).clone(),
+					tg::Either::Left(obj) => tg::Error::with_object((**obj).clone()),
+					tg::Either::Right(handle) => (**handle).clone(),
 				};
 				let mut source_referent = tg::Referent {
 					item: source_handle,

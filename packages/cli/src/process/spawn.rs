@@ -3,7 +3,6 @@ use {
 	futures::prelude::*,
 	std::path::{Path, PathBuf},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 };
 
 /// Spawn a process.
@@ -94,7 +93,7 @@ pub struct Options {
 		num_args = 1,
 		short,
 	)]
-	pub mounts: Vec<Either<tg::process::Mount, tg::command::Mount>>,
+	pub mounts: Vec<tg::Either<tg::process::Mount, tg::command::Mount>>,
 
 	#[command(flatten)]
 	pub local: crate::util::args::Local,
@@ -253,12 +252,14 @@ impl Cli {
 			},
 
 			tg::Object::Directory(directory) => {
-				let root_module_file_name =
-					tg::package::try_get_root_module_file_name(&handle, Either::Left(&directory))
-						.await?
-						.ok_or_else(
-							|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-						)?;
+				let root_module_file_name = tg::package::try_get_root_module_file_name(
+					&handle,
+					tg::Either::Left(&directory),
+				)
+				.await?
+				.ok_or_else(
+					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
+				)?;
 				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_file_name);
 				} else {
@@ -430,7 +431,7 @@ impl Cli {
 
 		// Set the mounts.
 		for mount in &options.mounts {
-			if let Either::Right(mount) = mount {
+			if let tg::Either::Right(mount) = mount {
 				command = command.mount(mount.clone());
 			}
 		}
@@ -451,7 +452,7 @@ impl Cli {
 				let id = command.id();
 				let arg = tg::push::Arg {
 					commands: true,
-					items: vec![Either::Left(id.into())],
+					items: vec![tg::Either::Left(id.into())],
 					remote: Some(remote.clone()),
 					..Default::default()
 				};
@@ -472,7 +473,7 @@ impl Cli {
 			});
 		}
 		for mount in &options.mounts {
-			if let Either::Left(mount) = mount {
+			if let tg::Either::Left(mount) = mount {
 				let source = tokio::fs::canonicalize(&mount.source)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
@@ -503,7 +504,7 @@ impl Cli {
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
-			let item = Either::Right(output.process.clone());
+			let item = tg::Either::Right(output.process.clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,

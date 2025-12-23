@@ -8,7 +8,6 @@ use {
 	std::collections::{HashMap, HashSet},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_either::Either,
 };
 
 impl Server {
@@ -583,8 +582,8 @@ impl Server {
 		let put_tag_items = put_tag_messages
 			.values()
 			.map(|message| match &message.item {
-				Either::Left(process_id) => process_id.to_bytes().to_vec(),
-				Either::Right(object_id) => object_id.to_bytes().to_vec(),
+				tg::Either::Left(process_id) => process_id.to_bytes().to_vec(),
+				tg::Either::Right(object_id) => object_id.to_bytes().to_vec(),
 			})
 			.collect::<Vec<_>>();
 

@@ -3,7 +3,6 @@ use {
 	futures::TryFutureExt as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -61,7 +60,7 @@ impl Server {
 			crate::index::message::ProcessObjectKind::Command,
 		));
 		let error = arg.data.error.as_ref().into_iter().flat_map(|e| match e {
-			Either::Left(data) => {
+			tg::Either::Left(data) => {
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
 				children
@@ -72,7 +71,7 @@ impl Server {
 					})
 					.collect::<Vec<_>>()
 			},
-			Either::Right(id) => {
+			tg::Either::Right(id) => {
 				let id = id.clone().into();
 				let kind = crate::index::message::ProcessObjectKind::Error;
 				vec![(id, kind)]

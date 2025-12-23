@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_either::Either, tangram_futures::task::Task};
+use {crate::Cli, tangram_client::prelude::*, tangram_futures::task::Task};
 
 /// View a process, an object, or a tag.
 #[derive(Clone, Debug, clap::Args)]
@@ -72,16 +72,16 @@ impl Cli {
 			Kind::Value | Kind::Package => {
 				let referent = self.get_reference(&args.reference).await?;
 				let item = match (referent.item(), args.kind) {
-					(Either::Left(object), Kind::Package) => {
+					(tg::Either::Left(object), Kind::Package) => {
 						crate::viewer::Item::Package(crate::viewer::Package(object.clone()))
 					},
-					(Either::Left(object), Kind::Value) => {
+					(tg::Either::Left(object), Kind::Value) => {
 						crate::viewer::Item::Value(object.clone().into())
 					},
-					(Either::Right(_), Kind::Package) => {
+					(tg::Either::Right(_), Kind::Package) => {
 						return Err(tg::error!(reference = %args.reference, "expected an object"));
 					},
-					(Either::Right(process), Kind::Value) => {
+					(tg::Either::Right(process), Kind::Value) => {
 						crate::viewer::Item::Process(process.clone())
 					},
 					(_, Kind::Tag) => unreachable!(),

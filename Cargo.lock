@@ -5994,7 +5994,6 @@ dependencies = [
  "serde_with",
  "tangram_builtin",
  "tangram_client",
- "tangram_either",
  "tangram_fdb",
  "tangram_futures",
  "tangram_js",
@@ -6319,7 +6318,6 @@ dependencies = [
  "tangram_client",
  "tangram_compiler",
  "tangram_database",
- "tangram_either",
  "tangram_futures",
  "tangram_http",
  "tangram_ignore",
@@ -6423,7 +6421,6 @@ dependencies = [
  "num",
  "serde",
  "tangram_client",
- "tangram_either",
  "v8",
 ]
 

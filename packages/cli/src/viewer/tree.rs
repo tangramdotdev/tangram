@@ -16,7 +16,6 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_either::Either,
 	tangram_futures::task::Task,
 };
 
@@ -547,8 +546,8 @@ where
 		// Add source error if present.
 		if let Some(source) = &object.source {
 			let source_error: tg::Error = match &source.item {
-				Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
-				Either::Right(handle) => handle.as_ref().clone(),
+				tg::Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
+				tg::Either::Right(handle) => handle.as_ref().clone(),
 			};
 			children.push(("source".to_owned(), tg::Value::Object(source_error.into())));
 		}
@@ -1220,10 +1219,10 @@ where
 					..tg::referent::Options::default()
 				};
 				let item = match output.item {
-					Some(Either::Left(object)) => {
+					Some(tg::Either::Left(object)) => {
 						Item::Value(tg::Value::Object(tg::Object::with_id(object)))
 					},
-					Some(Either::Right(process)) => Item::Process(tg::Process::new(
+					Some(tg::Either::Right(process)) => Item::Process(tg::Process::new(
 						process,
 						None,
 						output.remote.clone(),
@@ -1969,10 +1968,10 @@ where
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| match error {
-				Either::Left(data) => {
+				tg::Either::Left(data) => {
 					matches!(data.code, Some(tg::error::Code::Cancellation))
 				},
-				Either::Right(_) => false,
+				tg::Either::Right(_) => false,
 			}) {
 			let update = move |node: Rc<RefCell<Node>>| {
 				node.borrow_mut().indicator.replace(Indicator::Canceled);

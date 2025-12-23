@@ -9,7 +9,6 @@ use {
 		io::SeekFrom,
 		sync::{Arc, Mutex},
 	},
-	tangram_either::Either,
 };
 
 pub trait Ext: tg::Handle {
@@ -476,7 +475,7 @@ pub trait Ext: tg::Handle {
 		Output = tg::Result<
 			impl Stream<
 				Item = tg::Result<
-					tg::progress::Event<tg::Referent<Either<tg::Object, tg::Process>>>,
+					tg::progress::Event<tg::Referent<tg::Either<tg::Object, tg::Process>>>,
 				>,
 			> + Send
 			+ 'static,

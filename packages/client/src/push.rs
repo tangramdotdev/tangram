@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
-	tangram_either::Either,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
 };
@@ -17,7 +16,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
-	pub items: Vec<Either<tg::object::Id, tg::process::Id>>,
+	pub items: Vec<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs: bool,
