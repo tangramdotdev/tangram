@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  type: LoadBalancer
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:latest
+          env:
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: trust
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 1
+            periodSeconds: 1
+            timeoutSeconds: 5
+            failureThreshold: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scylla
+spec:
+  type: LoadBalancer
+  selector:
+    app: scylla
+  ports:
+    - port: 9042
+      targetPort: 9042
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scylla
+  labels:
+    app: scylla
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scylla
+  template:
+    metadata:
+      labels:
+        app: scylla
+    spec:
+      containers:
+        - name: scylla
+          image: scylladb/scylla:latest
+          args:
+            - --smp
+            - "1"
+            - --memory
+            - 512M
+            - --overprovisioned
+            - "1"
+          ports:
+            - containerPort: 9042
+          readinessProbe:
+            exec:
+              command:
+                - cqlsh
+                - -e
+                - DESC KEYSPACES
+            initialDelaySeconds: 5
+            periodSeconds: 1
+            timeoutSeconds: 5
+            failureThreshold: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+spec:
+  type: LoadBalancer
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: management
+      port: 8222
+      targetPort: 8222
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  labels:
+    app: nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:latest
+          args:
+            - --jetstream
+          ports:
+            - containerPort: 4222
+            - containerPort: 8222
+          readinessProbe:
+            exec:
+              command:
+                - nats-server
+                - --help
+            initialDelaySeconds: 1
+            periodSeconds: 1
+            timeoutSeconds: 5
+            failureThreshold: 10
