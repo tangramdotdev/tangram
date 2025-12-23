@@ -32,6 +32,7 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
 
+	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_finisher")]
 	pub finisher: Option<Finisher>,
 
