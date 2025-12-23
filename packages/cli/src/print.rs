@@ -8,6 +8,8 @@ use {
 	tokio::io::AsyncWriteExt as _,
 };
 
+const INDENTATION: &str = "  ";
+
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
@@ -58,24 +60,13 @@ impl Cli {
 		T: serde::Serialize + Send + 'static,
 		S: Stream<Item = tg::Result<T>> + Send + 'static,
 	{
+		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		let pretty = options.pretty || stdout.get_ref().is_tty();
-		if true {
-			stdout
-				.write_all(b"[")
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
-			if pretty {
-				stdout
-					.write_all(b"\n")
-					.await
-					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
-			}
-			stdout
-				.flush()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
-		}
+		stdout
+			.write_all(b"[")
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 		let mut stream = pin!(stream);
 		let mut first = true;
 		while let Some(value) = stream.try_next().await? {
@@ -84,26 +75,41 @@ impl Cli {
 					.write_all(b",")
 					.await
 					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
-				if pretty {
-					stdout
-						.write_all(b"\n")
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
-				}
+			}
+			if pretty {
 				stdout
-					.flush()
+					.write_all(b"\n")
 					.await
-					.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+				stdout
+					.write_all(INDENTATION.as_bytes())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 			}
 			first = false;
-			self.print_serde(value, options.clone()).await?;
+			let value = serde_json::to_value(&value)
+				.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
+			let indent = if pretty { 1 } else { 0 };
+			Self::print_value_inner(
+				&handle,
+				&mut stdout,
+				&value.into(),
+				options.clone(),
+				tg::object::get::Arg::default(),
+				indent,
+			)
+			.await?;
 		}
-		if true {
+		if pretty {
 			stdout
-				.write_all(b"]\n")
+				.write_all(b"\n")
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 		}
+		stdout
+			.write_all(b"]\n")
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
 		stdout
 			.flush()
 			.await
@@ -123,15 +129,37 @@ impl Cli {
 	) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+		Self::print_value_inner(&handle, &mut stdout, value, options, arg, 0).await?;
+		stdout
+			.write_all(b"\n")
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+		stdout
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+		Ok(())
+	}
+
+	pub(crate) async fn print_value_inner(
+		handle: &impl tg::Handle,
+		stdout: &mut tokio::io::BufWriter<tokio::io::Stdout>,
+		value: &tg::Value,
+		options: Options,
+		arg: tg::object::get::Arg,
+		indent: usize,
+	) -> tg::Result<()> {
 		let depth = match options.depth.unwrap_or(Depth::Finite(0)) {
 			Depth::Finite(depth) => Some(depth),
 			Depth::Infinite => None,
 		};
 		let blobs = options.blobs;
-		value.load(&handle, arg, depth, blobs).await?;
+		value.load(handle, arg, depth, blobs).await?;
 		let pretty = options.pretty || stdout.get_ref().is_tty();
 		let style = if pretty {
-			tg::value::print::Style::Pretty { indentation: "  " }
+			tg::value::print::Style::Pretty {
+				indentation: INDENTATION,
+			}
 		} else {
 			tg::value::print::Style::Compact
 		};
@@ -139,19 +167,13 @@ impl Cli {
 			depth,
 			style,
 			blobs,
+			indent,
 		};
-		let mut output = value.print(options);
-		if style.is_pretty() {
-			output.push('\n');
-		}
+		let output = value.print(options);
 		stdout
 			.write_all(output.as_bytes())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
-		stdout
-			.flush()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
 		Ok(())
 	}
 

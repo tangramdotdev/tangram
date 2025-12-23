@@ -2136,6 +2136,7 @@ where
 									depth: Some(1),
 									style: tg::value::print::Style::Pretty { indentation: "  " },
 									blobs: false,
+									indent: 0,
 								};
 								value.print(options)
 							},
@@ -2146,6 +2147,7 @@ where
 									depth: Some(1),
 									style: tg::value::print::Style::Pretty { indentation: "  " },
 									blobs: false,
+									indent: 0,
 								};
 								value.print(options)
 							},
@@ -2234,6 +2236,7 @@ where
 						depth: Some(0),
 						style: tg::value::print::Style::Compact,
 						blobs: false,
+						indent: 0,
 					};
 					value.print(options)
 				}

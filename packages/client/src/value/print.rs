@@ -3,16 +3,17 @@ use {crate::prelude::*, bytes::Bytes, num::ToPrimitive as _, std::fmt::Result};
 pub struct Printer<W> {
 	depth: u64,
 	first: bool,
-	indent: u32,
+	indent: usize,
 	options: Options,
 	writer: W,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
-	pub depth: Option<u64>,
-	pub style: Style,
 	pub blobs: bool,
+	pub depth: Option<u64>,
+	pub indent: usize,
+	pub style: Style,
 }
 
 #[derive(Copy, Clone, Debug, Default, derive_more::IsVariant)]
@@ -29,10 +30,11 @@ where
 	W: std::fmt::Write,
 {
 	pub fn new(writer: W, options: Options) -> Self {
+		let indent = options.indent;
 		Self {
 			depth: 0,
 			first: true,
-			indent: 0,
+			indent,
 			options,
 			writer,
 		}

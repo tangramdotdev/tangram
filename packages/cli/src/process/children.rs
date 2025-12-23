@@ -1,4 +1,8 @@
-use {crate::Cli, futures::StreamExt as _, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	futures::{StreamExt as _, TryStreamExt as _, stream},
+	tangram_client::prelude::*,
+};
 
 /// Get a process's children.
 #[derive(Clone, Debug, clap::Args)]
@@ -36,7 +40,11 @@ impl Cli {
 			remotes: args.remotes.remotes,
 			size: args.size,
 		};
-		let stream = handle.get_process_children(&args.process, arg).await?;
+		let stream = handle
+			.get_process_children(&args.process, arg)
+			.await?
+			.map_ok(|chunk| stream::iter(chunk.data.into_iter().map(Ok)))
+			.try_flatten();
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}
