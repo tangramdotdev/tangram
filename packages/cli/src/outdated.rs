@@ -5,6 +5,9 @@ use {crate::Cli, std::collections::HashSet, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub checkin: crate::checkin::Options,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(default_value = ".", index = 1)]
@@ -15,8 +18,12 @@ impl Cli {
 	pub async fn command_outdated(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let mut visitor = Visitor::default();
+		let arg = tg::get::Arg {
+			checkin: args.checkin.to_options(),
+			..Default::default()
+		};
 		let referent = self
-			.get_reference(&args.reference)
+			.get_reference_with_arg(&args.reference, arg)
 			.await?
 			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
 		tg::object::visit(&handle, &mut visitor, &referent)
