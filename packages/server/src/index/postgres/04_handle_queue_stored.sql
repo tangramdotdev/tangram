@@ -383,67 +383,59 @@ begin
 		)
 		select count(*) into locked_count from locked;
 
-		with already_stored as (
-			select id
-			from processes
-			where id = any(logs_processes)
-			and subtree_log_stored = true
-		),
-		updated_to_stored as (
-			update processes
-			set
-				subtree_log_stored = updates.subtree_log_stored,
-				subtree_log_count = updates.subtree_log_count,
-				subtree_log_depth = updates.subtree_log_depth,
-				subtree_log_size = updates.subtree_log_size
-			from (
-				select
-					processes.id,
-					case
-						when count(process_children.child) = 0
-						and (count(process_objects.object) = 0 or bool_and(coalesce(objects.subtree_stored, false)))
-							then true
-						when (count(process_objects.object) = 0 or bool_and(coalesce(objects.subtree_stored, false)))
-						and (count(process_children.child) = 0 or bool_and(coalesce(child_processes.subtree_log_stored, false)))
-							then true
-						else false
-					end as subtree_log_stored,
-					coalesce(sum(coalesce(objects.subtree_count, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.subtree_log_count, 0)), 0) as subtree_log_count,
-					greatest(
-					coalesce(max(coalesce(objects.subtree_depth, 0)), 0),
-					coalesce(max(coalesce(child_processes.subtree_log_depth, 0)), 0)
-					) as subtree_log_depth,
-					coalesce(sum(coalesce(objects.subtree_size, 0)), 0)
-					+ coalesce(sum(coalesce(child_processes.subtree_log_size, 0)), 0) as subtree_log_size
-				from processes
-				left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
-				left join objects on objects.id = process_objects.object
-				left join process_children on process_children.process = processes.id
-				left join processes child_processes on child_processes.id = process_children.child
-				where processes.id = any(logs_processes)
-				and processes.subtree_log_stored = false
-				group by processes.id
-			) as updates
-			where processes.id = updates.id
-			and updates.subtree_log_stored = true
-			returning processes.id
-		)
-		select array_agg(distinct id) into subtree_log_stored_processes
+		update processes
+		set
+			subtree_log_stored = updates.subtree_log_stored,
+			subtree_log_count = updates.subtree_log_count,
+			subtree_log_depth = updates.subtree_log_depth,
+			subtree_log_size = updates.subtree_log_size
 		from (
-			select id from already_stored
-			union all
-			select id from updated_to_stored
-		) all_stored;
-
-		with locked as (
-			select processes.id
+			select
+				processes.id,
+				case
+					when
+						(log_objects.process is null or coalesce(log_objects.subtree_stored, false))
+						and (coalesce(child_processes.child_count, 0) = 0 or child_processes.all_stored)
+						then true
+					else false
+				end as subtree_log_stored,
+				coalesce(log_objects.subtree_count, 0) + coalesce(child_processes.subtree_log_count, 0) as subtree_log_count,
+				greatest(coalesce(log_objects.subtree_depth, 0), coalesce(child_processes.subtree_log_depth, 0)) as subtree_log_depth,
+				coalesce(log_objects.subtree_size, 0) + coalesce(child_processes.subtree_log_size, 0) as subtree_log_size
 			from processes
+			left join (
+				select
+					process_objects.process,
+					objects.subtree_stored,
+					objects.subtree_count,
+					objects.subtree_depth,
+					objects.subtree_size
+				from process_objects
+				left join objects on objects.id = process_objects.object
+				where process_objects.kind = 2
+			) as log_objects on log_objects.process = processes.id
+			left join (
+				select
+					process_children.process,
+					count(process_children.child) as child_count,
+					bool_and(coalesce(child.subtree_log_stored, false)) as all_stored,
+					sum(coalesce(child.subtree_log_count, 0)) as subtree_log_count,
+					max(coalesce(child.subtree_log_depth, 0)) as subtree_log_depth,
+					sum(coalesce(child.subtree_log_size, 0)) as subtree_log_size
+				from process_children
+				left join processes child on child.id = process_children.child
+				group by process_children.process
+			) as child_processes on child_processes.process = processes.id
 			where processes.id = any(logs_processes)
-			order by processes.id
-			for update
-		)
-		select count(*) into locked_count from locked;
+			and (
+				processes.subtree_log_stored = false
+				or processes.subtree_log_count is null
+				or processes.subtree_log_depth is null
+				or processes.subtree_log_size is null
+			)
+		) as updates
+		where processes.id = updates.id
+		and updates.subtree_log_stored = true;
 
 		update processes
 		set
@@ -465,7 +457,12 @@ begin
 			left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
 			left join objects on objects.id = process_objects.object
 			where processes.id = any(logs_processes)
-			and processes.node_log_stored = false
+			and (
+				processes.node_log_stored = false
+				or processes.node_log_count is null
+				or processes.node_log_depth is null
+				or processes.node_log_size is null
+			)
 			group by processes.id
 		) as updates
 		where processes.id = updates.id
@@ -475,8 +472,6 @@ begin
 		select distinct process_children.process, 4, (select id from transaction_id)
 		from process_children
 		where process_children.child = any(logs_processes);
-	else
-		subtree_log_stored_processes := array[]::bytea[];
 	end if;
 
 	if array_length(outputs_processes, 1) > 0 then
