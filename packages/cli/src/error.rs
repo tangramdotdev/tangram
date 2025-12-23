@@ -139,27 +139,23 @@ impl Cli {
 		}
 	}
 
-	pub(crate) async fn print_error(&mut self, error: tg::Referent<tg::Error>) -> tg::Result<()> {
-		let handle = self.handle().await?;
+	pub(crate) async fn print_error(&mut self, error: tg::Referent<tg::Error>) {
+		let handle = self.handle().await.ok();
 		let internal = self
 			.config
 			.as_ref()
 			.is_some_and(|config| config.server.advanced.internal_error_locations);
 		let mut stack = vec![error];
 		while let Some(error_referent) = stack.pop() {
-			// Get the object from the handle.
-			error_referent
-				.item()
-				.load(&handle)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to load the error"))?;
-			let error = error_referent
-				.item()
-				.state()
-				.load(&handle)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to load the error"))?
-				.unwrap_error();
+			// Attempt to load the object.
+			let error = match &handle {
+				Some(handle) => error_referent.item().load(handle).await.ok(),
+				None => None,
+			};
+			let Some(error) = error else {
+				eprintln!("{} {}", "->".red(), error_referent.item().id());
+				continue;
+			};
 
 			// Print the message.
 			let message = error.message.as_deref().unwrap_or("an error occurred");
@@ -218,8 +214,6 @@ impl Cli {
 				stack.push(source_referent);
 			}
 		}
-
-		Ok(())
 	}
 
 	async fn print_error_location(
