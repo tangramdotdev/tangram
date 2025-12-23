@@ -278,7 +278,30 @@ pub struct ScyllaStore {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub password: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum ScyllaStoreSpeculativeExecution {
+	Percentile(ScyllaStorePercentileSpeculativeExecution),
+	Simple(ScyllaStoreSimpleSpeculativeExecution),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaStorePercentileSpeculativeExecution {
+	pub max_retry_count: usize,
+	pub percentile: f64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaStoreSimpleSpeculativeExecution {
+	pub max_retry_count: usize,
+	pub retry_interval: u64,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

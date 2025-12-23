@@ -13,7 +13,20 @@ pub struct Config {
 	pub addr: String,
 	pub keyspace: String,
 	pub password: Option<String>,
+	pub speculative_execution: Option<SpeculativeExecution>,
 	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SpeculativeExecution {
+	Percentile {
+		max_retry_count: usize,
+		percentile: f64,
+	},
+	Simple {
+		max_retry_count: usize,
+		retry_interval: std::time::Duration,
+	},
 }
 
 pub struct Store {
@@ -50,6 +63,35 @@ impl Store {
 			scylla::client::session_builder::SessionBuilder::new().known_node(&config.addr);
 		if let (Some(username), Some(password)) = (&config.username, &config.password) {
 			builder = builder.user(username, password);
+		}
+		if let Some(speculative_execution) = &config.speculative_execution {
+			let policy: std::sync::Arc<
+				dyn scylla::policies::speculative_execution::SpeculativeExecutionPolicy,
+			> = match speculative_execution {
+				SpeculativeExecution::Percentile {
+					max_retry_count,
+					percentile,
+				} => std::sync::Arc::new(
+					scylla::policies::speculative_execution::PercentileSpeculativeExecutionPolicy {
+						max_retry_count: *max_retry_count,
+						percentile: *percentile,
+					},
+				),
+				SpeculativeExecution::Simple {
+					max_retry_count,
+					retry_interval,
+				} => std::sync::Arc::new(
+					scylla::policies::speculative_execution::SimpleSpeculativeExecutionPolicy {
+						max_retry_count: *max_retry_count,
+						retry_interval: *retry_interval,
+					},
+				),
+			};
+			let handle = scylla::client::execution_profile::ExecutionProfile::builder()
+				.speculative_execution_policy(Some(policy))
+				.build()
+				.into_handle();
+			builder = builder.default_execution_profile_handle(handle);
 		}
 		let session = builder.build().boxed().await?;
 		session.use_keyspace(&config.keyspace, true).await?;

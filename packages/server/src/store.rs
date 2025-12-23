@@ -41,6 +41,20 @@ impl Store {
 			addr: config.addr.clone(),
 			keyspace: config.keyspace.clone(),
 			password: config.password.clone(),
+			speculative_execution: config.speculative_execution.as_ref().map(|se| match se {
+				crate::config::ScyllaSpeculativeExecution::Percentile(p) => {
+					store::scylla::SpeculativeExecution::Percentile {
+						max_retry_count: p.max_retry_count,
+						percentile: p.percentile,
+					}
+				},
+				crate::config::ScyllaSpeculativeExecution::Simple(s) => {
+					store::scylla::SpeculativeExecution::Simple {
+						max_retry_count: s.max_retry_count,
+						retry_interval: std::time::Duration::from_millis(s.retry_interval),
+					}
+				},
+			}),
 			username: config.username.clone(),
 		};
 		let scylla = store::scylla::Store::new(&config)
