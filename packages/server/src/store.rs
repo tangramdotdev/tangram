@@ -261,11 +261,8 @@ impl store::Store for Store {
 
 	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
 		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.try_get_log(arg).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.try_read_log(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => Ok(memory.try_read_log(arg)),
-			Self::S3(s3) => s3.try_read_log(arg).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.try_get_log(arg).await.map_err(Error::Scylla),
 		}
@@ -277,17 +274,45 @@ impl store::Store for Store {
 		stream: Option<tg::process::log::Stream>,
 	) -> Result<Option<u64>, Self::Error> {
 		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.try_get_log_length(id, stream).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb
 				.try_get_log_length(id, stream)
 				.await
 				.map_err(Error::Lmdb),
 			Self::Memory(memory) => Ok(memory.try_get_log_length(id, stream)),
-			Self::S3(s3) => s3.try_get_log_length(id, stream).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla
 				.try_get_log_length(id, stream)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_get_log_entry(
+		&self,
+		id: &tg::process::Id,
+		index: u64,
+	) -> Result<Option<store::log::Chunk>, Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb.try_get_log_entry(id, index).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_get_log_entry(id, index)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_get_log_entry(id, index)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_get_num_log_entries(
+		&self,
+		id: &tg::process::Id,
+	) -> Result<Option<u64>, Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb.try_get_num_log_entries(id).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_get_num_log_entries(id)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_get_num_log_entries(id)
 				.await
 				.map_err(Error::Scylla),
 		}
@@ -339,14 +364,11 @@ impl store::Store for Store {
 
 	async fn put_log(&self, arg: PutLogArg) -> Result<(), Self::Error> {
 		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.put_log(arg).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.put_log(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
 				memory.put_log(arg);
 				Ok(())
 			},
-			Self::S3(s3) => s3.put_log(arg).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.put_log(arg).await.map_err(Error::Scylla),
 		}
@@ -365,21 +387,6 @@ impl store::Store for Store {
 		}
 	}
 
-	async fn put_log_batch(&self, args: Vec<PutLogArg>) -> Result<(), Self::Error> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.put_log_batch(args).await.map_err(Error::Fdb),
-			Self::Lmdb(lmdb) => lmdb.put_log_batch(args).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => {
-				memory.put_log_batch(args);
-				Ok(())
-			},
-			Self::S3(s3) => s3.put_log_batch(args).await.map_err(Error::S3),
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.put_log_batch(args).await.map_err(Error::Scylla),
-		}
-	}
-
 	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -395,14 +402,11 @@ impl store::Store for Store {
 
 	async fn delete_log(&self, arg: DeleteLogArg) -> Result<(), Self::Error> {
 		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.delete_log(arg).await.map_err(Error::Fdb),
 			Self::Lmdb(lmdb) => lmdb.delete_log(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
 				memory.delete_log(arg);
 				Ok(())
 			},
-			Self::S3(s3) => s3.delete_log(arg).await.map_err(Error::S3),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.delete_log(arg).await.map_err(Error::Scylla),
 		}
@@ -418,21 +422,6 @@ impl store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.delete_batch(args).await.map_err(Error::Scylla),
-		}
-	}
-
-	async fn delete_log_batch(&self, args: Vec<DeleteLogArg>) -> Result<(), Self::Error> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.delete_log_batch(args).await.map_err(Error::Fdb),
-			Self::Lmdb(lmdb) => lmdb.delete_log_batch(args).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => {
-				memory.delete_log_batch(args);
-				Ok(())
-			},
-			Self::S3(s3) => s3.delete_log_batch(args).await.map_err(Error::S3),
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_log_batch(args).await.map_err(Error::Scylla),
 		}
 	}
 

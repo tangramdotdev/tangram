@@ -174,6 +174,19 @@ impl Store {
 		}
 	}
 
+	#[must_use]
+	pub fn try_get_log_entry(&self, id: &tg::process::Id, index: u64) -> Option<crate::log::Chunk> {
+		let entry = self.logs.get(id)?;
+		let chunk = entry.chunks.get(&index.to_usize().unwrap())?;
+		Some(chunk.clone())
+	}
+
+	#[must_use]
+	pub fn try_get_num_log_entries(&self, id: &tg::process::Id) -> Option<u64> {
+		let entry = self.logs.get(id)?;
+		Some(entry.counter.to_u64().unwrap())
+	}
+
 	pub fn put_log(&self, arg: PutLogArg) {
 		let mut entry = self.logs.entry(arg.process).or_default();
 
@@ -266,6 +279,21 @@ impl crate::Store for Store {
 		Ok(self.try_get_log_length(id, stream))
 	}
 
+	async fn try_get_log_entry(
+		&self,
+		id: &tg::process::Id,
+		index: u64,
+	) -> Result<Option<crate::log::Chunk>, Self::Error> {
+		Ok(self.try_get_log_entry(id, index))
+	}
+
+	async fn try_get_num_log_entries(
+		&self,
+		id: &tg::process::Id,
+	) -> Result<Option<u64>, Self::Error> {
+		Ok(self.try_get_num_log_entries(id))
+	}
+
 	async fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
@@ -295,11 +323,6 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn put_log_batch(&self, args: Vec<PutLogArg>) -> Result<(), Self::Error> {
-		self.put_log_batch(args);
-		Ok(())
-	}
-
 	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
 		self.delete(arg);
 		Ok(())
@@ -312,11 +335,6 @@ impl crate::Store for Store {
 
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
 		self.delete_batch(args);
-		Ok(())
-	}
-
-	async fn delete_log_batch(&self, args: Vec<DeleteLogArg>) -> Result<(), Self::Error> {
-		self.delete_log_batch(args);
 		Ok(())
 	}
 

@@ -1,6 +1,5 @@
 use {
 	crate::{Context, Server},
-	bytes::Bytes,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
