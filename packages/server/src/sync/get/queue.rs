@@ -73,9 +73,12 @@ impl Server {
 
 		// Touch the objects and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let outputs = self
-			.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
-			.await?;
+		let outputs = if state.arg.force {
+			vec![None; ids.len()]
+		} else {
+			self.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
+				.await?
+		};
 
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {

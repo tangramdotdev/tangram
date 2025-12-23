@@ -36,6 +36,7 @@ impl Server {
 				commands: arg.commands,
 				errors: arg.errors,
 				eager: arg.eager,
+				force: arg.force,
 				get: arg.get,
 				local: None,
 				logs: arg.logs,

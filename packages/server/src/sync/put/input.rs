@@ -41,6 +41,10 @@ impl Server {
 				},
 
 				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(message)) => {
+					if state.arg.force {
+						tracing::trace!(id = %message.id, "ignoring stored object");
+						continue;
+					}
 					tracing::trace!(id = %message.id, "received stored object");
 					state.graph.lock().unwrap().update_object(
 						&message.id,
@@ -51,6 +55,10 @@ impl Server {
 				},
 
 				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(message)) => {
+					if state.arg.force {
+						tracing::trace!(id = %message.id, "ignoring stored process");
+						continue;
+					}
 					tracing::trace!(id = %message.id, "received stored process");
 					let id = message.id;
 					let stored = crate::process::stored::Output {

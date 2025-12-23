@@ -30,6 +30,10 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub force: bool,
+
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub get: Vec<tg::Either<tg::object::Id, tg::process::Id>>,

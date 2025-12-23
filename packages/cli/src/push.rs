@@ -109,6 +109,7 @@ impl Cli {
 			commands: args.commands,
 			eager: args.eager.get(),
 			errors: args.errors,
+			force: args.force,
 			items: items.clone(),
 			logs: args.logs,
 			outputs: args.outputs.get(),

@@ -161,6 +161,7 @@ impl Cli {
 				commands: false,
 				eager: true,
 				errors: true,
+				force: false,
 				items,
 				logs: false,
 				outputs: true,
