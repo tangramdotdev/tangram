@@ -116,6 +116,7 @@ declare
 	errors_processes bytea[];
 	logs_processes bytea[];
 	outputs_processes bytea[];
+	subtree_log_stored_processes bytea[];
 	locked_count int8;
 begin
 	with dequeued as (
