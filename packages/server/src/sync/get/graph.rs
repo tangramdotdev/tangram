@@ -345,7 +345,9 @@ impl Graph {
 
 	pub fn end(&self, arg: &tg::sync::Arg) -> bool {
 		self.roots.iter().all(|root| {
-			let node = self.nodes.get(root).unwrap();
+			let Some(node) = self.nodes.get(root) else {
+				return false;
+			};
 			match node {
 				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
 				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| {
