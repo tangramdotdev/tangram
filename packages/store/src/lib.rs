@@ -18,12 +18,17 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 
 pub mod log {
 	use {bytes::Bytes, tangram_client as tg};
-	#[derive(Debug, Clone)]
+	#[derive(Debug, Clone, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
 	pub struct Chunk {
+		#[tangram_serialize(id = 0)]
 		pub bytes: Bytes,
+		#[tangram_serialize(id = 1)]
 		pub combined_position: u64,
+		#[tangram_serialize(id = 2)]
 		pub stream_position: u64,
+		#[tangram_serialize(id = 3)]
 		pub stream: tg::process::log::Stream,
+		#[tangram_serialize(id = 4)]
 		pub timestamp: i64,
 	}
 }
@@ -52,6 +57,17 @@ pub trait Store {
 		_stream: Option<tg::process::log::Stream>,
 	) -> impl std::future::Future<Output = std::result::Result<Option<u64>, Self::Error>> + Send;
 
+	fn try_get_log_entry(
+		&self,
+		id: &tg::process::Id,
+		index: u64,
+	) -> impl std::future::Future<Output = std::result::Result<Option<log::Chunk>, Self::Error>> + Send;
+
+	fn try_get_num_log_entries(
+		&self,
+		id: &tg::process::Id,
+	) -> impl std::future::Future<Output = std::result::Result<Option<u64>, Self::Error>> + Send;
+
 	fn try_get_cache_reference(
 		&self,
 		id: &tg::object::Id,
@@ -72,11 +88,6 @@ pub trait Store {
 		args: Vec<PutArg>,
 	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
 
-	fn put_log_batch(
-		&self,
-		args: Vec<PutLogArg>,
-	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
-
 	fn delete(
 		&self,
 		arg: DeleteArg,
@@ -90,11 +101,6 @@ pub trait Store {
 	fn delete_batch(
 		&self,
 		args: Vec<DeleteArg>,
-	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
-
-	fn delete_log_batch(
-		&self,
-		args: Vec<DeleteLogArg>,
 	) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
 
 	fn flush(

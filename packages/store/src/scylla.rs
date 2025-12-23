@@ -1,5 +1,5 @@
 use {
-	crate::{CacheReference, DeleteArg, DeleteLogArg, Error as _, GetLogArg, PutArg, PutLogArg},
+	crate::{CacheReference, DeleteArg, DeleteLogArg, Error as _, PutArg, PutLogArg, ReadLogArg},
 	bytes::Bytes,
 	futures::FutureExt as _,
 	indoc::indoc,
@@ -30,11 +30,20 @@ pub enum SpeculativeExecution {
 }
 
 pub struct Store {
+	// Objects
 	delete_statement: scylla::statement::prepared::PreparedStatement,
 	get_batch_statement: scylla::statement::prepared::PreparedStatement,
 	get_cache_reference_statement: scylla::statement::prepared::PreparedStatement,
 	get_statement: scylla::statement::prepared::PreparedStatement,
 	put_statement: scylla::statement::prepared::PreparedStatement,
+
+	// Logs.
+	delete_logs_statement: scylla::statement::prepared::PreparedStatement,
+	put_log_statement: scylla::statement::prepared::PreparedStatement,
+	get_log_by_index_statement: scylla::statement::prepared::PreparedStatement,
+	get_log_by_combined_position_statement: scylla::statement::prepared::PreparedStatement,
+	get_log_by_stream_position_statement: scylla::statement::prepared::PreparedStatement,
+	get_last_log_statement: scylla::statement::prepared::PreparedStatement,
 	session: scylla::client::session::Session,
 }
 
@@ -48,6 +57,9 @@ pub enum Error {
 	Prepare(scylla::errors::PrepareError),
 	Rows(scylla::errors::RowsError),
 	UseKeyspace(scylla::errors::UseKeyspaceError),
+	PagerExecution(scylla::errors::PagerExecutionError),
+	TypeCheckError(scylla::errors::TypeCheckError),
+	NextRowError(scylla::errors::NextRowError),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -173,12 +185,85 @@ impl Store {
 		})?;
 		delete_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
+		let statement = indoc!(
+			"
+				delete from logs
+				where id = ?;
+			"
+		);
+		let mut delete_logs_statement = session.prepare(statement).await?;
+		delete_logs_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
+		let statement = indoc!(
+			"
+				select (bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				from logs
+				where
+					id = ? and combined_position >= ?
+				allow filtering;
+			"
+		);
+		let mut get_log_by_combined_position_statement = session.prepare(statement).await?;
+		get_log_by_combined_position_statement.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				select (bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				from logs
+				where
+					id = ? and index = ?
+				allow filtering;
+			"
+		);
+		let mut get_log_by_index_statement = session.prepare(statement).await?;
+		get_log_by_index_statement.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				select (bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				from logs
+				where
+					id = ? and stream = ? and combined_position >= ?
+				allow filtering;
+			"
+		);
+		let mut get_log_by_stream_position_statement = session.prepare(statement).await?;
+		get_log_by_stream_position_statement.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				select (index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				from logs
+				where id = ?
+				order by index desc
+				limit 1;
+			"
+		);
+		let mut get_last_log_statement = session.prepare(statement).await?;
+		get_last_log_statement.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				insert into logs (id, index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				values(?, ?, ?, ?, ?, ?, ?, ?)
+				if not exists;
+			"
+		);
+		let mut put_log_statement = session.prepare(statement).await?;
+		put_log_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
 		let scylla = Self {
 			delete_statement,
 			get_batch_statement,
 			get_cache_reference_statement,
 			get_statement,
 			put_statement,
+			delete_logs_statement,
+			get_log_by_combined_position_statement,
+			get_log_by_index_statement,
+			get_log_by_stream_position_statement,
+			get_last_log_statement,
+			put_log_statement,
 			session,
 		};
 
@@ -308,16 +393,193 @@ impl crate::Store for Store {
 		Ok(None)
 	}
 
-	async fn try_read_log(&self, _arg: GetLogArg) -> Result<Option<Bytes>, Self::Error> {
-		todo!()
+	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
+		use futures::TryStreamExt as _;
+
+		let id = arg.process.to_bytes().to_vec();
+		let position = arg.position.to_i64().unwrap();
+
+		#[derive(scylla::DeserializeRow)]
+		#[allow(dead_code)]
+		struct Row {
+			bytes: Vec<u8>,
+			stream: i64,
+			combined_position: i64,
+			stdout_position: i64,
+			stderr_position: i64,
+			timestamp: i64,
+		}
+
+		// Query for log entries starting from the given position using an iterator.
+		let mut iter = if let Some(stream) = arg.stream {
+			let stream_value = match stream {
+				tg::process::log::Stream::Stdout => 1i64,
+				tg::process::log::Stream::Stderr => 2i64,
+			};
+			let params = (id, stream_value, position);
+			self.session
+				.execute_iter(self.get_log_by_stream_position_statement.clone(), params)
+				.await?
+				.rows_stream::<Row>()?
+		} else {
+			let params = (id, position);
+			self.session
+				.execute_iter(self.get_log_by_combined_position_statement.clone(), params)
+				.await?
+				.rows_stream::<Row>()?
+		};
+
+		let mut output = Vec::new();
+
+		while let Some(row) = iter.try_next().await? {
+			// Skip log entries not in this stream.
+			if arg.stream.is_some_and(|stream| {
+				(stream, row.stream) == (tg::process::log::Stream::Stdout, 1)
+					|| (stream, row.stream) == (tg::process::log::Stream::Stderr, 2)
+			}) {
+				continue;
+			}
+
+			// Get the position of this entry.
+			let entry_position = match arg.stream {
+				None => row.combined_position.to_u64().unwrap(),
+				Some(tg::process::log::Stream::Stdout) => row.stdout_position.to_u64().unwrap(),
+				Some(tg::process::log::Stream::Stderr) => row.stderr_position.to_u64().unwrap(),
+			};
+
+			// Calculate offset into entry's bytes.
+			let offset = arg
+				.position
+				.saturating_sub(entry_position)
+				.to_usize()
+				.unwrap();
+
+			// Calculate how many bytes to take.
+			let remaining = arg.length - output.len().to_u64().unwrap();
+			let available = row.bytes.len() - offset;
+			let take = remaining
+				.min(available.to_u64().unwrap())
+				.to_usize()
+				.unwrap();
+			output.extend_from_slice(&row.bytes[offset..offset + take]);
+			if output.len().to_u64().unwrap() >= arg.length {
+				break;
+			}
+		}
+		Ok(Some(output.into()))
 	}
 
 	async fn try_get_log_length(
 		&self,
-		_id: &tg::process::Id,
-		_stream: Option<tg::process::log::Stream>,
+		id: &tg::process::Id,
+		stream: Option<tg::process::log::Stream>,
 	) -> Result<Option<u64>, Self::Error> {
-		todo!()
+		let id = id.to_bytes().to_vec();
+		#[derive(scylla::DeserializeRow)]
+		#[allow(dead_code)]
+		struct Row<'a> {
+			index: i64,
+			bytes: &'a [u8],
+			stream: i64,
+			combined_position: i64,
+			stdout_position: i64,
+			stderr_position: i64,
+			timestamp: i64,
+		}
+		let params = (id,);
+		let result = self
+			.session
+			.execute_unpaged(&self.get_last_log_statement, params)
+			.await?
+			.into_rows_result()?;
+		let Some(row) = result.maybe_first_row::<Row>()? else {
+			return Ok(None);
+		};
+		let offset = match stream {
+			None => row.combined_position,
+			Some(tg::process::log::Stream::Stdout) => row.stdout_position,
+			Some(tg::process::log::Stream::Stderr) => row.stderr_position,
+		};
+		Ok(Some(
+			offset.to_u64().unwrap() + row.bytes.len().to_u64().unwrap(),
+		))
+	}
+
+	async fn try_get_log_entry(
+		&self,
+		id: &tg::process::Id,
+		index: u64,
+	) -> Result<Option<crate::log::Chunk>, Self::Error> {
+		let id = id.to_bytes().to_vec();
+		#[derive(scylla::DeserializeRow)]
+		struct Row<'a> {
+			bytes: &'a [u8],
+			stream: i64,
+			combined_position: i64,
+			stdout_position: i64,
+			stderr_position: i64,
+			timestamp: i64,
+		}
+		let params = (id, index.to_i64().unwrap());
+		let result = self
+			.session
+			.execute_unpaged(&self.get_log_by_index_statement, params)
+			.await?
+			.into_rows_result()?;
+		let Some(row) = result.maybe_first_row::<Row<'_>>()? else {
+			return Ok(None);
+		};
+		let bytes = row.bytes.to_vec().into();
+		let combined_position = row.combined_position.to_u64().unwrap();
+		let (stream, stream_position) = if row.stream == 1 {
+			(
+				tg::process::log::Stream::Stdout,
+				row.stdout_position.to_u64().unwrap(),
+			)
+		} else if row.stream == 2 {
+			(
+				tg::process::log::Stream::Stderr,
+				row.stderr_position.to_u64().unwrap(),
+			)
+		} else {
+			return Ok(None);
+		};
+		let timestamp = row.timestamp;
+		Ok(Some(crate::log::Chunk {
+			bytes,
+			combined_position,
+			stream,
+			stream_position,
+			timestamp,
+		}))
+	}
+
+	async fn try_get_num_log_entries(
+		&self,
+		id: &tg::process::Id,
+	) -> Result<Option<u64>, Self::Error> {
+		let id = id.to_bytes().to_vec();
+		#[derive(scylla::DeserializeRow)]
+		#[allow(dead_code)]
+		struct Row<'a> {
+			index: i64,
+			bytes: &'a [u8],
+			stream: i64,
+			combined_position: i64,
+			stdout_position: i64,
+			stderr_position: i64,
+			timestamp: i64,
+		}
+		let params = (id,);
+		let result = self
+			.session
+			.execute_unpaged(&self.get_last_log_statement, params)
+			.await?
+			.into_rows_result()?;
+		let Some(row) = result.maybe_first_row::<Row>()? else {
+			return Ok(None);
+		};
+		Ok(Some(row.index.to_u64().unwrap()))
 	}
 
 	async fn try_get_batch(
@@ -391,8 +653,84 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn put_log(&self, _arg: PutLogArg) -> Result<(), Self::Error> {
-		todo!()
+	async fn put_log(&self, arg: PutLogArg) -> Result<(), Self::Error> {
+		let id = arg.process.to_bytes().to_vec();
+		loop {
+			#[derive(scylla::DeserializeRow)]
+			struct Applied {
+				applied: bool,
+			}
+
+			#[derive(scylla::DeserializeRow)]
+			#[allow(dead_code)]
+			struct LastRow<'a> {
+				index: i64,
+				bytes: &'a [u8],
+				stream: i64,
+				combined_position: i64,
+				stdout_position: i64,
+				stderr_position: i64,
+				timestamp: i64,
+			}
+			let params = (id.as_slice(),);
+			let result = self
+				.session
+				.execute_unpaged(&self.get_last_log_statement, params)
+				.await?
+				.into_rows_result()?;
+			let row = result
+				.maybe_first_row::<LastRow>()?
+				.unwrap_or_else(|| LastRow {
+					index: 0,
+					bytes: &[],
+					stream: 0,
+					combined_position: 0,
+					stdout_position: 0,
+					stderr_position: 0,
+					timestamp: 0,
+				});
+
+			// Get the data for this entry.
+			let index = row.index + 1;
+			let bytes = arg.bytes.as_ref();
+			let stream = match arg.stream {
+				tg::process::log::Stream::Stdout => 1,
+				tg::process::log::Stream::Stderr => 2,
+			};
+			let combined_position = row.combined_position + row.bytes.len().to_i64().unwrap();
+			let stdout_position = row.stdout_position
+				+ (row.stream == 1)
+					.then_some(row.bytes.len().to_i64().unwrap())
+					.unwrap_or_default();
+			let stderr_position = row.stderr_position
+				+ (row.stream == 2)
+					.then_some(row.bytes.len().to_i64().unwrap())
+					.unwrap_or_default();
+			let timestamp = arg.timestamp;
+
+			// Try to insert this row.
+			let params = (
+				index,
+				bytes,
+				stream,
+				combined_position,
+				stdout_position,
+				stderr_position,
+				timestamp,
+			);
+			let result = self
+				.session
+				.execute_unpaged(&self.put_log_statement, params)
+				.await?
+				.into_rows_result()?;
+
+			// If the row was inserted, exit the loop. Else try again.
+			if let Some(row) = result.maybe_first_row::<Applied>()?
+				&& row.applied
+			{
+				return Ok(());
+			}
+		}
 	}
 
 	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
@@ -435,10 +773,6 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn put_log_batch(&self, _args: Vec<PutLogArg>) -> Result<(), Self::Error> {
-		todo!()
-	}
-
 	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
@@ -454,7 +788,14 @@ impl crate::Store for Store {
 	}
 
 	async fn delete_log(&self, _arg: DeleteLogArg) -> Result<(), Self::Error> {
-		todo!()
+		// The delete_logs_statement deletes all logs for a process.
+		// Stream-specific deletion is not currently supported.
+		let id = _arg.process.to_bytes().to_vec();
+		let params = (id,);
+		self.session
+			.execute_unpaged(&self.delete_logs_statement, params)
+			.await?;
+		Ok(())
 	}
 
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
@@ -482,10 +823,6 @@ impl crate::Store for Store {
 			.await
 			.map_err(|source| Error::other(tg::error!(!source, "failed to execute the batch")))?;
 		Ok(())
-	}
-
-	async fn delete_log_batch(&self, _args: Vec<DeleteLogArg>) -> Result<(), Self::Error> {
-		todo!()
 	}
 
 	async fn flush(&self) -> Result<(), Self::Error> {

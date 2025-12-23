@@ -7,10 +7,20 @@ pub mod get;
 pub mod post;
 
 #[derive(
-	Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay, Eq, PartialEq,
+	Clone,
+	Copy,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	Eq,
+	PartialEq,
+	tangram_serialize::Serialize,
+	tangram_serialize::Deserialize,
 )]
 pub enum Stream {
+	#[tangram_serialize(id = 0)]
 	Stderr,
+	#[tangram_serialize(id = 1)]
 	Stdout,
 }
 
