@@ -43,7 +43,7 @@ let id2 = tg checkin $path2
 tg publish $path2
 
 # The two packages should have different IDs.
-assert ($id1 != $id2) "The two packages should have different IDs."
+assert not equal $id1 $id2 "The two packages should have different IDs."
 
 # Verify the tag now points to the second package on local.
 let local_tag2 = tg tag get test-pkg/1.0.0 | from json | get item
@@ -63,11 +63,6 @@ tg --url $remote.url index
 tg index
 
 # Verify metadata synced for the second package.
-let local_metadata_result = tg object metadata $id2 | complete
-let remote_metadata_result = tg --url $remote.url object metadata $id2 | complete
-
-if $local_metadata_result.exit_code == 0 and $remote_metadata_result.exit_code == 0 {
-	let local_metadata = $local_metadata_result.stdout | from json
-	let remote_metadata = $remote_metadata_result.stdout | from json
-	assert equal $local_metadata $remote_metadata "Metadata not synced between local and remote."
-}
+let local_metadata = tg object metadata $id2 | from json
+let remote_metadata = tg --url $remote.url object metadata $id2 | from json
+assert equal $local_metadata $remote_metadata "Metadata not synced between local and remote."
