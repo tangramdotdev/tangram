@@ -153,7 +153,7 @@ impl Store {
 					let length = bytes
 						.len()
 						.min(arg.length.to_usize().unwrap() - output.len());
-					output.extend_from_slice(&bytes[offset..(offset + length)]);
+					output.extend_from_slice(&bytes[offset..(offset + length).min(bytes.len())]);
 					output
 				},
 			);
@@ -329,5 +329,303 @@ impl crate::Store for Store {
 impl crate::Error for Error {
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
 		Self::Other(error.into())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_put_and_read_log_single_chunk() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Insert a single chunk.
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("hello world"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1000,
+		});
+
+		// Read the entire chunk.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 0,
+			length: 11,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::from("hello world")));
+
+		// Read a subset of the chunk.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 6,
+			length: 5,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::from("world")));
+	}
+
+	#[test]
+	fn test_put_and_read_log_multiple_chunks() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Insert multiple chunks.
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("hello"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1000,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from(" "),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1001,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("world"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1002,
+		});
+
+		// Read across all chunks.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 0,
+			length: 11,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::from("hello world")));
+	}
+
+	#[test]
+	fn test_read_log_across_chunk_boundaries() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Insert chunks: "AAAA" (0-3), "BBBB" (4-7), "CCCC" (8-11).
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("AAAA"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1000,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("BBBB"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1001,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("CCCC"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1002,
+		});
+
+		// Read starting in the middle of the first chunk, across into the second.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 2,
+			length: 4,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::from("AABB")));
+
+		// Read starting in the middle of the second chunk, across into the third.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 6,
+			length: 4,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::from("BBCC")));
+
+		// Read spanning all three chunks.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 2,
+			length: 8,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::from("AABBBBCC")));
+	}
+
+	#[test]
+	fn test_read_log_combined_stream() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Insert interleaved stdout and stderr chunks.
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("out1"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1000,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("err1"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stderr,
+			timestamp: 1001,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("out2"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1002,
+		});
+
+		// Read the combined stream.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 0,
+			length: 12,
+			stream: None,
+		});
+		assert_eq!(result, Some(Bytes::from("out1err1out2")));
+
+		// Read only stdout.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 0,
+			length: 8,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::from("out1out2")));
+
+		// Read only stderr.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 0,
+			length: 4,
+			stream: Some(tg::process::log::Stream::Stderr),
+		});
+		assert_eq!(result, Some(Bytes::from("err1")));
+	}
+
+	#[test]
+	fn test_delete_log_removes_all_chunks() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Insert some chunks.
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("hello"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1000,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("world"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stderr,
+			timestamp: 1001,
+		});
+
+		// Verify the log exists.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 0,
+			length: 10,
+			stream: None,
+		});
+		assert_eq!(result, Some(Bytes::from("helloworld")));
+
+		// Delete the log.
+		store.delete_log(DeleteLogArg {
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			stream_position: 0,
+		});
+
+		// Verify the log no longer exists.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 0,
+			length: 10,
+			stream: None,
+		});
+		assert_eq!(result, None);
+	}
+
+	#[test]
+	fn test_try_get_log_length() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Insert chunks.
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("hello"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1000,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("err"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stderr,
+			timestamp: 1001,
+		});
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("world"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1002,
+		});
+
+		// Check lengths.
+		assert_eq!(store.try_get_log_length(&process, None), Some(13)); // 5 + 3 + 5
+		assert_eq!(
+			store.try_get_log_length(&process, Some(tg::process::log::Stream::Stdout)),
+			Some(10)
+		); // 5 + 5
+		assert_eq!(
+			store.try_get_log_length(&process, Some(tg::process::log::Stream::Stderr)),
+			Some(3)
+		);
+	}
+
+	#[test]
+	fn test_read_log_at_end_returns_empty() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Insert a chunk.
+		store.put_log(PutLogArg {
+			bytes: Bytes::from("hello"),
+			process: process.clone(),
+			stream: tg::process::log::Stream::Stdout,
+			timestamp: 1000,
+		});
+
+		// Read at the end position.
+		let result = store.try_read_log(ReadLogArg {
+			process: process.clone(),
+			position: 5,
+			length: 10,
+			stream: Some(tg::process::log::Stream::Stdout),
+		});
+		assert_eq!(result, Some(Bytes::new()));
+	}
+
+	#[test]
+	fn test_read_log_nonexistent_process() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+
+		// Try to read from a process that does not exist.
+		let result = store.try_read_log(ReadLogArg {
+			process,
+			position: 0,
+			length: 10,
+			stream: None,
+		});
+		assert_eq!(result, None);
 	}
 }
