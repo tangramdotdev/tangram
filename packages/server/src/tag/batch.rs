@@ -1,6 +1,5 @@
 use {
 	crate::{Context, Database, Server},
-	itertools::Itertools as _,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::Messenger,
@@ -47,7 +46,7 @@ impl Server {
 		}
 
 		// Publish the put tag index messages.
-		let messages = arg
+		let messages: Vec<crate::index::Message> = arg
 			.tags
 			.into_iter()
 			.map(|item| {
@@ -55,11 +54,11 @@ impl Server {
 					tag: item.tag.to_string(),
 					item: item.item,
 				})
-				.serialize()
 			})
-			.try_collect()?;
+			.collect();
+		let message = crate::index::message::Messages(messages);
 		self.messenger
-			.stream_batch_publish("index".into(), messages)
+			.stream_publish("index".into(), message)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 			.await

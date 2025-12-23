@@ -1,6 +1,5 @@
 use {
 	crate::{Context, Server},
-	bytes::Bytes,
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin, task::Poll, time::Duration},
@@ -84,7 +83,7 @@ impl Server {
 		// Subscribe to indexer progress.
 		let indexer_progress_stream = self
 			.messenger
-			.subscribe("indexer_progress".to_owned(), None)
+			.subscribe::<()>("indexer_progress".to_owned(), None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to indexer progress"))?;
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
@@ -171,7 +170,7 @@ impl Server {
 							wait = true;
 						} else {
 							self.messenger
-								.publish("indexer_progress".to_owned(), Bytes::new())
+								.publish("indexer_progress".to_owned(), ())
 								.await
 								.ok();
 						}
@@ -204,7 +203,7 @@ impl Server {
 			} else {
 				// Publish indexer progress.
 				self.messenger
-					.publish("indexer_progress".to_owned(), Bytes::new())
+					.publish("indexer_progress".to_owned(), ())
 					.await
 					.ok();
 			}
@@ -230,24 +229,14 @@ impl Server {
 			timeout: Some(config.message_batch_timeout),
 		};
 		let stream = consumer
-			.batch_subscribe(batch_config)
+			.batch_subscribe::<message::Messages>(batch_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
 			.boxed()
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
-			.and_then(|message| async {
-				let (payload, acker) = message.split();
-				let len = payload.len();
-				let mut position = 0usize;
-				let mut messages = Vec::new();
-				while position < len {
-					let message = Message::deserialize(&payload[position..])
-						.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-					let serialized = message.serialize()?;
-					position += serialized.len();
-					messages.push(message);
-				}
-				Ok::<_, tg::Error>((messages, acker))
+			.map_ok(|message| {
+				let (messages, acker) = message.split();
+				(messages.0, acker)
 			})
 			.inspect_err(|error| {
 				tracing::error!(?error);

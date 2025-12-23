@@ -1,7 +1,6 @@
 use {
 	super::graph::{Graph, Node},
 	crate::{Server, index::message::ProcessObjectKind, sync::get::State},
-	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
@@ -259,7 +258,7 @@ impl Server {
 	fn sync_get_index_create_messages(
 		graph: &mut Graph,
 		message_max_bytes: usize,
-	) -> tg::Result<Vec<Vec<Bytes>>> {
+	) -> tg::Result<Vec<Vec<crate::index::message::Messages>>> {
 		// Get a topological ordering.
 		let toposort = petgraph::algo::toposort(&*graph, None)
 			.map_err(|_| tg::error!("failed to toposort the graph"))?;
@@ -950,18 +949,17 @@ impl Server {
 			let mut batches = Vec::new();
 			let mut messages = messages.into_iter().peekable();
 			while let Some(message) = messages.next() {
-				let message = message.serialize()?;
-				let mut batch = message.to_vec();
+				let mut batch = vec![message];
+				let mut batch_bytes = batch[0].serialize()?.len();
 				while let Some(message) = messages.peek() {
-					let message = message.serialize()?;
-					if batch.len() + message.len() <= message_max_bytes {
-						messages.next().unwrap();
-						batch.extend_from_slice(&message);
-					} else {
+					batch_bytes += message.serialize()?.len();
+					if batch_bytes > message_max_bytes {
 						break;
 					}
+					let message = messages.next().unwrap();
+					batch.push(message);
 				}
-				batches.push(batch.into());
+				batches.push(crate::index::message::Messages(batch));
 			}
 			batched.insert(level, batches);
 		}

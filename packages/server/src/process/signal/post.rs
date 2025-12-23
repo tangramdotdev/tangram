@@ -34,9 +34,8 @@ impl Server {
 		}
 
 		// Publish the signal message.
-		let payload = serde_json::to_vec(&tg::process::signal::get::Event::Signal(arg.signal))
-			.unwrap()
-			.into();
+		let payload =
+			tangram_messenger::payload::Json(tg::process::signal::get::Event::Signal(arg.signal));
 		self.messenger
 			.publish(format!("processes.{id}.signal"), payload)
 			.await

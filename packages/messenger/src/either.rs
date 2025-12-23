@@ -1,9 +1,8 @@
 use {
 	crate::{
-		BatchConfig, Consumer, ConsumerConfig, ConsumerInfo, Error, Message, Messenger, Stream,
-		StreamConfig, StreamInfo,
+		BatchConfig, Consumer, ConsumerConfig, ConsumerInfo, Error, Message, Messenger, Payload,
+		Stream, StreamConfig, StreamInfo,
 	},
-	bytes::Bytes,
 	futures::{FutureExt as _, TryFutureExt as _},
 	tangram_either::Either,
 };
@@ -15,18 +14,26 @@ where
 {
 	type Stream = Either<L::Stream, R::Stream>;
 
-	fn publish(&self, subject: String, payload: Bytes) -> impl Future<Output = Result<(), Error>> {
+	fn publish<T>(&self, subject: String, payload: T) -> impl Future<Output = Result<(), Error>>
+	where
+		T: Payload,
+	{
 		match self {
 			Either::Left(s) => s.publish(subject, payload).left_future(),
 			Either::Right(s) => s.publish(subject, payload).right_future(),
 		}
 	}
 
-	fn subscribe(
+	fn subscribe<T>(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> impl Future<Output = Result<impl futures::Stream<Item = Message> + 'static, Error>> {
+	) -> impl Future<
+		Output = Result<impl futures::Stream<Item = Result<Message<T>, Error>> + 'static, Error>,
+	>
+	where
+		T: Payload + Clone,
+	{
 		match self {
 			Either::Left(s) => s
 				.subscribe(subject, group)
@@ -87,11 +94,14 @@ where
 		}
 	}
 
-	fn stream_publish(
+	fn stream_publish<T>(
 		&self,
 		name: String,
-		payload: Bytes,
-	) -> impl Future<Output = Result<impl Future<Output = Result<u64, Error>>, Error>> + Send {
+		payload: T,
+	) -> impl Future<Output = Result<impl Future<Output = Result<u64, Error>>, Error>> + Send
+	where
+		T: Payload,
+	{
 		match self {
 			Either::Left(s) => s
 				.stream_publish(name, payload)
@@ -104,11 +114,13 @@ where
 		}
 	}
 
-	fn stream_batch_publish(
+	fn stream_batch_publish<T>(
 		&self,
 		name: String,
-		payloads: Vec<Bytes>,
+		payloads: Vec<T>,
 	) -> impl Future<Output = Result<impl Future<Output = Result<Vec<u64>, Error>> + Send, Error>> + Send
+	where
+		T: Payload,
 	{
 		match self {
 			Either::Left(s) => s
@@ -201,14 +213,17 @@ where
 		}
 	}
 
-	fn subscribe(
+	fn subscribe<T>(
 		&self,
 	) -> impl Future<
 		Output = Result<
-			impl futures::Stream<Item = Result<Message, Error>> + Send + 'static,
+			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,
 			Error,
 		>,
-	> + Send {
+	> + Send
+	where
+		T: Payload + Clone,
+	{
 		match self {
 			Either::Left(s) => s
 				.subscribe()
@@ -221,15 +236,18 @@ where
 		}
 	}
 
-	fn batch_subscribe(
+	fn batch_subscribe<T>(
 		&self,
 		config: BatchConfig,
 	) -> impl Future<
 		Output = Result<
-			impl futures::Stream<Item = Result<Message, Error>> + Send + 'static,
+			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,
 			Error,
 		>,
-	> + Send {
+	> + Send
+	where
+		T: Payload + Clone,
+	{
 		match self {
 			Either::Left(s) => s
 				.batch_subscribe(config)

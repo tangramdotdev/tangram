@@ -6231,6 +6231,8 @@ dependencies = [
  "derive_more",
  "futures",
  "num",
+ "serde",
+ "serde_json",
  "tangram_either",
  "tokio",
  "tracing",

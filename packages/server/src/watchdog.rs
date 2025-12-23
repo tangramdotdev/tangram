@@ -23,7 +23,7 @@ impl Server {
 			if matches!(result, Err(_) | Ok(0)) {
 				let stream = self
 					.messenger
-					.subscribe("watchdog".into(), None)
+					.subscribe::<()>("watchdog".into(), None)
 					.await
 					.map_err(|source| {
 						tg::error!(

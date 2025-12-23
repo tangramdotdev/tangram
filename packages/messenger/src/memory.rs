@@ -1,12 +1,13 @@
 use {
 	crate::{
-		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, StreamConfig, StreamInfo,
+		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, Payload, StreamConfig,
+		StreamInfo,
 	},
 	async_broadcast as broadcast,
-	bytes::Bytes,
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{
+		any::Any,
 		collections::{BTreeMap, HashMap},
 		ops::Deref,
 		sync::{Arc, RwLock, Weak},
@@ -20,8 +21,8 @@ pub struct Messenger {
 }
 
 pub struct MessengerInner {
-	receiver: broadcast::InactiveReceiver<(String, Bytes)>,
-	sender: broadcast::Sender<(String, Bytes)>,
+	receiver: broadcast::InactiveReceiver<(String, Arc<dyn Payload>)>,
+	sender: broadcast::Sender<(String, Arc<dyn Payload>)>,
 	state: RwLock<MessengerState>,
 }
 
@@ -41,11 +42,10 @@ pub struct StreamInner {
 }
 
 struct StreamState {
-	bytes: u64,
 	closed: bool,
 	config: StreamConfig,
 	consumers: HashMap<String, (Consumer, ConsumerState)>,
-	messages: BTreeMap<u64, Bytes>,
+	messages: BTreeMap<u64, Arc<dyn Payload>>,
 	sequence: u64,
 }
 
@@ -83,25 +83,38 @@ impl Messenger {
 		Self { inner }
 	}
 
-	fn publish(&self, subject: String, payload: Bytes) {
+	fn publish<T>(&self, subject: String, payload: T)
+	where
+		T: Payload,
+	{
+		let payload: Arc<dyn Payload> = Arc::new(payload);
 		self.sender.try_broadcast((subject, payload)).ok();
 	}
 
-	fn subscribe(
+	fn subscribe<T>(
 		&self,
 		subject: String,
 		_group: Option<String>,
-	) -> impl futures::Stream<Item = Message> + Send + 'static {
+	) -> impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static
+	where
+		T: Payload + Clone,
+	{
 		self.receiver
 			.activate_cloned()
 			.filter_map(move |(subject_, payload)| {
-				future::ready({
-					(subject_ == subject).then(|| Message {
-						subject: subject_,
-						payload,
-						acker: Acker::default(),
-					})
-				})
+				if subject_ != subject {
+					return future::ready(None);
+				}
+				let payload = payload as Arc<dyn Any + Send + Sync>;
+				let Ok(payload) = payload.downcast::<T>() else {
+					return future::ready(Some(Err(Error::deserialization("downcast failed"))));
+				};
+				let message = Message {
+					subject: subject_,
+					payload: Arc::unwrap_or_clone(payload),
+					acker: Acker::default(),
+				};
+				future::ready(Some(Ok(message)))
 			})
 	}
 
@@ -143,11 +156,14 @@ impl Messenger {
 		}
 	}
 
-	async fn stream_publish(
+	async fn stream_publish<T>(
 		&self,
 		name: String,
-		payload: Bytes,
-	) -> Result<impl Future<Output = Result<u64, Error>>, Error> {
+		payload: T,
+	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
+	where
+		T: Payload,
+	{
 		let stream = self
 			.state
 			.read()
@@ -162,11 +178,14 @@ impl Messenger {
 		Ok(future)
 	}
 
-	async fn stream_batch_publish(
+	async fn stream_batch_publish<T>(
 		&self,
 		name: String,
-		payloads: Vec<Bytes>,
-	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error> {
+		payloads: Vec<T>,
+	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
+	where
+		T: Payload,
+	{
 		let stream = self
 			.state
 			.read()
@@ -185,7 +204,6 @@ impl Messenger {
 impl Stream {
 	fn new(name: String, config: StreamConfig) -> Self {
 		let state = StreamState {
-			bytes: 0,
 			closed: false,
 			config,
 			consumers: HashMap::default(),
@@ -278,13 +296,19 @@ impl Stream {
 		state.consumers.remove(name);
 	}
 
-	async fn publish(&self, payload: Bytes) -> Result<u64, Error> {
+	async fn publish<T>(&self, payload: T) -> Result<u64, Error>
+	where
+		T: Payload,
+	{
 		let mut sequences = self.batch_publish(vec![payload]).await?;
 		let sequence = sequences.pop().ok_or_else(|| Error::MaxMessages)?;
 		Ok(sequence)
 	}
 
-	async fn batch_publish(&self, payloads: Vec<Bytes>) -> Result<Vec<u64>, Error> {
+	async fn batch_publish<T>(&self, payloads: Vec<T>) -> Result<Vec<u64>, Error>
+	where
+		T: Payload,
+	{
 		// Lock the state.
 		let mut state = self.state.write().unwrap();
 
@@ -297,15 +321,9 @@ impl Stream {
 				tracing::warn!("max messages reached");
 				break;
 			}
-			if let Some(max_bytes) = state.config.max_bytes
-				&& state.bytes + payload.len().to_u64().unwrap() > max_bytes
-			{
-				tracing::warn!("max bytes reached");
-				break;
-			}
 			state.sequence += 1;
 			let sequence = state.sequence;
-			state.bytes += payload.len().to_u64().unwrap();
+			let payload: Arc<dyn Payload> = Arc::new(payload);
 			state.messages.insert(sequence, payload);
 			sequences.push(sequence);
 		}
@@ -341,9 +359,12 @@ impl Consumer {
 		Ok(info)
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		let config = BatchConfig {
 			max_bytes: None,
 			max_messages: None,
@@ -352,10 +373,13 @@ impl Consumer {
 		self.batch_subscribe(config).await
 	}
 
-	async fn batch_subscribe(
+	async fn batch_subscribe<T>(
 		&self,
 		config: BatchConfig,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		// Create the state.
 		struct State {
 			consumer: Consumer,
@@ -428,7 +452,7 @@ impl Consumer {
 				.iter()
 				.skip_while(|(sequence, _)| **sequence <= consumer_sequence)
 				.take(max_messages)
-				.map(|(sequence, bytes)| (*sequence, bytes.clone()))
+				.map(|(sequence, payload)| (*sequence, payload.clone()))
 				.collect::<Vec<_>>();
 
 			// Set the consumer's sequence number.
@@ -447,7 +471,10 @@ impl Consumer {
 			// Create the messages.
 			let messages = messages
 				.into_iter()
-				.map(|(sequence, payload)| {
+				.filter_map(|(sequence, payload)| {
+					let payload = payload as Arc<dyn Any + Send + Sync>;
+					let payload = payload.downcast::<T>().ok()?;
+					let payload = Arc::unwrap_or_clone(payload);
 					let inner = Arc::downgrade(&state.consumer.inner);
 					let acker = Acker::new(async move {
 						if let Some(inner) = inner.upgrade() {
@@ -461,7 +488,7 @@ impl Consumer {
 						payload,
 						subject: state.name.clone(),
 					};
-					Ok(message)
+					Some(Ok(message))
 				})
 				.collect::<Vec<_>>();
 
@@ -479,8 +506,7 @@ impl Consumer {
 			.upgrade()
 			.ok_or_else(|| Error::other("the stream was destroyed"))?;
 		let mut state = stream.state.write().unwrap();
-		let message = state.messages.remove(&sequence).unwrap();
-		state.bytes -= message.len().to_u64().unwrap();
+		state.messages.remove(&sequence);
 		Ok(())
 	}
 }
@@ -518,16 +544,22 @@ impl Deref for Consumer {
 impl crate::Messenger for Messenger {
 	type Stream = Stream;
 
-	async fn publish(&self, subject: String, payload: Bytes) -> Result<(), Error> {
+	async fn publish<T>(&self, subject: String, payload: T) -> Result<(), Error>
+	where
+		T: Payload,
+	{
 		self.publish(subject, payload);
 		Ok(())
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
 		subject: String,
 		group: Option<String>,
-	) -> Result<impl futures::Stream<Item = Message> + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		Ok(self.subscribe(subject, group))
 	}
 
@@ -556,19 +588,25 @@ impl crate::Messenger for Messenger {
 		Ok(())
 	}
 
-	async fn stream_publish(
+	async fn stream_publish<T>(
 		&self,
 		name: String,
-		payload: Bytes,
-	) -> Result<impl Future<Output = Result<u64, Error>>, Error> {
+		payload: T,
+	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
+	where
+		T: Payload,
+	{
 		self.stream_publish(name, payload).await
 	}
 
-	async fn stream_batch_publish(
+	async fn stream_batch_publish<T>(
 		&self,
 		name: String,
-		payloads: Vec<Bytes>,
-	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error> {
+		payloads: Vec<T>,
+	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
+	where
+		T: Payload,
+	{
 		self.stream_batch_publish(name, payloads).await
 	}
 }
@@ -611,16 +649,22 @@ impl crate::Consumer for Consumer {
 		self.info().await
 	}
 
-	async fn subscribe(
+	async fn subscribe<T>(
 		&self,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		self.subscribe().await
 	}
 
-	async fn batch_subscribe(
+	async fn batch_subscribe<T>(
 		&self,
 		config: BatchConfig,
-	) -> Result<impl futures::Stream<Item = Result<Message, Error>> + Send + 'static, Error> {
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload + Clone,
+	{
 		self.batch_subscribe(config).await
 	}
 }

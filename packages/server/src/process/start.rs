@@ -1,6 +1,5 @@
 use {
 	crate::{Context, Server},
-	bytes::Bytes,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
@@ -70,7 +69,7 @@ impl Server {
 			async move {
 				server
 					.messenger
-					.publish(format!("processes.{id}.status"), Bytes::new())
+					.publish(format!("processes.{id}.status"), ())
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
 					.ok();

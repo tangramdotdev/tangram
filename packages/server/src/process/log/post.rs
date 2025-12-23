@@ -53,7 +53,7 @@ impl Server {
 			async move {
 				server
 					.messenger
-					.publish(format!("processes.{id}.log"), Bytes::new())
+					.publish(format!("processes.{id}.log"), ())
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
 					.ok();

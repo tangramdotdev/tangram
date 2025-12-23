@@ -24,7 +24,7 @@ impl Server {
 		// Create the event stream.
 		let created = self
 			.messenger
-			.subscribe("processes.created".to_owned(), Some("queue".to_owned()))
+			.subscribe::<()>("processes.created".to_owned(), Some("queue".to_owned()))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
