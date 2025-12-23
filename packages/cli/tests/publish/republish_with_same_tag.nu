@@ -1,3 +1,5 @@
+# Test that publishing a package with the same metadata tag as a previously published package
+# overwrites the tag to point to the new content. This ensures users can republish updated packages.
 use ../../test.nu *
 
 let remote = spawn -n remote
