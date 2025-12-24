@@ -264,7 +264,7 @@ impl store::Store for Store {
 			Self::Lmdb(lmdb) => lmdb.try_read_log(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => Ok(memory.try_read_log(arg)),
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_log(arg).await.map_err(Error::Scylla),
+			Self::Scylla(scylla) => scylla.try_read_log(arg).await.map_err(Error::Scylla),
 		}
 	}
 
