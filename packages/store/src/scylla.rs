@@ -259,11 +259,11 @@ impl Store {
 			get_statement,
 			put_statement,
 			delete_logs_statement,
-			get_log_by_combined_position_statement,
+			put_log_statement,
 			get_log_by_index_statement,
+			get_log_by_combined_position_statement,
 			get_log_by_stream_position_statement,
 			get_last_log_statement,
-			put_log_statement,
 			session,
 		};
 
@@ -548,8 +548,8 @@ impl crate::Store for Store {
 		Ok(Some(crate::log::Chunk {
 			bytes,
 			combined_position,
-			stream,
 			stream_position,
+			stream,
 			timestamp,
 		}))
 	}
@@ -680,7 +680,7 @@ impl crate::Store for Store {
 				.into_rows_result()?;
 			let row = result
 				.maybe_first_row::<LastRow>()?
-				.unwrap_or_else(|| LastRow {
+				.unwrap_or(LastRow {
 					index: 0,
 					bytes: &[],
 					stream: 0,
@@ -698,14 +698,14 @@ impl crate::Store for Store {
 				tg::process::log::Stream::Stderr => 2,
 			};
 			let combined_position = row.combined_position + row.bytes.len().to_i64().unwrap();
-			let stdout_position = row.stdout_position
-				+ (row.stream == 1)
-					.then_some(row.bytes.len().to_i64().unwrap())
-					.unwrap_or_default();
-			let stderr_position = row.stderr_position
-				+ (row.stream == 2)
-					.then_some(row.bytes.len().to_i64().unwrap())
-					.unwrap_or_default();
+			let mut stdout_position = row.stdout_position;
+			if row.stream == 1 {
+				stdout_position += bytes.len().to_i64().unwrap();
+			}
+			let mut stderr_position = row.stderr_position;
+			if row.stream == 2 {
+				stderr_position += bytes.len().to_i64().unwrap();
+			}
 			let timestamp = arg.timestamp;
 
 			// Try to insert this row.
@@ -787,10 +787,10 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn delete_log(&self, _arg: DeleteLogArg) -> Result<(), Self::Error> {
+	async fn delete_log(&self, arg: DeleteLogArg) -> Result<(), Self::Error> {
 		// The delete_logs_statement deletes all logs for a process.
 		// Stream-specific deletion is not currently supported.
-		let id = _arg.process.to_bytes().to_vec();
+		let id = arg.process.to_bytes().to_vec();
 		let params = (id,);
 		self.session
 			.execute_unpaged(&self.delete_logs_statement, params)

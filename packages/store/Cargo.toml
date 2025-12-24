@@ -35,3 +35,6 @@ tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
