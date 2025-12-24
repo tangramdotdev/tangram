@@ -31,7 +31,7 @@ pub mod log {
 
 		#[tangram_serialize(id = 3)]
 		pub stream: tg::process::log::Stream,
-		
+
 		#[tangram_serialize(id = 4)]
 		pub timestamp: i64,
 	}

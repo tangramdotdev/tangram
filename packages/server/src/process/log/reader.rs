@@ -109,7 +109,6 @@ impl AsyncRead for Reader {
 				Poll::Ready(Ok(result)) => {
 					this.read_future.take();
 					this.cursor = result;
-					return Poll::Ready(Ok(()));
 				},
 			}
 		}
@@ -153,6 +152,12 @@ impl AsyncSeek for Reader {
 		cx: &mut std::task::Context<'_>,
 	) -> Poll<std::io::Result<u64>> {
 		let this = self.get_mut();
+
+		// tokio calls poll_complete before start_seek to ensure pending seeks are completed.
+		if this.seek_future.is_none() {
+			return Poll::Ready(Ok(this.position));
+		}
+
 		match this
 			.seek_future
 			.as_mut()
@@ -163,6 +168,7 @@ impl AsyncSeek for Reader {
 		{
 			Poll::Pending => Poll::Pending,
 			Poll::Ready(Ok(result)) => {
+				this.seek_future.take();
 				if let Some(position) = result {
 					this.position = position;
 				}
@@ -223,7 +229,7 @@ impl Inner {
 						.read_exact(&mut bytes)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to read the log entry"))?;
-					let chunk = tangram_serialize::from_slice::<tangram_store::log::Chunk>(&bytes)
+					let chunk = tangram_serialize::from_slice::<tangram_store::log::Entry>(&bytes)
 						.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
 
 					// Skip any entry not appearing in this stream.
@@ -350,7 +356,7 @@ impl Inner {
 					.read_exact(&mut bytes)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to read the log entry"))?;
-				let entry = tangram_serialize::from_slice::<tangram_store::log::Chunk>(&bytes)
+				let entry = tangram_serialize::from_slice::<tangram_store::log::Entry>(&bytes)
 					.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
 				let position = if stream.is_some() {
 					entry.stream_position
