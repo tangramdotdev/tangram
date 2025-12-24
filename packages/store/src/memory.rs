@@ -21,7 +21,7 @@ struct ObjectEntry {
 #[derive(Default)]
 struct LogEntry {
 	counter: usize,
-	chunks: BTreeMap<usize, crate::log::Chunk>,
+	chunks: BTreeMap<usize, crate::log::Entry>,
 	stderr: BTreeMap<u64, usize>,
 	stdout: BTreeMap<u64, usize>,
 	combined: BTreeMap<u64, usize>,
@@ -175,7 +175,7 @@ impl Store {
 	}
 
 	#[must_use]
-	pub fn try_get_log_entry(&self, id: &tg::process::Id, index: u64) -> Option<crate::log::Chunk> {
+	pub fn try_get_log_entry(&self, id: &tg::process::Id, index: u64) -> Option<crate::log::Entry> {
 		let entry = self.logs.get(id)?;
 		let chunk = entry.chunks.get(&index.to_usize().unwrap())?;
 		Some(chunk.clone())
@@ -204,7 +204,7 @@ impl Store {
 		// Insert the chunk and update counters.
 		match arg.stream {
 			tg::process::log::Stream::Stderr => {
-				let chunk = crate::log::Chunk {
+				let chunk = crate::log::Entry {
 					bytes: arg.bytes.clone(),
 					combined_position,
 					stream_position: stderr_position,
@@ -217,7 +217,7 @@ impl Store {
 				entry.stderr_position += arg.bytes.len().to_u64().unwrap();
 			},
 			tg::process::log::Stream::Stdout => {
-				let chunk = crate::log::Chunk {
+				let chunk = crate::log::Entry {
 					bytes: arg.bytes.clone(),
 					combined_position,
 					stream_position: stdout_position,
@@ -283,7 +283,7 @@ impl crate::Store for Store {
 		&self,
 		id: &tg::process::Id,
 		index: u64,
-	) -> Result<Option<crate::log::Chunk>, Self::Error> {
+	) -> Result<Option<crate::log::Entry>, Self::Error> {
 		Ok(self.try_get_log_entry(id, index))
 	}
 

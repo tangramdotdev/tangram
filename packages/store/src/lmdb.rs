@@ -458,7 +458,7 @@ impl Store {
 			.map_err(|source| tg::error!(!source, "failed to update the log's stream position"))?;
 
 		// Create the log entry.
-		let entry = crate::log::Chunk {
+		let entry = crate::log::Entry {
 			bytes: request.bytes.clone(),
 			combined_position,
 			stream_position,
@@ -527,7 +527,9 @@ impl Store {
 		let index = db
 			.get(transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, "failed to get the log index"))?
-			.map_or(0, |bytes| u64::from_le_bytes(bytes.try_into().unwrap_or([0u8; 8])));
+			.map_or(0, |bytes| {
+				u64::from_le_bytes(bytes.try_into().unwrap_or([0u8; 8]))
+			});
 
 		// First, read all LogBytes entries to collect positions for Log entry deletion.
 		let mut entries = Vec::new();
@@ -539,9 +541,10 @@ impl Store {
 			if let Some(val) = db
 				.get(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
-				&& let Ok(entry) = tangram_serialize::from_slice::<crate::log::Chunk>(val) {
-					entries.push(entry);
-				}
+				&& let Ok(entry) = tangram_serialize::from_slice::<crate::log::Entry>(val)
+			{
+				entries.push(entry);
+			}
 		}
 
 		// Delete Log entries using the collected positions.
@@ -768,7 +771,7 @@ impl crate::Store for Store {
 					else {
 						break;
 					};
-					let entry = tangram_serialize::from_slice::<crate::log::Chunk>(val).map_err(
+					let entry = tangram_serialize::from_slice::<crate::log::Entry>(val).map_err(
 						|source| tg::error!(!source, "failed to deserialize the log entry"),
 					)?;
 
@@ -852,7 +855,7 @@ impl crate::Store for Store {
 		&self,
 		id: &tg::process::Id,
 		index: u64,
-	) -> Result<Option<crate::log::Chunk>, Self::Error> {
+	) -> Result<Option<crate::log::Entry>, Self::Error> {
 		let entry = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
@@ -873,7 +876,7 @@ impl crate::Store for Store {
 				else {
 					return Ok(None);
 				};
-				let entry = tangram_serialize::from_slice::<crate::log::Chunk>(val)
+				let entry = tangram_serialize::from_slice::<crate::log::Entry>(val)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
 				Ok::<_, tg::Error>(Some(entry))
 			}

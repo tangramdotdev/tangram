@@ -19,15 +19,19 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 pub mod log {
 	use {bytes::Bytes, tangram_client as tg};
 	#[derive(Debug, Clone, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
-	pub struct Chunk {
+	pub struct Entry {
 		#[tangram_serialize(id = 0)]
 		pub bytes: Bytes,
+
 		#[tangram_serialize(id = 1)]
 		pub combined_position: u64,
+
 		#[tangram_serialize(id = 2)]
 		pub stream_position: u64,
+
 		#[tangram_serialize(id = 3)]
 		pub stream: tg::process::log::Stream,
+		
 		#[tangram_serialize(id = 4)]
 		pub timestamp: i64,
 	}
@@ -61,7 +65,7 @@ pub trait Store {
 		&self,
 		id: &tg::process::Id,
 		index: u64,
-	) -> impl std::future::Future<Output = std::result::Result<Option<log::Chunk>, Self::Error>> + Send;
+	) -> impl std::future::Future<Output = std::result::Result<Option<log::Entry>, Self::Error>> + Send;
 
 	fn try_get_num_log_entries(
 		&self,
@@ -118,9 +122,9 @@ pub struct PutArg {
 
 #[derive(Clone, Debug)]
 pub struct ReadLogArg {
-	pub process: tg::process::Id,
-	pub position: u64,
 	pub length: u64,
+	pub position: u64,
+	pub process: tg::process::Id,
 	pub stream: Option<tg::process::log::Stream>,
 }
 
