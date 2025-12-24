@@ -1,44 +1,36 @@
 use {
-	crate::{Server, process::log::serialized},
+	crate::Server,
 	bytes::Bytes,
-	futures::{FutureExt, future::BoxFuture, io::Cursor},
+	futures::{FutureExt as _, future::BoxFuture, io::Cursor},
 	num::ToPrimitive,
-	std::{io::SeekFrom, pin::Pin, task::Poll},
+	std::{
+		io::SeekFrom,
+		pin::Pin,
+		sync::{
+			Arc,
+			atomic::{AtomicUsize, Ordering},
+		},
+		task::Poll,
+	},
 	sync_wrapper::SyncWrapper,
 	tangram_client::prelude::*,
 	tangram_store::Store as _,
-	tokio::io::{AsyncRead, AsyncSeek},
+	tokio::{
+		io::{AsyncRead, AsyncReadExt as _, AsyncSeek, AsyncSeekExt as _},
+		sync::Mutex,
+	},
 };
 
 pub struct Reader {
 	cursor: Option<Cursor<Bytes>>,
 	position: u64,
-	process: tg::process::Id,
+	stream: Option<tg::process::log::Stream>,
 	seek_future: Option<SyncWrapper<SeekFuture>>,
 	read_future: Option<SyncWrapper<ReadFuture>>,
-	server: Server,
-	compacted: Option<CompactedLog>,
-	stream: Option<tg::process::log::Stream>,
+	inner: Arc<Inner>,
 }
-
-struct ReadFutureResult {
-	cursor: Option<Cursor<Bytes>>,
-	compacted: Option<CompactedLog>,
-}
-
-struct SeekFutureResult {
-	position: u64,
-	compacted: Option<CompactedLog>,
-}
-
-type ReadFuture = BoxFuture<'static, tg::Result<ReadFutureResult>>;
-type SeekFuture = BoxFuture<'static, tg::Result<SeekFutureResult>>;
-
-struct CompactedLog {
-	entry: usize,
-	index: serialized::Index,
-	reader: crate::read::Reader,
-}
+type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
+type SeekFuture = BoxFuture<'static, tg::Result<Option<u64>>>;
 
 impl Reader {
 	pub async fn new(
@@ -51,27 +43,29 @@ impl Reader {
 			.try_get_process_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		let compacted = if let Some(log) = output.data.log {
-			let blob = tg::Blob::with_id(log);
+		let inner = if let Some(id) = output.data.log {
+			let blob = tg::Blob::with_id(id);
 			let mut reader = crate::read::Reader::new(server, blob).await?;
+			let entry = AtomicUsize::new(0);
 			let index = server.read_log_index_from_blob(&mut reader).await?;
-			Some(CompactedLog {
-				entry: 0,
+			Inner::Blob(BlobInner {
+				entry,
+				reader: Mutex::new(reader),
 				index,
-				reader,
 			})
 		} else {
-			None
+			Inner::Store(StoreInner {
+				server: server.clone(),
+				process: id.clone(),
+			})
 		};
 		Ok(Reader {
 			cursor: None,
-			compacted,
 			position: 0,
-			process: id.clone(),
+			stream,
 			seek_future: None,
 			read_future: None,
-			server: server.clone(),
-			stream,
+			inner: Arc::new(inner),
 		})
 	}
 }
@@ -86,19 +80,19 @@ impl AsyncRead for Reader {
 
 		// Create the read future if necessary.
 		if this.cursor.is_none() && this.read_future.is_none() {
-			let server = this.server.clone();
+			let inner = Arc::clone(&this.inner);
 			let position = this.position;
-			let length = buf.capacity().to_u64().unwrap();
+			let length = buf.remaining().to_u64().unwrap();
 			let stream = this.stream;
-			let process = this.process.clone();
-			let compacted = this.compacted.take();
-			let read =
-				SyncWrapper::new(
-					async move {
-						read_future(&server, &process, compacted, stream, position, length).await
-					}
-					.boxed(),
-				);
+			let read = SyncWrapper::new(
+				async move {
+					inner
+						.try_read_log(position, length, stream)
+						.await
+						.map(|bytes| bytes.map(Cursor::new))
+				}
+				.boxed(),
+			);
 			this.read_future.replace(read);
 		}
 
@@ -114,8 +108,7 @@ impl AsyncRead for Reader {
 				},
 				Poll::Ready(Ok(result)) => {
 					this.read_future.take();
-					this.cursor = result.cursor;
-					this.compacted = result.compacted;
+					this.cursor = result;
 					return Poll::Ready(Ok(()));
 				},
 			}
@@ -146,16 +139,10 @@ impl AsyncSeek for Reader {
 		this.read_future.take();
 		this.cursor.take();
 		let future = SyncWrapper::new({
-			let server = this.server.clone();
+			let inner = Arc::clone(&this.inner);
 			let current_position = this.position;
-			let process = this.process.clone();
 			let stream = this.stream;
-			let compacted = this.compacted.take();
-			async move {
-				poll_seek_store_inner(&server, &process, compacted, stream, current_position, seek)
-					.await
-			}
-			.boxed()
+			async move { inner.try_seek_log(seek, current_position, stream).await }.boxed()
 		});
 		this.seek_future.replace(future);
 		Ok(())
@@ -176,8 +163,9 @@ impl AsyncSeek for Reader {
 		{
 			Poll::Pending => Poll::Pending,
 			Poll::Ready(Ok(result)) => {
-				this.position = result.position;
-				this.compacted = result.compacted;
+				if let Some(position) = result {
+					this.position = position;
+				}
 				Poll::Ready(Ok(this.position))
 			},
 			Poll::Ready(Err(error)) => Poll::Ready(Err(std::io::Error::other(error))),
@@ -185,110 +173,198 @@ impl AsyncSeek for Reader {
 	}
 }
 
-async fn read_future(
-	server: &Server,
-	process: &tg::process::Id,
-	compacted: Option<CompactedLog>,
-	stream: Option<tg::process::log::Stream>,
-	position: u64,
-	length: u64,
-) -> tg::Result<ReadFutureResult> {
-	if let Some(mut compacted) = compacted {
-		let mut output = Vec::with_capacity(length.to_usize().unwrap());
-		while output.len().to_u64().unwrap() <= length && length > 0 {
-			// break out of the loop if we hit eof.
-			if compacted.entry == compacted.index.entries.len() {
-				break;
-			}
-			let entry: tangram_store::log::Chunk = todo!("deserialize the log entry");
-			// skip entries not in this stream.
-			if stream.is_some_and(|stream| stream != entry.stream) {
-				continue;
-			}
-			let entry_position = stream
-				.is_some()
-				.then_some(entry.stream_position)
-				.unwrap_or(entry.combined_position);
-			let offset = position.saturating_sub(entry_position).to_usize().unwrap();
-			let remaining = (length - output.len().to_u64().unwrap())
-				.to_usize()
-				.unwrap();
-			let available = entry.bytes.len() - offset;
-			let take = remaining.min(available);
-			output.extend_from_slice(&entry.bytes[offset..offset + take]);
-		}
-		let cursor = Some(Cursor::new(output.into()));
-		return Ok(ReadFutureResult {
-			cursor,
-			compacted: Some(compacted),
-		});
-	}
-	let arg = tangram_store::ReadLogArg {
-		position,
-		stream,
-		length,
-		process: process.clone(),
-	};
-	server
-		.store
-		.try_read_log(arg)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get the log chunk"))
-		.map(|chunk| ReadFutureResult {
-			cursor: chunk.map(Cursor::new),
-			compacted: None,
-		})
+enum Inner {
+	Blob(BlobInner),
+	Store(StoreInner),
 }
 
-async fn poll_seek_store_inner(
-	server: &Server,
-	process: &tg::process::Id,
-	compacted: Option<CompactedLog>,
-	stream: Option<tg::process::log::Stream>,
-	current_position: u64,
-	seek: SeekFrom,
-) -> tg::Result<SeekFutureResult> {
-	if let Some(mut compacted) = compacted {
-		todo!(
-			"find the last entry in the log if stream is none, else find the last entry corresponding to the same stream. If none can be found, return position = 0 with compacted: Some"
-		);
-		todo!("given the position at the end of the log, compute the next position");
-		todo!(
-			"using the compacted.index, find the entry offset corresponding to the earliest chunk containing that position"
-		);
-		todo!("update the compacted.entry to this index");
-		todo!("return the result");
+struct BlobInner {
+	entry: AtomicUsize,
+	reader: Mutex<crate::read::Reader>,
+	index: super::serialized::Index,
+}
+
+struct StoreInner {
+	server: Server,
+	process: tg::process::Id,
+}
+
+impl Inner {
+	async fn try_read_log(
+		self: Arc<Self>,
+		position: u64,
+		length: u64,
+		stream: Option<tg::process::log::Stream>,
+	) -> tg::Result<Option<Bytes>> {
+		match self.as_ref() {
+			Inner::Blob(inner) => {
+				let mut output = Vec::with_capacity(length.to_usize().unwrap());
+				let mut entry = inner.entry.load(Ordering::SeqCst);
+				while output.len().to_u64().unwrap() <= length && length > 0 {
+					// Break if we run out of entries.
+					if entry == inner.index.entries.len() {
+						break;
+					}
+
+					// Read the next chunk from the log.
+					let range = inner.index.entries[entry];
+					inner
+						.reader
+						.lock()
+						.await
+						.seek(SeekFrom::Start(range.offset))
+						.await
+						.map_err(|source| tg::error!(!source, "failed to seek"))?;
+					let mut bytes = vec![0u8; range.length.to_usize().unwrap()];
+					inner
+						.reader
+						.lock()
+						.await
+						.read_exact(&mut bytes)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to read the log entry"))?;
+					let chunk = tangram_serialize::from_slice::<tangram_store::log::Chunk>(&bytes)
+						.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
+
+					// Skip any entry not appearing in this stream.
+					if stream.is_some_and(|stream| stream != chunk.stream) {
+						continue;
+					}
+
+					// Compute how many bytes to take from the entry.
+					let entry_position = if stream.is_some() {
+						chunk.stream_position
+					} else {
+						chunk.combined_position
+					};
+					let offset = position.saturating_sub(entry_position).to_usize().unwrap();
+					let remaining = (length - output.len().to_u64().unwrap())
+						.to_usize()
+						.unwrap();
+					let available = chunk.bytes.len() - offset;
+					let take = remaining.min(available);
+
+					// Copy the bytes out of the log.
+					output.extend_from_slice(&chunk.bytes[offset..offset + take]);
+
+					// Increment the entry counter.
+					entry += 1;
+				}
+				inner.entry.store(entry, Ordering::SeqCst);
+				Ok(Some(output.into()))
+			},
+			Inner::Store(inner) => {
+				let arg = tangram_store::ReadLogArg {
+					length,
+					position,
+					process: inner.process.clone(),
+					stream,
+				};
+				inner
+					.server
+					.store
+					.try_read_log(arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read the log"))
+			},
+		}
 	}
-	let Some(stream_length) = server
-		.store
-		.try_get_log_length(process, stream)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get the stream length"))?
-	else {
-		return Ok(SeekFutureResult {
-			position: 0,
-			compacted: None,
-		});
-	};
 
-	// Compute the new posiiton.
-	let position = match seek {
-		SeekFrom::Start(start) => start,
-		SeekFrom::Current(diff) => (current_position.to_i64().unwrap() + diff)
-			.max(0)
-			.to_u64()
-			.unwrap(),
-		SeekFrom::End(diff) => {
-			if diff >= 0 {
-				stream_length
-			} else {
-				stream_length.saturating_sub(diff.to_u64().unwrap())
-			}
-		},
-	};
+	pub async fn try_seek_log(
+		self: Arc<Self>,
+		seek: SeekFrom,
+		current_position: u64,
+		stream: Option<tg::process::log::Stream>,
+	) -> tg::Result<Option<u64>> {
+		// Compute the new position.
+		let position = match seek {
+			SeekFrom::Start(position) => position,
+			SeekFrom::Current(diff) => (current_position.to_i64().unwrap() + diff)
+				.to_u64()
+				.unwrap(),
+			SeekFrom::End(diff) => {
+				let Some(end) = self.try_get_log_length(stream).await? else {
+					return Ok(None);
+				};
+				(end.to_i64().unwrap() + diff).to_u64().unwrap()
+			},
+		};
 
-	Ok(SeekFutureResult {
-		position,
-		compacted: None,
-	})
+		if let Inner::Blob(inner) = self.as_ref() {
+			let map = match stream {
+				None => &inner.index.combined,
+				Some(tg::process::log::Stream::Stderr) => &inner.index.stderr,
+				Some(tg::process::log::Stream::Stdout) => &inner.index.stdout,
+			};
+			let index = map
+				.range(0..position)
+				.next_back()
+				.map(|(_, index)| *index)
+				.unwrap_or_default();
+			inner
+				.entry
+				.store(index.to_usize().unwrap(), Ordering::SeqCst);
+		}
+
+		Ok(Some(position))
+	}
+
+	async fn try_get_log_length(
+		&self,
+		stream: Option<tg::process::log::Stream>,
+	) -> tg::Result<Option<u64>> {
+		match self {
+			Inner::Blob(inner) => {
+				let range = match stream {
+					None => inner.index.entries.last().copied(),
+					Some(tg::process::log::Stream::Stderr) => inner
+						.index
+						.stderr
+						.values()
+						.next_back()
+						.copied()
+						.map(|index| inner.index.entries[index.to_usize().unwrap()]),
+					Some(tg::process::log::Stream::Stdout) => inner
+						.index
+						.stdout
+						.values()
+						.next_back()
+						.copied()
+						.map(|index| inner.index.entries[index.to_usize().unwrap()]),
+				};
+				let Some(range) = range else {
+					return Ok(Some(0));
+				};
+				inner
+					.reader
+					.lock()
+					.await
+					.seek(SeekFrom::Start(range.offset))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to seek in the log blob"))?;
+				let mut bytes = vec![0u8; range.length.to_usize().unwrap()];
+				inner
+					.reader
+					.lock()
+					.await
+					.read_exact(&mut bytes)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read the log entry"))?;
+				let entry = tangram_serialize::from_slice::<tangram_store::log::Chunk>(&bytes)
+					.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
+				let position = if stream.is_some() {
+					entry.stream_position
+				} else {
+					entry.combined_position
+				};
+				Ok(Some(position + entry.bytes.len().to_u64().unwrap()))
+			},
+			Inner::Store(inner) => inner
+				.server
+				.store
+				.try_get_log_length(&inner.process, stream)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read the log")),
+		}
+	}
 }
