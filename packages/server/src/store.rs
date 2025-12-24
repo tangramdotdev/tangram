@@ -291,7 +291,7 @@ impl store::Store for Store {
 		&self,
 		id: &tg::process::Id,
 		index: u64,
-	) -> Result<Option<store::log::Chunk>, Self::Error> {
+	) -> Result<Option<store::log::Entry>, Self::Error> {
 		match self {
 			Self::Lmdb(lmdb) => lmdb.try_get_log_entry(id, index).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => Ok(memory.try_get_log_entry(id, index)),

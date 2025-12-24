@@ -18,8 +18,9 @@ pub mod post;
 	tangram_serialize::Deserialize,
 )]
 pub enum Stream {
-	#[tangram_serialize(id = 0)]
+	#[tangram_serialize(id = 2)]
 	Stderr,
+
 	#[tangram_serialize(id = 1)]
 	Stdout,
 }

@@ -24,6 +24,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub size: Option<u64>,
+
+	#[arg(long)]
+	pub stream: Option<tg::process::log::Stream>,
 }
 
 impl Cli {
@@ -38,7 +41,7 @@ impl Cli {
 			position: args.position.map(std::io::SeekFrom::Start),
 			remotes: args.remotes.remotes,
 			size: args.size,
-			stream: None,
+			stream: args.stream,
 		};
 		let mut log = process.log(&handle, arg).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to get the process log"),
