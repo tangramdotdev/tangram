@@ -509,7 +509,7 @@ impl crate::Store for Store {
 		&self,
 		id: &tg::process::Id,
 		index: u64,
-	) -> Result<Option<crate::log::Chunk>, Self::Error> {
+	) -> Result<Option<crate::log::Entry>, Self::Error> {
 		let id = id.to_bytes().to_vec();
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
@@ -545,7 +545,7 @@ impl crate::Store for Store {
 			return Ok(None);
 		};
 		let timestamp = row.timestamp;
-		Ok(Some(crate::log::Chunk {
+		Ok(Some(crate::log::Entry {
 			bytes,
 			combined_position,
 			stream_position,
@@ -678,17 +678,15 @@ impl crate::Store for Store {
 				.execute_unpaged(&self.get_last_log_statement, params)
 				.await?
 				.into_rows_result()?;
-			let row = result
-				.maybe_first_row::<LastRow>()?
-				.unwrap_or(LastRow {
-					index: 0,
-					bytes: &[],
-					stream: 0,
-					combined_position: 0,
-					stdout_position: 0,
-					stderr_position: 0,
-					timestamp: 0,
-				});
+			let row = result.maybe_first_row::<LastRow>()?.unwrap_or(LastRow {
+				index: 0,
+				bytes: &[],
+				stream: 0,
+				combined_position: 0,
+				stdout_position: 0,
+				stderr_position: 0,
+				timestamp: 0,
+			});
 
 			// Get the data for this entry.
 			let index = row.index + 1;
