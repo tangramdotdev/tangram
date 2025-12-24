@@ -13,11 +13,20 @@ use {
 	tg::Handle,
 	tokio::io::AsyncReadExt as _,
 	tokio_util::io::StreamReader,
+	zerocopy::{FromZeros as _, IntoBytes as _},
 };
 
 const MAGIC: [u8; 8] = *b"tgpcslog";
 
-#[derive(Copy, Clone, Debug)]
+#[derive(
+	Copy,
+	Clone,
+	Debug,
+	zerocopy::FromBytes,
+	zerocopy::IntoBytes,
+	zerocopy::Immutable,
+	zerocopy::KnownLayout,
+)]
 #[repr(C)]
 pub struct Header {
 	pub magic: [u8; 8],
@@ -25,7 +34,7 @@ pub struct Header {
 	pub entries_length: u64,
 }
 
-#[derive(Debug, Clone, Default, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, Default, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
 pub struct Index {
 	#[tangram_serialize(id = 0)]
 	pub combined: BTreeMap<u64, u64>,
@@ -37,7 +46,18 @@ pub struct Index {
 	pub stderr: BTreeMap<u64, u64>,
 
 	#[tangram_serialize(id = 3)]
-	pub entries: Vec<u64>,
+	pub entries: Vec<Range>,
+}
+
+#[derive(
+	Copy, Clone, Debug, Default, tangram_serialize::Serialize, tangram_serialize::Deserialize,
+)]
+pub struct Range {
+	#[tangram_serialize(id = 0)]
+	pub offset: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub length: u64,
 }
 
 impl Server {
@@ -67,26 +87,16 @@ impl Server {
 		// Deserialize the index.
 		let mut index = tangram_serialize::from_slice::<Index>(&index)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the index"))?;
-		let Index {
-			combined,
-			stdout,
-			stderr,
-			entries,
-		} = &mut index;
 
 		// The serialized offsets are relative to the end of the index, so bump all offsets by size_of(Header) + index.len();
-		let offsets = combined
-			.values_mut()
-			.chain(stderr.values_mut())
-			.chain(stdout.values_mut())
-			.chain(entries.iter_mut());
-		for offset in offsets {
-			*offset += header.index_length + std::mem::size_of::<Header>().to_u64().unwrap();
+		for range in &mut index.entries {
+			range.offset += header.index_length + std::mem::size_of::<Header>().to_u64().unwrap();
 		}
 
 		Ok(index)
 	}
 
+	#[allow(dead_code)]
 	pub(crate) async fn write_log_to_blob(
 		&self,
 		process: &tg::process::Id,
@@ -122,22 +132,27 @@ impl Server {
 							.store
 							.try_get_log_entry(&process, index)
 							.await
-							.map_err(|error| std::io::Error::other(error))?
+							.map_err(std::io::Error::other)?
 							.ok_or_else(|| std::io::Error::other("expected a chunk"))?;
 						let mut state = state.lock().unwrap();
-						let offset = state.offset;
-						state.index.combined.insert(chunk.combined_position, offset);
-						state.index.entries.push(offset);
+						let serialized = tangram_serialize::to_vec(&chunk).unwrap();
+
+						let range = Range {
+							offset: state.offset,
+							length: serialized.len().to_u64().unwrap(),
+						};
+
+						state.index.combined.insert(chunk.combined_position, index);
+						state.index.entries.push(range);
 						match chunk.stream {
 							tg::process::log::Stream::Stderr => {
-								state.index.stderr.insert(chunk.stream_position, offset)
+								state.index.stderr.insert(chunk.stream_position, index)
 							},
 							tg::process::log::Stream::Stdout => {
-								state.index.stdout.insert(chunk.stream_position, offset)
+								state.index.stdout.insert(chunk.stream_position, index)
 							},
 						};
-						let serialized = tangram_serialize::to_vec(&chunk).unwrap();
-						state.offset += serialized.len().to_u64().unwrap();
+						state.offset += range.length;
 						Ok::<_, std::io::Error>(Bytes::from(serialized))
 					}
 				}
@@ -184,29 +199,5 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the blob"))?;
 		Ok(blob)
-	}
-}
-
-impl Header {
-	pub fn new_zeroed() -> Self {
-		Self {
-			magic: [0u8; 8],
-			index_length: 0,
-			entries_length: 0,
-		}
-	}
-
-	pub fn as_bytes(&self) -> &[u8] {
-		unsafe {
-			let len = std::mem::size_of::<Self>();
-			std::slice::from_raw_parts((self as *const Self).cast(), len)
-		}
-	}
-
-	pub fn as_mut_bytes(&mut self) -> &mut [u8] {
-		unsafe {
-			let len = std::mem::size_of::<Self>();
-			std::slice::from_raw_parts_mut((self as *mut Self).cast(), len)
-		}
 	}
 }
