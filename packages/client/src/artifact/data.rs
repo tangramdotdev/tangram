@@ -63,9 +63,9 @@ impl TryFrom<tg::object::Data> for Artifact {
 
 	fn try_from(value: tg::object::Data) -> Result<Self, Self::Error> {
 		match value {
-			crate::object::Data::Directory(directory) => Ok(Self::Directory(directory)),
-			crate::object::Data::File(file) => Ok(Self::File(file)),
-			crate::object::Data::Symlink(symlink) => Ok(Self::Symlink(symlink)),
+			tg::object::Data::Directory(directory) => Ok(Self::Directory(directory)),
+			tg::object::Data::File(file) => Ok(Self::File(file)),
+			tg::object::Data::Symlink(symlink) => Ok(Self::Symlink(symlink)),
 			_ => Err(tg::error!("invalid object")),
 		}
 	}

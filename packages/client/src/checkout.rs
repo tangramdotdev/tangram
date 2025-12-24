@@ -20,8 +20,8 @@ pub struct Arg {
 	pub force: bool,
 
 	#[serde(
-		default = "crate::checkin::default_lock",
-		skip_serializing_if = "crate::checkin::is_default_lock"
+		default = "tg::checkin::default_lock",
+		skip_serializing_if = "tg::checkin::is_default_lock"
 	)]
 	pub lock: Option<Lock>,
 

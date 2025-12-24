@@ -16,8 +16,8 @@ use {
 	serde::Serialize,
 )]
 #[debug("tg::user::Id(\"{_0}\")]")]
-#[serde(into = "crate::Id", try_from = "crate::Id")]
-pub struct Id(crate::Id);
+#[serde(into = "tg::Id", try_from = "tg::Id")]
+pub struct Id(tg::Id);
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct User {
@@ -53,13 +53,13 @@ impl tg::Client {
 	}
 }
 
-impl From<Id> for tg::Id {
-	fn from(value: Id) -> Self {
+impl From<tg::user::Id> for tg::Id {
+	fn from(value: tg::user::Id) -> Self {
 		value.0
 	}
 }
 
-impl TryFrom<tg::Id> for Id {
+impl TryFrom<tg::Id> for tg::user::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
@@ -70,7 +70,7 @@ impl TryFrom<tg::Id> for Id {
 	}
 }
 
-impl std::str::FromStr for Id {
+impl std::str::FromStr for tg::user::Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {

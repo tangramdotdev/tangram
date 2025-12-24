@@ -80,7 +80,7 @@ impl Object {
 
 	pub async fn object<H>(&self, handle: &H) -> tg::Result<Object_>
 	where
-		H: crate::Handle,
+		H: tg::Handle,
 	{
 		match self {
 			Self::Blob(object) => object.object(handle).await.map(Object_::Blob),

@@ -4,8 +4,8 @@ export function error(): tg.Error;
 export function error(message: string, arg?: tg.Error.Arg): tg.Error;
 export function error(arg: tg.Error.Arg): tg.Error;
 export function error(
-	firstArg?: string | Error.Arg,
-	secondArg?: Error.Arg,
+	firstArg?: string | tg.Error.Arg,
+	secondArg?: tg.Error.Arg,
 ): tg.Error {
 	let object: tg.Error.Object = { values: {} };
 	if (firstArg !== undefined && typeof firstArg === "string") {
@@ -95,22 +95,22 @@ export class Error {
 	}
 
 	static fromData(data: tg.Error.Data): tg.Error {
-		return tg.Error.withObject(Error.Object.fromData(data));
+		return tg.Error.withObject(tg.Error.Object.fromData(data));
 	}
 
 	static toData(value: tg.Error): tg.Error.Data {
 		let object = value.state.object;
 		tg.assert(object?.kind === "error");
-		return Error.Object.toData(object.value);
+		return tg.Error.Object.toData(object.value);
 	}
 
 	static expect(value: unknown): tg.Error {
-		tg.assert(value instanceof Error);
+		tg.assert(value instanceof tg.Error);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is tg.Error {
-		tg.assert(value instanceof Error);
+		tg.assert(value instanceof tg.Error);
 	}
 
 	get id(): tg.Error.Id {
@@ -236,10 +236,10 @@ export namespace Error {
 						} else {
 							let obj = item.state.object;
 							tg.assert(obj?.kind === "error");
-							return Error.Object.toData(obj.value);
+							return tg.Error.Object.toData(obj.value);
 						}
 					} else {
-						return Error.Object.toData(item);
+						return tg.Error.Object.toData(item);
 					}
 				});
 			}
@@ -271,7 +271,7 @@ export namespace Error {
 					if (typeof item === "string") {
 						return tg.Error.withId(item);
 					} else {
-						return Error.Object.fromData(item);
+						return tg.Error.Object.fromData(item);
 					}
 				});
 			}

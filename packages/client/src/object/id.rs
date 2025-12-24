@@ -1,4 +1,4 @@
-use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
+use {super::Kind, crate::prelude::*, bytes::Bytes};
 
 #[derive(
 	Clone,
@@ -19,8 +19,8 @@ use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(into = "crate::Id", try_from = "crate::Id")]
-#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
+#[serde(into = "tg::Id", try_from = "tg::Id")]
+#[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Id {
@@ -40,7 +40,7 @@ pub enum Id {
 	Error(tg::error::Id),
 }
 
-impl Id {
+impl tg::object::Id {
 	pub fn new(kind: Kind, bytes: &Bytes) -> Self {
 		match kind {
 			Kind::Blob => tg::blob::Id::new(bytes).into(),
@@ -76,8 +76,8 @@ impl Id {
 	}
 }
 
-impl Deref for Id {
-	type Target = crate::Id;
+impl std::ops::Deref for tg::object::Id {
+	type Target = tg::Id;
 
 	fn deref(&self) -> &Self::Target {
 		match self {
@@ -92,38 +92,38 @@ impl Deref for Id {
 	}
 }
 
-impl From<self::Id> for crate::Id {
-	fn from(value: self::Id) -> Self {
+impl From<tg::object::Id> for tg::Id {
+	fn from(value: tg::object::Id) -> Self {
 		match value {
-			self::Id::Blob(id) => id.into(),
-			self::Id::Directory(id) => id.into(),
-			self::Id::File(id) => id.into(),
-			self::Id::Symlink(id) => id.into(),
-			self::Id::Graph(id) => id.into(),
-			self::Id::Command(id) => id.into(),
-			self::Id::Error(id) => id.into(),
+			tg::object::Id::Blob(id) => id.into(),
+			tg::object::Id::Directory(id) => id.into(),
+			tg::object::Id::File(id) => id.into(),
+			tg::object::Id::Symlink(id) => id.into(),
+			tg::object::Id::Graph(id) => id.into(),
+			tg::object::Id::Command(id) => id.into(),
+			tg::object::Id::Error(id) => id.into(),
 		}
 	}
 }
 
-impl TryFrom<crate::Id> for self::Id {
+impl TryFrom<tg::Id> for tg::object::Id {
 	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> tg::Result<Self> {
+	fn try_from(value: tg::Id) -> tg::Result<Self> {
 		match value.kind() {
-			crate::id::Kind::Blob => Ok(Self::Blob(value.try_into()?)),
-			crate::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
-			crate::id::Kind::File => Ok(Self::File(value.try_into()?)),
-			crate::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
-			crate::id::Kind::Graph => Ok(Self::Graph(value.try_into()?)),
-			crate::id::Kind::Command => Ok(Self::Command(value.try_into()?)),
-			crate::id::Kind::Error => Ok(Id::Error(value.try_into()?)),
+			tg::id::Kind::Blob => Ok(Self::Blob(value.try_into()?)),
+			tg::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
+			tg::id::Kind::File => Ok(Self::File(value.try_into()?)),
+			tg::id::Kind::Symlink => Ok(Self::Symlink(value.try_into()?)),
+			tg::id::Kind::Graph => Ok(Self::Graph(value.try_into()?)),
+			tg::id::Kind::Command => Ok(Self::Command(value.try_into()?)),
+			tg::id::Kind::Error => Ok(tg::object::Id::Error(value.try_into()?)),
 			kind => Err(tg::error!(%kind, "expected an object ID")),
 		}
 	}
 }
 
-impl TryFrom<Vec<u8>> for Id {
+impl TryFrom<Vec<u8>> for tg::object::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: Vec<u8>) -> tg::Result<Self> {
@@ -131,15 +131,15 @@ impl TryFrom<Vec<u8>> for Id {
 	}
 }
 
-impl std::str::FromStr for Id {
+impl std::str::FromStr for tg::object::Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		crate::Id::from_str(s)?.try_into()
+		tg::Id::from_str(s)?.try_into()
 	}
 }
 
-impl TryFrom<String> for Id {
+impl TryFrom<String> for tg::object::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: String) -> tg::Result<Self> {

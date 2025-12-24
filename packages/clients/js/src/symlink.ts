@@ -28,15 +28,15 @@ export class Symlink {
 	}
 
 	static withId(id: tg.Symlink.Id): tg.Symlink {
-		return new Symlink({ id, stored: true });
+		return new tg.Symlink({ id, stored: true });
 	}
 
 	static withReference(reference: tg.Graph.Reference): tg.Symlink {
-		return new Symlink({ object: reference, stored: false });
+		return new tg.Symlink({ object: reference, stored: false });
 	}
 
 	static withObject(object: tg.Symlink.Object): tg.Symlink {
-		return new Symlink({ object, stored: false });
+		return new tg.Symlink({ object, stored: false });
 	}
 
 	static fromData(data: tg.Symlink.Data): tg.Symlink {
@@ -84,7 +84,7 @@ export class Symlink {
 			} else {
 				throw new Error("invalid template");
 			}
-		} else if (resolved instanceof Symlink) {
+		} else if (resolved instanceof tg.Symlink) {
 			let artifact = await resolved.artifact();
 			let path = await resolved.path();
 			return { artifact, path };
@@ -94,12 +94,12 @@ export class Symlink {
 	}
 
 	static expect(value: unknown): tg.Symlink {
-		tg.assert(value instanceof Symlink);
+		tg.assert(value instanceof tg.Symlink);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is tg.Symlink {
-		tg.assert(value instanceof Symlink);
+		tg.assert(value instanceof tg.Symlink);
 	}
 
 	get id(): tg.Symlink.Id {
@@ -177,7 +177,7 @@ export class Symlink {
 
 	async resolve(): Promise<tg.Artifact | undefined> {
 		let artifact = await this.artifact();
-		if (artifact instanceof Symlink) {
+		if (artifact instanceof tg.Symlink) {
 			artifact = await artifact.resolve();
 		}
 		let path = await this.path();

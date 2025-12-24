@@ -136,7 +136,7 @@ export class Directory {
 						) {
 							entries[name] = value;
 						} else {
-							entries[name] = await Directory.new(existingEntry, value);
+							entries[name] = await tg.Directory.new(existingEntry, value);
 						}
 					}
 				}
@@ -145,25 +145,25 @@ export class Directory {
 			}
 			return entries;
 		}, Promise.resolve({}));
-		return Directory.withObject({ entries });
+		return tg.Directory.withObject({ entries });
 	}
 
-	static expect(value: unknown): Directory {
-		tg.assert(value instanceof Directory);
+	static expect(value: unknown): tg.Directory {
+		tg.assert(value instanceof tg.Directory);
 		return value;
 	}
 
-	static assert(value: unknown): asserts value is Directory {
-		tg.assert(value instanceof Directory);
+	static assert(value: unknown): asserts value is tg.Directory {
+		tg.assert(value instanceof tg.Directory);
 	}
 
-	get id(): Directory.Id {
+	get id(): tg.Directory.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "directory");
 		return id;
 	}
 
-	async object(): Promise<Directory.Object> {
+	async object(): Promise<tg.Directory.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "directory");
 		return object.value;
@@ -214,7 +214,7 @@ export class Directory {
 				artifact = parent;
 				continue;
 			}
-			if (!(artifact instanceof Directory)) {
+			if (!(artifact instanceof tg.Directory)) {
 				return undefined;
 			}
 			let entries = await artifact.entries();
@@ -257,7 +257,7 @@ export class Directory {
 	async *walk(): AsyncIterableIterator<[string, tg.Artifact]> {
 		for await (let [name, artifact] of this) {
 			yield [name, artifact];
-			if (artifact instanceof Directory) {
+			if (artifact instanceof tg.Directory) {
 				for await (let [entryName, entryArtifact] of artifact.walk()) {
 					yield [tg.path.join(name, entryName), entryArtifact];
 				}

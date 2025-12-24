@@ -1,4 +1,4 @@
-use {crate as tg, std::ops::Deref};
+use crate::prelude::*;
 
 #[derive(
 	Clone,
@@ -16,29 +16,29 @@ use {crate as tg, std::ops::Deref};
 	tangram_serialize::Serialize,
 )]
 #[debug("tg::file::Id(\"{_0}\")")]
-#[serde(into = "crate::Id", try_from = "crate::Id")]
-#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
-pub struct Id(crate::Id);
+#[serde(into = "tg::Id", try_from = "tg::Id")]
+#[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
+pub struct Id(tg::Id);
 
-impl Id {
+impl tg::file::Id {
 	#[must_use]
 	pub fn new(bytes: &[u8]) -> Self {
-		Self(crate::Id::new_blake3(tg::id::Kind::File, bytes))
+		Self(tg::Id::new_blake3(tg::id::Kind::File, bytes))
 	}
 }
 
-impl Deref for Id {
-	type Target = crate::Id;
+impl std::ops::Deref for tg::file::Id {
+	type Target = tg::Id;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }
 
-impl TryFrom<crate::Id> for Id {
+impl TryFrom<tg::Id> for tg::file::Id {
 	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
 		if value.kind() != tg::id::Kind::File {
 			return Err(tg::error!(%value, "invalid kind"));
 		}
@@ -46,15 +46,15 @@ impl TryFrom<crate::Id> for Id {
 	}
 }
 
-impl std::str::FromStr for Id {
+impl std::str::FromStr for tg::file::Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		crate::Id::from_str(s)?.try_into()
+		tg::Id::from_str(s)?.try_into()
 	}
 }
 
-impl TryFrom<String> for Id {
+impl TryFrom<String> for tg::file::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: String) -> tg::Result<Self> {

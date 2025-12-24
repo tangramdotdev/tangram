@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::ops::Deref};
+use crate::prelude::*;
 
 #[derive(
 	Clone,
@@ -15,15 +15,15 @@ use {crate::prelude::*, std::ops::Deref};
 	tangram_serialize::Serialize,
 )]
 #[debug("tg::process::Id(\"{_0}\")")]
-#[serde(into = "crate::Id", try_from = "crate::Id")]
-#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
-pub struct Id(crate::Id);
+#[serde(into = "tg::Id", try_from = "tg::Id")]
+#[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
+pub struct Id(tg::Id);
 
-impl Id {
+impl tg::process::Id {
 	#[expect(clippy::new_without_default)]
 	#[must_use]
 	pub fn new() -> Self {
-		Self(crate::Id::new_uuidv7(tg::id::Kind::Process))
+		Self(tg::Id::new_uuidv7(tg::id::Kind::Process))
 	}
 
 	pub fn from_slice(bytes: &[u8]) -> tg::Result<Self> {
@@ -31,24 +31,24 @@ impl Id {
 	}
 }
 
-impl Deref for Id {
-	type Target = crate::Id;
+impl std::ops::Deref for tg::process::Id {
+	type Target = tg::Id;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }
 
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
+impl From<tg::process::Id> for tg::Id {
+	fn from(value: tg::process::Id) -> Self {
 		value.0
 	}
 }
 
-impl TryFrom<crate::Id> for Id {
+impl TryFrom<tg::Id> for tg::process::Id {
 	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
 		if value.kind() != tg::id::Kind::Process {
 			return Err(tg::error!(%value, "invalid kind"));
 		}
@@ -56,7 +56,7 @@ impl TryFrom<crate::Id> for Id {
 	}
 }
 
-impl TryFrom<Vec<u8>> for Id {
+impl TryFrom<Vec<u8>> for tg::process::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: Vec<u8>) -> tg::Result<Self> {
@@ -64,15 +64,15 @@ impl TryFrom<Vec<u8>> for Id {
 	}
 }
 
-impl std::str::FromStr for Id {
+impl std::str::FromStr for tg::process::Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		crate::Id::from_str(s)?.try_into()
+		tg::Id::from_str(s)?.try_into()
 	}
 }
 
-impl TryFrom<String> for Id {
+impl TryFrom<String> for tg::process::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: String) -> tg::Result<Self> {

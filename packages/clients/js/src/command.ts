@@ -20,7 +20,7 @@ export function command(
 export function command(...args: tg.Args<tg.Command.Arg>): tg.CommandBuilder;
 export function command(...args: any): any {
 	if (typeof args[0] === "function") {
-		return new CommandBuilder({
+		return new tg.CommandBuilder({
 			host: "js",
 			executable: tg.Command.Executable.fromData(tg.handle.magic(args[0])),
 			args: args.slice(1),
@@ -35,9 +35,9 @@ export function command(...args: any): any {
 			executable,
 			args: ["-c", template],
 		};
-		return new CommandBuilder(arg);
+		return new tg.CommandBuilder(arg);
 	} else {
-		return new CommandBuilder(...args);
+		return new tg.CommandBuilder(...args);
 	}
 }
 
@@ -76,7 +76,7 @@ export class Command<
 	}
 
 	static fromData(data: tg.Command.Data): tg.Command {
-		return tg.Command.withObject(Command.Object.fromData(data));
+		return tg.Command.withObject(tg.Command.Object.fromData(data));
 	}
 
 	static async new<

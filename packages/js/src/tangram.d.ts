@@ -405,7 +405,7 @@ declare namespace tg {
 			| string
 			| tg.Artifact
 			| tg.Template
-			| Symlink
+			| tg.Symlink
 			| tg.Symlink.Arg.Object;
 
 		export namespace Arg {

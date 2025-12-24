@@ -476,9 +476,9 @@ where
 
 	fn cancel_process(
 		&self,
-		id: &crate::process::Id,
-		arg: crate::process::cancel::Arg,
-	) -> impl Future<Output = crate::Result<()>> {
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			tg::Either::Left(s) => s.cancel_process(id, arg).left_future(),
 			tg::Either::Right(s) => s.cancel_process(id, arg).right_future(),
@@ -530,9 +530,9 @@ where
 
 	fn signal_process(
 		&self,
-		id: &crate::process::Id,
-		arg: crate::process::signal::post::Arg,
-	) -> impl Future<Output = crate::Result<()>> {
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			tg::Either::Left(s) => s.signal_process(id, arg).left_future(),
 			tg::Either::Right(s) => s.signal_process(id, arg).right_future(),

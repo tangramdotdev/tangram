@@ -7,7 +7,7 @@ export namespace Artifact {
 
 	export type Kind = "directory" | "file" | "symlink";
 
-	export let withId = (id: Artifact.Id): Artifact => {
+	export let withId = (id: tg.Artifact.Id): tg.Artifact => {
 		tg.assert(
 			typeof id === "string",
 			`expected a string: ${JSON.stringify(id)}`,
@@ -24,7 +24,7 @@ export namespace Artifact {
 		}
 	};
 
-	export let withReference = (reference: tg.Graph.Reference): Artifact => {
+	export let withReference = (reference: tg.Graph.Reference): tg.Artifact => {
 		switch (reference.kind) {
 			case "directory":
 				return tg.Directory.withReference(reference);
@@ -37,7 +37,7 @@ export namespace Artifact {
 		}
 	};
 
-	export let is = (value: unknown): value is Artifact => {
+	export let is = (value: unknown): value is tg.Artifact => {
 		return (
 			value instanceof tg.Directory ||
 			value instanceof tg.File ||
@@ -45,12 +45,12 @@ export namespace Artifact {
 		);
 	};
 
-	export let expect = (value: unknown): Artifact => {
+	export let expect = (value: unknown): tg.Artifact => {
 		tg.assert(is(value));
 		return value;
 	};
 
-	export let assert = (value: unknown): asserts value is Artifact => {
+	export let assert = (value: unknown): asserts value is tg.Artifact => {
 		tg.assert(is(value));
 	};
 }

@@ -462,8 +462,8 @@ impl tg::Handle for tg::Client {
 		&self,
 		arg: tg::cache::Arg,
 	) -> impl Future<
-		Output = crate::Result<
-			impl Stream<Item = crate::Result<tg::progress::Event<()>>> + Send + 'static,
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
 	> {
 		self.cache(arg)
@@ -976,7 +976,7 @@ impl tg::handle::Tag for tg::Client {
 
 	fn post_tag_batch(
 		&self,
-		arg: crate::tag::post::Arg,
+		arg: tg::tag::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.post_tag_batch(arg)
 	}

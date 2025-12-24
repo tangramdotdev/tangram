@@ -13,7 +13,7 @@ where
 	H: tg::Handle,
 	V: tg::object::Visitor<H>,
 {
-	let mut stack: Vec<crate::Referent<tg::Object>> = vec![object.clone()];
+	let mut stack: Vec<tg::Referent<tg::Object>> = vec![object.clone()];
 	let mut visited = HashSet::new();
 	while let Some(referent) = stack.pop() {
 		if !visited.insert(referent.clone().map(|r| r.id())) {

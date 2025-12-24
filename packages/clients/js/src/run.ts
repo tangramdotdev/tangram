@@ -18,7 +18,7 @@ export function run(
 export function run(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
 export function run(...args: any): any {
 	if (typeof args[0] === "function") {
-		return new RunBuilder({
+		return new tg.RunBuilder({
 			host: "js",
 			executable: tg.Command.Executable.fromData(tg.handle.magic(args[0])),
 			args: args.slice(1),
@@ -33,9 +33,9 @@ export function run(...args: any): any {
 			executable,
 			args: ["-c", template],
 		};
-		return new RunBuilder(arg);
+		return new tg.RunBuilder(arg);
 	} else {
-		return new RunBuilder(...args);
+		return new tg.RunBuilder(...args);
 	}
 }
 

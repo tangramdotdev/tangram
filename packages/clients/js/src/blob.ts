@@ -75,7 +75,7 @@ export class Blob {
 	}
 
 	static fromData(data: tg.Blob.Data): tg.Blob {
-		return tg.Blob.withObject(Blob.Object.fromData(data));
+		return tg.Blob.withObject(tg.Blob.Object.fromData(data));
 	}
 
 	static async new(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {

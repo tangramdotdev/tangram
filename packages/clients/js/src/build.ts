@@ -18,7 +18,7 @@ export function build(
 export function build(...args: tg.Args<tg.Process.BuildArg>): tg.BuildBuilder;
 export function build(...args: any): any {
 	if (typeof args[0] === "function") {
-		return new BuildBuilder({
+		return new tg.BuildBuilder({
 			host: "js",
 			executable: tg.Command.Executable.fromData(tg.handle.magic(args[0])),
 			args: args.slice(1),
@@ -33,9 +33,9 @@ export function build(...args: any): any {
 			executable,
 			args: ["-c", template],
 		};
-		return new BuildBuilder(arg);
+		return new tg.BuildBuilder(arg);
 	} else {
-		return new BuildBuilder(...args);
+		return new tg.BuildBuilder(...args);
 	}
 }
 

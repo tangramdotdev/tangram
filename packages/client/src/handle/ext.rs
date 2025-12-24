@@ -486,21 +486,21 @@ pub trait Ext: tg::Handle {
 				let reference = reference.clone();
 				stream.map(move |event_result| {
 					event_result.and_then(|event| match event {
-						crate::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
-						crate::progress::Event::Diagnostic(diagnostic) => {
+						tg::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
+						tg::progress::Event::Diagnostic(diagnostic) => {
 							Ok(tg::progress::Event::Diagnostic(diagnostic))
 						},
-						crate::progress::Event::Indicators(indicators) => {
+						tg::progress::Event::Indicators(indicators) => {
 							Ok(tg::progress::Event::Indicators(indicators))
 						},
-						crate::progress::Event::Output(output) => output
+						tg::progress::Event::Output(output) => output
 							.map(|output| {
 								let referent = output.referent.map(|item| {
 									item.map_left(tg::Object::with_id).map_right(|id| {
 										tg::Process::new(id, None, None, None, None)
 									})
 								});
-								crate::progress::Event::Output(referent)
+								tg::progress::Event::Output(referent)
 							})
 							.ok_or_else(|| tg::error!(%reference, "failed to get the reference")),
 					})

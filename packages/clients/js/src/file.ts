@@ -37,9 +37,9 @@ async function inner(
 		if (!raw) {
 			string = unindent([string]).join("");
 		}
-		return await File.new(string);
+		return await tg.File.new(string);
 	} else {
-		return await File.new(firstArg as tg.File.Arg, ...args);
+		return await tg.File.new(firstArg as tg.File.Arg, ...args);
 	}
 }
 
@@ -66,23 +66,23 @@ export class File {
 		return this.#state;
 	}
 
-	static withId(id: File.Id): File {
-		return new File({ id, stored: true });
+	static withId(id: tg.File.Id): tg.File {
+		return new tg.File({ id, stored: true });
 	}
 
-	static withReference(reference: tg.Graph.Reference): File {
-		return new File({ object: reference, stored: false });
+	static withReference(reference: tg.Graph.Reference): tg.File {
+		return new tg.File({ object: reference, stored: false });
 	}
 
-	static withObject(object: File.Object): File {
-		return new File({ object, stored: false });
+	static withObject(object: tg.File.Object): tg.File {
+		return new tg.File({ object, stored: false });
 	}
 
-	static fromData(data: File.Data): File {
-		return File.withObject(File.Object.fromData(data));
+	static fromData(data: tg.File.Data): tg.File {
+		return tg.File.withObject(tg.File.Object.fromData(data));
 	}
 
-	static async new(...args: tg.Args<File.Arg>): Promise<File> {
+	static async new(...args: tg.Args<tg.File.Arg>): Promise<tg.File> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
 			if (tg.Graph.Arg.Reference.is(arg)) {
@@ -131,7 +131,7 @@ export class File {
 					arg instanceof tg.Blob
 				) {
 					return { contents: arg };
-				} else if (arg instanceof File) {
+				} else if (arg instanceof tg.File) {
 					return {
 						contents: await arg.contents(),
 						dependencies: await arg.dependencies(),
@@ -148,12 +148,12 @@ export class File {
 	}
 
 	static expect(value: unknown): tg.File {
-		tg.assert(value instanceof File);
+		tg.assert(value instanceof tg.File);
 		return value;
 	}
 
 	static assert(value: unknown): asserts value is tg.File {
-		tg.assert(value instanceof File);
+		tg.assert(value instanceof tg.File);
 	}
 
 	get id(): tg.File.Id {
@@ -162,7 +162,7 @@ export class File {
 		return id;
 	}
 
-	async object(): Promise<File.Object> {
+	async object(): Promise<tg.File.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "file");
 		return object.value;
@@ -363,7 +363,7 @@ export namespace File {
 	export let raw = async (
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<string>
-	): Promise<File> => {
+	): Promise<tg.File> => {
 		return await inner(true, strings, ...placeholders);
 	};
 }

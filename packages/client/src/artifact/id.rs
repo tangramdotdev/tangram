@@ -1,4 +1,4 @@
-use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
+use {super::Kind, crate::prelude::*, bytes::Bytes};
 
 /// An artifact ID.
 #[derive(
@@ -19,8 +19,8 @@ use {super::Kind, crate as tg, bytes::Bytes, std::ops::Deref};
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(into = "crate::Id", try_from = "crate::Id")]
-#[tangram_serialize(into = "crate::Id", try_from = "crate::Id")]
+#[serde(into = "tg::Id", try_from = "tg::Id")]
+#[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Id {
@@ -32,7 +32,7 @@ pub enum Id {
 	Symlink(tg::symlink::Id),
 }
 
-impl Id {
+impl tg::artifact::Id {
 	pub fn new(kind: Kind, bytes: &Bytes) -> Self {
 		match kind {
 			Kind::Directory => tg::directory::Id::new(bytes).into(),
@@ -55,8 +55,8 @@ impl Id {
 	}
 }
 
-impl Deref for Id {
-	type Target = crate::Id;
+impl std::ops::Deref for tg::artifact::Id {
+	type Target = tg::Id;
 
 	fn deref(&self) -> &Self::Target {
 		match self {
@@ -67,7 +67,7 @@ impl Deref for Id {
 	}
 }
 
-impl std::fmt::Display for Id {
+impl std::fmt::Display for tg::artifact::Id {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Directory(id) => write!(f, "{id}"),
@@ -77,15 +77,15 @@ impl std::fmt::Display for Id {
 	}
 }
 
-impl std::str::FromStr for Id {
+impl std::str::FromStr for tg::artifact::Id {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		crate::Id::from_str(s)?.try_into()
+		tg::Id::from_str(s)?.try_into()
 	}
 }
 
-impl TryFrom<String> for Id {
+impl TryFrom<String> for tg::artifact::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: String) -> tg::Result<Self> {
@@ -93,20 +93,20 @@ impl TryFrom<String> for Id {
 	}
 }
 
-impl From<Id> for crate::Id {
-	fn from(value: Id) -> Self {
+impl From<tg::artifact::Id> for tg::Id {
+	fn from(value: tg::artifact::Id) -> Self {
 		match value {
-			Id::Directory(id) => id.into(),
-			Id::File(id) => id.into(),
-			Id::Symlink(id) => id.into(),
+			tg::artifact::Id::Directory(id) => id.into(),
+			tg::artifact::Id::File(id) => id.into(),
+			tg::artifact::Id::Symlink(id) => id.into(),
 		}
 	}
 }
 
-impl TryFrom<crate::Id> for Id {
+impl TryFrom<tg::Id> for tg::artifact::Id {
 	type Error = tg::Error;
 
-	fn try_from(value: crate::Id) -> tg::Result<Self, Self::Error> {
+	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
 		match value.kind() {
 			tg::id::Kind::Directory => Ok(Self::Directory(value.try_into()?)),
 			tg::id::Kind::File => Ok(Self::File(value.try_into()?)),
@@ -116,17 +116,17 @@ impl TryFrom<crate::Id> for Id {
 	}
 }
 
-impl From<Id> for tg::object::Id {
-	fn from(value: Id) -> Self {
+impl From<tg::artifact::Id> for tg::object::Id {
+	fn from(value: tg::artifact::Id) -> Self {
 		match value {
-			Id::Directory(id) => id.into(),
-			Id::File(id) => id.into(),
-			Id::Symlink(id) => id.into(),
+			tg::artifact::Id::Directory(id) => id.into(),
+			tg::artifact::Id::File(id) => id.into(),
+			tg::artifact::Id::Symlink(id) => id.into(),
 		}
 	}
 }
 
-impl TryFrom<tg::object::Id> for Id {
+impl TryFrom<tg::object::Id> for tg::artifact::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: tg::object::Id) -> tg::Result<Self, Self::Error> {
@@ -139,7 +139,7 @@ impl TryFrom<tg::object::Id> for Id {
 	}
 }
 
-impl TryFrom<Vec<u8>> for Id {
+impl TryFrom<Vec<u8>> for tg::artifact::Id {
 	type Error = tg::Error;
 
 	fn try_from(value: Vec<u8>) -> tg::Result<Self> {
