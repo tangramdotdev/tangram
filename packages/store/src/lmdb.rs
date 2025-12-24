@@ -65,29 +65,13 @@ struct DeleteLog {
 	id: tg::process::Id,
 }
 
+#[derive(Debug)]
 struct Key<'a> {
 	id: &'a [u8],
 	kind: KeyKind,
 }
 
-#[derive(tangram_serialize::Serialize, tangram_serialize::Deserialize)]
-struct LogEntry {
-	#[tangram_serialize(id = 0)]
-	combined_position: u64,
-
-	#[tangram_serialize(id = 1)]
-	stream_position: u64,
-
-	#[tangram_serialize(id = 3)]
-	stream: tg::process::log::Stream,
-
-	#[tangram_serialize(id = 4)]
-	bytes: Bytes,
-
-	#[tangram_serialize(id = 5)]
-	timestamp: i64,
-}
-
+#[derive(Debug)]
 enum KeyKind {
 	Bytes,
 	TouchedAt,
@@ -396,6 +380,7 @@ impl Store {
 		Ok(())
 	}
 
+	#[allow(clippy::needless_pass_by_value)]
 	fn task_put_log(
 		_env: &lmdb::Env,
 		db: &Db,
@@ -412,7 +397,7 @@ impl Store {
 		let index = db
 			.get_or_put(transaction, &key, &[0u8; 8])
 			.map_err(|source| tg::error!(!source, "failed to get the log index"))?
-			.ok_or_else(|| tg::error!("missing log index entry"))?;
+			.unwrap_or(&[0u8; 8]);
 		let index = u64::from_le_bytes(
 			index
 				.try_into()
@@ -428,7 +413,7 @@ impl Store {
 		let combined_position = db
 			.get_or_put(transaction, &key, &[0u8; 8])
 			.map_err(|source| tg::error!(!source, "failed to get the log position"))?
-			.ok_or_else(|| tg::error!("missing log index entry"))?;
+			.unwrap_or(&[0u8; 8]);
 		let combined_position = u64::from_le_bytes(
 			combined_position
 				.try_into()
@@ -444,7 +429,7 @@ impl Store {
 		let stream_position = db
 			.get_or_put(transaction, &key, &[0u8; 8])
 			.map_err(|source| tg::error!(!source, "failed to get the log position"))?
-			.ok_or_else(|| tg::error!("missing log index entry"))?;
+			.unwrap_or(&[0u8; 8]);
 		let stream_position = u64::from_le_bytes(
 			stream_position
 				.try_into()
@@ -458,25 +443,26 @@ impl Store {
 		};
 		let key = key.pack_to_vec();
 		let val = index.to_le_bytes();
-		db.put(transaction, &key, &val)
-			.map_err(|source| tg::error!(!source, "failed to update the log position"))?;
+		db.put(transaction, &key, &val).map_err(|source| {
+			tg::error!(!source, "failed to update the log's combined position")
+		})?;
 
-		// Store the log position
+		// Store the stream position
 		let key = Key {
 			id: &id,
-			kind: KeyKind::Log(Some(request.stream), combined_position),
+			kind: KeyKind::Log(Some(request.stream), stream_position),
 		};
 		let key = key.pack_to_vec();
 		let val = index.to_le_bytes();
 		db.put(transaction, &key, &val)
-			.map_err(|source| tg::error!(!source, "failed to update the log position"))?;
+			.map_err(|source| tg::error!(!source, "failed to update the log's stream position"))?;
 
 		// Create the log entry.
-		let entry = LogEntry {
-			stream_position,
-			combined_position,
-			stream: request.stream,
+		let entry = crate::log::Chunk {
 			bytes: request.bytes.clone(),
+			combined_position,
+			stream_position,
+			stream: request.stream,
 			timestamp: request.timestamp,
 		};
 		// Store the log entry.
@@ -541,8 +527,7 @@ impl Store {
 		let index = db
 			.get(transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, "failed to get the log index"))?
-			.map(|bytes| u64::from_le_bytes(bytes.try_into().unwrap_or([0u8; 8])))
-			.unwrap_or(0);
+			.map_or(0, |bytes| u64::from_le_bytes(bytes.try_into().unwrap_or([0u8; 8])));
 
 		// First, read all LogBytes entries to collect positions for Log entry deletion.
 		let mut entries = Vec::new();
@@ -554,11 +539,9 @@ impl Store {
 			if let Some(val) = db
 				.get(transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
-			{
-				if let Ok(entry) = tangram_serialize::from_slice::<LogEntry>(val) {
+				&& let Ok(entry) = tangram_serialize::from_slice::<crate::log::Chunk>(val) {
 					entries.push(entry);
 				}
-			}
 		}
 
 		// Delete Log entries using the collected positions.
@@ -758,10 +741,10 @@ impl crate::Store for Store {
 				let key = key.pack_to_vec();
 				let index = if arg.position == 0 {
 					db.get(&transaction, &key)
-						.map_err(|source| tg::error!(!source, "failed to get the value"))?
+						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
 				} else {
 					db.get_lower_than_or_equal_to(&transaction, &key)
-						.map_err(|source| tg::error!(!source, "failed to get the key"))?
+						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
 						.map(|(_k, v)| v)
 				};
 				let Some(index) = index else {
@@ -785,10 +768,9 @@ impl crate::Store for Store {
 					else {
 						break;
 					};
-					let entry =
-						tangram_serialize::from_slice::<LogEntry>(val).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the log entry")
-						})?;
+					let entry = tangram_serialize::from_slice::<crate::log::Chunk>(val).map_err(
+						|source| tg::error!(!source, "failed to deserialize the log entry"),
+					)?;
 
 					// Get the position based on whether we are filtering by stream.
 					let position = match arg.stream {
@@ -891,18 +873,9 @@ impl crate::Store for Store {
 				else {
 					return Ok(None);
 				};
-				let entry = tangram_serialize::from_slice::<LogEntry>(val)
+				let entry = tangram_serialize::from_slice::<crate::log::Chunk>(val)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
-
-				let chunk = crate::log::Chunk {
-					bytes: entry.bytes,
-					combined_position: entry.combined_position,
-					stream_position: entry.stream_position,
-					stream: entry.stream,
-					timestamp: entry.timestamp,
-				};
-
-				Ok::<_, tg::Error>(Some(chunk))
+				Ok::<_, tg::Error>(Some(entry))
 			}
 		})
 		.await
@@ -1184,5 +1157,443 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 			KeyKind::LogBytes(index) => (6, 0, index),
 		};
 		(0, self.id, kind, subkind, offset).pack(w, tuple_depth)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::Store as _;
+
+	#[tokio::test]
+	async fn test_put_and_read_log_single_chunk() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 MB
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert a single chunk.
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("hello world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+
+		// Read the entire chunk.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 11,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("hello world")));
+
+		// Read a subset of the chunk.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 6,
+				length: 5,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("world")));
+	}
+
+	#[tokio::test]
+	async fn test_put_and_read_log_multiple_chunks() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 mb
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert multiple chunks.
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from(" "),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Read across all chunks.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 11,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("hello world")));
+	}
+
+	#[tokio::test]
+	async fn test_read_log_across_chunk_boundaries() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 mb
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert chunks: "AAAA" (0-3), "BBBB" (4-7), "CCCC" (8-11).
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("AAAA"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("BBBB"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("CCCC"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Read starting in the middle of the first chunk, across into the second.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 2,
+				length: 4,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("AABB")));
+
+		// Read starting in the middle of the second chunk, across into the third.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 6,
+				length: 4,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("BBCC")));
+
+		// Read spanning all three chunks.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 2,
+				length: 8,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("AABBBBCC")));
+	}
+
+	#[tokio::test]
+	async fn test_read_log_combined_stream() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 mb
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert interleaved stdout and stderr chunks.
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("out1"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("err1"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stderr,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("out2"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Read the combined stream.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 12,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("out1err1out2")));
+
+		// Read only stdout.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 8,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("out1out2")));
+
+		// Read only stderr.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 4,
+				stream: Some(tg::process::log::Stream::Stderr),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("err1")));
+	}
+
+	#[tokio::test]
+	async fn test_delete_log_removes_all_chunks() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 mb
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert some chunks.
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stderr,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+
+		// Verify the log exists.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 10,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::from("helloworld")));
+
+		// Delete the log.
+		store
+			.delete_log(DeleteLogArg {
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				stream_position: 0,
+			})
+			.await
+			.unwrap();
+
+		// Verify the log no longer exists.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 10,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, None);
+	}
+
+	#[tokio::test]
+	async fn test_try_get_log_length() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 mb
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert chunks.
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("err"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stderr,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Check lengths.
+		assert_eq!(
+			store.try_get_log_length(&process, None).await.unwrap(),
+			Some(13)
+		); // 5 + 3 + 5
+		assert_eq!(
+			store
+				.try_get_log_length(&process, Some(tg::process::log::Stream::Stdout))
+				.await
+				.unwrap(),
+			Some(10)
+		); // 5 + 5
+		assert_eq!(
+			store
+				.try_get_log_length(&process, Some(tg::process::log::Stream::Stderr))
+				.await
+				.unwrap(),
+			Some(3)
+		);
+	}
+
+	#[tokio::test]
+	async fn test_read_log_at_end_returns_empty() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 mb
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert a chunk.
+		store
+			.put_log(PutLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+
+		// Read at the end position.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process: process.clone(),
+				position: 5,
+				length: 10,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, Some(Bytes::new()));
+	}
+
+	#[tokio::test]
+	async fn test_read_log_nonexistent_process() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10, // 10 mb
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Try to read from a process that does not exist.
+		let result = store
+			.try_read_log(ReadLogArg {
+				process,
+				position: 0,
+				length: 10,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert_eq!(result, None);
 	}
 }

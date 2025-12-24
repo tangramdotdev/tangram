@@ -115,21 +115,21 @@ impl Store {
 				if arg.position >= entry.stderr_position {
 					return Some(Bytes::new());
 				}
-				let (_, index) = entry.stderr.range(0..=arg.position).rev().next()?;
+				let (_, index) = entry.stderr.range(0..=arg.position).next_back()?;
 				*index
 			},
 			Some(tg::process::log::Stream::Stdout) => {
 				if arg.position >= entry.stdout_position {
 					return Some(Bytes::new());
 				}
-				let (_, index) = entry.stdout.range(0..=arg.position).rev().next()?;
+				let (_, index) = entry.stdout.range(0..=arg.position).next_back()?;
 				*index
 			},
 			None => {
 				if arg.position == entry.combined_position {
 					return Some(Bytes::new());
 				}
-				let (_, index) = entry.combined.range(0..=arg.position).rev().next()?;
+				let (_, index) = entry.combined.range(0..=arg.position).next_back()?;
 				*index
 			},
 		};
