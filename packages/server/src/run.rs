@@ -120,11 +120,16 @@ impl Server {
 		}
 
 		// Run.
-		let wait = self.run(process).await?;
+		let wait = self.run(process).await.map_err(
+			|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
+		)?;
 
 		// Store the output.
 		let output = if let Some(output) = &wait.output {
-			output.store(self).await?;
+			output
+				.store(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to store the output"))?;
 			let data = output.to_data();
 			Some(data)
 		} else {
@@ -159,8 +164,13 @@ impl Server {
 				remote: Some(remote.to_owned()),
 				..Default::default()
 			};
-			let stream = self.push(arg).await?;
-			self.log_progress_stream(process, stream).await?;
+			let stream = self
+				.push(arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to push the output"))?;
+			self.log_progress_stream(process, stream)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
 		}
 
 		// Finish the process.
@@ -172,7 +182,9 @@ impl Server {
 			output,
 			remotes: process.remote().cloned().map(|r| vec![r]),
 		};
-		self.finish_process(process.id(), arg).await?;
+		self.finish_process(process.id(), arg).await.map_err(
+			|source| tg::error!(!source, process = %process.id(), "failed to finish the process"),
+		)?;
 
 		Ok::<_, tg::Error>(())
 	}
@@ -203,8 +215,14 @@ impl Server {
 		)?;
 
 		// Get the host.
-		let command = process.command(self).await?;
-		let host = command.host(self).await?;
+		let command = process
+			.command(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command"))?;
+		let host = command
+			.host(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the host"))?;
 
 		// Determine if the root is mounted.
 		let root_mounted = state
@@ -217,14 +235,18 @@ impl Server {
 			util::whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
 
 		// Determine if the process is unsandboxed.
+		let mounts = command
+			.mounts(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the mounts"))?;
+		let user = command
+			.user(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the user"))?;
 		let unsandboxed = root_mounted
-			&& (command.mounts(self).await?.is_empty() && state.mounts.len() == 1)
+			&& (mounts.is_empty() && state.mounts.len() == 1)
 			&& state.network
-			&& command
-				.user(self)
-				.await?
-				.as_ref()
-				.is_none_or(|user| user == &whoami);
+			&& user.as_ref().is_none_or(|user| user == &whoami);
 		let sandboxed = !unsandboxed;
 
 		let result = {
@@ -277,7 +299,10 @@ impl Server {
 			(&state.expected_checksum, &output.checksum, &output.output)
 		{
 			let algorithm = checksum.algorithm();
-			let checksum = self.compute_checksum(value, algorithm).await?;
+			let checksum = self
+				.compute_checksum(value, algorithm)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
 			output.checksum = Some(checksum);
 		}
 

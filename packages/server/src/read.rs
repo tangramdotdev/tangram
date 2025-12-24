@@ -57,7 +57,9 @@ impl Server {
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + use<>>> {
 		// Create the reader.
 		let blob = tg::Blob::with_id(arg.blob.clone());
-		let reader = Reader::new(self, blob).await?;
+		let reader = Reader::new(self, blob)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
 
 		// Create the channel.
 		let (sender, receiver) = async_channel::unbounded();
@@ -164,7 +166,8 @@ impl Server {
 		// Get the query.
 		let arg = request
 			.query_params()
-			.transpose()?
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		// Get the stream.
@@ -218,9 +221,9 @@ impl Reader {
 		let id = blob.id();
 		let cache_reference = server
 			.store
-			.try_get_cache_reference(&id.into())
+			.try_get_cache_reference(&id.clone().into())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the cache reference"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cache reference"))?;
 		let reader = if let Some(cache_reference) = cache_reference {
 			let mut path = server
 				.cache_path()
@@ -228,13 +231,17 @@ impl Reader {
 			if let Some(path_) = &cache_reference.path {
 				path.push(path_);
 			}
-			let file = tokio::fs::File::open(path)
+			let file = tokio::fs::File::open(&path).await.map_err(
+				|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
+			)?;
+			let reader = File::new(file, cache_reference.position, cache_reference.length)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to open the file"))?;
-			let reader = File::new(file, cache_reference.position, cache_reference.length).await?;
+				.map_err(|source| tg::error!(!source, %id, "failed to create the file reader"))?;
 			Self::File(reader)
 		} else {
-			let reader = Object::new(server, blob).await?;
+			let reader = Object::new(server, blob)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to create the object reader"))?;
 			Self::Object(reader)
 		};
 		Ok(reader)
@@ -245,7 +252,7 @@ impl Reader {
 		let cache_reference = server
 			.store
 			.try_get_cache_reference_sync(&id.clone())
-			.map_err(|error| tg::error!(!error, "failed to get the cache reference"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cache reference"))?;
 		let reader = if let Some(cache_reference) = cache_reference {
 			let mut path = server
 				.cache_path()
@@ -253,17 +260,25 @@ impl Reader {
 			if let Some(path_) = &cache_reference.path {
 				path.push(path_);
 			}
-			let file = std::fs::File::open(path)
-				.map_err(|source| tg::error!(!source, "failed to open the file"))?;
-			let reader = File::new_sync(file, cache_reference.position, cache_reference.length)?;
+			let file = std::fs::File::open(&path).map_err(
+				|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
+			)?;
+			let reader = File::new_sync(file, cache_reference.position, cache_reference.length)
+				.map_err(|source| tg::error!(!source, %id, "failed to create the file reader"))?;
 			Self::File(reader)
 		} else {
 			let mut file = None;
-			let Some(output) = server.try_get_object_sync(&id.into(), &mut file)? else {
-				return Err(tg::error!("failed to get the blob object"));
+			let Some(output) = server
+				.try_get_object_sync(&id.clone().into(), &mut file)
+				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			else {
+				return Err(tg::error!(%id, "failed to get the blob object"));
 			};
-			let data = tg::blob::Data::deserialize(output.bytes)?;
-			let object = tg::blob::Object::try_from_data(data)?;
+			let data = tg::blob::Data::deserialize(output.bytes).map_err(
+				|source| tg::error!(!source, %id, "failed to deserialize the blob data"),
+			)?;
+			let object = tg::blob::Object::try_from_data(data)
+				.map_err(|source| tg::error!(!source, %id, "failed to create the blob object"))?;
 			let length = match &object {
 				tg::blob::Object::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
 				tg::blob::Object::Branch(branch) => {
@@ -543,7 +558,10 @@ impl Object {
 		let cursor = None;
 		let position = 0;
 		let read = None;
-		let size = blob.length(server).await?;
+		let size = blob
+			.length(server)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the blob length"))?;
 		let server = server.clone();
 		Ok(Self {
 			blob,
@@ -837,9 +855,15 @@ async fn poll_read_inner(
 		let object = if let Some(object) = object {
 			object
 		} else {
-			let bytes = server.get_object(&id.unwrap()).await?.bytes;
-			let data = tg::blob::Data::deserialize(bytes)?;
-			let object = tg::blob::Object::try_from_data(data)?;
+			let bytes = server
+				.get_object(&id.unwrap())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the object"))?
+				.bytes;
+			let data = tg::blob::Data::deserialize(bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the blob"))?;
+			let object = tg::blob::Object::try_from_data(data)
+				.map_err(|source| tg::error!(!source, "failed to create the blob object"))?;
 			let object = Arc::new(object);
 			if object.is_branch() {
 				state.set_object(object.clone());
@@ -884,11 +908,16 @@ fn read_inner_sync(
 		let object = if let Some(object) = object {
 			object
 		} else {
-			let Some(output) = server.try_get_object_sync(&id.unwrap(), file)? else {
+			let Some(output) = server
+				.try_get_object_sync(&id.unwrap(), file)
+				.map_err(|source| tg::error!(!source, "failed to get the object"))?
+			else {
 				return Err(tg::error!("failed to get the blob object"));
 			};
-			let data = tg::blob::Data::deserialize(output.bytes)?;
-			let object = tg::blob::Object::try_from_data(data)?;
+			let data = tg::blob::Data::deserialize(output.bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the blob"))?;
+			let object = tg::blob::Object::try_from_data(data)
+				.map_err(|source| tg::error!(!source, "failed to create the blob object"))?;
 			let object = Arc::new(object);
 			if object.is_branch() {
 				state.set_object(object.clone());

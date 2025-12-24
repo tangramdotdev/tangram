@@ -30,7 +30,10 @@ impl Cli {
 			recursive: args.recursive,
 			remote: Some(args.remote),
 		};
-		let stream = handle.pull(arg).await?;
+		let stream = handle
+			.pull(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to pull"))?;
 		let output = self.render_progress_stream(stream).await?;
 		let bytes = byte_unit::Byte::from_u64(output.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
@@ -52,7 +55,10 @@ impl Cli {
 						local: None,
 						remotes: None,
 					};
-					handle.put_tag(&tag, arg).await?;
+					handle
+						.put_tag(&tag, arg)
+						.await
+						.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;
 				}
 				Ok::<_, tg::Error>(())
 			},

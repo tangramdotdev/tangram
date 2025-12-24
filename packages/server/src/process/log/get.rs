@@ -28,16 +28,23 @@ impl Server {
 	> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(stream) = self.try_get_process_log_local(id, arg.clone()).await?
+			&& let Some(stream) = self
+				.try_get_process_log_local(id, arg.clone())
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process log"))?
 		{
 			return Ok(Some(stream.left_stream()));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(stream) = self
 			.try_get_process_log_remote(id, arg.clone(), &remotes)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the process log from remote"))?
 		{
 			return Ok(Some(stream.right_stream()));
 		}
@@ -55,7 +62,11 @@ impl Server {
 		>,
 	> {
 		// Verify the process is local.
-		if !self.get_process_exists_local(id).await? {
+		if !self
+			.get_process_exists_local(id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to check if the process exists"))?
+		{
 			return Ok(None);
 		}
 
@@ -114,7 +125,9 @@ impl Server {
 		let mut events = stream::select_all([log, status, interval]).boxed();
 
 		// Create the reader.
-		let mut reader = Reader::new(self, id).await?;
+		let mut reader = Reader::new(self, id)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the log reader"))?;
 
 		// Seek the reader.
 		let seek = if let Some(position) = arg.position {
@@ -133,7 +146,10 @@ impl Server {
 
 		loop {
 			// Get the process's status.
-			let status = self.get_current_process_status_local(id).await?;
+			let status = self
+				.get_current_process_status_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the process status"))?;
 
 			// Send as many data events as possible.
 			loop {
@@ -257,12 +273,19 @@ impl Server {
 			..arg
 		};
 		let futures = remotes.iter().map(|remote| {
-			async {
-				let client = self.get_remote_client(remote.clone()).await?;
+			let remote = remote.clone();
+			let arg = arg.clone();
+			async move {
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
 				client
-					.get_process_log(id, arg.clone())
+					.get_process_log(id, arg)
 					.await
 					.map(futures::StreamExt::boxed)
+					.map_err(
+						|source| tg::error!(!source, %id, %remote, "failed to get the process log"),
+					)
 			}
 			.boxed()
 		});
@@ -282,13 +305,22 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 
 		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the accept header.
-		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+		let accept: Option<mime::Mime> = request
+			.parse_header(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let Some(stream) = self.try_get_process_log_stream(&id, arg).await? else {

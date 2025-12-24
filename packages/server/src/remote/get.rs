@@ -54,7 +54,11 @@ impl Server {
 		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let Some(output) = self.try_get_remote_with_context(context, name).await? else {
+		let Some(output) = self
+			.try_get_remote_with_context(context, name)
+			.await
+			.map_err(|source| tg::error!(!source, %name, "failed to get the remote"))?
+		else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 		let response = http::Response::builder()

@@ -147,9 +147,16 @@ impl Server {
 		}
 
 		// Index.
-		let stream = self.index().await?;
+		let stream = self
+			.index()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the index"))?;
 		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
+		while let Some(event) = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the next index event"))?
+		{
 			progress.forward(Ok(event));
 		}
 
@@ -164,7 +171,8 @@ impl Server {
 					.map(Option::unwrap_or_default)
 			}
 		}))
-		.await?
+		.await
+		.map_err(|source| tg::error!(!source, "failed to check if the artifacts are stored"))?
 		.iter()
 		.all(|stored| stored.subtree);
 		if stored {
@@ -180,10 +188,15 @@ impl Server {
 					.collect(),
 				..Default::default()
 			})
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the pull"))?;
 		progress.spinner("pull", "pull");
 		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
+		while let Some(event) = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the next pull event"))?
+		{
 			progress.forward(Ok(event));
 		}
 
@@ -358,7 +371,9 @@ impl Server {
 	) -> tg::Result<()> {
 		// If this item is in a graph, ensure the graph's cycle-related items are cached first.
 		if let Some(graph_id) = &item.graph {
-			self.cache_graph(graph_id, progress.clone()).await?;
+			self.cache_graph(graph_id, progress.clone())
+				.await
+				.map_err(|source| tg::error!(!source, %graph_id, "failed to cache the graph"))?;
 		}
 
 		// Create the path.
@@ -396,7 +411,8 @@ impl Server {
 				.into_iter()
 				.map(|dependency| self.cache_artifact(dependency, progress.clone())),
 		)
-		.await?;
+		.await
+		.map_err(|source| tg::error!(!source, "failed to cache the dependencies"))?;
 
 		// Rename the temp to the cache directory.
 		tokio::task::spawn_blocking({
@@ -499,7 +515,8 @@ impl Server {
 				.into_iter()
 				.map(|dependency| self.cache_artifact(dependency, progress.clone())),
 		)
-		.await?;
+		.await
+		.map_err(|source| tg::error!(!source, "failed to cache the dependencies"))?;
 
 		// Rename all entries to the cache directory.
 		tokio::task::spawn_blocking({
@@ -533,7 +550,9 @@ impl Server {
 		};
 
 		// Cache the artifact and collect dependencies.
-		let dependencies = self.cache_write_artifact(&mut state, path, item)?;
+		let dependencies = self
+			.cache_write_artifact(&mut state, path, item)
+			.map_err(|source| tg::error!(!source, "failed to write the artifact"))?;
 
 		// Set permissions on the temp directory before rename.
 		if state.artifact.is_directory() {
@@ -598,7 +617,9 @@ impl Server {
 				reference.graph = graph.clone();
 			}
 			let path = path.join(name);
-			let item = self.cache_get_item(Some(&mut state.graphs), edge)?;
+			let item = self
+				.cache_get_item(Some(&mut state.graphs), edge)
+				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 			// Check for a cycle.
 			if state.visiting.contains(&item.id) {
@@ -606,7 +627,9 @@ impl Server {
 			}
 
 			let item_id = item.id.clone();
-			let entry_dependencies = self.cache_write_artifact(state, &path, &item)?;
+			let entry_dependencies = self
+				.cache_write_artifact(state, &path, &item)
+				.map_err(|source| tg::error!(!source, "failed to write the artifact"))?;
 			if visited.insert(item_id) {
 				for dependency in entry_dependencies {
 					dependencies.push(dependency);
@@ -665,7 +688,9 @@ impl Server {
 			}
 
 			// Get the node.
-			let item = self.cache_get_item(Some(&mut state.graphs), edge)?;
+			let item = self
+				.cache_get_item(Some(&mut state.graphs), edge)
+				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 			// Collect the dependency if it is not the root artifact.
 			if item.id != state.artifact && visited.insert(item.id.clone()) {
@@ -768,7 +793,9 @@ impl Server {
 			}
 
 			// Get the dependency node.
-			let item = self.cache_get_item(Some(&mut state.graphs), edge)?;
+			let item = self
+				.cache_get_item(Some(&mut state.graphs), edge)
+				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 			if item.id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
@@ -904,7 +931,8 @@ impl Server {
 				if !graphs.contains_key(&graph_id) {
 					let (_size, data) = self
 						.store
-						.try_get_object_data_sync(&graph_id.clone().into())?
+						.try_get_object_data_sync(&graph_id.clone().into())
+						.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
 						.ok_or_else(|| tg::error!("failed to load the graph"))?;
 					let data = data
 						.try_into()
@@ -947,7 +975,8 @@ impl Server {
 				// Load the object.
 				let (_size, data) = self
 					.store
-					.try_get_object_data_sync(&object_id.clone().into())?
+					.try_get_object_data_sync(&object_id.clone().into())
+					.map_err(|source| tg::error!(!source, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
 					.try_into()
@@ -970,7 +999,10 @@ impl Server {
 						if !graphs.contains_key(&graph_id) {
 							let (_size, data) = self
 								.store
-								.try_get_object_data_sync(&graph_id.clone().into())?
+								.try_get_object_data_sync(&graph_id.clone().into())
+								.map_err(|source| {
+									tg::error!(!source, "failed to get the graph data")
+								})?
 								.ok_or_else(|| tg::error!("failed to load the graph"))?;
 							let data = data
 								.try_into()
@@ -1099,13 +1131,20 @@ impl Server {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the arg.
-		let arg = request.json().await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Get the stream.
-		let stream = self.cache_with_context(context, arg).await?;
+		let stream = self
+			.cache_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the cache task"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

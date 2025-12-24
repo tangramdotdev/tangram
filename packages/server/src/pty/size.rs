@@ -16,17 +16,25 @@ impl Server {
 	) -> tg::Result<Option<tg::pty::Size>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(size) = self.try_get_pty_size_local(id).await?
+			&& let Some(size) = self
+				.try_get_pty_size_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the pty size"))?
 		{
 			return Ok(Some(size));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(size) = self
 			.try_get_pty_size_remote(id, arg.clone(), &remotes)
-			.await?
-		{
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to get the pty size from the remote"),
+			)? {
 			return Ok(Some(size));
 		}
 
@@ -78,10 +86,16 @@ impl Server {
 			..arg
 		};
 		let futures = remotes.iter().map(|remote| {
+			let remote = remote.clone();
 			let arg = arg.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await?;
-				client.get_pty_size(id, arg).await
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
+				client
+					.get_pty_size(id, arg)
+					.await
+					.map_err(|source| tg::error!(!source, %remote, "failed to get the pty size"))
 			}
 			.boxed()
 		});
@@ -98,14 +112,17 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the pty id"))?;
 		let arg = request
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
 		let output = self
 			.try_get_pty_size_with_context(context, &id, arg)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the pty size"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

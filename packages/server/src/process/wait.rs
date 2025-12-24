@@ -19,14 +19,22 @@ impl Server {
 	> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(future) = self.try_wait_process_local(id).await?
+			&& let Some(future) = self
+				.try_wait_process_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?
 		{
 			return Ok(Some(future.left_future()));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
-		if let Some(future) = self.try_wait_process_remote(id, &remotes).await? {
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(future) = self.try_wait_process_remote(id, &remotes).await.map_err(
+			|source| tg::error!(!source, %id, "failed to wait for the process on the remote"),
+		)? {
 			return Ok(Some(future.right_future()));
 		}
 
@@ -45,7 +53,8 @@ impl Server {
 		let id = id.clone();
 		let Some(stream) = server
 			.try_get_process_status_stream_local(&id)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process status stream"))?
 			.map(futures::StreamExt::boxed)
 		else {
 			return Ok(None);
@@ -69,8 +78,9 @@ impl Server {
 			}
 			let output = server
 				.try_get_process_local(&id)
-				.await?
-				.ok_or_else(|| tg::error!("failed to get the process"))?;
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+				.ok_or_else(|| tg::error!(%id, "failed to get the process"))?;
 			let exit = output
 				.data
 				.exit
@@ -105,9 +115,14 @@ impl Server {
 		let futures = remotes.iter().map(|remote| {
 			let id = id.clone();
 			let arg = arg.clone();
+			let remote = remote.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await?;
-				let output = client.wait_process(&id, arg).await?;
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
+				let output = client.wait_process(&id, arg).await.map_err(
+					|source| tg::error!(!source, %id, %remote, "failed to wait for the process"),
+				)?;
 				Ok::<_, tg::Error>(output)
 			}
 			.boxed()
@@ -125,13 +140,22 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse::<tg::process::Id>()?;
+		let id = id
+			.parse::<tg::process::Id>()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 
 		// Parse the arg.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the accept header.
-		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+		let accept: Option<mime::Mime> = request
+			.parse_header(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the future.
 		let Some(future) = self

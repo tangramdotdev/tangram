@@ -28,13 +28,19 @@ impl Server {
 	> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(stream) = self.try_get_process_children_local(id, arg.clone()).await?
+			&& let Some(stream) = self
+				.try_get_process_children_local(id, arg.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the process children"))?
 		{
 			return Ok(Some(stream.left_stream()));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(stream) = self
 			.try_get_process_children_remote(id, arg.clone(), &remotes)
 			.await?
@@ -55,7 +61,11 @@ impl Server {
 		>,
 	> {
 		// Verify the process is local.
-		if !self.get_process_exists_local(id).await? {
+		if !self
+			.get_process_exists_local(id)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check if the process exists"))?
+		{
 			return Ok(None);
 		}
 
@@ -90,7 +100,8 @@ impl Server {
 			Some(std::io::SeekFrom::Start(seek)) => seek,
 			Some(std::io::SeekFrom::End(seek) | std::io::SeekFrom::Current(seek)) => self
 				.try_get_process_children_local_current_position(id)
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the current position"))?
 				.to_i64()
 				.unwrap()
 				.checked_add(seek)
@@ -294,13 +305,19 @@ impl Server {
 			..arg
 		};
 		let futures = remotes.iter().map(|remote| {
+			let remote = remote.clone();
 			let arg = arg.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await?;
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
 				client
 					.get_process_children(id, arg)
 					.await
 					.map(futures::StreamExt::boxed)
+					.map_err(
+						|source| tg::error!(!source, %remote, "failed to get the process children"),
+					)
 			}
 			.boxed()
 		});
@@ -322,13 +339,22 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 
 		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the accept header.
-		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+		let accept: Option<mime::Mime> = request
+			.parse_header(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let Some(stream) = self

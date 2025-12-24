@@ -18,19 +18,27 @@ pub async fn cache_children(server: &Server, process: &tg::Process) -> tg::Resul
 	// Get the process's command's children that are artifacts.
 	let artifacts: Vec<tg::artifact::Id> = process
 		.command(server)
-		.await?
+		.await
+		.map_err(|source| tg::error!(!source, "failed to get the command"))?
 		.children(server)
-		.await?
+		.await
+		.map_err(|source| tg::error!(!source, "failed to get the command's children"))?
 		.into_iter()
 		.filter_map(|object| object.id().try_into().ok())
 		.collect::<Vec<_>>();
 
 	// Check out the artifacts.
 	let arg = tg::cache::Arg { artifacts };
-	let stream = server.cache(arg).await?;
+	let stream = server
+		.cache(arg)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to cache the artifacts"))?;
 
 	// Log the progress stream.
-	server.log_progress_stream(process, stream).await?;
+	server
+		.log_progress_stream(process, stream)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
 
 	Ok(())
 }
@@ -41,7 +49,10 @@ pub async fn log(
 	stream: tg::process::log::Stream,
 	message: String,
 ) -> tg::Result<()> {
-	let state = process.load(server).await?;
+	let state = process
+		.load(server)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to load the process"))?;
 	let stdout = state.stdout.as_ref();
 	let stderr = state.stderr.as_ref();
 	if let (tg::process::log::Stream::Stdout, Some(stdout)) = (stream, stdout) {
@@ -59,7 +70,10 @@ pub async fn log(
 			remotes: process.remote().cloned().map(|r| vec![r]),
 			stream,
 		};
-		server.post_process_log(process.id(), arg).await?;
+		server
+			.post_process_log(process.id(), arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to post the process log"))?;
 	}
 	Ok(())
 }
@@ -78,7 +92,10 @@ async fn log_inner(
 				local: None,
 				remotes: remote.cloned().map(|r| vec![r]),
 			};
-			server.write_pipe(id, arg, Box::pin(stream)).await?;
+			server
+				.write_pipe(id, arg, Box::pin(stream))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
 		},
 		tg::process::Stdio::Pty(id) => {
 			let bytes = Bytes::from(message.replace('\n', "\r\n"));
@@ -88,7 +105,10 @@ async fn log_inner(
 				master: false,
 				remotes: remote.cloned().map(|r| vec![r]),
 			};
-			server.write_pty(id, arg, Box::pin(stream)).await?;
+			server
+				.write_pty(id, arg, Box::pin(stream))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write to the pty"))?;
 		},
 	}
 	Ok(())

@@ -45,7 +45,11 @@ impl Cli {
 			local: args.local.local,
 			remotes: args.remotes.remotes,
 		};
-		handle.put_tag(&args.tag.unwrap(), arg).await?;
+		let tag = args.tag.unwrap();
+		handle
+			.put_tag(&tag, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;
 
 		Ok(())
 	}

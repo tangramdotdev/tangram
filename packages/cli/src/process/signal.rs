@@ -27,7 +27,9 @@ impl Cli {
 			remotes: args.remotes.remotes,
 			signal: args.signal,
 		};
-		handle.signal_process(&args.process, arg).await?;
+		handle.signal_process(&args.process, arg).await.map_err(
+			|source| tg::error!(!source, id = %args.process, "failed to signal the process"),
+		)?;
 
 		Ok(())
 	}

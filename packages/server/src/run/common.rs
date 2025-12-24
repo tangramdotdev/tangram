@@ -58,9 +58,13 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	let serve_task = arg.serve_task.take();
 
 	let exit = if let Some(pty) = pty {
-		run_session(arg, pty).await?
+		run_session(arg, pty)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to run the process session"))?
 	} else {
-		run_inner(arg).await?
+		run_inner(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to run the process"))?
 	};
 
 	// Stop and await the serve task.
@@ -151,7 +155,9 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 		.to_owned();
 
 	// Connect to the session.
-	let mut client = tangram_session::Client::connect(path).await?;
+	let mut client = tangram_session::Client::connect(path)
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to connect to the session"))?;
 
 	let mut fds = Vec::new();
 
@@ -299,7 +305,12 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	};
 
 	// Spawn via session.
-	let pid = client.spawn(cmd).await?.to_i32().unwrap();
+	let pid = client
+		.spawn(cmd)
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to spawn the command via session"))?
+		.to_i32()
+		.unwrap();
 
 	// Drop the FDs.
 	drop(fds);
@@ -339,7 +350,10 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	});
 
 	// Await the process.
-	let exit = client.wait().await?;
+	let exit = client
+		.wait()
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
 
 	// Abort the signal task.
 	signal_task.abort();
@@ -661,14 +675,21 @@ async fn stdio_task_inner(
 	let stream_ = ReaderStream::new(reader)
 		.map_err(|source| tg::error!(!source, "failed to read from the reader"));
 	let mut stream_ = pin!(stream_);
-	while let Some(bytes) = stream_.try_next().await? {
+	while let Some(bytes) = stream_
+		.try_next()
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to read from the stream"))?
+	{
 		let arg = tg::process::log::post::Arg {
 			bytes,
 			local: None,
 			remotes: remote.cloned().map(|r| vec![r]),
 			stream,
 		};
-		server.post_process_log(id, arg).await?;
+		server
+			.post_process_log(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to post the process log"))?;
 	}
 	Ok(())
 }
@@ -695,7 +716,9 @@ async fn signal_task(
 		)?;
 
 	// Handle the events.
-	while let Some(event) = stream.try_next().await? {
+	while let Some(event) = stream.try_next().await.map_err(
+		|source| tg::error!(!source, process = %id, "failed to get the next signal event"),
+	)? {
 		match event {
 			tg::process::signal::get::Event::Signal(signal) => unsafe {
 				let ret = libc::kill(pid, signal_number(signal));

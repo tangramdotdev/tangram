@@ -26,13 +26,18 @@ impl Server {
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Forward to remote if requested.
 		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let remote = self.get_remote_client(name.clone()).await?;
+			let remote = self
+				.get_remote_client(name.clone())
+				.await
+				.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
 			let arg = tg::process::spawn::Arg {
 				local: None,
 				remotes: None,
 				..arg
 			};
-			let output = remote.try_spawn_process(arg).await?;
+			let output = remote.try_spawn_process(arg).await.map_err(
+				|source| tg::error!(!source, %name, "failed to spawn process on remote"),
+			)?;
 			let output = output.map(|mut output| {
 				output.remote.replace(name.clone());
 				output
@@ -79,7 +84,8 @@ impl Server {
 			&& matches!(arg.cached, None | Some(true))
 			&& let Some(output) = self
 				.try_get_cached_process_local(&transaction, &arg)
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a cached local process"))?
 		{
 			tracing::trace!(?output, "got cached local process");
 			Some(output)
@@ -88,15 +94,21 @@ impl Server {
 			&& let Some(host) = &host
 			&& let Some(output) = self
 				.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, host)
-				.await?
-		{
+				.await
+				.map_err(|source| {
+					tg::error!(
+						!source,
+						"failed to get a cached local process with mismatched checksum"
+					)
+				})? {
 			tracing::trace!(?output, "got cached local process with mismatched checksum");
 			Some(output)
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = self
 				.create_local_process(&transaction, &arg, cacheable, &host)
-				.await?;
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
 			tracing::trace!(?output, "created local process");
 			Some(output)
 		} else {
@@ -137,7 +149,10 @@ impl Server {
 				}
 				if let Some(id) = id {
 					self.wait_process(&id, tg::process::wait::Arg::default())
-						.await?;
+						.await
+						.map_err(
+							|source| tg::error!(!source, %id, "failed to wait for the process"),
+						)?;
 					Ok(Some(()))
 				} else {
 					Ok(None)
@@ -152,7 +167,13 @@ impl Server {
 					return Ok::<_, tg::Error>(None);
 				}
 				if cacheable && matches!(arg.cached, None | Some(true)) {
-					let Some(output) = self.try_get_cached_process_remote(&arg).await? else {
+					let Some(output) =
+						self.try_get_cached_process_remote(&arg)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get a cached remote process")
+							})?
+					else {
 						return Ok(None);
 					};
 					Ok(Some(output))
@@ -461,7 +482,9 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths_sqlite(transaction, vec![id.to_string()]).await?;
+				Self::update_parent_depths_sqlite(transaction, vec![id.to_string()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
 			},
 		}
 
@@ -755,7 +778,8 @@ impl Server {
 		// Find a process.
 		let futures = self
 			.get_remote_clients()
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote clients"))?
 			.into_iter()
 			.map(|(name, client)| {
 				let arg = arg.clone();
@@ -898,7 +922,9 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths_sqlite(transaction, vec![child.to_string()]).await?;
+				Self::update_parent_depths_sqlite(transaction, vec![child.to_string()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
 			},
 		}
 
@@ -1058,8 +1084,14 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
-		let output = self.try_spawn_process_with_context(context, arg).await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		let output = self
+			.try_spawn_process_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

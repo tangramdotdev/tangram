@@ -74,7 +74,10 @@ impl Server {
 		// Handle paths in the cache directory.
 		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
 			let progress = crate::progress::Handle::new();
-			let output = self.checkin_cache_path(path).await?;
+			let output = self
+				.checkin_cache_path(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check in the cache path"))?;
 			progress.output(output);
 			return Ok(progress.stream().left_stream());
 		}
@@ -84,8 +87,12 @@ impl Server {
 			.options
 			.ignore
 			.then(Self::checkin_create_ignorer)
-			.transpose()?;
-		let (root, ignorer) = self.checkin_find_root_path(&arg.path, ignorer).await?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to create the ignorer"))?;
+		let (root, ignorer) = self
+			.checkin_find_root_path(&arg.path, ignorer)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to find the root path"))?;
 
 		// Get or spawn the checkin task for the root.
 		let key = TaskKey {
@@ -207,7 +214,8 @@ impl Server {
 				name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
 			})
 			.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
-			.parse()?;
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the artifact id"))?;
 		if path.components().count() == 1 {
 			let output = tg::checkin::Output {
 				artifact: tg::Referent::with_item(id),
@@ -220,7 +228,10 @@ impl Server {
 			.try_unwrap_directory()
 			.ok()
 			.ok_or_else(|| tg::error!("invalid path"))?;
-		let artifact = directory.get(self, subpath).await?;
+		let artifact = directory
+			.get(self, subpath)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the artifact from the cache"))?;
 		let id = artifact.id();
 		let referent = tg::Referent::with_item(id);
 		let output = tg::checkin::Output { artifact: referent };
@@ -360,7 +371,8 @@ impl Server {
 			touched_at,
 			progress,
 		)
-		.await?;
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create blobs"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create blobs");
 
 		// Create artifacts.
@@ -380,7 +392,8 @@ impl Server {
 		// Cache.
 		if arg.options.cache_references {
 			if let Some(task) = fixup_task {
-				task.await?;
+				task.await
+					.map_err(|source| tg::error!(!source, "failed to run the fixup task"))?;
 			}
 			let start = Instant::now();
 			self.checkin_cache(&arg, &graph, next, root, progress)
@@ -540,13 +553,20 @@ impl Server {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the arg.
-		let arg = request.json().await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Get the stream.
-		let stream = self.checkin_with_context(context, arg).await?;
+		let stream = self
+			.checkin_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the checkin"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

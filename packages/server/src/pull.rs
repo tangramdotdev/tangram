@@ -14,8 +14,13 @@ impl Server {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
 	> {
 		let remote = arg.remote.clone().unwrap_or_else(|| "default".to_owned());
-		let remote = self.get_remote_client(remote).await?;
-		Self::push_or_pull(&remote, self, &arg).await
+		let remote = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		Self::push_or_pull(&remote, self, &arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the pull"))
 	}
 
 	pub(crate) async fn handle_pull_request(
@@ -26,13 +31,20 @@ impl Server {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the arg.
-		let arg = request.json().await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Get the stream.
-		let stream = self.pull_with_context(context, arg).await?;
+		let stream = self
+			.pull_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the pull"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

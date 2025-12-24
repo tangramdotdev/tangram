@@ -23,7 +23,10 @@ impl Server {
 			remotes: arg.remotes,
 			reverse: true,
 		};
-		let tg::tag::list::Output { data } = self.list_tags_with_context(context, arg).await?;
+		let tg::tag::list::Output { data } = self
+			.list_tags_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
 		let Some(output) = data.into_iter().next() else {
 			return Ok(None);
 		};
@@ -36,8 +39,15 @@ impl Server {
 		context: &Context,
 		pattern: &[&str],
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let pattern = pattern.join("/").parse()?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+		let pattern = pattern
+			.join("/")
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the tag pattern"))?;
 		let Some(output) = self
 			.try_get_tag_with_context(context, &pattern, arg)
 			.await?

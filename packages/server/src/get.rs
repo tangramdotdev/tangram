@@ -45,23 +45,27 @@ impl Server {
 					path: path.clone(),
 					updates: Vec::new(),
 				};
-				let stream = self.checkin(arg).await?.map_ok(move |event| match event {
-					tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
-					tg::progress::Event::Diagnostic(diagnostic) => {
-						tg::progress::Event::Diagnostic(diagnostic)
-					},
-					tg::progress::Event::Indicators(indicators) => {
-						tg::progress::Event::Indicators(indicators)
-					},
-					tg::progress::Event::Output(output) => {
-						let referent = tg::Referent {
-							item: tg::Either::Left(output.artifact.item.into()),
-							options: output.artifact.options,
-						};
-						let output = Some(tg::get::Output { referent });
-						tg::progress::Event::Output(output)
-					},
-				});
+				let stream = self
+					.checkin(arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to check in the path"))?
+					.map_ok(move |event| match event {
+						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
+						tg::progress::Event::Diagnostic(diagnostic) => {
+							tg::progress::Event::Diagnostic(diagnostic)
+						},
+						tg::progress::Event::Indicators(indicators) => {
+							tg::progress::Event::Indicators(indicators)
+						},
+						tg::progress::Event::Output(output) => {
+							let referent = tg::Referent {
+								item: tg::Either::Left(output.artifact.item.into()),
+								options: output.artifact.options,
+							};
+							let output = Some(tg::get::Output { referent });
+							tg::progress::Event::Output(output)
+						},
+					});
 				Ok::<_, tg::Error>(stream.boxed())
 			},
 
@@ -70,8 +74,10 @@ impl Server {
 					local: arg.local,
 					remotes: arg.remotes.clone(),
 				};
-				let Some(tg::tag::get::Output { item, tag, .. }) =
-					self.try_get_tag(tag, tag_arg).await?
+				let Some(tg::tag::get::Output { item, tag, .. }) = self
+					.try_get_tag(tag, tag_arg)
+					.await
+					.map_err(|source| tg::error!(!source, %tag, "failed to get the tag"))?
 				else {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());
@@ -106,16 +112,31 @@ impl Server {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
-		let item = path.join("/").parse()?;
+		let item = path
+			.join("/")
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
 
 		// Get the reference options and arg.
-		let arg: tg::get::Arg = request.query_params().transpose()?.unwrap_or_default();
-		let options = request.query_params().transpose()?.unwrap_or_default();
+		let arg: tg::get::Arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+		let options = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 		let reference = tg::Reference::with_item_and_options(item, options);
 
-		let stream = self.try_get_with_context(context, &reference, arg).await?;
+		let stream = self
+			.try_get_with_context(context, &reference, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

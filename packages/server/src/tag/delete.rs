@@ -17,14 +17,20 @@ impl Server {
 	) -> tg::Result<tg::tag::delete::Output> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 			let arg = tg::tag::delete::Arg {
 				local: None,
 				pattern: arg.pattern,
 				recursive: arg.recursive,
 				remotes: None,
 			};
-			let output = client.delete_tag(arg).await?;
+			let output = client
+				.delete_tag(arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete the tag on remote"))?;
 			return Ok(output);
 		}
 
@@ -35,11 +41,13 @@ impl Server {
 		// Delete the tag from the database.
 		let output = match &self.database {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => {
-				Self::delete_tag_postgres(database, &arg.pattern, arg.recursive).await?
-			},
+			Database::Postgres(database) => Self::delete_tag_postgres(database, &arg.pattern, arg.recursive)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
 			Database::Sqlite(database) => {
-				Self::delete_tag_sqlite(database, &arg.pattern, arg.recursive).await?
+				Self::delete_tag_sqlite(database, &arg.pattern, arg.recursive)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to delete the tag"))?
 			},
 		};
 
@@ -68,7 +76,10 @@ impl Server {
 		context: &Context,
 		_tag: &[&str],
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 		let output = self.delete_tag_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)

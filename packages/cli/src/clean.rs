@@ -21,11 +21,17 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Index.
-		let stream = handle.index().await?;
+		let stream = handle
+			.index()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to index"))?;
 		self.render_progress_stream(stream).await?;
 
 		// Clean.
-		let stream = handle.clean().await?;
+		let stream = handle
+			.clean()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to clean"))?;
 		let output = self.render_progress_stream(stream).await?;
 		let bytes = byte_unit::Byte::from_u64(output.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);

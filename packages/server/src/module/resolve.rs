@@ -19,12 +19,18 @@ impl Server {
 			tg::module::data::Item::Edge(edge) => {
 				let referrer = referrer.referent.clone().map(|_| edge);
 				self.resolve_module_with_edge_referrer(&referrer, &import)
-					.await?
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to resolve module with edge referrer")
+					})?
 			},
 			tg::module::data::Item::Path(path) => {
 				let referrer = referrer.referent.clone().map(|_| path.as_ref());
 				self.resolve_module_with_path_referrer(&referrer, &import)
-					.await?
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to resolve module with path referrer")
+					})?
 			},
 		};
 
@@ -105,7 +111,10 @@ impl Server {
 			.try_unwrap_file()
 			.ok()
 			.ok_or_else(|| tg::error!(referrer = %referrer.item, "the referrer must be a file"))?;
-		let dependency = file.get_dependency_edge(self, &import.reference).await?;
+		let dependency = file
+			.get_dependency_edge(self, &import.reference)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the dependency edge"))?;
 
 		let object = match &dependency.0.item {
 			Some(tg::graph::Edge::Reference(reference)) => {
@@ -122,9 +131,15 @@ impl Server {
 			) => {
 				let path =
 					tg::package::try_get_root_module_file_name(self, tg::Either::Left(directory))
-						.await?;
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to get the root module file name")
+						})?;
 				if let Some(path) = path {
-					let edge = directory.get_entry_edge(self, path).await?;
+					let edge = directory
+						.get_entry_edge(self, path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
 					let edge: tg::graph::Edge<tg::Object> = match edge {
 						tg::graph::Edge::Reference(reference) => {
 							if reference.kind != tg::artifact::Kind::File {
@@ -281,9 +296,15 @@ impl Server {
 				updates: Vec::new(),
 			};
 			let context = Context::default();
-			let stream = self.checkin_with_context(&context, arg).await?;
+			let stream = self
+				.checkin_with_context(&context, arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check in the path"))?;
 			let stream = pin!(stream);
-			stream.try_last().await?;
+			stream
+				.try_last()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to complete the checkin"))?;
 
 			// Get the watch and retrieve the edge from the graph.
 			let entry = self
@@ -304,7 +325,10 @@ impl Server {
 			let referrer = referrer.clone().map(|_| &edge);
 			let referent = self
 				.resolve_module_with_edge_referrer(&referrer, import)
-				.await?;
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to resolve module with edge referrer")
+				})?;
 
 			Ok(referent)
 		}
@@ -315,8 +339,14 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
-		let output = self.resolve_module_with_context(context, arg).await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		let output = self
+			.resolve_module_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the module"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

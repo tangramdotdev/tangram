@@ -22,14 +22,23 @@ impl Server {
 	> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(status) = self.try_get_process_status_stream_local(id).await?
-		{
+			&& let Some(status) = self.try_get_process_status_stream_local(id).await.map_err(
+				|source| tg::error!(!source, %id, "failed to get the process status stream"),
+			)? {
 			return Ok(Some(status.left_stream()));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
-		if let Some(status) = self.try_get_process_status_remote(id, &remotes).await? {
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(status) = self
+			.try_get_process_status_remote(id, &remotes)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to get the process status from the remote"),
+			)? {
 			return Ok(Some(status.right_stream()));
 		}
 
@@ -43,7 +52,11 @@ impl Server {
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
 		// Verify the process is local.
-		if !self.get_process_exists_local(id).await? {
+		if !self
+			.get_process_exists_local(id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to check if the process exists"))?
+		{
 			return Ok(None);
 		}
 
@@ -161,7 +174,9 @@ impl Server {
 				let remote = remote.clone();
 				let id = id.clone();
 				async move {
-					let client = self.get_remote_client(remote).await?;
+					let client = self.get_remote_client(remote).await.map_err(
+						|source| tg::error!(!source, %id, "failed to get the remote client"),
+					)?;
 					client
 						.get_process_status(&id, tg::process::status::Arg::default())
 						.await
@@ -186,13 +201,22 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 
 		// Parse the arg.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the accept header.
-		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+		let accept: Option<mime::Mime> = request
+			.parse_header(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let Some(stream) = self

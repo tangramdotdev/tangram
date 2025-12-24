@@ -255,8 +255,13 @@ impl Cli {
 				.try_unwrap_directory()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
-			let artifact = directory.get(&handle, path).await?;
-			let id = artifact.store(&handle).await?;
+			let artifact = directory.get(&handle, path).await.map_err(
+				|source| tg::error!(!source, path = %path.display(), "failed to get the artifact"),
+			)?;
+			let id = artifact
+				.store(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
 			tg::Reference::with_object(id.into())
 		} else {
 			reference
@@ -412,17 +417,19 @@ impl Cli {
 			// Check out the artifact.
 			let artifact = artifact.id();
 			let arg = tg::checkout::Arg {
-				artifact,
+				artifact: artifact.clone(),
 				dependencies: path.is_some(),
 				force: options.checkout_force,
 				lock: None,
 				path,
 			};
-			let stream = handle.checkout(arg).await?;
-			let tg::checkout::Output { path, .. } = self
-				.render_progress_stream(stream)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
+			let stream = handle.checkout(arg).await.map_err(
+				|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
+			)?;
+			let tg::checkout::Output { path, .. } =
+				self.render_progress_stream(stream).await.map_err(
+					|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
+				)?;
 
 			// Print the path.
 			self.print_serde(path, options.print).await?;

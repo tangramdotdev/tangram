@@ -118,9 +118,15 @@ impl Server {
 		// Deserialize the row.
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-		let actual_checksum = row.actual_checksum.map(|s| s.parse()).transpose()?;
+		let actual_checksum =
+			row.actual_checksum.map(|s| s.parse()).transpose().map_err(
+				|source| tg::error!(!source, %id, "failed to parse the actual checksum"),
+			)?;
 		let cacheable = row.cacheable != 0;
-		let command = row.command.parse()?;
+		let command = row
+			.command
+			.parse()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the command"))?;
 		let error = row.error.map(|s| {
 			if s.starts_with('{') {
 				tg::Either::Left(serde_json::from_str(&s).unwrap())
@@ -128,8 +134,16 @@ impl Server {
 				tg::Either::Right(s.parse().unwrap())
 			}
 		});
-		let expected_checksum = row.expected_checksum.map(|s| s.parse()).transpose()?;
-		let log = row.log.map(|s| s.parse()).transpose()?;
+		let expected_checksum = row
+			.expected_checksum
+			.map(|s| s.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the expected checksum"))?;
+		let log = row
+			.log
+			.map(|s| s.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the log id"))?;
 		let output = row
 			.output
 			.map(|s| serde_json::from_str(&s))
@@ -143,10 +157,25 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?
 			.unwrap_or_default();
 		let network = row.network != 0;
-		let status = row.status.parse()?;
-		let stderr = row.stderr.map(|s| s.parse()).transpose()?;
-		let stdin = row.stdin.map(|s| s.parse()).transpose()?;
-		let stdout = row.stdout.map(|s| s.parse()).transpose()?;
+		let status = row
+			.status
+			.parse()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the status"))?;
+		let stderr = row
+			.stderr
+			.map(|s| s.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the stderr pipe"))?;
+		let stdin = row
+			.stdin
+			.map(|s| s.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the stdin pipe"))?;
+		let stdout = row
+			.stdout
+			.map(|s| s.parse())
+			.transpose()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the stdout pipe"))?;
 
 		// Get the children.
 		#[derive(db::sqlite::row::Deserialize)]
@@ -174,7 +203,10 @@ impl Server {
 		{
 			let child_row = <ChildRow as db::sqlite::row::Deserialize>::deserialize(child_row)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-			let item = child_row.child.parse()?;
+			let item = child_row
+				.child
+				.parse()
+				.map_err(|source| tg::error!(!source, %id, "failed to parse the child id"))?;
 			let options = child_row.options.0;
 			let referent = tg::Referent { item, options };
 			children.push(referent);

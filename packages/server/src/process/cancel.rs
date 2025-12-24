@@ -16,13 +16,18 @@ impl Server {
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::process::cancel::Arg {
 				local: None,
 				remotes: None,
 				token: arg.token,
 			};
-			client.cancel_process(id, arg).await?;
+			client.cancel_process(id, arg).await.map_err(
+				|source| tg::error!(!source, %id, "failed to cancel the process on the remote"),
+			)?;
 			return Ok(());
 		}
 
@@ -86,12 +91,15 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 
 		// Parse the arg.
 		let arg = request
 			.query_params()
-			.transpose()?
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		// Cancel the process.

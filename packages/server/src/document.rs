@@ -24,13 +24,19 @@ impl Server {
 	) -> tg::Result<serde_json::Value> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 			let arg = tg::document::Arg {
 				local: None,
 				module: arg.module,
 				remotes: None,
 			};
-			let output = client.document(arg).await?;
+			let output = client
+				.document(arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to document on the remote"))?;
 			return Ok(output);
 		}
 
@@ -42,11 +48,17 @@ impl Server {
 		let compiler = self.create_compiler();
 
 		// Document the module.
-		let output = compiler.document(&arg.module).await?;
+		let output = compiler
+			.document(&arg.module)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to document the module"))?;
 
 		// Stop and await the compiler.
 		compiler.stop();
-		compiler.wait().await?;
+		compiler
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
 
 		Ok(output)
 	}
@@ -56,8 +68,14 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
-		let output = self.document_with_context(context, arg).await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		let output = self
+			.document_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to document the module"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

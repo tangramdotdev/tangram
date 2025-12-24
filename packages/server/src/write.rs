@@ -51,7 +51,10 @@ impl Server {
 		};
 
 		// Create the blob.
-		let blob = self.write_inner(reader, Some(&destination)).await?;
+		let blob = self
+			.write_inner(reader, Some(&destination))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the blob"))?;
 		let blob = Arc::new(blob);
 
 		// Rename the temp file to the cache directory if necessary.
@@ -86,11 +89,13 @@ impl Server {
 
 		// Store.
 		self.write_store(&blob, cache_reference.clone(), touched_at)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the blob"))?;
 
 		// Publish index messages.
 		self.write_index(&blob, cache_reference.clone(), touched_at)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to index the blob"))?;
 
 		// Create the output.
 		let output = tg::write::Output {
@@ -530,7 +535,10 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let output = self.write_with_context(context, request.reader()).await?;
+		let output = self
+			.write_with_context(context, request.reader())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

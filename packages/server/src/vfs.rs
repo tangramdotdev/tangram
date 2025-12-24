@@ -28,7 +28,9 @@ impl Server {
 		tokio::fs::create_dir_all(path).await.ok();
 
 		// Create the provider.
-		let provider = Provider::new(server, options).await?;
+		let provider = Provider::new(server, options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the vfs provider"))?;
 
 		let vfs = match kind {
 			Kind::Fuse => {

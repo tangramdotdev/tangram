@@ -144,7 +144,10 @@ impl Server {
 		_request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let health = self.health_with_context(context).await?;
+		let health = self
+			.health_with_context(context)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the server health"))?;
 		let body = serde_json::to_vec(&health).unwrap();
 		let response = http::Response::builder().bytes(body).unwrap();
 		Ok(response)

@@ -27,10 +27,9 @@ impl Cli {
 			remotes: args.remotes.remotes,
 			token: args.token,
 		};
-		handle
-			.cancel_process(&args.process, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to cancel the process"))?;
+		handle.cancel_process(&args.process, arg).await.map_err(
+			|source| tg::error!(!source, id = %args.process, "failed to cancel the process"),
+		)?;
 
 		Ok(())
 	}

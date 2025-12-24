@@ -32,7 +32,10 @@ impl Cli {
 			mode: args.mode,
 		};
 		let command = tg::builtin::download_command(&args.url, Some(options));
-		let command = command.store(&handle).await?;
+		let command = command
+			.store(&handle)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
 		let args = crate::build::Args {
 			options: args.build,

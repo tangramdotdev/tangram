@@ -120,7 +120,8 @@ impl Server {
 		// Mark the nodes as stored.
 		let mut graph = state.graph.lock().unwrap();
 		for item in &items {
-			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())?;
+			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())
+				.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
 			let size = item.bytes.len().to_u64().unwrap();
 
 			let (node_solvable, node_solved) = match &data {

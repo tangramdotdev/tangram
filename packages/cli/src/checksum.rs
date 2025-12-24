@@ -26,7 +26,10 @@ impl Cli {
 		if let Ok(blob) = tg::Blob::try_from(object.clone()) {
 			let algorithm = args.algorithm;
 			let command = tg::builtin::checksum_command(tg::Either::Left(blob), algorithm);
-			let command = command.store(&handle).await?;
+			let command = command
+				.store(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());
 			let args = crate::build::Args {
 				options: args.build,
@@ -37,7 +40,10 @@ impl Cli {
 		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
 			let algorithm = args.algorithm;
 			let command = tg::builtin::checksum_command(tg::Either::Right(artifact), algorithm);
-			let command = command.store(&handle).await?;
+			let command = command
+				.store(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());
 			let args = crate::build::Args {
 				options: args.build,

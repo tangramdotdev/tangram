@@ -122,8 +122,14 @@ impl Server {
 		}
 
 		// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
-		let transaction_id = self.indexer_get_transaction_id().await?;
-		let count = self.indexer_get_queue_size(transaction_id).await?;
+		let transaction_id = self
+			.indexer_get_transaction_id()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the transaction id"))?;
+		let count = self
+			.indexer_get_queue_size(transaction_id)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the queue size"))?;
 		progress.start(
 			"queue".to_string(),
 			"queue".to_owned(),
@@ -132,7 +138,10 @@ impl Server {
 			None,
 		);
 		loop {
-			let count = self.indexer_get_queue_size(transaction_id).await?;
+			let count = self
+				.indexer_get_queue_size(transaction_id)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the queue size"))?;
 			progress.set("queue", count);
 			if count == 0 {
 				break;
@@ -146,7 +155,10 @@ impl Server {
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		// Get the messages stream.
-		let stream = self.indexer_create_message_stream(config).await?;
+		let stream = self
+			.indexer_create_message_stream(config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the message stream"))?;
 		let mut stream = pin!(stream);
 
 		let mut wait = false;
@@ -438,10 +450,14 @@ impl Server {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let stream = self.index_with_context(context).await?;
+		let stream = self
+			.index_with_context(context)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the index task"))?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

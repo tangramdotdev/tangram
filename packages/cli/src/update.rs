@@ -30,10 +30,13 @@ impl Cli {
 		// Check in.
 		let arg = tg::checkin::Arg {
 			options: tg::checkin::Options::default(),
-			path,
+			path: path.clone(),
 			updates,
 		};
-		let stream = handle.checkin(arg).await?;
+		let stream = handle
+			.checkin(arg)
+			.await
+			.map_err(|source| tg::error!(!source, path = %path.display(), "failed to check in"))?;
 		self.render_progress_stream(stream).await?;
 
 		Ok(())

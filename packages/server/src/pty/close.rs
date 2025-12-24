@@ -13,13 +13,18 @@ impl Server {
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::pty::close::Arg {
 				local: None,
 				master: arg.master,
 				remotes: None,
 			};
-			client.close_pty(id, arg).await?;
+			client.close_pty(id, arg).await.map_err(
+				|source| tg::error!(!source, %id, "failed to close the pty on the remote"),
+			)?;
 			return Ok(());
 		}
 
@@ -48,9 +53,17 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse()?;
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-		self.close_pty_with_context(context, &id, arg).await?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the pty id"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+		self.close_pty_with_context(context, &id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to close the pty"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

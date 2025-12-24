@@ -82,11 +82,20 @@ impl Store {
 						| lmdb::EnvFlags::WRITE_MAP
 						| lmdb::EnvFlags::MAP_ASYNC,
 				)
-				.open(&config.path)?
+				.open(&config.path)
+				.map_err(|source| {
+					Error::other(
+						tg::error!(!source, path = %config.path.display(), "failed to open the lmdb environment"),
+					)
+				})?
 		};
 		let mut transaction = env.write_txn().unwrap();
-		let db = env.create_database(&mut transaction, None)?;
-		transaction.commit()?;
+		let db = env
+			.create_database(&mut transaction, None)
+			.map_err(|source| Error::other(tg::error!(!source, "failed to create the database")))?;
+		transaction.commit().map_err(|source| {
+			Error::other(tg::error!(!source, "failed to commit the transaction"))
+		})?;
 
 		// Create the thread.
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
@@ -103,15 +112,15 @@ impl Store {
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let id = id.to_bytes();
+		let id_bytes = id.to_bytes();
 		let key = Key {
-			id: id.as_ref(),
+			id: id_bytes.as_ref(),
 			kind: KeyKind::Bytes,
 		};
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 		else {
 			return Ok(None);
 		};
@@ -126,15 +135,15 @@ impl Store {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			let id = id.to_bytes();
+			let id_bytes = id.to_bytes();
 			let key = Key {
-				id: id.as_ref(),
+				id: id_bytes.as_ref(),
 				kind: KeyKind::Bytes,
 			};
 			let bytes = self
 				.db
 				.get(&transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, "failed to get the value"))?
+				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 				.map(Bytes::copy_from_slice);
 			outputs.push(bytes);
 		}
@@ -147,20 +156,21 @@ impl Store {
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		let transaction = self.env.read_txn().unwrap();
 		let kind = id.kind();
-		let id = id.to_bytes();
+		let id_bytes = id.to_bytes();
 		let key = Key {
-			id: id.as_ref(),
+			id: id_bytes.as_ref(),
 			kind: KeyKind::Bytes,
 		};
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 		else {
 			return Ok(None);
 		};
 		let size = bytes.len().to_u64().unwrap();
-		let data = tg::object::Data::deserialize(kind, bytes)?;
+		let data = tg::object::Data::deserialize(kind, bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
 		Ok(Some((size, data)))
 	}
 
@@ -172,20 +182,21 @@ impl Store {
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let id = id.to_bytes();
+		let id_bytes = id.to_bytes();
 		let key = Key {
-			id: id.as_ref(),
+			id: id_bytes.as_ref(),
 			kind: KeyKind::CacheReference,
 		};
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, "failed to get the value"))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the cache reference"))?
 		else {
 			return Ok(None);
 		};
-		let reference = CacheReference::deserialize(bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
+		let reference = CacheReference::deserialize(bytes).map_err(
+			|source| tg::error!(!source, %id, "failed to deserialize the cache reference"),
+		)?;
 		Ok::<_, tg::Error>(Some(reference))
 	}
 
@@ -255,10 +266,11 @@ impl Store {
 		transaction: &mut lmdb::RwTxn<'_>,
 		request: Put,
 	) -> tg::Result<()> {
+		let id = &request.id;
 		if let Some(bytes) = request.bytes {
-			let id = request.id.to_bytes();
+			let id_bytes = id.to_bytes();
 			let key = Key {
-				id: id.as_ref(),
+				id: id_bytes.as_ref(),
 				kind: KeyKind::Bytes,
 			};
 			let flags = lmdb::PutFlags::NO_OVERWRITE;
@@ -266,27 +278,27 @@ impl Store {
 			match result {
 				Ok(()) | Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
 				Err(error) => {
-					return Err(tg::error!(!error, "failed to put the value"));
+					return Err(tg::error!(!error, %id, "failed to put the object"));
 				},
 			}
 		}
-		let id = request.id.to_bytes();
+		let id_bytes = id.to_bytes();
 		let key = Key {
-			id: id.as_ref(),
+			id: id_bytes.as_ref(),
 			kind: KeyKind::TouchedAt,
 		};
 		let touched_at = request.touched_at.to_le_bytes();
 		db.put(transaction, &key.pack_to_vec(), &touched_at)
-			.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+			.map_err(|source| tg::error!(!source, %id, "failed to put the touched_at"))?;
 		if let Some(cache_reference) = request.cache_reference {
-			let id = request.id.to_bytes();
+			let id_bytes = id.to_bytes();
 			let key = Key {
-				id: id.as_ref(),
+				id: id_bytes.as_ref(),
 				kind: KeyKind::CacheReference,
 			};
 			let value = cache_reference.serialize().unwrap();
 			db.put(transaction, &key.pack_to_vec(), &value)
-				.map_err(|source| tg::error!(!source, "failed to put the value"))?;
+				.map_err(|source| tg::error!(!source, %id, "failed to put the cache reference"))?;
 		}
 		Ok(())
 	}
@@ -298,43 +310,45 @@ impl Store {
 		transaction: &mut lmdb::RwTxn<'_>,
 		request: Delete,
 	) -> tg::Result<()> {
-		let id = request.id.to_bytes();
+		let id = &request.id;
+		let id_bytes = id.to_bytes();
 		let key = Key {
-			id: id.as_ref(),
+			id: id_bytes.as_ref(),
 			kind: KeyKind::TouchedAt,
 		};
 		let Some(touched_at) = db
 			.get(transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, "failed to get the touch time"))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the touched_at"))?
 		else {
 			return Ok(());
 		};
 		let touched_at = touched_at
 			.try_into()
-			.map_err(|source| tg::error!(!source, "invalid touch time"))?;
+			.map_err(|source| tg::error!(!source, %id, "invalid touched_at"))?;
 		let touched_at = i64::from_le_bytes(touched_at);
 		if request.now - touched_at >= request.ttl.to_i64().unwrap() {
-			let id = request.id.to_bytes();
+			let id_bytes = id.to_bytes();
 			let key = Key {
-				id: id.as_ref(),
+				id: id_bytes.as_ref(),
 				kind: KeyKind::Bytes,
 			};
 			db.delete(transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
-			let id = request.id.to_bytes();
+				.map_err(|source| tg::error!(!source, %id, "failed to delete the object"))?;
+			let id_bytes = id.to_bytes();
 			let key = Key {
-				id: id.as_ref(),
+				id: id_bytes.as_ref(),
 				kind: KeyKind::TouchedAt,
 			};
 			db.delete(transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
-			let id = request.id.to_bytes();
+				.map_err(|source| tg::error!(!source, %id, "failed to delete the touched_at"))?;
+			let id_bytes = id.to_bytes();
 			let key = Key {
-				id: id.as_ref(),
+				id: id_bytes.as_ref(),
 				kind: KeyKind::CacheReference,
 			};
-			db.delete(transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, "failed to delete the object"))?;
+			db.delete(transaction, &key.pack_to_vec()).map_err(
+				|source| tg::error!(!source, %id, "failed to delete the cache reference"),
+			)?;
 		}
 		Ok(())
 	}
@@ -445,14 +459,14 @@ impl crate::Store for Store {
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let id = id.to_bytes();
+				let id_bytes = id.to_bytes();
 				let key = Key {
-					id: id.as_ref(),
+					id: id_bytes.as_ref(),
 					kind: KeyKind::Bytes,
 				};
 				let Some(bytes) = db
 					.get(&transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, "failed to get the value"))?
+					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 				else {
 					return Ok(None);
 				};
@@ -461,7 +475,7 @@ impl crate::Store for Store {
 			}
 		})
 		.await
-		.map_err(Error::other)?
+		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
 		.map_err(Error::other)?;
 		Ok(bytes)
 	}
@@ -483,14 +497,14 @@ impl crate::Store for Store {
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in ids {
-					let id = id.to_bytes();
+					let id_bytes = id.to_bytes();
 					let key = Key {
-						id: id.as_ref(),
+						id: id_bytes.as_ref(),
 						kind: KeyKind::Bytes,
 					};
 					let bytes = db
 						.get(&transaction, &key.pack_to_vec())
-						.map_err(|source| tg::error!(!source, "failed to get the value"))?
+						.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 						.map(Bytes::copy_from_slice);
 					outputs.push(bytes);
 				}
@@ -498,7 +512,7 @@ impl crate::Store for Store {
 			}
 		})
 		.await
-		.map_err(Error::other)?
+		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
 		.map_err(Error::other)?;
 		Ok(bytes)
 	}
@@ -515,29 +529,31 @@ impl crate::Store for Store {
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let id = id.to_bytes();
+				let id_bytes = id.to_bytes();
 				let key = Key {
-					id: id.as_ref(),
+					id: id_bytes.as_ref(),
 					kind: KeyKind::CacheReference,
 				};
-				let Some(bytes) = db
-					.get(&transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, "failed to get the value"))?
+				let Some(bytes) = db.get(&transaction, &key.pack_to_vec()).map_err(
+					|source| tg::error!(!source, %id, "failed to get the cache reference"),
+				)?
 				else {
 					return Ok(None);
 				};
-				let reference = CacheReference::deserialize(bytes)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the reference"))?;
+				let reference = CacheReference::deserialize(bytes).map_err(
+					|source| tg::error!(!source, %id, "failed to deserialize the cache reference"),
+				)?;
 				Ok::<_, tg::Error>(Some(reference))
 			}
 		})
 		.await
-		.map_err(Error::other)?
+		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
 		.map_err(Error::other)?;
 		Ok(reference)
 	}
 
 	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
+		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Put(Put {
 			bytes: arg.bytes,
@@ -548,10 +564,12 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(Error::other)?;
+			.map_err(|source| {
+				Error::other(tg::error!(!source, %id, "failed to send the request"))
+			})?;
 		receiver
 			.await
-			.map_err(|_| Error::other("task panicked"))?
+			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
 			.map_err(Error::other)?;
 		Ok(())
 	}
@@ -574,15 +592,16 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(Error::other)?;
+			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
 		receiver
 			.await
-			.map_err(|_| Error::other("task panicked"))?
+			.map_err(|_| Error::other(tg::error!("the task panicked")))?
 			.map_err(Error::other)?;
 		Ok(())
 	}
 
 	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
+		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Delete(Delete {
 			id: arg.id,
@@ -592,10 +611,12 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(Error::other)?;
+			.map_err(|source| {
+				Error::other(tg::error!(!source, %id, "failed to send the request"))
+			})?;
 		receiver
 			.await
-			.map_err(|_| Error::other("task panicked"))?
+			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
 			.map_err(Error::other)?;
 		Ok(())
 	}
@@ -617,10 +638,10 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(Error::other)?;
+			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
 		receiver
 			.await
-			.map_err(|_| Error::other("task panicked"))?
+			.map_err(|_| Error::other(tg::error!("the task panicked")))?
 			.map_err(Error::other)?;
 		Ok(())
 	}
@@ -634,7 +655,7 @@ impl crate::Store for Store {
 			}
 		})
 		.await
-		.map_err(Error::other)?
+		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
 		.map_err(Error::other)?;
 		Ok(())
 	}

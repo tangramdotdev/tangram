@@ -20,13 +20,19 @@ impl Server {
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::process::put::Arg {
 				data: arg.data,
 				local: None,
 				remotes: None,
 			};
-			client.put_process(id, arg).await?;
+			client
+				.put_process(id, arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the process on remote"))?;
 			return Ok(());
 		}
 
@@ -39,10 +45,14 @@ impl Server {
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
-				Self::put_process_postgres(id, &arg, database, now).await?;
+				Self::put_process_postgres(id, &arg, database, now)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
 			Database::Sqlite(database) => {
-				Self::put_process_sqlite(id, &arg, database, now).await?;
+				Self::put_process_sqlite(id, &arg, database, now)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
 		}
 
@@ -136,9 +146,16 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse()?;
-		let arg = request.json().await?;
-		self.put_process_with_context(context, &id, arg).await?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		self.put_process_with_context(context, &id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

@@ -112,17 +112,19 @@ impl Cli {
 		let force = args.force;
 		let lock = args.lock.get();
 		let arg = tg::checkout::Arg {
-			artifact,
+			artifact: artifact.clone(),
 			dependencies,
 			force,
 			lock,
 			path,
 		};
-		let stream = handle
-			.checkout(arg)
+		let stream = handle.checkout(arg).await.map_err(
+			|source| tg::error!(!source, %artifact, "failed to create the checkout stream"),
+		)?;
+		let output = self
+			.render_progress_stream(stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the checkout stream"))?;
-		let output = self.render_progress_stream(stream).await?;
+			.map_err(|source| tg::error!(!source, %artifact, "failed to check out the artifact"))?;
 
 		// Print the output.
 		Self::print_display(output.path.display());

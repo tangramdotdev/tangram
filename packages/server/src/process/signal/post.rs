@@ -14,7 +14,10 @@ impl Server {
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::process::signal::post::Arg {
 				local: None,
 				remotes: None,

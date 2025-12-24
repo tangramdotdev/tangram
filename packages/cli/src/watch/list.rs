@@ -12,7 +12,10 @@ impl Cli {
 	pub async fn command_watch_list(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::watch::list::Arg::default();
-		let output = handle.list_watches(arg).await?;
+		let output = handle
+			.list_watches(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the watches"))?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

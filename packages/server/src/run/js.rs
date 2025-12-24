@@ -11,8 +11,15 @@ impl Server {
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
 		// Get the args, cwd, env, and executable.
-		let state = process.load(self).await?;
-		let data = state.command.data(self).await?;
+		let state = process
+			.load(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
+		let data = state
+			.command
+			.data(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command data"))?;
 		let args = data.args;
 		let cwd = data
 			.cwd

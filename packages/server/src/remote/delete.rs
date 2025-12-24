@@ -45,7 +45,9 @@ impl Server {
 		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<Body>> {
-		self.delete_remote_with_context(context, name).await?;
+		self.delete_remote_with_context(context, name)
+			.await
+			.map_err(|source| tg::error!(!source, %name, "failed to delete the remote"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

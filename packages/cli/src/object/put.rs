@@ -62,7 +62,10 @@ impl Cli {
 				local: args.local.local,
 				remotes: args.remotes.remotes.clone(),
 			};
-			handle.put_object(&id, arg).await?;
+			handle
+				.put_object(&id, arg)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
 
 			id
 		} else {

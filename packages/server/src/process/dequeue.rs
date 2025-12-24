@@ -88,10 +88,16 @@ impl Server {
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 
 		// Get the accept header.
-		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+		let accept: Option<mime::Mime> = request
+			.parse_header(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Parse the arg.
-		let arg = request.json_or_default().await?;
+		let arg = request
+			.json_or_default()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Get the stream.
 		let handle = self.clone();

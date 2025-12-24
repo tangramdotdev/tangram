@@ -37,7 +37,10 @@ impl Cli {
 			local: args.local.local,
 			remotes: args.remotes.remotes,
 		};
-		handle.put_process(&args.id, arg).await?;
+		handle
+			.put_process(&args.id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, id = %args.id, "failed to put the process"))?;
 		Ok(())
 	}
 }

@@ -16,7 +16,10 @@ impl Server {
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::process::log::post::Arg {
 				bytes: arg.bytes,
 				local: None,
@@ -34,7 +37,8 @@ impl Server {
 		// Get the process data.
 		let data = self
 			.try_get_process_local(id)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the process"))?
 			.ok_or_else(|| tg::error!("not found"))?
 			.data;
 
@@ -85,8 +89,13 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse()?;
-		let arg = request.json().await?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 		self.post_process_log_with_context(context, &id, arg)
 			.await?;
 		let response = http::Response::builder().empty().unwrap();

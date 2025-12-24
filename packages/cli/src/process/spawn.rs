@@ -438,7 +438,10 @@ impl Cli {
 
 		// Create the command and store it.
 		let command = command.build();
-		command.store(&handle).await?;
+		command
+			.store(&handle)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 
 		// Determine if the network is enabled.
 		let network = options.network.unwrap_or(!sandbox);
@@ -456,7 +459,10 @@ impl Cli {
 					remote: Some(remote.clone()),
 					..Default::default()
 				};
-				let stream = handle.push(arg).await?;
+				let stream = handle
+					.push(arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to push"))?;
 				self.render_progress_stream(stream)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to push the command"))?;
@@ -500,7 +506,10 @@ impl Cli {
 			stdin,
 			stdout,
 		};
-		let output = handle.spawn_process(arg).await?;
+		let output = handle
+			.spawn_process(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
@@ -511,7 +520,10 @@ impl Cli {
 				local: options.local.local,
 				remotes: options.remotes.remotes.clone(),
 			};
-			handle.put_tag(&tag, arg).await?;
+			handle
+				.put_tag(&tag, arg)
+				.await
+				.map_err(|source| tg::error!(!source, %tag, "failed to tag the process"))?;
 		}
 
 		let id = output.process.clone();

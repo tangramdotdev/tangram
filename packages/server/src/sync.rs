@@ -31,7 +31,10 @@ impl Server {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 			let arg = tg::sync::Arg {
 				commands: arg.commands,
 				errors: arg.errors,
@@ -45,7 +48,10 @@ impl Server {
 				recursive: arg.recursive,
 				remotes: None,
 			};
-			let stream = client.sync(arg, stream).await?;
+			let stream = client
+				.sync(arg, stream)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to sync with remote"))?;
 			return Ok(stream.boxed());
 		}
 
@@ -197,12 +203,17 @@ impl Server {
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the arg.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stop signal.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
@@ -242,7 +253,10 @@ impl Server {
 		})
 		.boxed();
 
-		let stream = self.sync_with_context(context, arg, stream).await?;
+		let stream = self
+			.sync_with_context(context, arg, stream)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the sync"))?;
 
 		// Create the response body.
 		let stop = async move {

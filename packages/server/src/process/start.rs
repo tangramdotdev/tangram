@@ -15,12 +15,17 @@ impl Server {
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::process::start::Arg {
 				local: None,
 				remotes: None,
 			};
-			client.start_process(id, arg).await?;
+			client.start_process(id, arg).await.map_err(
+				|source| tg::error!(!source, %id, "failed to start the process on the remote"),
+			)?;
 			return Ok(());
 		}
 
@@ -85,9 +90,16 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse()?;
-		let arg = request.json_or_default().await?;
-		self.start_process_with_context(context, &id, arg).await?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+		let arg = request
+			.json_or_default()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		self.start_process_with_context(context, &id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to start the process"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

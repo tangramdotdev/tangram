@@ -25,7 +25,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
 
 		// Create the ignore matcher.
-		let mut ignore = Self::checkin_create_ignorer()?;
+		let mut ignore = Self::checkin_create_ignorer()
+			.map_err(|source| tg::error!(!source, "failed to create the ignorer"))?;
 
 		// Format.
 		tokio::task::spawn_blocking({
@@ -42,9 +43,11 @@ impl Server {
 		let metadata = std::fs::symlink_metadata(path)
 			.map_err(|source| tg::error!(!source, "failed to read the metadata"))?;
 		if metadata.is_dir() {
-			self.format_directory(path, ignore)?;
+			self.format_directory(path, ignore)
+				.map_err(|source| tg::error!(!source, "failed to format the directory"))?;
 		} else if path.is_file() && tg::package::is_module_path(path) {
-			Self::format_file(path)?;
+			Self::format_file(path)
+				.map_err(|source| tg::error!(!source, "failed to format the file"))?;
 		}
 		Ok(())
 	}
@@ -82,7 +85,8 @@ impl Server {
 			}
 
 			// Recurse.
-			self.format_inner(&path, ignore)?;
+			self.format_inner(&path, ignore)
+				.map_err(|source| tg::error!(!source, "failed to format the path"))?;
 		}
 
 		Ok(())
@@ -111,8 +115,13 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
-		self.format_with_context(context, arg).await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		self.format_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to format"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

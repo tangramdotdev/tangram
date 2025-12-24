@@ -24,7 +24,10 @@ impl Cli {
 		let format = args.format;
 		let compression = args.compression;
 		let command = tg::builtin::archive_command(&artifact, format, compression);
-		let command = command.store(&handle).await?;
+		let command = command
+			.store(&handle)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
 		let args = crate::build::Args {
 			options: args.build,

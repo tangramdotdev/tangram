@@ -235,7 +235,8 @@ impl std::str::FromStr for Id {
 		let kind = id
 			.get(0..=2)
 			.ok_or_else(|| tg::error!(%id, "invalid ID"))?
-			.parse()?;
+			.parse()
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the ID kind"))?;
 		let version = id
 			.chars()
 			.nth(4)

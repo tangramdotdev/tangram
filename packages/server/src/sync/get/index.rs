@@ -76,7 +76,8 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
 			.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to touch and get object metadata"))?;
 
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
@@ -115,10 +116,15 @@ impl Server {
 					// Get the object.
 					let bytes = self
 						.try_get_object_local(&item.id)
-						.await?
-						.ok_or_else(|| tg::error!("expected the object to exist"))?
+						.await
+						.map_err(
+							|source| tg::error!(!source, id = %item.id, "failed to get the object locally"),
+						)?
+						.ok_or_else(|| tg::error!(id = %item.id, "expected the object to exist"))?
 						.bytes;
-					let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+					let data = tg::object::Data::deserialize(item.id.kind(), bytes).map_err(
+						|source| tg::error!(!source, id = %item.id, "failed to deserialize the object"),
+					)?;
 
 					// Update the graph.
 					state.graph.lock().unwrap().update_object(
@@ -156,7 +162,8 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
 			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to touch and get process metadata"))?;
 
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
@@ -201,8 +208,11 @@ impl Server {
 				// Get the process.
 				let data = self
 					.try_get_process_local(&item.id)
-					.await?
-					.ok_or_else(|| tg::error!("expected the process to exist"))?
+					.await
+					.map_err(
+						|source| tg::error!(!source, id = %item.id, "failed to get the process locally"),
+					)?
+					.ok_or_else(|| tg::error!(id = %item.id, "expected the process to exist"))?
 					.data;
 
 				// Update the graph.
@@ -240,7 +250,8 @@ impl Server {
 		let messages = Self::sync_get_index_create_messages(
 			&mut state.graph.lock().unwrap(),
 			message_max_bytes,
-		)?;
+		)
+		.map_err(|source| tg::error!(!source, "failed to create the index messages"))?;
 
 		// Publish the messages.
 		for messages in messages {

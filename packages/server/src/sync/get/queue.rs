@@ -77,7 +77,8 @@ impl Server {
 			vec![None; ids.len()]
 		} else {
 			self.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to touch the objects"))?
 		};
 
 		// Handle each item and output.
@@ -140,10 +141,13 @@ impl Server {
 						// If the object is stored but its subtree is not stored, then enqueue the children.
 						let bytes = self
 							.try_get_object_local(&item.id)
-							.await?
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get the object"))?
 							.ok_or_else(|| tg::error!("expected the object to exist"))?
 							.bytes;
-						let data = tg::object::Data::deserialize(item.id.kind(), bytes)?;
+						let data = tg::object::Data::deserialize(item.id.kind(), bytes).map_err(
+							|source| tg::error!(!source, "failed to deserialize the object"),
+						)?;
 
 						// Update the graph with data.
 						state.graph.lock().unwrap().update_object(
@@ -181,7 +185,8 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
 			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to touch the processes"))?;
 
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
@@ -221,7 +226,8 @@ impl Server {
 					// Get the process.
 					let data = self
 						.try_get_process_local(&item.id)
-						.await?
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the process"))?
 						.ok_or_else(|| tg::error!("expected the process to exist"))?
 						.data;
 

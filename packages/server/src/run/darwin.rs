@@ -18,14 +18,25 @@ const MAX_URL_LEN: usize = 100;
 impl Server {
 	pub(crate) async fn run_darwin(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let id = process.id();
-		let state = &process.load(self).await?;
+		let state = &process
+			.load(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
 		let remote = process.remote();
 
-		let command = process.command(self).await?;
-		let command = &command.data(self).await?;
+		let command = process
+			.command(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command"))?;
+		let command = &command
+			.data(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command data"))?;
 
 		// Cache the process's children.
-		cache_children(self, process).await?;
+		cache_children(self, process)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to cache the children"))?;
 
 		// Determine if the root is mounted.
 		let root_mounted = state
@@ -99,9 +110,9 @@ impl Server {
 				tg::command::data::Executable::Module(_) => {
 					return Err(tg::error!("invalid executable"));
 				},
-				tg::command::data::Executable::Path(executable) => {
-					which(&executable.path, &env).await?
-				},
+				tg::command::data::Executable::Path(executable) => which(&executable.path, &env)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to find the executable"))?,
 			},
 		};
 
@@ -124,7 +135,9 @@ impl Server {
 			} else {
 				"http://localhost:0".to_string().parse::<Uri>().unwrap()
 			};
-			let listener = Server::listen(&url).await?;
+			let listener = Server::listen(&url)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to listen"))?;
 			let listener_addr = listener
 				.local_addr()
 				.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
@@ -140,7 +153,10 @@ impl Server {
 					id: process.id().clone(),
 					paths: None,
 					remote: remote.cloned(),
-					retry: *process.retry(self).await?,
+					retry: *process
+						.retry(self)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
 				})),
 				..Default::default()
 			};
@@ -230,7 +246,9 @@ impl Server {
 			state,
 			temp: &temp,
 		};
-		let output = crate::run::common::run(arg).await?;
+		let output = crate::run::common::run(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to run the process"))?;
 
 		Ok(output)
 	}

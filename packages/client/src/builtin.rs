@@ -123,7 +123,8 @@ where
 		.try_unwrap_string()
 		.ok()
 		.ok_or_else(|| tg::error!("expected a string"))?
-		.parse()?;
+		.parse()
+		.map_err(|source| tg::error!(!source, "failed to parse the checksum"))?;
 	Ok(checksum)
 }
 
@@ -374,7 +375,8 @@ impl TryFrom<tg::Value> for DownloadOptions {
 				.try_unwrap_string()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a string"))?
-				.parse()?;
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the mode"))?;
 			options.mode = Some(mode);
 		}
 		Ok(options)

@@ -21,13 +21,19 @@ impl Server {
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::pty::write::Arg {
 				local: None,
 				master: arg.master,
 				remotes: None,
 			};
-			return client.write_pty(id, arg, stream.boxed()).await;
+			return client
+				.write_pty(id, arg, stream.boxed())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write to the pty on remote"));
 		}
 
 		let pty = self
@@ -48,7 +54,11 @@ impl Server {
 		drop(pty);
 
 		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
+		while let Some(event) = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read from the stream"))?
+		{
 			match event {
 				tg::pty::Event::Chunk(chunk) => {
 					tokio::task::spawn_blocking(move || unsafe {
@@ -110,10 +120,16 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the pty id"))?;
 
 		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

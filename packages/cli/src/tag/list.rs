@@ -29,12 +29,14 @@ impl Cli {
 		let arg = tg::tag::list::Arg {
 			length: None,
 			local: args.local.local,
-			pattern: args.pattern,
+			pattern: args.pattern.clone(),
 			recursive: args.recursive,
 			remotes: args.remotes.remotes,
 			reverse: args.reverse,
 		};
-		let output = handle.list_tags(arg).await?;
+		let output = handle.list_tags(arg).await.map_err(
+			|source| tg::error!(!source, pattern = %args.pattern, "failed to list the tags"),
+		)?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

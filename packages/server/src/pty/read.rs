@@ -18,14 +18,24 @@ impl Server {
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + use<>>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(stream) = self.try_read_pty_local(id, arg.clone()).await?
+			&& let Some(stream) = self
+				.try_read_pty_local(id, arg.clone())
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to read the pty"))?
 		{
 			return Ok(Some(stream.left_stream()));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
-		if let Some(stream) = self.try_read_pty_remote(id, arg.clone(), &remotes).await? {
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(stream) = self
+			.try_read_pty_remote(id, arg.clone(), &remotes)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to read the pty from the remote"))?
+		{
 			return Ok(Some(stream.right_stream()));
 		}
 
@@ -102,12 +112,16 @@ impl Server {
 			..arg
 		};
 		let futures = remotes.iter().map(|remote| {
+			let remote = remote.clone();
 			let arg = arg.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await?;
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
 				client
 					.try_read_pty(id, arg)
-					.await?
+					.await
+					.map_err(|source| tg::error!(!source, %remote, "failed to read the pty"))?
 					.ok_or_else(|| tg::error!("not found"))
 					.map(futures::StreamExt::boxed)
 			}
@@ -126,10 +140,16 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the pty id"))?;
 
 		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the stream.
 		let Some(stream) = self.try_read_pty_with_context(context, &id, arg).await? else {
@@ -145,7 +165,10 @@ impl Server {
 		let stream = stream.take_until(stop);
 
 		// Get the accept header.
-		let accept: Option<mime::Mime> = request.parse_header(http::header::ACCEPT).transpose()?;
+		let accept: Option<mime::Mime> = request
+			.parse_header(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Create the body.
 		let (content_type, body) = match accept

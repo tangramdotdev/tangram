@@ -18,14 +18,20 @@ impl Server {
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %tag, "failed to get the remote client"))?;
 			let arg = tg::tag::put::Arg {
 				force: arg.force,
 				item: arg.item,
 				local: None,
 				remotes: None,
 			};
-			client.put_tag(tag, arg).await?;
+			client
+				.put_tag(tag, arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the tag on remote"))?;
 			return Ok(());
 		}
 
@@ -34,16 +40,22 @@ impl Server {
 		}
 
 		// Authorize.
-		self.authorize(context).await?;
+		self.authorize(context)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
 		// Insert the tag into the database.
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
-				Self::put_tag_postgres(database, tag, &arg).await?;
+				Self::put_tag_postgres(database, tag, &arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
 			},
 			Database::Sqlite(database) => {
-				Self::put_tag_sqlite(database, tag, &arg).await?;
+				Self::put_tag_sqlite(database, tag, &arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
 			},
 		}
 
@@ -75,7 +87,10 @@ impl Server {
 			.join("/")
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
-		let arg = request.json().await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 		self.put_tag_with_context(context, &tag, arg).await?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)

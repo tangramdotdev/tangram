@@ -42,7 +42,10 @@ impl Cli {
 		};
 		let stream = handle
 			.get_process_children(&args.process, arg)
-			.await?
+			.await
+			.map_err(
+				|source| tg::error!(!source, id = %args.process, "failed to get the process children"),
+			)?
 			.map_ok(|chunk| stream::iter(chunk.data.into_iter().map(Ok)))
 			.try_flatten();
 		self.print_serde_stream(stream.boxed(), args.print).await?;

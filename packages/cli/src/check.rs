@@ -36,7 +36,10 @@ impl Cli {
 			modules,
 			remotes: args.remotes.remotes,
 		};
-		let output = handle.check(arg).await?;
+		let output = handle
+			.check(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check"))?;
 		let success = !output
 			.diagnostics
 			.iter()

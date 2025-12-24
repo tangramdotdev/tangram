@@ -133,7 +133,9 @@ impl Reference {
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let path = uri.path();
-		let item = path.parse()?;
+		let item = path
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the reference item"))?;
 		let mut options = Options::default();
 		if let Some(query) = uri.query_raw() {
 			for param in query.split('&') {

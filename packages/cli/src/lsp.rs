@@ -10,7 +10,10 @@ impl Cli {
 		let handle = self.handle().await?;
 		let stdin = Box::new(crate::util::stdio::stdin());
 		let stdout = Box::new(tokio::io::BufWriter::new(tokio::io::stdout()));
-		handle.lsp(stdin, stdout).await?;
+		handle
+			.lsp(stdin, stdout)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to run the language server"))?;
 		Ok(())
 	}
 }

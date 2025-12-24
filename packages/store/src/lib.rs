@@ -101,23 +101,40 @@ impl CacheReference {
 	pub fn serialize(&self) -> Result<Bytes> {
 		let mut bytes = Vec::new();
 		bytes.push(0);
-		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+		tangram_serialize::to_writer(&mut bytes, self).map_err(|source| {
+			let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
+				!source,
+				"failed to serialize the cache reference"
+			));
+			error
+		})?;
 		Ok(bytes.into())
 	}
 
 	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> Result<Self> {
 		let bytes = bytes.into();
 		let mut reader = std::io::Cursor::new(bytes.as_ref());
-		let format = reader
-			.read_u8()
-			.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+		let format = reader.read_u8().map_err(|source| {
+			let error: Box<dyn std::error::Error + Send + Sync> =
+				Box::new(tg::error!(!source, "failed to read the format byte"));
+			error
+		})?;
 		match format {
-			0 => tangram_serialize::from_reader(&mut reader)
-				.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) }),
-			b'{' => serde_json::from_slice(&bytes)
-				.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) }),
-			_ => Err("invalid format".into()),
+			0 => tangram_serialize::from_reader(&mut reader).map_err(|source| {
+				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
+					!source,
+					"failed to deserialize the cache reference"
+				));
+				error
+			}),
+			b'{' => serde_json::from_slice(&bytes).map_err(|source| {
+				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
+					!source,
+					"failed to deserialize the cache reference"
+				));
+				error
+			}),
+			_ => Err("invalid cache reference format".into()),
 		}
 	}
 }

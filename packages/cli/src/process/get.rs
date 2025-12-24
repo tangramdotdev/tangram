@@ -26,8 +26,9 @@ impl Cli {
 		};
 		let output = handle
 			.try_get_process(&args.process, arg)
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the process"))?;
+			.await
+			.map_err(|source| tg::error!(!source, id = %args.process, "failed to get the process"))?
+			.ok_or_else(|| tg::error!(id = %args.process, "failed to find the process"))?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

@@ -24,7 +24,9 @@ impl Cli {
 			local: args.local.local,
 			remotes: args.remotes.remotes,
 		};
-		let output = handle.get_tag(&args.pattern, arg).await?;
+		let output = handle.get_tag(&args.pattern, arg).await.map_err(
+			|source| tg::error!(!source, pattern = %args.pattern, "failed to get the tag"),
+		)?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

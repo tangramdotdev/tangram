@@ -46,8 +46,13 @@ impl Server {
 		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
-		self.put_remote_with_context(context, name, arg).await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		self.put_remote_with_context(context, name, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %name, "failed to put the remote"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

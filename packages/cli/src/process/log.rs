@@ -31,7 +31,7 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Get the log.
-		let process = tg::Process::new(args.process, None, None, None, None);
+		let process = tg::Process::new(args.process.clone(), None, None, None, None);
 		let arg = tg::process::log::get::Arg {
 			length: args.length,
 			local: args.local.local,
@@ -39,10 +39,9 @@ impl Cli {
 			remotes: args.remotes.remotes,
 			size: args.size,
 		};
-		let mut log = process
-			.log(&handle, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the process log"))?;
+		let mut log = process.log(&handle, arg).await.map_err(
+			|source| tg::error!(!source, id = %args.process, "failed to get the process log"),
+		)?;
 
 		// Print the log.
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());

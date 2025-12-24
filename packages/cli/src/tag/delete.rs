@@ -25,11 +25,13 @@ impl Cli {
 		let handle = self.handle().await?;
 		let arg = tg::tag::delete::Arg {
 			local: args.local.local,
-			pattern: args.pattern,
+			pattern: args.pattern.clone(),
 			recursive: args.recursive,
 			remotes: args.remotes.remotes,
 		};
-		let output = handle.delete_tag(arg).await?;
+		let output = handle.delete_tag(arg).await.map_err(
+			|source| tg::error!(!source, pattern = %args.pattern, "failed to delete the tag"),
+		)?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

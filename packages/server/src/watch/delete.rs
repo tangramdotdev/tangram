@@ -34,9 +34,12 @@ impl Server {
 	) -> tg::Result<http::Response<Body>> {
 		let arg = request
 			.query_params()
-			.transpose()?
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("missing query params"))?;
-		self.delete_watch_with_context(context, arg).await?;
+		self.delete_watch_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete the watch"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

@@ -16,10 +16,16 @@ impl Cli {
 		let handle = self.handle().await?;
 		let output = if let Some(bytes) = args.bytes {
 			let reader = std::io::Cursor::new(bytes);
-			handle.write(reader).await?
+			handle
+				.write(reader)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the blob"))?
 		} else {
 			let reader = crate::util::stdio::stdin();
-			handle.write(reader).await?
+			handle
+				.write(reader)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the blob"))?
 		};
 		Self::print_id(&output.blob);
 		Ok(())

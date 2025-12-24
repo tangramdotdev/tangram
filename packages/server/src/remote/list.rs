@@ -56,8 +56,15 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let output = self.list_remotes_with_context(context, arg).await?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+		let output = self
+			.list_remotes_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

@@ -33,93 +33,102 @@ where
 	H: tg::Handle,
 {
 	// Create the stdin future.
-	let stdin_future = {
-		let handle = handle.clone();
-		let remote = stdio.remote.clone();
-		let stdin = stdio.stdin.clone();
-		let tty = stdio.tty.clone();
-		let stream = crate::util::stdio::stdin_stream();
-		async move {
-			let Some(stdin) = stdin else {
-				return Ok(());
-			};
+	let stdin_future =
+		{
+			let handle = handle.clone();
+			let remote = stdio.remote.clone();
+			let stdin = stdio.stdin.clone();
+			let tty = stdio.tty.clone();
+			let stream = crate::util::stdio::stdin_stream();
+			async move {
+				let Some(stdin) = stdin else {
+					return Ok(());
+				};
 
-			// Write to stdin until it is finished or the task is stopped.
-			let future = match &stdin {
-				tg::process::Stdio::Pipe(id) => {
-					let stream = stream
-						.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
-						.take_until(stop.wait())
-						.boxed();
-					async {
-						let arg = tg::pipe::write::Arg {
+				// Write to stdin until it is finished or the task is stopped.
+				let future = match &stdin {
+					tg::process::Stdio::Pipe(id) => {
+						let stream = stream
+							.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
+							.take_until(stop.wait())
+							.boxed();
+						async {
+							let arg = tg::pipe::write::Arg {
+								local: None,
+								remotes: remote.clone().map(|r| vec![r]),
+							};
+							handle.write_pipe(id, arg, stream).await.map_err(
+								|source| tg::error!(!source, %id, "failed to write to the pipe"),
+							)?;
+							Ok::<_, tg::Error>(())
+						}
+						.boxed()
+					},
+					tg::process::Stdio::Pty(id) => {
+						// Get the tty.
+						let Some(tty) = tty else {
+							return Err(tg::error!("expected a tty"));
+						};
+
+						// Create the chunk stream.
+						let stdin_stream = stream.map(|bytes| bytes.map(tg::pty::Event::Chunk));
+
+						// Create the sigwinch stream.
+						let sigwinch_stream = sigwinch_stream(tty)?;
+
+						// Merge the streams.
+						let stream = stream::select(stdin_stream, sigwinch_stream)
+							.take_until(stop.wait())
+							.boxed();
+
+						async {
+							let arg = tg::pty::write::Arg {
+								local: None,
+								master: true,
+								remotes: remote.clone().map(|r| vec![r]),
+							};
+							handle.write_pty(id, arg, stream).await.map_err(
+								|source| tg::error!(!source, %id, "failed to write to the pty"),
+							)?;
+							Ok::<_, tg::Error>(())
+						}
+						.boxed()
+					},
+				};
+				let stop = stop.wait();
+				let future = pin!(future);
+				let stop = pin!(stop);
+				let either = future::select(future, stop).await;
+				if let future::Either::Left((Err(error), _)) = either {
+					return Err(error);
+				}
+
+				// Close stdin.
+				match &stdin {
+					tg::process::Stdio::Pipe(id) => {
+						let arg = tg::pipe::close::Arg {
 							local: None,
 							remotes: remote.clone().map(|r| vec![r]),
 						};
-						handle.write_pipe(id, arg, stream).await?;
-						Ok::<_, tg::Error>(())
-					}
-					.boxed()
-				},
-				tg::process::Stdio::Pty(id) => {
-					// Get the tty.
-					let Some(tty) = tty else {
-						return Err(tg::error!("expected a tty"));
-					};
-
-					// Create the chunk stream.
-					let stdin_stream = stream.map(|bytes| bytes.map(tg::pty::Event::Chunk));
-
-					// Create the sigwinch stream.
-					let sigwinch_stream = sigwinch_stream(tty)?;
-
-					// Merge the streams.
-					let stream = stream::select(stdin_stream, sigwinch_stream)
-						.take_until(stop.wait())
-						.boxed();
-
-					async {
-						let arg = tg::pty::write::Arg {
+						handle.close_pipe(id, arg).await.map_err(
+							|source| tg::error!(!source, %id, "failed to close the pipe"),
+						)?;
+					},
+					tg::process::Stdio::Pty(id) => {
+						let arg = tg::pty::close::Arg {
 							local: None,
 							master: true,
 							remotes: remote.clone().map(|r| vec![r]),
 						};
-						handle.write_pty(id, arg, stream).await?;
-						Ok::<_, tg::Error>(())
-					}
-					.boxed()
-				},
-			};
-			let stop = stop.wait();
-			let future = pin!(future);
-			let stop = pin!(stop);
-			let either = future::select(future, stop).await;
-			if let future::Either::Left((Err(error), _)) = either {
-				return Err(error);
-			}
+						handle.close_pty(id, arg).await.map_err(
+							|source| tg::error!(!source, %id, "failed to close the pty"),
+						)?;
+					},
+				}
 
-			// Close stdin.
-			match &stdin {
-				tg::process::Stdio::Pipe(id) => {
-					let arg = tg::pipe::close::Arg {
-						local: None,
-						remotes: remote.clone().map(|r| vec![r]),
-					};
-					handle.close_pipe(id, arg).await?;
-				},
-				tg::process::Stdio::Pty(id) => {
-					let arg = tg::pty::close::Arg {
-						local: None,
-						master: true,
-						remotes: remote.clone().map(|r| vec![r]),
-					};
-					handle.close_pty(id, arg).await?;
-				},
+				Ok(())
 			}
-
-			Ok(())
-		}
-	};
+		};
 
 	// Create the stdout future.
 	let stdout_future = {
@@ -341,7 +350,9 @@ impl Stdio {
 						local: None,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.close_pipe(pipe, arg).await?;
+					handle.close_pipe(pipe, arg).await.map_err(
+						|source| tg::error!(!source, id = %pipe, "failed to close the pipe"),
+					)?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::close::Arg {
@@ -349,7 +360,9 @@ impl Stdio {
 						master: false,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.close_pty(pty, arg).await?;
+					handle.close_pty(pty, arg).await.map_err(
+						|source| tg::error!(!source, id = %pty, "failed to close the pty"),
+					)?;
 				},
 			}
 		}
@@ -360,7 +373,9 @@ impl Stdio {
 						local: None,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.close_pipe(pipe, arg).await?;
+					handle.close_pipe(pipe, arg).await.map_err(
+						|source| tg::error!(!source, id = %pipe, "failed to close the pipe"),
+					)?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::close::Arg {
@@ -368,7 +383,9 @@ impl Stdio {
 						master: false,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.close_pty(pty, arg).await?;
+					handle.close_pty(pty, arg).await.map_err(
+						|source| tg::error!(!source, id = %pty, "failed to close the pty"),
+					)?;
 				},
 			}
 		}
@@ -387,14 +404,18 @@ impl Stdio {
 						local: None,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.delete_pipe(pipe, arg).await?;
+					handle.delete_pipe(pipe, arg).await.map_err(
+						|source| tg::error!(!source, id = %pipe, "failed to delete the pipe"),
+					)?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::delete::Arg {
 						local: None,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.delete_pty(pty, arg).await?;
+					handle.delete_pty(pty, arg).await.map_err(
+						|source| tg::error!(!source, id = %pty, "failed to delete the pty"),
+					)?;
 				},
 			}
 		}
@@ -405,14 +426,18 @@ impl Stdio {
 						local: None,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.delete_pipe(pipe, arg).await?;
+					handle.delete_pipe(pipe, arg).await.map_err(
+						|source| tg::error!(!source, id = %pipe, "failed to delete the pipe"),
+					)?;
 				},
 				tg::process::Stdio::Pty(pty) => {
 					let arg = tg::pty::delete::Arg {
 						local: None,
 						remotes: self.remote.clone().map(|r| vec![r]),
 					};
-					handle.delete_pty(pty, arg).await?;
+					handle.delete_pty(pty, arg).await.map_err(
+						|source| tg::error!(!source, id = %pty, "failed to delete the pty"),
+					)?;
 				},
 			}
 		}

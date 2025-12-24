@@ -21,14 +21,22 @@ impl Server {
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(output) = self.try_get_process_local(id).await?
+			&& let Some(output) = self
+				.try_get_process_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
 		{
 			return Ok(Some(output));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
-		if let Some(output) = self.try_get_process_remote(id, &remotes).await? {
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(output) = self.try_get_process_remote(id, &remotes).await.map_err(
+			|source| tg::error!(!source, %id, "failed to get the process from the remote"),
+		)? {
 			return Ok(Some(output));
 		}
 
@@ -48,8 +56,14 @@ impl Server {
 		&self,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let outputs = self.try_get_process_batch_local(ids).await?;
-		let remotes = self.remotes(None).await?;
+		let outputs = self
+			.try_get_process_batch_local(ids)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the processes locally"))?;
+		let remotes = self
+			.remotes(None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let outputs = std::iter::zip(ids, outputs)
 			.map(|(id, output)| {
 				let remotes = remotes.clone();
@@ -88,9 +102,14 @@ impl Server {
 			return Ok(None);
 		}
 		let futures = remotes.iter().map(|remote| {
+			let remote = remote.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await?;
-				client.get_process(id).await
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
+				client.get_process(id).await.map_err(
+					|source| tg::error!(!source, %id, %remote, "failed to get the process"),
+				)
 			}
 			.boxed()
 		});
@@ -135,8 +154,14 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse()?;
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 		let Some(output) = self.try_get_process_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};

@@ -26,8 +26,9 @@ impl Cli {
 		};
 		let output = handle
 			.try_get_object(&args.object, arg)
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the object"))?;
+			.await
+			.map_err(|source| tg::error!(!source, id = %args.object, "failed to get the object"))?
+			.ok_or_else(|| tg::error!(id = %args.object, "failed to find the object"))?;
 		let data = tg::object::Data::deserialize(args.object.kind(), output.bytes)?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);

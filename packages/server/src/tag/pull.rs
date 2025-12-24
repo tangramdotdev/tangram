@@ -20,7 +20,8 @@ impl Server {
 				remotes: remote.clone().map(|r| vec![r]),
 				reverse: false,
 			})
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the tags"))?
 			.data;
 		list.into_iter()
 			.filter_map(|output| {

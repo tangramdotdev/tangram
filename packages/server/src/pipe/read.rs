@@ -17,14 +17,24 @@ impl Server {
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + use<>>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(stream) = self.try_read_pipe_local(id).await?
+			&& let Some(stream) = self
+				.try_read_pipe_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to read the pipe"))?
 		{
 			return Ok(Some(stream.left_stream()));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
-		if let Some(stream) = self.try_read_pipe_remote(id, arg.clone(), &remotes).await? {
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(stream) = self
+			.try_read_pipe_remote(id, arg.clone(), &remotes)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to read the pipe from the remote"))?
+		{
 			return Ok(Some(stream.right_stream()));
 		}
 
@@ -69,12 +79,16 @@ impl Server {
 			remotes: None,
 		};
 		let futures = remotes.iter().map(|remote| {
+			let remote = remote.clone();
 			let arg = arg.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await?;
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
 				client
 					.try_read_pipe(id, arg)
-					.await?
+					.await
+					.map_err(|source| tg::error!(!source, %remote, "failed to read the pipe"))?
 					.ok_or_else(|| tg::error!("not found"))
 					.map(futures::StreamExt::boxed)
 			}
@@ -93,10 +107,16 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the pipe id"))?;
 
 		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the stream.
 		let Some(stream) = self.try_read_pipe_with_context(context, &id, arg).await? else {

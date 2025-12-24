@@ -472,7 +472,10 @@ impl Cli {
 		};
 
 		// Get the health and print diagnostics.
-		let health = handle.health().await?;
+		let health = handle
+			.health()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the health"))?;
 		if !self.args.quiet {
 			for diagnostic in health.diagnostics {
 				let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
@@ -544,7 +547,10 @@ impl Cli {
 				break 'a;
 			}
 
-			let health = client.health().await?;
+			let health = client
+				.health()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
 			let Some(server_version) = &health.version else {
 				break 'a;
 			};
@@ -951,8 +957,14 @@ impl Cli {
 		let reference = tg::Reference::with_item_and_options(item, options);
 
 		// Get the reference
-		let stream = handle.get(&reference, arg).await?;
-		let mut referent = self.render_progress_stream(stream).await?;
+		let stream = handle
+			.get(&reference, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
+		let mut referent = self
+			.render_progress_stream(stream)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
 		if referent.id().is_none()

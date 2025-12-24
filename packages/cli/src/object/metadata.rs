@@ -30,7 +30,7 @@ impl Cli {
 			.map_err(
 				|source| tg::error!(!source, id = %args.object, "failed to get the object metadata"),
 			)?
-			.ok_or_else(|| tg::error!(id = %args.object, "failed to get the object metadata"))?;
+			.ok_or_else(|| tg::error!(id = %args.object, "failed to find the object metadata"))?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

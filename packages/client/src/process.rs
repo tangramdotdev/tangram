@@ -75,7 +75,9 @@ impl Process {
 		let Ok(id) = std::env::var("TANGRAM_PROCESS") else {
 			return Ok(None);
 		};
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 		let process = Self::new(id, None, None, None, None);
 		CURRENT.lock().unwrap().replace(process.clone());
 		Ok(Some(process))

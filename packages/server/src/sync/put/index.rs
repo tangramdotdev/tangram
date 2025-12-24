@@ -66,7 +66,12 @@ impl Server {
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
-		let outputs = self.try_get_object_stored_and_metadata_batch(&ids).await?;
+		let outputs = self
+			.try_get_object_stored_and_metadata_batch(&ids)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the object stored and metadata")
+			})?;
 		for output in outputs {
 			let Some((_, metadata)) = output else {
 				continue;
@@ -85,7 +90,12 @@ impl Server {
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
-		let outputs = self.try_get_process_stored_and_metadata_batch(&ids).await?;
+		let outputs = self
+			.try_get_process_stored_and_metadata_batch(&ids)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the process stored and metadata")
+			})?;
 		for output in outputs {
 			let Some((_stored, metadata)) = output else {
 				continue;

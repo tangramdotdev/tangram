@@ -16,8 +16,9 @@ impl Cli {
 		let handle = self.handle().await?;
 		let output = handle
 			.try_get_remote(&args.name)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the remote"))?;
+			.await
+			.map_err(|source| tg::error!(!source, name = %args.name, "failed to get the remote"))?
+			.ok_or_else(|| tg::error!(name = %args.name, "failed to find the remote"))?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

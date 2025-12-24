@@ -23,12 +23,18 @@ impl Server {
 
 		// List the local processes if requested.
 		if Self::local(arg.local, arg.remotes.as_ref()) {
-			let local_outputs = self.list_processes_local().await?;
+			let local_outputs = self
+				.list_processes_local()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to list local processes"))?;
 			output.data.extend(local_outputs);
 		}
 
 		// List the remote processes if requested.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let remote_outputs = remotes
 			.into_iter()
 			.map(|remote| {
@@ -37,8 +43,12 @@ impl Server {
 					remotes: None,
 				};
 				async move {
-					let client = self.get_remote_client(remote.clone()).await?;
-					let output = client.list_processes(arg).await?;
+					let client = self.get_remote_client(remote.clone()).await.map_err(
+						|source| tg::error!(!source, %remote, "failed to get the remote client"),
+					)?;
+					let output = client.list_processes(arg).await.map_err(
+						|source| tg::error!(!source, %remote, "failed to list processes"),
+					)?;
 					Ok::<_, tg::Error>(output)
 				}
 			})
@@ -66,8 +76,15 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.query_params().transpose()?.unwrap_or_default();
-		let output = self.list_processes_with_context(context, arg).await?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+		let output = self
+			.list_processes_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the processes"))?;
 		let output = output.data;
 		let response = http::Response::builder()
 			.json(output)

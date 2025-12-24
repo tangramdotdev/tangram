@@ -690,7 +690,9 @@ impl Server {
 
 		// Spawn the HTTP task.
 		let http_task = if let Some(http) = &server.http {
-			let listener = Self::listen(&http.url).await?;
+			let listener = Self::listen(&http.url)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to listen on the http url"))?;
 			tracing::info!("listening on {}", http.url);
 			Some(Task::spawn(|stop| {
 				let server = server.clone();

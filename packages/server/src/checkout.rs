@@ -59,7 +59,10 @@ impl Server {
 				let cache_arg = tg::cache::Arg {
 					artifacts: vec![arg.artifact.clone()],
 				};
-				let stream = self.cache(cache_arg).await?;
+				let stream = self
+					.cache(cache_arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
 				let context = context.clone();
 				let stream = stream
 					.boxed()
@@ -186,23 +189,36 @@ impl Server {
 		// Check if the artifact's subtree is stored.
 		let stored = self
 			.try_get_object_stored(&artifact.clone().into())
-			.await?
+			.await
+			.map_err(
+				|source| tg::error!(!source, %artifact, "failed to check if the artifact is stored"),
+			)?
 			.unwrap_or_default();
 		if stored.subtree {
 			return Ok(());
 		}
 
 		// Index.
-		let stream = self.index().await?;
+		let stream = self
+			.index()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the index"))?;
 		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
+		while let Some(event) = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the next index event"))?
+		{
 			progress.forward(Ok(event));
 		}
 
 		// Check if the artifact's subtree is stored.
 		let stored = self
 			.try_get_object_stored(&artifact.clone().into())
-			.await?
+			.await
+			.map_err(
+				|source| tg::error!(!source, %artifact, "failed to check if the artifact is stored"),
+			)?
 			.unwrap_or_default();
 		if stored.subtree {
 			return Ok(());
@@ -214,10 +230,15 @@ impl Server {
 				items: vec![tg::Either::Left(artifact.clone().into())],
 				..Default::default()
 			})
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, %artifact, "failed to start the pull"))?;
 		progress.spinner("pull", "pull");
 		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
+		while let Some(event) = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the next pull event"))?
+		{
 			progress.forward(Ok(event));
 		}
 
@@ -289,14 +310,20 @@ impl Server {
 
 				// Get the item.
 				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
-				let item = server.checkout_get_item(None, edge)?;
+				let item = server
+					.checkout_get_item(None, edge)
+					.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 				// Check out the artifact.
 				let path = state.path.clone();
-				server.checkout_artifact(&mut state, &path, &item)?;
+				server
+					.checkout_artifact(&mut state, &path, &item)
+					.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
 				// Write the lock if necessary.
-				server.checkout_write_lock(&mut state)?;
+				server
+					.checkout_write_lock(&mut state)
+					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
 
 				Ok::<_, tg::Error>(())
 			}
@@ -386,14 +413,17 @@ impl Server {
 				reference.graph = graph.clone();
 			}
 			let path = path.join(name);
-			let item = self.checkout_get_item(Some(&mut state.graphs), edge)?;
+			let item = self
+				.checkout_get_item(Some(&mut state.graphs), edge)
+				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 			// Check for a cycle.
 			if state.visiting.contains(&item.id) {
 				return Err(tg::error!("detected a directory cycle"));
 			}
 
-			self.checkout_artifact(state, &path, &item)?;
+			self.checkout_artifact(state, &path, &item)
+				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 		}
 
 		// Remove from visiting set.
@@ -434,9 +464,12 @@ impl Server {
 			{
 				reference.graph = graph.clone();
 			}
-			let item = self.checkout_get_item(Some(&mut state.graphs), edge)?;
+			let item = self
+				.checkout_get_item(Some(&mut state.graphs), edge)
+				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 			if item.id != state.artifact {
-				self.checkout_dependency(state, &item)?;
+				self.checkout_dependency(state, &item)
+					.map_err(|source| tg::error!(!source, "failed to check out the dependency"))?;
 			}
 		}
 
@@ -542,7 +575,9 @@ impl Server {
 			}
 
 			// Get the dependency node.
-			let dependency_item = self.checkout_get_item(Some(&mut state.graphs), edge)?;
+			let dependency_item = self
+				.checkout_get_item(Some(&mut state.graphs), edge)
+				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 			if dependency_item.id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
@@ -605,7 +640,8 @@ impl Server {
 				if !graphs.contains_key(graph) {
 					let (_size, data) = self
 						.store
-						.try_get_object_data_sync(&graph.clone().into())?
+						.try_get_object_data_sync(&graph.clone().into())
+						.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
 						.ok_or_else(|| tg::error!("failed to load the graph"))?;
 					let data = data
 						.try_into()
@@ -645,7 +681,8 @@ impl Server {
 				// Load the object.
 				let (_size, data) = self
 					.store
-					.try_get_object_data_sync(&id.clone().into())?
+					.try_get_object_data_sync(&id.clone().into())
+					.map_err(|source| tg::error!(!source, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
 					.try_into()
@@ -667,7 +704,10 @@ impl Server {
 						if !graphs.contains_key(graph) {
 							let (_size, data) = self
 								.store
-								.try_get_object_data_sync(&graph.clone().into())?
+								.try_get_object_data_sync(&graph.clone().into())
+								.map_err(|source| {
+									tg::error!(!source, "failed to get the graph data")
+								})?
 								.ok_or_else(|| tg::error!("failed to load the graph"))?;
 							let data = data
 								.try_into()
@@ -722,13 +762,20 @@ impl Server {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the arg.
-		let arg = request.json().await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Get the stream.
-		let stream = self.checkout_with_context(context, arg).await?;
+		let stream = self
+			.checkout_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the checkout"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

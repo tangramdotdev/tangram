@@ -65,7 +65,10 @@ impl Server {
 					.try_unwrap_file()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let text = file.text(self).await?;
+				let text = file
+					.text(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the file text"))?;
 				Ok(tg::module::load::Output { text })
 			},
 
@@ -121,8 +124,14 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
-		let output = self.load_module_with_context(context, arg).await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		let output = self
+			.load_module_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to load the module"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?

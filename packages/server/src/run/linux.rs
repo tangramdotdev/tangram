@@ -39,14 +39,25 @@ struct SandboxOutput {
 impl Server {
 	pub(crate) async fn run_linux(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let id = process.id();
-		let state = &process.load(self).await?;
+		let state = &process
+			.load(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
 		let remote = process.remote();
 
-		let command = process.command(self).await?;
-		let command = &command.data(self).await?;
+		let command = process
+			.command(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command"))?;
+		let command = &command
+			.data(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command data"))?;
 
 		// Cache the process's chidlren.
-		cache_children(self, process).await?;
+		cache_children(self, process)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to cache the children"))?;
 
 		// Create the temp.
 		let temp = Temp::new(self);
@@ -127,12 +138,16 @@ impl Server {
 					return Err(tg::error!("invalid executable"));
 				},
 				tg::command::data::Executable::Path(executable) if root_mounted => {
-					which(&executable.path, &env).await?
+					which(&executable.path, &env)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to find the executable"))?
 				},
 				tg::command::data::Executable::Path(executable) => {
 					let host_artifacts_path = self.artifacts_path();
 					let env = render_env(&command.env, &host_artifacts_path, &output_path)?;
-					let executable = which(&executable.path, &env).await?;
+					let executable = which(&executable.path, &env)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to find the executable"))?;
 					if let Ok(subpath) = executable.strip_prefix(&host_artifacts_path) {
 						artifacts_path.join(subpath)
 					} else {
@@ -201,7 +216,9 @@ impl Server {
 				state,
 				temp: &temp,
 			};
-			let output = sandbox(arg).await?;
+			let output = sandbox(arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;
 			let SandboxOutput {
 				args,
 				cwd,
@@ -242,7 +259,9 @@ impl Server {
 				.unwrap();
 
 			// Listen.
-			let listener = Server::listen(&host_uri).await?;
+			let listener = Server::listen(&host_uri)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to listen"))?;
 
 			// Serve.
 			let server = self.clone();
@@ -251,7 +270,10 @@ impl Server {
 					id: process.id().clone(),
 					paths,
 					remote: remote.cloned(),
-					retry: *process.retry(self).await?,
+					retry: *process
+						.retry(self)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
 				})),
 				..Default::default()
 			};
@@ -275,7 +297,9 @@ impl Server {
 			state,
 			temp: &temp,
 		};
-		let output = crate::run::common::run(arg).await?;
+		let output = crate::run::common::run(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to run the process"))?;
 
 		Ok(output)
 	}

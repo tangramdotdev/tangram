@@ -207,7 +207,9 @@ impl std::str::FromStr for Item {
 		if s.starts_with('.') || s.starts_with('/') {
 			Ok(Self::Path(s.strip_prefix("./").unwrap_or(s).into()))
 		} else {
-			Ok(Self::Edge(s.parse()?))
+			Ok(Self::Edge(s.parse().map_err(|source| {
+				tg::error!(!source, "failed to parse the module edge")
+			})?))
 		}
 	}
 }

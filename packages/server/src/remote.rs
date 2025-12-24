@@ -12,12 +12,18 @@ pub mod put;
 
 impl Server {
 	pub async fn get_remote_clients(&self) -> tg::Result<BTreeMap<String, tg::Client>> {
-		let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
+		let output = self
+			.list_remotes(tg::remote::list::Arg::default())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
 		let remotes = output
 			.data
 			.into_iter()
 			.map(|output| async {
-				let client = self.get_remote_client(output.name.clone()).await?;
+				let name = output.name.clone();
+				let client = self.get_remote_client(output.name.clone()).await.map_err(
+					|source| tg::error!(!source, remote = %name, "failed to get the remote client"),
+				)?;
 				Ok::<_, tg::Error>((output.name, client))
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -36,7 +42,11 @@ impl Server {
 		if let Some(client) = self.remotes.get(&remote) {
 			return Ok(Some(client.clone()));
 		}
-		let Some(output) = self.try_get_remote(&remote).await? else {
+		let Some(output) = self
+			.try_get_remote(&remote)
+			.await
+			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote"))?
+		else {
 			return Ok(None);
 		};
 		let token = self.config().remotes.as_ref().and_then(|remotes| {

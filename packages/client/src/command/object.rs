@@ -271,7 +271,9 @@ impl std::str::FromStr for Mount {
 		if !target.is_absolute() {
 			return Err(tg::error!(target = %target.display(), "expected an absolute path"));
 		}
-		let id = source.parse()?;
+		let id = source
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the artifact id"))?;
 		let source = tg::Artifact::with_id(id);
 		Ok(Self { source, target })
 	}

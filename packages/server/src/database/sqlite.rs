@@ -66,7 +66,9 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	let migrations = migrations.into_iter().enumerate().skip(version);
 	for (version, migration) in migrations {
 		// Run the migration.
-		migration.await?;
+		migration
+			.await
+			.map_err(|source| tg::error!(!source, %version, "failed to run the migration"))?;
 
 		// Update the version.
 		let connection = database

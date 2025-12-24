@@ -19,16 +19,26 @@ impl Server {
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::pipe::write::Arg {
 				local: None,
 				remotes: None,
 			};
-			return client.write_pipe(id, arg, stream.boxed()).await;
+			return client
+				.write_pipe(id, arg, stream.boxed())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write to the pipe on remote"));
 		}
 
 		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
+		while let Some(event) = stream
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read from the stream"))?
+		{
 			let mut pipe = self
 				.pipes
 				.get_mut(id)
@@ -58,10 +68,16 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
 		// Parse the ID.
-		let id = id.parse()?;
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the pipe id"))?;
 
 		// Get the query.
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

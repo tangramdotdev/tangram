@@ -19,9 +19,15 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 		let compiler = self.create_compiler();
-		compiler.serve(input, output).await?;
+		compiler
+			.serve(input, output)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to serve the lsp"))?;
 		compiler.stop();
-		compiler.wait().await?;
+		compiler
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
 		Ok(())
 	}
 }

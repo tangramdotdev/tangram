@@ -108,11 +108,14 @@ impl Server {
 				if !state.graphs.contains_key(graph) {
 					let (_size, data) = self
 						.store
-						.try_get_object_data_sync(&graph.clone().into())?
-						.ok_or_else(|| tg::error!("failed to load the graph"))?;
+						.try_get_object_data_sync(&graph.clone().into())
+						.map_err(
+							|source| tg::error!(!source, %graph, "failed to get the graph object"),
+						)?
+						.ok_or_else(|| tg::error!(%graph, "failed to find the graph"))?;
 					let data = data
 						.try_into()
-						.map_err(|_| tg::error!("expected graph data"))?;
+						.map_err(|_| tg::error!(%graph, "expected graph data"))?;
 					state.graphs.insert(graph.clone(), data);
 				}
 
@@ -153,11 +156,12 @@ impl Server {
 				// Load the object.
 				let (_size, data) = self
 					.store
-					.try_get_object_data_sync(&id.clone().into())?
-					.ok_or_else(|| tg::error!("failed to load the object"))?;
+					.try_get_object_data_sync(&id.clone().into())
+					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+					.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
 				let data = data
 					.try_into()
-					.map_err(|_| tg::error!("expected artifact data"))?;
+					.map_err(|_| tg::error!(%id, "expected artifact data"))?;
 
 				match data {
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(

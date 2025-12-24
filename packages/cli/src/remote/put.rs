@@ -17,7 +17,10 @@ impl Cli {
 		let name = args.name;
 		let url = args.url;
 		let arg = tg::remote::put::Arg { url };
-		handle.put_remote(&name, arg).await?;
+		handle
+			.put_remote(&name, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %name, "failed to put the remote"))?;
 		Ok(())
 	}
 }

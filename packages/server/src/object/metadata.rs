@@ -19,13 +19,19 @@ impl Server {
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(metadata) = self.try_get_object_metadata_local(id).await?
+			&& let Some(metadata) = self
+				.try_get_object_metadata_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the object metadata"))?
 		{
 			return Ok(Some(metadata));
 		}
 
 		// Try remotes.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(metadata) = self.try_get_object_metadata_remote(id, &remotes).await? {
 			return Ok(Some(metadata));
 		}
@@ -209,9 +215,14 @@ impl Server {
 			return Ok(None);
 		}
 		let futures = remotes.iter().map(|remote| {
+			let remote = remote.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await?;
-				client.get_object_metadata(id).await
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
+				client.get_object_metadata(id).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the object metadata"),
+				)
 			}
 			.boxed()
 		});
@@ -227,8 +238,14 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse()?;
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 		let Some(output) = self
 			.try_get_object_metadata_with_context(context, &id, arg)
 			.await?

@@ -47,7 +47,10 @@ impl Cli {
 			module,
 			remotes: args.remotes.remotes,
 		};
-		let output = handle.document(arg).await?;
+		let output = handle
+			.document(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the document"))?;
 
 		// Print the document.
 		self.print_serde(output, args.print).await?;

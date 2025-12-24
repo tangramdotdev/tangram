@@ -23,12 +23,18 @@ impl Server {
 
 		// List the local tags if requested.
 		if Self::local(arg.local, arg.remotes.as_ref()) {
-			let local_output = self.list_tags_local(arg.clone()).await?;
+			let local_output = self
+				.list_tags_local(arg.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to list local tags"))?;
 			output.data.extend(local_output.data);
 		}
 
 		// List the remote tags if requested.
-		let remotes = self.remotes(arg.remotes.clone()).await?;
+		let remotes = self
+			.remotes(arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let remote_outputs = remotes
 			.into_iter()
 			.map(|remote| {
@@ -38,8 +44,12 @@ impl Server {
 					..arg.clone()
 				};
 				async move {
-					let client = self.get_remote_client(remote.clone()).await?;
-					let mut output = client.list_tags(arg).await?;
+					let client = self.get_remote_client(remote.clone()).await.map_err(
+						|source| tg::error!(!source, %remote, "failed to get the remote client"),
+					)?;
+					let mut output = client.list_tags(arg).await.map_err(
+						|source| tg::error!(!source, %remote, "failed to list remote tags"),
+					)?;
 					for output in &mut output.data {
 						output.remote = Some(remote.clone());
 					}
@@ -70,7 +80,11 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 		let output = self.list_tags_with_context(context, arg).await?;
 		let response = http::Response::builder()
 			.json(output)

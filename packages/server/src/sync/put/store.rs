@@ -104,7 +104,8 @@ impl Server {
 			// Enqueue the children.
 			if item.eager {
 				let bytes = output.bytes;
-				let data = tg::object::Data::deserialize(item.id.kind(), bytes.clone())?;
+				let data = tg::object::Data::deserialize(item.id.kind(), bytes.clone())
+					.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
 				let items = children

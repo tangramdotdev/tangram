@@ -23,11 +23,18 @@ pub enum Error {
 
 impl Store {
 	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbStore) -> Result<Self, Error> {
+		let path = directory.join(&config.path);
 		let config = store::lmdb::Config {
 			map_size: config.map_size,
-			path: directory.join(&config.path),
+			path: path.clone(),
 		};
-		let lmdb = store::lmdb::Store::new(&config)?;
+		let lmdb = store::lmdb::Store::new(&config).map_err(|source| {
+			Error::Other(Box::new(tg::error!(
+				!source,
+				path = %path.display(),
+				"failed to create the lmdb store"
+			)))
+		})?;
 		Ok(Self::Lmdb(lmdb))
 	}
 

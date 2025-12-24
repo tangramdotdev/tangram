@@ -17,13 +17,18 @@ impl Server {
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 			let arg = tg::tag::post::Arg {
 				local: None,
 				remotes: None,
 				tags: arg.tags,
 			};
-			client.post_tag_batch(arg).await?;
+			client.post_tag_batch(arg).await.map_err(|source| {
+				tg::error!(!source, "failed to post the tag batch on the remote")
+			})?;
 			return Ok(());
 		}
 
@@ -32,16 +37,22 @@ impl Server {
 		}
 
 		// Authorize.
-		self.authorize(context).await?;
+		self.authorize(context)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
 		// Insert the tag into the database.
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
-				Self::post_tag_batch_postgres(database, &arg).await?;
+				Self::post_tag_batch_postgres(database, &arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
 			},
 			Database::Sqlite(database) => {
-				Self::post_tag_batch_sqlite(database, &arg).await?;
+				Self::post_tag_batch_sqlite(database, &arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
 			},
 		}
 
@@ -71,8 +82,13 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
-		let arg = request.json().await?;
-		self.post_tag_batch_with_context(context, arg).await?;
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+		self.post_tag_batch_with_context(context, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

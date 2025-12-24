@@ -306,10 +306,14 @@ impl Server {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()?;
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let stream = self.clean_with_context(context).await?;
+		let stream = self
+			.clean_with_context(context)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the clean task"))?;
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();

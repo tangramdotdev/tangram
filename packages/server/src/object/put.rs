@@ -18,13 +18,19 @@ impl Server {
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self.get_remote_client(remote).await?;
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::object::put::Arg {
 				bytes: arg.bytes,
 				local: None,
 				remotes: None,
 			};
-			client.put_object(id, arg).await?;
+			client
+				.put_object(id, arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the object on remote"))?;
 			return Ok(());
 		}
 
@@ -41,7 +47,8 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 
-		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())?;
+		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
+			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 
@@ -114,10 +121,18 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse::<tg::object::Id>()?;
-		let query_arg: tg::object::put::Arg =
-			request.query_params().transpose()?.unwrap_or_default();
-		let bytes = request.bytes().await?;
+		let id = id
+			.parse::<tg::object::Id>()
+			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
+		let query_arg: tg::object::put::Arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+		let bytes = request
+			.bytes()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the request body"))?;
 
 		let actual = tg::object::Id::new(id.kind(), &bytes);
 		if id != actual {
@@ -143,7 +158,9 @@ impl Server {
 			local: query_arg.local,
 			remotes: query_arg.remotes,
 		};
-		self.put_object_with_context(context, &id, arg).await?;
+		self.put_object_with_context(context, &id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
 		let response = http::Response::builder().empty().unwrap();
 		Ok(response)
 	}

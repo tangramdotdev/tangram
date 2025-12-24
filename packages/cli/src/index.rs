@@ -8,7 +8,10 @@ pub struct Args {}
 impl Cli {
 	pub async fn command_index(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let stream = handle.index().await?;
+		let stream = handle
+			.index()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to index"))?;
 		self.render_progress_stream(stream).await?;
 		Ok(())
 	}

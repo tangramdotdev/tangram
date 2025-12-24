@@ -32,14 +32,22 @@ impl Server {
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Attempt locally if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(output) = self.try_get_object_local(id).await?
+			&& let Some(output) = self
+				.try_get_object_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the object locally"))?
 		{
 			return Ok(Some(output));
 		}
 
 		// Attempt remotely if requested.
-		let remotes = self.remotes(arg.remotes).await?;
-		if let Some(output) = self.try_get_object_remote(id, &remotes).await? {
+		let remotes = self
+			.remotes(arg.remotes)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(output) = self.try_get_object_remote(id, &remotes).await.map_err(
+			|source| tg::error!(!source, %id, "failed to get the object from the remote"),
+		)? {
 			return Ok(Some(output));
 		}
 
@@ -105,8 +113,14 @@ impl Server {
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
-		let outputs = self.try_get_object_batch_local(ids).await?;
-		let remotes = self.remotes(None).await?;
+		let outputs = self
+			.try_get_object_batch_local(ids)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
+		let remotes = self
+			.remotes(None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let outputs = std::iter::zip(ids, outputs)
 			.map(|(id, output)| async {
 				if let Some(output) = output {
@@ -160,9 +174,15 @@ impl Server {
 			return Ok(None);
 		}
 		let futures = remotes.iter().map(|remote| {
-			async {
-				let client = self.get_remote_client(remote.clone()).await?;
-				client.get_object(id).await
+			let remote = remote.clone();
+			async move {
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				)?;
+				client
+					.get_object(id)
+					.await
+					.map_err(|source| tg::error!(!source, %id, %remote, "failed to get the object"))
 			}
 			.boxed()
 		});
@@ -284,8 +304,14 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
-		let id = id.parse()?;
-		let arg = request.query_params().transpose()?.unwrap_or_default();
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 		let Some(output) = self.try_get_object_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};

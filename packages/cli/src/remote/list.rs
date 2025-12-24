@@ -12,7 +12,10 @@ impl Cli {
 	pub async fn command_remote_list(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::remote::list::Arg::default();
-		let output = handle.list_remotes(arg).await?;
+		let output = handle
+			.list_remotes(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

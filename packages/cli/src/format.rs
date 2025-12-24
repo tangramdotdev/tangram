@@ -19,7 +19,10 @@ impl Cli {
 
 		// Format.
 		let arg = tg::format::Arg { path };
-		handle.format(arg).await?;
+		handle
+			.format(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to format"))?;
 
 		Ok(())
 	}

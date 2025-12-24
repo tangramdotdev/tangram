@@ -10,7 +10,10 @@ impl Server {
 		algorithm: tg::checksum::Algorithm,
 	) -> tg::Result<tg::Checksum> {
 		let mut writer = tg::checksum::Writer::new(algorithm);
-		let mut reader = blob.read(self, tg::read::Options::default()).await?;
+		let mut reader = blob
+			.read(self, tg::read::Options::default())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
 		tokio::io::copy(&mut reader, &mut writer)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
@@ -28,7 +31,9 @@ impl Server {
 			.write_uvarint(0)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the archive version"))?;
-		self.checksum_artifact_inner(&mut writer, artifact).await?;
+		self.checksum_artifact_inner(&mut writer, artifact)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to checksum the artifact"))?;
 		let checksum = writer.finalize();
 		Ok(checksum)
 	}
@@ -40,7 +45,10 @@ impl Server {
 	) -> tg::Result<()> {
 		match artifact {
 			tg::Artifact::Directory(directory) => {
-				let entries = directory.entries(self).await?;
+				let entries = directory
+					.entries(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get directory entries"))?;
 				writer
 					.write_uvarint(0)
 					.await
@@ -59,16 +67,31 @@ impl Server {
 						.write_all(name.as_bytes())
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write the name"))?;
-					Box::pin(self.checksum_artifact_inner(writer, &artifact.clone())).await?;
+					Box::pin(self.checksum_artifact_inner(writer, &artifact.clone()))
+						.await
+						.map_err(|source| tg::error!(!source, %name, "failed to checksum entry"))?;
 				}
 			},
 			tg::Artifact::File(file) => {
-				if !file.dependencies(self).await?.is_empty() {
+				let dependencies = file
+					.dependencies(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get file dependencies"))?;
+				if !dependencies.is_empty() {
 					return Err(tg::error!("cannot checksum a file with dependencies"));
 				}
-				let executable = file.executable(self).await?;
-				let length = file.length(self).await?;
-				let mut reader = file.read(self, tg::read::Options::default()).await?;
+				let executable = file
+					.executable(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get executable bit"))?;
+				let length = file
+					.length(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get file length"))?;
+				let mut reader = file
+					.read(self, tg::read::Options::default())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read the file"))?;
 				writer
 					.write_uvarint(1)
 					.await
@@ -86,12 +109,17 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
 			},
 			tg::Artifact::Symlink(symlink) => {
-				if symlink.artifact(self).await?.is_some() {
+				let artifact = symlink
+					.artifact(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get symlink artifact"))?;
+				if artifact.is_some() {
 					return Err(tg::error!("cannot checksum a symlink with an artifact"));
 				}
 				let path = symlink
 					.path(self)
-					.await?
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get symlink path"))?
 					.ok_or_else(|| tg::error!("cannot checksum a symlink without a path"))?;
 				let target = path.to_string_lossy();
 				writer
