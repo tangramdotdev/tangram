@@ -875,21 +875,21 @@ export def --env failure [
 	}
 }
 
-def xattr_list [path: string] {
+export def xattr_list [path: string] {
 	match $nu.os-info.name {
 		'macos' => { xattr $path | lines }
 		'linux' => { getfattr -m '.' $path | complete | get stdout | lines | where { |l| not ($l starts-with '#') and $l != '' } }
 	}
 }
 
-def xattr_read [name: string, path: string] {
+export def xattr_read [name: string, path: string] {
 	match $nu.os-info.name {
 		'macos' => { xattr -p $name $path | str trim }
 		'linux' => { getfattr -n $name --only-values $path | str trim }
 	}
 }
 
-def xattr_write [name: string, value: string, path: string] {
+export def xattr_write [name: string, value: string, path: string] {
 	match $nu.os-info.name {
 		'macos' => { xattr -w $name $value $path }
 		'linux' => { setfattr -n $name -v $value $path }

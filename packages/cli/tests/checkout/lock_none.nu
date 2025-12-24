@@ -35,5 +35,5 @@ let lockfile_path = $path | path parse | update extension "lock" | path join
 assert (not ($lockfile_path | path exists))
 
 # The xattr should not exist.
-let xattrs = xattr $path | lines | where { |name| $name == 'user.tangram.lock' }
+let xattrs = xattr_list $path | where { |name| $name == 'user.tangram.lock' }
 assert ($xattrs | is-empty)

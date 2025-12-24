@@ -19,5 +19,5 @@ let lockfile_path = $path | path join 'bar.tg.lock'
 assert (not ($lockfile_path | path exists))
 
 # The xattr should exist.
-let xattrs = xattr ($path | path join 'bar.tg.ts') | lines | where { |name| $name == 'user.tangram.lock' }
+let xattrs = xattr_list ($path | path join 'bar.tg.ts') | where { |name| $name == 'user.tangram.lock' }
 assert (not ($xattrs | is-empty))
