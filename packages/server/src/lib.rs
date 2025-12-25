@@ -453,9 +453,23 @@ impl Server {
 
 		// Create the store.
 		let store = match &config.store {
+			config::Store::Lmdb(lmdb) => {
+				#[cfg(not(feature = "lmdb"))]
+				{
+					let _ = lmdb;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with lmdb support"
+					));
+				}
+				#[cfg(feature = "lmdb")]
+				{
+					Store::new_lmdb(&path, lmdb)
+						.map_err(|error| tg::error!(!error, "failed to create the store"))?
+				}
+			},
+
 			config::Store::Memory => Store::new_memory(),
-			config::Store::Lmdb(lmdb) => Store::new_lmdb(&path, lmdb)
-				.map_err(|error| tg::error!(!error, "failed to create the store"))?,
+
 			config::Store::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
 				{

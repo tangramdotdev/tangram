@@ -6,6 +6,7 @@ pub use store::{CacheReference, DeleteArg, PutArg};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Store {
+	#[cfg(feature = "lmdb")]
 	Lmdb(store::lmdb::Store),
 	Memory(store::memory::Store),
 	#[cfg(feature = "scylla")]
@@ -14,6 +15,7 @@ pub enum Store {
 
 #[derive(Debug, derive_more::Display, derive_more::From, derive_more::Error)]
 pub enum Error {
+	#[cfg(feature = "lmdb")]
 	Lmdb(store::lmdb::Error),
 	Memory(store::memory::Error),
 	#[cfg(feature = "scylla")]
@@ -22,6 +24,7 @@ pub enum Error {
 }
 
 impl Store {
+	#[cfg(feature = "lmdb")]
 	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbStore) -> Result<Self, Error> {
 		let path = directory.join(&config.path);
 		let config = store::lmdb::Config {
@@ -71,23 +74,23 @@ impl Store {
 	}
 
 	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		if let Store::Lmdb(store) = self {
-			store.try_get_sync(id)
-		} else if let Store::Memory(store) = self {
-			Ok(store.try_get(id))
-		} else {
-			Err(tg::error!("unimplemented"))
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_sync(id),
+			Self::Memory(memory) => Ok(memory.try_get(id)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
 	}
 
 	#[expect(dead_code)]
 	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
-		if let Store::Lmdb(store) = self {
-			store.try_get_batch_sync(ids)
-		} else if let Store::Memory(store) = self {
-			Ok(store.try_get_batch(ids))
-		} else {
-			Err(tg::error!("unimplemented"))
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_batch_sync(ids),
+			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
 	}
 
@@ -95,12 +98,12 @@ impl Store {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
-		if let Store::Lmdb(store) = self {
-			store.try_get_object_data_sync(id)
-		} else if let Store::Memory(store) = self {
-			store.try_get_object_data(id)
-		} else {
-			Err(tg::error!("unimplemented"))
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_object_data_sync(id),
+			Self::Memory(memory) => memory.try_get_object_data(id),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
 	}
 
@@ -108,70 +111,100 @@ impl Store {
 		&self,
 		id: &tg::blob::Id,
 	) -> tg::Result<Option<CacheReference>> {
-		if let crate::store::Store::Lmdb(lmdb) = self {
-			lmdb.try_get_cache_reference_sync(&id.clone().into())
-		} else if let crate::store::Store::Memory(memory) = self {
-			Ok(memory.try_get_cache_reference(&id.clone().into()))
-		} else {
-			Err(tg::error!("invalid store"))
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference_sync(&id.clone().into()),
+			Self::Memory(memory) => Ok(memory.try_get_cache_reference(&id.clone().into())),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
 	}
 
 	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
-		if let Store::Lmdb(store) = self {
-			store.put_sync(arg)?;
-		} else if let Store::Memory(store) = self {
-			store.put(arg);
-		} else {
-			return Err(tg::error!("unimplemented"));
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => {
+				lmdb.put_sync(arg)?;
+			},
+			Self::Memory(memory) => {
+				memory.put(arg);
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
-		if let Store::Lmdb(store) = self {
-			store.put_batch_sync(args)?;
-		} else if let Store::Memory(store) = self {
-			store.put_batch(args);
-		} else {
-			return Err(tg::error!("unimplemented"));
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => {
+				lmdb.put_batch_sync(args)?;
+			},
+			Self::Memory(memory) => {
+				memory.put_batch(args);
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
-		if let Store::Lmdb(store) = self {
-			store.delete_sync(arg)?;
-		} else if let Store::Memory(store) = self {
-			store.delete(arg);
-		} else {
-			return Err(tg::error!("unimplemented"));
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => {
+				lmdb.delete_sync(arg)?;
+			},
+			Self::Memory(memory) => {
+				memory.delete(arg);
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
-		if let Store::Lmdb(store) = self {
-			store.delete_batch_sync(args)?;
-		} else if let Store::Memory(store) = self {
-			store.delete_batch(args);
-		} else {
-			return Err(tg::error!("unimplemented"));
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => {
+				lmdb.delete_batch_sync(args)?;
+			},
+			Self::Memory(memory) => {
+				memory.delete_batch(args);
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
 		}
 		Ok(())
 	}
 
 	#[expect(dead_code)]
 	pub fn flush_sync(&self) -> tg::Result<()> {
-		if let Store::Lmdb(store) = self {
-			store.flush_sync()?;
-		} else if let Store::Memory(store) = self {
-			store.flush();
-		} else {
-			return Err(tg::error!("unimplemented"));
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => {
+				lmdb.flush_sync()?;
+			},
+			Self::Memory(memory) => {
+				memory.flush();
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
 		}
 		Ok(())
 	}
@@ -182,6 +215,7 @@ impl store::Store for Store {
 
 	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get(id).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => store::Store::try_get(memory, id)
 				.await
@@ -196,6 +230,7 @@ impl store::Store for Store {
 		ids: &[tg::object::Id],
 	) -> Result<Vec<Option<Bytes>>, Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
 			#[cfg(feature = "scylla")]
@@ -208,6 +243,7 @@ impl store::Store for Store {
 		id: &tg::object::Id,
 	) -> Result<Option<CacheReference>, Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference(id).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => store::Store::try_get_cache_reference(memory, id)
 				.await
@@ -222,6 +258,7 @@ impl store::Store for Store {
 
 	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.put(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
 				memory.put(arg);
@@ -234,6 +271,7 @@ impl store::Store for Store {
 
 	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.put_batch(args).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
 				memory.put_batch(args);
@@ -246,6 +284,7 @@ impl store::Store for Store {
 
 	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.delete(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
 				memory.delete(arg);
@@ -258,6 +297,7 @@ impl store::Store for Store {
 
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.delete_batch(args).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
 				memory.delete_batch(args);
@@ -270,6 +310,7 @@ impl store::Store for Store {
 
 	async fn flush(&self) -> Result<(), Self::Error> {
 		match self {
+			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.flush().await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
 				memory.flush();

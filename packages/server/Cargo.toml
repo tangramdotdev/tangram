@@ -15,10 +15,11 @@ workspace = true
 
 [features]
 boa = ["tangram_js/boa"]
-default = ["js", "tangram_js/v8", "typescript"]
+default = ["js", "lmdb", "tangram_js/v8", "typescript"]
 v8 = ["js", "tangram_js/v8"]
 foundationdb = []
 js = ["dep:tangram_js"]
+lmdb = ["tangram_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 scylla = ["tangram_store/scylla"]
@@ -77,7 +78,7 @@ tangram_js = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_session = { workspace = true }
-tangram_store = { workspace = true, features = ["lmdb"] }
+tangram_store = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tangram_vfs = { workspace = true }
