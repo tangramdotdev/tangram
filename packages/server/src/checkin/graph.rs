@@ -37,11 +37,11 @@ pub struct Node {
 impl Graph {
 	pub fn clean(&mut self, root: &Path) -> HashSet<PathBuf, fnv::FnvBuildHasher> {
 		// Get nodes with no referrers.
-		let root = self.paths.get(root).unwrap();
+		let root = self.paths.get(root).copied();
 		let mut queue = self
 			.nodes
 			.iter()
-			.filter(|(index, node)| *index != root && node.referrers.is_empty())
+			.filter(|(index, node)| Some(**index) != root && node.referrers.is_empty())
 			.map(|(index, _)| *index)
 			.collect::<Vec<_>>();
 
